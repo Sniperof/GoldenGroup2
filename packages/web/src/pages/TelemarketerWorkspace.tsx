@@ -1331,7 +1331,7 @@ export default function TelemarketerWorkspace() {
                     {/* Queue header */}
                     <div className="sticky top-0 z-10 px-4 py-2.5 border-b border-slate-100 flex items-center justify-between bg-white shrink-0">
                         <h2 className="text-sm font-bold text-slate-800">قائمة الزبائن</h2>
-                        <span className="px-2 py-0.5 rounded-lg text-[11px] font-bold bg-violet-100 text-violet-700 border border-violet-200">{inListCount} ضمن القائمة</span>
+                        <span className="px-2 py-0.5 rounded-lg text-xs font-bold bg-violet-100 text-violet-700 border border-violet-200">{inListCount} ضمن القائمة</span>
                     </div>
 
                     {/* Customer list */}
@@ -1654,7 +1654,7 @@ export default function TelemarketerWorkspace() {
                                     </div>
                                     <div className="text-right overflow-hidden">
                                         <p className={`font-black text-xs leading-tight truncate ${isCtClosedForSelected ? 'text-slate-500' : 'text-white'}`}>{isCtClosedForSelected ? 'جهة الاتصال مغلقة' : 'تسجيل نتيجة التواصل'}</p>
-                                        <p className={`text-[9px] font-bold opacity-70 truncate ${isCtClosedForSelected ? 'text-slate-400' : 'text-violet-100'}`}>{isCtClosedForSelected ? 'لا يمكن تسجيل نتيجة' : 'تحديث الحالة'}</p>
+                                        <p className={`text-xs font-bold opacity-70 truncate ${isCtClosedForSelected ? 'text-slate-400' : 'text-violet-100'}`}>{isCtClosedForSelected ? 'لا يمكن تسجيل نتيجة' : 'تحديث الحالة'}</p>
                                     </div>
                                 </button>
 
@@ -1664,7 +1664,7 @@ export default function TelemarketerWorkspace() {
                                         <Calendar className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                                         <div className="text-right">
                                             <p className="font-black text-xs text-emerald-700 leading-tight">موعد مؤكد</p>
-                                            <p className="text-[9px] font-bold text-emerald-500" dir="ltr">{selectedAppointment.date} {selectedAppointment.timeSlot}</p>
+                                            <p className="text-xs font-bold text-emerald-500" dir="ltr">{selectedAppointment.date} {selectedAppointment.timeSlot}</p>
                                         </div>
                                     </div>
                                 )}
@@ -1674,7 +1674,7 @@ export default function TelemarketerWorkspace() {
                                         <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                                         <div className="text-right">
                                             <p className="font-black text-xs leading-tight">محجوزة</p>
-                                            <p className="text-[9px] font-bold">{selectedCustomer.lockedByHrUserName || 'تيلماركتر آخر'}</p>
+                                            <p className="text-xs font-bold">{selectedCustomer.lockedByHrUserName || 'تيلماركتر آخر'}</p>
                                         </div>
                                     </div>
                                 )}

@@ -1612,7 +1612,7 @@ export default function ContractForm() {
                                                     <p className="text-xs text-slate-400" dir="ltr">{c.mobile}</p>
                                                 </div>
                                                 {(!c.fatherName || !c.nationalId) && (
-                                                    <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-amber-50 text-amber-500 border border-amber-100">ناقص</span>
+                                                    <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-amber-50 text-amber-500 border border-amber-100">ناقص</span>
                                                 )}
                                             </button>
                                         ))
@@ -1884,7 +1884,7 @@ export default function ContractForm() {
                                                     : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'}`}>
                                                 <st.icon className="w-4 h-4" />
                                                 <span className="text-xs font-bold">{st.label}</span>
-                                                <span className={`text-[9px] ${isActive ? 'opacity-70' : 'text-slate-400'}`}>{st.desc}</span>
+                                                <span className={`text-xs ${isActive ? 'opacity-70' : 'text-slate-400'}`}>{st.desc}</span>
                                             </button>
                                         );
                                     })}

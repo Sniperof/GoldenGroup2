@@ -265,7 +265,7 @@ export default function GoldenWarrantyOfferModal({ visitId, taskId, task, onClos
                             </div>
 
                             <div>
-                              <p className="mb-1.5 text-[11px] font-bold text-slate-500">
+                              <p className="mb-1.5 text-xs font-bold text-slate-500">
                                 {d.paymentType === 'installment' ? 'الدفعة المقدّمة (اختياري)' : 'الدفعات'}
                               </p>
                               <WarrantyPaymentEntries
@@ -279,7 +279,7 @@ export default function GoldenWarrantyOfferModal({ visitId, taskId, task, onClos
                             {d.paymentType === 'installment' && (
                               <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-3 space-y-2">
                                 <div className="flex flex-wrap items-center gap-2">
-                                  <span className="text-[11px] font-bold text-slate-500">عدد الأقساط</span>
+                                  <span className="text-xs font-bold text-slate-500">عدد الأقساط</span>
                                   <input type="number" min="1" value={d.installmentCount}
                                     onChange={(e) => updateDevice(i, { installmentCount: e.target.value })}
                                     className="w-16 rounded border border-slate-200 px-2 py-1 text-sm" />
@@ -287,7 +287,7 @@ export default function GoldenWarrantyOfferModal({ visitId, taskId, task, onClos
                                     className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-500">
                                     توليد الأقساط
                                   </button>
-                                  <span className="mr-auto text-[11px] text-slate-400">
+                                  <span className="mr-auto text-xs text-slate-400">
                                     المتبقّي بعد المقدّم: {Math.max(0, (Number(d.totalValue) || 0) - devicePaidSyp(d)).toLocaleString('ar-SY')} ل.س
                                   </span>
                                 </div>
@@ -295,14 +295,14 @@ export default function GoldenWarrantyOfferModal({ visitId, taskId, task, onClos
                                   <div className="space-y-1">
                                     {d.installments.map((inst, n) => (
                                       <div key={n} className="flex items-center gap-2">
-                                        <span className="w-6 text-center text-[11px] font-bold text-slate-400">{inst.installmentNumber}</span>
+                                        <span className="w-6 text-center text-xs font-bold text-slate-400">{inst.installmentNumber}</span>
                                         <input type="date" value={inst.dueDate}
                                           onChange={(e) => updateInstallment(i, n, { dueDate: e.target.value })}
                                           className="rounded border border-slate-200 px-2 py-1 text-xs" />
                                         <input type="number" min="0" value={inst.amountSyp}
                                           onChange={(e) => updateInstallment(i, n, { amountSyp: e.target.value })}
                                           className="w-28 rounded border border-slate-200 px-2 py-1 text-xs" dir="ltr" />
-                                        <span className="text-[11px] text-slate-400">ل.س</span>
+                                        <span className="text-xs text-slate-400">ل.س</span>
                                         <button type="button" onClick={() => updateDevice(i, { installments: d.installments.filter((_, xi) => xi !== n) })}
                                           className="mr-auto rounded p-1 text-rose-400 hover:bg-rose-50"><Trash2 className="h-3.5 w-3.5" /></button>
                                       </div>
@@ -313,7 +313,7 @@ export default function GoldenWarrantyOfferModal({ visitId, taskId, task, onClos
                                     </div>
                                   </div>
                                 ) : (
-                                  <p className="text-[11px] text-slate-400">لم تُولّد أقساط بعد.</p>
+                                  <p className="text-xs text-slate-400">لم تُولّد أقساط بعد.</p>
                                 )}
                               </div>
                             )}

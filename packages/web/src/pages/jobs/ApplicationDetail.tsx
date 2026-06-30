@@ -1742,7 +1742,7 @@ export default function ApplicationDetail() {
                             </svg>
                             <div className="absolute inset-0 flex flex-col items-center justify-center">
                               <span className="text-lg font-black text-slate-800">{score}%</span>
-                              <span className="text-[9px] text-slate-400 font-bold uppercase tracking-tighter">درجة الملاءمة</span>
+                              <span className="text-xs text-slate-400 font-bold uppercase tracking-tighter">درجة الملاءمة</span>
                             </div>
                           </div>
                           <span className={`text-xs font-bold px-4 py-1.5 rounded-full ${

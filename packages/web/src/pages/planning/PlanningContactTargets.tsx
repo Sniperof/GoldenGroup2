@@ -329,11 +329,11 @@ function TaskModal({ client, today, onClose, onSave, saving }: {
                                     <div className="flex items-center gap-2 flex-wrap">
                                         <p className="font-bold text-sm text-slate-800">{task.taskTypeLabel}</p>
                                         {isReturning && (
-                                            <span className="text-[9px] font-bold bg-orange-100 text-orange-600 border border-orange-200 px-1.5 py-0.5 rounded-full">
+                                            <span className="text-xs font-bold bg-orange-100 text-orange-600 border border-orange-200 px-1.5 py-0.5 rounded-full">
                                                 عودة · {task.attemptCount} محاولة
                                             </span>
                                         )}
-                                        <span className={`text-[9px] font-bold border px-1.5 py-0.5 rounded-full ${getTaskLayerClass(task, client, today)}`}>
+                                        <span className={`text-xs font-bold border px-1.5 py-0.5 rounded-full ${getTaskLayerClass(task, client, today)}`}>
                                             {getTaskLayerLabel(task, client, today)}
                                         </span>
                                     </div>
@@ -953,36 +953,36 @@ export default function PlanningContactTargets() {
                                                     <div className="flex items-center gap-2 flex-wrap">
                                                         <span className="font-bold text-slate-800">{client.clientName}</span>
                                                         {hasRetry && (
-                                                            <span className="text-[9px] font-bold bg-orange-100 text-orange-600 border border-orange-200 px-1.5 py-0.5 rounded-full shrink-0">
+                                                            <span className="text-xs font-bold bg-orange-100 text-orange-600 border border-orange-200 px-1.5 py-0.5 rounded-full shrink-0">
                                                                 عودة
                                                             </span>
                                                         )}
                                                         {client.generatedInTaskList && (
-                                                            <span className="text-[9px] font-bold bg-sky-100 text-sky-700 border border-sky-200 px-1.5 py-0.5 rounded-full shrink-0">
+                                                            <span className="text-xs font-bold bg-sky-100 text-sky-700 border border-sky-200 px-1.5 py-0.5 rounded-full shrink-0">
                                                                 ضمن القائمة
                                                             </span>
                                                         )}
                                                         {client.contactTargetId ? (
-                                                            <span className="text-[9px] font-bold bg-white text-sky-700 border border-sky-200 px-1.5 py-0.5 rounded-full shrink-0">
+                                                            <span className="text-xs font-bold bg-white text-sky-700 border border-sky-200 px-1.5 py-0.5 rounded-full shrink-0">
                                                                 CT #{client.contactTargetId}
                                                             </span>
                                                         ) : (
-                                                            <span className="text-[9px] font-bold bg-slate-100 text-slate-600 border border-slate-200 px-1.5 py-0.5 rounded-full shrink-0">
+                                                            <span className="text-xs font-bold bg-slate-100 text-slate-600 border border-slate-200 px-1.5 py-0.5 rounded-full shrink-0">
                                                                 open_tasks فقط
                                                             </span>
                                                         )}
                                                         {client.generatedInTaskList && client.hasPendingSync && (
-                                                            <span className="text-[9px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-200 px-1.5 py-0.5 rounded-full shrink-0">
+                                                            <span className="text-xs font-bold bg-indigo-100 text-indigo-700 border border-indigo-200 px-1.5 py-0.5 rounded-full shrink-0">
                                                                 فرق حي
                                                             </span>
                                                         )}
                                                         {!client.generatedInTaskList && taskListGenerated && client.assignedCount > 0 && (
-                                                            <span className="text-[9px] font-bold bg-amber-100 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded-full shrink-0">
+                                                            <span className="text-xs font-bold bg-amber-100 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded-full shrink-0">
                                                                 جديد منذ آخر توليد
                                                             </span>
                                                         )}
                                                         {client.excludedCount > 0 && (
-                                                            <span className="text-[9px] font-bold bg-red-100 text-red-700 border border-red-200 px-1.5 py-0.5 rounded-full shrink-0">
+                                                            <span className="text-xs font-bold bg-red-100 text-red-700 border border-red-200 px-1.5 py-0.5 rounded-full shrink-0">
                                                                 مستثناة {client.excludedCount}
                                                             </span>
                                                         )}
@@ -1018,7 +1018,7 @@ export default function PlanningContactTargets() {
                                                     <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-bold ${pm.badge}`}>
                                                         {client.tasks.length}
                                                         {client.excludedCount > 0 && (
-                                                            <span className="text-red-400 text-[9px]">/{client.excludedCount}✗</span>
+                                                            <span className="text-red-400 text-xs">/{client.excludedCount}✗</span>
                                                         )}
                                                     </span>
                                                 </td>

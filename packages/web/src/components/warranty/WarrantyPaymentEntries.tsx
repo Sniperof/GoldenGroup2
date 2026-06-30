@@ -105,7 +105,7 @@ export default function WarrantyPaymentEntries({ entries, onChange, grandTotal, 
         return (
           <div key={e._key} className="rounded-xl border border-slate-200 bg-slate-50/40 p-3 space-y-2.5">
             <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold text-slate-400">دفعة #{idx + 1}</span>
+              <span className="text-xs font-bold text-slate-400">دفعة #{idx + 1}</span>
               {!disabled && (
                 <button type="button" onClick={() => remove(e._key)}
                   className="h-5 w-5 rounded-full bg-slate-200 text-slate-400 hover:bg-rose-100 hover:text-rose-600 flex items-center justify-center transition-colors">
@@ -119,7 +119,7 @@ export default function WarrantyPaymentEntries({ entries, onChange, grandTotal, 
               {CATEGORY_META.map(m => (
                 <button key={m.value} type="button" disabled={disabled}
                   onClick={() => setCategory(e._key, m.value)}
-                  className={`flex-1 flex flex-col items-center gap-0.5 py-2 rounded-lg border-2 text-[10px] font-bold transition-all ${
+                  className={`flex-1 flex flex-col items-center gap-0.5 py-2 rounded-lg border-2 text-xs font-bold transition-all ${
                     e.paymentCategory === m.value
                       ? 'border-amber-400 bg-amber-50 text-amber-700'
                       : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300'
@@ -133,13 +133,13 @@ export default function WarrantyPaymentEntries({ entries, onChange, grandTotal, 
             {e.paymentCategory === 'barter' && (
               <div className="grid grid-cols-2 gap-2">
                 <div className="col-span-2 space-y-1">
-                  <label className="block text-[10px] font-bold text-slate-500">ماذا تمت المقايضة عليه</label>
+                  <label className="block text-xs font-bold text-slate-500">ماذا تمت المقايضة عليه</label>
                   <input type="text" value={e.barterName} disabled={disabled}
                     onChange={ev => update(e._key, { barterName: ev.target.value })}
                     placeholder="وصف الشيء المقايض..." className={inp} />
                 </div>
                 <div className="space-y-1">
-                  <label className="block text-[10px] font-bold text-slate-500">القيمة (ل.س)</label>
+                  <label className="block text-xs font-bold text-slate-500">القيمة (ل.س)</label>
                   <input type="number" min="0" value={e.barterValueSyp} disabled={disabled}
                     onChange={ev => update(e._key, { barterValueSyp: ev.target.value })}
                     placeholder="0" className={inp} dir="ltr" />
@@ -160,7 +160,7 @@ export default function WarrantyPaymentEntries({ entries, onChange, grandTotal, 
                 {e.paymentCategory === 'transfer' && (
                   <div className="grid grid-cols-2 gap-2">
                     <div className="space-y-1">
-                      <label className="block text-[10px] font-bold text-slate-500">أداة الحوالة</label>
+                      <label className="block text-xs font-bold text-slate-500">أداة الحوالة</label>
                       <select value={e.method} disabled={disabled}
                         onChange={ev => update(e._key, { method: ev.target.value as WarrantyPaymentMethod })}
                         className={inp + ' appearance-none cursor-pointer'}>
@@ -168,7 +168,7 @@ export default function WarrantyPaymentEntries({ entries, onChange, grandTotal, 
                       </select>
                     </div>
                     <div className="space-y-1">
-                      <label className="block text-[10px] font-bold text-slate-500">رقم الحوالة</label>
+                      <label className="block text-xs font-bold text-slate-500">رقم الحوالة</label>
                       <input type="text" value={e.referenceNumber} disabled={disabled}
                         onChange={ev => update(e._key, { referenceNumber: ev.target.value })}
                         placeholder="—" className={inp} dir="ltr" />
@@ -177,7 +177,7 @@ export default function WarrantyPaymentEntries({ entries, onChange, grandTotal, 
                 )}
                 <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-1">
-                    <label className="block text-[10px] font-bold text-slate-500">العملة</label>
+                    <label className="block text-xs font-bold text-slate-500">العملة</label>
                     <div className="flex rounded-lg border border-slate-200 overflow-hidden">
                       {(['SYP', 'USD'] as const).map(c => (
                         <button key={c} type="button" disabled={disabled}
@@ -193,7 +193,7 @@ export default function WarrantyPaymentEntries({ entries, onChange, grandTotal, 
                     </div>
                   </div>
                   <div className="space-y-1">
-                    <label className="block text-[10px] font-bold text-slate-500">
+                    <label className="block text-xs font-bold text-slate-500">
                       المبلغ {e.currency === 'USD' ? '($)' : '(ل.س)'}
                     </label>
                     <input type="number" min="0" value={e.amountValue} disabled={disabled}
@@ -204,13 +204,13 @@ export default function WarrantyPaymentEntries({ entries, onChange, grandTotal, 
                 {e.currency === 'USD' && (
                   <div className="grid grid-cols-2 gap-2 items-end">
                     <div className="space-y-1">
-                      <label className="block text-[10px] font-bold text-slate-500">سعر الصرف</label>
+                      <label className="block text-xs font-bold text-slate-500">سعر الصرف</label>
                       <input type="number" min="0" value={e.exchangeRate} disabled={disabled}
                         onChange={ev => update(e._key, { exchangeRate: ev.target.value })}
                         placeholder="ل.س / $" className={inp} dir="ltr" />
                     </div>
                     <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-center">
-                      <div className="text-[9px] text-blue-500 font-bold">يعادل</div>
+                      <div className="text-xs text-blue-500 font-bold">يعادل</div>
                       <div className="text-xs font-black text-blue-700">
                         {syp > 0 ? syp.toLocaleString('ar-SY') : '—'} ل.س
                       </div>

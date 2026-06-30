@@ -493,10 +493,10 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
                         </div>
                         <div className="mt-1 text-xs leading-relaxed">{availability.reason}</div>
                         {availability.allowed && type === 'periodic_maintenance' && !hasPermission('tasks.periodic.create_manual') && (
-                          <div className="mt-2 text-[11px] font-bold text-amber-600">تحتاج صلاحية إنشاء دورية يدوياً</div>
+                          <div className="mt-2 text-xs font-bold text-amber-600">تحتاج صلاحية إنشاء دورية يدوياً</div>
                         )}
                         {availability.allowed && type !== 'device_checkup' && type !== 'device_retrieval' && type !== 'device_return' && type !== 'device_transfer' && type !== 'periodic_maintenance' && (
-                          <div className="mt-2 text-[11px] font-bold text-amber-600">نموذج الإنشاء سيضاف لاحقاً</div>
+                          <div className="mt-2 text-xs font-bold text-amber-600">نموذج الإنشاء سيضاف لاحقاً</div>
                         )}
                       </button>
                     );

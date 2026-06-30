@@ -154,7 +154,7 @@ export default function DatePicker({ isOpen, onClose, anchorRef, value, onChange
           onClick={() => pick(day)}
           disabled={disabled}
           aria-disabled={disabled}
-          className={`w-8 h-8 mx-auto text-[13px] font-medium rounded-full flex items-center justify-center transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 ${
+          className={`w-8 h-8 mx-auto text-sm font-medium rounded-full flex items-center justify-center transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 ${
             disabled
               ? 'text-slate-300 cursor-not-allowed line-through decoration-slate-300'
               : isSelected
@@ -184,7 +184,7 @@ export default function DatePicker({ isOpen, onClose, anchorRef, value, onChange
           <button
             type="button"
             onClick={() => setView((v) => (v === 'days' ? 'months' : 'days'))}
-            className="no-pill flex items-center gap-1 text-[15px] font-semibold text-sky-600 hover:opacity-75 transition-opacity focus:outline-none"
+            className="no-pill flex items-center gap-1 text-base font-semibold text-sky-600 hover:opacity-75 transition-opacity focus:outline-none"
           >
             <span>{view === 'days' ? `${MONTH_NAMES[month]} ${year}` : year}</span>
             <ChevronDown size={15} className={`transition-transform ${view === 'months' ? 'rotate-180' : ''}`} />
@@ -216,7 +216,7 @@ export default function DatePicker({ isOpen, onClose, anchorRef, value, onChange
             {/* Weekday headers */}
             <div className="grid grid-cols-7 mb-1 text-center">
               {WEEKDAYS.map((wd, i) => (
-                <div key={i} className="text-[10px] font-bold text-slate-400 py-1">
+                <div key={i} className="text-xs font-bold text-slate-400 py-1">
                   {wd}
                 </div>
               ))}

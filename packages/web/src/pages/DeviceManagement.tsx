@@ -135,7 +135,7 @@ function ImageGrid({ images, primaryImageId, onSetPrimary, onRemove }: {
                         <IconButton icon={X} label="حذف" variant="danger" size="sm" shape="circle" onClick={() => onRemove(img.id)} />
                     </div>
                     {img.id === primaryImageId && (
-                        <div className="absolute top-1 right-1 bg-amber-400 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">رئيسية</div>
+                        <div className="absolute top-1 right-1 bg-amber-400 text-white text-xs font-bold px-1.5 py-0.5 rounded-full">رئيسية</div>
                     )}
                 </div>
             ))}

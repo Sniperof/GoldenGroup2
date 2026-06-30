@@ -518,7 +518,7 @@ function RoleUsersModal({ role, onClose }: { role: Role; onClose: () => void }) 
                               <Star className="w-2.5 h-2.5 text-amber-400 shrink-0" />
                             )}
                             {b.status !== 'active' && (
-                              <span className="text-[9px] text-slate-400">(معطل)</span>
+                              <span className="text-xs text-slate-400">(معطل)</span>
                             )}
                           </span>
                         ))}

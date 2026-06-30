@@ -171,7 +171,7 @@ function InfoGroup({ title, icon: Icon, children }: { title: string; icon: any; 
 function SidebarRow({ label, value, dir }: { label: string; value?: string | number | null; dir?: 'rtl' | 'ltr' }) {
     return (
         <div>
-            <p className="text-[11px] font-bold text-slate-400">{label}</p>
+            <p className="text-xs font-bold text-slate-400">{label}</p>
             <p className="mt-0.5 break-words text-sm font-bold leading-6 text-slate-800" dir={dir}>{valueOrEmpty(value)}</p>
         </div>
     );

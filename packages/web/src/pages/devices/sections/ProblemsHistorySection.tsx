@@ -60,7 +60,7 @@ export function ProblemsHistorySection({ deviceId }: { deviceId: number }) {
         <span className="text-sm font-bold text-slate-800">
           {p.problemTypeLabel ?? `نوع #${p.problemTypeId}`}
           {p.addedDuringPhase === 'field_discovery' && (
-            <span className="mr-1 text-[9px] font-bold rounded-full border px-1.5 py-0.5 bg-violet-50 text-violet-700 border-violet-200">
+            <span className="mr-1 text-xs font-bold rounded-full border px-1.5 py-0.5 bg-violet-50 text-violet-700 border-violet-200">
               ميدانياً
             </span>
           )}

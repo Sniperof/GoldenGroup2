@@ -1,4 +1,5 @@
-@import url('https://fonts.googleapis.com/css2?family=Alexandria:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+/* Brand fonts (Alexandria + Plus Jakarta Sans) are loaded via <link> in
+   index.html <head> for faster, non-render-blocking discovery. */
 @import "tailwindcss";
 
 /* ============================================================
@@ -173,6 +174,45 @@
     --text-3xl: 1.625rem;  /* 30px → 26px */
     --text-4xl: 2rem;      /* 36px → 32px */
     --text-5xl: 2.5rem;    /* 48px → 40px */
+
+    /* =========================================================
+       SEMANTIC TYPE SCALE — single source of truth for text ROLE.
+       The app's heading hierarchy was audited and is consistent:
+         page title = 2xl · section title = lg · card title = base
+         KPI metric = 2xl/bold · label = sm · caption = xs
+       These role-named tokens encode that ladder so NEW code can
+       write the INTENT (`text-section-title`) instead of guessing a
+       raw step — preventing the size drift + arbitrary px we cleaned
+       up. Tailwind v4 auto-generates a utility per `--text-*` key,
+       and the paired `--…--line-height` / `--…--font-weight` modifiers
+       bake the full role into one class. Existing code is untouched;
+       adopt these gradually.
+
+       NOTE: values mirror the live ladder (2xl=1.375rem, lg=1.125rem,
+       base=1rem, sm=.875rem, xs=.75rem) and ride the global 84%
+       rescale — so this adds NO new size, only names the roles.
+       ========================================================= */
+    --text-page-title: 1.375rem;            /* ≡ 2xl  — <h1> / PageHeader */
+    --text-page-title--line-height: 1.3;
+    --text-page-title--font-weight: 700;
+
+    --text-section-title: 1.125rem;         /* ≡ lg   — <h2> section heads */
+    --text-section-title--line-height: 1.4;
+    --text-section-title--font-weight: 700;
+
+    --text-card-title: 1rem;                /* ≡ base — <h3> card / sub-section */
+    --text-card-title--line-height: 1.45;
+    --text-card-title--font-weight: 700;
+
+    --text-metric: 1.375rem;                /* ≡ 2xl  — KPI / stat values */
+    --text-metric--line-height: 1.1;
+    --text-metric--font-weight: 700;
+
+    --text-label: 0.875rem;                 /* ≡ sm   — field labels */
+    --text-label--line-height: 1.4;
+
+    --text-caption: 0.75rem;                /* ≡ xs   — hints / meta / captions */
+    --text-caption--line-height: 1.45;
 }
 
 /* ============================================================

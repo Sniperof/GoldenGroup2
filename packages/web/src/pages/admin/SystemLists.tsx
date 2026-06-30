@@ -1009,7 +1009,7 @@ export default function SystemLists() {
             <h3 className="font-bold text-slate-600 text-sm uppercase tracking-wider">الفئات</h3>
             <button
               onClick={toggleAllGroups}
-              className="text-[11px] font-bold px-2 py-1 rounded-md text-slate-500 hover:bg-slate-100 transition-colors flex-shrink-0"
+              className="text-xs font-bold px-2 py-1 rounded-md text-slate-500 hover:bg-slate-100 transition-colors flex-shrink-0"
             >
               {allGroupsOpen ? 'طي الكل' : 'توسيع الكل'}
             </button>
@@ -1038,7 +1038,7 @@ export default function SystemLists() {
                       </motion.span>
                       <span className="truncate">{grp.label}</span>
                     </span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400 font-mono flex-shrink-0">{groupCount}</span>
+                    <span className="text-xs px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400 font-mono flex-shrink-0">{groupCount}</span>
                   </button>
 
                   <AnimatePresence initial={false}>

@@ -104,7 +104,7 @@ export default function InstallmentsSchedule({
               </div>
               <div className="flex items-center gap-2">
                 <span className="font-black text-slate-800">{Number(r.amountSyp).toLocaleString('ar-SY')} ل.س</span>
-                {r.dueId && <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5">استحقاق #{r.dueId}</span>}
+                {r.dueId && <span className="text-xs font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5">استحقاق #{r.dueId}</span>}
               </div>
             </div>
           ))}
