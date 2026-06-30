@@ -9,7 +9,7 @@
 - سيرفر Linux (Ubuntu 22.04+)
 - Domain مضبوط DNS على IP السيرفر
 - Jenkins master يعمل (jenkins.itlandfz.com)
-- صلاحية root أو sudo على السيرفر
+- صلاحية root على السيرفر
 
 ---
 
@@ -27,24 +27,26 @@ docker --version
 ## 2. إعداد nginx-server (مشترك بين كل المشاريع)
 
 ```bash
-mkdir -p /opt/nginx-server/conf.d
-cd /opt/nginx-server
+mkdir -p /home/Docker/nginx-reverse-proxy/volume/{conf.d,html,certificates}
 ```
 
-أنشئ `/opt/nginx-server/docker-compose.yml`:
+أنشئ `docker-compose.yml`:
 
-```yaml
+```bash
+cat > /home/Docker/nginx-reverse-proxy/docker-compose.yml << 'EOF'
 name: nginx-server
 services:
   nginx:
-    image: nginx:1.27-alpine
+    image: nginx:latest
     container_name: nginx-server
     restart: unless-stopped
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      - ./conf.d:/etc/nginx/conf.d:ro
+      - ./volume/conf.d:/etc/nginx/conf.d
+      - ./volume/html:/etc/nginx/html
+      - ./volume/certificates:/etc/nginx/certificates
     networks:
       - proxy-net
 
@@ -52,11 +54,13 @@ networks:
   proxy-net:
     name: proxy-net
     driver: bridge
+EOF
 ```
 
-أنشئ `/opt/nginx-server/conf.d/golden-crm.conf`:
+أنشئ كونفيغ المشروع:
 
-```nginx
+```bash
+cat > /home/Docker/nginx-reverse-proxy/volume/conf.d/golden-crm.conf << 'EOF'
 server {
     listen 80;
     server_name YOUR_DOMAIN;
@@ -78,6 +82,7 @@ server {
         proxy_read_timeout 60s;
     }
 }
+EOF
 ```
 
 > غيّر `YOUR_DOMAIN` للدومين الفعلي.
@@ -85,9 +90,15 @@ server {
 شغّل nginx:
 
 ```bash
-cd /opt/nginx-server
+cd /home/Docker/nginx-reverse-proxy
 docker compose up -d
 docker ps | grep nginx
+```
+
+لإضافة مشروع جديد لاحقاً — أضف ملف `.conf` في `volume/conf.d/` ثم:
+
+```bash
+docker exec nginx-server nginx -s reload
 ```
 
 ---
@@ -127,18 +138,17 @@ CORS_ORIGINS=https://YOUR_DOMAIN
 
 ## 5. النشر الأول
 
+> هاي الخطوة تشتغل **مرة وحدة فقط** على سيرفر جديد. بعدها CI/CD يتولى كل شيء.
+
 ```bash
 cd /root/golden-crm
-docker compose up -d --build
-```
 
-تحقق من الـ migrations:
+# شغّل قاعدة البيانات أولاً وانتظر حتى تصبح healthy
+docker compose up -d db
 
-```bash
-docker compose run --rm --no-deps \
-  -e NODE_ENV=production \
-  app \
-  node ./node_modules/tsx/dist/cli.mjs packages/api/migrate.ts
+# شغّل التطبيق (يبني الصورة + يشغّل الـ migrations تلقائياً)
+docker compose build app
+docker compose up -d app
 ```
 
 تحقق من الـ health:
@@ -152,25 +162,24 @@ curl -sf http://localhost/api/health
 
 ## 6. إنشاء حساب superadmin
 
+> مرة وحدة فقط بعد أول نشر.
+
 ```bash
-docker compose exec app \
-  node ./node_modules/tsx/dist/cli.mjs packages/api/seed-superadmin.ts
+docker compose run --rm --no-deps \
+  -e NODE_ENV=development \
+  app \
+  node ./node_modules/tsx/dist/cli.mjs packages/api/dev-reset-single-superadmin.ts
 ```
+
+بيانات الدخول الافتراضية:
+- **username:** `superadmin`
+- **password:** `Password123!`
+
+> غيّر الباسورد فور الدخول الأول.
 
 ---
 
-## 7. إصلاح النصوص العربية (Mojibake) — مرة واحدة فقط
-
-يصلح: `branches`, `geo_units`, `roles`, `system_lists`, `permissions`, `task_type_config`, `emergency_action_types`, `system_settings`
-
-```bash
-docker compose exec -T db \
-  psql -U golden -d golden_crm < scripts/fix-mojibake.sql
-```
-
----
-
-## 8. إعداد Jenkins Agent على السيرفر الجديد
+## 7. إعداد Jenkins Agent على السيرفر الجديد
 
 ### على السيرفر:
 
@@ -182,32 +191,31 @@ apt-get install -y openjdk-17-jre
 ### على Jenkins master:
 
 1. **Manage Jenkins → Nodes → New Node**
-   - Node name: `qa` (أو اسم السيرفر)
+   - Node name: اسم السيرفر (مثلاً `prod`)
    - Type: Permanent Agent
 2. الإعدادات:
    - Remote root directory: `/home/Docker/jenkins-agent`
-   - Labels: `qa`
+   - Labels: نفس اسم الـ Node
    - Launch method: **Launch agents via SSH**
    - Host: IP السيرفر
-   - Credentials: أضف SSH key أو username/password
+   - Credentials: أضف SSH username/password أو key
    - Host Key Verification: `Non verifying`
 3. احفظ → سيتصل تلقائياً
 
 ---
 
-## 9. إعداد Jenkins Pipeline
+## 8. إعداد Jenkins Pipeline
 
 ### على Jenkins master:
 
 1. **New Item → Pipeline**
-2. اسم الـ job مثلاً: `goldengroup-qa`
-3. تحت **Build Triggers**: فعّل **Trigger builds remotely**
-   - Token: `golden-crm-qa-deploy`
-4. تحت **Pipeline → Pipeline script** الصق:
+2. تحت **Build Triggers**: فعّل **Trigger builds remotely**
+   - Token: `golden-crm-deploy` (أو أي token تختاره)
+3. تحت **Pipeline → Pipeline script** الصق (غيّر `label` و`branch` حسب السيرفر):
 
 ```groovy
 pipeline {
-    agent { label 'qa' }
+    agent { label 'prod' }
 
     options {
         disableConcurrentBuilds()
@@ -228,7 +236,11 @@ pipeline {
 
         stage('Build & Deploy') {
             steps {
-                sh 'cd /root/golden-crm && docker compose up -d --build'
+                sh '''
+                    cd /root/golden-crm
+                    docker compose build app
+                    docker compose up -d app
+                '''
             }
         }
 
@@ -261,11 +273,11 @@ pipeline {
 }
 ```
 
-5. احفظ
+4. احفظ
 
 ---
 
-## 10. إعداد GitHub Webhook
+## 9. إعداد GitHub Webhook
 
 احصل على Jenkins API Token:
 - Jenkins → اسمك أعلى اليمين → **Configure → API Token → Add new Token**
@@ -274,12 +286,10 @@ pipeline {
 
 | الحقل | القيمة |
 |-------|--------|
-| Payload URL | `https://USERNAME:API_TOKEN@jenkins.itlandfz.com/job/GoldenGroup/job/goldengroup-qa/build?token=golden-crm-qa-deploy` |
+| Payload URL | `https://USERNAME:API_TOKEN@jenkins.itlandfz.com/job/FOLDER/job/JOB_NAME/build?token=TOKEN` |
 | Content type | `application/json` |
 | Which events | `Just the push event` |
 | Active | ✓ |
-
-> غيّر `USERNAME` و`API_TOKEN` و`goldengroup-qa` للقيم الصحيحة.
 
 ---
 
@@ -298,12 +308,25 @@ docker compose -f /root/golden-crm/docker-compose.yml logs app --tail=50
 
 ---
 
+## مصدر البيانات الأساسية
+
+| البيانات | المصدر |
+|----------|--------|
+| roles, permissions, role_permission_grants | migration `001` — تلقائي |
+| system_lists | migration `001` + migrations لاحقة — تلقائي |
+| system_settings, task_type_config, emergency_action_types | migration `001` — تلقائي |
+| geo_units, branches | **فارغة** — تُضاف يدوياً بعد النشر |
+| superadmin user | يدوي — خطوة 6 |
+
+---
+
 ## ملاحظات مهمة
 
 | الموضوع | التفصيل |
 |---------|---------|
-| الـ migrations | تعمل تلقائياً مع كل deploy — آمنة للتشغيل المتكرر |
+| الـ migrations | تشتغل تلقائياً عند بدء التطبيق — آمنة للتشغيل المتكرر |
 | الـ uploads | محفوظة في Docker volume `golden-crm_uploads` — لا تُحذف عند redeploy |
-| قاعدة البيانات | محفوظة في Docker volume `golden-crm_pgdata` |
-| Mojibake fix | مرة واحدة فقط على قاعدة بيانات جديدة |
+| قاعدة البيانات | محفوظة في Docker volume `golden-crm_pgdata` — لا تلمسها أبداً في CI/CD |
 | nginx-server | مشترك بين كل المشاريع — لا تحذفه |
+| superadmin | شغّل سكريبته مرة وحدة بعد أول deploy فقط |
+| CI/CD | يبني ويعيد تشغيل `app` فقط — `db` لا تتأثر أبداً |
