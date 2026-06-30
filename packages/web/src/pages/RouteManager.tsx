@@ -2,11 +2,12 @@ import { useState, useCallback, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Navigate } from 'react-router-dom';
 import {
-    Plus, Search, Eye, Trash2, X, ArrowUp, ArrowDown,
+    Plus, Eye, Trash2, X, ArrowUp, ArrowDown,
     Route as RouteIcon, ChevronRight,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { levelNames } from '../lib/geoConstants';
+import SmartTable, { type ColumnDef } from '../components/SmartTable';
 import PageHeader from '../components/ui/PageHeader';
 import type { Route, GeoUnit, RoutePoint } from '../lib/types';
 import { usePermissions } from '../hooks/usePermissions';
@@ -50,7 +51,6 @@ export default function RouteManager() {
     const [geoNames, setGeoNames] = useState<Map<number, string>>(new Map());
 
     const [loading, setLoading] = useState(true);
-    const [search, setSearch] = useState('');
     const [showBuilder, setShowBuilder] = useState(false);
     const [editRoute, setEditRoute] = useState<Route | null>(null);
 
@@ -86,8 +86,6 @@ export default function RouteManager() {
 
     const getUnitName = useCallback((id: number) =>
         geoNames.get(id) || '??', [geoNames]);
-
-    const filtered = routes.filter(r => r.name.includes(search));
 
     const openBuilder = (route?: Route) => {
         if (route) {
@@ -171,6 +169,65 @@ export default function RouteManager() {
         catch (e) { console.error('Failed to delete route', e); }
     };
 
+    const columns: ColumnDef<Route>[] = [
+        {
+            key: 'name',
+            label: 'اسم المسار',
+            sortable: true,
+            minWidth: '200px',
+            getValue: (r) => r.name,
+            render: (r) => (
+                <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-lg bg-sky-50 flex items-center justify-center text-sky-600">
+                        <RouteIcon className="w-4 h-4" />
+                    </div>
+                    <span className="text-slate-900 font-medium text-sm">{r.name}</span>
+                </div>
+            ),
+        },
+        {
+            key: 'branchLabel',
+            label: 'الفرع التابع',
+            sortable: true,
+            getValue: (r) => r.branchLabel ?? '',
+            render: (r) =>
+                r.branchLabel ? (
+                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200">{r.branchLabel}</span>
+                ) : (
+                    <span className="text-xs text-slate-400">—</span>
+                ),
+        },
+        {
+            key: 'pointsCount',
+            label: 'عدد المحطات',
+            sortable: true,
+            width: 'w-28',
+            getValue: (r) => r.points.length,
+            render: (r) => <span className="text-sm text-slate-700">{r.points.length}</span>,
+        },
+        {
+            key: 'stations',
+            label: 'المحطات',
+            minWidth: '260px',
+            render: (r) => (
+                <div className="flex flex-wrap gap-1">
+                    {[...r.points].sort((a, b) => a.order - b.order).slice(0, 4).map((p) => {
+                        const colors = levelColors[p.level] || levelColors[4];
+                        return (
+                            <span key={p.geoUnitId} className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs ${colors.bg} ${colors.text} border ${colors.border}`}>
+                                {getUnitName(p.geoUnitId)}
+                                <span className="opacity-60 text-xs">{levelNames[p.level]}</span>
+                            </span>
+                        );
+                    })}
+                    {r.points.length > 4 && (
+                        <span className="px-2 py-0.5 rounded-full bg-slate-100 text-xs text-slate-500">+{r.points.length - 4}</span>
+                    )}
+                </div>
+            ),
+        },
+    ];
+
     if (loading) {
         return (
             <div className="h-full flex items-center justify-center">
@@ -199,89 +256,32 @@ export default function RouteManager() {
                 </button>
             </div>
 
-            {/* ── Search ── */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-3 mb-6 flex items-center gap-3">
-                <div className="relative flex-1">
-                    <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                    <input
-                        type="text"
-                        placeholder="بحث عن مسار..."
-                        value={search}
-                        onChange={e => setSearch(e.target.value)}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-xl pr-10 pl-4 py-3 text-sm text-slate-800 placeholder:text-slate-400 focus:border-sky-500 focus:bg-white focus:outline-none transition-colors"
-                    />
-                </div>
-                <BranchScopeIndicator />
-            </div>
-
             {/* ── Routes table ── */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                <table className="w-full">
-                    <thead>
-                        <tr className="border-b border-slate-200 bg-slate-50">
-                            <th className="text-right px-6 py-3 text-xs font-semibold text-slate-500 uppercase">#</th>
-                            <th className="text-right px-6 py-3 text-xs font-semibold text-slate-500 uppercase">اسم المسار</th>
-                            <th className="text-right px-6 py-3 text-xs font-semibold text-slate-500 uppercase">الفرع التابع</th>
-                            <th className="text-right px-6 py-3 text-xs font-semibold text-slate-500 uppercase">عدد المحطات</th>
-                            <th className="text-right px-6 py-3 text-xs font-semibold text-slate-500 uppercase">المحطات</th>
-                            <th className="text-right px-6 py-3 text-xs font-semibold text-slate-500 uppercase">إجراءات</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                        {filtered.length === 0 ? (
-                            <tr>
-                                <td colSpan={6} className="text-center text-slate-500 py-10 text-sm">لا توجد مسارات</td>
-                            </tr>
-                        ) : filtered.map((r, i) => (
-                            <motion.tr key={r.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="hover:bg-sky-50 transition-colors">
-                                <td className="px-6 py-4 text-sm text-slate-500">{i + 1}</td>
-                                <td className="px-6 py-4">
-                                    <div className="flex items-center gap-2">
-                                        <div className="w-8 h-8 rounded-lg bg-sky-50 flex items-center justify-center text-sky-600">
-                                            <RouteIcon className="w-4 h-4" />
-                                        </div>
-                                        <span className="text-slate-900 font-medium text-sm">{r.name}</span>
-                                    </div>
-                                </td>
-                                <td className="px-6 py-4">
-                                    {r.branchLabel
-                                        ? <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200">{r.branchLabel}</span>
-                                        : <span className="text-xs text-slate-400">—</span>}
-                                </td>
-                                <td className="px-6 py-4 text-sm text-slate-700">{r.points.length}</td>
-                                <td className="px-6 py-4">
-                                    <div className="flex flex-wrap gap-1">
-                                        {r.points.sort((a, b) => a.order - b.order).slice(0, 4).map(p => {
-                                            const colors = levelColors[p.level] || levelColors[4];
-                                            return (
-                                                <span key={p.geoUnitId} className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs ${colors.bg} ${colors.text} border ${colors.border}`}>
-                                                    {getUnitName(p.geoUnitId)}
-                                                    <span className="opacity-60 text-xs">{levelNames[p.level]}</span>
-                                                </span>
-                                            );
-                                        })}
-                                        {r.points.length > 4 && (
-                                            <span className="px-2 py-0.5 rounded-full bg-slate-100 text-xs text-slate-500">
-                                                +{r.points.length - 4}
-                                            </span>
-                                        )}
-                                    </div>
-                                </td>
-                                <td className="px-6 py-4">
-                                    <div className="flex items-center gap-2">
-                                        <button onClick={() => openBuilder(r)} disabled={!canManageGeo} className="p-1.5 rounded-lg hover:bg-sky-50 text-slate-400 hover:text-sky-600 transition-all disabled:opacity-50">
-                                            <Eye className="w-4 h-4" />
-                                        </button>
-                                        <button onClick={() => deleteRoute(r.id)} disabled={!canManageGeo} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all disabled:opacity-50">
-                                            <Trash2 className="w-4 h-4" />
-                                        </button>
-                                    </div>
-                                </td>
-                            </motion.tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
+            <SmartTable
+                title="المسارات"
+                icon={RouteIcon}
+                data={routes}
+                columns={columns}
+                getId={(r) => r.id}
+                searchKeys={['name']}
+                searchPlaceholder="بحث عن مسار..."
+                scopeIndicator={<BranchScopeIndicator />}
+                emptyIcon={RouteIcon}
+                emptyMessage="لا توجد مسارات"
+                tableMinWidth={900}
+                defaultSortKey="name"
+                defaultSortDir="asc"
+                actions={(r) => (
+                    <div className="flex items-center gap-2">
+                        <button onClick={(e) => { e.stopPropagation(); openBuilder(r); }} disabled={!canManageGeo} className="p-1.5 rounded-lg hover:bg-sky-50 text-slate-400 hover:text-sky-600 transition-all disabled:opacity-50">
+                            <Eye className="w-4 h-4" />
+                        </button>
+                        <button onClick={(e) => { e.stopPropagation(); deleteRoute(r.id); }} disabled={!canManageGeo} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all disabled:opacity-50">
+                            <Trash2 className="w-4 h-4" />
+                        </button>
+                    </div>
+                )}
+            />
 
             {/* ── Route Builder Slide-in ── */}
             <AnimatePresence>

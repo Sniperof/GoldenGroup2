@@ -102,7 +102,7 @@ export default function InstantVisitModal({
       subtitle="اختر زبوناً من فرعك ضمن منطقتك اليوم"
       footer={
         <div className="w-full flex items-center justify-between gap-3">
-          <p className="text-[11px] text-slate-400 flex items-center gap-1">
+          <p className="text-xs text-slate-400 flex items-center gap-1">
             <MapPin className="w-3 h-3" /> سيُلتقط موقعك تلقائياً عند الإنشاء
           </p>
           <button
@@ -156,7 +156,7 @@ export default function InstantVisitModal({
                   >
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-sm font-bold text-slate-800">{c.name || `زبون #${c.id}`}</span>
-                      {selected && <span className="text-[11px] font-bold text-amber-600">محدَّد</span>}
+                      {selected && <span className="text-xs font-bold text-amber-600">محدَّد</span>}
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
                       {c.mobile && <span className="flex items-center gap-1"><Phone className="w-3 h-3" />{c.mobile}</span>}

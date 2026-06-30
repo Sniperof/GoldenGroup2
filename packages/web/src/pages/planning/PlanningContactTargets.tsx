@@ -10,6 +10,7 @@ import { useBranchContextStore } from '../../hooks/useBranchContextStore';
 import { getOutcomeMeta } from '@golden-crm/shared';
 import Select from '../../components/ui/Select';
 import IconButton from '../../components/ui/IconButton';
+import Modal from '../../components/ui/Modal';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -217,27 +218,38 @@ function TaskModal({ client, today, onClose, onSave, saving }: {
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-4"
-            onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-            <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl overflow-hidden" dir="rtl">
-
-                {/* Header */}
-                <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
-                    <div className="flex items-center gap-3">
-                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center border ${pm.badge}`}>
-                            <span className="text-sm">{pm.icon}</span>
-                        </div>
-                        <div>
-                            <h3 className="font-bold text-slate-800">{client.clientName}</h3>
-                            <div className="flex items-center gap-2 mt-0.5">
-                                {client.primaryPhone && <span className="text-xs font-mono text-slate-500" dir="ltr">{client.primaryPhone}</span>}
-                                <span className={`text-xs font-bold rounded-full border px-1.5 py-0.5 ${pm.badge}`}>{pm.label}</span>
-                            </div>
-                        </div>
-                    </div>
-                    <IconButton icon={X} label="إغلاق" size="sm" className="mt-0.5" onClick={onClose} />
+        <Modal
+            isOpen
+            onClose={onClose}
+            size="lg"
+            title={
+                <span className="flex items-center gap-3">
+                    <span className={`w-9 h-9 rounded-xl flex items-center justify-center border ${pm.badge}`}>
+                        <span className="text-sm">{pm.icon}</span>
+                    </span>
+                    {client.clientName}
+                </span>
+            }
+            subtitle={
+                <span className="flex items-center gap-2">
+                    {client.primaryPhone && <span className="font-mono" dir="ltr">{client.primaryPhone}</span>}
+                    <span className={`text-xs font-bold rounded-full border px-1.5 py-0.5 ${pm.badge}`}>{pm.label}</span>
+                </span>
+            }
+            footer={
+                <div className="w-full flex gap-3">
+                    <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-slate-200 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50">
+                        إغلاق
+                    </button>
+                    {canEdit && editableTasks.length > 0 && (
+                        <button type="button" onClick={handleSave} disabled={saving} className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 py-2.5 text-sm font-bold text-white hover:bg-indigo-500 disabled:opacity-60">
+                            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                            حفظ
+                        </button>
+                    )}
                 </div>
-
+            }
+        >
                 {/* Appointment banner */}
                 {client.appointmentDate && (
                     <div className="mx-5 mt-3 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm font-bold text-emerald-700">
@@ -317,11 +329,11 @@ function TaskModal({ client, today, onClose, onSave, saving }: {
                                     <div className="flex items-center gap-2 flex-wrap">
                                         <p className="font-bold text-sm text-slate-800">{task.taskTypeLabel}</p>
                                         {isReturning && (
-                                            <span className="text-[9px] font-bold bg-orange-100 text-orange-600 border border-orange-200 px-1.5 py-0.5 rounded-full">
+                                            <span className="text-xs font-bold bg-orange-100 text-orange-600 border border-orange-200 px-1.5 py-0.5 rounded-full">
                                                 عودة · {task.attemptCount} محاولة
                                             </span>
                                         )}
-                                        <span className={`text-[9px] font-bold border px-1.5 py-0.5 rounded-full ${getTaskLayerClass(task, client, today)}`}>
+                                        <span className={`text-xs font-bold border px-1.5 py-0.5 rounded-full ${getTaskLayerClass(task, client, today)}`}>
                                             {getTaskLayerLabel(task, client, today)}
                                         </span>
                                     </div>
@@ -339,23 +351,7 @@ function TaskModal({ client, today, onClose, onSave, saving }: {
                         );
                     })}
                 </div>
-
-                {/* Footer */}
-                <div className="flex gap-3 border-t border-slate-100 px-5 py-4">
-                    <button type="button" onClick={onClose}
-                        className="flex-1 rounded-xl border border-slate-200 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50">
-                        إغلاق
-                    </button>
-                    {canEdit && editableTasks.length > 0 && (
-                        <button type="button" onClick={handleSave} disabled={saving}
-                            className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 py-2.5 text-sm font-bold text-white hover:bg-indigo-500 disabled:opacity-60">
-                            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-                            حفظ
-                        </button>
-                    )}
-                </div>
-            </div>
-        </div>
+        </Modal>
     );
 }
 
@@ -957,36 +953,36 @@ export default function PlanningContactTargets() {
                                                     <div className="flex items-center gap-2 flex-wrap">
                                                         <span className="font-bold text-slate-800">{client.clientName}</span>
                                                         {hasRetry && (
-                                                            <span className="text-[9px] font-bold bg-orange-100 text-orange-600 border border-orange-200 px-1.5 py-0.5 rounded-full shrink-0">
+                                                            <span className="text-xs font-bold bg-orange-100 text-orange-600 border border-orange-200 px-1.5 py-0.5 rounded-full shrink-0">
                                                                 عودة
                                                             </span>
                                                         )}
                                                         {client.generatedInTaskList && (
-                                                            <span className="text-[9px] font-bold bg-sky-100 text-sky-700 border border-sky-200 px-1.5 py-0.5 rounded-full shrink-0">
+                                                            <span className="text-xs font-bold bg-sky-100 text-sky-700 border border-sky-200 px-1.5 py-0.5 rounded-full shrink-0">
                                                                 ضمن القائمة
                                                             </span>
                                                         )}
                                                         {client.contactTargetId ? (
-                                                            <span className="text-[9px] font-bold bg-white text-sky-700 border border-sky-200 px-1.5 py-0.5 rounded-full shrink-0">
+                                                            <span className="text-xs font-bold bg-white text-sky-700 border border-sky-200 px-1.5 py-0.5 rounded-full shrink-0">
                                                                 CT #{client.contactTargetId}
                                                             </span>
                                                         ) : (
-                                                            <span className="text-[9px] font-bold bg-slate-100 text-slate-600 border border-slate-200 px-1.5 py-0.5 rounded-full shrink-0">
+                                                            <span className="text-xs font-bold bg-slate-100 text-slate-600 border border-slate-200 px-1.5 py-0.5 rounded-full shrink-0">
                                                                 open_tasks فقط
                                                             </span>
                                                         )}
                                                         {client.generatedInTaskList && client.hasPendingSync && (
-                                                            <span className="text-[9px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-200 px-1.5 py-0.5 rounded-full shrink-0">
+                                                            <span className="text-xs font-bold bg-indigo-100 text-indigo-700 border border-indigo-200 px-1.5 py-0.5 rounded-full shrink-0">
                                                                 فرق حي
                                                             </span>
                                                         )}
                                                         {!client.generatedInTaskList && taskListGenerated && client.assignedCount > 0 && (
-                                                            <span className="text-[9px] font-bold bg-amber-100 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded-full shrink-0">
+                                                            <span className="text-xs font-bold bg-amber-100 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded-full shrink-0">
                                                                 جديد منذ آخر توليد
                                                             </span>
                                                         )}
                                                         {client.excludedCount > 0 && (
-                                                            <span className="text-[9px] font-bold bg-red-100 text-red-700 border border-red-200 px-1.5 py-0.5 rounded-full shrink-0">
+                                                            <span className="text-xs font-bold bg-red-100 text-red-700 border border-red-200 px-1.5 py-0.5 rounded-full shrink-0">
                                                                 مستثناة {client.excludedCount}
                                                             </span>
                                                         )}
@@ -1022,7 +1018,7 @@ export default function PlanningContactTargets() {
                                                     <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-bold ${pm.badge}`}>
                                                         {client.tasks.length}
                                                         {client.excludedCount > 0 && (
-                                                            <span className="text-red-400 text-[9px]">/{client.excludedCount}✗</span>
+                                                            <span className="text-red-400 text-xs">/{client.excludedCount}✗</span>
                                                         )}
                                                     </span>
                                                 </td>

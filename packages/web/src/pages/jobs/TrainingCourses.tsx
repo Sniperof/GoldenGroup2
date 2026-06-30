@@ -7,10 +7,11 @@ import { api } from '../../lib/api';
 import PageHeader from '../../components/ui/PageHeader';
 import {
   GraduationCap, Plus, Search, Filter, ChevronDown,
-  Calendar, User, Monitor, Building2, Users, CheckCircle, X, Loader2,
+  Calendar, User, Monitor, Building2, Users, CheckCircle, Loader2,
 } from 'lucide-react';
-import IconButton from '../../components/ui/IconButton';
+import Modal from '../../components/ui/Modal';
 import Select from '../../components/ui/Select';
+import DateField from '../../components/ui/DateField';
 import PermissionGate from '../../components/PermissionGate';
 import SmartTable from '../../components/SmartTable';
 import type { ColumnDef } from '../../components/SmartTable';
@@ -276,9 +277,9 @@ export default function TrainingCourses() {
           placeholder="الفرع..." className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-3 text-sm text-slate-700 focus:border-sky-500 focus:outline-none focus:bg-white transition-colors w-32" />
         <input type="text" value={filters.trainer} onChange={e => setFilter('trainer', e.target.value)}
           placeholder="المدرب..." className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-3 text-sm text-slate-700 focus:border-sky-500 focus:outline-none focus:bg-white transition-colors w-32" />
-        <input type="date" value={filters.start_date} onChange={e => setFilter('start_date', e.target.value)}
+        <DateField value={filters.start_date} onChange={v => setFilter('start_date', v)}
           className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-3 text-sm text-slate-700 focus:border-sky-500 focus:outline-none focus:bg-white transition-colors" />
-        <input type="date" value={filters.end_date} onChange={e => setFilter('end_date', e.target.value)}
+        <DateField value={filters.end_date} onChange={v => setFilter('end_date', v)}
           className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-3 text-sm text-slate-700 focus:border-sky-500 focus:outline-none focus:bg-white transition-colors" />
         <div className="relative flex-1 min-w-[200px]">
           <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -317,18 +318,23 @@ export default function TrainingCourses() {
       )}
 
       {/* Create Course Modal */}
-      {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" dir="rtl">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
-              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                <GraduationCap className="w-5 h-5 text-sky-500" />
-                إنشاء دورة تدريبية جديدة
-              </h2>
-              <IconButton icon={X} label="إغلاق" onClick={closeModal} />
-            </div>
-
-            <div className="overflow-y-auto flex-1 px-6 py-4 space-y-4">
+      <Modal
+        isOpen={showModal}
+        onClose={closeModal}
+        size="2xl"
+        title={<span className="flex items-center gap-2"><GraduationCap className="w-5 h-5 text-sky-500" />إنشاء دورة تدريبية جديدة</span>}
+        footer={
+          <>
+            <button onClick={closeModal} className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800">إلغاء</button>
+            <button onClick={handleSubmit} disabled={submitting}
+              className="flex items-center gap-2 px-5 py-2 bg-sky-600 text-white rounded-xl text-sm font-semibold hover:bg-sky-700 disabled:opacity-50 transition-colors">
+              {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
+              إنشاء الدورة
+            </button>
+          </>
+        }
+      >
+            <div className="px-6 py-4 space-y-4">
               {submitError && (
                 <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">{submitError}</div>
               )}
@@ -409,8 +415,8 @@ export default function TrainingCourses() {
                   <label className="block text-xs font-medium text-slate-600 mb-1 flex items-center gap-1">
                     <Calendar className="w-3 h-3" /> تاريخ البدء *
                   </label>
-                  <input type="date" value={form.start_date}
-                    onChange={e => setForm(f => ({ ...f, start_date: e.target.value }))}
+                  <DateField value={form.start_date}
+                    onChange={v => setForm(f => ({ ...f, start_date: v }))}
                     className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-500" />
                 </div>
 
@@ -418,8 +424,8 @@ export default function TrainingCourses() {
                   <label className="block text-xs font-medium text-slate-600 mb-1 flex items-center gap-1">
                     <Calendar className="w-3 h-3" /> تاريخ الانتهاء *
                   </label>
-                  <input type="date" value={form.end_date}
-                    onChange={e => setForm(f => ({ ...f, end_date: e.target.value }))}
+                  <DateField value={form.end_date}
+                    onChange={v => setForm(f => ({ ...f, end_date: v }))}
                     className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-500" />
                 </div>
 
@@ -470,18 +476,7 @@ export default function TrainingCourses() {
                 )}
               </div>
             </div>
-
-            <div className="px-6 py-4 border-t border-slate-200 flex items-center justify-end gap-3">
-              <button onClick={closeModal} className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800">إلغاء</button>
-              <button onClick={handleSubmit} disabled={submitting}
-                className="flex items-center gap-2 px-5 py-2 bg-sky-600 text-white rounded-xl text-sm font-semibold hover:bg-sky-700 disabled:opacity-50 transition-colors">
-                {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
-                إنشاء الدورة
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      </Modal>
     </div>
   );
 }

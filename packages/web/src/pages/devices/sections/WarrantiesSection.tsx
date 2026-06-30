@@ -9,7 +9,7 @@
 import { useState } from 'react';
 import { Award, CreditCard } from 'lucide-react';
 import { WarrantyStatusBadge } from '../../../components/devices/WarrantyStatusBadge';
-import { SectionShell } from './SectionShell';
+import SmartTable, { type ColumnDef } from '../../../components/SmartTable';
 import GoldenWarrantyOfferCreateModal from '../../../taskTypes/golden_warranty_offer/GoldenWarrantyOfferCreateModal';
 import GoldenWarrantyCardCreateModal from '../../../taskTypes/golden_warranty_card_delivery/GoldenWarrantyCardCreateModal';
 
@@ -100,46 +100,35 @@ export function WarrantiesSection({ warranties, device, onCreated }: Props) {
     </div>
   ) : undefined;
 
-  if (!warranties?.length) {
-    return (
-      <SectionShell id="warranties" title="الكفالات" actions={action}>
-        <p className="text-xs text-slate-400 italic">لا توجد سجلات كفالة لهذا الجهاز.</p>
-      </SectionShell>
-    );
-  }
+  // Columns mirror the original raw table 1:1 (design-only migration to <SmartTable>).
+  const columns: ColumnDef<any>[] = [
+    { key: 'warrantyType', label: 'النوع', render: w => <span className="text-sm font-bold text-slate-700">{TYPE_LABEL[w.warrantyType] ?? w.warrantyType}</span> },
+    {
+      key: 'status', label: 'الحالة',
+      render: w => <WarrantyStatusBadge status={w.status} cancellationReason={w.cancellationReason} endDate={w.endDate} />,
+    },
+    { key: 'activatedAt', label: 'تاريخ التفعيل', render: w => <span className="text-sm text-slate-700">{fmt(w.activatedAt)}</span> },
+    { key: 'endDate', label: 'تاريخ الانتهاء', render: w => <span className="text-sm text-slate-700">{fmt(w.endDate)}</span> },
+    { key: 'months', label: 'المدة', render: w => <span className="text-sm text-slate-700">{w.months != null ? `${w.months} شهر` : '—'}</span> },
+    { key: 'visits', label: 'الزيارات', render: w => <span className="text-sm text-slate-700">{w.visits ?? '—'}</span> },
+  ];
+
   return (
-    <SectionShell id="warranties" title="الكفالات" subtitle="حالة كل كفالة وتاريخ سريانها ومدتها" actions={action}>
-      <table className="w-full text-xs">
-        <thead className="text-slate-400 font-bold">
-          <tr className="border-b border-slate-100">
-            <th className="text-right py-2 px-2">النوع</th>
-            <th className="text-right py-2 px-2">الحالة</th>
-            <th className="text-right py-2 px-2">تاريخ التفعيل</th>
-            <th className="text-right py-2 px-2">تاريخ الانتهاء</th>
-            <th className="text-right py-2 px-2">المدة</th>
-            <th className="text-right py-2 px-2">الزيارات</th>
-          </tr>
-        </thead>
-        <tbody>
-          {warranties.map(w => (
-            <tr key={w.id} className="border-b border-slate-50 last:border-0 align-top">
-              <td className="py-3 px-2 font-bold text-slate-700">{TYPE_LABEL[w.warrantyType] ?? w.warrantyType}</td>
-              <td className="py-3 px-2">
-                <WarrantyStatusBadge
-                  status={w.status}
-                  cancellationReason={w.cancellationReason}
-                  endDate={w.endDate}
-                />
-              </td>
-              <td className="py-3 px-2 text-slate-700">{fmt(w.activatedAt)}</td>
-              <td className="py-3 px-2 text-slate-700">{fmt(w.endDate)}</td>
-              <td className="py-3 px-2 text-slate-700">{w.months != null ? `${w.months} شهر` : '—'}</td>
-              <td className="py-3 px-2 text-slate-700">{w.visits ?? '—'}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </SectionShell>
+    <section id="warranties" className="scroll-mt-24">
+      <SmartTable<any>
+        title="الكفالات"
+        subtitle="حالة كل كفالة وتاريخ سريانها ومدتها"
+        icon={Award}
+        data={warranties ?? []}
+        columns={columns}
+        getId={w => w.id}
+        hideFilterBar
+        tableMinWidth={680}
+        headerActions={action}
+        emptyIcon={Award}
+        emptyMessage="لا توجد سجلات كفالة لهذا الجهاز."
+      />
+    </section>
   );
 }
 

@@ -9,6 +9,7 @@ import SmartTable from '../components/SmartTable';
 import type { ColumnDef } from '../components/SmartTable';
 import Select from '../components/ui/Select';
 import IconButton from '../components/ui/IconButton';
+import Modal from '../components/ui/Modal';
 import PageHeader from '../components/ui/PageHeader';
 import { usePermissions } from '../hooks/usePermissions';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
@@ -334,19 +335,22 @@ export default function GeoSettings() {
             </AnimatePresence>
 
             {/* ============ Edit Modal ============ */}
-            <AnimatePresence>
-                {editUnit && canManageGeo && (
-                    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-                        <motion.div
-                            initial={{ opacity: 0, scale: 0.95 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            exit={{ opacity: 0, scale: 0.95 }}
-                            className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden"
-                        >
-                            <div className="p-5 border-b border-slate-100 flex justify-between items-center">
-                                <h2 className="text-lg font-bold text-slate-800">تعديل {levelNames[editUnit.level]}</h2>
-                                <IconButton icon={X} label="إغلاق" onClick={() => setEditUnit(null)} />
-                            </div>
+            <Modal
+                isOpen={!!editUnit && canManageGeo}
+                onClose={() => setEditUnit(null)}
+                size="sm"
+                title={editUnit ? `تعديل ${levelNames[editUnit.level]}` : ''}
+                footer={
+                    <div className="w-full flex gap-3">
+                        <button onClick={() => setEditUnit(null)} className="flex-1 px-4 py-2.5 border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 font-medium text-sm transition-colors">
+                            إلغاء
+                        </button>
+                        <button onClick={handleEdit} className="flex-1 px-4 py-2.5 bg-sky-600 text-white rounded-lg hover:bg-sky-500 font-bold text-sm transition-colors">
+                            حفظ التعديل
+                        </button>
+                    </div>
+                }
+            >
                             <div className="p-5 space-y-4">
                                 <div>
                                     <label className="block text-sm font-medium text-slate-700 mb-1.5">الاسم الجديد <span className="text-red-500">*</span></label>
@@ -366,35 +370,26 @@ export default function GeoSettings() {
                                     </div>
                                 )}
                             </div>
-                            <div className="p-5 border-t border-slate-100 flex gap-3">
-                                <button onClick={() => setEditUnit(null)} className="flex-1 px-4 py-2.5 border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 font-medium text-sm transition-colors">
-                                    إلغاء
-                                </button>
-                                <button onClick={handleEdit} className="flex-1 px-4 py-2.5 bg-sky-600 text-white rounded-lg hover:bg-sky-500 font-bold text-sm transition-colors">
-                                    حفظ التعديل
-                                </button>
-                            </div>
-                        </motion.div>
-                    </div>
-                )}
-            </AnimatePresence>
+            </Modal>
 
             {/* ============ Add Modal ============ */}
-            <AnimatePresence>
-                {isModalOpen && canManageGeo && (
-                    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-                        <motion.div
-                            initial={{ opacity: 0, scale: 0.95 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            exit={{ opacity: 0, scale: 0.95 }}
-                            className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden"
-                        >
-                            {/* Modal Header */}
-                            <div className="p-5 border-b border-slate-100 flex justify-between items-center">
-                                <h2 className="text-lg font-bold text-slate-800">إضافة {levelNames[activeTab]}</h2>
-                                <IconButton icon={X} label="إغلاق" onClick={() => setIsModalOpen(false)} />
-                            </div>
-
+            <Modal
+                isOpen={isModalOpen && canManageGeo}
+                onClose={() => setIsModalOpen(false)}
+                size="md"
+                title={`إضافة ${levelNames[activeTab]}`}
+                footer={
+                    <div className="w-full flex gap-3">
+                        <button onClick={() => setIsModalOpen(false)} className="flex-1 px-4 py-2.5 border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 font-medium text-sm transition-colors">
+                            إلغاء
+                        </button>
+                        <button onClick={handleAdd} className="flex-1 px-4 py-2.5 bg-sky-600 text-white rounded-lg hover:bg-sky-500 font-bold text-sm transition-colors flex items-center justify-center gap-2">
+                            <Plus className="w-4 h-4" />
+                            <span>إضافة</span>
+                        </button>
+                    </div>
+                }
+            >
                             {/* Modal Body */}
                             <div className="p-5 space-y-4">
                                 {/* Cascading Dropdowns */}
@@ -462,21 +457,7 @@ export default function GeoSettings() {
                                     </div>
                                 )}
                             </div>
-
-                            {/* Modal Footer */}
-                            <div className="p-5 border-t border-slate-100 flex gap-3">
-                                <button onClick={() => setIsModalOpen(false)} className="flex-1 px-4 py-2.5 border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 font-medium text-sm transition-colors">
-                                    إلغاء
-                                </button>
-                                <button onClick={handleAdd} className="flex-1 px-4 py-2.5 bg-sky-600 text-white rounded-lg hover:bg-sky-500 font-bold text-sm transition-colors flex items-center justify-center gap-2">
-                                    <Plus className="w-4 h-4" />
-                                    <span>إضافة</span>
-                                </button>
-                            </div>
-                        </motion.div>
-                    </div>
-                )}
-            </AnimatePresence>
+            </Modal>
         </div>
     );
 }

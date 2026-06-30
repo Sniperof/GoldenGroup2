@@ -31,6 +31,7 @@ import { VisitsTab } from './ClientProfile';
 import ClientModal from '../components/ClientModal';
 import Select from '../components/ui/Select';
 import Button from '../components/ui/Button';
+import Modal from '../components/ui/Modal';
 import type { DaySchedule, Contract, Visit, TaskListItem, Appointment, CustomerOwnership, ContactEntry, Client } from '../lib/types';
 import type { TelemarketingOutcomeCode, GeoUnit } from '@golden-crm/shared';
 import { OUTCOME_MAP, getOutcomeMeta, normaliseOutcomeCode, PHONE_STATUS_TO_CONTACT_ENTRY } from '@golden-crm/shared';
@@ -1330,7 +1331,7 @@ export default function TelemarketerWorkspace() {
                     {/* Queue header */}
                     <div className="sticky top-0 z-10 px-4 py-2.5 border-b border-slate-100 flex items-center justify-between bg-white shrink-0">
                         <h2 className="text-sm font-bold text-slate-800">قائمة الزبائن</h2>
-                        <span className="px-2 py-0.5 rounded-lg text-[11px] font-bold bg-violet-100 text-violet-700 border border-violet-200">{inListCount} ضمن القائمة</span>
+                        <span className="px-2 py-0.5 rounded-lg text-xs font-bold bg-violet-100 text-violet-700 border border-violet-200">{inListCount} ضمن القائمة</span>
                     </div>
 
                     {/* Customer list */}
@@ -1653,7 +1654,7 @@ export default function TelemarketerWorkspace() {
                                     </div>
                                     <div className="text-right overflow-hidden">
                                         <p className={`font-black text-xs leading-tight truncate ${isCtClosedForSelected ? 'text-slate-500' : 'text-white'}`}>{isCtClosedForSelected ? 'جهة الاتصال مغلقة' : 'تسجيل نتيجة التواصل'}</p>
-                                        <p className={`text-[9px] font-bold opacity-70 truncate ${isCtClosedForSelected ? 'text-slate-400' : 'text-violet-100'}`}>{isCtClosedForSelected ? 'لا يمكن تسجيل نتيجة' : 'تحديث الحالة'}</p>
+                                        <p className={`text-xs font-bold opacity-70 truncate ${isCtClosedForSelected ? 'text-slate-400' : 'text-violet-100'}`}>{isCtClosedForSelected ? 'لا يمكن تسجيل نتيجة' : 'تحديث الحالة'}</p>
                                     </div>
                                 </button>
 
@@ -1663,7 +1664,7 @@ export default function TelemarketerWorkspace() {
                                         <Calendar className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                                         <div className="text-right">
                                             <p className="font-black text-xs text-emerald-700 leading-tight">موعد مؤكد</p>
-                                            <p className="text-[9px] font-bold text-emerald-500" dir="ltr">{selectedAppointment.date} {selectedAppointment.timeSlot}</p>
+                                            <p className="text-xs font-bold text-emerald-500" dir="ltr">{selectedAppointment.date} {selectedAppointment.timeSlot}</p>
                                         </div>
                                     </div>
                                 )}
@@ -1673,7 +1674,7 @@ export default function TelemarketerWorkspace() {
                                         <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                                         <div className="text-right">
                                             <p className="font-black text-xs leading-tight">محجوزة</p>
-                                            <p className="text-[9px] font-bold">{selectedCustomer.lockedByHrUserName || 'تيلماركتر آخر'}</p>
+                                            <p className="text-xs font-bold">{selectedCustomer.lockedByHrUserName || 'تيلماركتر آخر'}</p>
                                         </div>
                                     </div>
                                 )}
@@ -1708,17 +1709,23 @@ export default function TelemarketerWorkspace() {
                             </div>
 
                             {/* Manual close modal */}
-                            {isManualCloseOpen && (
-                                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-                                    onClick={e => { if (e.target === e.currentTarget) { setIsManualCloseOpen(false); setManualCloseReason(''); } }}>
-                                    <div className="w-full max-w-sm rounded-2xl bg-white shadow-2xl">
-                                        <div className="flex items-start justify-between border-b border-slate-100 px-5 py-4">
-                                            <div>
-                                                <h3 className="font-bold text-slate-800">إغلاق جهة الاتصال</h3>
-                                                <p className="text-xs text-slate-500 mt-0.5">تعود المهمة إلى مرحلة قيد الانتظار</p>
-                                            </div>
-                                            <IconButton icon={X} label="إغلاق" size="sm" onClick={() => { setIsManualCloseOpen(false); setManualCloseReason(''); }} />
-                                        </div>
+                            <Modal
+                                isOpen={isManualCloseOpen}
+                                onClose={() => { setIsManualCloseOpen(false); setManualCloseReason(''); }}
+                                size="sm"
+                                title="إغلاق جهة الاتصال"
+                                subtitle="تعود المهمة إلى مرحلة قيد الانتظار"
+                                footer={
+                                    <div className="w-full flex gap-3">
+                                        <Button variant="secondary" onClick={() => { setIsManualCloseOpen(false); setManualCloseReason(''); }} className="flex-1">
+                                            إلغاء
+                                        </Button>
+                                        <Button variant="danger" loading={manualCloseSaving} onClick={handleManualClose} className="flex-1">
+                                            إغلاق وإعادة للانتظار
+                                        </Button>
+                                    </div>
+                                }
+                            >
                                         <div className="px-5 py-4">
                                             <label className="block text-xs font-bold text-slate-600 mb-1">سبب الإغلاق (اختياري)</label>
                                             <Select<string>
@@ -1731,22 +1738,7 @@ export default function TelemarketerWorkspace() {
                                                 className="w-full"
                                             />
                                         </div>
-                                        <div className="flex gap-3 border-t border-slate-100 px-5 py-4">
-                                            <Button variant="secondary" onClick={() => { setIsManualCloseOpen(false); setManualCloseReason(''); }} className="flex-1">
-                                                إلغاء
-                                            </Button>
-                                            <Button
-                                                variant="danger"
-                                                loading={manualCloseSaving}
-                                                onClick={handleManualClose}
-                                                className="flex-1"
-                                            >
-                                                إغلاق وإعادة للانتظار
-                                            </Button>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
+                            </Modal>
                         </>
                     ) : (
                         <div className="flex-1 flex items-center justify-center flex-col text-slate-400 bg-slate-50 relative overflow-hidden">
@@ -1848,25 +1840,16 @@ export default function TelemarketerWorkspace() {
             />
 
             {/* Step-1 Contact Picker Modal — user selects which number to call */}
-            {isContactPickerOpen && selectedCustomer && entityDetails && (
-                <div
-                    className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-4"
-                    dir="rtl"
-                    onClick={e => { if (e.target === e.currentTarget) setIsContactPickerOpen(false); }}
-                >
-                    <div className="w-full max-w-sm rounded-2xl bg-white shadow-2xl overflow-hidden">
-                        {/* Header */}
-                        <div className="flex items-start justify-between px-5 py-4 border-b border-slate-100 bg-violet-50">
-                            <div>
-                                <h3 className="font-bold text-slate-800 text-base">اختر رقم التواصل</h3>
-                                <p className="text-xs text-slate-500 mt-0.5">{selectedCustomer.name}</p>
-                            </div>
-                            <IconButton icon={X} label="إغلاق" size="sm" onClick={() => setIsContactPickerOpen(false)} />
-                        </div>
-
+            <Modal
+                isOpen={isContactPickerOpen && !!selectedCustomer && !!entityDetails}
+                onClose={() => setIsContactPickerOpen(false)}
+                size="sm"
+                title="اختر رقم التواصل"
+                subtitle={selectedCustomer?.name}
+            >
                         {/* Contact list */}
                         <div className="p-3 space-y-2">
-                            {getEntityContacts(entityDetails as any).map(contact => (
+                            {entityDetails && getEntityContacts(entityDetails as any).map(contact => (
                                 <button
                                     key={contact.id}
                                     type="button"
@@ -1898,25 +1881,26 @@ export default function TelemarketerWorkspace() {
                                 </button>
                             ))}
                         </div>
-                    </div>
-                </div>
-            )}
+            </Modal>
 
             {/* Service Task Creation Modal — step-2 after service_request outcome */}
-            {isServiceTaskOpen && selectedCustomer && (
-                <div
-                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
-                    dir="rtl"
-                    onClick={e => { if (e.target === e.currentTarget) setIsServiceTaskOpen(false); }}
-                >
-                    <div className="w-full max-w-sm rounded-2xl bg-white shadow-2xl overflow-hidden">
-                        <div className="flex items-start justify-between px-5 py-4 border-b border-slate-100 bg-indigo-50">
-                            <div>
-                                <h3 className="font-bold text-slate-800">إنشاء مهمة خدمة</h3>
-                                <p className="text-xs text-slate-500 mt-0.5">{selectedCustomer.name}</p>
-                            </div>
-                            <IconButton icon={X} label="إغلاق" size="sm" onClick={() => setIsServiceTaskOpen(false)} />
-                        </div>
+            <Modal
+                isOpen={isServiceTaskOpen && !!selectedCustomer}
+                onClose={() => setIsServiceTaskOpen(false)}
+                size="sm"
+                title="إنشاء مهمة خدمة"
+                subtitle={selectedCustomer?.name}
+                footer={
+                    <div className="w-full flex gap-3">
+                        <Button variant="secondary" onClick={() => setIsServiceTaskOpen(false)} className="flex-1">
+                            تخطي
+                        </Button>
+                        <Button loading={serviceTaskSaving} onClick={handleCreateServiceTask} className="flex-1 bg-indigo-600 hover:bg-indigo-500">
+                            إنشاء المهمة
+                        </Button>
+                    </div>
+                }
+            >
                         <div className="px-5 py-4 space-y-3">
                             {/* Task type — pre-filled, read-only display */}
                             <div>
@@ -1952,17 +1936,7 @@ export default function TelemarketerWorkspace() {
                                 </div>
                             </div>
                         </div>
-                        <div className="flex gap-3 border-t border-slate-100 px-5 py-4">
-                            <Button variant="secondary" onClick={() => setIsServiceTaskOpen(false)} className="flex-1">
-                                تخطي
-                            </Button>
-                            <Button loading={serviceTaskSaving} onClick={handleCreateServiceTask} className="flex-1 bg-indigo-600 hover:bg-indigo-500">
-                                إنشاء المهمة
-                            </Button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            </Modal>
 
             {/* Modals */}
             <OutcomeRecorderModal

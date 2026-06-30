@@ -29,9 +29,9 @@ export default function TeamAgendaPanel({ appointments, date }: TeamAgendaPanelP
                         <Calendar className="w-3.5 h-3.5 text-emerald-600" />
                         <span>مواعيد الفريق</span>
                     </h2>
-                    <p className="text-[10px] text-slate-500 mt-1 mr-5">جدول زيارات الخطة: {date}</p>
+                    <p className="text-xs text-slate-500 mt-1 mr-5">جدول زيارات الخطة: {date}</p>
                 </div>
-                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md px-2 py-0.5">
+                <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md px-2 py-0.5">
                     {sortedAppointments.length} موعد
                 </span>
             </div>
@@ -41,7 +41,7 @@ export default function TeamAgendaPanel({ appointments, date }: TeamAgendaPanelP
                 {sortedAppointments.length === 0 ? (
                     <div className="h-full flex flex-col items-center justify-center text-center px-4 py-8">
                         <CalendarOff className="w-8 h-8 text-slate-300 mb-2" />
-                        <p className="text-[11px] font-bold text-slate-400">لا توجد مواعيد محجوزة لهذا الفريق بعد</p>
+                        <p className="text-xs font-bold text-slate-400">لا توجد مواعيد محجوزة لهذا الفريق بعد</p>
                     </div>
                 ) : (
                     <div className="relative space-y-2 pr-1">
@@ -60,7 +60,7 @@ export default function TeamAgendaPanel({ appointments, date }: TeamAgendaPanelP
                                     >
                                         {/* Time rail */}
                                         <div className="flex flex-col items-center w-[30px] shrink-0 pt-1.5">
-                                            <span className="text-[10px] font-mono font-bold text-emerald-700" dir="ltr">{time}</span>
+                                            <span className="text-xs font-mono font-bold text-emerald-700" dir="ltr">{time}</span>
                                             <span className="mt-1 w-2 h-2 rounded-full bg-emerald-400 border-2 border-emerald-50 z-10" />
                                         </div>
 
@@ -71,12 +71,12 @@ export default function TeamAgendaPanel({ appointments, date }: TeamAgendaPanelP
                                                 <User className="w-3 h-3 text-emerald-600 shrink-0" />
                                                 <p className="text-xs font-bold text-slate-800 truncate">{app.customerName}</p>
                                             </div>
-                                            <div className="flex items-start gap-1.5 text-[10px] text-slate-600">
+                                            <div className="flex items-start gap-1.5 text-xs text-slate-600">
                                                 <MapPin className="w-3 h-3 text-slate-400 shrink-0 mt-0.5" />
                                                 <p className="leading-tight">{app.customerAddress}</p>
                                             </div>
                                             {app.occupation && (
-                                                <p className="text-[9px] text-slate-500 mt-1.5 bg-slate-50 inline-block px-1.5 py-0.5 rounded border border-slate-100 mr-4">
+                                                <p className="text-xs text-slate-500 mt-1.5 bg-slate-50 inline-block px-1.5 py-0.5 rounded border border-slate-100 mr-4">
                                                     المهنة: {app.occupation}
                                                 </p>
                                             )}

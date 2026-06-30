@@ -329,7 +329,7 @@ export default function ManualSearchModal({
                                     <div>
                                         <div className="flex items-center gap-2 mb-1">
                                             <span className="font-bold text-slate-800">{matchResult.client.name}</span>
-                                            <span className="text-[9px] px-1.5 py-0.5 rounded font-black bg-sky-50 text-sky-600 border border-sky-100">
+                                            <span className="text-xs px-1.5 py-0.5 rounded font-black bg-sky-50 text-sky-600 border border-sky-100">
                                                 زبون موجود
                                             </span>
                                         </div>

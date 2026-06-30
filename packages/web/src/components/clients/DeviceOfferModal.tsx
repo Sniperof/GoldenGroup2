@@ -4,6 +4,7 @@ import { api } from '../../lib/api';
 import type { Client, DeviceDiscount, DeviceModel, SystemList } from '../../lib/types';
 import Select from '../ui/Select';
 import Modal from '../ui/Modal';
+import DateField from '../ui/DateField';
 
 type PreOfferDraft = {
   deviceModelId: string;
@@ -932,7 +933,7 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-bold text-slate-700">تاريخ مستحق <span className="text-red-500">*</span></label>
-                  <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)}
+                  <DateField value={dueDate} onChange={setDueDate}
                     className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm" />
                 </div>
                 <div className="space-y-2">

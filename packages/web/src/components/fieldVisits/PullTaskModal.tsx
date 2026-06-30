@@ -136,13 +136,13 @@ export default function PullTaskModal({
                       </p>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
-                      <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${st.cls}`}>{st.label}</span>
-                      {pr && <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${pr.cls}`}>{pr.label}</span>}
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${st.cls}`}>{st.label}</span>
+                      {pr && <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${pr.cls}`}>{pr.label}</span>}
                     </div>
                   </div>
 
                   {/* Context chips */}
-                  <div className="mt-2.5 flex flex-wrap gap-1.5 text-[11px] font-semibold text-slate-600">
+                  <div className="mt-2.5 flex flex-wrap gap-1.5 text-xs font-semibold text-slate-600">
                     {t.contractNumber && (
                       <span className="inline-flex items-center gap-1 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded">
                         <FileText className="w-3 h-3 text-slate-400" /> عقد {t.contractNumber}
@@ -177,7 +177,7 @@ export default function PullTaskModal({
 
                   {/* Meta + action */}
                   <div className="mt-3 flex items-center justify-between gap-3 flex-wrap">
-                    <div className="flex items-center gap-3 text-[11px] text-slate-400">
+                    <div className="flex items-center gap-3 text-xs text-slate-400">
                       <span className="inline-flex items-center gap-1">
                         <Calendar className="w-3 h-3" /> أُنشئت {fmtDate(t.createdAt)}
                       </span>

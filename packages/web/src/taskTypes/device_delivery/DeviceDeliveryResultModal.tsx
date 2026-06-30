@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, CalendarClock, CheckCircle2, Clock, Loader2, MapPin, PackageX, Truck, X } from 'lucide-react';
-import IconButton from '../../components/ui/IconButton';
+import { AlertCircle, CalendarClock, CheckCircle2, Clock, Loader2, MapPin, PackageX, Truck } from 'lucide-react';
+import Modal from '../../components/ui/Modal';
 import Select from '../../components/ui/Select';
+import DateField from '../../components/ui/DateField';
 import { api } from '../../lib/api';
 import GeoSmartSearch, { formatGeoUnitLastLevels, type GeoSelection } from '../../components/GeoSmartSearch';
 import MapPicker from '../../components/MapPicker';
@@ -270,17 +271,24 @@ export default function DeviceDeliveryResultModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" dir="rtl">
-      <div className="w-full max-w-3xl rounded-xl border border-slate-200 bg-white shadow-xl">
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-          <div className="flex items-center gap-2">
-            <Truck className="h-5 w-5 text-sky-600" />
-            <h2 className="text-lg font-bold text-slate-800">تسجيل نتيجة تسليم الجهاز</h2>
-          </div>
-          <IconButton icon={X} label="إغلاق" onClick={onClose} />
-        </div>
-
-        <div className="max-h-[75vh] space-y-4 overflow-y-auto px-5 py-4">
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="3xl"
+      title={<span className="flex items-center gap-2"><Truck className="h-5 w-5 text-sky-600" />تسجيل نتيجة تسليم الجهاز</span>}
+      footer={
+        <>
+          <button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50">
+            إلغاء
+          </button>
+          <button onClick={submit} disabled={saving} className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-bold text-white hover:bg-sky-500 disabled:opacity-60">
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+            حفظ النتيجة
+          </button>
+        </>
+      }
+    >
+        <div className="space-y-4 px-5 py-4">
           {error && (
             <div className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
               <AlertCircle className="h-4 w-4" />
@@ -326,7 +334,7 @@ export default function DeviceDeliveryResultModal({
               </label>
               <label className="space-y-1.5">
                 <span className="text-xs font-bold text-slate-500">تاريخ الموعد القادم</span>
-                <input type="date" value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
+                <DateField value={expectedDate} onChange={setExpectedDate} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
               </label>
               <label className="space-y-1.5">
                 <span className="text-xs font-bold text-slate-500">وقت الموعد القادم</span>
@@ -395,7 +403,7 @@ export default function DeviceDeliveryResultModal({
                 <div className="space-y-4">
                   <label className="block space-y-1.5">
                     <span className="text-xs font-bold text-slate-500">تاريخ التركيب المطلوب</span>
-                    <input type="date" value={installationRequiredDate} onChange={(e) => setInstallationRequiredDate(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
+                    <DateField value={installationRequiredDate} onChange={setInstallationRequiredDate} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
                   </label>
                   <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
                     <input type="checkbox" checked={installationSameAddress} onChange={(e) => setInstallationSameAddress(e.target.checked)} />
@@ -427,17 +435,6 @@ export default function DeviceDeliveryResultModal({
             <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm" />
           </label>
         </div>
-
-        <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
-          <button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50">
-            إلغاء
-          </button>
-          <button onClick={submit} disabled={saving} className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-bold text-white hover:bg-sky-500 disabled:opacity-60">
-            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-            حفظ النتيجة
-          </button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

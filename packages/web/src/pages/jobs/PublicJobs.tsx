@@ -884,8 +884,8 @@ export default function PublicJobs() {
                   )}
                 </div>
                 <div className="flex gap-4 w-full md:w-auto">
-                  <Button variant="secondary" size="lg" onClick={() => setSelectedVacancy(null)} className="flex-1 md:flex-none">إلغاء</Button>
-                  <Button variant="primary" size="lg" icon={Send} loading={submitting} onClick={handleSubmit} className="flex-1 md:flex-none">
+                  <Button variant="secondary" size="md" onClick={() => setSelectedVacancy(null)} className="flex-1 md:flex-none">إلغاء</Button>
+                  <Button variant="primary" size="md" icon={Send} loading={submitting} onClick={handleSubmit} className="flex-1 md:flex-none">
                     {submitting ? 'جاري المعالجة...' : 'حفظ وتسجيل الطلب'}
                   </Button>
                 </div>

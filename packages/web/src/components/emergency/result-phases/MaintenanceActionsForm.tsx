@@ -261,7 +261,7 @@ function PartDraftForm({ draft, allParts, maintenanceKind, activeWarranty, noRet
             onChange={e => set('unitPrice', e.target.value)}
             className={`${inp} text-sm`} />
           {coveredByWarranty && (
-            <p className="text-[10px] font-bold text-sky-600">صفر افتراضياً ضمن الكفالة</p>
+            <p className="text-xs font-bold text-sky-600">صفر افتراضياً ضمن الكفالة</p>
           )}
         </div>
         <div className="space-y-1">

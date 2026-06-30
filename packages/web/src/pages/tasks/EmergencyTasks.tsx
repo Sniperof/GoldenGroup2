@@ -236,7 +236,6 @@ export default function EmergencyTasks() {
       {!loading && (
         <SmartTable<OpenTask>
           title="طوارئ الصيانة"
-          titlePlacement="page"
           icon={ShieldAlert}
           data={emergencyTasks}
           columns={columns}

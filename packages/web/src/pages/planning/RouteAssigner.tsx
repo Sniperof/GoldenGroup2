@@ -1,11 +1,12 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Calendar, Users, Save, Plus, MapPin, Route as RouteIcon, ListOrdered, X, ArrowRight, ArrowLeft, Loader2, GripVertical, RefreshCw } from 'lucide-react';
+import { Users, Save, Plus, MapPin, Route as RouteIcon, ListOrdered, X, ArrowRight, ArrowLeft, Loader2, GripVertical, RefreshCw } from 'lucide-react';
 import { api } from '../../lib/api';
 import PageHeader from '../../components/ui/PageHeader';
 import { useBranchContextStore } from '../../hooks/useBranchContextStore';
 import GeoSmartSearch, { type GeoSelection } from '../../components/GeoSmartSearch';
 import Select from '../../components/ui/Select';
+import DateField from '../../components/ui/DateField';
 import IconButton from '../../components/ui/IconButton';
 import { levelNames } from '../../lib/geoConstants';
 import type { Route, GeoUnit, DaySchedule, RouteComposition, RouteAssignmentData } from '../../lib/types';
@@ -466,10 +467,7 @@ export default function RouteAssigner() {
 
             {/* Context Bar */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6 flex items-center gap-4 flex-wrap">
-                <div className="flex items-center gap-2">
-                    <Calendar className="w-4 h-4 text-sky-600" />
-                    <input type="date" value={date} onChange={e => onDateChange(e.target.value)} className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 focus:outline-none" />
-                </div>
+                <DateField value={date} onChange={onDateChange} className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 focus:outline-none" />
                 <div className="h-8 w-px bg-slate-200" />
                 <div className="flex items-center gap-2">
                     <Users className="w-4 h-4 text-sky-600" />

@@ -9,6 +9,7 @@ import GeoSmartSearch from './GeoSmartSearch';
 import type { GeoSelection } from './GeoSmartSearch';
 import Select from './ui/Select';
 import Modal from './ui/Modal';
+import DateField from './ui/DateField';
 import { useCandidateStore } from '../hooks/useCandidateStore';
 import { api } from '../lib/api';
 import { useAuthStore } from '../hooks/useAuthStore';
@@ -1447,10 +1448,9 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                         </div>
                                         <div className="space-y-1">
                                             <label className="text-xs font-semibold text-slate-500">تاريخ الميلاد</label>
-                                            <input
-                                                type="date"
+                                            <DateField
                                                 value={birthDate}
-                                                onChange={e => setBirthDate(e.target.value)}
+                                                onChange={setBirthDate}
                                                 className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none"
                                             />
                                         </div>
@@ -1515,7 +1515,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                         </div>
                                         <div className="space-y-1">
                                             <label className="text-xs font-semibold text-slate-500">تاريخ منح الهوية</label>
-                                            <input type="date" value={nationalIdIssueDate} onChange={e => setNationalIdIssueDate(e.target.value)}
+                                            <DateField value={nationalIdIssueDate} onChange={setNationalIdIssueDate}
                                                 className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none" />
                                         </div>
                                     </div>

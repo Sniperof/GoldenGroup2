@@ -150,7 +150,6 @@ export default function Users() {
             columns={columns}
             getId={(u) => u.id}
             hideFilterBar
-            paginated={false}
             defaultSortKey="name"
             defaultSortDir="asc"
             emptyIcon={User}

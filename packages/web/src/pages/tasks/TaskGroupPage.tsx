@@ -539,7 +539,7 @@ export default function TaskGroupPage() {
               {(OPEN_TASK_STATUS_LABELS as Record<string, string>)[row.taskStatus] || row.taskStatus}
             </span>
             {supersessionLabel && (
-              <span className="inline-flex items-center rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-700">
+              <span className="inline-flex items-center rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-bold text-emerald-700">
                 {supersessionLabel}
               </span>
             )}
@@ -744,7 +744,6 @@ export default function TaskGroupPage() {
           columns={columns}
           getId={(row) => row.id}
           hideFilterBar
-          paginated={false}
           tableMinWidth={2200}
           emptyIcon={Icon}
           emptyMessage="لا توجد مهام"

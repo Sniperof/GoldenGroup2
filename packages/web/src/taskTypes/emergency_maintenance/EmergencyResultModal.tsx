@@ -10,8 +10,8 @@
 //                       → same endpoint, open_task = cancelled
 // ============================================================
 import { useState, useEffect } from 'react';
-import { X, Wrench, CalendarClock, XCircle, ChevronLeft, Loader2 } from 'lucide-react';
-import IconButton from '../../components/ui/IconButton';
+import { Wrench, CalendarClock, XCircle, ChevronLeft, Loader2 } from 'lucide-react';
+import Modal from '../../components/ui/Modal';
 import Select from '../../components/ui/Select';
 import Button from '../../components/ui/Button';
 import { api } from '../../lib/api';
@@ -54,29 +54,30 @@ export default function EmergencyResultModal({
   const maintenanceLabel = maintenanceKind === 'periodic' ? 'الصيانة الدورية' : 'الصيانة الطارئة';
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[80]" dir="rtl">
-      <div className="bg-white rounded-lg shadow-2xl w-full max-w-5xl mx-4 max-h-[94vh] overflow-hidden flex flex-col">
-        <header className="flex items-center justify-between p-4 border-b border-slate-200 bg-white sticky top-0 z-10">
-          <div className="flex items-center gap-2">
-            {mode !== 'choose' && mode !== 'apply' && (
-              <button
-                onClick={() => setMode('choose')}
-                className="text-slate-500 hover:text-slate-700 inline-flex items-center gap-1 text-sm"
-              >
-                <ChevronLeft className="h-4 w-4" /> رجوع
-              </button>
-            )}
-            <h2 className="text-lg font-bold text-slate-800">
-              {mode === 'choose'     && `نتيجة ${maintenanceLabel} — مهمة #${taskId}`}
-              {mode === 'apply'      && `تطبيق الصيانة — مهمة #${taskId}`}
-              {mode === 'reschedule' && `إعادة جَدولة المهمة #${taskId}`}
-              {mode === 'cancel'     && `إلغاء المهمة #${taskId}`}
-            </h2>
-          </div>
-          <IconButton icon={X} label="إغلاق" onClick={close} />
-        </header>
-
-        <div className="overflow-auto p-4">
+    <Modal
+      isOpen
+      onClose={close}
+      size="5xl"
+      title={
+        <span className="flex items-center gap-2">
+          {mode !== 'choose' && mode !== 'apply' && (
+            <button
+              onClick={() => setMode('choose')}
+              className="text-slate-500 hover:text-slate-700 inline-flex items-center gap-1 text-sm"
+            >
+              <ChevronLeft className="h-4 w-4" /> رجوع
+            </button>
+          )}
+          <span>
+            {mode === 'choose'     && `نتيجة ${maintenanceLabel} — مهمة #${taskId}`}
+            {mode === 'apply'      && `تطبيق الصيانة — مهمة #${taskId}`}
+            {mode === 'reschedule' && `إعادة جَدولة المهمة #${taskId}`}
+            {mode === 'cancel'     && `إلغاء المهمة #${taskId}`}
+          </span>
+        </span>
+      }
+    >
+        <div className="p-4">
           {mode === 'choose' && <ChooserScreen maintenanceKind={maintenanceKind} onPick={setMode} />}
 
           {mode === 'apply' && (
@@ -111,8 +112,7 @@ export default function EmergencyResultModal({
             />
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 

@@ -10,9 +10,9 @@ import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import BranchScopeIndicator from '../components/BranchScopeIndicator';
 import Select from '../components/ui/Select';
 import PageHeader from '../components/ui/PageHeader';
-import IconButton from '../components/ui/IconButton';
+import Modal from '../components/ui/Modal';
 import {
-  Building2, Plus, Edit, Trash2, X,
+  Building2, Plus, Edit, Trash2,
   Layers, Cpu, Users, StickyNote, CheckSquare, Square,
 } from 'lucide-react';
 
@@ -312,20 +312,18 @@ export default function Departments() {
       />
 
       {/* ── Modal ── */}
-      {isModalOpen && canEditDepartmentModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
-
-            {/* Modal header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/60 flex-shrink-0">
-              <h3 className="font-bold text-base text-slate-800 flex items-center gap-2">
-                <Layers className="w-5 h-5 text-sky-500" />
-                {editingDept ? 'تعديل القسم' : 'إضافة قسم جديد'}
-              </h3>
-              <IconButton icon={X} label="إغلاق" onClick={closeModal} />
-            </div>
-
-            <form onSubmit={handleSave} className="overflow-y-auto flex-1">
+      <Modal
+        isOpen={isModalOpen && canEditDepartmentModal}
+        onClose={closeModal}
+        size="lg"
+        title={
+          <span className="flex items-center gap-2">
+            <Layers className="w-5 h-5 text-sky-500" />
+            {editingDept ? 'تعديل القسم' : 'إضافة قسم جديد'}
+          </span>
+        }
+      >
+            <form onSubmit={handleSave}>
               <div className="p-6 space-y-5">
 
                 {/* Name */}
@@ -446,9 +444,7 @@ export default function Departments() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+      </Modal>
     </div>
   );
 }

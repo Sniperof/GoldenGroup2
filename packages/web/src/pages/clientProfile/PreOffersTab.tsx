@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import { Loader2, Sparkles, ExternalLink, BadgeDollarSign, Calendar, User, Tag, Plus } from 'lucide-react';
 
 import { api } from '../../lib/api';
+import SmartTable, { type ColumnDef } from '../../components/SmartTable';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { OutcomeChip, type PreOfferOutcomeState } from '../../components/preOffers/OutcomeChip';
 import DeviceOfferModal from '../../components/clients/DeviceOfferModal';
@@ -216,6 +217,68 @@ export function PreOffersTab({ client }: Props) {
 
   const s = data.summary;
 
+  // Columns mirror the original raw table 1:1 (design-only migration to <SmartTable>).
+  const columns: ColumnDef<Entry>[] = [
+    {
+      key: 'device', label: 'الجهاز المُقترح',
+      render: e => (
+        <div>
+          <div className="text-sm font-bold text-slate-800">{e.deviceModelName ?? '—'}</div>
+          {e.quantity > 1 && <div className="text-xs text-slate-400 mt-0.5">× {e.quantity}</div>}
+        </div>
+      ),
+    },
+    {
+      key: 'offerType', label: 'نوع الدفع',
+      render: e => (
+        <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${e.offerType === 'cash' ? 'bg-sky-50 text-sky-700' : 'bg-violet-50 text-violet-700'}`}>
+          {e.offerType === 'cash' ? 'نقدي' : 'أقساط'}
+        </span>
+      ),
+    },
+    { key: 'totalAmount', label: 'المبلغ الكلي', render: e => <span className="font-mono text-sm text-slate-700">{fmtMoney(e.totalAmount, e.currency)}</span> },
+    {
+      key: 'installment', label: 'تفاصيل القسط',
+      render: e => e.offerType === 'installment' && e.installmentMonths
+        ? <span className="text-xs text-slate-600">أول دفعة {fmtMoney(e.firstPaymentAmount, e.currency)} · {e.installmentMonths} شهر</span>
+        : <span className="text-sm text-slate-400">—</span>,
+    },
+    {
+      key: 'discount', label: 'الحسم',
+      render: e => e.discountPercentage && e.discountPercentage > 0
+        ? <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-50 text-amber-700">{e.discountPercentage}%</span>
+        : <span className="text-sm text-slate-400">—</span>,
+    },
+    {
+      key: 'closedBy', label: 'موظف التسكير',
+      render: e => (
+        <div className="flex items-center gap-1.5 text-sm text-slate-700">
+          <User className="w-3 h-3 text-slate-400" />
+          <span>{e.closedByEmployeeName ?? '—'}</span>
+        </div>
+      ),
+    },
+    { key: 'preparedAt', label: 'تاريخ التحضير', render: e => <span className="text-sm text-slate-600">{fmtDate(e.taskCreatedAt)}</span> },
+    {
+      key: 'outcome', label: 'النتيجة',
+      render: e => (
+        <OutcomeChip
+          state={e.outcome.state}
+          contractId={e.outcome.contractId}
+          contractNumber={e.outcome.contractNumber}
+          noClosingReason={e.noClosingReason}
+          finalDecisionCode={e.outcome.finalDecisionCode}
+        />
+      ),
+    },
+    {
+      key: 'action', label: 'الإجراء',
+      render: e => e.openTaskId
+        ? <span className="inline-flex items-center gap-1 text-sm text-sky-600 font-bold">فتح المهمة <ExternalLink className="w-3 h-3" /></span>
+        : <span className="text-sm text-slate-400">—</span>,
+    },
+  ];
+
   return (
     <div className="space-y-4 max-w-7xl">
       <header className="flex items-start justify-between gap-3">
@@ -257,95 +320,19 @@ export function PreOffersTab({ client }: Props) {
       </div>
 
       {/* Main table */}
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead className="bg-slate-50 text-slate-500 font-black sticky top-0">
-              <tr>
-                <th className="text-right py-3 px-4">الجهاز المُقترح</th>
-                <th className="text-right py-3 px-4">نوع الدفع</th>
-                <th className="text-right py-3 px-4">المبلغ الكلي</th>
-                <th className="text-right py-3 px-4">تفاصيل القسط</th>
-                <th className="text-right py-3 px-4">الحسم</th>
-                <th className="text-right py-3 px-4">موظف التسكير</th>
-                <th className="text-right py-3 px-4">تاريخ التحضير</th>
-                <th className="text-right py-3 px-4">النتيجة</th>
-                <th className="text-right py-3 px-4">الإجراء</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.length === 0 && (
-                <tr>
-                  <td colSpan={9} className="py-10 text-center text-slate-400 italic">
-                    لا عروض تطابق الفلتر الحالي.
-                  </td>
-                </tr>
-              )}
-              {filtered.map(e => (
-                <tr
-                  key={e.preOfferId ?? `standalone-${e.customerPreOfferId}`}
-                  onClick={() => e.openTaskId && navigate(`/tasks/device-demo/${e.openTaskId}`)}
-                  className={`border-t border-slate-50 transition-colors ${e.openTaskId ? 'cursor-pointer hover:bg-sky-50/40' : 'bg-slate-50/40'}`}
-                >
-                  <td className="py-3 px-4">
-                    <div className="font-bold text-slate-800">{e.deviceModelName ?? '—'}</div>
-                    {e.quantity > 1 && (
-                      <div className="text-xs text-slate-400 mt-0.5">× {e.quantity}</div>
-                    )}
-                  </td>
-                  <td className="py-3 px-4">
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-                      e.offerType === 'cash'
-                        ? 'bg-sky-50 text-sky-700'
-                        : 'bg-violet-50 text-violet-700'
-                    }`}>
-                      {e.offerType === 'cash' ? 'نقدي' : 'أقساط'}
-                    </span>
-                  </td>
-                  <td className="py-3 px-4 font-mono text-slate-700">
-                    {fmtMoney(e.totalAmount, e.currency)}
-                  </td>
-                  <td className="py-3 px-4 text-slate-600">
-                    {e.offerType === 'installment' && e.installmentMonths
-                      ? <span className="text-xs">
-                          أول دفعة {fmtMoney(e.firstPaymentAmount, e.currency)} · {e.installmentMonths} شهر
-                        </span>
-                      : <span className="text-slate-400">—</span>}
-                  </td>
-                  <td className="py-3 px-4">
-                    {e.discountPercentage && e.discountPercentage > 0 ? (
-                      <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-50 text-amber-700">
-                        {e.discountPercentage}%
-                      </span>
-                    ) : <span className="text-slate-400">—</span>}
-                  </td>
-                  <td className="py-3 px-4">
-                    <div className="flex items-center gap-1.5 text-slate-700">
-                      <User className="w-3 h-3 text-slate-400" />
-                      <span>{e.closedByEmployeeName ?? '—'}</span>
-                    </div>
-                  </td>
-                  <td className="py-3 px-4 text-slate-600">{fmtDate(e.taskCreatedAt)}</td>
-                  <td className="py-3 px-4">
-                    <OutcomeChip
-                      state={e.outcome.state}
-                      contractId={e.outcome.contractId}
-                      contractNumber={e.outcome.contractNumber}
-                      noClosingReason={e.noClosingReason}
-                      finalDecisionCode={e.outcome.finalDecisionCode}
-                    />
-                  </td>
-                  <td className="py-3 px-4">
-                    <span className="inline-flex items-center gap-1 text-sky-600 font-bold">
-                      فتح المهمة <ExternalLink className="w-3 h-3" />
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <SmartTable<Entry>
+        title="تفاصيل العروض"
+        icon={Sparkles}
+        data={filtered}
+        columns={columns}
+        getId={e => e.preOfferId ?? `standalone-${e.customerPreOfferId}`}
+        onRowClick={e => { if (e.openTaskId) navigate(`/tasks/device-demo/${e.openTaskId}`); }}
+        rowClassName={e => e.openTaskId ? '' : 'bg-slate-50/40'}
+        hideFilterBar
+        tableMinWidth={1200}
+        emptyIcon={Sparkles}
+        emptyMessage="لا عروض تطابق الفلتر الحالي."
+      />
     </div>
   );
 }

@@ -14,6 +14,7 @@ import {
 import Select from '../ui/Select';
 import Button from '../ui/Button';
 import Modal from '../ui/Modal';
+import DateField from '../ui/DateField';
 import type {
   DeviceModel,
   Employee,
@@ -1176,10 +1177,9 @@ export default function MarketingVisitOutcomeModal({
                   <label className="text-sm font-bold text-slate-700">
                     التاريخ المتوقع <span className="text-red-500">*</span>
                   </label>
-                  <input
-                    type="date"
+                  <DateField
                     value={followUpDueDate}
-                    onChange={(event) => setFollowUpDueDate(event.target.value)}
+                    onChange={setFollowUpDueDate}
                     className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"
                   />
                 </div>
@@ -1478,13 +1478,12 @@ export default function MarketingVisitOutcomeModal({
                             <label className="text-sm font-bold text-slate-700">
                               التاريخ المتوقع <span className="text-red-500">*</span>
                             </label>
-                            <input
-                              type="date"
+                            <DateField
                               value={offer.extensionDueDate ?? ''}
-                              onChange={(event) =>
+                              onChange={(v) =>
                                 updateOffer(deviceModelId, offer.id, (current) => ({
                                   ...current,
-                                  extensionDueDate: event.target.value.trim() || null,
+                                  extensionDueDate: v || null,
                                 }))
                               }
                               className="w-full rounded-xl border border-amber-100 bg-white px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100"

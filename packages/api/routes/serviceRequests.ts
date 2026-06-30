@@ -196,7 +196,7 @@ router.get('/', requirePermission('service_requests.view'), async (req, res) => 
     params.push(Number(q.beneficiaryClientId));
   }
 
-  const limit = Math.min(Number(q.limit) || 50, 200);
+  const limit = Math.min(Number(q.limit) || 50, 1000);
   const offset = Number(q.offset) || 0;
 
   const { rows } = await pool.query(

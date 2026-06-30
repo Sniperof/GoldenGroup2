@@ -566,11 +566,11 @@ export default function OutcomeRecorderModal({
                                             <div className="flex-1 min-w-0">
                                                 <p className="text-base font-black text-slate-800 leading-tight" dir="ltr">{contact.number}</p>
                                                 <div className="flex flex-wrap items-center gap-1 mt-1">
-                                                    {typeCfg && <span className="text-[10px] text-slate-500 font-bold">{typeCfg.label}</span>}
-                                                    {contact.label && <span className="text-[10px] text-slate-400">· {contact.label}</span>}
-                                                    {contact.isPrimary && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">أساسي</span>}
-                                                    {contact.hasWhatsApp && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-green-50 text-green-700 border border-green-200">واتساب</span>}
-                                                    {statusCfg && <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${statusCfg.style}`}>{statusCfg.label}</span>}
+                                                    {typeCfg && <span className="text-xs text-slate-500 font-bold">{typeCfg.label}</span>}
+                                                    {contact.label && <span className="text-xs text-slate-400">· {contact.label}</span>}
+                                                    {contact.isPrimary && <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">أساسي</span>}
+                                                    {contact.hasWhatsApp && <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-green-50 text-green-700 border border-green-200">واتساب</span>}
+                                                    {statusCfg && <span className={`text-xs font-bold px-1.5 py-0.5 rounded border ${statusCfg.style}`}>{statusCfg.label}</span>}
                                                 </div>
                                             </div>
                                             {isActive && <CheckCircle2 className="w-4 h-4 text-sky-500 shrink-0" />}

@@ -5,6 +5,7 @@ import SmartTable from '../components/SmartTable';
 import type { ColumnDef, FilterDef } from '../components/SmartTable';
 import EmployeeFormModal from '../components/employees/EmployeeFormModal';
 import BranchScopeIndicator from '../components/BranchScopeIndicator';
+import PageHeader from '../components/ui/PageHeader';
 import { usePermissions } from '../hooks/usePermissions';
 import { useAuthStore } from '../hooks/useAuthStore';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
@@ -210,10 +211,42 @@ export default function Employees() {
   }
 
   return (
-    <>
+    <div className="p-8 space-y-6">
+      {/* 1. Page Title — unified with Clients (PageHeader + titled table card). */}
+      <div className="flex items-center justify-between">
+        <PageHeader
+          title="سجلات الموظفين"
+          subtitle="إدارة وتحليل بيانات الموظفين"
+        />
+        <div className="flex items-center gap-3">
+          {/* GLOBAL branch filter moved to the unified external switcher (sidebar). */}
+          {isBranchView && (
+            <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 text-sm font-bold text-slate-600">
+              <Building2 className="h-4 w-4 shrink-0" />
+              <span className="truncate">
+                {branches.find((b) => b.id === user?.branchId)?.name ?? `الفرع #${user?.branchId ?? ''}`}
+              </span>
+            </div>
+          )}
+          {canCreateEmployees && (
+            <button
+              disabled={mustPickBranch}
+              title={mustPickBranch ? 'اختر فرعاً أولاً لإضافة موظف' : undefined}
+              onClick={() => {
+                setCreateError('');
+                setShowCreateModal(true);
+              }}
+              className="inline-flex items-center gap-2 whitespace-nowrap rounded-lg bg-sky-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-sky-600 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed"
+            >
+              <Plus className="h-4 w-4" />
+              {mustPickBranch ? 'اختر فرعاً لإضافة موظف' : 'إضافة موظف'}
+            </button>
+          )}
+        </div>
+      </div>
+
       <SmartTable<Employee>
-        title="سجلات الموظفين"
-        titlePlacement="page"
+        title="جدول بيانات الموظفين"
         icon={Users}
         scopeIndicator={<BranchScopeIndicator />}
         data={employees}
@@ -222,33 +255,6 @@ export default function Employees() {
         searchKeys={['name', 'mobile', 'jobTitle', 'branch', 'departmentName', 'residence', 'residenceShort', 'employeeNumber']}
         searchPlaceholder="بحث بالاسم أو الرقم..."
         onRowClick={(employee) => navigate(`/employees/${employee.id}`)}
-        headerActions={(
-          <div className="flex items-center gap-3">
-            {/* GLOBAL branch filter moved to the unified external switcher (sidebar). */}
-            {isBranchView && (
-              <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 text-sm font-bold text-slate-600">
-                <Building2 className="h-4 w-4 shrink-0" />
-                <span className="truncate">
-                  {branches.find((b) => b.id === user?.branchId)?.name ?? `الفرع #${user?.branchId ?? ''}`}
-                </span>
-              </div>
-            )}
-            {canCreateEmployees && (
-              <button
-                disabled={mustPickBranch}
-                title={mustPickBranch ? 'اختر فرعاً أولاً لإضافة موظف' : undefined}
-                onClick={() => {
-                  setCreateError('');
-                  setShowCreateModal(true);
-                }}
-                className="inline-flex items-center gap-2 whitespace-nowrap rounded-lg bg-sky-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-sky-600 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed"
-              >
-                <Plus className="h-4 w-4" />
-                {mustPickBranch ? 'اختر فرعاً لإضافة موظف' : 'إضافة موظف'}
-              </button>
-            )}
-          </div>
-        )}
         getId={(employee) => employee.id}
         emptyIcon={Users}
         emptyMessage="لا يوجد موظفون"
@@ -271,6 +277,6 @@ export default function Employees() {
         }}
         onSubmit={handleCreateEmployee}
       />
-    </>
+    </div>
   );
 }

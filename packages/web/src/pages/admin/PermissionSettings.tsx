@@ -479,7 +479,7 @@ export default function PermissionSettings() {
                                     </svg>
                                   )}
                                 </button>
-                                <span className={`text-[9px] font-semibold md:hidden ${isChecked ? 'text-sky-600' : 'text-slate-300'}`}>
+                                <span className={`text-xs font-semibold md:hidden ${isChecked ? 'text-sky-600' : 'text-slate-300'}`}>
                                   {SCOPE_LABELS[scope]}
                                 </span>
                               </div>

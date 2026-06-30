@@ -59,7 +59,7 @@ const SORT_CHIPS: { value: QueueSortMode; label: string }[] = [
 
 function FieldLabel({ icon: Icon, children, hint }: { icon: any; children: React.ReactNode; hint?: string }) {
     return (
-        <label className="text-[11px] font-bold text-slate-600 flex items-center gap-1 mb-1">
+        <label className="text-xs font-bold text-slate-600 flex items-center gap-1 mb-1">
             <Icon className="w-3 h-3 text-slate-400" />
             {children}
             {hint && <span className="text-slate-400 font-normal">{hint}</span>}
@@ -92,7 +92,7 @@ export default function CustomerQueueFilters(props: Props) {
                 <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
                     <Filter className="w-3.5 h-3.5 text-violet-500" /> الفلاتر
                     {activeCount > 0 && (
-                        <span className="text-[10px] font-bold bg-violet-600 text-white rounded-full px-1.5 py-0.5 leading-none">{activeCount}</span>
+                        <span className="text-xs font-bold bg-violet-600 text-white rounded-full px-1.5 py-0.5 leading-none">{activeCount}</span>
                     )}
                 </span>
                 <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
@@ -102,14 +102,14 @@ export default function CustomerQueueFilters(props: Props) {
             {activeChips.length > 0 && (
                 <div className="px-2 pb-2 flex flex-wrap items-center gap-1">
                     {activeChips.map(chip => (
-                        <span key={chip.key} className="text-[11px] font-bold text-violet-700 bg-violet-50 border border-violet-100 rounded-full px-2 py-0.5 inline-flex items-center gap-1">
+                        <span key={chip.key} className="text-xs font-bold text-violet-700 bg-violet-50 border border-violet-100 rounded-full px-2 py-0.5 inline-flex items-center gap-1">
                             {chip.label}
                             <button type="button" onClick={chip.onRemove} aria-label="إزالة" className="hover:text-violet-900">
                                 <X className="w-3 h-3" />
                             </button>
                         </span>
                     ))}
-                    <button type="button" onClick={onClearAll} className="text-[11px] font-bold text-slate-400 hover:text-slate-600 mr-auto">
+                    <button type="button" onClick={onClearAll} className="text-xs font-bold text-slate-400 hover:text-slate-600 mr-auto">
                         مسح الكل
                     </button>
                 </div>
@@ -145,7 +145,7 @@ export default function CustomerQueueFilters(props: Props) {
                                 const on = classification.includes(c.value);
                                 return (
                                     <button key={c.value} type="button" onClick={() => toggleClassification(c.value)}
-                                        className={`flex-1 text-center text-[11px] font-bold py-1.5 rounded-lg border-2 transition-all ${on ? c.on : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                                        className={`flex-1 text-center text-xs font-bold py-1.5 rounded-lg border-2 transition-all ${on ? c.on : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
                                         {c.label}
                                     </button>
                                 );
@@ -160,7 +160,7 @@ export default function CustomerQueueFilters(props: Props) {
                                 const on = rating.includes(c.value);
                                 return (
                                     <button key={c.value} type="button" onClick={() => toggleRating(c.value)}
-                                        className={`flex-1 text-center text-[11px] font-bold py-1.5 rounded-lg border-2 transition-all ${on ? c.on : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                                        className={`flex-1 text-center text-xs font-bold py-1.5 rounded-lg border-2 transition-all ${on ? c.on : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
                                         {c.label}
                                     </button>
                                 );
@@ -173,7 +173,7 @@ export default function CustomerQueueFilters(props: Props) {
                         <div className="flex gap-1.5">
                             {SORT_CHIPS.map(c => (
                                 <button key={c.value} type="button" onClick={() => setSortMode(c.value)}
-                                    className={`flex-1 text-center text-[11px] font-bold py-1.5 rounded-lg border-2 transition-all ${sortMode === c.value ? 'bg-violet-600 border-violet-600 text-white' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                                    className={`flex-1 text-center text-xs font-bold py-1.5 rounded-lg border-2 transition-all ${sortMode === c.value ? 'bg-violet-600 border-violet-600 text-white' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
                                     {c.label}
                                 </button>
                             ))}

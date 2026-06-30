@@ -11,11 +11,13 @@
 // Submits via the unified recordTaskResult; warranty creation is a reflection.
 // ============================================================
 import { useEffect, useMemo, useState } from 'react';
-import { Award, CalendarClock, ChevronDown, ChevronLeft, CircleCheck, CircleX, CreditCard, Loader2, Trash2, Wrench, X } from 'lucide-react';
+import { Award, CalendarClock, ChevronDown, ChevronLeft, CircleCheck, CircleX, CreditCard, Loader2, Trash2, Wrench } from 'lucide-react';
 import { api } from '../../lib/api';
+import Modal from '../../components/ui/Modal';
 import type { TaskResultModalProps } from '../../components/tasks/types';
 import { TechnicalStateFields, buildTechnicalStatePayload, hasAnyTechnicalReading, type TechStateForm } from '../../components/devices/TechnicalStateFields';
 import Select from '../../components/ui/Select';
+import DateField from '../../components/ui/DateField';
 import WarrantyPaymentEntries, { warrantyEntrySyp, warrantyPaymentPayload, type WarrantyPaymentRow } from '../../components/warranty/WarrantyPaymentEntries';
 
 type Mode = 'activate' | 'later' | 'reject';
@@ -176,14 +178,22 @@ export default function GoldenWarrantyOfferModal({ visitId, taskId, task, onClos
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" dir="rtl">
-      <div className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-amber-200 bg-white shadow-xl">
-        <div className="flex items-center justify-between border-b border-amber-200 bg-amber-50 px-5 py-4">
-          <div className="flex items-center gap-2"><Award className="h-5 w-5 text-amber-600" /><h2 className="text-base font-black text-amber-900">نتيجة عرض الكفالة الذهبية</h2></div>
-          <button onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-white hover:text-slate-700"><X className="h-5 w-5" /></button>
-        </div>
-
-        <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="3xl"
+      title={<span className="flex items-center gap-2"><Award className="h-5 w-5 text-amber-600" />نتيجة عرض الكفالة الذهبية</span>}
+      footer={
+        <>
+          <button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50">إلغاء</button>
+          <button onClick={submit} disabled={saving} className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-bold text-white hover:bg-amber-500 disabled:opacity-60">
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+            {mode === 'activate' ? 'تفعيل وتسليم الوصل' : mode === 'later' ? 'حفظ (تفعيل لاحقاً)' : 'حفظ (رفض)'}
+          </button>
+        </>
+      }
+    >
+        <div className="space-y-4 px-5 py-4">
           {error && <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>}
 
           <div className="grid grid-cols-3 gap-2">
@@ -199,7 +209,7 @@ export default function GoldenWarrantyOfferModal({ visitId, taskId, task, onClos
             <>
               <label className="flex items-center gap-3 text-sm">
                 <span className="font-bold text-slate-600">تاريخ الوصل (بداية)</span>
-                <input type="date" value={receiptDate} onChange={(e) => setReceiptDate(e.target.value)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm" />
+                <DateField value={receiptDate} onChange={setReceiptDate} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm" />
                 <span className="mr-auto text-xs text-emerald-700">المحصلة: {activatedCount} جهاز</span>
               </label>
               <div className="rounded-lg border border-slate-200">
@@ -255,7 +265,7 @@ export default function GoldenWarrantyOfferModal({ visitId, taskId, task, onClos
                             </div>
 
                             <div>
-                              <p className="mb-1.5 text-[11px] font-bold text-slate-500">
+                              <p className="mb-1.5 text-xs font-bold text-slate-500">
                                 {d.paymentType === 'installment' ? 'الدفعة المقدّمة (اختياري)' : 'الدفعات'}
                               </p>
                               <WarrantyPaymentEntries
@@ -269,7 +279,7 @@ export default function GoldenWarrantyOfferModal({ visitId, taskId, task, onClos
                             {d.paymentType === 'installment' && (
                               <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-3 space-y-2">
                                 <div className="flex flex-wrap items-center gap-2">
-                                  <span className="text-[11px] font-bold text-slate-500">عدد الأقساط</span>
+                                  <span className="text-xs font-bold text-slate-500">عدد الأقساط</span>
                                   <input type="number" min="1" value={d.installmentCount}
                                     onChange={(e) => updateDevice(i, { installmentCount: e.target.value })}
                                     className="w-16 rounded border border-slate-200 px-2 py-1 text-sm" />
@@ -277,7 +287,7 @@ export default function GoldenWarrantyOfferModal({ visitId, taskId, task, onClos
                                     className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-500">
                                     توليد الأقساط
                                   </button>
-                                  <span className="mr-auto text-[11px] text-slate-400">
+                                  <span className="mr-auto text-xs text-slate-400">
                                     المتبقّي بعد المقدّم: {Math.max(0, (Number(d.totalValue) || 0) - devicePaidSyp(d)).toLocaleString('ar-SY')} ل.س
                                   </span>
                                 </div>
@@ -285,14 +295,14 @@ export default function GoldenWarrantyOfferModal({ visitId, taskId, task, onClos
                                   <div className="space-y-1">
                                     {d.installments.map((inst, n) => (
                                       <div key={n} className="flex items-center gap-2">
-                                        <span className="w-6 text-center text-[11px] font-bold text-slate-400">{inst.installmentNumber}</span>
+                                        <span className="w-6 text-center text-xs font-bold text-slate-400">{inst.installmentNumber}</span>
                                         <input type="date" value={inst.dueDate}
                                           onChange={(e) => updateInstallment(i, n, { dueDate: e.target.value })}
                                           className="rounded border border-slate-200 px-2 py-1 text-xs" />
                                         <input type="number" min="0" value={inst.amountSyp}
                                           onChange={(e) => updateInstallment(i, n, { amountSyp: e.target.value })}
                                           className="w-28 rounded border border-slate-200 px-2 py-1 text-xs" dir="ltr" />
-                                        <span className="text-[11px] text-slate-400">ل.س</span>
+                                        <span className="text-xs text-slate-400">ل.س</span>
                                         <button type="button" onClick={() => updateDevice(i, { installments: d.installments.filter((_, xi) => xi !== n) })}
                                           className="mr-auto rounded p-1 text-rose-400 hover:bg-rose-50"><Trash2 className="h-3.5 w-3.5" /></button>
                                       </div>
@@ -303,7 +313,7 @@ export default function GoldenWarrantyOfferModal({ visitId, taskId, task, onClos
                                     </div>
                                   </div>
                                 ) : (
-                                  <p className="text-[11px] text-slate-400">لم تُولّد أقساط بعد.</p>
+                                  <p className="text-xs text-slate-400">لم تُولّد أقساط بعد.</p>
                                 )}
                               </div>
                             )}
@@ -343,7 +353,7 @@ export default function GoldenWarrantyOfferModal({ visitId, taskId, task, onClos
               {mode === 'later' && (
                 <label className="block space-y-1.5">
                   <span className="text-xs font-bold text-slate-500">التاريخ المتوقع *</span>
-                  <input type="date" value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
+                  <DateField value={expectedDate} onChange={setExpectedDate} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
                 </label>
               )}
             </div>
@@ -354,15 +364,6 @@ export default function GoldenWarrantyOfferModal({ visitId, taskId, task, onClos
             <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm" />
           </label>
         </div>
-
-        <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
-          <button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50">إلغاء</button>
-          <button onClick={submit} disabled={saving} className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-bold text-white hover:bg-amber-500 disabled:opacity-60">
-            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-            {mode === 'activate' ? 'تفعيل وتسليم الوصل' : mode === 'later' ? 'حفظ (تفعيل لاحقاً)' : 'حفظ (رفض)'}
-          </button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

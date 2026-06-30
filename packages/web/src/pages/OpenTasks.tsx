@@ -275,7 +275,6 @@ export default function OpenTasks() {
           columns={columns}
           getId={(task) => task.id}
           hideFilterBar
-          paginated={false}
           tableMinWidth={1180}
           defaultSortKey="createdAt"
           defaultSortDir="desc"

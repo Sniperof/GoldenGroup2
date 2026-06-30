@@ -5,6 +5,7 @@ import { Calendar, Users, UserCheck, Plus, User, Save, X, PhoneCall, GraduationC
 import { api } from '../../lib/api';
 import PageHeader from '../../components/ui/PageHeader';
 import IconButton from '../../components/ui/IconButton';
+import DateField from '../../components/ui/DateField';
 import { useBranchContextStore } from '../../hooks/useBranchContextStore';
 import type { DaySchedule, Employee } from '../../lib/types';
 
@@ -198,10 +199,7 @@ export default function TeamScheduler() {
 
             {/* Control Bar */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6 flex items-center gap-4 flex-wrap">
-                <div className="flex items-center gap-2">
-                    <Calendar className="w-4 h-4 text-sky-500" />
-                    <input type="date" value={date} onChange={e => { setDate(e.target.value); setSelectedSlot(null); }} className="bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none" />
-                </div>
+                <DateField value={date} onChange={v => { setDate(v); setSelectedSlot(null); }} className="bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none" />
                 <div className="h-8 w-px bg-slate-200" />
                 <div className="flex items-center gap-3">
                     <div className="flex items-center gap-1.5 text-sm"><UserCheck className="w-4 h-4 text-indigo-500" /><span className="text-slate-500">مشرفون:</span><span className="text-slate-900 font-bold">{availableSups.length}</span></div>

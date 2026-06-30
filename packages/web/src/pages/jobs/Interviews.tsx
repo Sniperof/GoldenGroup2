@@ -7,11 +7,11 @@ import type { InterviewerOption } from '../../lib/types';
 import PageHeader from '../../components/ui/PageHeader';
 import {
   Users, Plus, Filter, Calendar, CheckCircle, XCircle, Clock,
-  AlertTriangle, X, Search
+  AlertTriangle, Search
 } from 'lucide-react';
-import IconButton from '../../components/ui/IconButton';
+import Modal from '../../components/ui/Modal';
+import DateField from '../../components/ui/DateField';
 import Select from '../../components/ui/Select';
-import { motion, AnimatePresence } from 'framer-motion';
 import PermissionGate from '../../components/PermissionGate';
 import SmartTable from '../../components/SmartTable';
 import type { ColumnDef } from '../../components/SmartTable';
@@ -356,10 +356,9 @@ export default function Interviews() {
           className="w-48"
           options={[{ value: '', label: 'كل الوظائف' }, ...vacancies.map(v => ({ value: String(v.id), label: v.title }))]}
         />
-        <input
-          type="date"
+        <DateField
           value={filters.date}
-          onChange={e => setFilter('date', e.target.value)}
+          onChange={v => setFilter('date', v)}
           className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:ring-2 focus:ring-sky-500"
         />
         {(filters.interviewerName || filters.applicationId || filters.date || filters.jobVacancyId) && (
@@ -411,20 +410,26 @@ export default function Interviews() {
         />
       )}
 
-      <AnimatePresence>
-        {showScheduleModal && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4"
-            onClick={resetScheduleModal}
-          >
-            <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
-              className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6" dir="rtl"
-              onClick={e => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between mb-5">
-                <h3 className="text-base font-bold text-slate-800">جدولة مقابلة جديدة</h3>
-                <IconButton icon={X} label="إغلاق" size="sm" onClick={resetScheduleModal} />
-              </div>
+      <Modal
+        isOpen={showScheduleModal}
+        onClose={resetScheduleModal}
+        size="md"
+        title="جدولة مقابلة جديدة"
+        footer={
+          <>
+            <button onClick={resetScheduleModal}
+              className="px-5 py-2.5 text-sm bg-slate-100 rounded-xl text-slate-600 hover:bg-slate-200 transition-colors">
+              إلغاء
+            </button>
+            <button onClick={handleSchedule} disabled={submitting}
+              className="px-5 py-2.5 text-sm bg-sky-500 text-white rounded-xl hover:bg-sky-600 font-bold shadow-lg shadow-sky-500/25 transition-all disabled:opacity-50 flex items-center gap-2">
+              <Clock className="w-4 h-4" />
+              {submitting ? 'جاري...' : 'جدولة'}
+            </button>
+          </>
+        }
+      >
+              <div className="p-6">
               {formError && (
                 <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2 text-sm text-red-700">
                   <AlertTriangle className="w-4 h-4 shrink-0" /> {formError}
@@ -521,9 +526,9 @@ export default function Interviews() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-medium text-slate-600 mb-1">التاريخ *</label>
-                    <input type="date" value={form.interviewDate}
-                    onChange={e => {
-                      setForm(p => ({ ...p, interviewDate: e.target.value }));
+                    <DateField value={form.interviewDate}
+                    onChange={v => {
+                      setForm(p => ({ ...p, interviewDate: v }));
                       setFieldErrors(prev => {
                         const next = { ...prev };
                         delete next.interviewDate;
@@ -555,37 +560,32 @@ export default function Interviews() {
                     rows={2} className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-sky-500" />
                 </div>
               </div>
-              <div className="flex gap-3 justify-end mt-5">
-                <button onClick={resetScheduleModal}
-                  className="px-5 py-2.5 text-sm bg-slate-100 rounded-xl text-slate-600 hover:bg-slate-200 transition-colors">
-                  إلغاء
-                </button>
-                <button onClick={handleSchedule} disabled={submitting}
-                  className="px-5 py-2.5 text-sm bg-sky-500 text-white rounded-xl hover:bg-sky-600 font-bold shadow-lg shadow-sky-500/25 transition-all disabled:opacity-50 flex items-center gap-2">
-                  <Clock className="w-4 h-4" />
-                  {submitting ? 'جاري...' : 'جدولة'}
-                </button>
               </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      </Modal>
 
-      <AnimatePresence>
-        {resultModal && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4"
-            onClick={() => setResultModal(null)}
-          >
-            <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
-              className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6" dir="rtl"
-              onClick={e => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between mb-5">
-                <h3 className="text-base font-bold text-slate-800">تسجيل نتيجة المقابلة</h3>
-                <IconButton icon={X} label="إغلاق" size="sm" onClick={() => setResultModal(null)} />
-              </div>
-              <div className="space-y-4">
+      <Modal
+        isOpen={!!resultModal}
+        onClose={() => setResultModal(null)}
+        size="md"
+        title="تسجيل نتيجة المقابلة"
+        footer={
+          <>
+            <button onClick={() => setResultModal(null)}
+              className="px-5 py-2.5 text-sm bg-slate-100 rounded-xl text-slate-600 hover:bg-slate-200 transition-colors">
+              إلغاء
+            </button>
+            <button onClick={handleRecordResult} disabled={submitting}
+              className={`px-5 py-2.5 text-sm text-white rounded-xl font-bold shadow-lg transition-all disabled:opacity-50 ${
+                resultStatus === 'Interview Completed'
+                  ? 'bg-teal-500 hover:bg-teal-600 shadow-teal-500/25'
+                  : 'bg-red-500 hover:bg-red-600 shadow-red-500/25'
+              }`}>
+              {submitting ? 'جاري...' : 'حفظ النتيجة'}
+            </button>
+          </>
+        }
+      >
+              <div className="p-6 space-y-4">
                 <div className="flex gap-3">
                   <button
                     onClick={() => setResultStatus('Interview Completed')}
@@ -614,24 +614,7 @@ export default function Interviews() {
                     rows={3} className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-sky-500" />
                 </div>
               </div>
-              <div className="flex gap-3 justify-end mt-5">
-                <button onClick={() => setResultModal(null)}
-                  className="px-5 py-2.5 text-sm bg-slate-100 rounded-xl text-slate-600 hover:bg-slate-200 transition-colors">
-                  إلغاء
-                </button>
-                <button onClick={handleRecordResult} disabled={submitting}
-                  className={`px-5 py-2.5 text-sm text-white rounded-xl font-bold shadow-lg transition-all disabled:opacity-50 ${
-                    resultStatus === 'Interview Completed'
-                      ? 'bg-teal-500 hover:bg-teal-600 shadow-teal-500/25'
-                      : 'bg-red-500 hover:bg-red-600 shadow-red-500/25'
-                  }`}>
-                  {submitting ? 'جاري...' : 'حفظ النتيجة'}
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      </Modal>
     </div>
   );
 }

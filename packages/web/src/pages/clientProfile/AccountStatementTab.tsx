@@ -3,6 +3,7 @@ import { AlertCircle, FileSearch, ReceiptText } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 import { api, type AccountStatementEntry, type AccountStatementResponse } from '../../lib/api';
+import SmartTable, { type ColumnDef } from '../../components/SmartTable';
 
 interface Props {
   client: { id: number };
@@ -114,6 +115,16 @@ export function AccountStatementTab({ client }: Props) {
     overdue_amount: 0,
   };
 
+  // Columns mirror the original raw table 1:1 (design-only migration to <SmartTable>).
+  const columns: ColumnDef<AccountStatementEntry>[] = [
+    { key: 'entry_date', label: 'التاريخ', render: e => <span className="block whitespace-nowrap font-bold text-slate-600" dir="ltr">{formatDate(e.entry_date)}</span> },
+    { key: 'description', label: 'الوصف', render: e => <span className="text-sm font-bold text-slate-800">{e.description}</span> },
+    { key: 'reference_no', label: 'المرجع', render: e => <span className="text-sm text-slate-500">{e.reference_no || '-'}</span> },
+    { key: 'debit_amount', label: 'مدين (عليه)', render: e => <span className="whitespace-nowrap font-black text-red-600">{e.debit_amount > 0 ? formatMoney(e.debit_amount) : '-'}</span> },
+    { key: 'credit_amount', label: 'دائن (دفع)', render: e => <span className="whitespace-nowrap font-black text-emerald-600">{e.credit_amount > 0 ? formatMoney(e.credit_amount) : '-'}</span> },
+    { key: 'running_balance', label: 'الرصيد', render: e => <span className={`whitespace-nowrap font-black ${e.running_balance > 0 ? 'text-red-600' : 'text-emerald-600'}`}>{formatMoney(e.running_balance)}</span> },
+  ];
+
   return (
     <div className="space-y-5" dir="rtl">
       <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -191,77 +202,19 @@ export function AccountStatementTab({ client }: Props) {
         </div>
       )}
 
-      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        {loading && (
-          <div className="h-1 overflow-hidden bg-sky-100">
-            <div className="h-full w-1/2 animate-pulse bg-sky-500" />
-          </div>
-        )}
-        {data && data.entries.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[850px] text-right text-sm">
-              <thead className="bg-slate-50 text-xs font-black text-slate-500">
-                <tr>
-                  <th className="px-4 py-3">التاريخ</th>
-                  <th className="px-4 py-3">الوصف</th>
-                  <th className="px-4 py-3">المرجع</th>
-                  <th className="px-4 py-3">مدين (عليه)</th>
-                  <th className="px-4 py-3">دائن (دفع)</th>
-                  <th className="px-4 py-3">الرصيد</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {data.entries.map(entry => {
-                  const isUpcoming = entry.is_upcoming;
-                  const canNavigate = Boolean(
-                    entry.contract_id ||
-                    entry.source_type === 'emergency_maintenance' ||
-                    entry.source_type === 'periodic_maintenance',
-                  );
-                  return (
-                    <tr
-                      key={entry.id}
-                      onClick={() => openSource(entry)}
-                      onContextMenu={event => {
-                        if (!canNavigate) return;
-                        event.preventDefault();
-                        openSource(entry);
-                      }}
-                      className={`${isUpcoming ? 'bg-amber-50/50' : 'bg-white'} ${
-                        canNavigate ? 'cursor-pointer hover:bg-sky-50' : ''
-                      }`}
-                    >
-                      <td className="whitespace-nowrap px-4 py-3 font-bold text-slate-600" dir="ltr">
-                        {formatDate(entry.entry_date)}
-                      </td>
-                      <td className="px-4 py-3 font-bold text-slate-800">{entry.description}</td>
-                      <td className="px-4 py-3 text-slate-500">{entry.reference_no || '-'}</td>
-                      <td className="whitespace-nowrap px-4 py-3 font-black text-red-600">
-                        {entry.debit_amount > 0 ? formatMoney(entry.debit_amount) : '-'}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 font-black text-emerald-600">
-                        {entry.credit_amount > 0 ? formatMoney(entry.credit_amount) : '-'}
-                      </td>
-                      <td className={`whitespace-nowrap px-4 py-3 font-black ${
-                        entry.running_balance > 0 ? 'text-red-600' : 'text-emerald-600'
-                      }`}>
-                        {formatMoney(entry.running_balance)}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        ) : !loading && !error ? (
-          <div className="flex min-h-[16rem] flex-col items-center justify-center px-4 py-10 text-center">
-            <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
-              <FileSearch className="h-7 w-7" />
-            </div>
-            <p className="font-black text-slate-700">لا توجد حركات مالية مسجلة</p>
-          </div>
-        ) : null}
-      </div>
+      <SmartTable<AccountStatementEntry>
+        title="كشف الحساب"
+        icon={ReceiptText}
+        data={data?.entries ?? []}
+        columns={columns}
+        getId={e => e.id}
+        onRowClick={entry => openSource(entry)}
+        rowClassName={e => e.is_upcoming ? 'bg-amber-50/50 hover:bg-sky-50' : ''}
+        hideFilterBar
+        tableMinWidth={850}
+        emptyIcon={FileSearch}
+        emptyMessage="لا توجد حركات مالية مسجلة"
+      />
 
       <p className="flex items-center gap-2 text-xs font-bold text-slate-400">
         <ReceiptText className="h-4 w-4" />

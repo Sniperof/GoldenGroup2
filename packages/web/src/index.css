@@ -1,4 +1,5 @@
-@import url('https://fonts.googleapis.com/css2?family=Alexandria:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+/* Brand fonts (Alexandria + Plus Jakarta Sans) are loaded via <link> in
+   index.html <head> for faster, non-render-blocking discovery. */
 @import "tailwindcss";
 
 /* ============================================================
@@ -106,6 +107,36 @@
     --color-red-800: #A32F2F;
     --color-red-900: #822727;
 
+    /* =========================================================
+       OFF-BRAND PALETTES → folded onto brand tokens.
+       Legacy pages used rose/pink as a second error palette and
+       indigo/violet/purple as a stray accent. Remapping their
+       scales here pulls ~800 stray utility usages back on-brand
+       with zero per-file edits: rose/pink → brand red (error),
+       indigo/violet/purple → brand sky (primary).
+       ========================================================= */
+    --color-rose-50:  #FDF0F0;  --color-pink-50:  #FDF0F0;
+    --color-rose-100: #FCE5E5;  --color-pink-100: #FCE5E5;
+    --color-rose-200: #F5C9C9;  --color-pink-200: #F5C9C9;
+    --color-rose-300: #F39C9C;  --color-pink-300: #F39C9C;
+    --color-rose-400: #EF7676;  --color-pink-400: #EF7676;
+    --color-rose-500: #E95555;  --color-pink-500: #E95555;
+    --color-rose-600: #DC4747;  --color-pink-600: #DC4747;
+    --color-rose-700: #C53C3C;  --color-pink-700: #C53C3C;
+    --color-rose-800: #A32F2F;  --color-pink-800: #A32F2F;
+    --color-rose-900: #822727;  --color-pink-900: #822727;
+
+    --color-indigo-50:  #EFF4FB;  --color-violet-50:  #EFF4FB;  --color-purple-50:  #EFF4FB;
+    --color-indigo-100: #D7E6F5;  --color-violet-100: #D7E6F5;  --color-purple-100: #D7E6F5;
+    --color-indigo-200: #BCD3EC;  --color-violet-200: #BCD3EC;  --color-purple-200: #BCD3EC;
+    --color-indigo-300: #8FB5DE;  --color-violet-300: #8FB5DE;  --color-purple-300: #8FB5DE;
+    --color-indigo-400: #5B93CE;  --color-violet-400: #5B93CE;  --color-purple-400: #5B93CE;
+    --color-indigo-500: #1B5FA8;  --color-violet-500: #1B5FA8;  --color-purple-500: #1B5FA8;
+    --color-indigo-600: #154E84;  --color-violet-600: #154E84;  --color-purple-600: #154E84;
+    --color-indigo-700: #12426F;  --color-violet-700: #12426F;  --color-purple-700: #12426F;
+    --color-indigo-800: #0E3357;  --color-violet-800: #0E3357;  --color-purple-800: #0E3357;
+    --color-indigo-900: #0B2A47;  --color-violet-900: #0B2A47;  --color-purple-900: #0B2A47;
+
     /* Neutral surfaces nudged to the brand page tone #F5F5F7. */
     --color-slate-50: #F5F5F7;
     --color-gray-50:  #F5F5F7;
@@ -143,6 +174,45 @@
     --text-3xl: 1.625rem;  /* 30px → 26px */
     --text-4xl: 2rem;      /* 36px → 32px */
     --text-5xl: 2.5rem;    /* 48px → 40px */
+
+    /* =========================================================
+       SEMANTIC TYPE SCALE — single source of truth for text ROLE.
+       The app's heading hierarchy was audited and is consistent:
+         page title = 2xl · section title = lg · card title = base
+         KPI metric = 2xl/bold · label = sm · caption = xs
+       These role-named tokens encode that ladder so NEW code can
+       write the INTENT (`text-section-title`) instead of guessing a
+       raw step — preventing the size drift + arbitrary px we cleaned
+       up. Tailwind v4 auto-generates a utility per `--text-*` key,
+       and the paired `--…--line-height` / `--…--font-weight` modifiers
+       bake the full role into one class. Existing code is untouched;
+       adopt these gradually.
+
+       NOTE: values mirror the live ladder (2xl=1.375rem, lg=1.125rem,
+       base=1rem, sm=.875rem, xs=.75rem) and ride the global 84%
+       rescale — so this adds NO new size, only names the roles.
+       ========================================================= */
+    --text-page-title: 1.375rem;            /* ≡ 2xl  — <h1> / PageHeader */
+    --text-page-title--line-height: 1.3;
+    --text-page-title--font-weight: 700;
+
+    --text-section-title: 1.125rem;         /* ≡ lg   — <h2> section heads */
+    --text-section-title--line-height: 1.4;
+    --text-section-title--font-weight: 700;
+
+    --text-card-title: 1rem;                /* ≡ base — <h3> card / sub-section */
+    --text-card-title--line-height: 1.45;
+    --text-card-title--font-weight: 700;
+
+    --text-metric: 1.375rem;                /* ≡ 2xl  — KPI / stat values */
+    --text-metric--line-height: 1.1;
+    --text-metric--font-weight: 700;
+
+    --text-label: 0.875rem;                 /* ≡ sm   — field labels */
+    --text-label--line-height: 1.4;
+
+    --text-caption: 0.75rem;                /* ≡ xs   — hints / meta / captions */
+    --text-caption--line-height: 1.45;
 }
 
 /* ============================================================
@@ -394,6 +464,16 @@ a.shadow-lg {
 .custom-scrollbar {
     scrollbar-width: thin;
     scrollbar-color: #B4BDC8 #EEF1F4;
+}
+
+/* Fully hide scrollbars — used by horizontal tab strips that provide their
+   own scroll affordance (fade edges + arrows). Overrides the global rule. */
+.no-scrollbar {
+    scrollbar-width: none;        /* Firefox */
+    -ms-overflow-style: none;     /* legacy Edge */
+}
+.no-scrollbar::-webkit-scrollbar {
+    display: none;                /* Chrome / Safari */
 }
 
 /* ============================================================

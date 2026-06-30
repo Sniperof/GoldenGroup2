@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     ChevronRight, Phone, MapPin, Share2,
-    History, ArrowLeft,
+    History, ArrowLeft, ChevronLeft,
     Plus, Briefcase, Activity, LayoutDashboard, Contact2, Navigation, Users, MessageCircle, ShieldCheck,
     X, Loader2, PhoneCall, Zap, FileText, CheckCircle2, Wrench, Check, Truck, Calendar, Layers, AlertCircle,
     Cpu, Package, Sparkles, Gift, Clock, DollarSign, Star
@@ -109,11 +109,13 @@ function formatWesternNumber(value?: string | number | null): string {
 
 function InfoItem({ label, value, dir }: { label: string; value?: string | number | null; dir?: 'rtl' | 'ltr' }) {
     return (
-        <div className="min-w-0 rounded-xl border border-slate-100 bg-white/80 px-3 py-2.5">
-            <p className="text-xs font-bold text-slate-400">{label}</p>
-            <p className="mt-1 break-words text-sm font-bold leading-6 text-slate-800" dir={dir}>
-                {valueOrEmpty(value)}
-            </p>
+        <div className="min-w-0">
+            <p className="mb-1.5 text-xs font-bold text-slate-500">{label}</p>
+            <div className="flex min-h-[39px] w-full items-center rounded-full border border-slate-200 bg-slate-50 px-4 py-2">
+                <span className="min-w-0 break-words text-sm font-bold leading-6 text-slate-800" dir={dir}>
+                    {valueOrEmpty(value)}
+                </span>
+            </div>
         </div>
     );
 }
@@ -163,6 +165,127 @@ function InfoGroup({ title, icon: Icon, children }: { title: string; icon: any; 
             </div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">{children}</div>
         </section>
+    );
+}
+
+function SidebarRow({ label, value, dir }: { label: string; value?: string | number | null; dir?: 'rtl' | 'ltr' }) {
+    return (
+        <div>
+            <p className="text-xs font-bold text-slate-400">{label}</p>
+            <p className="mt-0.5 break-words text-sm font-bold leading-6 text-slate-800" dir={dir}>{valueOrEmpty(value)}</p>
+        </div>
+    );
+}
+
+function ProfileSidebar({ client, geoUnits }: { client: Client; geoUnits: GeoUnit[] }) {
+    const displayName = getClientDisplayName(client);
+    const lifecycle = getLifecycleMeta(client);
+    const locationPath = buildGeoPath(geoUnits, getLocationLeafId(client));
+    const locationText = locationPath.map((unit) => unit.name).join('، ');
+    const assignments = client.assignments?.filter((a) => a.userName) || [];
+    const ownerLabel = client.ownership?.ownerLabel || assignments[0]?.userName;
+    const primaryContact = (client.contacts || []).find((c: any) => c.isPrimary) || (client.contacts || [])[0];
+    const hasGps =
+        client.gpsCoordinates &&
+        typeof client.gpsCoordinates.lat === 'number' &&
+        typeof client.gpsCoordinates.lng === 'number';
+    const lat = hasGps ? client.gpsCoordinates!.lat : null;
+    const lng = hasGps ? client.gpsCoordinates!.lng : null;
+    const mapEmbedUrl = hasGps
+        ? `https://www.openstreetmap.org/export/embed.html?bbox=${lng! - 0.01}%2C${lat! - 0.01}%2C${lng! + 0.01}%2C${lat! + 0.01}&layer=mapnik&marker=${lat!}%2C${lng!}`
+        : '';
+    const mapOpenUrl = hasGps
+        ? `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=16/${lat}/${lng}`
+        : '';
+
+    return (
+        <aside className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:sticky lg:top-4">
+            <div className="flex flex-col items-center gap-3 text-center">
+                <ClientAvatar gender={client.gender} dataQuality={client.dataQuality} size="lg" className="border-4 border-white shadow-lg" />
+                <div className="min-w-0">
+                    <h1 className="break-words text-lg font-bold leading-7 text-slate-800">{displayName}</h1>
+                    {client.nickname && <p className="mt-1 text-xs font-bold text-slate-400">{client.nickname}</p>}
+                </div>
+                <div className="flex flex-wrap justify-center gap-2">
+                    <span className={`rounded-full border px-3 py-1 text-xs font-black ${lifecycle.className}`}>{lifecycle.label}</span>
+                    <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">{getRatingLabel(client.rating)}</span>
+                </div>
+            </div>
+
+            <div className="border-t border-slate-100" />
+
+            <div className="space-y-3">
+                <SidebarRow label="فرع التسجيل" value={client.branchName} />
+                <SidebarRow label="الملكية / الإسناد" value={ownerLabel} />
+                <SidebarRow label="رقم الموبايل" value={primaryContact?.number} dir="ltr" />
+                <SidebarRow label="المهنة" value={client.occupation} />
+            </div>
+
+            <div className="border-t border-slate-100" />
+
+            <div>
+                <div className="mb-2 flex items-center gap-1.5 text-xs font-bold text-slate-400">
+                    <MapPin className="h-3.5 w-3.5" /> الموقع
+                </div>
+                <p className="break-words text-sm font-bold leading-6 text-slate-700">{locationText || EMPTY_VALUE}</p>
+                {hasGps && (
+                    <a href={mapOpenUrl} target="_blank" rel="noopener noreferrer" className="mt-3 block overflow-hidden rounded-xl border border-slate-200">
+                        <iframe src={mapEmbedUrl} className="pointer-events-none h-28 w-full" style={{ border: 0 }} loading="lazy" title="خريطة موقع الزبون" />
+                    </a>
+                )}
+            </div>
+        </aside>
+    );
+}
+
+function OverviewTab({ client }: { client: Client }) {
+    return (
+        <div className="max-w-7xl space-y-4">
+            <InfoGroup title="الهوية الشخصية" icon={ShieldCheck}>
+                <InfoItem label="الرقم الوطني" value={formatWesternNumber(client.nationalId)} dir="ltr" />
+                <InfoItem label="تاريخ الميلاد" value={formatDate(client.birthDate)} />
+                <InfoItem label="اسم الأم" value={client.motherName} />
+                <InfoItem label="القيد" value={client.nationalIdRegistry} />
+                <InfoItem label="أمانة الإصدار" value={client.nationalIdIssuedBy} />
+                <InfoItem label="تاريخ الإصدار" value={formatDate(client.nationalIdIssueDate)} />
+                <InfoItem label="الخانة" value={formatWesternNumber(client.nationalIdBox)} />
+            </InfoGroup>
+
+            <InfoGroup title="العمل والمعيشة" icon={Briefcase}>
+                <InfoItem label="المهنة" value={client.occupation} />
+                <InfoItem label="مهنة الزوجة" value={client.spouseOccupation} />
+                <InfoItem label="مصدر المياه" value={client.waterSource} />
+            </InfoGroup>
+
+            <InfoGroup title="العنوان والسجل" icon={MapPin}>
+                <InfoItem label="العنوان التفصيلي" value={client.detailedAddress} />
+                <InfoItem label="تاريخ الإنشاء" value={formatDate(client.createdAt)} />
+                <InfoItem label="منشئ السجل" value={client.createdByUserName} />
+            </InfoGroup>
+
+            {client.notes ? (
+                <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+                    <div className="mb-4 flex items-center gap-2">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
+                            <FileText className="h-4 w-4" />
+                        </div>
+                        <h3 className="text-base font-bold text-slate-800">ملاحظات الزبون</h3>
+                    </div>
+                    <div className="rich-notes prose prose-sm max-w-none leading-relaxed text-slate-600 prose-slate" dangerouslySetInnerHTML={{ __html: client.notes }} />
+                    <style>{`
+                        .rich-notes ul { list-style-type: disc; padding-inline-start: 1.5rem; margin: 1rem 0; }
+                        .rich-notes ol { list-style-type: decimal; padding-inline-start: 1.5rem; margin: 1rem 0; }
+                        .rich-notes p { margin: 0.5rem 0; }
+                        .rich-notes h1, .rich-notes h2, .rich-notes h3 { margin-top: 1.5rem; margin-bottom: 0.5rem; font-weight: bold; }
+                    `}</style>
+                </section>
+            ) : (
+                <section className="rounded-2xl border border-dashed border-slate-300 bg-white p-6 text-center text-slate-400 shadow-sm">
+                    <FileText className="mx-auto mb-2 h-7 w-7 opacity-50" />
+                    <p className="text-sm font-bold">لا توجد ملاحظات مسجلة لهذا الزبون.</p>
+                </section>
+            )}
+        </div>
     );
 }
 
@@ -353,6 +476,111 @@ function ProfileHeaderSection({ client, geoUnits }: { client: Client; geoUnits: 
     );
 }
 
+// Horizontal tab strip with fade-edge affordance + scroll arrows.
+// Replaces the bare overflow-x-auto bar (which showed a useless phantom
+// vertical scrollbar). Scrollbars are hidden; overflow is signalled by a
+// gradient fade and a chevron button that appear only on the side that has
+// hidden tabs. RTL-aware via Math.abs(scrollLeft).
+function ProfileTabsBar({
+    tabs,
+    activeId,
+    onChange,
+}: {
+    tabs: Array<{ id: string; label: string; icon: any }>;
+    activeId: string;
+    onChange: (id: string) => void;
+}) {
+    const scrollRef = useRef<HTMLDivElement>(null);
+    const [overflow, setOverflow] = useState({ start: false, end: false });
+
+    const updateOverflow = useCallback(() => {
+        const el = scrollRef.current;
+        if (!el) return;
+        const max = el.scrollWidth - el.clientWidth;
+        if (max <= 1) {
+            setOverflow({ start: false, end: false });
+            return;
+        }
+        // RTL-safe: scrolled distance away from the visual start (right edge).
+        const scrolled = Math.abs(el.scrollLeft);
+        setOverflow({ start: scrolled > 1, end: scrolled < max - 1 });
+    }, []);
+
+    useEffect(() => {
+        updateOverflow();
+        const el = scrollRef.current;
+        if (!el) return;
+        el.addEventListener('scroll', updateOverflow, { passive: true });
+        window.addEventListener('resize', updateOverflow);
+        return () => {
+            el.removeEventListener('scroll', updateOverflow);
+            window.removeEventListener('resize', updateOverflow);
+        };
+    }, [updateOverflow, tabs.length]);
+
+    const scrollToward = (dir: 'start' | 'end') => {
+        const el = scrollRef.current;
+        if (!el) return;
+        const amount = Math.max(el.clientWidth * 0.6, 160);
+        // RTL: moving toward the visual end (left) decreases scrollLeft.
+        el.scrollBy({ left: dir === 'end' ? -amount : amount, behavior: 'smooth' });
+    };
+
+    return (
+        <div className="relative">
+            {/* start (right edge in RTL) */}
+            {overflow.start && (
+                <>
+                    <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-12 bg-gradient-to-l from-slate-50 via-slate-50/80 to-transparent" />
+                    <button
+                        type="button"
+                        onClick={() => scrollToward('start')}
+                        aria-label="عرض التبويبات السابقة"
+                        className="absolute inset-y-0 right-0 z-20 flex items-center pr-0.5 pl-1.5 text-slate-400 transition-colors hover:text-sky-600"
+                    >
+                        <ChevronRight className="h-5 w-5" />
+                    </button>
+                </>
+            )}
+            {/* end (left edge in RTL) */}
+            {overflow.end && (
+                <>
+                    <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-12 bg-gradient-to-r from-slate-50 via-slate-50/80 to-transparent" />
+                    <button
+                        type="button"
+                        onClick={() => scrollToward('end')}
+                        aria-label="عرض التبويبات التالية"
+                        className="absolute inset-y-0 left-0 z-20 flex items-center pl-0.5 pr-1.5 text-slate-400 transition-colors hover:text-sky-600"
+                    >
+                        <ChevronLeft className="h-5 w-5" />
+                    </button>
+                </>
+            )}
+
+            <div ref={scrollRef} className="overflow-x-auto no-scrollbar">
+                <div className="flex w-max min-w-full items-center gap-1">
+                    {tabs.map((tab) => {
+                        const active = activeId === tab.id;
+                        return (
+                            <button
+                                key={tab.id}
+                                onClick={() => onChange(tab.id)}
+                                className={`relative inline-flex shrink-0 items-center justify-center gap-1.5 px-3.5 py-2.5 text-base font-bold whitespace-nowrap transition-colors ${active
+                                    ? 'text-sky-600 after:absolute after:inset-x-2 after:-bottom-px after:h-[2.5px] after:bg-sky-600 after:rounded-t'
+                                    : 'text-slate-500 hover:text-slate-800'
+                                    }`}
+                            >
+                                <tab.icon className={`w-4 h-4 ${active ? 'text-sky-600' : 'text-slate-400'}`} />
+                                <span>{tab.label}</span>
+                            </button>
+                        );
+                    })}
+                </div>
+            </div>
+        </div>
+    );
+}
+
 export default function ClientProfile() {
     const { id } = useParams();
     const navigate = useNavigate();
@@ -436,6 +664,7 @@ export default function ClientProfile() {
     }
 
     const tabs: Array<{ id: ClientProfileTabId; label: string; icon: any }> = [
+        { id: 'overview' as const, label: 'نظرة عامة', icon: LayoutDashboard },
         ...(canViewContacts ? [{ id: 'contacts' as const, label: 'ط§ظ„طھظˆط§طµظ„', icon: Contact2 }] : []),
         ...(canViewCallLog ? [{ id: 'calllog' as const, label: 'ط³ط¬ظ„ ط§ظ„ط§طھطµط§ظ„', icon: PhoneCall }] : []),
         ...(canViewVisits ? [{ id: 'visits' as const, label: 'ط§ظ„ط²ظٹط§ط±ط§طھ', icon: Navigation }] : []),
@@ -453,55 +682,45 @@ export default function ClientProfile() {
     return (
         <div className="h-full flex flex-col overflow-hidden bg-slate-50" style={{ direction: 'rtl' }}>
             {/* Header / Breadcrumbs - Corrected path text */}
-            <div className="shrink-0 border-b border-slate-200 bg-white px-4 py-3 shadow-sm sm:px-6 lg:px-8">
-                <div className="mx-auto flex max-w-7xl items-center gap-2 text-sm">
-                    <button onClick={() => navigate('/clients')} className="flex items-center gap-2 font-bold text-slate-500 transition-colors hover:text-sky-600">
-                        <ArrowLeft className="h-4 w-4" />
+            <div className="shrink-0 border-b border-slate-200 bg-white px-4 py-4 shadow-sm sm:px-6 lg:px-8">
+                <div className="mx-auto flex max-w-[1600px] items-center gap-2.5 text-sm">
+                    <button onClick={() => navigate('/clients')} className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 font-bold text-slate-500 transition-colors hover:bg-slate-100 hover:text-sky-600">
                         <span className="hidden sm:inline">سجلات الزبائن</span>
                         <span className="sm:hidden">رجوع</span>
                     </button>
-                    <ChevronRight className="hidden h-4 w-4 text-slate-300 sm:block" />
+                    <ChevronLeft className="hidden h-4 w-4 text-slate-300 sm:block" />
                     <span className="min-w-0 break-words font-bold text-slate-900">{getClientDisplayName(client)}</span>
                 </div>
             </div>
 
             <div className="flex-1 overflow-y-auto custom-scroll">
-                <ProfileHeaderSection client={client} geoUnits={allGeoUnits} />
+                <div className="mx-auto max-w-[1600px] px-4 py-5 sm:px-6 lg:px-8">
+                    <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[280px_minmax(0,1fr)]">
+                        <ProfileSidebar client={client} geoUnits={allGeoUnits} />
 
-                <main className="min-w-0 bg-slate-50">
-                    <div className="sticky top-0 z-20 border-b border-slate-100 bg-white/95 px-4 py-3 shadow-sm backdrop-blur sm:px-6 lg:px-8">
-                        <div className="mx-auto max-w-7xl overflow-x-auto no-scrollbar">
-                            <div className="flex w-max min-w-full items-center gap-1 border-b border-[#E3E7EC]">
-                            {[
-                                { id: 'contacts', label: 'التواصل', icon: Contact2 },
-                                { id: 'calllog', label: 'سجل الاتصال', icon: PhoneCall },
-                                { id: 'visits', label: 'الزيارات', icon: Navigation },
-                                { id: 'devices', label: 'الأجهزة', icon: Cpu },
-                                { id: 'purchase_history', label: 'سجل المشتريات', icon: History },
-                                { id: 'parts_stock', label: 'المخزون', icon: Package },
-                                { id: 'pre_offers', label: 'العروض المسبقة', icon: Sparkles },
-                                { id: 'gifts', label: 'الهدايا', icon: Gift },
-                                { id: 'rating', label: 'تقييم الالتزام', icon: Star },
-                                { id: 'network', label: 'الشبكة', icon: Share2 },
-                                { id: 'account_statement', label: 'كشف الحساب', icon: FileText },
-                            ].filter((tab) => tabs.some(allowedTab => allowedTab.id === tab.id)).map((tab) => (
-                                <button
-                                    key={tab.id}
-                                    onClick={() => setActiveTab(tab.id as any)}
-                                    className={`relative inline-flex shrink-0 items-center justify-center gap-1.5 px-3.5 py-2.5 text-base font-bold whitespace-nowrap transition-colors ${safeActiveTab === tab.id
-                                        ? 'text-sky-600 after:absolute after:inset-x-2 after:-bottom-px after:h-[2.5px] after:bg-sky-600 after:rounded-t'
-                                        : 'text-slate-500 hover:text-slate-800'
-                                        }`}
-                                >
-                                    <tab.icon className={`w-4 h-4 ${safeActiveTab === tab.id ? 'text-sky-600' : 'text-slate-400'}`} />
-                                    <span>{tab.label}</span>
-                                </button>
-                            ))}
+                        <main className="min-w-0">
+                            <div className="sticky top-0 z-20 mb-4 border-b border-slate-200 bg-slate-50/95 backdrop-blur">
+                                <ProfileTabsBar
+                                    tabs={[
+                                        { id: 'overview', label: 'نظرة عامة', icon: LayoutDashboard },
+                                        { id: 'contacts', label: 'التواصل', icon: Contact2 },
+                                        { id: 'calllog', label: 'سجل الاتصال', icon: PhoneCall },
+                                        { id: 'visits', label: 'الزيارات', icon: Navigation },
+                                        { id: 'devices', label: 'الأجهزة', icon: Cpu },
+                                        { id: 'purchase_history', label: 'سجل المشتريات', icon: History },
+                                        { id: 'parts_stock', label: 'المخزون', icon: Package },
+                                        { id: 'pre_offers', label: 'العروض المسبقة', icon: Sparkles },
+                                        { id: 'gifts', label: 'الهدايا', icon: Gift },
+                                        { id: 'rating', label: 'تقييم الالتزام', icon: Star },
+                                        { id: 'network', label: 'الشبكة', icon: Share2 },
+                                        { id: 'account_statement', label: 'كشف الحساب', icon: FileText },
+                                    ].filter((tab) => tabs.some(allowedTab => allowedTab.id === tab.id))}
+                                    activeId={safeActiveTab}
+                                    onChange={(id) => setActiveTab(id as any)}
+                                />
                             </div>
-                        </div>
-                    </div>
 
-                    <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8 lg:py-8">
+                            <div className="pt-1">
                         <AnimatePresence mode="wait">
                             <motion.div
                                 key={safeActiveTab}
@@ -511,6 +730,7 @@ export default function ClientProfile() {
                                 transition={{ duration: 0.2 }}
                                 className="h-full"
                             >
+                                {safeActiveTab === 'overview' && <OverviewTab client={client} />}
                                 {safeActiveTab === 'contacts' && (
                                     <ContactsTab
                                         client={client}
@@ -529,7 +749,7 @@ export default function ClientProfile() {
                                     />
                                 )}
                                 {safeActiveTab === 'calllog' && (
-                                    <div className="space-y-4 max-w-5xl">
+                                    <div className="space-y-4 max-w-7xl">
                                         <h3 className="text-base font-bold text-slate-800">سجل الاتصال الكامل</h3>
                                         <CustomerCallLog customerId={client.id} refreshKey={callLogRefreshKey} canEdit={canEditCallLog} />
                                     </div>
@@ -551,8 +771,10 @@ export default function ClientProfile() {
                                 {safeActiveTab === 'account_statement' && <AccountStatementTab client={client} />}
                             </motion.div>
                         </AnimatePresence>
+                            </div>
+                        </main>
                     </div>
-                </main>
+                </div>
             </div>
         </div>
     );
@@ -670,7 +892,7 @@ function ClientRatingTab({
     };
 
     return (
-        <div className="max-w-5xl space-y-5">
+        <div className="max-w-7xl space-y-5">
             <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                     <div>
@@ -821,7 +1043,7 @@ function ContactsTab({
     useEffect(() => { fetchCalls(); }, [fetchCalls]);
 
     return (
-        <div className="space-y-6 max-w-5xl">
+        <div className="space-y-6 max-w-7xl">
             {/* DEC-005 D29 + DEC-006 D32: contact-control surface (cooldown + do_not_contact) — moved here from Overview */}
             {canEditContactControl && onClientChanged && (
                 <ContactControlCard client={client} onChange={() => { void onClientChanged(); }} />
@@ -1311,7 +1533,7 @@ export function VisitsTab({ client }: { client: Client }) {
     const activeTaskCount = tasks.filter((t) => !['completed', 'closed', 'cancelled'].includes(t.status)).length;
 
     return (
-        <div className="space-y-6 max-w-5xl">
+        <div className="space-y-6 max-w-7xl">
             <div className="flex items-center justify-between gap-3">
                 <h3 className="text-base font-bold text-slate-800">سجل الزيارات والمهام</h3>
                 <div className="flex items-center gap-2">
@@ -1456,7 +1678,7 @@ function NetworkTab({ client }: { client: Client }) {
     const outgoing = network?.outgoing ?? [];
 
     return (
-        <div className="space-y-10 max-w-5xl">
+        <div className="space-y-10 max-w-7xl">
 
             {/* ══ القسم 1: وسطاء الزبون ══════════════════════════════════════════ */}
             <section>

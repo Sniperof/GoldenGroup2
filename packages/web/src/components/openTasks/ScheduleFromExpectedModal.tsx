@@ -13,6 +13,7 @@ import { api } from '../../lib/api';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
 import Modal from '../ui/Modal';
+import DateField from '../ui/DateField';
 
 interface Props {
   taskId: number;
@@ -98,10 +99,9 @@ export default function ScheduleFromExpectedModal({
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="block text-xs font-bold text-slate-600 mb-1">التاريخ</label>
-              <input
-                type="date"
+              <DateField
                 value={overrideDate}
-                onChange={(e) => setOverrideDate(e.target.value)}
+                onChange={setOverrideDate}
                 className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
               />
             </div>
