@@ -193,14 +193,13 @@ docker compose exec -T db \
 
 ## 7. إنشاء حساب superadmin
 
-> مرة وحدة فقط بعد أول نشر.
+> مرة وحدة فقط بعد أول نشر. السوبر ادمن يُنشأ بدون فرع — يُضاف الفرع من الواجهة بعد الدخول.
 
 ```bash
 cd /home/Docker/golden-crm
 docker compose run --rm --no-deps \
-  -e NODE_ENV=development \
   app \
-  node ./node_modules/tsx/dist/cli.mjs packages/api/dev-reset-single-superadmin.ts
+  node ./node_modules/tsx/dist/cli.mjs packages/api/seed-superadmin.ts
 ```
 
 بيانات الدخول الافتراضية:
