@@ -8,6 +8,11 @@ services:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     env_file: .env
     environment:
       NODE_ENV: production
@@ -34,6 +39,21 @@ services:
     image: postgres:17-alpine
     container_name: golden-crm-db
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    command: >
+      postgres
+      -c shared_buffers=2GB
+      -c effective_cache_size=5GB
+      -c work_mem=32MB
+      -c maintenance_work_mem=256MB
+      -c max_connections=50
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=64MB
+      -c random_page_cost=1.1
     environment:
       POSTGRES_DB:       ${POSTGRES_DB:-golden_crm}
       POSTGRES_USER:     ${POSTGRES_USER:-golden}

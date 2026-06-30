@@ -158,12 +158,15 @@ cd /home/Docker/golden-crm
 # 1. شغّل قاعدة البيانات
 docker compose up -d db
 
-# 2. ابنِ التطبيق وشغّله
+# 2. اضبط عدد الـ replicas حسب CPU cores على هالسيرفر
+nproc   # خذ الرقم وحطه في docker-compose.yml → deploy.replicas
+
+# 3. ابنِ التطبيق وشغّله
 # (docker compose up -d app ينتظر db تلقائياً حتى تصبح healthy بسبب depends_on)
 docker compose build app
 docker compose up -d app
 
-# 3. شغّل الـ migrations
+# 4. شغّل الـ migrations
 docker compose run --rm --no-deps \
   -e NODE_ENV=production \
   app \
@@ -334,11 +337,11 @@ pipeline {
 # التطبيق يعمل
 curl -sf http://YOUR_DOMAIN/api/health
 
-# الـ containers شغّالة
-docker ps
+# الـ containers شغّالة — المتوقع: 3 app replicas + 1 db
+docker ps | grep golden-crm
 
-# الـ logs
-docker compose -f /home/Docker/golden-crm/docker-compose.yml logs app --tail=50
+# لوغز الـ 3 replicas مع بعض
+docker compose -f /home/Docker/golden-crm/docker-compose.yml logs app --tail=20
 ```
 
 ---
@@ -368,3 +371,5 @@ docker compose -f /home/Docker/golden-crm/docker-compose.yml logs app --tail=50
 | superadmin | شغّل سكريبته مرة وحدة بعد أول deploy فقط |
 | Jenkins pipeline | inline script على Jenkins master — لا يوجد Jenkinsfile في الريبو |
 | CI/CD | يبني ويعيد تشغيل `app` فقط — `db` لا تتأثر أبداً |
+| الـ replicas | عدد الـ replicas = ناتج `nproc` على السيرفر — عدّل `deploy.replicas` في `docker-compose.yml` قبل أول deploy |
+| توزيع الطلبات | nginx يوزّع تلقائياً على كل الـ replicas عبر Docker DNS |
