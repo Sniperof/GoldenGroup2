@@ -16,7 +16,7 @@ import {
     Briefcase, Calendar, AlertTriangle, DollarSign, RefreshCw, RotateCcw, PhoneCall,
     FileText, FilePlus2, Headset, Settings, UserPlus, Menu, X as CloseIcon,
     ChevronLeft, ChevronRight, BadgeCheck, GraduationCap, Mic2, LogOut, Building2, SlidersHorizontal, ShieldCheck, ListChecks, Shield, Monitor, Settings2,
-    Bell, Wrench, Gift, Inbox, LayoutGrid, UserCheck, CalendarCheck, Layers, HardDrive, Unplug,
+    Bell, Wrench, Gift, Inbox, LayoutGrid, UserCheck, CalendarCheck, Layers, HardDrive, Unplug, Beaker,
 } from 'lucide-react';
 
 const navItems = [
@@ -54,6 +54,7 @@ const operationsChildren = [
     { path: '/tasks/group/device-installation', label: 'مهام تركيب الجهاز',      icon: Wrench,      permission: 'tasks.installation.view' },
     { path: '/tasks/group/device-activation',   label: 'مهام تشغيل الجهاز',      icon: Monitor,     permission: 'tasks.activation.view' },
     { path: '/tasks/group/device-disconnection', label: 'مهام فك الجهاز',        icon: Unplug,      permission: 'tasks.disconnection.view' },
+    { path: '/tasks/evaluation-lab',            label: 'تقييم المهام',           icon: Beaker,      permission: 'tasks.demo.view' },
     // DEC-006 D37/D38: hub for supervisor alerts (attempt threshold + visit escalation)
     { path: '/supervisor/alerts',               label: 'تنبيهات المشرف',         icon: Bell,        permission: 'tasks.supervisor_alerts.view' },
 

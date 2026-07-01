@@ -8,7 +8,7 @@ import {
   Tag, FolderPlus, Link2, FileText, Users, Briefcase,
   Info, AlertTriangle, ShieldCheck, BookOpen, Layers, Cpu, Phone,
   Wrench, ClipboardList, DollarSign, MapPin, Bug, Package,
-  RotateCcw, Ban, Truck, Clock, Percent, Star, Snowflake, Receipt,
+  RotateCcw, Ban, Truck, Clock, CalendarClock, Percent, Star, Snowflake, Receipt, Gauge,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import IconButton from '../../components/ui/IconButton';
@@ -179,6 +179,42 @@ const CATEGORIES: CategoryMeta[] = [
     ],
   },
   {
+    id: 'device_demo_creation_reasons',
+    label: 'أسباب إنشاء مهمة عرض جهاز',
+    description: 'الأسباب التشغيلية المعتمدة عند إنشاء مهمة عرض جهاز يدوياً. تحفظ في سبب الإنشاء ولا تستخدم ككود reason النظامي.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال إضافة عرض جهاز', route: 'الزبائن > إضافة عرض جهاز', icon: <ClipboardList className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'device_demo_reschedule_reasons',
+    label: 'أسباب إعادة جدولة مهمة عرض جهاز',
+    description: 'الأسباب الخاصة بتأجيل نتيجة مهمة عرض جهاز فقط. لا تستخدم لقوائم إعادة جدولة الزيارة العامة أو مهام الصيانة.',
+    impact: 'high',
+    usedIn: [
+      { label: 'مودال نتيجة مهمة عرض جهاز — إعادة جدولة', route: 'المهام > عرض جهاز > تسجيل النتيجة', icon: <ClipboardList className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'device_demo_cancellation_reasons',
+    label: 'أسباب إلغاء مهمة عرض جهاز',
+    description: 'الأسباب الخاصة بإلغاء مهمة عرض جهاز فقط. لا تستخدم لقوائم إلغاء الزيارة العامة أو مهام الصيانة.',
+    impact: 'high',
+    usedIn: [
+      { label: 'مودال نتيجة مهمة عرض جهاز — إلغاء', route: 'المهام > عرض جهاز > تسجيل النتيجة', icon: <Ban className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'device_demo_offer_refusal_reasons',
+    label: 'أسباب رفض عرض جهاز',
+    description: 'الأسباب الخاصة برفض الزبون للعرض أثناء تسجيل نتيجة مهمة عرض جهاز.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال نتيجة مهمة عرض جهاز — رفض العرض', route: 'المهام > عرض جهاز > تسجيل النتيجة', icon: <Tag className="w-3 h-3" /> },
+    ],
+  },
+  {
     id: 'contract_type',
     label: 'أنواع العقود',
     description: 'نوع العقد المعتمد للموظف مثل دائم أو مؤقت أو تجربة. هذه القائمة أصبحت جزءاً إلزامياً من النموذج الموحد للموظفين.',
@@ -309,6 +345,20 @@ const CATEGORIES: CategoryMeta[] = [
     ],
   },
   {
+    id: 'emergency_maintenance_reschedule_reasons',
+    label: 'سبب إعادة جدولة مهمة الصيانة الطارئة',
+    description: 'الأسباب الخاصة بإعادة جدولة مهمة الصيانة الطارئة من مسار تسجيل النتيجة السريع. منفصلة عن قوائم الزيارات وعن نتيجة "بحاجة متابعة".',
+    impact: 'high',
+    usedIn: [
+      { label: 'مودال نتيجة الصيانة الطارئة — إعادة جدولة', route: 'الزيارات → مهمة صيانة طارئة', icon: <CalendarClock className="w-3 h-3" /> },
+    ],
+  },
+  // `emergency_cancelled_reason` is intentionally shared by the full
+  // maintenance-costs cancellation decision and the quick emergency
+  // cancellation action. If the costs-stage cancellation decision is removed
+  // later, keep this category as the quick-cancel reason list unless product
+  // explicitly asks for a separate category.
+  {
     id: 'emergency_cancelled_reason',
     label: 'أسباب الإلغاء (نَتيجة الصيانة)',
     description: 'أسباب اختيار "إلغاء" كنَتيجة في تَكاليف الصيانة الطارئة من شاشة المرحلة 4 (مُختلفة عن إلغاء الزيارة).',
@@ -376,6 +426,15 @@ const CATEGORIES: CategoryMeta[] = [
     ],
   },
   {
+    id: 'periodic_maintenance_reschedule_reasons',
+    label: 'سبب إعادة جدولة مهمة الصيانة الدورية',
+    description: 'الأسباب الخاصة بإعادة جدولة مهمة الصيانة الدورية من مسار تسجيل النتيجة السريع. منفصلة عن قوائم الزيارات والصيانة الطارئة.',
+    impact: 'high',
+    usedIn: [
+      { label: 'مودال نتيجة الصيانة الدورية — إعادة جدولة', route: 'الزيارات > مهمة صيانة دورية', icon: <CalendarClock className="w-3 h-3" /> },
+    ],
+  },
+  {
     id: 'periodic_partially_performed_reason',
     label: 'أسباب تنفيذ الصيانة الدورية جزئيا',
     description: 'الأسباب المعتمدة عند تسجيل نتيجة صيانة دورية كمنفذة جزئيا، مثل رفض قطعة أو عدم توفرها.',
@@ -436,6 +495,15 @@ const CATEGORIES: CategoryMeta[] = [
   // قوائم التَركيب
   // ══════════════════════════════════════════════════════════════
   {
+    id: 'device_installation_creation_reasons',
+    label: 'أسباب إنشاء مهمة تركيب الجهاز',
+    description: 'الأسباب المعتمدة عند إنشاء مهمة تركيب جهاز. تحفظ في سبب الإنشاء ولا تستخدم كقائمة لعدم اكتمال أو رفض التركيب.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال إنشاء مهمة تركيب الجهاز', route: 'الأجهزة > الحالة الحالية > جدولة مهمة تركيب', icon: <Wrench className="w-3 h-3" /> },
+    ],
+  },
+  {
     id: 'installation_incomplete_reason',
     label: 'أسباب عَدم اكتمال التَركيب',
     description: 'الأسباب المعتمدة عند تَسجيل نَتيجة "تَركيب غير مُكتَمل" — يَتَطَلَّب زيارة لاحقة لإكمال التَركيب.',
@@ -479,6 +547,51 @@ const CATEGORIES: CategoryMeta[] = [
   // ══════════════════════════════════════════════════════════════
   // قوائم مهام الأجهزة (التركيب / السحب / الإرجاع / التشغيل / الفك)
   // ══════════════════════════════════════════════════════════════
+  {
+    id: 'device_retrieval_creation_reasons',
+    label: 'أسباب إنشاء مهمة سحب الجهاز',
+    description: 'الأسباب المعتمدة عند إنشاء مهمة سحب الجهاز. تحفظ في سبب الإنشاء ولا تستخدم كقائمة رفض أو إعادة جدولة.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'إنشاء مهمة سحب الجهاز', route: 'الأجهزة > المهام > سحب', icon: <Package className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'device_return_creation_reasons',
+    label: 'أسباب إنشاء مهمة إرجاع الجهاز',
+    description: 'الأسباب المعتمدة عند إنشاء مهمة إرجاع الجهاز بعد الصيانة. تحفظ في سبب الإنشاء ولا تختلط مع أسباب نتيجة الإرجاع.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'إنشاء مهمة إرجاع الجهاز', route: 'الأجهزة > المهام > إرجاع', icon: <Truck className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'device_checkup_creation_reasons',
+    label: 'أسباب إنشاء مهمة تشييك الجهاز',
+    description: 'الأسباب المعتمدة عند إنشاء مهمة تشييك الجهاز. تحفظ في سبب الإنشاء ولا تختلط مع رفض أو إعادة جدولة التشييك.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'إنشاء مهمة تشييك الجهاز', route: 'الأجهزة > المهام > تشييك', icon: <Gauge className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'device_disconnection_creation_reasons',
+    label: 'أسباب إنشاء مهمة فك الجهاز',
+    description: 'الأسباب المعتمدة عند إنشاء مهمة فك الجهاز. تحفظ في سبب الإنشاء ولا تستخدم كقائمة فشل أو إعادة جدولة الفك.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'إنشاء مهمة فك الجهاز', route: 'الأجهزة > الحالة التشغيلية > فك', icon: <Package className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'device_transfer_creation_reasons',
+    label: 'أسباب إنشاء مهمة نقل الجهاز',
+    description: 'الأسباب المعتمدة عند إنشاء مهمة نقل الجهاز. تحفظ في سبب الإنشاء ولا تختلط مع رفض أو إعادة جدولة النقل.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'إنشاء مهمة نقل الجهاز', route: 'الأجهزة > المهام > نقل', icon: <Truck className="w-3 h-3" /> },
+    ],
+  },
   {
     id: 'device_retrieval_refusal_reasons',
     label: 'أسباب رَفض السحب',
@@ -561,6 +674,15 @@ const CATEGORIES: CategoryMeta[] = [
     ],
   },
   {
+    id: 'device_delivery_creation_reasons',
+    label: 'أسباب إنشاء مهمة تسليم الجهاز',
+    description: 'الأسباب التشغيلية المعتمدة عند إنشاء مهمة تسليم جهاز. تحفظ في سبب الإنشاء ولا تستخدم كقائمة لإعادة الجدولة أو فشل التسليم.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'إنشاء مهمة تسليم الجهاز من حالة الجهاز', route: 'الأجهزة > الحالة الحالية > جدولة مهمة تسليم', icon: <Truck className="w-3 h-3" /> },
+    ],
+  },
+  {
     id: 'device_delivery_failure_reasons',
     label: 'أسباب فشل تسليم الجهاز',
     description: 'الأسباب المعتمدة عند اختيار "فشل التسليم" في مودل نتيجة مهمة تسليم الجهاز. تحفظ كسبب إغلاق مستقل.',
@@ -576,6 +698,24 @@ const CATEGORIES: CategoryMeta[] = [
     impact: 'medium',
     usedIn: [
       { label: 'مودال نتيجة التشغيل — متابعة', route: 'الزيارات ← مهمة تشغيل', icon: <Wrench className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'device_activation_failure_reasons',
+    label: 'أسباب فشل تشغيل الجهاز',
+    description: 'الأسباب المعتمدة عند اختيار نتيجة "فشل التشغيل". تحفظ كسبب نتيجة نهائي ولا تطلب تاريخ متابعة.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال نتيجة التشغيل - فشل التشغيل', route: 'الزيارات > مهمة تشغيل جهاز', icon: <Ban className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'device_activation_reschedule_reasons',
+    label: 'أسباب إعادة جدولة تشغيل الجهاز',
+    description: 'الأسباب المعتمدة عند اختيار "مشكلة بالجهاز". تحفظ مع تاريخ المتابعة لإعادة جدولة التشغيل.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال نتيجة التشغيل - مشكلة بالجهاز', route: 'الزيارات > مهمة تشغيل جهاز', icon: <Clock className="w-3 h-3" /> },
     ],
   },
   {
@@ -600,6 +740,15 @@ const CATEGORIES: CategoryMeta[] = [
   // ══════════════════════════════════════════════════════════════
   // قوائم التَحصيل
   // ══════════════════════════════════════════════════════════════
+  {
+    id: 'installment_collection_creation_reasons',
+    label: 'أسباب إنشاء مهمة التحصيل',
+    description: 'الأسباب المعتمدة عند إنشاء مهمة تحصيل قسط أو ذمة. تحفظ في سبب الإنشاء ولا تختلط مع أسباب الدفعة الجزئية أو إعادة الجدولة أو رفض الدفع.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'إنشاء مهمة تحصيل', route: 'مهام تسديد الذمم / إنشاء التحصيل التلقائي واليدوي', icon: <DollarSign className="w-3 h-3" /> },
+    ],
+  },
   {
     id: 'collection_partial_payment_reasons',
     label: 'أسباب الدَفع الجُزئي (التَحصيل)',
@@ -761,6 +910,7 @@ const LIST_GROUPS: ListGroup[] = [
   { id: 'emergency',     label: 'الصيانة الطارئة' },
   { id: 'periodic',      label: 'الصيانة الدورية' },
   { id: 'contracts',     label: 'العقود والبيع' },
+  { id: 'device_demo',   label: 'عرض جهاز' },
   { id: 'device_delivery',       label: 'تسليم الجهاز' },
   { id: 'device_installation',   label: 'تركيب الجهاز' },
   { id: 'device_activation',     label: 'تشغيل الجهاز' },
@@ -794,27 +944,45 @@ const CATEGORY_GROUP: Record<string, string> = {
 
   diagnosis_problem_types: 'emergency', emergency_resolved_reason: 'emergency',
   emergency_unresolved_reason: 'emergency', emergency_followup_reason: 'emergency',
+  emergency_maintenance_reschedule_reasons: 'emergency',
   emergency_cancelled_reason: 'emergency', service_unresolved_reasons: 'emergency',
   service_partial_reasons: 'emergency', reopen_reasons: 'emergency',
   emergency_uniqueness_override_reasons: 'emergency', part_no_retrieval_reason: 'emergency',
 
   periodic_manual_creation_reasons: 'periodic',
+  periodic_maintenance_reschedule_reasons: 'periodic',
   periodic_partially_performed_reason: 'periodic',
   periodic_not_performed_reason: 'periodic',
 
   contract_sale_source: 'contracts', discount_reason: 'contracts',
-  transfer_company: 'contracts', no_closing_reasons: 'contracts',
+  transfer_company: 'contracts',
 
+  device_demo_creation_reasons: 'device_demo',
+  device_demo_reschedule_reasons: 'device_demo',
+  device_demo_cancellation_reasons: 'device_demo',
+  device_demo_offer_refusal_reasons: 'device_demo',
+  no_closing_reasons: 'device_demo',
+
+  device_delivery_creation_reasons: 'device_delivery',
   device_delivery_reschedule_reasons: 'device_delivery', device_delivery_failure_reasons: 'device_delivery',
+  device_installation_creation_reasons: 'device_installation',
   installation_incomplete_reason: 'device_installation', installation_refusal_reason: 'device_installation',
   device_activation_followup_reasons: 'device_activation',
+  device_activation_failure_reasons: 'device_activation',
+  device_activation_reschedule_reasons: 'device_activation',
+  device_retrieval_creation_reasons: 'device_retrieval',
   device_retrieval_refusal_reasons: 'device_retrieval', device_retrieval_reschedule_reasons: 'device_retrieval',
+  device_return_creation_reasons: 'device_return',
   device_return_refusal_reasons: 'device_return', device_return_reschedule_reasons: 'device_return',
+  device_transfer_creation_reasons: 'device_transfer',
   device_transfer_refusal_reasons: 'device_transfer', device_transfer_reschedule_reasons: 'device_transfer',
+  device_checkup_creation_reasons: 'device_checkup',
   device_checkup_refusal_reasons: 'device_checkup', device_checkup_reschedule_reasons: 'device_checkup',
+  device_disconnection_creation_reasons: 'device_disconnection',
   device_disconnection_reasons: 'device_disconnection', device_disconnection_retrieval_reasons: 'device_disconnection',
   device_disconnection_reschedule_reasons: 'device_disconnection', device_disconnection_failure_reasons: 'device_disconnection',
 
+  installment_collection_creation_reasons: 'collection',
   collection_partial_payment_reasons: 'collection',
   collection_refusal_reasons: 'collection',
   collection_reschedule_reasons: 'collection',

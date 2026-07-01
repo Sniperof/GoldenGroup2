@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useCandidateStore } from '../../hooks/useCandidateStore';
-import { UserPlus, Search, Building2, MapPin, AlertCircle, ArrowRight, XCircle, FilePlus2, Download, Upload, Info, LayoutGrid, List, ShieldCheck, Edit, User } from 'lucide-react';
+import { UserPlus, Search, Building2, MapPin, AlertCircle, ArrowRight, XCircle, FilePlus2, Download, Upload, Info, LayoutGrid, List, ShieldCheck, Edit, User, SlidersHorizontal, ChevronDown } from 'lucide-react';
+import DateField from '../../components/ui/DateField';
 import AddCandidateModal from '../../components/candidates/AddCandidateModal';
 import CreateReferralSheetModal from '../../components/candidates/CreateReferralSessionModal';
 import ImportCSVModal from '../../components/candidates/ImportCSVModal';
@@ -12,6 +13,8 @@ import BranchScopeIndicator from '../../components/BranchScopeIndicator';
 import Select from '../../components/ui/Select';
 import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
+import Input from '../../components/ui/Input';
+import Toggle from '../../components/ui/Toggle';
 import { api } from '../../lib/api';
 import { Client, Candidate, GeoUnit } from '../../lib/types';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -30,6 +33,47 @@ const getReferralTypeLabel = (type?: string | null) => {
     if (!type) return '--';
     return referralTypeLabels[type] || type;
 };
+
+// Canonical Arabic labels for ReferralOriginChannel — matches AddCandidateModal.tsx's
+// data-entry Select exactly (Acquaintance/PhoneCall/SocialMedia/Campaign). 'App' isn't
+// offered there (folded into SocialMedia on entry) but may exist in historical data.
+const channelLabels: Record<string, string> = {
+    Acquaintance: 'معرفة شخصية',
+    PhoneCall: 'مكالمة هاتفية',
+    SocialMedia: 'سوشال ميديا',
+    Campaign: 'حملة إعلانية',
+    App: 'من التطبيق',
+};
+
+const getChannelLabel = (channel?: string | null) => {
+    if (!channel) return '--';
+    return channelLabels[channel] || channel;
+};
+
+// Status badge: covers all 6 real values (the runtime value is 'New' — see the
+// status filter options above for why 'Prospect' from the shared TS type is wrong).
+// Previously only 3 of 6 were branched, so 'New' and 'Contacted' silently fell
+// through to a red "مرفوض" (rejected) badge — fixed here.
+function getCandidateStatusBadge(candidate: { status: string; duplicateFlag?: boolean }): { label: string; className: string } {
+    switch (candidate.status) {
+        case 'New':
+            return { label: 'جديد', className: 'bg-slate-50 text-slate-600 border-slate-200' };
+        case 'Suggested':
+            return { label: 'مقترح', className: 'bg-sky-50 text-sky-700 border-sky-100' };
+        case 'Contacted':
+            return { label: 'تم الاتصال', className: 'bg-indigo-50 text-indigo-700 border-indigo-100' };
+        case 'FollowUp':
+            return { label: 'متابعة', className: 'bg-amber-50 text-amber-700 border-amber-100' };
+        case 'Qualified':
+            return {
+                label: candidate.duplicateFlag ? 'تم الربط' : 'تم التحويل',
+                className: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+            };
+        case 'Junk':
+        default:
+            return { label: 'مرفوض', className: 'bg-red-50 text-red-700 border-red-100' };
+    }
+}
 
 export default function CandidatesEntry() {
     const { hasAnyPermission, hasPermission } = usePermissions();
@@ -62,16 +106,44 @@ export default function CandidatesEntry() {
     const [searchQuery, setSearchQuery] = useState('');
     const [errorModal, setErrorModal] = useState<string | null>(null);
 
-    // Candidate Filters
+    // Candidate Filters — primary (always visible)
     const [candidateStatusFilter, setCandidateStatusFilter] = useState('');
     const [candidateSupervisorFilter, setCandidateSupervisorFilter] = useState('');
     const [candidateBranchFilter, setCandidateBranchFilter] = useState('');
+    // Candidate Filters — advanced (behind toggle, reporting-analytics.md §3.5-أ)
+    const [showCandidateAdvanced, setShowCandidateAdvanced] = useState(false);
+    const [candidateConvertedFilter, setCandidateConvertedFilter] = useState<'' | 'converted' | 'unconverted'>('');
+    const [candidateReferralTypeFilter, setCandidateReferralTypeFilter] = useState('');
+    const [candidateChannelFilter, setCandidateChannelFilter] = useState('');
+    const [candidateDuplicateFilter, setCandidateDuplicateFilter] = useState<'' | 'yes' | 'no'>('');
+    const [candidateConfirmationFilter, setCandidateConfirmationFilter] = useState('');
+    const [candidateCreatorFilter, setCandidateCreatorFilter] = useState('');
+    const [candidateSourceFilter, setCandidateSourceFilter] = useState<'' | 'fromSheet' | 'direct'>('');
+    const [candidateGeoFilter, setCandidateGeoFilter] = useState('');
+    const [candidateDateFrom, setCandidateDateFrom] = useState('');
+    const [candidateDateTo, setCandidateDateTo] = useState('');
 
-    // Sheet Filters
+    // Sheet Filters — primary (always visible)
     const [sheetSearchQuery, setSheetSearchQuery] = useState('');
     const [sheetStatusFilter, setSheetStatusFilter] = useState('');
     const [sheetSupervisorFilter, setSheetSupervisorFilter] = useState('');
     const [sheetBranchFilter, setSheetBranchFilter] = useState('');
+    // Sheet Filters — advanced (behind toggle, reporting-analytics.md §3.5-ب): the
+    // three independent roles (owner/assigned reviewer/creator) replace the single
+    // merged "supervisor" concept per the audit finding in
+    // docs/analysis/candidates-referral-sheets-filters-audit.md §2.2.
+    const [showSheetAdvanced, setShowSheetAdvanced] = useState(false);
+    const [sheetOwnerFilter, setSheetOwnerFilter] = useState('');
+    const [sheetAssignedReviewerFilter, setSheetAssignedReviewerFilter] = useState('');
+    const [sheetCreatorFilter, setSheetCreatorFilter] = useState('');
+    const [sheetSourceFilter, setSheetSourceFilter] = useState<'' | 'fromVisit' | 'manual'>('');
+    const [sheetReferralTypeFilter, setSheetReferralTypeFilter] = useState('');
+    const [sheetChannelFilter, setSheetChannelFilter] = useState('');
+    const [sheetQualityMin, setSheetQualityMin] = useState('');
+    const [sheetConversionMin, setSheetConversionMin] = useState('');
+    const [sheetBehindTargetFilter, setSheetBehindTargetFilter] = useState(false);
+    const [sheetDateFrom, setSheetDateFrom] = useState('');
+    const [sheetDateTo, setSheetDateTo] = useState('');
 
     // Pagination State
     const [candidatePage, setCandidatePage] = useState(1);
@@ -112,35 +184,160 @@ export default function CandidatesEntry() {
         [referralSheets]
     );
 
+    // Derived option lists for the advanced candidate filters — dynamic, scoped to
+    // the currently-visible data only (reporting-analytics.md §3.5-أ "شرط الظهور: عام").
+    const candidateReferralTypes = useMemo(() =>
+        [...new Set(candidates.map(c => c.referralType).filter(Boolean) as string[])].sort(),
+        [candidates]
+    );
+    const candidateChannels = useMemo(() =>
+        [...new Set(candidates.map(c => c.referralOriginChannel).filter(Boolean) as string[])].sort(),
+        [candidates]
+    );
+    const candidateCreators = useMemo(() =>
+        [...new Set(candidates.map(c => c.createdByUserName).filter(Boolean) as string[])].sort(),
+        [candidates]
+    );
+
+    // Derived option lists for the advanced sheet filters (reporting-analytics.md §3.5-ب).
+    const sheetOwners = useMemo(() =>
+        [...new Set(referralSheets.map(s => s.ownerUserName).filter(Boolean) as string[])].sort(),
+        [referralSheets]
+    );
+    // Assigned-reviewer name is only meaningful when assignedHrUserId is actually set —
+    // in that case the merged assignedHrUserName IS the reviewer's name (COALESCE picks
+    // it first), so no extra API field is needed to derive this list correctly.
+    const sheetAssignedReviewers = useMemo(() =>
+        [...new Set(referralSheets.filter(s => s.assignedHrUserId != null).map(s => s.assignedHrUserName).filter(Boolean) as string[])].sort(),
+        [referralSheets]
+    );
+    const sheetCreators = useMemo(() =>
+        [...new Set(referralSheets.map(s => s.createdByUserName).filter(Boolean) as string[])].sort(),
+        [referralSheets]
+    );
+    const sheetReferralTypes = useMemo(() =>
+        [...new Set(referralSheets.map(s => s.referralType).filter(Boolean) as string[])].sort(),
+        [referralSheets]
+    );
+    const sheetChannels = useMemo(() =>
+        [...new Set(referralSheets.map(s => s.referralOriginChannel).filter(Boolean) as string[])].sort(),
+        [referralSheets]
+    );
+
     // Derived State: filtered candidates
     const filteredCandidates = useMemo(() =>
         candidates
             .filter(c => {
-                const fullStr = `${c.firstName || ''} ${c.nickname || ''} ${c.lastName || ''} ${c.mobile}`.toLowerCase();
+                // Search covers referral_name_snapshot too (fixes the gap documented in
+                // docs/analysis/candidates-referral-sheets-filters-audit.md §1.1 — the
+                // placeholder promised "وسيط" search that the old implementation lacked).
+                const fullStr = `${c.firstName || ''} ${c.nickname || ''} ${c.lastName || ''} ${c.mobile} ${c.referralNameSnapshot || ''}`.toLowerCase();
                 if (searchQuery && !fullStr.includes(searchQuery.toLowerCase())) return false;
                 if (candidateStatusFilter && c.status !== candidateStatusFilter) return false;
                 if (candidateSupervisorFilter && !(c.assignments || []).some(a => a.userName === candidateSupervisorFilter)) return false;
                 if (candidateBranchFilter && c.branchName !== candidateBranchFilter) return false;
+                if (candidateConvertedFilter === 'converted' && c.convertedToLeadId == null) return false;
+                if (candidateConvertedFilter === 'unconverted' && c.convertedToLeadId != null) return false;
+                if (candidateReferralTypeFilter && c.referralType !== candidateReferralTypeFilter) return false;
+                if (candidateChannelFilter && c.referralOriginChannel !== candidateChannelFilter) return false;
+                if (candidateDuplicateFilter === 'yes' && !c.duplicateFlag) return false;
+                if (candidateDuplicateFilter === 'no' && c.duplicateFlag) return false;
+                if (candidateConfirmationFilter && c.referralConfirmationStatus !== candidateConfirmationFilter) return false;
+                if (candidateCreatorFilter && c.createdByUserName !== candidateCreatorFilter) return false;
+                if (candidateSourceFilter === 'fromSheet' && c.referralSheetId == null) return false;
+                if (candidateSourceFilter === 'direct' && c.referralSheetId != null) return false;
+                if (candidateGeoFilter && String(c.geoUnitId ?? '') !== candidateGeoFilter) return false;
+                if (candidateDateFrom && new Date(c.createdAt) < new Date(candidateDateFrom)) return false;
+                if (candidateDateTo && new Date(c.createdAt) > new Date(`${candidateDateTo}T23:59:59`)) return false;
                 return true;
             })
             .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
-        [candidates, searchQuery, candidateStatusFilter, candidateSupervisorFilter, candidateBranchFilter]
+        [
+            candidates, searchQuery, candidateStatusFilter, candidateSupervisorFilter, candidateBranchFilter,
+            candidateConvertedFilter, candidateReferralTypeFilter, candidateChannelFilter, candidateDuplicateFilter,
+            candidateConfirmationFilter, candidateCreatorFilter, candidateSourceFilter, candidateGeoFilter,
+            candidateDateFrom, candidateDateTo,
+        ]
     );
+
+    const hasAdvancedCandidateFilters = !!(candidateConvertedFilter || candidateReferralTypeFilter || candidateChannelFilter
+        || candidateDuplicateFilter || candidateConfirmationFilter || candidateCreatorFilter || candidateSourceFilter
+        || candidateGeoFilter || candidateDateFrom || candidateDateTo);
+
+    const clearCandidateFilters = () => {
+        setSearchQuery('');
+        setCandidateStatusFilter('');
+        setCandidateSupervisorFilter('');
+        setCandidateBranchFilter('');
+        setCandidateConvertedFilter('');
+        setCandidateReferralTypeFilter('');
+        setCandidateChannelFilter('');
+        setCandidateDuplicateFilter('');
+        setCandidateConfirmationFilter('');
+        setCandidateCreatorFilter('');
+        setCandidateSourceFilter('');
+        setCandidateGeoFilter('');
+        setCandidateDateFrom('');
+        setCandidateDateTo('');
+        setCandidatePage(1);
+    };
 
     // Derived State: filtered sheets
     const filteredSheets = useMemo(() =>
         referralSheets.filter(s => {
             if (sheetSearchQuery) {
                 const q = sheetSearchQuery.toLowerCase();
-                if (!s.referralNameSnapshot.toLowerCase().includes(q)) return false;
+                const matchesName = s.referralNameSnapshot.toLowerCase().includes(q);
+                const matchesId = String(s.id).includes(q);
+                if (!matchesName && !matchesId) return false;
             }
             if (sheetStatusFilter && s.status !== sheetStatusFilter) return false;
             if (sheetSupervisorFilter && s.assignedHrUserName !== sheetSupervisorFilter) return false;
             if (sheetBranchFilter && s.branchName !== sheetBranchFilter) return false;
+            if (sheetOwnerFilter && s.ownerUserName !== sheetOwnerFilter) return false;
+            if (sheetAssignedReviewerFilter && (s.assignedHrUserId == null || s.assignedHrUserName !== sheetAssignedReviewerFilter)) return false;
+            if (sheetCreatorFilter && s.createdByUserName !== sheetCreatorFilter) return false;
+            if (sheetSourceFilter === 'fromVisit' && s.fieldVisitId == null) return false;
+            if (sheetSourceFilter === 'manual' && s.fieldVisitId != null) return false;
+            if (sheetReferralTypeFilter && s.referralType !== sheetReferralTypeFilter) return false;
+            if (sheetChannelFilter && s.referralOriginChannel !== sheetChannelFilter) return false;
+            if (sheetQualityMin && (s.stats?.qualityPercentage ?? 0) < Number(sheetQualityMin)) return false;
+            if (sheetConversionMin && (s.stats?.conversionPercentage ?? 0) < Number(sheetConversionMin)) return false;
+            if (sheetBehindTargetFilter && !((s.stats?.targetCandidates ?? 0) > 0 && (s.stats?.totalCandidates ?? 0) < (s.stats?.targetCandidates ?? 0))) return false;
+            if (sheetDateFrom && new Date(s.createdAt) < new Date(sheetDateFrom)) return false;
+            if (sheetDateTo && new Date(s.createdAt) > new Date(`${sheetDateTo}T23:59:59`)) return false;
             return true;
         }),
-        [referralSheets, sheetSearchQuery, sheetStatusFilter, sheetSupervisorFilter, sheetBranchFilter]
+        [
+            referralSheets, sheetSearchQuery, sheetStatusFilter, sheetSupervisorFilter, sheetBranchFilter,
+            sheetOwnerFilter, sheetAssignedReviewerFilter, sheetCreatorFilter, sheetSourceFilter,
+            sheetReferralTypeFilter, sheetChannelFilter, sheetQualityMin, sheetConversionMin,
+            sheetBehindTargetFilter, sheetDateFrom, sheetDateTo,
+        ]
     );
+
+    const hasAdvancedSheetFilters = !!(sheetOwnerFilter || sheetAssignedReviewerFilter || sheetCreatorFilter
+        || sheetSourceFilter || sheetReferralTypeFilter || sheetChannelFilter || sheetQualityMin || sheetConversionMin
+        || sheetBehindTargetFilter || sheetDateFrom || sheetDateTo);
+
+    const clearSheetFilters = () => {
+        setSheetSearchQuery('');
+        setSheetStatusFilter('');
+        setSheetSupervisorFilter('');
+        setSheetBranchFilter('');
+        setSheetOwnerFilter('');
+        setSheetAssignedReviewerFilter('');
+        setSheetCreatorFilter('');
+        setSheetSourceFilter('');
+        setSheetReferralTypeFilter('');
+        setSheetChannelFilter('');
+        setSheetQualityMin('');
+        setSheetConversionMin('');
+        setSheetBehindTargetFilter(false);
+        setSheetDateFrom('');
+        setSheetDateTo('');
+        setSheetsPage(1);
+    };
 
     // Pagination for Candidates
     const totalCandidatePages = Math.ceil(filteredCandidates.length / ITEMS_PER_PAGE);
@@ -318,52 +515,154 @@ export default function CandidatesEntry() {
             {activeTab === 'candidates' && (
                 <div className="flex flex-col border rounded-2xl border-slate-200 bg-white shadow-sm overflow-hidden">
                     {/* Filters Bar for Candidates */}
-                    <div className="p-4 border-b border-slate-100 bg-slate-50/30 flex flex-wrap gap-3 items-center">
-                        <div className="relative flex-1 min-w-[180px]">
-                            <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                            <input
-                                type="text"
-                                placeholder="بحث (اسم، رقم، وسيط)..."
-                                value={searchQuery}
-                                onChange={(e) => { setSearchQuery(e.target.value); setCandidatePage(1); }}
-                                className="w-full pl-4 pr-10 py-3 rounded-xl border border-slate-200 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/20 text-sm"
-                            />
-                        </div>
-                        <Select
-                            value={candidateStatusFilter}
-                            onChange={(v) => { setCandidateStatusFilter(v); setCandidatePage(1); }}
-                            ariaLabel="حالة المرشح"
-                            options={[
-                                { value: '', label: 'كل الحالات' },
-                                { value: 'Suggested', label: 'مقترح' },
-                                { value: 'FollowUp', label: 'متابعة' },
-                                { value: 'Qualified', label: 'محوَّل' },
-                                { value: 'Junk', label: 'مرفوض' },
-                            ]}
-                        />
-                        {candidateSupervisors.length > 0 && (
+                    <div className="p-4 border-b border-slate-100 bg-slate-50/30 flex flex-col gap-3">
+                        <div className="flex flex-wrap gap-3 items-center">
+                            <div className="relative flex-1 min-w-[180px]">
+                                <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                                <input
+                                    type="text"
+                                    placeholder="بحث (اسم، رقم، وسيط)..."
+                                    value={searchQuery}
+                                    onChange={(e) => { setSearchQuery(e.target.value); setCandidatePage(1); }}
+                                    className="w-full pl-4 pr-10 py-3 rounded-xl border border-slate-200 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/20 text-sm"
+                                />
+                            </div>
                             <Select
-                                value={candidateSupervisorFilter}
-                                onChange={(v) => { setCandidateSupervisorFilter(v); setCandidatePage(1); }}
-                                ariaLabel="المسؤول"
-                                options={[{ value: '', label: 'كل المسؤولين' }, ...candidateSupervisors.map(s => ({ value: s, label: s }))]}
+                                value={candidateStatusFilter}
+                                onChange={(v) => { setCandidateStatusFilter(v); setCandidatePage(1); }}
+                                ariaLabel="حالة المرشح"
+                                options={[
+                                    { value: '', label: 'كل الحالات' },
+                                    // Runtime value is 'New' (matches the DB CHECK constraint) — NOT the
+                                    // 'Prospect' the shared TS type declares. No transform layer exists
+                                    // anywhere in the API; that type is the documented drift bug itself
+                                    // (reporting-analytics.md §3.8, candidates.md §9). Filtering on
+                                    // 'Prospect' would silently match zero rows.
+                                    { value: 'New', label: 'جديد' },
+                                    { value: 'Suggested', label: 'مقترح' },
+                                    { value: 'Contacted', label: 'تم الاتصال' },
+                                    { value: 'FollowUp', label: 'متابعة' },
+                                    { value: 'Qualified', label: 'محوَّل' },
+                                    { value: 'Junk', label: 'مرفوض' },
+                                ]}
                             />
-                        )}
-                        {candidateBranches.length > 0 && (
-                            <Select
-                                value={candidateBranchFilter}
-                                onChange={(v) => { setCandidateBranchFilter(v); setCandidatePage(1); }}
-                                ariaLabel="الفرع"
-                                options={[{ value: '', label: 'كل الفروع' }, ...candidateBranches.map(b => ({ value: b, label: b }))]}
-                            />
-                        )}
-                        {(searchQuery || candidateStatusFilter || candidateSupervisorFilter || candidateBranchFilter) && (
+                            {candidateSupervisors.length > 0 && (
+                                <Select
+                                    value={candidateSupervisorFilter}
+                                    onChange={(v) => { setCandidateSupervisorFilter(v); setCandidatePage(1); }}
+                                    ariaLabel="المسؤول"
+                                    options={[{ value: '', label: 'كل المسؤولين' }, ...candidateSupervisors.map(s => ({ value: s, label: s }))]}
+                                />
+                            )}
+                            {candidateBranches.length > 0 && (
+                                <Select
+                                    value={candidateBranchFilter}
+                                    onChange={(v) => { setCandidateBranchFilter(v); setCandidatePage(1); }}
+                                    ariaLabel="الفرع"
+                                    options={[{ value: '', label: 'كل الفروع' }, ...candidateBranches.map(b => ({ value: b, label: b }))]}
+                                />
+                            )}
                             <button
-                                onClick={() => { setSearchQuery(''); setCandidateStatusFilter(''); setCandidateSupervisorFilter(''); setCandidateBranchFilter(''); setCandidatePage(1); }}
-                                className="flex items-center gap-1 text-xs text-slate-500 hover:text-red-600 transition-colors"
+                                onClick={() => setShowCandidateAdvanced(o => !o)}
+                                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-bold transition-all ${hasAdvancedCandidateFilters ? 'border-sky-200 bg-sky-50 text-sky-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
                             >
-                                <XCircle className="w-4 h-4" /> مسح الفلاتر
+                                <SlidersHorizontal className="w-3.5 h-3.5" /> فلاتر متقدمة
+                                <ChevronDown className={`w-3 h-3 transition-transform ${showCandidateAdvanced ? 'rotate-180' : ''}`} />
                             </button>
+                            {(searchQuery || candidateStatusFilter || candidateSupervisorFilter || candidateBranchFilter || hasAdvancedCandidateFilters) && (
+                                <button
+                                    onClick={clearCandidateFilters}
+                                    className="flex items-center gap-1 text-xs text-slate-500 hover:text-red-600 transition-colors"
+                                >
+                                    <XCircle className="w-4 h-4" /> مسح الفلاتر
+                                </button>
+                            )}
+                        </div>
+
+                        {showCandidateAdvanced && (
+                            <div className="flex flex-wrap gap-3 items-center pt-3 border-t border-dashed border-slate-200">
+                                <Select
+                                    value={candidateConvertedFilter}
+                                    onChange={(v) => { setCandidateConvertedFilter(v as any); setCandidatePage(1); }}
+                                    ariaLabel="التحويل"
+                                    options={[
+                                        { value: '', label: 'محوَّل/غير محوَّل: الكل' },
+                                        { value: 'converted', label: 'محوَّل فقط' },
+                                        { value: 'unconverted', label: 'غير محوَّل فقط' },
+                                    ]}
+                                />
+                                {candidateReferralTypes.length > 0 && (
+                                    <Select
+                                        value={candidateReferralTypeFilter}
+                                        onChange={(v) => { setCandidateReferralTypeFilter(v); setCandidatePage(1); }}
+                                        ariaLabel="نوع الترشيح"
+                                        options={[{ value: '', label: 'كل أنواع الترشيح' }, ...candidateReferralTypes.map(t => ({ value: t, label: getReferralTypeLabel(t) }))]}
+                                    />
+                                )}
+                                {candidateChannels.length > 0 && (
+                                    <Select
+                                        value={candidateChannelFilter}
+                                        onChange={(v) => { setCandidateChannelFilter(v); setCandidatePage(1); }}
+                                        ariaLabel="قناة المصدر"
+                                        options={[{ value: '', label: 'كل القنوات' }, ...candidateChannels.map(c => ({ value: c, label: getChannelLabel(c) }))]}
+                                    />
+                                )}
+                                <Select
+                                    value={candidateDuplicateFilter}
+                                    onChange={(v) => { setCandidateDuplicateFilter(v as any); setCandidatePage(1); }}
+                                    ariaLabel="تكرار محتمل"
+                                    options={[
+                                        { value: '', label: 'التكرار: الكل' },
+                                        { value: 'yes', label: 'مكرَّر فقط' },
+                                        { value: 'no', label: 'غير مكرَّر فقط' },
+                                    ]}
+                                />
+                                <Select
+                                    value={candidateConfirmationFilter}
+                                    onChange={(v) => { setCandidateConfirmationFilter(v); setCandidatePage(1); }}
+                                    ariaLabel="تأكيد الترشيح"
+                                    options={[
+                                        { value: '', label: 'تأكيد الترشيح: الكل' },
+                                        { value: 'Pending', label: 'قيد الانتظار' },
+                                        { value: 'Confirmed', label: 'مؤكَّد' },
+                                        { value: 'Rejected', label: 'مرفوض' },
+                                    ]}
+                                />
+                                {candidateCreators.length > 0 && (
+                                    <Select
+                                        value={candidateCreatorFilter}
+                                        onChange={(v) => { setCandidateCreatorFilter(v); setCandidatePage(1); }}
+                                        ariaLabel="المنشئ"
+                                        options={[{ value: '', label: 'كل المنشئين' }, ...candidateCreators.map(c => ({ value: c, label: c }))]}
+                                    />
+                                )}
+                                <Select
+                                    value={candidateSourceFilter}
+                                    onChange={(v) => { setCandidateSourceFilter(v as any); setCandidatePage(1); }}
+                                    ariaLabel="مصدر الإدخال"
+                                    options={[
+                                        { value: '', label: 'مصدر الإدخال: الكل' },
+                                        { value: 'fromSheet', label: 'من لائحة' },
+                                        { value: 'direct', label: 'إدخال مباشر' },
+                                    ]}
+                                />
+                                {geoUnits.filter(g => g.level === 4).length > 0 && (
+                                    <Select
+                                        value={candidateGeoFilter}
+                                        onChange={(v) => { setCandidateGeoFilter(v); setCandidatePage(1); }}
+                                        ariaLabel="المنطقة الجغرافية"
+                                        options={[
+                                            { value: '', label: 'كل المناطق' },
+                                            ...geoUnits.filter(g => g.level === 4).map(g => ({ value: String(g.id), label: getNeighborhoodHierarchy(String(g.id)) })),
+                                        ]}
+                                    />
+                                )}
+                                <div className="flex items-center gap-1.5">
+                                    <DateField value={candidateDateFrom} onChange={(v) => { setCandidateDateFrom(v); setCandidatePage(1); }} placeholder="من تاريخ" className="w-36 bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 hover:border-slate-300 focus:border-sky-500 focus:outline-none transition-colors" />
+                                    <span className="text-xs text-slate-400">إلى</span>
+                                    <DateField value={candidateDateTo} onChange={(v) => { setCandidateDateTo(v); setCandidatePage(1); }} placeholder="إلى تاريخ" className="w-36 bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 hover:border-slate-300 focus:border-sky-500 focus:outline-none transition-colors" />
+                                </div>
+                            </div>
                         )}
                     </div>
 
@@ -469,8 +768,8 @@ export default function CandidatesEntry() {
                                                     )}
                                                 </td>
                                                 <td className="px-5 py-2 text-xs">
-                                                    <span className={`px-2 py-0.5 rounded text-xs font-black border ${c.status === 'Suggested' ? 'bg-sky-50 text-sky-700 border-sky-100' : c.status === 'Qualified' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-red-50 text-red-700 border-red-100'}`}>
-                                                        {c.status === 'Suggested' ? 'مقترح' : c.status === 'FollowUp' ? 'متابعة' : c.status === 'Qualified' ? (c.duplicateFlag ? 'تم الربط' : 'تم التحويل') : 'مرفوض'}
+                                                    <span className={`px-2 py-0.5 rounded text-xs font-black border ${getCandidateStatusBadge(c).className}`}>
+                                                        {getCandidateStatusBadge(c).label}
                                                     </span>
                                                 </td>
                                                 <td className="px-5 py-2">
@@ -534,51 +833,144 @@ export default function CandidatesEntry() {
             {activeTab === 'sheets' && canViewNameLists && (
                 <div className="flex flex-col border rounded-2xl border-slate-200 bg-white shadow-sm overflow-hidden">
                     {/* Filters Bar for Sheets */}
-                    <div className="p-4 border-b border-slate-100 bg-amber-50/20 flex flex-wrap gap-3 items-center">
-                        <div className="relative flex-1 min-w-[180px]">
-                            <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                            <input
-                                type="text"
-                                placeholder="بحث باسم الوسيط..."
-                                value={sheetSearchQuery}
-                                onChange={(e) => { setSheetSearchQuery(e.target.value); setSheetsPage(1); }}
-                                className="w-full pl-4 pr-10 py-3 rounded-xl border border-amber-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 text-sm bg-white"
-                            />
-                        </div>
-                        <Select
-                            value={sheetStatusFilter}
-                            onChange={(v) => { setSheetStatusFilter(v); setSheetsPage(1); }}
-                            ariaLabel="حالة اللائحة"
-                            options={[
-                                { value: '', label: 'كل الحالات' },
-                                { value: 'New', label: 'نشط' },
-                                { value: 'Completed', label: 'مكتمل' },
-                                { value: 'Archived', label: 'مؤرشف' },
-                            ]}
-                        />
-                        {sheetSupervisors.length > 0 && (
+                    <div className="p-4 border-b border-slate-100 bg-amber-50/20 flex flex-col gap-3">
+                        <div className="flex flex-wrap gap-3 items-center">
+                            <div className="relative flex-1 min-w-[180px]">
+                                <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                                <input
+                                    type="text"
+                                    placeholder="بحث باسم الوسيط أو رقم اللائحة..."
+                                    value={sheetSearchQuery}
+                                    onChange={(e) => { setSheetSearchQuery(e.target.value); setSheetsPage(1); }}
+                                    className="w-full pl-4 pr-10 py-3 rounded-xl border border-amber-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 text-sm bg-white"
+                                />
+                            </div>
                             <Select
-                                value={sheetSupervisorFilter}
-                                onChange={(v) => { setSheetSupervisorFilter(v); setSheetsPage(1); }}
-                                ariaLabel="المشرفة"
-                                options={[{ value: '', label: 'كل المشرفات' }, ...sheetSupervisors.map(s => ({ value: s, label: s }))]}
+                                value={sheetStatusFilter}
+                                onChange={(v) => { setSheetStatusFilter(v); setSheetsPage(1); }}
+                                ariaLabel="حالة اللائحة"
+                                options={[
+                                    { value: '', label: 'كل الحالات' },
+                                    { value: 'New', label: 'نشط' },
+                                    { value: 'In-Progress', label: 'قيد الجمع' },
+                                    { value: 'Completed', label: 'مكتمل' },
+                                    { value: 'Archived', label: 'مؤرشف' },
+                                ]}
                             />
-                        )}
-                        {sheetBranches.length > 0 && (
-                            <Select
-                                value={sheetBranchFilter}
-                                onChange={(v) => { setSheetBranchFilter(v); setSheetsPage(1); }}
-                                ariaLabel="الفرع"
-                                options={[{ value: '', label: 'كل الفروع' }, ...sheetBranches.map(b => ({ value: b, label: b }))]}
-                            />
-                        )}
-                        {(sheetSearchQuery || sheetStatusFilter || sheetSupervisorFilter || sheetBranchFilter) && (
+                            {sheetSupervisors.length > 0 && (
+                                <Select
+                                    value={sheetSupervisorFilter}
+                                    onChange={(v) => { setSheetSupervisorFilter(v); setSheetsPage(1); }}
+                                    ariaLabel="المسؤول (مدمج)"
+                                    options={[{ value: '', label: 'المسؤول (مدمج): الكل' }, ...sheetSupervisors.map(s => ({ value: s, label: s }))]}
+                                />
+                            )}
+                            {sheetBranches.length > 0 && (
+                                <Select
+                                    value={sheetBranchFilter}
+                                    onChange={(v) => { setSheetBranchFilter(v); setSheetsPage(1); }}
+                                    ariaLabel="الفرع"
+                                    options={[{ value: '', label: 'كل الفروع' }, ...sheetBranches.map(b => ({ value: b, label: b }))]}
+                                />
+                            )}
                             <button
-                                onClick={() => { setSheetSearchQuery(''); setSheetStatusFilter(''); setSheetSupervisorFilter(''); setSheetBranchFilter(''); setSheetsPage(1); }}
-                                className="flex items-center gap-1 text-xs text-slate-500 hover:text-red-600 transition-colors"
+                                onClick={() => setShowSheetAdvanced(o => !o)}
+                                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-bold transition-all ${hasAdvancedSheetFilters ? 'border-amber-300 bg-amber-100 text-amber-800' : 'border-amber-200 bg-white text-amber-700 hover:bg-amber-50'}`}
                             >
-                                <XCircle className="w-4 h-4" /> مسح الفلاتر
+                                <SlidersHorizontal className="w-3.5 h-3.5" /> فلاتر متقدمة
+                                <ChevronDown className={`w-3 h-3 transition-transform ${showSheetAdvanced ? 'rotate-180' : ''}`} />
                             </button>
+                            {(sheetSearchQuery || sheetStatusFilter || sheetSupervisorFilter || sheetBranchFilter || hasAdvancedSheetFilters) && (
+                                <button
+                                    onClick={clearSheetFilters}
+                                    className="flex items-center gap-1 text-xs text-slate-500 hover:text-red-600 transition-colors"
+                                >
+                                    <XCircle className="w-4 h-4" /> مسح الفلاتر
+                                </button>
+                            )}
+                        </div>
+
+                        {showSheetAdvanced && (
+                            <div className="flex flex-wrap gap-3 items-center pt-3 border-t border-dashed border-amber-200">
+                                {sheetOwners.length > 0 && (
+                                    <Select
+                                        value={sheetOwnerFilter}
+                                        onChange={(v) => { setSheetOwnerFilter(v); setSheetsPage(1); }}
+                                        ariaLabel="الجامع الفعلي"
+                                        options={[{ value: '', label: 'الجامع الفعلي: الكل' }, ...sheetOwners.map(o => ({ value: o, label: o }))]}
+                                    />
+                                )}
+                                {sheetAssignedReviewers.length > 0 && (
+                                    <Select
+                                        value={sheetAssignedReviewerFilter}
+                                        onChange={(v) => { setSheetAssignedReviewerFilter(v); setSheetsPage(1); }}
+                                        ariaLabel="المُراجِع المُسنَد"
+                                        options={[{ value: '', label: 'المُراجِع المُسنَد: الكل' }, ...sheetAssignedReviewers.map(r => ({ value: r, label: r }))]}
+                                    />
+                                )}
+                                {sheetCreators.length > 0 && (
+                                    <Select
+                                        value={sheetCreatorFilter}
+                                        onChange={(v) => { setSheetCreatorFilter(v); setSheetsPage(1); }}
+                                        ariaLabel="المنشئ"
+                                        options={[{ value: '', label: 'المنشئ: الكل' }, ...sheetCreators.map(c => ({ value: c, label: c }))]}
+                                    />
+                                )}
+                                <Select
+                                    value={sheetSourceFilter}
+                                    onChange={(v) => { setSheetSourceFilter(v as any); setSheetsPage(1); }}
+                                    ariaLabel="مصدر الإنشاء"
+                                    options={[
+                                        { value: '', label: 'مصدر الإنشاء: الكل' },
+                                        { value: 'fromVisit', label: 'من زيارة ميدانية' },
+                                        { value: 'manual', label: 'يدوي' },
+                                    ]}
+                                />
+                                {sheetReferralTypes.length > 0 && (
+                                    <Select
+                                        value={sheetReferralTypeFilter}
+                                        onChange={(v) => { setSheetReferralTypeFilter(v); setSheetsPage(1); }}
+                                        ariaLabel="نوع الترشيح"
+                                        options={[{ value: '', label: 'كل أنواع الترشيح' }, ...sheetReferralTypes.map(t => ({ value: t, label: getReferralTypeLabel(t) }))]}
+                                    />
+                                )}
+                                {sheetChannels.length > 0 && (
+                                    <Select
+                                        value={sheetChannelFilter}
+                                        onChange={(v) => { setSheetChannelFilter(v); setSheetsPage(1); }}
+                                        ariaLabel="قناة المصدر"
+                                        options={[{ value: '', label: 'كل القنوات' }, ...sheetChannels.map(c => ({ value: c, label: getChannelLabel(c) }))]}
+                                    />
+                                )}
+                                <div className="flex items-center gap-1.5">
+                                    <Input
+                                        type="number" min={0} max={100} inputSize="sm" fullWidth={false} placeholder="أدنى جودة %"
+                                        value={sheetQualityMin}
+                                        onChange={(e) => { setSheetQualityMin(e.target.value); setSheetsPage(1); }}
+                                        className="w-28"
+                                    />
+                                    <Input
+                                        type="number" min={0} max={100} inputSize="sm" fullWidth={false} placeholder="أدنى تحويل %"
+                                        value={sheetConversionMin}
+                                        onChange={(e) => { setSheetConversionMin(e.target.value); setSheetsPage(1); }}
+                                        className="w-28"
+                                    />
+                                </div>
+                                <div className="flex items-center gap-2 text-xs font-bold text-slate-600 px-3 py-2 rounded-xl border border-amber-200 bg-white">
+                                    <Toggle
+                                        size="sm"
+                                        checked={sheetBehindTargetFilter}
+                                        onCheckedChange={(v) => { setSheetBehindTargetFilter(v); setSheetsPage(1); }}
+                                        label="دون الهدف فقط"
+                                    />
+                                    دون الهدف فقط
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                    <DateField value={sheetDateFrom} onChange={(v) => { setSheetDateFrom(v); setSheetsPage(1); }} placeholder="من تاريخ" className="w-36 bg-white border border-amber-200 rounded-xl px-3 py-2 text-xs text-slate-800 hover:border-amber-300 focus:border-amber-500 focus:outline-none transition-colors" />
+                                    <span className="text-xs text-slate-400">إلى</span>
+                                    <DateField value={sheetDateTo} onChange={(v) => { setSheetDateTo(v); setSheetsPage(1); }} placeholder="إلى تاريخ" className="w-36 bg-white border border-amber-200 rounded-xl px-3 py-2 text-xs text-slate-800 hover:border-amber-300 focus:border-amber-500 focus:outline-none transition-colors" />
+                                </div>
+                            </div>
                         )}
                     </div>
 

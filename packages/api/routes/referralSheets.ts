@@ -33,6 +33,12 @@ const selectFieldsList = `
   rs.assigned_hr_user_id AS "assignedHrUserId",
   rs.field_visit_id AS "fieldVisitId",
   COALESCE(hu.name, team_hu.name, owner_hu.name) AS "assignedHrUserName",
+  -- Distinct identity fields (reporting-analytics.md §3.5-ب): the three roles behind
+  -- the merged name above must be filterable independently. owner_hu is already
+  -- joined (zero-cost); cb is a new join mirroring the identical pattern in
+  -- candidates.ts (c.created_by / cb / "createdByUserName").
+  owner_hu.name AS "ownerUserName",
+  cb.name AS "createdByUserName",
   rs.total_candidates AS "totalCandidates", rs.target_candidates AS "targetCandidates",
   rs.quality_percentage AS "qualityPercentage",
   rs.conversion_percentage AS "conversionPercentage",
@@ -360,6 +366,7 @@ router.get('/', requirePermission('candidates.name_lists.view_list'), async (req
        LEFT JOIN field_visits fv ON fv.id = rs.field_visit_id
        LEFT JOIN hr_users team_hu ON team_hu.id = fv.team_responsible_user_id
        LEFT JOIN hr_users owner_hu ON owner_hu.id = rs.owner_user_id
+       LEFT JOIN hr_users cb ON cb.id = rs.created_by
        LEFT JOIN branches b ON b.id = rs.branch_id
        ${where}
        ORDER BY rs.id DESC`,

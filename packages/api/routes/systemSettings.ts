@@ -26,6 +26,7 @@ const EDITABLE_KEYS = [
   'periodic_default_interval_months',
   'periodic_attach_warning_days',
   'periodic_attach_allowed_statuses',
+  'dashboard_metric_refresh_hours',
 ] as const;
 
 type EditableKey = typeof EDITABLE_KEYS[number];
@@ -37,6 +38,7 @@ const SETTING_TYPES: Record<EditableKey, 'integer' | 'boolean' | 'time' | 'json'
   periodic_default_interval_months: 'integer',
   periodic_attach_warning_days: 'integer',
   periodic_attach_allowed_statuses: 'json',
+  dashboard_metric_refresh_hours: 'integer',
 };
 
 const ALLOWED_PERIODIC_STATUSES = new Set(['open', 'assigned', 'in_scheduling', 'scheduled', 'waiting_execution']);

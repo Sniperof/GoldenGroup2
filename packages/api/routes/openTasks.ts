@@ -266,6 +266,31 @@ function getAuthContext(req: any) {
   return req.authContext as AuthContext;
 }
 
+async function resolveCreationReasonFromList(
+  db: Queryable,
+  category: string,
+  creationReason: string | null,
+  systemReason: string,
+) {
+  const { rows } = await db.query(
+    `SELECT value
+       FROM system_lists
+      WHERE category = $1
+        AND is_active = TRUE
+        AND (
+          ($2::text IS NOT NULL AND value = $2 AND COALESCE(metadata->>'systemReason', $3) = $3)
+          OR ($2::text IS NULL AND metadata->>'systemReason' = $3)
+        )
+      ORDER BY
+        CASE WHEN value = $2 THEN 0 ELSE 1 END,
+        display_order ASC,
+        id ASC
+      LIMIT 1`,
+    [category, creationReason, systemReason],
+  );
+  return rows.length > 0 ? String(rows[0].value) : null;
+}
+
 function mapOpenTaskRow(row: any) {
   return {
     id: row.id,
@@ -292,6 +317,7 @@ function mapOpenTaskRow(row: any) {
     priority: row.priority,
     source: row.source,
     creationOrigin: row.creation_origin ?? null,
+    creationReason: row.creation_reason ?? null,
     assignedBy: row.assigned_by ?? null,
     assignedVia: row.assigned_via ?? null,
     expectedTime: row.expected_time ?? null,
@@ -1035,7 +1061,7 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
     'system_trigger',
   ]);
   const creationOrigin = allowedCreationOrigins.has(creationOriginInput) ? creationOriginInput : 'manual_creation';
-  const creationReason = typeof req.body?.creationReason === 'string' ? req.body.creationReason.trim() || null : null;
+  let creationReason = typeof req.body?.creationReason === 'string' ? req.body.creationReason.trim() || null : null;
   const receivableSourceTypeInput = typeof req.body?.receivableSourceType === 'string' ? req.body.receivableSourceType.trim() : '';
   const receivableSourceIdInput = Number(req.body?.receivableSourceId) || null;
   const receivableSourceLabelInput = typeof req.body?.receivableSourceLabel === 'string' ? req.body.receivableSourceLabel.trim() || null : null;
@@ -1521,6 +1547,19 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
     ['sale_delivery', 'post_maintenance_return', 'temporary_swap_delivery', 'replacement_delivery', 'manual_delivery']
       .forEach((value) => allowedReasons.add(value));
   }
+  if (taskType === 'installment_collection') {
+    [
+      'contract_installment_due',
+      'maintenance_receivable_due',
+      'golden_warranty_receivable_due',
+      'remaining_installment_balance',
+      'rescheduled_collection',
+      'previous_task_cancelled',
+      'manager_followup',
+      'data_correction',
+      'other',
+    ].forEach((value) => allowedReasons.add(value));
+  }
   if (taskType === 'device_checkup') {
     ['device_checkup', 'manual_checkup', 'other']
       .forEach((value) => allowedReasons.add(value));
@@ -1554,6 +1593,87 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
     if (['temporary_swap_delivery', 'replacement_delivery'].includes(reason) && (!sourceContextType || !sourceContextId)) {
       return res.status(400).json({ error: 'sourceContextType و sourceContextId مطلوبان لهذا السبب' });
     }
+    const { rows: deliveryCreationReasonRows } = await pool.query(
+      `SELECT value
+         FROM system_lists
+        WHERE category = 'device_delivery_creation_reasons'
+          AND is_active = TRUE
+          AND (
+            ($1::text IS NOT NULL AND value = $1)
+            OR ($1::text IS NULL AND metadata->>'systemReason' = $2)
+          )
+        ORDER BY
+          CASE WHEN value = $1 THEN 0 ELSE 1 END,
+          display_order ASC,
+          id ASC
+        LIMIT 1`,
+      [creationReason, reason],
+    );
+    if (deliveryCreationReasonRows.length === 0) {
+      return res.status(400).json({ error: 'سبب إنشاء مهمة تسليم الجهاز مطلوب ويجب اختياره من قائمة أسباب إنشاء مهمة تسليم الجهاز' });
+    }
+    creationReason = String(deliveryCreationReasonRows[0].value);
+  }
+  if (taskType === 'device_installation') {
+    const { rows: installationCreationReasonRows } = await pool.query(
+      `SELECT value
+         FROM system_lists
+        WHERE category = 'device_installation_creation_reasons'
+          AND is_active = TRUE
+          AND (
+            ($1::text IS NOT NULL AND value = $1)
+            OR ($1::text IS NULL AND metadata->>'systemReason' = $2)
+          )
+        ORDER BY
+          CASE WHEN value = $1 THEN 0 ELSE 1 END,
+          display_order ASC,
+          id ASC
+        LIMIT 1`,
+      [creationReason, reason],
+    );
+    if (installationCreationReasonRows.length === 0) {
+      return res.status(400).json({ error: 'سبب إنشاء مهمة تركيب الجهاز مطلوب ويجب اختياره من قائمة أسباب إنشاء مهمة تركيب الجهاز' });
+    }
+    creationReason = String(installationCreationReasonRows[0].value);
+  }
+  const creationReasonRule: Record<string, { category: string; label: string }> = {
+    installment_collection: {
+      category: 'installment_collection_creation_reasons',
+      label: 'سبب إنشاء مهمة التحصيل',
+    },
+    device_retrieval: {
+      category: 'device_retrieval_creation_reasons',
+      label: 'سبب إنشاء مهمة سحب الجهاز',
+    },
+    device_return: {
+      category: 'device_return_creation_reasons',
+      label: 'سبب إنشاء مهمة إرجاع الجهاز',
+    },
+    device_checkup: {
+      category: 'device_checkup_creation_reasons',
+      label: 'سبب إنشاء مهمة تشييك الجهاز',
+    },
+    device_transfer: {
+      category: 'device_transfer_creation_reasons',
+      label: 'سبب إنشاء مهمة نقل الجهاز',
+    },
+    device_disconnection: {
+      category: 'device_disconnection_creation_reasons',
+      label: 'سبب إنشاء مهمة فك الجهاز',
+    },
+  };
+  const creationRule = creationReasonRule[taskType];
+  if (creationRule) {
+    const resolvedCreationReason = await resolveCreationReasonFromList(
+      pool,
+      creationRule.category,
+      creationReason,
+      reason,
+    );
+    if (!resolvedCreationReason) {
+      return res.status(400).json({ error: `${creationRule.label} مطلوب ويجب اختياره من قائمته المعتمدة` });
+    }
+    creationReason = resolvedCreationReason;
   }
 
   const pgClient = await pool.connect();

@@ -35,6 +35,26 @@ export interface AccountStatementResponse {
   entries: AccountStatementEntry[];
 }
 
+// ── Reporting & analytics (reporting-analytics §1.3) ─────────────────────────
+export interface MetricResponse {
+  metricKey: string;
+  title: string;
+  unit: 'count' | 'percent';
+  value: number;
+  previous: number | null;
+  deltaPct: number | null;
+  scope: 'GLOBAL' | 'BRANCH' | 'ASSIGNED';
+  branchIds: number[];
+  computedAt: string;
+  fromCache: boolean;
+}
+
+export interface DashboardWidget {
+  key: string;
+  size: 'sm' | 'md' | 'lg';
+  scope: { branchId?: number } | null;
+}
+
 // Read token from localStorage at call time (not at import time)
 function getToken(): string | null {
   return localStorage.getItem('hr_token');
@@ -102,6 +122,32 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 export const api = {
   dashboard: {
     get: () => request<any>('/dashboard'),
+  },
+  reports: {
+    metric: (key: string, params?: Record<string, string | number | null | undefined>) => {
+      const query = new URLSearchParams();
+      Object.entries(params ?? {}).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '') query.set(k, String(v));
+      });
+      const suffix = query.toString() ? `?${query.toString()}` : '';
+      return request<MetricResponse>(`/reports/${key}${suffix}`);
+    },
+    refresh: (key: string, params?: Record<string, string | number | null | undefined>) => {
+      const query = new URLSearchParams();
+      Object.entries(params ?? {}).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '') query.set(k, String(v));
+      });
+      const suffix = query.toString() ? `?${query.toString()}` : '';
+      return request<MetricResponse>(`/reports/${key}/refresh${suffix}`, { method: 'POST' });
+    },
+  },
+  dashboardLayout: {
+    get: () => request<{ layout: DashboardWidget[] }>('/me/dashboard-layout'),
+    save: (layout: DashboardWidget[]) =>
+      request<{ layout: DashboardWidget[] }>('/me/dashboard-layout', {
+        method: 'PUT',
+        body: JSON.stringify({ layout }),
+      }),
   },
   gifts: {
     definitions: {

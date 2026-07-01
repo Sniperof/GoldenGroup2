@@ -95,6 +95,7 @@ export default function EmergencyResultModal({
           {mode === 'reschedule' && (
             <LifecycleForm
               kind="reschedule"
+              maintenanceKind={maintenanceKind}
               visitId={visitId ?? null}
               visitTaskId={visitTaskId ?? null}
               onDone={close}
@@ -105,6 +106,7 @@ export default function EmergencyResultModal({
           {mode === 'cancel' && (
             <LifecycleForm
               kind="cancel"
+              maintenanceKind={maintenanceKind}
               visitId={visitId ?? null}
               visitTaskId={visitTaskId ?? null}
               onDone={close}
@@ -180,12 +182,14 @@ function ChooserScreen({ maintenanceKind, onPick }: { maintenanceKind: Maintenan
 // ── Reschedule / Cancel lifecycle form ────────────────────────────
 function LifecycleForm({
   kind,
+  maintenanceKind,
   visitId,
   visitTaskId,
   onDone,
   onCancel,
 }: {
   kind: 'reschedule' | 'cancel';
+  maintenanceKind: MaintenanceKind;
   visitId: number | null;
   visitTaskId: number | null;
   onDone: () => void;
@@ -199,7 +203,13 @@ function LifecycleForm({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const listCode = kind === 'reschedule' ? 'customer_followup_reasons' : 'visit_cancellation_reasons';
+  const listCode = kind === 'reschedule'
+    ? maintenanceKind === 'periodic'
+      ? 'periodic_maintenance_reschedule_reasons'
+      : 'emergency_maintenance_reschedule_reasons'
+    : maintenanceKind === 'emergency'
+      ? 'emergency_cancelled_reason'
+      : 'visit_cancellation_reasons';
 
   useEffect(() => {
     setLoading(true);

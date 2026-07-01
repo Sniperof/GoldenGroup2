@@ -48,12 +48,12 @@ type CustomerPreOfferEntry = {
   };
 };
 
-const FALLBACK_CREATION_REASONS: CreationReasonOption[] = [
-  { value: 'new_lead', label: 'عميل جديد' },
-  { value: 'follow_up', label: 'متابعة' },
-  { value: 'renewal', label: 'تجديد' },
-  { value: 'service_request', label: 'طلب خدمة' },
-  { value: 'other', label: 'أخرى' },
+const FALLBACK_DEVICE_DEMO_CREATION_REASONS: CreationReasonOption[] = [
+  { value: 'طلب الزبون', label: 'طلب الزبون' },
+  { value: 'حملة ترويجية', label: 'حملة ترويجية' },
+  { value: 'متابعة من التسويق', label: 'متابعة من التسويق' },
+  { value: 'ترشيح من مندوب', label: 'ترشيح من مندوب' },
+  { value: 'إعادة تواصل مع زبون سابق', label: 'إعادة تواصل مع زبون سابق' },
 ];
 
 function createPreOfferDraft(): PreOfferDraft {
@@ -142,15 +142,14 @@ function offerSummaryText(offer: PreOfferDraft, deviceName: string): string {
   ].filter(Boolean).join('\n');
 }
 
-function getReasonLabel(value: string): string {
-  return FALLBACK_CREATION_REASONS.find((item) => item.value === value)?.label ?? value;
-}
-
 function buildReasonOptions(listItems: SystemList[]): CreationReasonOption[] {
   const mapped = listItems
     .map((item) => ({ value: item.value, label: item.value }))
     .filter((item) => item.value.trim().length > 0);
-  const merged = [...mapped, ...FALLBACK_CREATION_REASONS.filter((fallback) => !mapped.some((item) => item.value === fallback.value))];
+  const merged = [
+    ...mapped,
+    ...FALLBACK_DEVICE_DEMO_CREATION_REASONS.filter((fallback) => !mapped.some((item) => item.value === fallback.value)),
+  ];
   return merged;
 }
 
@@ -378,7 +377,7 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
   const [deviceModels, setDeviceModels] = useState<DeviceModel[]>([]);
   const [closers, setClosers] = useState<Closer[]>([]);
   const [noClosingReasons, setNoClosingReasons] = useState<CreationReasonOption[]>([]);
-  const [creationReasons, setCreationReasons] = useState<CreationReasonOption[]>(FALLBACK_CREATION_REASONS);
+  const [creationReasons, setCreationReasons] = useState<CreationReasonOption[]>(FALLBACK_DEVICE_DEMO_CREATION_REASONS);
 
   // Top section — selected devices (mandatory)
   const [selectedDevices, setSelectedDevices] = useState<SelectedDevice[]>([]);
@@ -410,7 +409,7 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
     Promise.all([
       api.deviceModels.list(client.branchId ?? undefined),
       api.employees.employeeClosers(),
-      api.systemLists.getItemsByCode('open_task_reasons'),
+      api.systemLists.getItemsByCode('device_demo_creation_reasons'),
       api.systemLists.getItemsByCode('no_closing_reasons'),
       api.customers.getPreOffers(client.id),
     ])
@@ -593,8 +592,12 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
       const created = await api.openTasks.create({
         clientId: client.id,
         branchId: client.branchId,
+        taskType: 'device_demo',
+        taskFamily: 'marketing',
         dueDate,
-        reason,
+        reason: 'device_demo',
+        creationReason: reason,
+        creationOrigin: 'manual_creation',
         priority: priority || null,
         notes: notes.trim() || null,
         devices: selectedDevices.map(d => ({ deviceModelId: d.deviceModelId, quantity: d.quantity })),
