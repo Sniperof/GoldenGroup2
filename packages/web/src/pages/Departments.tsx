@@ -14,6 +14,7 @@ import IconButton from '../components/ui/IconButton';
 import {
   Building2, Plus, Edit, Trash2, X,
   Layers, Cpu, Users, StickyNote, CheckSquare, Square,
+  AlertTriangle,
 } from 'lucide-react';
 
 // ─── Department form state ────────────────────────────────────────────────────
@@ -100,7 +101,7 @@ export default function Departments() {
     api.systemLists.list({ category: 'department_type', activeOnly: true })
       .then(d => setDeptTypes(d as SystemList[])).catch(() => {});
     if (canViewDeviceAvailability) {
-      api.deviceModels.list().then(d => setDeviceModels(d as DeviceModel[])).catch(() => {});
+      api.deviceModels.list({ includeInactive: true }).then(d => setDeviceModels(d as DeviceModel[])).catch(() => {});
     }
   }, [canViewDeviceAvailability]);
 
@@ -220,15 +221,21 @@ export default function Departments() {
       render: d => {
         const ids: number[] = d.deviceModelIds ?? [];
         if (ids.length === 0) return <span className="text-slate-400 text-xs">—</span>;
-        const names = ids.map(id => deviceModels.find(m => m.id === id)?.name ?? `#${id}`);
+        const models = ids.map(id => deviceModels.find(m => m.id === id) ?? { id, name: `#${id}` } as DeviceModel);
         return (
           <div className="flex flex-wrap gap-1">
-            {names.slice(0, 2).map((n, i) => (
-              <span key={i} className="px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded text-xs font-medium">
-                {n}
+            {models.slice(0, 2).map((model) => (
+              <span
+                key={model.id}
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${
+                  model.isActive === false ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-indigo-50 text-indigo-700'
+                }`}
+              >
+                {model.name}
+                {model.isActive === false && <span className="text-[10px] font-bold">غير نشط</span>}
               </span>
             ))}
-            {names.length > 2 && <span className="text-xs text-slate-400">+{names.length - 2}</span>}
+            {models.length > 2 && <span className="text-xs text-slate-400">+{models.length - 2}</span>}
           </div>
         );
       },
@@ -377,6 +384,7 @@ export default function Departments() {
                     <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 max-h-48 overflow-y-auto">
                       {deviceModels.map(m => {
                         const checked = form.deviceModelIds.includes(m.id);
+                        const inactive = m.isActive === false;
                         return (
                           <button
                             key={m.id}
@@ -384,13 +392,23 @@ export default function Departments() {
                             onClick={() => toggleDevice(m.id)}
                             disabled={!canManageDeviceAvailability}
                             className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm text-right transition-colors ${
-                              checked ? 'bg-indigo-50 text-indigo-700' : 'bg-white text-slate-700 hover:bg-slate-50'
+                              checked
+                                ? inactive ? 'bg-amber-50 text-amber-800' : 'bg-indigo-50 text-indigo-700'
+                                : inactive ? 'bg-amber-50/50 text-slate-600 hover:bg-amber-50' : 'bg-white text-slate-700 hover:bg-slate-50'
                             } disabled:opacity-50`}
                           >
                             {checked
-                              ? <CheckSquare className="w-4 h-4 text-indigo-500 flex-shrink-0" />
+                              ? <CheckSquare className={`w-4 h-4 flex-shrink-0 ${inactive ? 'text-amber-500' : 'text-indigo-500'}`} />
                               : <Square className="w-4 h-4 text-slate-300 flex-shrink-0" />}
-                            <span className="font-medium">{m.name}</span>
+                            <span className="flex min-w-0 flex-1 items-center gap-2">
+                              <span className="font-medium truncate">{m.name}</span>
+                              {inactive && (
+                                <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-200 bg-amber-100/70 px-2 py-0.5 text-[11px] font-bold text-amber-700">
+                                  <AlertTriangle className="w-3 h-3" />
+                                  غير نشط
+                                </span>
+                              )}
+                            </span>
                             {m.brand && <span className="text-xs text-slate-400 mr-auto">{m.brand}</span>}
                           </button>
                         );

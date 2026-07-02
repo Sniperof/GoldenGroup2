@@ -29,6 +29,7 @@ import pool from '../db.js';
 import { checkAndCompleteVisit } from './visitCompletion.js';
 import { recordContractPaymentMovement, recordMovement } from './financialMovements.js';
 import { createInstallmentCollectionTask } from './installmentCollectionTasks.js';
+import { findUnavailableDeviceModelsForNewCommercialUse } from './catalogActiveStateService.js';
 
 export type DeviceDemoFinalDecision =
   | 'offer_presented'
@@ -1135,6 +1136,13 @@ export async function applyDeviceDemoResult(
         throw new ResultValidationError('offers مطلوبة عند offer_presented');
       }
       body.offers.forEach(assertOfferShape);
+      const unavailableDeviceModels = await findUnavailableDeviceModelsForNewCommercialUse(
+        db,
+        body.offers.map((offer) => offer.device_model_id),
+      );
+      if (unavailableDeviceModels.length > 0) {
+        throw new ResultValidationError(`device_model unavailable for new commercial use: ${unavailableDeviceModels.map((item) => item.id).join(', ')}`);
+      }
       if (false && body.offers.some(o => o.customer_response === 'accepted') && !isPositiveNumber(body.closed_by_employee_id)) {
         throw new ResultValidationError('closed_by_employee_id مطلوب');
       }
@@ -1152,6 +1160,10 @@ export async function applyDeviceDemoResult(
       if (!isPositiveNumber(body.closed_by_employee_id)) throw new ResultValidationError('closed_by_employee_id مطلوب');
       if (body.offer_type === 'installment' && !isPositiveNumber(body.installment_months)) {
         throw new ResultValidationError('installment_months مطلوب للتقسيط');
+      }
+      const unavailableDeviceModels = await findUnavailableDeviceModelsForNewCommercialUse(db, [body.sold_device_model_id]);
+      if (unavailableDeviceModels.length > 0) {
+        throw new ResultValidationError(`device_model unavailable for new commercial use: ${unavailableDeviceModels.map((item) => item.id).join(', ')}`);
       }
       openTaskNewStatus = 'completed';
     } else if (decision === 'rescheduled') {

@@ -77,7 +77,7 @@ export default function TrainingCourses() {
         .then(data => setVacancies(Array.isArray(data) ? data : []))
         .catch(() => setVacancies([]));
 
-      api.deviceModels.list()
+      api.deviceModels.list({ includeInactive: true })
         .then(data => setDeviceModels(data))
         .catch(() => setDeviceModels([]));
     }

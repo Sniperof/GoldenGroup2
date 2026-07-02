@@ -277,7 +277,7 @@ export default function DeviceDemoResultModal({
     let active = true;
     Promise.all([
       api.employees.list().catch(() => []),
-      api.deviceModels.list?.().catch(() => []) ?? [],
+      api.deviceModels.list?.({ activeOnly: true }).catch(() => []) ?? [],
     ]).then(([employeeRows, modelRows]) => {
       if (!active) return;
       setEmployees(Array.isArray(employeeRows) ? employeeRows : []);

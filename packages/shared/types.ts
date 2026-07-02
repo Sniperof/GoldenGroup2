@@ -735,6 +735,7 @@ export interface DeviceModel {
     videos?: Array<{ id: string; name: string; url: string }>;
     documents?: Array<{ id: string; name: string; url: string }>;
     code?: string | null;
+    isActive: boolean;
 }
 
 export interface DeviceDiscount {
@@ -1020,6 +1021,7 @@ export interface SparePart {
     basePrice: number;
     maintenanceType: MaintenancePartType;
     compatibleDeviceIds: number[];
+    isActive: boolean;
 }
 
 export interface DevicePartCompatibility {

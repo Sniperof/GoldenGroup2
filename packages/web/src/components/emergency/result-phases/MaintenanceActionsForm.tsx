@@ -19,6 +19,7 @@ const sel = `${inp} appearance-none cursor-pointer`;
 type SparePartRaw = {
   id: number; name: string; code: string | null;
   basePrice: number; maintenanceType: 'Periodic' | 'Emergency' | 'Accessory';
+  isActive?: boolean;
 };
 
 type SavedPart = {
@@ -227,7 +228,7 @@ function PartDraftForm({ draft, allParts, maintenanceKind, activeWarranty, noRet
           options={[
             ...filteredParts.map(sp => ({
               value: String(sp.id),
-              label: `${sp.name}${sp.code ? ` (${sp.code})` : ''} — ${sp.basePrice.toLocaleString()} ل.س`,
+              label: `${sp.name}${sp.code ? ` (${sp.code})` : ''}${sp.isActive === false ? ' — غير نشطة' : ''} — ${sp.basePrice.toLocaleString()} ل.س`,
             })),
             { value: 'manual', label: '✏️ إدخال يدوي...' },
           ]}
@@ -412,7 +413,7 @@ export default function MaintenanceActionsForm({ taskId, initialData, readOnly =
 
   useEffect(() => {
     Promise.all([
-      api.spareParts.list(),
+      api.spareParts.list({ includeInactive: true }),
       api.admin.emergencyActionTypes.active(),
       api.emergencyResult.getParts(taskId),
     ]).then(([sp, at, existingParts]) => {

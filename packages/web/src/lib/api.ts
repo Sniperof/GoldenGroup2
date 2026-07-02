@@ -99,6 +99,25 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
+type CatalogStateListOptions = {
+  activeOnly?: boolean;
+  includeInactive?: boolean;
+};
+
+type DeviceModelListOptions = CatalogStateListOptions & {
+  branchId?: number | null;
+};
+
+function addCatalogStateParams(qs: URLSearchParams, options?: CatalogStateListOptions) {
+  if (options?.activeOnly) qs.set('activeOnly', 'true');
+  if (options?.includeInactive) qs.set('includeInactive', 'true');
+}
+
+function toQueryString(qs: URLSearchParams) {
+  const value = qs.toString();
+  return value ? `?${value}` : '';
+}
+
 export const api = {
   dashboard: {
     get: () => request<any>('/dashboard'),
@@ -398,9 +417,13 @@ export const api = {
       request<any>(`/devices/${deviceId}/possession`, { method: 'POST', body: JSON.stringify(data) }),
   },
   deviceModels: {
-    list: (branchId?: number) => {
-      const qs = branchId ? `?branchId=${branchId}` : '';
-      return request<any[]>(`/device-models${qs}`);
+    list: (params?: number | DeviceModelListOptions) => {
+      const options: DeviceModelListOptions =
+        typeof params === 'number' ? { branchId: params } : (params ?? {});
+      const qs = new URLSearchParams();
+      if (options.branchId != null) qs.set('branchId', String(options.branchId));
+      addCatalogStateParams(qs, options);
+      return request<any[]>(`/device-models${toQueryString(qs)}`);
     },
     create: (data: any) => request<any>('/device-models', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/device-models/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
@@ -414,7 +437,11 @@ export const api = {
     createPrice: (deviceModelId: number, data: any) => request<any>(`/device-models/${deviceModelId}/prices`, { method: 'POST', body: JSON.stringify(data) }),
   },
   spareParts: {
-    list: () => request<any[]>('/spare-parts'),
+    list: (options?: CatalogStateListOptions) => {
+      const qs = new URLSearchParams();
+      addCatalogStateParams(qs, options);
+      return request<any[]>(`/spare-parts${toQueryString(qs)}`);
+    },
     create: (data: any) => request<any>('/spare-parts', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/spare-parts/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id: number) => request<any>(`/spare-parts/${id}`, { method: 'DELETE' }),

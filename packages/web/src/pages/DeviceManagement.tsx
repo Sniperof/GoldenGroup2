@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
     Plus, Wrench, PenTool, GraduationCap, Truck, Package, Cog, X, Save,
     RefreshCw, Gem, Loader2, Image, Video, FileText, Star, ChevronRight,
-    AlertCircle, Pencil, Tag,
+    AlertCircle, Pencil, Tag, ToggleLeft, ToggleRight,
 } from 'lucide-react';
 import IconButton from '../components/ui/IconButton';
 import { api } from '../lib/api';
@@ -72,6 +72,18 @@ const formatPriceMoment = (value?: string | null) => {
     }).format(date);
 };
 
+function CatalogStatusPill({ isActive }: { isActive?: boolean }) {
+    return isActive === false ? (
+        <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-bold text-amber-700">
+            غير نشط
+        </span>
+    ) : (
+        <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700">
+            نشط
+        </span>
+    );
+}
+
 type ActiveTab = 'devices' | 'parts';
 
 const emptyDeviceForm = (): Partial<DeviceModel> => ({
@@ -94,6 +106,7 @@ const emptyDeviceForm = (): Partial<DeviceModel> => ({
     primaryImageId: null,
     videos: [],
     documents: [],
+    isActive: true,
 });
 
 function makeAttachmentId() {
@@ -201,6 +214,7 @@ function normalizeDeviceForm(device?: DeviceModel | null): Partial<DeviceModel> 
         primaryImageId: device.primaryImageId || null,
         videos: device.videos || [],
         documents: device.documents || [],
+        isActive: device.isActive !== false,
         supportedVisitTypes: device.supportedVisitTypes || [],
         goldenWarrantyPeriods: device.goldenWarrantyPeriods || [],
         warrantyPeriods: device.warrantyPeriods || [],
@@ -821,8 +835,8 @@ const DeviceManagement = () => {
         try {
             setLoading(true);
             const [devicesData, partsData] = await Promise.all([
-                api.deviceModels.list(),
-                api.spareParts.list(),
+                api.deviceModels.list({ includeInactive: true }),
+                api.spareParts.list({ includeInactive: true }),
             ]);
             setDevices(devicesData);
             setParts(partsData);
@@ -859,7 +873,7 @@ const DeviceManagement = () => {
             setPartForm({ ...part });
         } else {
             setEditingPart(null);
-            setPartForm({ name: '', code: '', basePrice: 0, maintenanceType: 'Periodic', compatibleDeviceIds: [] });
+            setPartForm({ name: '', code: '', basePrice: 0, maintenanceType: 'Periodic', compatibleDeviceIds: [], isActive: true });
         }
         setIsAddingPart(true);
     };
@@ -887,6 +901,7 @@ const DeviceManagement = () => {
                 basePrice: Number(partForm.basePrice) || 0,
                 maintenanceType: partForm.maintenanceType as MaintenancePartType || 'Periodic',
                 compatibleDeviceIds: partForm.compatibleDeviceIds || [],
+                isActive: partForm.isActive !== false,
             };
             if (editingPart) {
                 await api.spareParts.update(editingPart.id, partData);
@@ -898,6 +913,26 @@ const DeviceManagement = () => {
             await fetchData();
         } catch (err) {
             console.error('Failed to save spare part:', err);
+        }
+    };
+
+    const toggleDeviceActive = async (device: DeviceModel) => {
+        if (!canManageDeviceModels) return;
+        try {
+            await api.deviceModels.update(device.id, { ...device, isActive: device.isActive === false });
+            await fetchData();
+        } catch (err) {
+            console.error('Failed to update device active state:', err);
+        }
+    };
+
+    const togglePartActive = async (part: SparePart) => {
+        if (!canManageSpareParts) return;
+        try {
+            await api.spareParts.update(part.id, { ...part, isActive: part.isActive === false });
+            await fetchData();
+        } catch (err) {
+            console.error('Failed to update spare part active state:', err);
         }
     };
 
@@ -957,6 +992,25 @@ const DeviceManagement = () => {
                 ? <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-sky-100 text-sky-700">بارز</span>
                 : null,
         },
+        {
+            key: 'isActive', label: 'الحالة', sortable: true,
+            getValue: (d) => d.isActive === false ? 0 : 1,
+            render: (d) => (
+                <div className="flex items-center gap-2">
+                    <CatalogStatusPill isActive={d.isActive} />
+                    {canManageDeviceModels && (
+                        <button
+                            type="button"
+                            onClick={(event) => { event.stopPropagation(); toggleDeviceActive(d); }}
+                            className={`p-1 rounded-lg transition-colors ${d.isActive === false ? 'text-slate-400 hover:bg-emerald-50 hover:text-emerald-600' : 'text-emerald-500 hover:bg-amber-50 hover:text-amber-600'}`}
+                            title={d.isActive === false ? 'تفعيل الجهاز' : 'تعطيل الجهاز'}
+                        >
+                            {d.isActive === false ? <ToggleLeft className="w-4 h-4" /> : <ToggleRight className="w-4 h-4" />}
+                        </button>
+                    )}
+                </div>
+            ),
+        },
     ];
 
     const partColumns: ColumnDef<SparePart>[] = [
@@ -994,8 +1048,9 @@ const DeviceManagement = () => {
                     {p.compatibleDeviceIds.map(did => {
                         const dev = devices.find(d => d.id === did);
                         return dev ? (
-                            <span key={did} className="px-2 py-0.5 rounded text-xs font-medium bg-sky-50 text-sky-600 border border-sky-200">
+                            <span key={did} className={`px-2 py-0.5 rounded text-xs font-medium border ${dev.isActive === false ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-sky-50 text-sky-600 border-sky-200'}`}>
                                 {dev.nameAr || dev.name}
+                                {dev.isActive === false && <span className="mr-1 opacity-75">غير نشط</span>}
                             </span>
                         ) : null;
                     })}
@@ -1003,13 +1058,34 @@ const DeviceManagement = () => {
                 </div>
             ),
         },
+        {
+            key: 'isActive', label: 'الحالة', sortable: true,
+            getValue: (p) => p.isActive === false ? 0 : 1,
+            render: (p) => (
+                <div className="flex items-center gap-2">
+                    <CatalogStatusPill isActive={p.isActive} />
+                    {canManageSpareParts && (
+                        <button
+                            type="button"
+                            onClick={(event) => { event.stopPropagation(); togglePartActive(p); }}
+                            className={`p-1 rounded-lg transition-colors ${p.isActive === false ? 'text-slate-400 hover:bg-emerald-50 hover:text-emerald-600' : 'text-emerald-500 hover:bg-amber-50 hover:text-amber-600'}`}
+                            title={p.isActive === false ? 'تفعيل القطعة' : 'تعطيل القطعة'}
+                        >
+                            {p.isActive === false ? <ToggleLeft className="w-4 h-4" /> : <ToggleRight className="w-4 h-4" />}
+                        </button>
+                    )}
+                </div>
+            ),
+        },
     ];
 
     const deviceFilters: FilterDef[] = [
+        { key: 'isActive', label: 'كل الحالات', options: [{ value: 'true', label: 'نشط' }, { value: 'false', label: 'غير نشط' }] },
         { key: 'category', label: 'جميع الفئات', options: [{ value: 'منزلي', label: 'منزلي' }, { value: 'صناعي', label: 'صناعي' }] },
     ];
 
     const partFilters: FilterDef[] = [
+        { key: 'isActive', label: 'كل الحالات', options: [{ value: 'true', label: 'نشط' }, { value: 'false', label: 'غير نشط' }] },
         { key: 'maintenanceType', label: 'جميع الأنواع', options: [{ value: 'Periodic', label: 'دورية' }, { value: 'Emergency', label: 'طوارئ' }, { value: 'Accessory', label: 'ملحقات' }] },
     ];
 
@@ -1076,6 +1152,7 @@ const DeviceManagement = () => {
                                     searchPlaceholder="بحث عن جهاز..."
                                     getId={(d) => d.id}
                                     onRowClick={(d) => navigate(`/devices/${d.id}`)}
+                                    rowClassName={(d) => d.isActive === false ? 'bg-slate-50 text-slate-500 opacity-75 hover:bg-slate-100' : ''}
                                     headerActions={canManageDeviceModels ? (
                                         <button
                                             onClick={openCreateDevice}
@@ -1089,7 +1166,7 @@ const DeviceManagement = () => {
                                     actions={canManageDeviceModels ? (d) => (
                                         <button
                                             type="button"
-                                            onClick={() => openEditDevice(d)}
+                                            onClick={(event) => { event.stopPropagation(); openEditDevice(d); }}
                                             className="p-1.5 rounded-lg hover:bg-sky-50 text-slate-400 hover:text-sky-600 transition-colors"
                                             title="تعديل الجهاز"
                                         >
@@ -1111,6 +1188,7 @@ const DeviceManagement = () => {
                                     searchPlaceholder="بحث عن قطعة..."
                                     getId={(p) => p.id}
                                     onRowClick={canManageSpareParts ? (p) => openPartForm(p) : undefined}
+                                    rowClassName={(p) => p.isActive === false ? 'bg-slate-50 text-slate-500 opacity-75 hover:bg-slate-100' : ''}
                                     headerActions={canManageSpareParts ? (
                                         <button
                                             onClick={() => openPartForm()}
@@ -1250,16 +1328,29 @@ const DeviceManagement = () => {
                                     <div className="grid grid-cols-1 gap-2 max-h-40 overflow-y-auto border border-slate-200 rounded-lg p-3 bg-slate-50">
                                         {devices.map(dev => {
                                             const isSelected = partForm.compatibleDeviceIds?.includes(dev.id) || false;
+                                            const inactive = dev.isActive === false;
                                             return (
                                                 <label key={dev.id}
-                                                    className={`flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-all ${isSelected ? 'bg-sky-50 border border-sky-200' : 'bg-white border border-slate-100 hover:bg-slate-50'}`}
+                                                    className={`flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-all ${
+                                                        isSelected
+                                                            ? inactive ? 'bg-amber-50 border border-amber-200' : 'bg-sky-50 border border-sky-200'
+                                                            : inactive ? 'bg-amber-50/60 border border-amber-100 hover:bg-amber-50' : 'bg-white border border-slate-100 hover:bg-slate-50'
+                                                    }`}
                                                 >
                                                     <input type="checkbox" checked={isSelected} onChange={() => toggleDeviceCompat(dev.id)} className="accent-sky-600 w-4 h-4" />
                                                     <div className="flex-1 min-w-0">
-                                                        <span className="text-sm font-medium text-slate-700 block">{dev.nameAr || dev.name}</span>
-                                                        <span className="text-xs text-slate-400">{categoryLabels[dev.category]?.label || dev.category}</span>
+                                                        <span className={`text-sm font-medium block ${inactive ? 'text-amber-800' : 'text-slate-700'}`}>{dev.nameAr || dev.name}</span>
+                                                        <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                                                            <span className="text-xs text-slate-400">{categoryLabels[dev.category]?.label || dev.category}</span>
+                                                            {inactive && (
+                                                                <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-100/70 px-2 py-0.5 text-[11px] font-bold text-amber-700">
+                                                                    <AlertCircle className="w-3 h-3" />
+                                                                    غير نشط
+                                                                </span>
+                                                            )}
+                                                        </div>
                                                     </div>
-                                                    <Gem className={`w-3.5 h-3.5 shrink-0 ${isSelected ? 'text-sky-500' : 'text-slate-300'}`} />
+                                                    <Gem className={`w-3.5 h-3.5 shrink-0 ${isSelected ? inactive ? 'text-amber-500' : 'text-sky-500' : 'text-slate-300'}`} />
                                                 </label>
                                             );
                                         })}
