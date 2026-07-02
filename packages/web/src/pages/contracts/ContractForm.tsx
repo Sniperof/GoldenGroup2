@@ -283,9 +283,9 @@ export default function ContractForm() {
         setCanAssignSaleOwner(hasPermission('contracts.assign_sale_owner'));
         const baseRequests: Promise<any>[] = [
             api.clients.list(),
-            api.deviceModels.list(),
+            api.deviceModels.list({ activeOnly: true }),
             api.geoUnits.list(),
-            api.spareParts.list(),
+            api.spareParts.list({ activeOnly: true }),
             // Optional lookups: a 403 here (e.g. a supervisor without the sale-
             // owner permission) must NOT abort the whole form load — otherwise
             // the customer/device/geo data never loads and the form looks empty.

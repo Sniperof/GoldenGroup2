@@ -15,6 +15,7 @@ const selectFields = `
   golden_warranty_periods AS "goldenWarrantyPeriods",
   warranty_periods AS "warrantyPeriods",
   is_featured AS "isFeatured",
+  is_active AS "isActive",
   description, description_en AS "descriptionEn", images, primary_image_id AS "primaryImageId", videos, documents, code
 `;
 
@@ -39,6 +40,7 @@ function serializeDevice(row: any) {
     supportedVisitTypes: Array.isArray(row.supportedVisitTypes) ? row.supportedVisitTypes : [],
     goldenWarrantyPeriods: Array.isArray(row.goldenWarrantyPeriods) ? row.goldenWarrantyPeriods : [],
     warrantyPeriods: Array.isArray(row.warrantyPeriods) ? row.warrantyPeriods : [],
+    isActive: row.isActive !== false,
     descriptionEn: row.descriptionEn || null,
     code: row.code || null,
     images: Array.isArray(row.images) ? row.images : [],
@@ -67,6 +69,7 @@ function normalizeDevicePayload(body: any) {
       : [],
     warrantyPeriods: Array.isArray(body.warrantyPeriods) ? body.warrantyPeriods : [],
     isFeatured: body.isFeatured === true,
+    isActive: Object.prototype.hasOwnProperty.call(body, 'isActive') ? body.isActive !== false : undefined,
     description: String(body.description ?? '').trim() || null,
     descriptionEn: String(body.descriptionEn ?? '').trim() || null,
     images: Array.isArray(body.images) ? body.images : [],
@@ -203,6 +206,8 @@ async function insertDevicePriceHistory(deviceModelId: number, body: any, create
  *             type: string
  *         isFeatured:
  *           type: boolean
+ *         isActive:
+ *           type: boolean
  *         description:
  *           type: string
  *         descriptionEn:
@@ -275,6 +280,7 @@ router.get(
   requirePermission('device_models.lookup', 'device_models.task_lookup', 'reference_data.lookup', 'catalog.manage'),
   async (req, res) => {
   const branchId = req.query.branchId ? Number(req.query.branchId) : null;
+  const activeOnly = req.query.activeOnly === 'true' && req.query.includeInactive !== 'true';
   const authContext = (req as any).authContext;
 
   // Operational scope (devices constitution §6.1): non-privileged actors only
@@ -286,6 +292,10 @@ router.get(
 
   let query = `SELECT ${selectFieldsWithActivePrice} FROM device_models WHERE deleted_at IS NULL`;
   const params: any[] = [];
+
+  if (activeOnly) {
+    query += ` AND is_active = TRUE`;
+  }
 
   if (authorizedIds !== null) {
     if (authorizedIds.size === 0) {
@@ -376,6 +386,7 @@ router.get(
         `SELECT id, name, category
          FROM device_models
          WHERE deleted_at IS NULL
+           AND is_active = TRUE
          ORDER BY name ASC, id ASC`,
       );
       return res.json(rows);
@@ -413,7 +424,7 @@ router.get(
     const { rows } = await pool.query(
       `SELECT id, name, category
        FROM device_models
-       WHERE id = ANY($1::int[]) AND deleted_at IS NULL
+       WHERE id = ANY($1::int[]) AND deleted_at IS NULL AND is_active = TRUE
        ORDER BY name ASC, id ASC`,
       [deviceModelIds],
     );
@@ -485,16 +496,16 @@ router.post('/', requirePermission('device_models.manage', 'catalog.manage'), as
       `INSERT INTO device_models (
         name, brand, name_ar, name_en, category, maintenance_interval, base_price,
         supported_visit_types, is_golden_warranty,
-        golden_warranty_periods, warranty_periods, is_featured, description, description_en, images, primary_image_id,
+        golden_warranty_periods, warranty_periods, is_featured, is_active, description, description_en, images, primary_image_id,
         videos, documents, code
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
       RETURNING ${selectFields}`,
       [
         d.name, d.brand, d.nameAr, d.nameEn, d.category, d.maintenanceInterval, d.basePrice,
         JSON.stringify(d.supportedVisitTypes),
         d.isGoldenWarranty, JSON.stringify(d.goldenWarrantyPeriods), JSON.stringify(d.warrantyPeriods), d.isFeatured,
-        d.description, d.descriptionEn, JSON.stringify(d.images), d.primaryImageId,
+        d.isActive ?? true, d.description, d.descriptionEn, JSON.stringify(d.images), d.primaryImageId,
         JSON.stringify(d.videos), JSON.stringify(d.documents), d.code,
       ]
     );
@@ -579,14 +590,15 @@ router.put('/:id', requirePermission('device_models.manage', 'catalog.manage'), 
       name=$1, brand=$2, name_ar=$3, name_en=$4, category=$5, maintenance_interval=$6,
       supported_visit_types=$7,
       is_golden_warranty=$8, golden_warranty_periods=$9, warranty_periods=$10, is_featured=$11,
-      description=$12, description_en=$13, images=$14, primary_image_id=$15, videos=$16, documents=$17,
-      code=$18
-     WHERE id=$19 AND deleted_at IS NULL RETURNING ${selectFields}`,
+      is_active=COALESCE($12, is_active),
+      description=$13, description_en=$14, images=$15, primary_image_id=$16, videos=$17, documents=$18,
+      code=$19
+     WHERE id=$20 AND deleted_at IS NULL RETURNING ${selectFields}`,
     [
       d.name, d.brand, d.nameAr, d.nameEn, d.category, d.maintenanceInterval,
       JSON.stringify(d.supportedVisitTypes),
       d.isGoldenWarranty, JSON.stringify(d.goldenWarrantyPeriods), JSON.stringify(d.warrantyPeriods), d.isFeatured,
-      d.description, d.descriptionEn, JSON.stringify(d.images), d.primaryImageId,
+      d.isActive ?? null, d.description, d.descriptionEn, JSON.stringify(d.images), d.primaryImageId,
       JSON.stringify(d.videos), JSON.stringify(d.documents), d.code, req.params.id,
     ]
   );

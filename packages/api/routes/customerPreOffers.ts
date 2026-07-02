@@ -28,6 +28,10 @@ import { Router } from 'express';
 import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
+import {
+  catalogUnavailablePayload,
+  findUnavailableDeviceModelsForNewCommercialUse,
+} from '../services/catalogActiveStateService.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -304,6 +308,11 @@ router.post(
         if (!deviceModelId || !offerType || totalAmount == null) {
           await pgClient.query('ROLLBACK');
           return res.status(400).json({ error: 'بيانات أحد العروض غير مكتملة' });
+        }
+        const unavailableDeviceModels = await findUnavailableDeviceModelsForNewCommercialUse(pgClient, [deviceModelId]);
+        if (unavailableDeviceModels.length > 0) {
+          await pgClient.query('ROLLBACK');
+          return res.status(400).json(catalogUnavailablePayload('device_model', unavailableDeviceModels));
         }
         const closedByEmployeeId = toPositiveInteger(offer.closedByEmployeeId);
         const noClosingReason = typeof offer.noClosingReason === 'string' ? offer.noClosingReason.trim() || null : null;

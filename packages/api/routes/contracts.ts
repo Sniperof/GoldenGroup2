@@ -11,6 +11,11 @@ import { persistOpenTaskSnapshots } from './openTasks.js';
 import { createInstallmentCollectionTasksForContract } from '../services/installmentCollectionTasks.js';
 import { syncContractMovements, recordMovement } from '../services/financialMovements.js';
 import { materializeContractGiftPromises } from '../services/giftPromises.js';
+import {
+  catalogUnavailablePayload,
+  findUnavailableDeviceModelsForNewCommercialUse,
+  findUnavailableSparePartsForNewCommercialUse,
+} from '../services/catalogActiveStateService.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -89,6 +94,13 @@ function mapContract(c: any) {
 }
 function mapDue(d: any) {
   return { ...d, originalAmount: Number(d.originalAmount), remainingBalance: Number(d.remainingBalance) };
+}
+
+function collectContractSparePartIds(lineItems: any) {
+  if (!Array.isArray(lineItems)) return [];
+  return lineItems
+    .map((item: any) => item?.sparePartId ?? item?.spare_part_id)
+    .filter((id: any) => Number.isInteger(Number(id)) && Number(id) > 0);
 }
 
 async function loadDraftContractForEdit(db: any, contractId: number | string, lock = false) {
@@ -845,6 +857,21 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
     }
   }
 
+  if ((c.contractType || 'sale_contract') === 'sale_contract') {
+    const unavailableDeviceModels = await findUnavailableDeviceModelsForNewCommercialUse(pool, [deviceModelForCheck]);
+    if (unavailableDeviceModels.length > 0) {
+      return res.status(400).json(catalogUnavailablePayload('device_model', unavailableDeviceModels));
+    }
+
+    const unavailableSpareParts = await findUnavailableSparePartsForNewCommercialUse(
+      pool,
+      collectContractSparePartIds(c.lineItems),
+    );
+    if (unavailableSpareParts.length > 0) {
+      return res.status(400).json(catalogUnavailablePayload('spare_part', unavailableSpareParts));
+    }
+  }
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -1175,16 +1202,40 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
   // Device-model scope — enforced only when the device model actually changes,
   // so legacy contracts are not blocked on an unrelated edit.
   const deviceModelForCheck = c.deviceModelId ?? c.device_model_id ?? null;
-  if (
-    deviceModelForCheck &&
-    Number(deviceModelForCheck) !== Number(existing[0].deviceModelId)
-  ) {
+  const deviceModelChanged = !!deviceModelForCheck && Number(deviceModelForCheck) !== Number(existing[0].deviceModelId);
+  if (deviceModelChanged) {
     const devCheck = await assertDeviceModelInScope(authContext, deviceModelForCheck, existing[0].branch_id);
     if (!devCheck.allowed) {
       return res.status(403).json({
         error: 'نموذج الجهاز غير مصرّح به ضمن نطاقك',
         code: devCheck.reason,
       });
+    }
+  }
+
+  const isClosingDraft = prevStatus === 'draft' && derivedStatus === 'active';
+  if ((c.contractType || 'sale_contract') === 'sale_contract' && deviceModelForCheck && (deviceModelChanged || isClosingDraft)) {
+    const unavailableDeviceModels = await findUnavailableDeviceModelsForNewCommercialUse(pool, [deviceModelForCheck]);
+    if (unavailableDeviceModels.length > 0) {
+      return res.status(400).json(catalogUnavailablePayload('device_model', unavailableDeviceModels));
+    }
+  }
+
+  if ((c.contractType || 'sale_contract') === 'sale_contract' && isClosingDraft) {
+    let sparePartIds = collectContractSparePartIds(c.lineItems);
+    if (sparePartIds.length === 0) {
+      const { rows: lineItemRows } = await pool.query(
+        `SELECT spare_part_id AS "sparePartId"
+           FROM contract_line_items
+          WHERE contract_id = $1
+            AND spare_part_id IS NOT NULL`,
+        [req.params.id],
+      );
+      sparePartIds = collectContractSparePartIds(lineItemRows);
+    }
+    const unavailableSpareParts = await findUnavailableSparePartsForNewCommercialUse(pool, sparePartIds);
+    if (unavailableSpareParts.length > 0) {
+      return res.status(400).json(catalogUnavailablePayload('spare_part', unavailableSpareParts));
     }
   }
 

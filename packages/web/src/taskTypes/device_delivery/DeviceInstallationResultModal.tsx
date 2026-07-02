@@ -201,7 +201,7 @@ export default function DeviceInstallationResultModal({
     api.geoUnits.list().then((rows) => setGeoUnits(Array.isArray(rows) ? rows : [])).catch(() => setGeoUnits([]));
     api.systemLists.getItemsByCode('installation_incomplete_reason').then(setIncompleteReasons).catch(() => setIncompleteReasons([]));
     api.systemLists.getItemsByCode('installation_refusal_reason').then(setRefusalReasons).catch(() => setRefusalReasons([]));
-    api.spareParts.list().then((rows) => setSpareParts(Array.isArray(rows) ? rows : [])).catch(() => setSpareParts([]));
+    api.spareParts.list({ includeInactive: true }).then((rows) => setSpareParts(Array.isArray(rows) ? rows : [])).catch(() => setSpareParts([]));
     const customerId = Number(task?.client_id ?? task?.clientId);
     if (customerId) {
       api.customers.getPartsStock(customerId)
@@ -590,7 +590,7 @@ export default function DeviceInstallationResultModal({
                                   className="w-full"
                                   placeholder={part.maintenance_type ? `اختر من ${PART_TYPE_LABELS[part.maintenance_type]}` : 'اختر نوع القطعة أولاً'}
                                   ariaLabel="القطعة"
-                                  options={filteredSpareParts.map((sp) => ({ value: String(sp.id), label: sp.name }))}
+                                  options={filteredSpareParts.map((sp) => ({ value: String(sp.id), label: `${sp.name}${sp.isActive === false ? ' — غير نشطة' : ''}` }))}
                                 />
                               </label>
                             ) : (

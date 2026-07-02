@@ -238,7 +238,7 @@ export function DevicesTab({ client }: Props) {
     let cancelled = false;
     setExternalOptionsLoading(true);
     Promise.all([
-      api.deviceModels.list(client.branchId),
+      api.deviceModels.list({ branchId: client.branchId, includeInactive: true }),
       api.geoUnits.list(client.branchId),
     ])
       .then(([deviceModels, geoUnits]) => {

@@ -15,6 +15,10 @@ import {
   redactPersonalAssignments,
 } from '../services/customerOwnership.js';
 import { claimContactTarget, ContactTargetLockError } from '../services/contactTargetLocks.js';
+import {
+  catalogUnavailablePayload,
+  findUnavailableDeviceModelsForNewCommercialUse,
+} from '../services/catalogActiveStateService.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -1843,6 +1847,28 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
       openTaskValues,
     );
     const openTaskId = taskRows[0].id;
+
+    if (taskType === 'device_demo' && Array.isArray(devices) && devices.length > 0) {
+      const unavailableDeviceModels = await findUnavailableDeviceModelsForNewCommercialUse(
+        pgClient,
+        devices.map((device: any) => device.deviceModelId),
+      );
+      if (unavailableDeviceModels.length > 0) {
+        await pgClient.query('ROLLBACK');
+        return res.status(400).json(catalogUnavailablePayload('device_model', unavailableDeviceModels));
+      }
+    }
+
+    if (Array.isArray(preOffers) && preOffers.length > 0) {
+      const unavailableDeviceModels = await findUnavailableDeviceModelsForNewCommercialUse(
+        pgClient,
+        preOffers.map((offer: any) => offer.deviceModelId),
+      );
+      if (unavailableDeviceModels.length > 0) {
+        await pgClient.query('ROLLBACK');
+        return res.status(400).json(catalogUnavailablePayload('device_model', unavailableDeviceModels));
+      }
+    }
 
     if (Array.isArray(devices) && devices.length > 0) {
       for (const device of devices) {
@@ -4402,7 +4428,7 @@ router.get('/:id/activity', requirePermission('open_tasks.view'), async (req, re
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'معرف المهمة غير صالح' });
 
-    const { rows: taskRows } = await pool.query('SELECT branch_id FROM open_tasks WHERE id = $1', [id]);
+    const { rows: taskRows } = await pool.query('SELECT branch_id, task_type FROM open_tasks WHERE id = $1', [id]);
     if (taskRows.length === 0) return res.status(404).json({ error: 'المهمة غير موجودة' });
     if (!canViewOpenTask(authContext, taskRows[0].branch_id).allowed) {
       return res.status(403).json({ error: 'ليس لديك صلاحية الوصول لهذه المهمة' });
@@ -4787,6 +4813,16 @@ router.post('/:id/devices', requirePermission('open_tasks.edit'), async (req, re
 
     const devices: any[] = Array.isArray(req.body?.devices) ? req.body.devices : [];
     if (devices.length === 0) return res.status(400).json({ error: 'لا توجد أجهزة للإضافة' });
+
+    if (taskRows[0].task_type === 'device_demo') {
+      const unavailableDeviceModels = await findUnavailableDeviceModelsForNewCommercialUse(
+        pool,
+        devices.map((device: any) => device.deviceModelId),
+      );
+      if (unavailableDeviceModels.length > 0) {
+        return res.status(400).json(catalogUnavailablePayload('device_model', unavailableDeviceModels));
+      }
+    }
 
     const inserted: any[] = [];
     for (const device of devices) {

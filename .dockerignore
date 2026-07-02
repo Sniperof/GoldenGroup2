@@ -1,0 +1,45 @@
+# dependencies
+node_modules
+packages/*/node_modules
+
+# build outputs
+dist
+packages/*/dist
+packages/web/dist
+
+# env & secrets
+.env
+.env.*
+!.env.example
+production.env
+*.pem
+*.key
+
+# runtime data
+uploads/
+logs/
+tmp/
+*.log
+db-snapshots/
+
+# git
+.git
+.gitignore
+
+# editor / OS
+.DS_Store
+Thumbs.db
+.vs/
+.vscode/
+
+# local tooling state
+.claude/
+.antigravitycli/
+.hermes-evidence/
+
+# test / scratch
+*.dump
+*_err.txt
+*_errors.txt
+ts_out.txt
+*.tsbuildinfo
