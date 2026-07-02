@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useCandidateStore } from '../../hooks/useCandidateStore';
-import { UserPlus, Search, Building2, MapPin, AlertCircle, ArrowRight, XCircle, FilePlus2, Download, Upload, Info, LayoutGrid, List, ShieldCheck, Edit, User, SlidersHorizontal, ChevronDown } from 'lucide-react';
+import { UserPlus, Search, Building2, MapPin, AlertCircle, ArrowRight, XCircle, X, FilePlus2, Download, Upload, Info, LayoutGrid, List, ShieldCheck, Edit, User, SlidersHorizontal, ChevronDown } from 'lucide-react';
 import DateField from '../../components/ui/DateField';
 import AddCandidateModal from '../../components/candidates/AddCandidateModal';
 import CreateReferralSheetModal from '../../components/candidates/CreateReferralSessionModal';
@@ -75,6 +75,50 @@ function getCandidateStatusBadge(candidate: { status: string; duplicateFlag?: bo
     }
 }
 
+// Canonical Arabic labels reused by both the filter <Select> options and the
+// active-filter chips, so a value and its chip always read the same word.
+// Candidate status: runtime value is 'New' (DB CHECK) — NOT the shared type's
+// 'Prospect' (documented drift, reporting-analytics.md §3.10 / candidates.md §9).
+const candidateStatusLabels: Record<string, string> = {
+    New: 'جديد', Suggested: 'مقترح', Contacted: 'تم الاتصال', FollowUp: 'متابعة', Qualified: 'محوَّل', Junk: 'مرفوض',
+};
+const sheetStatusLabels: Record<string, string> = {
+    New: 'نشط', 'In-Progress': 'قيد الجمع', Completed: 'مكتمل', Archived: 'مؤرشف',
+};
+const confirmationLabels: Record<string, string> = {
+    Pending: 'قيد الانتظار', Confirmed: 'مؤكَّد', Rejected: 'مرفوض',
+};
+
+// ─── Unified filter primitives (shared by both tabs) ───
+// A labeled control slot inside the single filter panel. Every filter gets an
+// explicit label so the panel reads as one flat, scannable grid — there is no
+// "advanced" tier, just one place that holds every filter.
+function FilterField({ label, children, wide }: { label: string; children: React.ReactNode; wide?: boolean }) {
+    return (
+        <div className={`flex flex-col gap-1 ${wide ? 'sm:col-span-2' : ''}`}>
+            <label className="px-1 text-[11px] font-bold text-slate-500">{label}</label>
+            {children}
+        </div>
+    );
+}
+
+// A removable pill summarizing one applied filter — the always-visible answer to
+// "which filters are currently applied?", each independently clearable.
+function ActiveFilterChip({ label, value, onRemove, tone = 'sky' }: { label: string; value: string; onRemove: () => void; tone?: 'sky' | 'amber' }) {
+    const toneCls = tone === 'amber'
+        ? 'bg-amber-50 border-amber-200 text-amber-800'
+        : 'bg-sky-50 border-sky-200 text-sky-700';
+    return (
+        <span className={`inline-flex items-center gap-1.5 rounded-lg border py-1 pr-2.5 pl-1.5 text-xs font-bold ${toneCls}`}>
+            <span className="font-medium opacity-60">{label}:</span>
+            <span className="max-w-[160px] truncate">{value}</span>
+            <button type="button" onClick={onRemove} aria-label={`إزالة فلتر ${label}`} className="rounded p-0.5 transition-colors hover:bg-white/70">
+                <X className="h-3 w-3" />
+            </button>
+        </span>
+    );
+}
+
 export default function CandidatesEntry() {
     const { hasAnyPermission, hasPermission } = usePermissions();
     const canViewNameLists = hasAnyPermission('candidates.name_lists.view_list');
@@ -110,8 +154,8 @@ export default function CandidatesEntry() {
     const [candidateStatusFilter, setCandidateStatusFilter] = useState('');
     const [candidateSupervisorFilter, setCandidateSupervisorFilter] = useState('');
     const [candidateBranchFilter, setCandidateBranchFilter] = useState('');
-    // Candidate Filters — advanced (behind toggle, reporting-analytics.md §3.5-أ)
-    const [showCandidateAdvanced, setShowCandidateAdvanced] = useState(false);
+    // Candidate Filters — the rest, all in the one unified panel (no separate tier)
+    const [candidateFiltersOpen, setCandidateFiltersOpen] = useState(false);
     const [candidateConvertedFilter, setCandidateConvertedFilter] = useState<'' | 'converted' | 'unconverted'>('');
     const [candidateReferralTypeFilter, setCandidateReferralTypeFilter] = useState('');
     const [candidateChannelFilter, setCandidateChannelFilter] = useState('');
@@ -126,13 +170,11 @@ export default function CandidatesEntry() {
     // Sheet Filters — primary (always visible)
     const [sheetSearchQuery, setSheetSearchQuery] = useState('');
     const [sheetStatusFilter, setSheetStatusFilter] = useState('');
-    const [sheetSupervisorFilter, setSheetSupervisorFilter] = useState('');
     const [sheetBranchFilter, setSheetBranchFilter] = useState('');
-    // Sheet Filters — advanced (behind toggle, reporting-analytics.md §3.5-ب): the
-    // three independent roles (owner/assigned reviewer/creator) replace the single
-    // merged "supervisor" concept per the audit finding in
-    // docs/analysis/candidates-referral-sheets-filters-audit.md §2.2.
-    const [showSheetAdvanced, setShowSheetAdvanced] = useState(false);
+    // Sheet Filters — the rest, all in the one unified panel. The three independent
+    // roles (owner/assigned reviewer/creator) fully replace the old single merged
+    // "supervisor" filter per docs/analysis/candidates-referral-sheets-filters-audit.md §2.2.
+    const [sheetFiltersOpen, setSheetFiltersOpen] = useState(false);
     const [sheetOwnerFilter, setSheetOwnerFilter] = useState('');
     const [sheetAssignedReviewerFilter, setSheetAssignedReviewerFilter] = useState('');
     const [sheetCreatorFilter, setSheetCreatorFilter] = useState('');
@@ -174,10 +216,6 @@ export default function CandidatesEntry() {
     const candidateBranches = useMemo(() =>
         [...new Set(candidates.map(c => c.branchName).filter(Boolean) as string[])].sort(),
         [candidates]
-    );
-    const sheetSupervisors = useMemo(() =>
-        [...new Set(referralSheets.map(s => s.assignedHrUserName).filter(Boolean) as string[])].sort(),
-        [referralSheets]
     );
     const sheetBranches = useMemo(() =>
         [...new Set(referralSheets.map(s => s.branchName).filter(Boolean) as string[])].sort(),
@@ -260,10 +298,6 @@ export default function CandidatesEntry() {
         ]
     );
 
-    const hasAdvancedCandidateFilters = !!(candidateConvertedFilter || candidateReferralTypeFilter || candidateChannelFilter
-        || candidateDuplicateFilter || candidateConfirmationFilter || candidateCreatorFilter || candidateSourceFilter
-        || candidateGeoFilter || candidateDateFrom || candidateDateTo);
-
     const clearCandidateFilters = () => {
         setSearchQuery('');
         setCandidateStatusFilter('');
@@ -292,7 +326,6 @@ export default function CandidatesEntry() {
                 if (!matchesName && !matchesId) return false;
             }
             if (sheetStatusFilter && s.status !== sheetStatusFilter) return false;
-            if (sheetSupervisorFilter && s.assignedHrUserName !== sheetSupervisorFilter) return false;
             if (sheetBranchFilter && s.branchName !== sheetBranchFilter) return false;
             if (sheetOwnerFilter && s.ownerUserName !== sheetOwnerFilter) return false;
             if (sheetAssignedReviewerFilter && (s.assignedHrUserId == null || s.assignedHrUserName !== sheetAssignedReviewerFilter)) return false;
@@ -309,21 +342,16 @@ export default function CandidatesEntry() {
             return true;
         }),
         [
-            referralSheets, sheetSearchQuery, sheetStatusFilter, sheetSupervisorFilter, sheetBranchFilter,
+            referralSheets, sheetSearchQuery, sheetStatusFilter, sheetBranchFilter,
             sheetOwnerFilter, sheetAssignedReviewerFilter, sheetCreatorFilter, sheetSourceFilter,
             sheetReferralTypeFilter, sheetChannelFilter, sheetQualityMin, sheetConversionMin,
             sheetBehindTargetFilter, sheetDateFrom, sheetDateTo,
         ]
     );
 
-    const hasAdvancedSheetFilters = !!(sheetOwnerFilter || sheetAssignedReviewerFilter || sheetCreatorFilter
-        || sheetSourceFilter || sheetReferralTypeFilter || sheetChannelFilter || sheetQualityMin || sheetConversionMin
-        || sheetBehindTargetFilter || sheetDateFrom || sheetDateTo);
-
     const clearSheetFilters = () => {
         setSheetSearchQuery('');
         setSheetStatusFilter('');
-        setSheetSupervisorFilter('');
         setSheetBranchFilter('');
         setSheetOwnerFilter('');
         setSheetAssignedReviewerFilter('');
@@ -443,6 +471,37 @@ export default function CandidatesEntry() {
         return formatGeoUnitLastLevels(geoUnits, candidate.geoUnitId) || savedText || '--';
     };
 
+    // Applied-filter chips — one removable pill per active filter (search excluded:
+    // it has its own always-visible box + inline clear). Order mirrors the panel.
+    type Chip = { key: string; label: string; value: string; onRemove: () => void };
+    const candidateChips: Chip[] = [];
+    if (candidateStatusFilter) candidateChips.push({ key: 'status', label: 'الحالة', value: candidateStatusLabels[candidateStatusFilter] ?? candidateStatusFilter, onRemove: () => { setCandidateStatusFilter(''); setCandidatePage(1); } });
+    if (candidateSupervisorFilter) candidateChips.push({ key: 'supervisor', label: 'المسؤول', value: candidateSupervisorFilter, onRemove: () => { setCandidateSupervisorFilter(''); setCandidatePage(1); } });
+    if (candidateBranchFilter) candidateChips.push({ key: 'branch', label: 'الفرع', value: candidateBranchFilter, onRemove: () => { setCandidateBranchFilter(''); setCandidatePage(1); } });
+    if (candidateConvertedFilter) candidateChips.push({ key: 'converted', label: 'التحويل', value: candidateConvertedFilter === 'converted' ? 'محوَّل' : 'غير محوَّل', onRemove: () => { setCandidateConvertedFilter(''); setCandidatePage(1); } });
+    if (candidateReferralTypeFilter) candidateChips.push({ key: 'referralType', label: 'نوع الترشيح', value: getReferralTypeLabel(candidateReferralTypeFilter), onRemove: () => { setCandidateReferralTypeFilter(''); setCandidatePage(1); } });
+    if (candidateChannelFilter) candidateChips.push({ key: 'channel', label: 'القناة', value: getChannelLabel(candidateChannelFilter), onRemove: () => { setCandidateChannelFilter(''); setCandidatePage(1); } });
+    if (candidateDuplicateFilter) candidateChips.push({ key: 'duplicate', label: 'التكرار', value: candidateDuplicateFilter === 'yes' ? 'مكرَّر' : 'غير مكرَّر', onRemove: () => { setCandidateDuplicateFilter(''); setCandidatePage(1); } });
+    if (candidateConfirmationFilter) candidateChips.push({ key: 'confirmation', label: 'تأكيد الترشيح', value: confirmationLabels[candidateConfirmationFilter] ?? candidateConfirmationFilter, onRemove: () => { setCandidateConfirmationFilter(''); setCandidatePage(1); } });
+    if (candidateCreatorFilter) candidateChips.push({ key: 'creator', label: 'المنشئ', value: candidateCreatorFilter, onRemove: () => { setCandidateCreatorFilter(''); setCandidatePage(1); } });
+    if (candidateSourceFilter) candidateChips.push({ key: 'source', label: 'مصدر الإدخال', value: candidateSourceFilter === 'fromSheet' ? 'من لائحة' : 'إدخال مباشر', onRemove: () => { setCandidateSourceFilter(''); setCandidatePage(1); } });
+    if (candidateGeoFilter) candidateChips.push({ key: 'geo', label: 'المنطقة', value: getNeighborhoodHierarchy(candidateGeoFilter), onRemove: () => { setCandidateGeoFilter(''); setCandidatePage(1); } });
+    if (candidateDateFrom || candidateDateTo) candidateChips.push({ key: 'date', label: 'التاريخ', value: `${candidateDateFrom || '…'} → ${candidateDateTo || '…'}`, onRemove: () => { setCandidateDateFrom(''); setCandidateDateTo(''); setCandidatePage(1); } });
+
+    const sheetChips: Chip[] = [];
+    if (sheetStatusFilter) sheetChips.push({ key: 'status', label: 'الحالة', value: sheetStatusLabels[sheetStatusFilter] ?? sheetStatusFilter, onRemove: () => { setSheetStatusFilter(''); setSheetsPage(1); } });
+    if (sheetBranchFilter) sheetChips.push({ key: 'branch', label: 'الفرع', value: sheetBranchFilter, onRemove: () => { setSheetBranchFilter(''); setSheetsPage(1); } });
+    if (sheetOwnerFilter) sheetChips.push({ key: 'owner', label: 'الجامع الفعلي', value: sheetOwnerFilter, onRemove: () => { setSheetOwnerFilter(''); setSheetsPage(1); } });
+    if (sheetAssignedReviewerFilter) sheetChips.push({ key: 'reviewer', label: 'المُراجِع المُسنَد', value: sheetAssignedReviewerFilter, onRemove: () => { setSheetAssignedReviewerFilter(''); setSheetsPage(1); } });
+    if (sheetCreatorFilter) sheetChips.push({ key: 'creator', label: 'المنشئ', value: sheetCreatorFilter, onRemove: () => { setSheetCreatorFilter(''); setSheetsPage(1); } });
+    if (sheetSourceFilter) sheetChips.push({ key: 'source', label: 'مصدر الإنشاء', value: sheetSourceFilter === 'fromVisit' ? 'من زيارة ميدانية' : 'يدوي', onRemove: () => { setSheetSourceFilter(''); setSheetsPage(1); } });
+    if (sheetReferralTypeFilter) sheetChips.push({ key: 'referralType', label: 'نوع الترشيح', value: getReferralTypeLabel(sheetReferralTypeFilter), onRemove: () => { setSheetReferralTypeFilter(''); setSheetsPage(1); } });
+    if (sheetChannelFilter) sheetChips.push({ key: 'channel', label: 'القناة', value: getChannelLabel(sheetChannelFilter), onRemove: () => { setSheetChannelFilter(''); setSheetsPage(1); } });
+    if (sheetQualityMin) sheetChips.push({ key: 'quality', label: 'أدنى جودة', value: `${sheetQualityMin}%`, onRemove: () => { setSheetQualityMin(''); setSheetsPage(1); } });
+    if (sheetConversionMin) sheetChips.push({ key: 'conversion', label: 'أدنى تحويل', value: `${sheetConversionMin}%`, onRemove: () => { setSheetConversionMin(''); setSheetsPage(1); } });
+    if (sheetBehindTargetFilter) sheetChips.push({ key: 'behind', label: 'الهدف', value: 'دون الهدف', onRemove: () => { setSheetBehindTargetFilter(false); setSheetsPage(1); } });
+    if (sheetDateFrom || sheetDateTo) sheetChips.push({ key: 'date', label: 'التاريخ', value: `${sheetDateFrom || '…'} → ${sheetDateTo || '…'}`, onRemove: () => { setSheetDateFrom(''); setSheetDateTo(''); setSheetsPage(1); } });
+
     return (
         <div className="p-8 space-y-6" dir="rtl">
             {/* Error Message Modal */}
@@ -516,152 +575,119 @@ export default function CandidatesEntry() {
                 <div className="flex flex-col border rounded-2xl border-slate-200 bg-white shadow-sm overflow-hidden">
                     {/* Filters Bar for Candidates */}
                     <div className="p-4 border-b border-slate-100 bg-slate-50/30 flex flex-col gap-3">
-                        <div className="flex flex-wrap gap-3 items-center">
-                            <div className="relative flex-1 min-w-[180px]">
+                        {/* Toolbar: free-text search · one filters toggle · clear-all */}
+                        <div className="flex flex-wrap items-center gap-3">
+                            <div className="relative flex-1 min-w-[220px]">
                                 <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                                 <input
                                     type="text"
                                     placeholder="بحث (اسم، رقم، وسيط)..."
                                     value={searchQuery}
                                     onChange={(e) => { setSearchQuery(e.target.value); setCandidatePage(1); }}
-                                    className="w-full pl-4 pr-10 py-3 rounded-xl border border-slate-200 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/20 text-sm"
+                                    className="w-full pl-9 pr-10 py-3 rounded-xl border border-slate-200 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/20 text-sm"
                                 />
+                                {searchQuery && (
+                                    <button onClick={() => { setSearchQuery(''); setCandidatePage(1); }} aria-label="مسح البحث" className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                                        <X className="w-4 h-4" />
+                                    </button>
+                                )}
                             </div>
-                            <Select
-                                value={candidateStatusFilter}
-                                onChange={(v) => { setCandidateStatusFilter(v); setCandidatePage(1); }}
-                                ariaLabel="حالة المرشح"
-                                options={[
-                                    { value: '', label: 'كل الحالات' },
-                                    // Runtime value is 'New' (matches the DB CHECK constraint) — NOT the
-                                    // 'Prospect' the shared TS type declares. No transform layer exists
-                                    // anywhere in the API; that type is the documented drift bug itself
-                                    // (reporting-analytics.md §3.8, candidates.md §9). Filtering on
-                                    // 'Prospect' would silently match zero rows.
-                                    { value: 'New', label: 'جديد' },
-                                    { value: 'Suggested', label: 'مقترح' },
-                                    { value: 'Contacted', label: 'تم الاتصال' },
-                                    { value: 'FollowUp', label: 'متابعة' },
-                                    { value: 'Qualified', label: 'محوَّل' },
-                                    { value: 'Junk', label: 'مرفوض' },
-                                ]}
-                            />
-                            {candidateSupervisors.length > 0 && (
-                                <Select
-                                    value={candidateSupervisorFilter}
-                                    onChange={(v) => { setCandidateSupervisorFilter(v); setCandidatePage(1); }}
-                                    ariaLabel="المسؤول"
-                                    options={[{ value: '', label: 'كل المسؤولين' }, ...candidateSupervisors.map(s => ({ value: s, label: s }))]}
-                                />
-                            )}
-                            {candidateBranches.length > 0 && (
-                                <Select
-                                    value={candidateBranchFilter}
-                                    onChange={(v) => { setCandidateBranchFilter(v); setCandidatePage(1); }}
-                                    ariaLabel="الفرع"
-                                    options={[{ value: '', label: 'كل الفروع' }, ...candidateBranches.map(b => ({ value: b, label: b }))]}
-                                />
-                            )}
                             <button
-                                onClick={() => setShowCandidateAdvanced(o => !o)}
-                                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-bold transition-all ${hasAdvancedCandidateFilters ? 'border-sky-200 bg-sky-50 text-sky-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
+                                onClick={() => setCandidateFiltersOpen(o => !o)}
+                                aria-expanded={candidateFiltersOpen}
+                                className={`flex items-center gap-2 px-4 py-3 rounded-xl border text-sm font-bold transition-all ${candidateFiltersOpen || candidateChips.length > 0 ? 'border-sky-200 bg-sky-50 text-sky-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
                             >
-                                <SlidersHorizontal className="w-3.5 h-3.5" /> فلاتر متقدمة
-                                <ChevronDown className={`w-3 h-3 transition-transform ${showCandidateAdvanced ? 'rotate-180' : ''}`} />
+                                <SlidersHorizontal className="w-4 h-4" /> الفلاتر
+                                {candidateChips.length > 0 && (
+                                    <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-sky-600 text-white text-[11px] font-black">{candidateChips.length}</span>
+                                )}
+                                <ChevronDown className={`w-3.5 h-3.5 transition-transform ${candidateFiltersOpen ? 'rotate-180' : ''}`} />
                             </button>
-                            {(searchQuery || candidateStatusFilter || candidateSupervisorFilter || candidateBranchFilter || hasAdvancedCandidateFilters) && (
+                            {(candidateChips.length > 0 || searchQuery) && (
                                 <button
                                     onClick={clearCandidateFilters}
-                                    className="flex items-center gap-1 text-xs text-slate-500 hover:text-red-600 transition-colors"
+                                    className="flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-red-600 transition-colors"
                                 >
-                                    <XCircle className="w-4 h-4" /> مسح الفلاتر
+                                    <XCircle className="w-4 h-4" /> مسح الكل
                                 </button>
                             )}
                         </div>
 
-                        {showCandidateAdvanced && (
-                            <div className="flex flex-wrap gap-3 items-center pt-3 border-t border-dashed border-slate-200">
-                                <Select
-                                    value={candidateConvertedFilter}
-                                    onChange={(v) => { setCandidateConvertedFilter(v as any); setCandidatePage(1); }}
-                                    ariaLabel="التحويل"
-                                    options={[
-                                        { value: '', label: 'محوَّل/غير محوَّل: الكل' },
-                                        { value: 'converted', label: 'محوَّل فقط' },
-                                        { value: 'unconverted', label: 'غير محوَّل فقط' },
-                                    ]}
-                                />
+                        {/* Active-filter chips — always-on "what's applied", each removable */}
+                        {candidateChips.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-2">
+                                {candidateChips.map(chip => (
+                                    <ActiveFilterChip key={chip.key} label={chip.label} value={chip.value} onRemove={chip.onRemove} tone="sky" />
+                                ))}
+                            </div>
+                        )}
+
+                        {/* One unified filter panel — every filter, labeled, in a flat grid */}
+                        {candidateFiltersOpen && (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 pt-3 border-t border-dashed border-slate-200">
+                                <FilterField label="الحالة">
+                                    <Select className="w-full" value={candidateStatusFilter} onChange={(v) => { setCandidateStatusFilter(v); setCandidatePage(1); }} ariaLabel="حالة المرشح"
+                                        options={[{ value: '', label: 'كل الحالات' }, ...Object.entries(candidateStatusLabels).map(([value, label]) => ({ value, label }))]} />
+                                </FilterField>
+                                {candidateSupervisors.length > 0 && (
+                                    <FilterField label="المسؤول">
+                                        <Select className="w-full" value={candidateSupervisorFilter} onChange={(v) => { setCandidateSupervisorFilter(v); setCandidatePage(1); }} ariaLabel="المسؤول"
+                                            options={[{ value: '', label: 'كل المسؤولين' }, ...candidateSupervisors.map(s => ({ value: s, label: s }))]} />
+                                    </FilterField>
+                                )}
+                                {candidateBranches.length > 1 && (
+                                    <FilterField label="الفرع">
+                                        <Select className="w-full" value={candidateBranchFilter} onChange={(v) => { setCandidateBranchFilter(v); setCandidatePage(1); }} ariaLabel="الفرع"
+                                            options={[{ value: '', label: 'كل الفروع' }, ...candidateBranches.map(b => ({ value: b, label: b }))]} />
+                                    </FilterField>
+                                )}
+                                <FilterField label="التحويل">
+                                    <Select className="w-full" value={candidateConvertedFilter} onChange={(v) => { setCandidateConvertedFilter(v as any); setCandidatePage(1); }} ariaLabel="التحويل"
+                                        options={[{ value: '', label: 'الكل' }, { value: 'converted', label: 'محوَّل فقط' }, { value: 'unconverted', label: 'غير محوَّل فقط' }]} />
+                                </FilterField>
                                 {candidateReferralTypes.length > 0 && (
-                                    <Select
-                                        value={candidateReferralTypeFilter}
-                                        onChange={(v) => { setCandidateReferralTypeFilter(v); setCandidatePage(1); }}
-                                        ariaLabel="نوع الترشيح"
-                                        options={[{ value: '', label: 'كل أنواع الترشيح' }, ...candidateReferralTypes.map(t => ({ value: t, label: getReferralTypeLabel(t) }))]}
-                                    />
+                                    <FilterField label="نوع الترشيح">
+                                        <Select className="w-full" value={candidateReferralTypeFilter} onChange={(v) => { setCandidateReferralTypeFilter(v); setCandidatePage(1); }} ariaLabel="نوع الترشيح"
+                                            options={[{ value: '', label: 'كل الأنواع' }, ...candidateReferralTypes.map(t => ({ value: t, label: getReferralTypeLabel(t) }))]} />
+                                    </FilterField>
                                 )}
                                 {candidateChannels.length > 0 && (
-                                    <Select
-                                        value={candidateChannelFilter}
-                                        onChange={(v) => { setCandidateChannelFilter(v); setCandidatePage(1); }}
-                                        ariaLabel="قناة المصدر"
-                                        options={[{ value: '', label: 'كل القنوات' }, ...candidateChannels.map(c => ({ value: c, label: getChannelLabel(c) }))]}
-                                    />
+                                    <FilterField label="قناة المصدر">
+                                        <Select className="w-full" value={candidateChannelFilter} onChange={(v) => { setCandidateChannelFilter(v); setCandidatePage(1); }} ariaLabel="قناة المصدر"
+                                            options={[{ value: '', label: 'كل القنوات' }, ...candidateChannels.map(c => ({ value: c, label: getChannelLabel(c) }))]} />
+                                    </FilterField>
                                 )}
-                                <Select
-                                    value={candidateDuplicateFilter}
-                                    onChange={(v) => { setCandidateDuplicateFilter(v as any); setCandidatePage(1); }}
-                                    ariaLabel="تكرار محتمل"
-                                    options={[
-                                        { value: '', label: 'التكرار: الكل' },
-                                        { value: 'yes', label: 'مكرَّر فقط' },
-                                        { value: 'no', label: 'غير مكرَّر فقط' },
-                                    ]}
-                                />
-                                <Select
-                                    value={candidateConfirmationFilter}
-                                    onChange={(v) => { setCandidateConfirmationFilter(v); setCandidatePage(1); }}
-                                    ariaLabel="تأكيد الترشيح"
-                                    options={[
-                                        { value: '', label: 'تأكيد الترشيح: الكل' },
-                                        { value: 'Pending', label: 'قيد الانتظار' },
-                                        { value: 'Confirmed', label: 'مؤكَّد' },
-                                        { value: 'Rejected', label: 'مرفوض' },
-                                    ]}
-                                />
+                                <FilterField label="التكرار">
+                                    <Select className="w-full" value={candidateDuplicateFilter} onChange={(v) => { setCandidateDuplicateFilter(v as any); setCandidatePage(1); }} ariaLabel="تكرار محتمل"
+                                        options={[{ value: '', label: 'الكل' }, { value: 'yes', label: 'مكرَّر فقط' }, { value: 'no', label: 'غير مكرَّر فقط' }]} />
+                                </FilterField>
+                                <FilterField label="تأكيد الترشيح">
+                                    <Select className="w-full" value={candidateConfirmationFilter} onChange={(v) => { setCandidateConfirmationFilter(v); setCandidatePage(1); }} ariaLabel="تأكيد الترشيح"
+                                        options={[{ value: '', label: 'الكل' }, ...Object.entries(confirmationLabels).map(([value, label]) => ({ value, label }))]} />
+                                </FilterField>
                                 {candidateCreators.length > 0 && (
-                                    <Select
-                                        value={candidateCreatorFilter}
-                                        onChange={(v) => { setCandidateCreatorFilter(v); setCandidatePage(1); }}
-                                        ariaLabel="المنشئ"
-                                        options={[{ value: '', label: 'كل المنشئين' }, ...candidateCreators.map(c => ({ value: c, label: c }))]}
-                                    />
+                                    <FilterField label="المنشئ">
+                                        <Select className="w-full" value={candidateCreatorFilter} onChange={(v) => { setCandidateCreatorFilter(v); setCandidatePage(1); }} ariaLabel="المنشئ"
+                                            options={[{ value: '', label: 'كل المنشئين' }, ...candidateCreators.map(c => ({ value: c, label: c }))]} />
+                                    </FilterField>
                                 )}
-                                <Select
-                                    value={candidateSourceFilter}
-                                    onChange={(v) => { setCandidateSourceFilter(v as any); setCandidatePage(1); }}
-                                    ariaLabel="مصدر الإدخال"
-                                    options={[
-                                        { value: '', label: 'مصدر الإدخال: الكل' },
-                                        { value: 'fromSheet', label: 'من لائحة' },
-                                        { value: 'direct', label: 'إدخال مباشر' },
-                                    ]}
-                                />
+                                <FilterField label="مصدر الإدخال">
+                                    <Select className="w-full" value={candidateSourceFilter} onChange={(v) => { setCandidateSourceFilter(v as any); setCandidatePage(1); }} ariaLabel="مصدر الإدخال"
+                                        options={[{ value: '', label: 'الكل' }, { value: 'fromSheet', label: 'من لائحة' }, { value: 'direct', label: 'إدخال مباشر' }]} />
+                                </FilterField>
                                 {geoUnits.filter(g => g.level === 4).length > 0 && (
-                                    <Select
-                                        value={candidateGeoFilter}
-                                        onChange={(v) => { setCandidateGeoFilter(v); setCandidatePage(1); }}
-                                        ariaLabel="المنطقة الجغرافية"
-                                        options={[
-                                            { value: '', label: 'كل المناطق' },
-                                            ...geoUnits.filter(g => g.level === 4).map(g => ({ value: String(g.id), label: getNeighborhoodHierarchy(String(g.id)) })),
-                                        ]}
-                                    />
+                                    <FilterField label="المنطقة الجغرافية">
+                                        <Select className="w-full" value={candidateGeoFilter} onChange={(v) => { setCandidateGeoFilter(v); setCandidatePage(1); }} ariaLabel="المنطقة الجغرافية"
+                                            options={[{ value: '', label: 'كل المناطق' }, ...geoUnits.filter(g => g.level === 4).map(g => ({ value: String(g.id), label: getNeighborhoodHierarchy(String(g.id)) }))]} />
+                                    </FilterField>
                                 )}
-                                <div className="flex items-center gap-1.5">
-                                    <DateField value={candidateDateFrom} onChange={(v) => { setCandidateDateFrom(v); setCandidatePage(1); }} placeholder="من تاريخ" className="w-36 bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 hover:border-slate-300 focus:border-sky-500 focus:outline-none transition-colors" />
-                                    <span className="text-xs text-slate-400">إلى</span>
-                                    <DateField value={candidateDateTo} onChange={(v) => { setCandidateDateTo(v); setCandidatePage(1); }} placeholder="إلى تاريخ" className="w-36 bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 hover:border-slate-300 focus:border-sky-500 focus:outline-none transition-colors" />
-                                </div>
+                                <FilterField label="فترة التسجيل" wide>
+                                    <div className="flex items-center gap-1.5">
+                                        <DateField value={candidateDateFrom} onChange={(v) => { setCandidateDateFrom(v); setCandidatePage(1); }} placeholder="من تاريخ" className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 hover:border-slate-300 focus:border-sky-500 focus:outline-none transition-colors" />
+                                        <span className="text-xs text-slate-400 shrink-0">إلى</span>
+                                        <DateField value={candidateDateTo} onChange={(v) => { setCandidateDateTo(v); setCandidatePage(1); }} placeholder="إلى تاريخ" className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 hover:border-slate-300 focus:border-sky-500 focus:outline-none transition-colors" />
+                                    </div>
+                                </FilterField>
                             </div>
                         )}
                     </div>
@@ -834,142 +860,123 @@ export default function CandidatesEntry() {
                 <div className="flex flex-col border rounded-2xl border-slate-200 bg-white shadow-sm overflow-hidden">
                     {/* Filters Bar for Sheets */}
                     <div className="p-4 border-b border-slate-100 bg-amber-50/20 flex flex-col gap-3">
-                        <div className="flex flex-wrap gap-3 items-center">
-                            <div className="relative flex-1 min-w-[180px]">
+                        {/* Toolbar: free-text search · one filters toggle · clear-all */}
+                        <div className="flex flex-wrap items-center gap-3">
+                            <div className="relative flex-1 min-w-[220px]">
                                 <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                                 <input
                                     type="text"
                                     placeholder="بحث باسم الوسيط أو رقم اللائحة..."
                                     value={sheetSearchQuery}
                                     onChange={(e) => { setSheetSearchQuery(e.target.value); setSheetsPage(1); }}
-                                    className="w-full pl-4 pr-10 py-3 rounded-xl border border-amber-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 text-sm bg-white"
+                                    className="w-full pl-9 pr-10 py-3 rounded-xl border border-amber-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 text-sm bg-white"
                                 />
+                                {sheetSearchQuery && (
+                                    <button onClick={() => { setSheetSearchQuery(''); setSheetsPage(1); }} aria-label="مسح البحث" className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                                        <X className="w-4 h-4" />
+                                    </button>
+                                )}
                             </div>
-                            <Select
-                                value={sheetStatusFilter}
-                                onChange={(v) => { setSheetStatusFilter(v); setSheetsPage(1); }}
-                                ariaLabel="حالة اللائحة"
-                                options={[
-                                    { value: '', label: 'كل الحالات' },
-                                    { value: 'New', label: 'نشط' },
-                                    { value: 'In-Progress', label: 'قيد الجمع' },
-                                    { value: 'Completed', label: 'مكتمل' },
-                                    { value: 'Archived', label: 'مؤرشف' },
-                                ]}
-                            />
-                            {sheetSupervisors.length > 0 && (
-                                <Select
-                                    value={sheetSupervisorFilter}
-                                    onChange={(v) => { setSheetSupervisorFilter(v); setSheetsPage(1); }}
-                                    ariaLabel="المسؤول (مدمج)"
-                                    options={[{ value: '', label: 'المسؤول (مدمج): الكل' }, ...sheetSupervisors.map(s => ({ value: s, label: s }))]}
-                                />
-                            )}
-                            {sheetBranches.length > 0 && (
-                                <Select
-                                    value={sheetBranchFilter}
-                                    onChange={(v) => { setSheetBranchFilter(v); setSheetsPage(1); }}
-                                    ariaLabel="الفرع"
-                                    options={[{ value: '', label: 'كل الفروع' }, ...sheetBranches.map(b => ({ value: b, label: b }))]}
-                                />
-                            )}
                             <button
-                                onClick={() => setShowSheetAdvanced(o => !o)}
-                                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-bold transition-all ${hasAdvancedSheetFilters ? 'border-amber-300 bg-amber-100 text-amber-800' : 'border-amber-200 bg-white text-amber-700 hover:bg-amber-50'}`}
+                                onClick={() => setSheetFiltersOpen(o => !o)}
+                                aria-expanded={sheetFiltersOpen}
+                                className={`flex items-center gap-2 px-4 py-3 rounded-xl border text-sm font-bold transition-all ${sheetFiltersOpen || sheetChips.length > 0 ? 'border-amber-300 bg-amber-100 text-amber-800' : 'border-amber-200 bg-white text-amber-700 hover:bg-amber-50'}`}
                             >
-                                <SlidersHorizontal className="w-3.5 h-3.5" /> فلاتر متقدمة
-                                <ChevronDown className={`w-3 h-3 transition-transform ${showSheetAdvanced ? 'rotate-180' : ''}`} />
+                                <SlidersHorizontal className="w-4 h-4" /> الفلاتر
+                                {sheetChips.length > 0 && (
+                                    <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-amber-600 text-white text-[11px] font-black">{sheetChips.length}</span>
+                                )}
+                                <ChevronDown className={`w-3.5 h-3.5 transition-transform ${sheetFiltersOpen ? 'rotate-180' : ''}`} />
                             </button>
-                            {(sheetSearchQuery || sheetStatusFilter || sheetSupervisorFilter || sheetBranchFilter || hasAdvancedSheetFilters) && (
+                            {(sheetChips.length > 0 || sheetSearchQuery) && (
                                 <button
                                     onClick={clearSheetFilters}
-                                    className="flex items-center gap-1 text-xs text-slate-500 hover:text-red-600 transition-colors"
+                                    className="flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-red-600 transition-colors"
                                 >
-                                    <XCircle className="w-4 h-4" /> مسح الفلاتر
+                                    <XCircle className="w-4 h-4" /> مسح الكل
                                 </button>
                             )}
                         </div>
 
-                        {showSheetAdvanced && (
-                            <div className="flex flex-wrap gap-3 items-center pt-3 border-t border-dashed border-amber-200">
+                        {/* Active-filter chips — always-on "what's applied", each removable */}
+                        {sheetChips.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-2">
+                                {sheetChips.map(chip => (
+                                    <ActiveFilterChip key={chip.key} label={chip.label} value={chip.value} onRemove={chip.onRemove} tone="amber" />
+                                ))}
+                            </div>
+                        )}
+
+                        {/* One unified filter panel — every filter, labeled, in a flat grid */}
+                        {sheetFiltersOpen && (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 pt-3 border-t border-dashed border-amber-200">
+                                <FilterField label="الحالة">
+                                    <Select className="w-full" value={sheetStatusFilter} onChange={(v) => { setSheetStatusFilter(v); setSheetsPage(1); }} ariaLabel="حالة اللائحة"
+                                        options={[{ value: '', label: 'كل الحالات' }, ...Object.entries(sheetStatusLabels).map(([value, label]) => ({ value, label }))]} />
+                                </FilterField>
+                                {sheetBranches.length > 1 && (
+                                    <FilterField label="الفرع">
+                                        <Select className="w-full" value={sheetBranchFilter} onChange={(v) => { setSheetBranchFilter(v); setSheetsPage(1); }} ariaLabel="الفرع"
+                                            options={[{ value: '', label: 'كل الفروع' }, ...sheetBranches.map(b => ({ value: b, label: b }))]} />
+                                    </FilterField>
+                                )}
                                 {sheetOwners.length > 0 && (
-                                    <Select
-                                        value={sheetOwnerFilter}
-                                        onChange={(v) => { setSheetOwnerFilter(v); setSheetsPage(1); }}
-                                        ariaLabel="الجامع الفعلي"
-                                        options={[{ value: '', label: 'الجامع الفعلي: الكل' }, ...sheetOwners.map(o => ({ value: o, label: o }))]}
-                                    />
+                                    <FilterField label="الجامع الفعلي">
+                                        <Select className="w-full" value={sheetOwnerFilter} onChange={(v) => { setSheetOwnerFilter(v); setSheetsPage(1); }} ariaLabel="الجامع الفعلي"
+                                            options={[{ value: '', label: 'الكل' }, ...sheetOwners.map(o => ({ value: o, label: o }))]} />
+                                    </FilterField>
                                 )}
                                 {sheetAssignedReviewers.length > 0 && (
-                                    <Select
-                                        value={sheetAssignedReviewerFilter}
-                                        onChange={(v) => { setSheetAssignedReviewerFilter(v); setSheetsPage(1); }}
-                                        ariaLabel="المُراجِع المُسنَد"
-                                        options={[{ value: '', label: 'المُراجِع المُسنَد: الكل' }, ...sheetAssignedReviewers.map(r => ({ value: r, label: r }))]}
-                                    />
+                                    <FilterField label="المُراجِع المُسنَد">
+                                        <Select className="w-full" value={sheetAssignedReviewerFilter} onChange={(v) => { setSheetAssignedReviewerFilter(v); setSheetsPage(1); }} ariaLabel="المُراجِع المُسنَد"
+                                            options={[{ value: '', label: 'الكل' }, ...sheetAssignedReviewers.map(r => ({ value: r, label: r }))]} />
+                                    </FilterField>
                                 )}
                                 {sheetCreators.length > 0 && (
-                                    <Select
-                                        value={sheetCreatorFilter}
-                                        onChange={(v) => { setSheetCreatorFilter(v); setSheetsPage(1); }}
-                                        ariaLabel="المنشئ"
-                                        options={[{ value: '', label: 'المنشئ: الكل' }, ...sheetCreators.map(c => ({ value: c, label: c }))]}
-                                    />
+                                    <FilterField label="المنشئ">
+                                        <Select className="w-full" value={sheetCreatorFilter} onChange={(v) => { setSheetCreatorFilter(v); setSheetsPage(1); }} ariaLabel="المنشئ"
+                                            options={[{ value: '', label: 'الكل' }, ...sheetCreators.map(c => ({ value: c, label: c }))]} />
+                                    </FilterField>
                                 )}
-                                <Select
-                                    value={sheetSourceFilter}
-                                    onChange={(v) => { setSheetSourceFilter(v as any); setSheetsPage(1); }}
-                                    ariaLabel="مصدر الإنشاء"
-                                    options={[
-                                        { value: '', label: 'مصدر الإنشاء: الكل' },
-                                        { value: 'fromVisit', label: 'من زيارة ميدانية' },
-                                        { value: 'manual', label: 'يدوي' },
-                                    ]}
-                                />
+                                <FilterField label="مصدر الإنشاء">
+                                    <Select className="w-full" value={sheetSourceFilter} onChange={(v) => { setSheetSourceFilter(v as any); setSheetsPage(1); }} ariaLabel="مصدر الإنشاء"
+                                        options={[{ value: '', label: 'الكل' }, { value: 'fromVisit', label: 'من زيارة ميدانية' }, { value: 'manual', label: 'يدوي' }]} />
+                                </FilterField>
                                 {sheetReferralTypes.length > 0 && (
-                                    <Select
-                                        value={sheetReferralTypeFilter}
-                                        onChange={(v) => { setSheetReferralTypeFilter(v); setSheetsPage(1); }}
-                                        ariaLabel="نوع الترشيح"
-                                        options={[{ value: '', label: 'كل أنواع الترشيح' }, ...sheetReferralTypes.map(t => ({ value: t, label: getReferralTypeLabel(t) }))]}
-                                    />
+                                    <FilterField label="نوع الترشيح">
+                                        <Select className="w-full" value={sheetReferralTypeFilter} onChange={(v) => { setSheetReferralTypeFilter(v); setSheetsPage(1); }} ariaLabel="نوع الترشيح"
+                                            options={[{ value: '', label: 'كل الأنواع' }, ...sheetReferralTypes.map(t => ({ value: t, label: getReferralTypeLabel(t) }))]} />
+                                    </FilterField>
                                 )}
                                 {sheetChannels.length > 0 && (
-                                    <Select
-                                        value={sheetChannelFilter}
-                                        onChange={(v) => { setSheetChannelFilter(v); setSheetsPage(1); }}
-                                        ariaLabel="قناة المصدر"
-                                        options={[{ value: '', label: 'كل القنوات' }, ...sheetChannels.map(c => ({ value: c, label: getChannelLabel(c) }))]}
-                                    />
+                                    <FilterField label="قناة المصدر">
+                                        <Select className="w-full" value={sheetChannelFilter} onChange={(v) => { setSheetChannelFilter(v); setSheetsPage(1); }} ariaLabel="قناة المصدر"
+                                            options={[{ value: '', label: 'كل القنوات' }, ...sheetChannels.map(c => ({ value: c, label: getChannelLabel(c) }))]} />
+                                    </FilterField>
                                 )}
-                                <div className="flex items-center gap-1.5">
-                                    <Input
-                                        type="number" min={0} max={100} inputSize="sm" fullWidth={false} placeholder="أدنى جودة %"
+                                <FilterField label="أدنى جودة %">
+                                    <Input type="number" min={0} max={100} placeholder="0–100"
                                         value={sheetQualityMin}
-                                        onChange={(e) => { setSheetQualityMin(e.target.value); setSheetsPage(1); }}
-                                        className="w-28"
-                                    />
-                                    <Input
-                                        type="number" min={0} max={100} inputSize="sm" fullWidth={false} placeholder="أدنى تحويل %"
+                                        onChange={(e) => { setSheetQualityMin(e.target.value); setSheetsPage(1); }} />
+                                </FilterField>
+                                <FilterField label="أدنى تحويل %">
+                                    <Input type="number" min={0} max={100} placeholder="0–100"
                                         value={sheetConversionMin}
-                                        onChange={(e) => { setSheetConversionMin(e.target.value); setSheetsPage(1); }}
-                                        className="w-28"
-                                    />
-                                </div>
-                                <div className="flex items-center gap-2 text-xs font-bold text-slate-600 px-3 py-2 rounded-xl border border-amber-200 bg-white">
-                                    <Toggle
-                                        size="sm"
-                                        checked={sheetBehindTargetFilter}
-                                        onCheckedChange={(v) => { setSheetBehindTargetFilter(v); setSheetsPage(1); }}
-                                        label="دون الهدف فقط"
-                                    />
-                                    دون الهدف فقط
-                                </div>
-                                <div className="flex items-center gap-1.5">
-                                    <DateField value={sheetDateFrom} onChange={(v) => { setSheetDateFrom(v); setSheetsPage(1); }} placeholder="من تاريخ" className="w-36 bg-white border border-amber-200 rounded-xl px-3 py-2 text-xs text-slate-800 hover:border-amber-300 focus:border-amber-500 focus:outline-none transition-colors" />
-                                    <span className="text-xs text-slate-400">إلى</span>
-                                    <DateField value={sheetDateTo} onChange={(v) => { setSheetDateTo(v); setSheetsPage(1); }} placeholder="إلى تاريخ" className="w-36 bg-white border border-amber-200 rounded-xl px-3 py-2 text-xs text-slate-800 hover:border-amber-300 focus:border-amber-500 focus:outline-none transition-colors" />
-                                </div>
+                                        onChange={(e) => { setSheetConversionMin(e.target.value); setSheetsPage(1); }} />
+                                </FilterField>
+                                <FilterField label="فترة الإنشاء" wide>
+                                    <div className="flex items-center gap-1.5">
+                                        <DateField value={sheetDateFrom} onChange={(v) => { setSheetDateFrom(v); setSheetsPage(1); }} placeholder="من تاريخ" className="w-full bg-white border border-amber-200 rounded-xl px-3 py-2 text-xs text-slate-800 hover:border-amber-300 focus:border-amber-500 focus:outline-none transition-colors" />
+                                        <span className="text-xs text-slate-400 shrink-0">إلى</span>
+                                        <DateField value={sheetDateTo} onChange={(v) => { setSheetDateTo(v); setSheetsPage(1); }} placeholder="إلى تاريخ" className="w-full bg-white border border-amber-200 rounded-xl px-3 py-2 text-xs text-slate-800 hover:border-amber-300 focus:border-amber-500 focus:outline-none transition-colors" />
+                                    </div>
+                                </FilterField>
+                                <FilterField label="الهدف">
+                                    <div className="flex items-center gap-2 h-[39px] px-3 rounded-full border border-amber-200 bg-white text-xs font-bold text-slate-600">
+                                        <Toggle size="sm" checked={sheetBehindTargetFilter} onCheckedChange={(v) => { setSheetBehindTargetFilter(v); setSheetsPage(1); }} label="دون الهدف فقط" />
+                                        <span>دون الهدف فقط</span>
+                                    </div>
+                                </FilterField>
                             </div>
                         )}
                     </div>
