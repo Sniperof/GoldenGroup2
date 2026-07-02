@@ -972,7 +972,10 @@ const DeviceManagement = () => {
         {
             key: 'maintenanceType', label: 'النوع', sortable: true,
             render: (p) => {
-                const tc = partTypeConfig[p.maintenanceType];
+                const tc = p.maintenanceType ? partTypeConfig[p.maintenanceType] : null;
+                if (!tc) return (
+                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border bg-slate-50 text-slate-400 border-slate-200">—</span>
+                );
                 return (
                     <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${tc.bg} ${tc.color} ${tc.border}`}>
                         {tc.label}
@@ -1028,7 +1031,7 @@ const DeviceManagement = () => {
 
     return (
         <>
-            <div className="h-full flex flex-col overflow-hidden">
+            <div className="flex flex-col min-h-full">
                 {/* TAB HEADER — hidden when adding device */}
                 {!isAddingDevice && (
                     <div className="bg-white border-b border-slate-200 flex gap-1 px-6 pt-4 shrink-0">
@@ -1051,7 +1054,7 @@ const DeviceManagement = () => {
                 )}
 
                 {/* TAB CONTENT */}
-                <div className="flex-1 overflow-hidden min-h-0 flex flex-col">
+                <div className="flex-1 min-h-0 flex flex-col">
                     <AnimatePresence mode="wait">
                         {isAddingDevice && canManageDeviceModels ? (
                             <AddDevicePage
@@ -1061,7 +1064,7 @@ const DeviceManagement = () => {
                                 onSaved={async () => { closeDeviceForm(); await fetchData(); }}
                             />
                         ) : activeTab === 'devices' ? (
-                            <motion.div key="devices-table" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex-1 overflow-hidden min-h-0 flex flex-col">
+                            <motion.div key="devices-table" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex-1 min-h-0 flex flex-col">
                                 <SmartTable<DeviceModel>
                                     title="إدارة الأجهزة"
                                     titlePlacement="page"
@@ -1096,7 +1099,7 @@ const DeviceManagement = () => {
                                 />
                             </motion.div>
                         ) : (
-                            <motion.div key="parts-table" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex-1 overflow-hidden min-h-0 flex flex-col">
+                            <motion.div key="parts-table" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex-1 min-h-0 flex flex-col">
                                 <SmartTable<SparePart>
                                     title="قطع الأجهزة"
                                     titlePlacement="page"

@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
     ChevronRight, Loader2, Package, Clock, Wrench, PenTool, GraduationCap,
     Truck, Gem, Star, Image, Video, FileText, AlertCircle, RefreshCw,
-    Zap, Tag, Plus, Pencil, Trash2, X, Save, ShieldCheck,
+    Zap, Tag, Plus, Pencil, Trash2, X, Save, ShieldCheck, Cog,
 } from 'lucide-react';
 import IconButton from '../components/ui/IconButton';
 import { api } from '../lib/api';
@@ -69,19 +69,19 @@ function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
 }
 
 function PartCard({ part }: { part: SparePart }) {
-    const tc = partTypeConfig[part.maintenanceType];
+    const tc = part.maintenanceType ? partTypeConfig[part.maintenanceType] : null;
     return (
         <div className="bg-white rounded-xl border border-slate-200 p-4 flex items-center gap-4 hover:shadow-sm transition-shadow">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${tc.bg} ${tc.border} border`}>
-                <tc.Icon className={`w-4.5 h-4.5 ${tc.color}`} size={18} />
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${tc ? `${tc.bg} ${tc.border}` : 'bg-slate-50 border-slate-200'} border`}>
+                {tc ? <tc.Icon className={`w-4.5 h-4.5 ${tc.color}`} size={18} /> : <Cog className="w-4.5 h-4.5 text-slate-400" size={18} />}
             </div>
             <div className="flex-1 min-w-0">
                 <span className="text-sm font-semibold text-slate-800 block">{part.name}</span>
                 <span className="text-xs text-slate-400 font-mono">{part.code}</span>
             </div>
             <div className="shrink-0 text-left">
-                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold border ${tc.bg} ${tc.color} ${tc.border} mb-1 block text-center`}>
-                    {tc.label}
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold border ${tc ? `${tc.bg} ${tc.color} ${tc.border}` : 'bg-slate-50 text-slate-400 border-slate-200'} mb-1 block text-center`}>
+                    {tc ? tc.label : '—'}
                 </span>
                 <span className="text-sm font-bold text-slate-700 font-mono block text-center">{formatPrice(part.basePrice)}</span>
             </div>
