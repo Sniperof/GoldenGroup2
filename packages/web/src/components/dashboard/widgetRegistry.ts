@@ -36,6 +36,7 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
   { key: 'referral_sheets.team_quality_leaderboard', titleAr: 'ترتيب الفرق بجودة الإحالة', unit: 'percent', permission: 'candidates.name_lists.view_list', department: 'الأسماء المقترحة', defaultSize: 'lg', kind: 'ranked-bar' },
   { key: 'candidates.referral_type_distribution', titleAr: 'توزيع نوع الإحالة', unit: 'count', permission: 'candidates.view_list', department: 'الأسماء المقترحة', defaultSize: 'lg', kind: 'donut' },
   { key: 'candidates.acquisition_by_channel', titleAr: 'اكتساب المرشّحين حسب القناة', unit: 'count', permission: 'candidates.view_list', department: 'الأسماء المقترحة', defaultSize: 'lg', kind: 'donut' },
+  { key: 'candidates.qualified_outcome_split', titleAr: 'مخرجات المؤهّلين (ربط/تحويل)', unit: 'count', permission: 'candidates.view_list', department: 'الأسماء المقترحة', defaultSize: 'lg', kind: 'donut' },
   { key: 'clients.committed_ratio', titleAr: 'نسبة الزبائن الملتزمين', unit: 'percent', permission: 'clients.rating.view', department: 'الزبائن', defaultSize: 'sm' },
   { key: 'clients.water_source_distribution', titleAr: 'توزيع مصادر مياه الزبائن', unit: 'count', permission: 'clients.view_list', department: 'الزبائن', defaultSize: 'lg', kind: 'donut' },
 ];

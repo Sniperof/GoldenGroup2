@@ -93,13 +93,12 @@ const ORIGIN_CHANNEL_LABELS: Record<string, string> = {
   Acquaintance: 'معرفة شخصية',
 };
 
-// مراحل مسار المرشّح بالترتيب (reporting-analytics §3.4 #2) — بلا 'Junk' لأنه خروج
-// جانبي (رفض) يغطّيه مؤشر نسبة الهدر، لا عمق في المسار. القيمة الفعلية في القاعدة
-// 'New' (لا 'Prospect' التي يعلنها النوع المشترك — انحراف موثّق §3.10).
+// مراحل مسار المرشّح الفعلية بالترتيب (Suggested→FollowUp→Qualified): المرشّح يُنشأ
+// 'Suggested'، و'Qualified' هو المخرج الناجح (يُعرض «تم الربط/تم التحويل» حسب
+// duplicate_flag — انظر candidates.qualified_outcome_split). 'Junk' (مرفوض) خروج
+// جانبي يغطّيه مؤشر نسبة الهدر، و'New'/'Contacted' ليستا في سير العمل الفعلي.
 const CANDIDATE_FUNNEL_STAGES: { key: string; label: string }[] = [
-  { key: 'New', label: 'جديد' },
   { key: 'Suggested', label: 'مقترح' },
-  { key: 'Contacted', label: 'تم الاتصال' },
   { key: 'FollowUp', label: 'متابعة' },
   { key: 'Qualified', label: 'مؤهّل' },
 ];
@@ -280,12 +279,38 @@ const clientsWaterSourceDistribution: BreakdownDefinition = {
   },
 };
 
+// تقسيم مخرجات المؤهّلين: «تم الربط» (زبون موجود، duplicate_flag) مقابل «تم التحويل»
+// (زبون جديد) — ضمن الفترة والنطاق.
+const candidatesQualifiedOutcome: BreakdownDefinition = {
+  key: 'candidates.qualified_outcome_split',
+  permission: 'candidates.view_list',
+  titleAr: 'مخرجات المؤهّلين (ربط/تحويل)',
+  kind: 'donut',
+  valueUnit: 'count',
+  purpose: 'قرار: من بين المؤهّلين، كم رُبط بزبون موجود مقابل كم حُوّل لزبون جديد (ضمن الفترة والنطاق).',
+  async compute(ctx) {
+    const params: unknown[] = [ctx.from, ctx.to];
+    const sql =
+      `SELECT c.duplicate_flag AS dup, COUNT(*)::int AS v
+         FROM candidates c
+        WHERE c.status = 'Qualified' AND c.created_at >= $1 AND c.created_at < $2` + candidateScope(ctx, params) +
+      ` GROUP BY c.duplicate_flag`;
+    const { rows } = await pool.query(sql, params);
+    return rows.map(r => ({
+      key: r.dup ? 'linked' : 'converted',
+      label: r.dup ? 'تم الربط' : 'تم التحويل',
+      value: Number(r.v ?? 0),
+    }));
+  },
+};
+
 export const BREAKDOWN_CATALOG: BreakdownDefinition[] = [
   candidatesStageFunnel,
   referralSheetsTeamQuality,
   candidatesOwnershipBreakdown,
   candidatesReferralTypeDistribution,
   candidatesAcquisitionByChannel,
+  candidatesQualifiedOutcome,
   clientsWaterSourceDistribution,
 ];
 
