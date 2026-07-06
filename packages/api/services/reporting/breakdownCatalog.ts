@@ -93,16 +93,15 @@ const ORIGIN_CHANNEL_LABELS: Record<string, string> = {
   Acquaintance: 'معرفة شخصية',
 };
 
-// قمع حالة المرشّح — الحالات الست بترتيب المسار (reporting-analytics §3.4 #2).
-// القيمة الفعلية في قاعدة البيانات هي 'New' (لا 'Prospect' التي يعلنها النوع
-// المشترك — انحراف موثّق §3.10). كل مرشّح في حالة واحدة، فالقمع = توزيع الحالة.
-const CANDIDATE_STAGES: { key: string; label: string }[] = [
+// مراحل مسار المرشّح بالترتيب (reporting-analytics §3.4 #2) — بلا 'Junk' لأنه خروج
+// جانبي (رفض) يغطّيه مؤشر نسبة الهدر، لا عمق في المسار. القيمة الفعلية في القاعدة
+// 'New' (لا 'Prospect' التي يعلنها النوع المشترك — انحراف موثّق §3.10).
+const CANDIDATE_FUNNEL_STAGES: { key: string; label: string }[] = [
   { key: 'New', label: 'جديد' },
   { key: 'Suggested', label: 'مقترح' },
   { key: 'Contacted', label: 'تم الاتصال' },
   { key: 'FollowUp', label: 'متابعة' },
   { key: 'Qualified', label: 'مؤهّل' },
-  { key: 'Junk', label: 'مرفوض' },
 ];
 
 const candidatesStageFunnel: BreakdownDefinition = {
@@ -110,7 +109,7 @@ const candidatesStageFunnel: BreakdownDefinition = {
   permission: 'candidates.view_list',
   titleAr: 'قمع حالة الأسماء المقترحة',
   kind: 'funnel',
-  purpose: 'قرار: تحديد أين الاختناق في مسار المرشّحين (توزيع الحالة ضمن الفترة والنطاق).',
+  purpose: 'قرار: أين يتساقط المرشّحون في المسار (قمع تراكمي للمراحل ضمن الفترة والنطاق).',
   async compute(ctx) {
     const params: unknown[] = [ctx.from, ctx.to];
     const sql =
@@ -121,8 +120,15 @@ const candidatesStageFunnel: BreakdownDefinition = {
     const { rows } = await pool.query(sql, params);
     const counts = new Map<string, number>();
     for (const r of rows) counts.set(String(r.status), Number(r.v ?? 0));
-    // نُعيد الحالات الست بالترتيب دائمًا (حتى الصفرية) ليعكس الرسم شكل القمع كاملًا.
-    return CANDIDATE_STAGES.map(s => ({ key: s.key, label: s.label, value: counts.get(s.key) ?? 0 }));
+    // قمع تراكمي: قيمة كل مرحلة = مَن بلغها أو تجاوزها (الحالة الحالية = أعمق مرحلة
+    // بلغها المرشّح، بافتراض تقدّم خطّي) — فتتناقص القيم فيظهر شكل القمع الحقيقي.
+    return CANDIDATE_FUNNEL_STAGES.map((s, idx) => {
+      let reached = 0;
+      for (let k = idx; k < CANDIDATE_FUNNEL_STAGES.length; k++) {
+        reached += counts.get(CANDIDATE_FUNNEL_STAGES[k].key) ?? 0;
+      }
+      return { key: s.key, label: s.label, value: reached };
+    });
   },
 };
 

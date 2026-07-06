@@ -82,7 +82,7 @@ export default function BreakdownWidget({ def, scope }: Props) {
         </div>
       ) : error ? (
         <p className="text-sm text-rose-500">{error}</p>
-      ) : data && (data.kind === 'funnel' ? data.total === 0 : data.groups.length === 0) ? (
+      ) : data && (data.kind === 'funnel' ? (data.groups[0]?.value ?? 0) === 0 : data.groups.length === 0) ? (
         <p className="py-8 text-center text-sm text-slate-400">لا بيانات ضمن الفترة المختارة</p>
       ) : data ? (
         data.kind === 'ranked-bar' ? <RankedBarChart data={data} />
@@ -94,7 +94,7 @@ export default function BreakdownWidget({ def, scope }: Props) {
         <p className="text-[10px] text-slate-400 mt-4">
           آخر تحديث: {formatUpdatedAt(data.computedAt)}
           {data.fromCache ? ' · مخزّن' : ''}
-          {data.kind === 'funnel' ? ` · الإجمالي: ${data.total}` : ` · ${data.groups.length} بندًا`}
+          {data.kind === 'funnel' ? ` · الداخلون: ${data.groups[0]?.value ?? 0}` : ` · ${data.groups.length} بندًا`}
         </p>
       )}
     </div>
