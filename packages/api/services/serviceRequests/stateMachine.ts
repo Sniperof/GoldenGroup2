@@ -56,12 +56,6 @@ const ALLOWED: Record<ServiceRequestStatus, ServiceRequestStatus[]> = {
 };
 
 const TRIAGE_OUTCOMES_BY_TERMINAL: Record<string, string[]> = {
-  resolved_at_intake: [
-    'resolved_by_advice',
-    'customer_self_fixed',
-    'false_alarm',
-    'info_clarified_no_issue',
-  ],
   rejected: [
     'duplicate',
     'invalid_request',
@@ -78,6 +72,28 @@ const TRIAGE_OUTCOMES_BY_TERMINAL: Record<string, string[]> = {
     'customer_no_response',
   ],
 };
+
+const RESOLVE_AT_INTAKE_LIST_BY_REQUEST_TYPE: Record<string, string> = {
+  emergency_maintenance: 'service_request_resolve_at_intake_emergency_maintenance',
+  water_check: 'service_request_resolve_at_intake_water_check',
+};
+
+function resolveAtIntakeListCode(requestType: string | null | undefined): string {
+  return RESOLVE_AT_INTAKE_LIST_BY_REQUEST_TYPE[requestType || '']
+    ?? RESOLVE_AT_INTAKE_LIST_BY_REQUEST_TYPE.emergency_maintenance;
+}
+
+async function loadResolveAtIntakeOutcomes(client: PoolClient, requestType: string | null | undefined): Promise<string[]> {
+  const { rows } = await client.query<{ value: string }>(
+    `SELECT value
+       FROM system_lists
+      WHERE category = $1
+        AND is_active = TRUE
+      ORDER BY display_order ASC, id ASC`,
+    [resolveAtIntakeListCode(requestType)],
+  );
+  return rows.map(row => String(row.value).trim()).filter(Boolean);
+}
 
 export interface TransitionInput {
   serviceRequestId: number;
@@ -115,12 +131,13 @@ export async function transitionStatus(
       id: number;
       status: ServiceRequestStatus;
       channel: ServiceRequestChannel;
+      request_type: string | null;
       reopen_count: number;
       review_required_flag: boolean;
       duplicate_flag: boolean;
       archived_at: string | null;
     }>(
-      `SELECT id, status, channel, reopen_count, review_required_flag,
+      `SELECT id, status, channel, request_type, reopen_count, review_required_flag,
               duplicate_flag, archived_at
          FROM service_requests
         WHERE id = $1
@@ -183,13 +200,21 @@ export async function transitionStatus(
 
     if (isTerminal(input.toStatus)) {
       // SR-R006: every terminal needs a triage_outcome from the per-terminal list.
-      const allowedOutcomes = TRIAGE_OUTCOMES_BY_TERMINAL[input.toStatus] ?? [];
+      const allowedOutcomes = input.toStatus === 'resolved_at_intake'
+        ? await loadResolveAtIntakeOutcomes(tx.client, row.request_type)
+        : (TRIAGE_OUTCOMES_BY_TERMINAL[input.toStatus] ?? []);
       if (!input.triageOutcome || !allowedOutcomes.includes(input.triageOutcome)) {
         await rollbackTx(tx);
         return {
           ok: false,
           code: 'invalid_triage_outcome',
-          details: { allowed: allowedOutcomes, got: input.triageOutcome ?? null },
+          details: {
+            allowed: allowedOutcomes,
+            got: input.triageOutcome ?? null,
+            listCode: input.toStatus === 'resolved_at_intake'
+              ? resolveAtIntakeListCode(row.request_type)
+              : null,
+          },
         };
       }
 

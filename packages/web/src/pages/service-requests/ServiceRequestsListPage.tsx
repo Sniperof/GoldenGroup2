@@ -148,7 +148,7 @@ export default function ServiceRequestsListPage() {
         r.reviewedByUserId ? (
           <span className="flex items-center gap-1 text-xs text-slate-700">
             <User className="h-3 w-3" />
-            {r.reviewedByUserId === user?.id ? 'أنا' : `#${r.reviewedByUserId}`}
+            {r.reviewedByUserId === user?.id ? 'أنا' : r.reviewedByUserName ?? `#${r.reviewedByUserId}`}
           </span>
         ) : (
           <span className="text-slate-400 text-xs">—</span>

@@ -178,6 +178,29 @@ const CATEGORIES: CategoryMeta[] = [
       { label: 'التيلماركتر - حجز موعد زيارة', route: 'التيلماركتر > نتيجة التواصل/جدولة موعد', icon: <Phone className="w-3 h-3" /> },
     ],
   },
+
+  // ══════════════════════════════════════════════════════════════
+  // قوائم الطلبات
+  // ══════════════════════════════════════════════════════════════
+  {
+    id: 'service_request_resolve_at_intake_emergency_maintenance',
+    label: 'أسباب حل طلب الصيانة في الاستلام',
+    description: 'الخيارات المعتمدة عند إغلاق طلب صيانة مباشرة من الاستلام بدون إنشاء مهمة. تستخدم في زر "حُلَّ في الاستلام" داخل تفاصيل الطلب.',
+    impact: 'high',
+    usedIn: [
+      { label: 'طلبات الصيانة ← حُلَّ في الاستلام', route: 'الطلبات ← تفاصيل طلب الصيانة', icon: <ClipboardList className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'service_request_resolve_at_intake_water_check',
+    label: 'أسباب حل طلب فحص المياه في الاستلام',
+    description: 'الخيارات المعتمدة عند إغلاق طلب فحص مياه من الاستلام بدون إنشاء مهمة عرض جهاز. منفصلة عن طلبات الصيانة حتى لا تختلط دلالات القرار.',
+    impact: 'high',
+    usedIn: [
+      { label: 'طلبات فحص المياه ← حُلَّ في الاستلام', route: 'الطلبات ← فحص المياه ← تفاصيل الطلب', icon: <ClipboardList className="w-3 h-3" /> },
+    ],
+  },
+
   {
     id: 'device_demo_creation_reasons',
     label: 'أسباب إنشاء مهمة عرض جهاز',
@@ -907,6 +930,7 @@ const LIST_GROUPS: ListGroup[] = [
   { id: 'hr',            label: 'التوظيف والموظفون' },
   { id: 'telemarketing', label: 'التيلماركتر والتواصل' },
   { id: 'visits',        label: 'الزيارات والاستطلاع' },
+  { id: 'service_requests', label: 'قوائم الطلبات' },
   { id: 'emergency',     label: 'الصيانة الطارئة' },
   { id: 'periodic',      label: 'الصيانة الدورية' },
   { id: 'contracts',     label: 'العقود والبيع' },
@@ -941,6 +965,9 @@ const CATEGORY_GROUP: Record<string, string> = {
   location_missing_reasons: 'visits', visit_cancellation_reasons: 'visits',
   visit_not_completed_reasons: 'visits', visit_task_reasons: 'visits',
   customer_followup_reasons: 'visits',
+
+  service_request_resolve_at_intake_emergency_maintenance: 'service_requests',
+  service_request_resolve_at_intake_water_check: 'service_requests',
 
   diagnosis_problem_types: 'emergency', emergency_resolved_reason: 'emergency',
   emergency_unresolved_reason: 'emergency', emergency_followup_reason: 'emergency',
@@ -1039,6 +1066,8 @@ export default function SystemLists() {
   const [search, setSearch] = useState('');
   const [editingItem, setEditingItem] = useState<SystemList | null>(null);
   const [formValue, setFormValue] = useState('');
+  const [formLabel, setFormLabel] = useState('');
+  const [formDescription, setFormDescription] = useState('');
   const [formOrder, setFormOrder] = useState(0);
   const [formLinkedRoleId, setFormLinkedRoleId] = useState<number | null>(null);
   const [formCanSelectDevice, setFormCanSelectDevice] = useState(false);
@@ -1061,6 +1090,7 @@ export default function SystemLists() {
 
   const activeMeta = sidebarCategories.find(c => c.id === activeCategory);
   const isCertificateView = activeCategory === 'certificate';
+  const isServiceRequestResolveList = activeCategory.startsWith('service_request_resolve_at_intake_');
 
   const filteredItems = useMemo(() => {
     const cat = (isCertificateView && activeCertificate)
@@ -1079,12 +1109,16 @@ export default function SystemLists() {
     if (item) {
       setEditingItem(item);
       setFormValue(item.value);
+      setFormLabel(String((item.metadata as any)?.label ?? ''));
+      setFormDescription(String((item.metadata as any)?.description ?? ''));
       setFormOrder(item.displayOrder);
       setFormLinkedRoleId(item.linkedRoleId ?? null);
       setFormCanSelectDevice(!!(item.metadata as any)?.canSelectDevice);
     } else {
       setEditingItem(null);
       setFormValue('');
+      setFormLabel('');
+      setFormDescription('');
       setFormOrder(filteredItems.length + 1);
       setFormLinkedRoleId(null);
       setFormCanSelectDevice(false);
@@ -1100,10 +1134,18 @@ export default function SystemLists() {
         ? `${MAJOR_PREFIX}${activeCertificate}` : activeCategory;
       const isJobTitle = saveCategory === 'job_title';
       const isDeptType = saveCategory === 'department_type';
+      const isSrResolveList = saveCategory.startsWith('service_request_resolve_at_intake_');
 
       const extraFields: Record<string, unknown> = {};
       if (isJobTitle) extraFields.linkedRoleId = formLinkedRoleId;
       if (isDeptType) extraFields.metadata = { canSelectDevice: formCanSelectDevice };
+      if (isSrResolveList) {
+        extraFields.metadata = {
+          ...(editingItem?.metadata ?? {}),
+          label: formLabel.trim() || formValue,
+          description: formDescription.trim() || undefined,
+        };
+      }
 
       if (editingItem) {
         await updateList(editingItem.id, {
@@ -1492,13 +1534,43 @@ export default function SystemLists() {
                 </div>
               )}
               <Input
-                label={isCertificateView && activeCertificate ? 'اسم الاختصاص' : 'القيمة / الاسم'}
+                label={
+                  isServiceRequestResolveList
+                    ? 'الكود التقني'
+                    : isCertificateView && activeCertificate
+                      ? 'اسم الاختصاص'
+                      : 'القيمة / الاسم'
+                }
                 required
                 autoFocus
                 value={formValue}
                 onChange={e => setFormValue(e.target.value)}
-                placeholder={isCertificateView && activeCertificate ? 'مثال: هندسة حاسبات' : 'أدخل القيمة...'}
+                placeholder={
+                  isServiceRequestResolveList
+                    ? 'مثال: resolved_by_advice'
+                    : isCertificateView && activeCertificate
+                      ? 'مثال: هندسة حاسبات'
+                      : 'أدخل القيمة...'
+                }
+                helper={isServiceRequestResolveList ? 'هذا الكود يحفظ في الطلبات. غيّر الاسم الظاهر بدل تغيير الكود بعد الاستخدام.' : undefined}
               />
+              {isServiceRequestResolveList && (
+                <>
+                  <Input
+                    label="الاسم الظاهر للمستخدم"
+                    required
+                    value={formLabel}
+                    onChange={e => setFormLabel(e.target.value)}
+                    placeholder="مثال: حُلَّ بنصيحة هاتفية"
+                  />
+                  <Input
+                    label="وصف مختصر"
+                    value={formDescription}
+                    onChange={e => setFormDescription(e.target.value)}
+                    placeholder="يظهر تحت الخيار داخل مودل حل الطلب"
+                  />
+                </>
+              )}
               <Input
                 label="ترتيب الظهور"
                 type="number"

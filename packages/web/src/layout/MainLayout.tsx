@@ -71,6 +71,8 @@ const operationsChildren = [
 
 // Requests — intake parent section (currently only maintenance; will grow).
 const requestsChildren = [
+    { path: '/service-requests/water-check',    label: 'طلبات فحص المياه',                  icon: Beaker },
+    { path: '/service-requests/water-check/simulator', label: 'محاكاة فحص المياه',           icon: FilePlus2 },
     { path: '/service-requests',                label: 'طلبات الصيانة',          icon: Wrench },
 ];
 
@@ -304,6 +306,7 @@ export default function MainLayout() {
                                         <NavLink
                                             key={child.path}
                                             to={child.path}
+                                            end={child.path !== '/service-requests'}
                                             onClick={() => setIsMobileMenuOpen(false)}
                                             className={({ isActive }: { isActive: boolean }) =>
                                                 `w-full flex items-center gap-3 pr-12 pl-4 py-2.5 rounded-lg no-pill transition-all text-right text-sm leading-snug ${isActive

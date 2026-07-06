@@ -66,6 +66,8 @@ import TaskGroupPage from './pages/tasks/TaskGroupPage';
 import ServiceRequestsListPage from './pages/service-requests/ServiceRequestsListPage';
 import ServiceRequestDetailPage from './pages/service-requests/ServiceRequestDetailPage';
 import NewServiceRequestPage from './pages/service-requests/NewServiceRequestPage';
+import WaterCheckRequestsPage from './pages/service-requests/WaterCheckRequestsPage';
+import WaterCheckSimulatorPage from './pages/service-requests/WaterCheckSimulatorPage';
 
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -140,6 +142,8 @@ export default function App() {
                         {/* Service Requests intake (٠.١٦ — GLOBAL) */}
                         <Route path="/service-requests" element={<ServiceRequestsListPage />} />
                         <Route path="/service-requests/new" element={<NewServiceRequestPage />} />
+                        <Route path="/service-requests/water-check" element={<WaterCheckRequestsPage />} />
+                        <Route path="/service-requests/water-check/simulator" element={<WaterCheckSimulatorPage />} />
                         <Route path="/service-requests/:id" element={<ServiceRequestDetailPage />} />
                         {/* Group 3 — visit management is a single-branch supervisory surface (§6).
                             Hidden on "all branches"; super-admin / GLOBAL must pick a branch. The

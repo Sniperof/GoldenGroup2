@@ -108,7 +108,15 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     const text = await res.text();
     try {
       const parsed = JSON.parse(text);
-      throw new Error(parsed.error || parsed.message || `API Error ${res.status}`);
+      const err = new Error(parsed.error || parsed.message || `API Error ${res.status}`) as Error & {
+        status?: number;
+        payload?: unknown;
+        response?: { status: number; data: unknown };
+      };
+      err.status = res.status;
+      err.payload = parsed;
+      err.response = { status: res.status, data: parsed };
+      throw err;
     } catch (error) {
       if (error instanceof Error && !error.message.startsWith('Unexpected')) {
         throw error;
@@ -1048,6 +1056,8 @@ export const api = {
   serviceRequests: {
     create: (data: any) =>
       request<any>('/service-requests', { method: 'POST', body: JSON.stringify(data) }),
+    createWaterCheck: (data: any) =>
+      request<any>('/service-requests/water-check', { method: 'POST', body: JSON.stringify(data) }),
     createInternal: (data: any) =>
       request<any>('/service-requests/internal', { method: 'POST', body: JSON.stringify(data) }),
     list: (params: Record<string, string | number | boolean | undefined> = {}) => {
@@ -1145,6 +1155,14 @@ export const api = {
       request<any>(`/service-requests/${id}/attach-periodic`, {
         method: 'POST',
         body: JSON.stringify({ periodicOpenTaskId, note: note ?? null }),
+      }),
+    handoffWaterCheck: (
+      id: number,
+      data: { priority?: 'high' | 'medium' | 'low'; operatorNote?: string | null } = {},
+    ) =>
+      request<any>(`/service-requests/${id}/handoff-water-check`, {
+        method: 'POST',
+        body: JSON.stringify(data),
       }),
     archive: (id: number, reason?: string | null) =>
       request<any>(`/service-requests/${id}/archive`, {
