@@ -11,6 +11,7 @@ import { Router, type Request, type Response } from 'express';
 import type { AuthUser } from '../middleware/auth.js';
 import { getOrBuildAuthContext } from '../middleware/permission.js';
 import { getMetric, ReportingError, type GetMetricParams } from '../services/reporting/metricsService.js';
+import { getBreakdown } from '../services/reporting/breakdownService.js';
 
 const router = Router();
 
@@ -31,6 +32,27 @@ function handleError(err: unknown, res: Response): void {
   console.error('[reports] metric failed:', err);
   res.status(500).json({ error: 'فشل حساب المؤشر' });
 }
+
+// ── المؤشرات التجميعية (Funnel/Bar/Donut) — مسار مستقل بمقطعين فلا يتصادم مع /:metricKey ──
+router.get('/breakdown/:metricKey', async (req, res) => {
+  try {
+    const authContext = await getOrBuildAuthContext(req as Request & { user: AuthUser });
+    const data = await getBreakdown(authContext, req.params.metricKey, readParams(req));
+    res.json(data);
+  } catch (err) {
+    handleError(err, res);
+  }
+});
+
+router.post('/breakdown/:metricKey/refresh', async (req, res) => {
+  try {
+    const authContext = await getOrBuildAuthContext(req as Request & { user: AuthUser });
+    const data = await getBreakdown(authContext, req.params.metricKey, { ...readParams(req), forceRefresh: true });
+    res.json(data);
+  } catch (err) {
+    handleError(err, res);
+  }
+});
 
 router.get('/:metricKey', async (req, res) => {
   try {

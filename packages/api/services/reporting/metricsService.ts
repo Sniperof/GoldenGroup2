@@ -63,7 +63,7 @@ interface EffectiveScope {
  *   - ASSIGNED: مُقيّد بفروعه + إسناد السجلات إليه.
  * أي طلب لفرع خارج المسموح يُرفض.
  */
-function resolveEffectiveScope(
+export function resolveEffectiveScope(
   plan: { scope: ScopeMode; allowedBranchIds: number[] },
   params: GetMetricParams,
 ): EffectiveScope {
@@ -91,7 +91,7 @@ function resolveEffectiveScope(
   return { scope: plan.scope, branchIds: plan.allowedBranchIds };
 }
 
-function buildSignature(scope: ScopeMode, branchIds: number[], userId: number, preset: string, bucketKey: string): string {
+export function buildSignature(scope: ScopeMode, branchIds: number[], userId: number, preset: string, bucketKey: string): string {
   const branchPart = branchIds.length > 0 ? [...branchIds].sort((a, b) => a - b).join(',') : 'all';
   const assignedPart = scope === 'ASSIGNED' ? `u${userId}` : '-';
   return `${scope}:${branchPart}:${assignedPart}:${preset}:${bucketKey}`;

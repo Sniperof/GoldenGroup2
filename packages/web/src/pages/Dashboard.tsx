@@ -7,6 +7,7 @@ import { useAuthStore } from '../hooks/useAuthStore';
 import PageHeader from '../components/ui/PageHeader';
 import ScopeFilterBar, { type BranchOption } from '../components/dashboard/ScopeFilterBar';
 import MetricWidget from '../components/dashboard/MetricWidget';
+import BreakdownWidget from '../components/dashboard/BreakdownWidget';
 import { WIDGET_REGISTRY, type ScopeState } from '../components/dashboard/widgetRegistry';
 
 const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.06 } } };
@@ -64,8 +65,10 @@ export default function Dashboard() {
           className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-8"
         >
           {visibleWidgets.map(def => (
-            <motion.div key={def.key} variants={item}>
-              <MetricWidget def={def} scope={scope} />
+            <motion.div key={def.key} variants={item} className={def.defaultSize === 'lg' ? 'md:col-span-2' : ''}>
+              {def.kind && def.kind !== 'kpi'
+                ? <BreakdownWidget def={def} scope={scope} />
+                : <MetricWidget def={def} scope={scope} />}
             </motion.div>
           ))}
         </motion.div>

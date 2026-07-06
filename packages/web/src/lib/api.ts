@@ -49,6 +49,27 @@ export interface MetricResponse {
   fromCache: boolean;
 }
 
+export interface BreakdownGroup {
+  key: string;
+  label: string;
+  value: number;
+  value2?: number;
+}
+
+export interface BreakdownResponse {
+  metricKey: string;
+  title: string;
+  kind: 'funnel' | 'ranked-bar' | 'donut';
+  valueUnit: 'count' | 'percent';
+  secondaryLabel: string | null;
+  groups: BreakdownGroup[];
+  total: number;
+  scope: 'GLOBAL' | 'BRANCH' | 'ASSIGNED';
+  branchIds: number[];
+  computedAt: string;
+  fromCache: boolean;
+}
+
 export interface DashboardWidget {
   key: string;
   size: 'sm' | 'md' | 'lg';
@@ -166,6 +187,22 @@ export const api = {
       });
       const suffix = query.toString() ? `?${query.toString()}` : '';
       return request<MetricResponse>(`/reports/${key}/refresh${suffix}`, { method: 'POST' });
+    },
+    breakdown: (key: string, params?: Record<string, string | number | null | undefined>) => {
+      const query = new URLSearchParams();
+      Object.entries(params ?? {}).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '') query.set(k, String(v));
+      });
+      const suffix = query.toString() ? `?${query.toString()}` : '';
+      return request<BreakdownResponse>(`/reports/breakdown/${key}${suffix}`);
+    },
+    refreshBreakdown: (key: string, params?: Record<string, string | number | null | undefined>) => {
+      const query = new URLSearchParams();
+      Object.entries(params ?? {}).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '') query.set(k, String(v));
+      });
+      const suffix = query.toString() ? `?${query.toString()}` : '';
+      return request<BreakdownResponse>(`/reports/breakdown/${key}/refresh${suffix}`, { method: 'POST' });
     },
   },
   dashboardLayout: {

@@ -160,9 +160,53 @@ const clientsCommittedRatio: MetricDefinition = {
   },
 };
 
+const candidatesNewCount: MetricDefinition = {
+  key: 'candidates.new_count',
+  permission: 'candidates.view_list',
+  titleAr: 'مرشّحون جدد',
+  unit: 'count',
+  purpose: 'سير عمل: قياس تغذية أعلى القمع — كم اسمًا مقترحًا جديدًا دخل خلال الفترة على النطاق المختار.',
+  async compute(ctx) {
+    const count = async (from: Date, to: Date) => {
+      const params: unknown[] = [from, to];
+      const sql =
+        `SELECT COUNT(*)::int AS v FROM candidates c
+          WHERE c.created_at >= $1 AND c.created_at < $2` + candidateScope(ctx, params);
+      return scalar(sql, params);
+    };
+    return { value: await count(ctx.from, ctx.to), previous: await count(ctx.prevFrom, ctx.prevTo) };
+  },
+};
+
+const candidatesJunkRate: MetricDefinition = {
+  key: 'candidates.junk_rate',
+  permission: 'candidates.view_list',
+  titleAr: 'نسبة الهدر (Junk)',
+  unit: 'percent',
+  purpose: 'قرار: تقييم جودة مصادر الترشيح — نسبة الأسماء المرفوضة (Junk) من إجمالي ما دخل خلال الفترة.',
+  async compute(ctx) {
+    const rate = async (from: Date, to: Date): Promise<number> => {
+      const params: unknown[] = [from, to];
+      const sql =
+        `SELECT
+            COUNT(*) FILTER (WHERE c.status = 'Junk')::numeric AS junk,
+            COUNT(*)::numeric AS total
+           FROM candidates c
+          WHERE c.created_at >= $1 AND c.created_at < $2` + candidateScope(ctx, params);
+      const { rows } = await pool.query(sql, params);
+      const total = Number(rows[0]?.total ?? 0);
+      const junk = Number(rows[0]?.junk ?? 0);
+      return total > 0 ? Math.round((junk / total) * 1000) / 10 : 0;
+    };
+    return { value: await rate(ctx.from, ctx.to), previous: await rate(ctx.prevFrom, ctx.prevTo) };
+  },
+};
+
 export const METRIC_CATALOG: MetricDefinition[] = [
   clientsNewCount,
+  candidatesNewCount,
   candidateConversionRate,
+  candidatesJunkRate,
   candidatesQualifiedUnconverted,
   clientsCommittedRatio,
 ];
