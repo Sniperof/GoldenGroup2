@@ -63,6 +63,36 @@ function sheetScope(ctx: MetricComputeContext, params: unknown[]): string {
   return sql;
 }
 
+// تقييد الزبائن (مُسمّاة c) — نفس مبدأ metricsCatalog.clientScope؛ ASSIGNED عبر
+// جدول client_assignments (إسناد M2M) فتنهار المجموعة تلقائيًا لسجلّات المستخدم.
+function clientScope(ctx: MetricComputeContext, params: unknown[]): string {
+  let sql = '';
+  if (ctx.branchIds.length > 0) {
+    params.push(ctx.branchIds);
+    sql += ` AND c.branch_id = ANY($${params.length})`;
+  }
+  if (ctx.scope === 'ASSIGNED') {
+    params.push(ctx.userId);
+    sql += ` AND EXISTS (SELECT 1 FROM client_assignments ca
+                          WHERE ca.client_id = c.id AND ca.hr_user_id = $${params.length})`;
+  }
+  return sql;
+}
+
+// تسميات عربية لنوع الإحالة (القيم المعروفة في الكود)؛ أي قيمة أخرى تُعرض كما هي.
+const REFERRAL_TYPE_LABELS: Record<string, string> = {
+  Personal: 'شخصي',
+  Client: 'زبون',
+  Employee: 'موظف',
+};
+
+// تسميات عربية لقنوات الوصول المعروفة؛ أي قيمة أخرى تُعرض كما هي (fallback خام).
+const ORIGIN_CHANNEL_LABELS: Record<string, string> = {
+  PhoneCall: 'مكالمة هاتفية',
+  SocialMedia: 'وسائل التواصل',
+  Acquaintance: 'معرفة شخصية',
+};
+
 // قمع حالة المرشّح — الحالات الست بترتيب المسار (reporting-analytics §3.4 #2).
 // القيمة الفعلية في قاعدة البيانات هي 'New' (لا 'Prospect' التي يعلنها النوع
 // المشترك — انحراف موثّق §3.10). كل مرشّح في حالة واحدة، فالقمع = توزيع الحالة.
@@ -168,10 +198,89 @@ const candidatesOwnershipBreakdown: BreakdownDefinition = {
   },
 };
 
+// ── توزيعات (Donut) — أبعاد فئوية (reporting-analytics §3.4 #6/#11 و §3.2) ──────
+
+// توزيع نوع الإحالة (من أحال الاسم: شخصي/زبون/موظف) خلال الفترة والنطاق.
+const candidatesReferralTypeDistribution: BreakdownDefinition = {
+  key: 'candidates.referral_type_distribution',
+  permission: 'candidates.view_list',
+  titleAr: 'توزيع نوع الإحالة',
+  kind: 'donut',
+  valueUnit: 'count',
+  purpose: 'قرار: من أين تأتي الأسماء المقترحة (شخصي/زبون/موظف) خلال الفترة على النطاق المختار.',
+  async compute(ctx) {
+    const params: unknown[] = [ctx.from, ctx.to];
+    const sql =
+      `SELECT COALESCE(NULLIF(TRIM(c.referral_type), ''), 'غير محدد') AS k, COUNT(*)::int AS v
+         FROM candidates c
+        WHERE c.created_at >= $1 AND c.created_at < $2` + candidateScope(ctx, params) +
+      ` GROUP BY 1
+        ORDER BY v DESC`;
+    const { rows } = await pool.query(sql, params);
+    return rows.map(r => {
+      const k = String(r.k);
+      return { key: k, label: REFERRAL_TYPE_LABELS[k] ?? k, value: Number(r.v ?? 0) };
+    });
+  },
+};
+
+// اكتساب المرشّحين حسب قناة الوصول (referral_origin_channel) خلال الفترة والنطاق.
+const candidatesAcquisitionByChannel: BreakdownDefinition = {
+  key: 'candidates.acquisition_by_channel',
+  permission: 'candidates.view_list',
+  titleAr: 'اكتساب المرشّحين حسب القناة',
+  kind: 'donut',
+  valueUnit: 'count',
+  purpose: 'قرار: أي قناة إحالة تُغذّي أعلى القمع أكثر (كيفية وصول الاسم) خلال الفترة على النطاق المختار.',
+  async compute(ctx) {
+    const params: unknown[] = [ctx.from, ctx.to];
+    const sql =
+      `SELECT COALESCE(NULLIF(TRIM(c.referral_origin_channel), ''), 'غير محدد') AS k,
+              COUNT(*)::int AS v
+         FROM candidates c
+        WHERE c.created_at >= $1 AND c.created_at < $2` + candidateScope(ctx, params) +
+      ` GROUP BY 1
+        ORDER BY v DESC
+        LIMIT 8`;
+    const { rows } = await pool.query(sql, params);
+    return rows.map(r => {
+      const k = String(r.k);
+      return { key: k, label: ORIGIN_CHANNEL_LABELS[k] ?? k, value: Number(r.v ?? 0) };
+    });
+  },
+};
+
+// توزيع مصادر مياه الزبائن — لقطة راهنة لقاعدة الزبائن ضمن النطاق (كـ committed_ratio).
+const clientsWaterSourceDistribution: BreakdownDefinition = {
+  key: 'clients.water_source_distribution',
+  permission: 'clients.view_list',
+  titleAr: 'توزيع مصادر مياه الزبائن',
+  kind: 'donut',
+  valueUnit: 'count',
+  purpose: 'قرار: تركيبة قاعدة الزبائن الحالية حسب مصدر المياه (لقطة راهنة) — توجّه العروض والصيانة.',
+  async compute(ctx) {
+    // لقطة راهنة لا تعتمد على نافذة الزمن (نظير clients.committed_ratio).
+    const params: unknown[] = [];
+    const sql =
+      `SELECT COALESCE(NULLIF(TRIM(c.water_source), ''), 'غير محدد') AS k,
+              COUNT(*)::int AS v
+         FROM clients c
+        WHERE c.deleted_at IS NULL` + clientScope(ctx, params) +
+      ` GROUP BY 1
+        ORDER BY v DESC
+        LIMIT 8`;
+    const { rows } = await pool.query(sql, params);
+    return rows.map(r => ({ key: String(r.k), label: String(r.k), value: Number(r.v ?? 0) }));
+  },
+};
+
 export const BREAKDOWN_CATALOG: BreakdownDefinition[] = [
   candidatesStageFunnel,
   referralSheetsTeamQuality,
   candidatesOwnershipBreakdown,
+  candidatesReferralTypeDistribution,
+  candidatesAcquisitionByChannel,
+  clientsWaterSourceDistribution,
 ];
 
 export function findBreakdown(key: string): BreakdownDefinition | undefined {

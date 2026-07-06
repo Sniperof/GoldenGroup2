@@ -2,7 +2,7 @@
 // BreakdownWidget — widget تجميعي يجلب مؤشره ويرسمه (reporting-analytics §7.1)
 // ============================================================
 // نظير MetricWidget للمؤشرات القياسية: جلب عند الطلب + تحديث يدوي (forceRefresh)
-// + عرض "آخر تحديث/مخزّن". يختار الرسم حسب kind (حاليًا: funnel).
+// + عرض "آخر تحديث/مخزّن". يختار الرسم حسب kind (funnel / ranked-bar / donut).
 // ============================================================
 
 import { useCallback, useEffect, useState } from 'react';
@@ -10,6 +10,7 @@ import { RefreshCw } from 'lucide-react';
 import { api, type BreakdownResponse } from '../../lib/api';
 import FunnelChart from './FunnelChart';
 import RankedBarChart from './RankedBarChart';
+import DonutChart from './DonutChart';
 import type { ScopeState, WidgetDef } from './widgetRegistry';
 
 interface Props {
@@ -84,7 +85,9 @@ export default function BreakdownWidget({ def, scope }: Props) {
       ) : data && (data.kind === 'funnel' ? data.total === 0 : data.groups.length === 0) ? (
         <p className="py-8 text-center text-sm text-slate-400">لا بيانات ضمن الفترة المختارة</p>
       ) : data ? (
-        data.kind === 'ranked-bar' ? <RankedBarChart data={data} /> : <FunnelChart groups={data.groups} />
+        data.kind === 'ranked-bar' ? <RankedBarChart data={data} />
+          : data.kind === 'donut' ? <DonutChart data={data} />
+          : <FunnelChart groups={data.groups} />
       ) : null}
 
       {data && !loading && !error && (
