@@ -423,6 +423,7 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
         columns={columns}
         getId={t => t.id}
         hideFilterBar
+        paginated={false}
         tableMinWidth={620}
         headerActions={
           <Button size="sm" icon={ClipboardList} onClick={openDialog}>

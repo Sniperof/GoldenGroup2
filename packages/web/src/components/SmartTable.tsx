@@ -405,8 +405,10 @@ export default function SmartTable<T>({
                             <tr>
                                 <td
                                     colSpan={colSpanTotal}
-                                    style={{ height: `${itemsPerPage * ROW_HEIGHT}px` }}
-                                    className="text-center align-middle"
+                                    // Paginated tables keep a fixed body height for visual
+                                    // consistency; un-paginated ones stay compact (dynamic).
+                                    style={paginated ? { height: `${itemsPerPage * ROW_HEIGHT}px` } : undefined}
+                                    className={`text-center align-middle ${paginated ? '' : 'py-12'}`}
                                 >
                                     {EmptyIcon && <EmptyIcon className="w-10 h-10 mx-auto mb-3 text-slate-200" />}
                                     <p className="text-slate-400 text-sm font-medium">{emptyMessage}</p>

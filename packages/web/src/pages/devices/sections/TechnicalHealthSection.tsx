@@ -232,6 +232,7 @@ function PerFieldView({ ascending }: { ascending: any[] }) {
             columns={seriesColumns}
             getId={p => p._i}
             hideFilterBar
+            paginated={false}
             tableMinWidth={520}
             emptyIcon={LineChart}
             emptyMessage="لا قيم مُسجَّلة لهذا الحقل"

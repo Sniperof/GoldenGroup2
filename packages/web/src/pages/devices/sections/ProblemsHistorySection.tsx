@@ -109,6 +109,7 @@ export function ProblemsHistorySection({ deviceId }: { deviceId: number }) {
           columns={columns}
           getId={p => p.id}
           hideFilterBar
+          paginated={false}
           tableMinWidth={1100}
           emptyIcon={AlertTriangle}
           emptyMessage="لا أعطال مُسجَّلة على هذا الجهاز"

@@ -120,6 +120,7 @@ export function FinancialSection({ contract, customerId }: Props) {
           columns={installmentColumns}
           getId={i => i.id}
           hideFilterBar
+          paginated={false}
           tableMinWidth={640}
           emptyIcon={ListChecks}
           emptyMessage="لا أقساط (دفعة واحدة)."
@@ -136,6 +137,7 @@ export function FinancialSection({ contract, customerId }: Props) {
           columns={paymentColumns}
           getId={p => p.id}
           hideFilterBar
+          paginated={false}
           tableMinWidth={560}
           emptyIcon={Receipt}
           emptyMessage="لا توجد دفعات بعد."

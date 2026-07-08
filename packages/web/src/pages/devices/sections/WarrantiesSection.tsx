@@ -123,6 +123,7 @@ export function WarrantiesSection({ warranties, device, onCreated }: Props) {
         columns={columns}
         getId={w => w.id}
         hideFilterBar
+        paginated={false}
         tableMinWidth={680}
         headerActions={action}
         emptyIcon={Award}
