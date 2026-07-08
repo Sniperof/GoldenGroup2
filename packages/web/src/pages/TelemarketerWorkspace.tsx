@@ -32,6 +32,7 @@ import ClientModal from '../components/ClientModal';
 import Select from '../components/ui/Select';
 import Button from '../components/ui/Button';
 import Modal from '../components/ui/Modal';
+import DataTable from '../components/ui/DataTable';
 import type { DaySchedule, Contract, Visit, TaskListItem, Appointment, CustomerOwnership, ContactEntry, Client } from '../lib/types';
 import type { TelemarketingOutcomeCode, GeoUnit } from '@golden-crm/shared';
 import { OUTCOME_MAP, getOutcomeMeta, normaliseOutcomeCode, PHONE_STATUS_TO_CONTACT_ENTRY } from '@golden-crm/shared';
@@ -1581,41 +1582,39 @@ export default function TelemarketerWorkspace() {
                                                 <p className="text-sm font-bold text-slate-500">لا توجد مهام مفتوحة لهذا الزبون</p>
                                             </div>
                                         ) : (
-                                            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-                                                <table className="w-full text-right">
-                                                    <thead className="bg-slate-50 border-b border-slate-100">
-                                                        <tr>
-                                                            <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wide">نوع المهمة</th>
-                                                            <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wide">العقد</th>
-                                                            <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wide">السبب</th>
-                                                            <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wide">الأولوية</th>
-                                                            <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wide text-center">إجراء</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody>
-                                                        {openTaskRows.map(row => {
-                                                            const detailPath = getOpenTaskDetailPath(row.taskType, row.id);
-                                                            return (
-                                                                <tr key={row.key} className="border-b border-slate-100 last:border-b-0 hover:bg-violet-50/40 transition-colors">
-                                                                    <td className="px-4 py-3 text-sm font-bold text-slate-800">{row.taskTypeLabel}</td>
-                                                                    <td className="px-4 py-3 text-sm text-slate-600">{row.contractLabel}</td>
-                                                                    <td className="px-4 py-3 text-sm text-slate-600">{row.reasonLabel}</td>
-                                                                    <td className="px-4 py-3 text-sm text-slate-600">{row.priorityLabel}</td>
-                                                                    <td className="px-4 py-3 text-center">
-                                                                        {detailPath ? (
-                                                                            <Button type="button" variant="secondary" size="sm" icon={Eye} onClick={() => navigate(detailPath)} className="bg-violet-50 border-violet-100 text-violet-700 hover:bg-violet-100">
-                                                                                عرض التفاصيل
-                                                                            </Button>
-                                                                        ) : (
-                                                                            <span className="text-xs text-slate-400 font-bold">-</span>
-                                                                        )}
-                                                                    </td>
-                                                                </tr>
-                                                            );
-                                                        })}
-                                                    </tbody>
-                                                </table>
-                                            </div>
+                                            <DataTable card>
+                                                <DataTable.Head>
+                                                    <DataTable.Row>
+                                                        <DataTable.Th>نوع المهمة</DataTable.Th>
+                                                        <DataTable.Th>العقد</DataTable.Th>
+                                                        <DataTable.Th>السبب</DataTable.Th>
+                                                        <DataTable.Th>الأولوية</DataTable.Th>
+                                                        <DataTable.Th align="center">إجراء</DataTable.Th>
+                                                    </DataTable.Row>
+                                                </DataTable.Head>
+                                                <DataTable.Body>
+                                                    {openTaskRows.map(row => {
+                                                        const detailPath = getOpenTaskDetailPath(row.taskType, row.id);
+                                                        return (
+                                                            <DataTable.Row key={row.key} className="hover:bg-violet-50/40">
+                                                                <DataTable.Td className="font-bold text-slate-800">{row.taskTypeLabel}</DataTable.Td>
+                                                                <DataTable.Td className="text-slate-600">{row.contractLabel}</DataTable.Td>
+                                                                <DataTable.Td className="text-slate-600">{row.reasonLabel}</DataTable.Td>
+                                                                <DataTable.Td className="text-slate-600">{row.priorityLabel}</DataTable.Td>
+                                                                <DataTable.Td align="center">
+                                                                    {detailPath ? (
+                                                                        <Button type="button" variant="secondary" size="sm" icon={Eye} onClick={() => navigate(detailPath)} className="bg-violet-50 border-violet-100 text-violet-700 hover:bg-violet-100">
+                                                                            عرض التفاصيل
+                                                                        </Button>
+                                                                    ) : (
+                                                                        <span className="text-xs text-slate-400 font-bold">-</span>
+                                                                    )}
+                                                                </DataTable.Td>
+                                                            </DataTable.Row>
+                                                        );
+                                                    })}
+                                                </DataTable.Body>
+                                            </DataTable>
                                         )}
                                     </div>
                                 )}

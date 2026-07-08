@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { CheckCircle2, Edit2, Gift, Plus, Save, Settings2, Trash2, X } from 'lucide-react';
 import Card, { CardHeader, CardTitle } from '../ui/Card';
+import DataTable from '../ui/DataTable';
 import Modal from '../ui/Modal';
 import { api } from '../../lib/api';
 import {
@@ -263,84 +264,80 @@ export default function GiftDefinitionsPanel() {
           </button>
         </CardHeader>
 
-        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-          <div className="overflow-x-auto">
-            <table className="min-w-[920px] w-full text-right text-sm">
-              <thead className="bg-slate-50 text-xs font-bold text-slate-500">
-                <tr>
-                  <th className="px-4 py-3">التعريف</th>
-                  <th className="px-4 py-3">النوع</th>
-                  <th className="px-4 py-3">وحدة العرض</th>
-                  <th className="px-4 py-3">الحالة</th>
-                  <th className="px-4 py-3">الاستخدام</th>
-                  <th className="px-4 py-3">آخر تعديل</th>
-                  <th className="px-4 py-3">إقرار التسليم</th>
-                  <th className="px-4 py-3">إجراءات</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {definitions.map(definition => {
-                  const usageCount = getDefinitionUsageCount(definition);
-                  const protectedFromDelete = mustDeactivateInsteadOfDelete(definition);
-                  return (
-                    <tr key={definition.id} className="align-top hover:bg-slate-50/70">
-                      <td className="px-4 py-3">
-                        <div className="font-bold text-slate-800">{definition.name}</div>
-                        {definition.description && (
-                          <div className="mt-1 max-w-md text-xs leading-5 text-slate-500">{definition.description}</div>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        <KindPill kind={definition.kind} />
-                      </td>
-                      <td className="px-4 py-3 font-bold text-slate-700">{definition.defaultUnitLabel}</td>
-                      <td className="px-4 py-3">
-                        <StatusPill active={definition.isActive} />
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-bold text-slate-600">
-                          {usageCount} سجل
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 font-mono text-xs text-slate-500">{definition.updatedAt}</td>
-                      <td className="px-4 py-3">
-                        <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-bold text-emerald-700">
-                          <CheckCircle2 className="h-3.5 w-3.5" />
-                          مطلوب
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            onClick={() => openEditDialog(definition)}
-                            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50"
-                          >
-                            <Edit2 className="h-3.5 w-3.5" />
-                            تعديل
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => removeOrDeactivateDefinition(definition)}
-                            disabled={protectedFromDelete && !definition.isActive}
-                            className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-bold disabled:cursor-not-allowed disabled:opacity-50 ${
-                              protectedFromDelete
-                                ? 'border-amber-200 text-amber-700 hover:bg-amber-50'
-                                : 'border-rose-200 text-rose-700 hover:bg-rose-50'
-                            }`}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                            {protectedFromDelete ? 'إلغاء تفعيل' : 'حذف'}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <DataTable card minWidth={920}>
+          <DataTable.Head>
+            <DataTable.Row>
+              <DataTable.Th>التعريف</DataTable.Th>
+              <DataTable.Th>النوع</DataTable.Th>
+              <DataTable.Th>وحدة العرض</DataTable.Th>
+              <DataTable.Th>الحالة</DataTable.Th>
+              <DataTable.Th>الاستخدام</DataTable.Th>
+              <DataTable.Th>آخر تعديل</DataTable.Th>
+              <DataTable.Th>إقرار التسليم</DataTable.Th>
+              <DataTable.Th>إجراءات</DataTable.Th>
+            </DataTable.Row>
+          </DataTable.Head>
+          <DataTable.Body>
+            {definitions.map(definition => {
+              const usageCount = getDefinitionUsageCount(definition);
+              const protectedFromDelete = mustDeactivateInsteadOfDelete(definition);
+              return (
+                <DataTable.Row key={definition.id} className="align-top hover:bg-slate-50/70">
+                  <DataTable.Td>
+                    <div className="font-bold text-slate-800">{definition.name}</div>
+                    {definition.description && (
+                      <div className="mt-1 max-w-md text-xs leading-5 text-slate-500">{definition.description}</div>
+                    )}
+                  </DataTable.Td>
+                  <DataTable.Td>
+                    <KindPill kind={definition.kind} />
+                  </DataTable.Td>
+                  <DataTable.Td className="font-bold text-slate-700">{definition.defaultUnitLabel}</DataTable.Td>
+                  <DataTable.Td>
+                    <StatusPill active={definition.isActive} />
+                  </DataTable.Td>
+                  <DataTable.Td>
+                    <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-bold text-slate-600">
+                      {usageCount} سجل
+                    </span>
+                  </DataTable.Td>
+                  <DataTable.Td className="font-mono text-xs text-slate-500">{definition.updatedAt}</DataTable.Td>
+                  <DataTable.Td>
+                    <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-bold text-emerald-700">
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      مطلوب
+                    </span>
+                  </DataTable.Td>
+                  <DataTable.Td>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => openEditDialog(definition)}
+                        className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                      >
+                        <Edit2 className="h-3.5 w-3.5" />
+                        تعديل
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removeOrDeactivateDefinition(definition)}
+                        disabled={protectedFromDelete && !definition.isActive}
+                        className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-bold disabled:cursor-not-allowed disabled:opacity-50 ${
+                          protectedFromDelete
+                            ? 'border-amber-200 text-amber-700 hover:bg-amber-50'
+                            : 'border-rose-200 text-rose-700 hover:bg-rose-50'
+                        }`}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        {protectedFromDelete ? 'إلغاء تفعيل' : 'حذف'}
+                      </button>
+                    </div>
+                  </DataTable.Td>
+                </DataTable.Row>
+              );
+            })}
+          </DataTable.Body>
+        </DataTable>
       </Card>
 
       <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs leading-6 text-slate-600">

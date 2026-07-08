@@ -14,6 +14,7 @@ import {
 import Select from '../ui/Select';
 import Button from '../ui/Button';
 import Modal from '../ui/Modal';
+import DataTable from '../ui/DataTable';
 import DateField from '../ui/DateField';
 import type {
   DeviceModel,
@@ -1254,64 +1255,62 @@ export default function MarketingVisitOutcomeModal({
                         <h4 className="text-sm font-bold text-slate-800">💻 {group.deviceModelName}</h4>
                       </div>
 
-                      <div className="overflow-x-auto">
-                        <table className="min-w-full text-right text-sm">
-                          <thead>
-                            <tr className="border-b border-slate-200 text-slate-500">
-                              <th className="px-3 py-2 font-semibold">النوع</th>
-                              <th className="px-3 py-2 font-semibold">الكمية</th>
-                              <th className="px-3 py-2 font-semibold">تفاصيل المبلغ</th>
-                              <th className="px-3 py-2 font-semibold">التسكير</th>
-                              <th className="px-3 py-2 font-semibold">الحالة</th>
-                              <th className="px-3 py-2 font-semibold">إجراء</th>
+                      <DataTable>
+                        <DataTable.Head>
+                          <DataTable.Row>
+                            <DataTable.Th>النوع</DataTable.Th>
+                            <DataTable.Th>الكمية</DataTable.Th>
+                            <DataTable.Th>تفاصيل المبلغ</DataTable.Th>
+                            <DataTable.Th>التسكير</DataTable.Th>
+                            <DataTable.Th>الحالة</DataTable.Th>
+                            <DataTable.Th>إجراء</DataTable.Th>
+                          </DataTable.Row>
+                        </DataTable.Head>
+                        <DataTable.Body>
+                          {group.offers.length === 0 ? (
+                            <tr>
+                              <td colSpan={7} className="px-3 py-5 text-center text-slate-400">
+                                ○ فاضي
+                              </td>
                             </tr>
-                          </thead>
-                          <tbody>
-                            {group.offers.length === 0 ? (
-                              <tr>
-                                <td colSpan={7} className="px-3 py-5 text-center text-slate-400">
-                                  ○ فاضي
-                                </td>
-                              </tr>
-                            ) : (
-                              group.offers.map((offer) => {
-                                const status = renderOfferStatus(offer);
-                                return (
-                                  <tr key={offer.id} className="border-b border-slate-100 last:border-b-0">
-                                    <td className="px-3 py-3 font-medium text-slate-700">{getOfferLabel(offer.offerType)}</td>
-                                    <td className="px-3 py-3 text-slate-700">{offer.quantity}</td>
-                                    <td className="px-3 py-3 text-slate-700">{formatOfferAmountDetails(offer)}</td>
-                                    <td className="px-3 py-3 text-slate-700">{getOfferCloserLabel(offer)}</td>
-                                    <td className={`px-3 py-3 font-semibold ${status.className}`}>{status.label}</td>
-                                    <td className="px-3 py-3">
-                                      <div className="flex items-center justify-end gap-2">
-                                        <button
-                                          type="button"
-                                          onClick={() => openEditOffer(group.deviceModelId, offer)}
-                                          disabled={offer.customerResponse != null}
-                                          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-white disabled:cursor-not-allowed disabled:border-slate-100 disabled:text-slate-300"
-                                        >
-                                          <Pencil className="h-3 w-3" />
-                                          تعديل
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => handleDeleteOffer(group.deviceModelId, offer.id)}
-                                          disabled={offer.customerResponse != null}
-                                          className="inline-flex items-center gap-1 rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
-                                        >
-                                          <Trash2 className="h-3 w-3" />
-                                          حذف
-                                        </button>
-                                      </div>
-                                    </td>
-                                  </tr>
-                                );
-                              })
-                            )}
-                          </tbody>
-                        </table>
-                      </div>
+                          ) : (
+                            group.offers.map((offer) => {
+                              const status = renderOfferStatus(offer);
+                              return (
+                                <DataTable.Row key={offer.id}>
+                                  <DataTable.Td className="font-medium text-slate-700">{getOfferLabel(offer.offerType)}</DataTable.Td>
+                                  <DataTable.Td className="text-slate-700">{offer.quantity}</DataTable.Td>
+                                  <DataTable.Td className="text-slate-700">{formatOfferAmountDetails(offer)}</DataTable.Td>
+                                  <DataTable.Td className="text-slate-700">{getOfferCloserLabel(offer)}</DataTable.Td>
+                                  <DataTable.Td className={`font-semibold ${status.className}`}>{status.label}</DataTable.Td>
+                                  <DataTable.Td>
+                                    <div className="flex items-center justify-end gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => openEditOffer(group.deviceModelId, offer)}
+                                        disabled={offer.customerResponse != null}
+                                        className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-white disabled:cursor-not-allowed disabled:border-slate-100 disabled:text-slate-300"
+                                      >
+                                        <Pencil className="h-3 w-3" />
+                                        تعديل
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDeleteOffer(group.deviceModelId, offer.id)}
+                                        disabled={offer.customerResponse != null}
+                                        className="inline-flex items-center gap-1 rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
+                                      >
+                                        <Trash2 className="h-3 w-3" />
+                                        حذف
+                                      </button>
+                                    </div>
+                                  </DataTable.Td>
+                                </DataTable.Row>
+                              );
+                            })
+                          )}
+                        </DataTable.Body>
+                      </DataTable>
                     </div>
                   ))
                 )}
@@ -1325,36 +1324,34 @@ export default function MarketingVisitOutcomeModal({
                   <p className="text-xs text-slate-500">راجع كل العروض المسجلة قبل الانتقال إلى ردود الزبون.</p>
                 </div>
 
-                <div className="overflow-x-auto rounded-2xl border border-slate-200">
-                  <table className="min-w-full text-right text-sm">
-                    <thead className="bg-slate-50 text-slate-500">
-                      <tr>
-                        <th className="px-3 py-2 font-semibold">اسم الجهاز</th>
-                        <th className="px-3 py-2 font-semibold">نوع العرض</th>
-                        <th className="px-3 py-2 font-semibold">الكمية</th>
-                        <th className="px-3 py-2 font-semibold">القيمة الكاملة</th>
-                        <th className="px-3 py-2 font-semibold">تفاصيل التقسيط</th>
-                        <th className="px-3 py-2 font-semibold">التسكير</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {flatOffers.map(({ deviceModelName, offer }) => (
-                        <tr key={offer.id} className="border-t border-slate-100">
-                          <td className="px-3 py-3 text-slate-700">{deviceModelName}</td>
-                          <td className="px-3 py-3 text-slate-700">{getOfferLabel(offer.offerType)}</td>
-                          <td className="px-3 py-3 text-slate-700">{offer.quantity}</td>
-                          <td className="px-3 py-3 text-slate-700">{formatOfferAmountDetails(offer)}</td>
-                          <td className="px-3 py-3 text-slate-700">
-                            {offer.offerType === 'installment'
-                              ? `${offer.firstPaymentAmount == null ? '—' : new Intl.NumberFormat('en-US').format(offer.firstPaymentAmount)} / ${offer.installmentMonths == null ? '—' : `${offer.installmentMonths} شهر`}`
-                              : '—'}
-                          </td>
-                          <td className="px-3 py-3 text-slate-700">{getOfferCloserLabel(offer)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <DataTable card>
+                  <DataTable.Head>
+                    <DataTable.Row>
+                      <DataTable.Th>اسم الجهاز</DataTable.Th>
+                      <DataTable.Th>نوع العرض</DataTable.Th>
+                      <DataTable.Th>الكمية</DataTable.Th>
+                      <DataTable.Th>القيمة الكاملة</DataTable.Th>
+                      <DataTable.Th>تفاصيل التقسيط</DataTable.Th>
+                      <DataTable.Th>التسكير</DataTable.Th>
+                    </DataTable.Row>
+                  </DataTable.Head>
+                  <DataTable.Body>
+                    {flatOffers.map(({ deviceModelName, offer }) => (
+                      <DataTable.Row key={offer.id}>
+                        <DataTable.Td className="text-slate-700">{deviceModelName}</DataTable.Td>
+                        <DataTable.Td className="text-slate-700">{getOfferLabel(offer.offerType)}</DataTable.Td>
+                        <DataTable.Td className="text-slate-700">{offer.quantity}</DataTable.Td>
+                        <DataTable.Td className="text-slate-700">{formatOfferAmountDetails(offer)}</DataTable.Td>
+                        <DataTable.Td className="text-slate-700">
+                          {offer.offerType === 'installment'
+                            ? `${offer.firstPaymentAmount == null ? '—' : new Intl.NumberFormat('en-US').format(offer.firstPaymentAmount)} / ${offer.installmentMonths == null ? '—' : `${offer.installmentMonths} شهر`}`
+                            : '—'}
+                        </DataTable.Td>
+                        <DataTable.Td className="text-slate-700">{getOfferCloserLabel(offer)}</DataTable.Td>
+                      </DataTable.Row>
+                    ))}
+                  </DataTable.Body>
+                </DataTable>
               </section>
             )}
 
@@ -1523,38 +1520,36 @@ export default function MarketingVisitOutcomeModal({
                   </div>
                 </div>
 
-                <div className="overflow-x-auto rounded-2xl border border-slate-200">
-                  <table className="min-w-full text-right text-sm">
-                    <thead className="bg-slate-50 text-slate-500">
-                      <tr>
-                        <th className="px-3 py-2 font-semibold">الجهاز</th>
-                        <th className="px-3 py-2 font-semibold">العرض</th>
-                        <th className="px-3 py-2 font-semibold">الكمية</th>
-                        <th className="px-3 py-2 font-semibold">تفاصيل العرض</th>
-                        <th className="px-3 py-2 font-semibold">رد الزبون</th>
-                        <th className="px-3 py-2 font-semibold">رقم البيعة</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {flatOffers.map(({ deviceModelName, offer }) => (
-                        <tr key={offer.id} className="border-t border-slate-100">
-                          <td className="px-3 py-3 text-slate-700">{deviceModelName}</td>
-                          <td className="px-3 py-3 text-slate-700">{getOfferLabel(offer.offerType)}</td>
-                          <td className="px-3 py-3 text-slate-700">{offer.quantity}</td>
-                          <td className="px-3 py-3 text-slate-700">{formatOfferAmountDetails(offer)}</td>
-                          <td className="px-3 py-3 font-medium text-slate-700">{getResponseLabel(offer.customerResponse)}</td>
-                          <td className="px-3 py-3">
-                            {offer.customerResponse === 'accepted'
-                              ? offer.saleReferenceNumber
-                                ? <span className="font-mono font-black tracking-widest text-emerald-700">#{offer.saleReferenceNumber}</span>
-                                : <span className="text-xs text-slate-400 italic">سيُولَّد عند الحفظ</span>
-                              : <span className="text-slate-400">—</span>}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <DataTable card>
+                  <DataTable.Head>
+                    <DataTable.Row>
+                      <DataTable.Th>الجهاز</DataTable.Th>
+                      <DataTable.Th>العرض</DataTable.Th>
+                      <DataTable.Th>الكمية</DataTable.Th>
+                      <DataTable.Th>تفاصيل العرض</DataTable.Th>
+                      <DataTable.Th>رد الزبون</DataTable.Th>
+                      <DataTable.Th>رقم البيعة</DataTable.Th>
+                    </DataTable.Row>
+                  </DataTable.Head>
+                  <DataTable.Body>
+                    {flatOffers.map(({ deviceModelName, offer }) => (
+                      <DataTable.Row key={offer.id}>
+                        <DataTable.Td className="text-slate-700">{deviceModelName}</DataTable.Td>
+                        <DataTable.Td className="text-slate-700">{getOfferLabel(offer.offerType)}</DataTable.Td>
+                        <DataTable.Td className="text-slate-700">{offer.quantity}</DataTable.Td>
+                        <DataTable.Td className="text-slate-700">{formatOfferAmountDetails(offer)}</DataTable.Td>
+                        <DataTable.Td className="font-medium text-slate-700">{getResponseLabel(offer.customerResponse)}</DataTable.Td>
+                        <DataTable.Td>
+                          {offer.customerResponse === 'accepted'
+                            ? offer.saleReferenceNumber
+                              ? <span className="font-mono font-black tracking-widest text-emerald-700">#{offer.saleReferenceNumber}</span>
+                              : <span className="text-xs text-slate-400 italic">سيُولَّد عند الحفظ</span>
+                            : <span className="text-slate-400">—</span>}
+                        </DataTable.Td>
+                      </DataTable.Row>
+                    ))}
+                  </DataTable.Body>
+                </DataTable>
 
                 <div className="space-y-2">
                   <label className="text-sm font-bold text-slate-700">

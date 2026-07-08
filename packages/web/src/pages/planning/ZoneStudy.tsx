@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { api } from '../../lib/api';
 import PageHeader from '../../components/ui/PageHeader';
+import DataTable from '../../components/ui/DataTable';
 import DateField from '../../components/ui/DateField';
 import GeoSmartSearch, { type GeoSelection } from '../../components/GeoSmartSearch';
 import type { GeoUnit } from '../../lib/types';
@@ -250,61 +251,59 @@ export default function ZoneStudy() {
                             : 'أضف منطقة لاستكشاف توزيع الفرق.'}
                     </div>
                 ) : (
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                            <thead>
-                                <tr className="bg-slate-50 text-slate-600 text-xs">
-                                    <th className="text-right font-bold px-4 py-3">المنطقة</th>
-                                    <th className="text-center font-bold px-4 py-3">
-                                        <span className="inline-flex items-center gap-1">مهام الشركة المؤهلة</span>
-                                    </th>
-                                    {teamColumns.map(t => (
-                                        <th key={t.teamKey} className="text-center font-bold px-4 py-3 whitespace-nowrap">
-                                            <div className="flex flex-col items-center">
-                                                <span>{t.teamLabel}</span>
-                                                <span className="text-xs font-normal text-slate-400 inline-flex items-center gap-1">
-                                                    <Info className="w-3 h-3" /> محتملون / عروض مؤهلة
-                                                </span>
-                                            </div>
-                                        </th>
-                                    ))}
-                                    {mode === 'manual' && !isFrozen && <th className="px-2 py-3" />}
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100">
-                                {zones.map(zone => (
-                                    <tr key={zone.zoneId} className="hover:bg-slate-50/60">
-                                        <td className="px-4 py-3 font-bold text-slate-800">{zone.zoneName}</td>
-                                        <td className="px-4 py-3 text-center">
-                                            <span className={`inline-flex min-w-[2rem] justify-center rounded-lg px-2 py-0.5 font-bold ${zone.companyEligibleCount > 0 ? 'bg-sky-50 text-sky-700' : 'text-slate-300'}`}>
-                                                {zone.companyEligibleCount}
+                    <DataTable>
+                        <DataTable.Head>
+                            <DataTable.Row>
+                                <DataTable.Th>المنطقة</DataTable.Th>
+                                <DataTable.Th align="center">
+                                    <span className="inline-flex items-center gap-1">مهام الشركة المؤهلة</span>
+                                </DataTable.Th>
+                                {teamColumns.map(t => (
+                                    <DataTable.Th key={t.teamKey} align="center">
+                                        <div className="flex flex-col items-center">
+                                            <span>{t.teamLabel}</span>
+                                            <span className="text-xs font-normal text-slate-400 inline-flex items-center gap-1">
+                                                <Info className="w-3 h-3" /> محتملون / عروض مؤهلة
                                             </span>
-                                        </td>
-                                        {zone.teams.map(t => (
-                                            <td key={t.teamKey} className="px-4 py-3 text-center text-slate-600" title={`محتملون (LEAD بلا عرض): ${t.untappedLeads} • عروض جهاز مؤهلة: ${t.eligibleDeviceDemos}`}>
-                                                <span className="font-bold text-slate-700">{t.untappedLeads}</span>
-                                                <span className="text-slate-300"> / </span>
-                                                <span className="font-bold text-emerald-600">{t.eligibleDeviceDemos}</span>
-                                            </td>
-                                        ))}
-                                        {mode === 'manual' && !isFrozen && (
-                                            <td className="px-2 py-3 text-center">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleUnpick(zone.zoneId)}
-                                                    disabled={busy}
-                                                    className="text-slate-300 hover:text-rose-500 disabled:opacity-40"
-                                                    title="حذف المنطقة"
-                                                >
-                                                    <X className="w-4 h-4" />
-                                                </button>
-                                            </td>
-                                        )}
-                                    </tr>
+                                        </div>
+                                    </DataTable.Th>
                                 ))}
-                            </tbody>
-                        </table>
-                    </div>
+                                {mode === 'manual' && !isFrozen && <DataTable.Th />}
+                            </DataTable.Row>
+                        </DataTable.Head>
+                        <DataTable.Body>
+                            {zones.map(zone => (
+                                <DataTable.Row key={zone.zoneId} className="hover:bg-slate-50/60">
+                                    <DataTable.Td className="font-bold text-slate-800">{zone.zoneName}</DataTable.Td>
+                                    <DataTable.Td align="center">
+                                        <span className={`inline-flex min-w-[2rem] justify-center rounded-lg px-2 py-0.5 font-bold ${zone.companyEligibleCount > 0 ? 'bg-sky-50 text-sky-700' : 'text-slate-300'}`}>
+                                            {zone.companyEligibleCount}
+                                        </span>
+                                    </DataTable.Td>
+                                    {zone.teams.map(t => (
+                                        <DataTable.Td key={t.teamKey} align="center" className="text-slate-600" title={`محتملون (LEAD بلا عرض): ${t.untappedLeads} • عروض جهاز مؤهلة: ${t.eligibleDeviceDemos}`}>
+                                            <span className="font-bold text-slate-700">{t.untappedLeads}</span>
+                                            <span className="text-slate-300"> / </span>
+                                            <span className="font-bold text-emerald-600">{t.eligibleDeviceDemos}</span>
+                                        </DataTable.Td>
+                                    ))}
+                                    {mode === 'manual' && !isFrozen && (
+                                        <DataTable.Td align="center">
+                                            <button
+                                                type="button"
+                                                onClick={() => handleUnpick(zone.zoneId)}
+                                                disabled={busy}
+                                                className="text-slate-300 hover:text-rose-500 disabled:opacity-40"
+                                                title="حذف المنطقة"
+                                            >
+                                                <X className="w-4 h-4" />
+                                            </button>
+                                        </DataTable.Td>
+                                    )}
+                                </DataTable.Row>
+                            ))}
+                        </DataTable.Body>
+                    </DataTable>
                 )}
             </div>
 

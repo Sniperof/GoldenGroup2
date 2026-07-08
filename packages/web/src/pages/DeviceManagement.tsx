@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import IconButton from '../components/ui/IconButton';
 import Modal from '../components/ui/Modal';
+import DataTable from '../components/ui/DataTable';
 import { api } from '../lib/api';
 import type { DeviceModel, SparePart, MaintenancePartType, CatalogPriceHistoryEntry } from '../lib/types';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -751,40 +752,38 @@ function SparePartPricesModal({ part, onClose, onSaved }: {
 
                     {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
 
-                    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-                        <table className="min-w-full divide-y divide-slate-100 text-sm">
-                            <thead className="bg-slate-50 text-slate-600">
-                                <tr>
-                                    <th className="px-4 py-3 text-right font-bold">السعر</th>
-                                    <th className="px-4 py-3 text-right font-bold">من لحظة</th>
-                                    <th className="px-4 py-3 text-right font-bold">حتى لحظة</th>
-                                    <th className="px-4 py-3 text-right font-bold">الحالة</th>
-                                    <th className="px-4 py-3 text-right font-bold">ملاحظة</th>
-                                    <th className="px-4 py-3 text-right font-bold">أضيف بواسطة</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100 bg-white">
-                                {loading ? (
-                                    <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">جاري التحميل...</td></tr>
-                                ) : prices.length === 0 ? (
-                                    <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">لا يوجد سجل أسعار بعد.</td></tr>
-                                ) : prices.map(entry => (
-                                    <tr key={entry.id}>
-                                        <td className="px-4 py-3 font-mono font-bold text-slate-800">{formatPrice(entry.price)}</td>
-                                        <td className="px-4 py-3 text-xs text-slate-500">{formatPriceMoment(entry.effectiveFrom)}</td>
-                                        <td className="px-4 py-3 text-xs text-slate-500">{formatPriceMoment(entry.effectiveTo)}</td>
-                                        <td className="px-4 py-3">
-                                            <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-bold ${entry.isCurrent ? 'bg-sky-50 text-sky-700' : 'bg-slate-100 text-slate-500'}`}>
-                                                {entry.isCurrent ? 'فعال الآن' : 'تاريخي'}
-                                            </span>
-                                        </td>
-                                        <td className="px-4 py-3 text-xs text-slate-500">{entry.note || '-'}</td>
-                                        <td className="px-4 py-3 text-xs text-slate-500">{entry.createdByName || '-'}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
+                    <DataTable card>
+                        <DataTable.Head>
+                            <DataTable.Row>
+                                <DataTable.Th>السعر</DataTable.Th>
+                                <DataTable.Th>من لحظة</DataTable.Th>
+                                <DataTable.Th>حتى لحظة</DataTable.Th>
+                                <DataTable.Th>الحالة</DataTable.Th>
+                                <DataTable.Th>ملاحظة</DataTable.Th>
+                                <DataTable.Th>أضيف بواسطة</DataTable.Th>
+                            </DataTable.Row>
+                        </DataTable.Head>
+                        <DataTable.Body>
+                            {loading ? (
+                                <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">جاري التحميل...</td></tr>
+                            ) : prices.length === 0 ? (
+                                <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">لا يوجد سجل أسعار بعد.</td></tr>
+                            ) : prices.map(entry => (
+                                <DataTable.Row key={entry.id}>
+                                    <DataTable.Td className="font-mono font-bold text-slate-800">{formatPrice(entry.price)}</DataTable.Td>
+                                    <DataTable.Td className="text-xs text-slate-500">{formatPriceMoment(entry.effectiveFrom)}</DataTable.Td>
+                                    <DataTable.Td className="text-xs text-slate-500">{formatPriceMoment(entry.effectiveTo)}</DataTable.Td>
+                                    <DataTable.Td>
+                                        <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-bold ${entry.isCurrent ? 'bg-sky-50 text-sky-700' : 'bg-slate-100 text-slate-500'}`}>
+                                            {entry.isCurrent ? 'فعال الآن' : 'تاريخي'}
+                                        </span>
+                                    </DataTable.Td>
+                                    <DataTable.Td className="text-xs text-slate-500">{entry.note || '-'}</DataTable.Td>
+                                    <DataTable.Td className="text-xs text-slate-500">{entry.createdByName || '-'}</DataTable.Td>
+                                </DataTable.Row>
+                            ))}
+                        </DataTable.Body>
+                    </DataTable>
                 </div>
         </Modal>
     );

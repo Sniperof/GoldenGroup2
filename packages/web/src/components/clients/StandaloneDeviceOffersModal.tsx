@@ -5,6 +5,7 @@ import { api } from '../../lib/api';
 import type { Client, DeviceDiscount, DeviceModel, SystemList } from '../../lib/types';
 import Select from '../ui/Select';
 import Modal from '../ui/Modal';
+import DataTable from '../ui/DataTable';
 
 type OfferDraft = {
   deviceModelId: string;
@@ -314,39 +315,37 @@ export default function StandaloneDeviceOffersModal({ isOpen, onClose, client, o
                 </div>
               </section>
 
-              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-                <table className="min-w-full divide-y divide-slate-100 text-sm">
-                  <thead className="bg-slate-50 text-slate-600">
-                    <tr>
-                      <th className="px-4 py-3 text-right font-bold">الجهاز</th>
-                      <th className="px-4 py-3 text-right font-bold">النوع</th>
-                      <th className="px-4 py-3 text-right font-bold">القيمة</th>
-                      <th className="px-4 py-3 text-right font-bold">الحالة</th>
-                      <th className="px-4 py-3 text-right font-bold">حذف</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {offers.length === 0 ? (
-                      <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400">لا توجد عروض مثبتة بعد.</td></tr>
-                    ) : offers.map((offer, index) => {
-                      const device = deviceModels.find(model => String(model.id) === offer.deviceModelId);
-                      return (
-                        <tr key={`${offer.deviceModelId}-${index}`}>
-                          <td className="px-4 py-3 font-bold text-slate-800">{device?.nameAr || device?.name || '-'}</td>
-                          <td className="px-4 py-3 text-slate-600">{offer.offerType === 'cash' ? 'كاش' : 'تقسيط'}</td>
-                          <td className="px-4 py-3 text-slate-600">{money(offer.unitPrice)} SYP</td>
-                          <td className="px-4 py-3 text-slate-600">بانتظار الرد</td>
-                          <td className="px-4 py-3">
-                            <button onClick={() => setOffers(current => current.filter((_, i) => i !== index))} className="text-red-500 hover:text-red-700">
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </section>
+              <DataTable card>
+                <DataTable.Head>
+                  <DataTable.Row>
+                    <DataTable.Th>الجهاز</DataTable.Th>
+                    <DataTable.Th>النوع</DataTable.Th>
+                    <DataTable.Th>القيمة</DataTable.Th>
+                    <DataTable.Th>الحالة</DataTable.Th>
+                    <DataTable.Th>حذف</DataTable.Th>
+                  </DataTable.Row>
+                </DataTable.Head>
+                <DataTable.Body>
+                  {offers.length === 0 ? (
+                    <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400">لا توجد عروض مثبتة بعد.</td></tr>
+                  ) : offers.map((offer, index) => {
+                    const device = deviceModels.find(model => String(model.id) === offer.deviceModelId);
+                    return (
+                      <DataTable.Row key={`${offer.deviceModelId}-${index}`}>
+                        <DataTable.Td className="font-bold text-slate-800">{device?.nameAr || device?.name || '-'}</DataTable.Td>
+                        <DataTable.Td className="text-slate-600">{offer.offerType === 'cash' ? 'كاش' : 'تقسيط'}</DataTable.Td>
+                        <DataTable.Td className="text-slate-600">{money(offer.unitPrice)} SYP</DataTable.Td>
+                        <DataTable.Td className="text-slate-600">بانتظار الرد</DataTable.Td>
+                        <DataTable.Td>
+                          <button onClick={() => setOffers(current => current.filter((_, i) => i !== index))} className="text-red-500 hover:text-red-700">
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </DataTable.Td>
+                      </DataTable.Row>
+                    );
+                  })}
+                </DataTable.Body>
+              </DataTable>
 
               {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
             </>
