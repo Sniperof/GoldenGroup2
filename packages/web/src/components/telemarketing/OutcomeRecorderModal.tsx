@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSystemList } from '../../hooks/useSystemList';
 import { api } from '../../lib/api';
+import DateField from '../ui/DateField';
 import {
     Phone, CheckCircle2, PhoneOff, PhoneMissed, Send,
     MessageSquare, PhoneForwarded, UserCheck, PhoneCall,
@@ -960,13 +961,11 @@ export default function OutcomeRecorderModal({
                                         <Calendar className="w-3.5 h-3.5" />
                                         الموعد المتوقع <span className="text-violet-400 font-normal">(اختياري)</span>
                                     </label>
-                                    <input
-                                        type="date"
+                                    <DateField
                                         value={followUpDueDate}
-                                        onChange={e => setFollowUpDueDate(e.target.value)}
+                                        onChange={setFollowUpDueDate}
                                         min={new Date().toISOString().split('T')[0]}
-                                        className="w-full bg-white border border-violet-200 rounded-lg px-3 py-2 text-sm focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 focus:outline-none"
-                                        dir="ltr"
+                                        className="w-full bg-white border border-violet-200 rounded-lg pl-3 py-2 text-sm focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 focus:outline-none"
                                     />
                                 </div>
                                 {/* Task priority */}

@@ -19,6 +19,7 @@ import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import { SYRIAN_MOBILE_HINT, isValidSyrianMobile } from '../../lib/contactRules';
 import Select from '../../components/ui/Select';
+import DateField from '../../components/ui/DateField';
 
 // --- Types & Constants ---
 
@@ -595,7 +596,7 @@ export default function ManualApplicationEntry() {
             <input value={applicant.lastName} onChange={e => handleNameInput(e.target.value, 'lastName')} className={inputCls(!!fieldErrors.lastName)} placeholder="مثال: العبادي" />
           </Field>
           <Field label="تاريخ الميلاد" required error={fieldErrors.dob}>
-            <input type="date" value={applicant.dob} onChange={e => setA('dob', e.target.value)} max={new Date().toISOString().split('T')[0]} className={inputCls(!!fieldErrors.dob)} />
+            <DateField value={applicant.dob} onChange={v => setA('dob', v)} max={new Date().toISOString().split('T')[0]} className={inputCls(!!fieldErrors.dob)} />
           </Field>
           <Field label="الجنس" required error={fieldErrors.gender}>
             <Select

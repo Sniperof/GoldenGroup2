@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import PermissionGate from '../../components/PermissionGate';
 import Select from '../../components/ui/Select';
+import DateField from '../../components/ui/DateField';
 import Modal from '../../components/ui/Modal';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -330,12 +331,11 @@ export default function TrainingCourseDetail() {
             <div className="p-6 space-y-4">
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">تاريخ نهاية الدورة</label>
-                <input
-                  type="date"
+                <DateField
                   value={endDateDraft}
                   min={minimumAllowedEndDate}
-                  onChange={e => setEndDateDraft(e.target.value)}
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-sky-500"
+                  onChange={setEndDateDraft}
+                  className="w-full border border-slate-200 rounded-lg pl-3 py-2.5 text-sm focus:ring-2 focus:ring-sky-500"
                 />
                 <p className="mt-1 text-xs text-slate-400">
                   {latestAttendanceDate
@@ -408,13 +408,12 @@ export default function TrainingCourseDetail() {
             <div className="mt-5 border-t border-slate-100 pt-5">
               <h3 className="text-base font-bold text-slate-800 mb-3">تسجيل حضور يوم:</h3>
               <div className="flex items-center gap-3 mb-4 flex-wrap">
-                <input
-                  type="date"
+                <DateField
                   value={attDate}
                   min={course.startDate}
                   max={course.endDate}
-                  onChange={e => handleDateChange(e.target.value)}
-                  className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-500"
+                  onChange={handleDateChange}
+                  className="border border-slate-200 rounded-lg pl-3 py-2 text-sm focus:ring-2 focus:ring-sky-500"
                 />
                 <button
                   onClick={() => initPendingForDate(attDate)}

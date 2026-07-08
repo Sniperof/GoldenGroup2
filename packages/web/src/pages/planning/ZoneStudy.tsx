@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { api } from '../../lib/api';
 import PageHeader from '../../components/ui/PageHeader';
+import DateField from '../../components/ui/DateField';
 import GeoSmartSearch, { type GeoSelection } from '../../components/GeoSmartSearch';
 import type { GeoUnit } from '../../lib/types';
 import type { ZoneStudyMode, ZoneStudyResponse } from '@golden-crm/shared';
@@ -149,11 +150,10 @@ export default function ZoneStudy() {
                     <label className="flex items-center gap-2 text-sm">
                         <Calendar className="w-4 h-4 text-slate-400" />
                         <span className="font-bold text-slate-700">التاريخ</span>
-                        <input
-                            type="date"
+                        <DateField
                             value={date}
-                            onChange={e => setDate(e.target.value)}
-                            className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm focus:border-sky-400 focus:outline-none"
+                            onChange={setDate}
+                            className="rounded-lg border border-slate-200 pl-2.5 py-1.5 text-sm focus:border-sky-400 focus:outline-none"
                         />
                     </label>
 

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, FileSearch, ReceiptText } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import DateField from '../../components/ui/DateField';
 
 import { api, type AccountStatementEntry, type AccountStatementResponse } from '../../lib/api';
 import SmartTable, { type ColumnDef } from '../../components/SmartTable';
@@ -155,24 +156,20 @@ export function AccountStatementTab({ client }: Props) {
         <div className="flex flex-col gap-3 sm:flex-row">
           <label className="text-xs font-bold text-slate-500">
             من
-            <input
-              type="date"
+            <DateField
               value={from}
               max={to}
-              onChange={event => setFrom(event.target.value)}
-              className="mt-1 block rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold text-slate-700 outline-none focus:border-sky-500"
-              dir="ltr"
+              onChange={setFrom}
+              className="mt-1 block rounded-xl border border-slate-200 pl-3 py-2 text-sm font-bold text-slate-700 outline-none focus:border-sky-500"
             />
           </label>
           <label className="text-xs font-bold text-slate-500">
             إلى
-            <input
-              type="date"
+            <DateField
               value={to}
               min={from}
-              onChange={event => setTo(event.target.value)}
-              className="mt-1 block rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold text-slate-700 outline-none focus:border-sky-500"
-              dir="ltr"
+              onChange={setTo}
+              className="mt-1 block rounded-xl border border-slate-200 pl-3 py-2 text-sm font-bold text-slate-700 outline-none focus:border-sky-500"
             />
           </label>
         </div>

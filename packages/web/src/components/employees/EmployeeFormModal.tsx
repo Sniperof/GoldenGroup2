@@ -47,6 +47,7 @@ import {
   normalizeContactNumberInput,
 } from '../../lib/contactRules';
 import Select from '../ui/Select';
+import DateField from '../ui/DateField';
 
 type YesNoValue = '' | 'yes' | 'no';
 
@@ -881,10 +882,9 @@ export default function EmployeeFormModal({
         </label>
         <label className="block">
           <FieldLabel required>تاريخ الميلاد</FieldLabel>
-          <input
-            type="date"
+          <DateField
             value={form.birthDate}
-            onChange={(e) => setForm((c) => ({ ...c, birthDate: e.target.value }))}
+            onChange={(v) => setForm((c) => ({ ...c, birthDate: v }))}
             className={INPUT_CLASS}
           />
         </label>
@@ -1241,20 +1241,18 @@ export default function EmployeeFormModal({
 
         <label className="block">
           <FieldLabel>تاريخ التوظيف</FieldLabel>
-          <input
-            type="date"
+          <DateField
             value={form.hireDate}
-            onChange={(e) => setForm((c) => ({ ...c, hireDate: e.target.value }))}
+            onChange={(v) => setForm((c) => ({ ...c, hireDate: v }))}
             className={INPUT_CLASS}
           />
         </label>
 
         <label className="block">
           <FieldLabel>تاريخ بدء العمل</FieldLabel>
-          <input
-            type="date"
+          <DateField
             value={form.startWorkDate}
-            onChange={(e) => setForm((c) => ({ ...c, startWorkDate: e.target.value }))}
+            onChange={(v) => setForm((c) => ({ ...c, startWorkDate: v }))}
             className={INPUT_CLASS}
           />
         </label>

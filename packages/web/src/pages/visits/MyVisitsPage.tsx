@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { CalendarCheck, MapPin, Phone, Users2, Loader2, Zap } from 'lucide-react';
 import { api } from '../../lib/api';
 import PageHeader from '../../components/ui/PageHeader';
+import DateField from '../../components/ui/DateField';
 import InstantVisitModal from '../../components/fieldVisits/InstantVisitModal';
 import { useAuthStore } from '../../hooks/useAuthStore';
 
@@ -91,11 +92,10 @@ export default function MyVisitsPage() {
               <Zap className="w-4 h-4" /> زيارة فورية
             </button>
           )}
-          <input
-            type="date"
+          <DateField
             value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-300"
+            onChange={setDate}
+            className="rounded-lg border border-slate-200 bg-white pl-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-300"
           />
           </>
         }

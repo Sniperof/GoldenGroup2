@@ -5,6 +5,7 @@ import { api } from '../../lib/api';
 import { useBranchListScope } from '../../hooks/useBranchListScope';
 import ClientCardPopup from '../../components/ClientCardPopup';
 import Select from '../../components/ui/Select';
+import DateField from '../../components/ui/DateField';
 import PageHeader from '../../components/ui/PageHeader';
 import SmartTable from '../../components/SmartTable';
 import type { ColumnDef } from '../../components/SmartTable';
@@ -671,11 +672,10 @@ export default function TaskGroupPage() {
             ]}
           />
 
-          <input
-            type="date"
+          <DateField
             value={dateFilter}
-            onChange={(e) => setDateFilter(e.target.value)}
-            className="h-[39px] border border-slate-200 rounded-lg px-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
+            onChange={setDateFilter}
+            className="h-[39px] w-40 border border-slate-200 rounded-lg pl-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
           />
 
           <label className="inline-flex items-center gap-2 px-3 h-[39px] bg-white border border-slate-200 rounded-lg cursor-pointer text-sm text-slate-700">

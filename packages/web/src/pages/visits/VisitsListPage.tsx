@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import SmartTable, { type ColumnDef } from '../../components/SmartTable';
 import Select from '../../components/ui/Select';
+import DateField from '../../components/ui/DateField';
 import PageHeader from '../../components/ui/PageHeader';
 import ClientAvatar from '../../components/ClientAvatar';
 import { api } from '../../lib/api';
@@ -1205,11 +1206,10 @@ export default function VisitsListPage() {
               view, which has its own date-range picker rendered below. */}
           {activeView !== 'tasks' && (
             <>
-              <input
-                type="date"
+              <DateField
                 value={date}
-                onChange={(e) => setDate(e.target.value)}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-300"
+                onChange={setDate}
+                className="rounded-lg border border-slate-200 bg-white pl-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-300"
               />
               <Select
                 value={statusFilter}
@@ -1415,24 +1415,22 @@ export default function VisitsListPage() {
             ))}
             <span className="mx-1 h-5 w-px bg-slate-200" />
             <label className="text-xs text-slate-500">من</label>
-            <input
-              type="date"
+            <DateField
               value={execFrom}
               max={execTo}
-              onChange={(e) => setExecFrom(e.target.value)}
-              className={`rounded-lg border px-2 py-1.5 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-indigo-300 ${
+              onChange={setExecFrom}
+              className={`rounded-lg border pl-2 py-1.5 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-indigo-300 ${
                 activePreset === 'custom'
                   ? 'border-indigo-400 bg-indigo-50 text-indigo-700'
                   : 'border-slate-200 bg-white text-slate-700'
               }`}
             />
             <label className="text-xs text-slate-500">إلى</label>
-            <input
-              type="date"
+            <DateField
               value={execTo}
               min={execFrom}
-              onChange={(e) => setExecTo(e.target.value)}
-              className={`rounded-lg border px-2 py-1.5 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-indigo-300 ${
+              onChange={setExecTo}
+              className={`rounded-lg border pl-2 py-1.5 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-indigo-300 ${
                 activePreset === 'custom'
                   ? 'border-indigo-400 bg-indigo-50 text-indigo-700'
                   : 'border-slate-200 bg-white text-slate-700'

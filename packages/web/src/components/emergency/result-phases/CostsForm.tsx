@@ -3,6 +3,7 @@ import {
   AlertCircle, ArrowRight, CheckCircle2, Loader2, Plus, Save,
 } from 'lucide-react';
 import { api } from '../../../lib/api';
+import DateField from '../../ui/DateField';
 import { useSystemListItems } from '../../../hooks/useSystemListItems';
 import PaymentEntriesList, { type PaymentEntry, newEntry } from '../PaymentEntriesList';
 import InstallmentsSchedule, { type Installment } from '../InstallmentsSchedule';
@@ -411,8 +412,8 @@ export default function CostsForm({
               </div>
               <div className="space-y-1">
                 <label className="block text-xs font-bold text-slate-600">التاريخ المتوقع <span className="text-red-400">*</span></label>
-                <input type="date" value={followUpExpectedDate}
-                  onChange={e => setFollowUpExpectedDate(e.target.value)}
+                <DateField value={followUpExpectedDate}
+                  onChange={setFollowUpExpectedDate}
                   min={new Date().toISOString().slice(0,10)}
                   disabled={readOnly} className={inp} />
               </div>

@@ -296,9 +296,9 @@ export default function GoldenWarrantyOfferModal({ visitId, taskId, task, onClos
                                     {d.installments.map((inst, n) => (
                                       <div key={n} className="flex items-center gap-2">
                                         <span className="w-6 text-center text-xs font-bold text-slate-400">{inst.installmentNumber}</span>
-                                        <input type="date" value={inst.dueDate}
-                                          onChange={(e) => updateInstallment(i, n, { dueDate: e.target.value })}
-                                          className="rounded border border-slate-200 px-2 py-1 text-xs" />
+                                        <DateField value={inst.dueDate}
+                                          onChange={(v) => updateInstallment(i, n, { dueDate: v })}
+                                          className="rounded border border-slate-200 pl-2 py-1 text-xs" />
                                         <input type="number" min="0" value={inst.amountSyp}
                                           onChange={(e) => updateInstallment(i, n, { amountSyp: e.target.value })}
                                           className="w-28 rounded border border-slate-200 px-2 py-1 text-xs" dir="ltr" />

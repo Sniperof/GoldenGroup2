@@ -17,6 +17,7 @@ import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import { SYRIAN_MOBILE_HINT, isValidSyrianMobile } from '../../lib/contactRules';
 import Select from '../../components/ui/Select';
+import DateField from '../../components/ui/DateField';
 import Button from '../../components/ui/Button';
 
 // --- Types & Constants ---
@@ -614,7 +615,7 @@ export default function PublicJobs() {
               <FormSection num={1} title="البيانات الشخصية" subtitle="أدخل معلومات المتقدم الرئيسية" icon={User} delay={0.1}>
                 <Field label="الاسم الأول" required error={fieldErrors.firstName}><input value={applicant.firstName} onChange={e => handleNameInput(e.target.value, 'firstName')} className={inputCls(!!fieldErrors.firstName)} /></Field>
                 <Field label="الكنية" required error={fieldErrors.lastName}><input value={applicant.lastName} onChange={e => handleNameInput(e.target.value, 'lastName')} className={inputCls(!!fieldErrors.lastName)} /></Field>
-                <Field label="تاريخ الميلاد" required error={fieldErrors.dob}><input type="date" value={applicant.dob} onChange={e => setA('dob', e.target.value)} max={new Date().toISOString().split('T')[0]} className={inputCls(!!fieldErrors.dob)} /></Field>
+                <Field label="تاريخ الميلاد" required error={fieldErrors.dob}><DateField value={applicant.dob} onChange={v => setA('dob', v)} max={new Date().toISOString().split('T')[0]} className={inputCls(!!fieldErrors.dob)} /></Field>
                 <Field label="الجنس" required error={fieldErrors.gender}>
                   <Select
                     value={applicant.gender}

@@ -26,6 +26,10 @@ export interface DateFieldProps {
   onChange: (value: string) => void;
   placeholder?: string;
   disabled?: boolean;
+  /** Earliest selectable day, 'YYYY-MM-DD' (mirrors a native input's `min`). */
+  min?: string;
+  /** Latest selectable day, 'YYYY-MM-DD' (mirrors a native input's `max`). */
+  max?: string;
   /** Override the trigger styling (defaults to the standard brand input look). */
   className?: string;
 }
@@ -35,6 +39,8 @@ export default function DateField({
   onChange,
   placeholder = 'اختر التاريخ',
   disabled = false,
+  min,
+  max,
   className,
 }: DateFieldProps) {
   const [open, setOpen] = useState(false);
@@ -64,6 +70,8 @@ export default function DateField({
         anchorRef={ref}
         value={value ? new Date(`${value}T00:00:00`) : undefined}
         onChange={(d) => onChange(toYMD(d))}
+        min={min ? new Date(`${min}T00:00:00`) : undefined}
+        max={max ? new Date(`${max}T00:00:00`) : undefined}
       />
     </div>
   );

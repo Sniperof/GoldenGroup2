@@ -12,6 +12,7 @@
 import { useState, useEffect } from 'react';
 import { Wrench, CalendarClock, XCircle, ChevronLeft, Loader2 } from 'lucide-react';
 import Modal from '../../components/ui/Modal';
+import DateField from '../../components/ui/DateField';
 import Select from '../../components/ui/Select';
 import Button from '../../components/ui/Button';
 import { api } from '../../lib/api';
@@ -271,12 +272,11 @@ function LifecycleForm({
             التاريخ المُتوقَّع للزيارة القادمة
             <span className="text-rose-500"> *</span>
           </label>
-          <input
-            type="date"
+          <DateField
             value={expectedDate}
-            onChange={(e) => setExpectedDate(e.target.value)}
+            onChange={setExpectedDate}
             min={new Date().toISOString().split('T')[0]}
-            className="w-full text-sm border border-slate-300 rounded-lg p-2.5 bg-white"
+            className="w-full text-sm border border-slate-300 rounded-lg py-2.5 pl-2.5 bg-white"
           />
           <p className="text-xs text-slate-500">
             المهمة سَتَعود إلى pool "بانتظار جَدولة" بحالة "بحاجة متابعة" مع هذا التاريخ كَإشارة لمَسؤول الجَدولة.

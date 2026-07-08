@@ -1,6 +1,7 @@
 import { AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import Button from '../ui/Button';
+import DateField from '../ui/DateField';
 import Input from '../ui/Input';
 
 export interface Installment {
@@ -149,10 +150,10 @@ export default function InstallmentsSchedule({
                 <tr key={r.installmentNumber} className="border-b border-slate-50">
                   <td className="px-3 py-2 font-black text-slate-400">{r.installmentNumber}</td>
                   <td className="px-2 py-1.5">
-                    <input type="date" value={r.dueDate}
-                      onChange={e => updateRow(idx, 'dueDate', e.target.value)}
+                    <DateField value={r.dueDate}
+                      onChange={v => updateRow(idx, 'dueDate', v)}
                       disabled={disabled}
-                      className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs focus:outline-none focus:border-rose-400 bg-white" />
+                      className="w-full rounded-lg border border-slate-200 pl-2 py-1.5 text-xs focus:outline-none focus:border-rose-400 bg-white" />
                   </td>
                   <td className="px-2 py-1.5">
                     <Input type="number" min={0} value={r.amountSyp}

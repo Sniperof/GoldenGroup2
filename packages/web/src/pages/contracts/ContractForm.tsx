@@ -2726,9 +2726,9 @@ export default function ContractForm() {
                                                         <td className="px-3 py-2">
                                                             {installmentsConfirmed
                                                                 ? <span className="text-sm text-slate-700">{inst.dueDate}</span>
-                                                                : <input type="date" value={inst.dueDate}
-                                                                    onChange={e => setInstallmentDrafts(prev => prev.map((d, i) => i === idx ? { ...d, dueDate: e.target.value } : d))}
-                                                                    className="text-sm border border-slate-200 rounded px-2 py-1 focus:outline-none focus:border-sky-400" />
+                                                                : <DateField value={inst.dueDate}
+                                                                    onChange={v => setInstallmentDrafts(prev => prev.map((d, i) => i === idx ? { ...d, dueDate: v } : d))}
+                                                                    className="text-sm border border-slate-200 rounded pl-2 py-1 focus:outline-none focus:border-sky-400" />
                                                             }
                                                         </td>
                                                         <td className="px-3 py-2">
