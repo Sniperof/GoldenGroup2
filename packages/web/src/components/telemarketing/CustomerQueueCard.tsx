@@ -91,7 +91,7 @@ export default function CustomerQueueCard({ attrs, status, isActive, otherTeamsC
     return (
         <button
             onClick={onClick}
-            className={`w-full text-right p-2 rounded-md border transition-colors flex items-center gap-2.5 outline-none ${
+            className={`no-pill w-full text-right p-2 rounded-md border transition-colors flex items-center gap-2.5 outline-none ${
                 isActive
                     ? 'bg-sky-50 border-sky-400'
                     : 'bg-white border-slate-200 hover:bg-slate-50 hover:border-slate-300'

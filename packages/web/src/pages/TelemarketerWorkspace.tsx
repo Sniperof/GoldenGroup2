@@ -1397,21 +1397,21 @@ export default function TelemarketerWorkspace() {
                             <div className="px-6 py-5 border-b border-slate-100 bg-white shrink-0">
                                 <div className="flex items-start justify-between gap-5">
                                     <div className="flex items-start gap-4 min-w-0">
-                                        <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-lg font-black shrink-0 border shadow-sm ${
+                                        <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-xl font-black shrink-0 ring-1 shadow-sm ${
                                             selectedCustomer.entityType === 'client'
-                                                ? 'bg-sky-50 text-sky-800 border-sky-100'
-                                                : 'bg-amber-50 text-amber-800 border-amber-100'
+                                                ? 'bg-gradient-to-br from-sky-50 to-sky-100 text-sky-700 ring-sky-200/70'
+                                                : 'bg-gradient-to-br from-amber-50 to-amber-100 text-amber-700 ring-amber-200/70'
                                         }`}>
                                             {getInitials(selectedCustomer.name)}
                                         </div>
                                         <div className="min-w-0">
-                                            <div className="flex items-center gap-2 flex-wrap">
-                                                <h2 className="text-lg font-bold text-slate-800 leading-tight">{selectedCustomer.name}</h2>
+                                            <div className="flex items-baseline gap-2 flex-wrap">
+                                                <h2 className="text-xl font-black text-slate-900 leading-tight tracking-tight">{selectedCustomer.name}</h2>
                                                 {selectedSnapshotMeta.nickname && (
                                                     <span className="text-sm font-bold text-slate-400">({selectedSnapshotMeta.nickname})</span>
                                                 )}
                                             </div>
-                                            <div className="mt-2 flex items-center gap-2 flex-wrap">
+                                            <div className="mt-2.5 flex items-center gap-1.5 flex-wrap">
                                                 <Badge variant={selectedCustomer.entityType === 'client' ? 'info' : 'gold'}>
                                                     {selectedSnapshotMeta.classification}
                                                 </Badge>
@@ -1422,8 +1422,8 @@ export default function TelemarketerWorkspace() {
                                                     <OwnershipBadge ownership={selectedCustomer.primaryItem.ownership} />
                                                 ) : null}
                                                 {selectedSnapshotMeta.branchName && (
-                                                    <span className="inline-flex items-center gap-1 text-xs font-bold text-slate-500">
-                                                        <MapPin className="w-3 h-3" />
+                                                    <span className="inline-flex items-center gap-1 text-xs font-bold text-slate-500 bg-slate-100 rounded-md px-2 py-1">
+                                                        <MapPin className="w-3 h-3 text-slate-400" />
                                                         {selectedSnapshotMeta.branchName}
                                                     </span>
                                                 )}
@@ -1437,36 +1437,36 @@ export default function TelemarketerWorkspace() {
                                     {primarySelectedContact && (
                                         <a
                                             href={`tel:${primarySelectedContact.number}`}
-                                            className="h-11 px-4 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100 transition-colors font-black flex items-center gap-2 shrink-0 shadow-sm"
+                                            className="h-11 px-5 rounded-full bg-emerald-600 text-white hover:bg-emerald-700 transition-colors font-black flex items-center gap-2 shrink-0 shadow-sm shadow-emerald-600/25"
                                         >
                                             <Phone className="w-4 h-4" />
-                                            <span dir="ltr">{primarySelectedContact.number}</span>
+                                            <span dir="ltr" className="tracking-wide">{primarySelectedContact.number}</span>
                                         </a>
                                     )}
                                 </div>
 
-                                <div className="mt-5 grid grid-cols-2 lg:grid-cols-4 gap-2">
+                                <div className="mt-5 grid grid-cols-2 lg:grid-cols-4 gap-2.5">
                                     {selectedSnapshotMeta.occupation && (
-                                        <div className="rounded-lg bg-slate-50 px-3 py-2">
-                                            <p className="text-xs font-bold text-slate-400 mb-1">المهنة</p>
+                                        <div className="rounded-xl border border-slate-200/70 bg-slate-50/60 px-3.5 py-2.5">
+                                            <p className="text-[11px] font-bold text-slate-400 mb-1 flex items-center gap-1"><Briefcase className="w-3 h-3" />المهنة</p>
                                             <p className="text-sm font-black text-slate-800 truncate">{selectedSnapshotMeta.occupation}</p>
                                         </div>
                                     )}
                                     {selectedSnapshotMeta.spouseOccupation && (
-                                        <div className="rounded-lg bg-slate-50 px-3 py-2">
-                                            <p className="text-xs font-bold text-slate-400 mb-1">مهنة الزوج/الزوجة</p>
+                                        <div className="rounded-xl border border-slate-200/70 bg-slate-50/60 px-3.5 py-2.5">
+                                            <p className="text-[11px] font-bold text-slate-400 mb-1 flex items-center gap-1"><User className="w-3 h-3" />مهنة الزوج/الزوجة</p>
                                             <p className="text-sm font-black text-slate-800 truncate">{selectedSnapshotMeta.spouseOccupation}</p>
                                         </div>
                                     )}
                                     {selectedSnapshotMeta.sourceChannel && (
-                                        <div className="rounded-lg bg-slate-50 px-3 py-2">
-                                            <p className="text-xs font-bold text-slate-400 mb-1">مصدر الزبون</p>
+                                        <div className="rounded-xl border border-slate-200/70 bg-slate-50/60 px-3.5 py-2.5">
+                                            <p className="text-[11px] font-bold text-slate-400 mb-1 flex items-center gap-1"><Activity className="w-3 h-3" />مصدر الزبون</p>
                                             <p className="text-sm font-black text-slate-800 truncate">{selectedSnapshotMeta.sourceChannel}</p>
                                         </div>
                                     )}
                                     {selectedSnapshotMeta.referrersCount > 0 && (
-                                        <div className="rounded-lg bg-slate-50 px-3 py-2">
-                                            <p className="text-xs font-bold text-slate-400 mb-1">الوسيط</p>
+                                        <div className="rounded-xl border border-slate-200/70 bg-slate-50/60 px-3.5 py-2.5">
+                                            <p className="text-[11px] font-bold text-slate-400 mb-1 flex items-center gap-1"><Search className="w-3 h-3" />الوسيط</p>
                                             <p className="text-sm font-black text-slate-800 truncate">
                                                 {selectedSnapshotMeta.referrerName || `${selectedSnapshotMeta.referrersCount} وسيط`}
                                                 {selectedSnapshotMeta.referrerName && selectedSnapshotMeta.referrersCount > 1 ? ` +${selectedSnapshotMeta.referrersCount - 1}` : ''}
@@ -1475,12 +1475,14 @@ export default function TelemarketerWorkspace() {
                                     )}
                                 </div>
 
-                                <div className="mt-4 grid grid-cols-1 xl:grid-cols-[1.35fr_1fr] gap-4">
-                                    <div className="rounded-lg bg-slate-50 px-4 py-3">
-                                        <div className="flex items-start gap-2">
-                                            <MapPin className="w-4 h-4 text-sky-500 mt-0.5 shrink-0" />
+                                <div className="mt-4 grid grid-cols-1 xl:grid-cols-[1.35fr_1fr] gap-3">
+                                    <div className="rounded-xl border border-sky-100 bg-sky-50/50 px-4 py-3">
+                                        <div className="flex items-start gap-2.5">
+                                            <span className="w-7 h-7 rounded-lg bg-white border border-sky-100 flex items-center justify-center shrink-0 shadow-sm">
+                                                <MapPin className="w-4 h-4 text-sky-500" />
+                                            </span>
                                             <div className="min-w-0">
-                                                <p className="text-xs text-slate-400 font-black mb-1">العنوان المعتمد للتواصل</p>
+                                                <p className="text-[11px] text-slate-400 font-black mb-0.5">العنوان المعتمد للتواصل</p>
                                                 <p className="text-sm text-slate-900 font-black leading-relaxed">{selectedAddressLabel}</p>
                                                 {selectedSnapshotMeta.detailedAddress && (
                                                     <p className="text-xs text-slate-500 font-semibold mt-1 leading-relaxed">{selectedSnapshotMeta.detailedAddress}</p>
@@ -1489,11 +1491,11 @@ export default function TelemarketerWorkspace() {
                                         </div>
                                     </div>
 
-                                    <div className="rounded-lg bg-slate-50 px-4 py-3">
+                                    <div className="rounded-xl border border-slate-200/70 bg-slate-50/60 px-4 py-3">
                                         <div className="flex items-center justify-between gap-3 mb-2">
-                                            <p className="text-xs text-slate-400 font-black">أرقام إضافية</p>
+                                            <p className="text-[11px] text-slate-400 font-black flex items-center gap-1"><Phone className="w-3 h-3" />أرقام إضافية</p>
                                             {selectedOtherTargets.length > 0 && (
-                                                <span className="text-xs px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 font-black">
+                                                <span className="text-[11px] px-2 py-0.5 rounded-md bg-teal-50 text-teal-700 border border-teal-100 font-black">
                                                     {selectedOtherTargets.length} جهة أخرى اليوم
                                                 </span>
                                             )}
@@ -1504,9 +1506,9 @@ export default function TelemarketerWorkspace() {
                                                     <a
                                                         key={contact.id || contact.number}
                                                         href={`tel:${contact.number}`}
-                                                        className="flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100 text-sm font-bold transition-colors"
+                                                        className="flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300 text-sm font-bold transition-colors shadow-sm"
                                                     >
-                                                        <Phone className="w-3.5 h-3.5" />
+                                                        <Phone className="w-3.5 h-3.5 text-slate-400" />
                                                         <span dir="ltr">{contact.number}</span>
                                                         {contact.label && <span className="text-xs text-slate-500">{contact.label}</span>}
                                                         {contact.hasWhatsApp && <MessageSquare className="w-3.5 h-3.5 text-green-500" />}
