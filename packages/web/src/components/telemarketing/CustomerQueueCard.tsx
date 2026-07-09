@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircle2, CheckCircle, History, Phone, MapPin, Layers, Star, Users } from 'lucide-react';
+import { CheckCircle, History, Phone, MapPin, Layers, Star, Users, Calendar } from '../ui/icons';
 import ClientAvatar from '../ClientAvatar';
 
 // ─── Display attributes computed by the workspace per customer ───────────────
@@ -36,9 +36,9 @@ interface Props {
 }
 
 const CLASSIFICATION_CONFIG: Record<string, { label: string; cls: string }> = {
-    FOP: { label: 'FOP', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-    OP: { label: 'OP', cls: 'bg-sky-50 text-sky-700 border-sky-200' },
-    LEAD: { label: 'LEAD', cls: 'bg-slate-100 text-slate-600 border-slate-200' },
+    FOP: { label: 'FOP', cls: 'text-emerald-600' },
+    OP: { label: 'OP', cls: 'text-sky-600' },
+    LEAD: { label: 'LEAD', cls: 'text-slate-400' },
 };
 
 /** Normalises any raw classification/candidateStatus to FOP / OP / LEAD (or null). */
@@ -61,40 +61,43 @@ export function ratingDisplay(raw: string | null | undefined): { label: string; 
 export default function CustomerQueueCard({ attrs, status, isActive, otherTeamsCount, ownershipLabel, onClick }: Props) {
     const { booked, closed, contacted, manualClose, apptTime, contactedCount } = status;
 
-    // Leading edge accent encodes lifecycle stage; the avatar keeps its own
+    // Leading status rail encodes lifecycle stage; the avatar keeps its own
     // data-quality colour so the two signals don't fight.
-    const edge = booked ? 'border-r-emerald-400'
-        : closed ? 'border-r-slate-300'
-        : contacted ? 'border-r-amber-300'
-        : 'border-r-transparent';
+    const rail = booked ? 'bg-emerald-400'
+        : closed ? 'bg-slate-300'
+        : contacted ? 'bg-amber-400'
+        : 'bg-transparent';
 
     const classKey = classificationKey(attrs.classification, attrs.entityType);
     const classCfg = classKey ? CLASSIFICATION_CONFIG[classKey] : null;
     const rating = ratingDisplay(attrs.rating);
 
     const statusChip = booked ? (
-        <span className="text-xs text-emerald-700 font-bold bg-emerald-100 px-2 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1 shrink-0">
-            <CheckCircle2 className="w-3 h-3" /> محجوز{apptTime ? ` ${apptTime}` : ''}
-        </span>
-    ) : closed ? (
-        <span className="text-xs text-slate-500 font-bold bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200 shrink-0">
-            {manualClose ? 'مغلقة يدوياً' : 'مغلقة'}
+        <span className="text-xs font-bold text-emerald-600 inline-flex items-center gap-1 shrink-0">
+            <Calendar className="w-3.5 h-3.5" />{apptTime || 'محجوز'}
         </span>
     ) : contacted ? (
-        <span className="text-xs text-amber-700 font-bold bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200 flex items-center gap-1 shrink-0">
-            <History className="w-3 h-3" /> تم التواصل ({contactedCount})
+        <span className="text-xs font-bold text-amber-600 inline-flex items-center gap-1 shrink-0">
+            <History className="w-3.5 h-3.5" />{contactedCount}×
+        </span>
+    ) : closed ? (
+        <span className="text-xs font-bold text-slate-400 inline-flex items-center gap-1 shrink-0">
+            <CheckCircle className="w-3.5 h-3.5" />
         </span>
     ) : null;
+
+    const statusWord = booked ? 'محجوز' : contacted ? 'تم التواصل' : closed ? (manualClose ? 'مغلقة يدوياً' : 'مغلقة') : null;
 
     return (
         <button
             onClick={onClick}
-            className={`w-full text-right p-2 rounded-xl border-2 border-l border-y transition-all flex items-center gap-2.5 outline-none ${edge} ${
+            className={`w-full text-right p-2 rounded-md border transition-colors flex items-center gap-2.5 outline-none ${
                 isActive
-                    ? 'bg-violet-50 border-violet-300 ring-2 ring-violet-500/10 shadow-sm'
-                    : 'bg-white border-slate-100 hover:border-violet-200 hover:bg-slate-50 hover:shadow-sm'
+                    ? 'bg-sky-50 border-sky-400'
+                    : 'bg-white border-slate-200 hover:bg-slate-50 hover:border-slate-300'
             }`}
         >
+            <div className={`w-1 self-stretch rounded-full shrink-0 ${rail}`} />
             <div className="relative shrink-0">
                 <ClientAvatar gender={attrs.gender ?? null} dataQuality={attrs.dataQuality ?? null} size="sm" />
                 {/* entity-type hint strip */}
@@ -111,26 +114,22 @@ export default function CustomerQueueCard({ attrs, status, isActive, otherTeamsC
                     {statusChip}
                 </div>
 
-                {/* Line 2 — classification + rating */}
-                {(classCfg || rating) && (
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                        {classCfg && (
-                            <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full border ${classCfg.cls}`}>{classCfg.label}</span>
-                        )}
-                        {rating && (
-                            <span className={`text-xs font-bold inline-flex items-center gap-0.5 ${rating.committed ? 'text-emerald-600' : 'text-amber-600'}`}>
-                                <Star className="w-3 h-3" />{rating.label}
-                            </span>
-                        )}
-                    </div>
-                )}
-
-                {/* Line 3 — station · tasks · cross-team / ownership */}
-                <div className="flex items-center gap-2 flex-wrap text-xs text-slate-500 font-bold">
+                {/* Meta — classification · status · location · indicators (one line) */}
+                <div className="flex items-center gap-1.5 flex-wrap text-xs font-bold text-slate-500">
+                    {classCfg && <span className={`text-[10px] tracking-wide ${classCfg.cls}`}>{classCfg.label}</span>}
+                    {statusWord && (<><span className="text-slate-300">·</span><span>{statusWord}</span></>)}
                     {attrs.stationLabel && (
-                        <span className="inline-flex items-center gap-0.5 min-w-0">
-                            <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
-                            <span className="truncate">{attrs.stationLabel}</span>
+                        <>
+                            <span className="text-slate-300">·</span>
+                            <span className="inline-flex items-center gap-0.5 min-w-0">
+                                <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
+                                <span className="truncate">{attrs.stationLabel}</span>
+                            </span>
+                        </>
+                    )}
+                    {rating && (
+                        <span className={`inline-flex items-center gap-0.5 ${rating.committed ? 'text-emerald-600' : 'text-amber-600'}`}>
+                            <Star className="w-3 h-3" />{rating.label}
                         </span>
                     )}
                     {attrs.taskCount > 0 && (
@@ -139,14 +138,11 @@ export default function CustomerQueueCard({ attrs, status, isActive, otherTeamsC
                         </span>
                     )}
                     {otherTeamsCount > 0 && (
-                        <span className="inline-flex items-center gap-0.5 text-cyan-600">
+                        <span className="inline-flex items-center gap-0.5 text-teal-600">
                             <Users className="w-3 h-3" />+{otherTeamsCount}
                         </span>
                     )}
-                    {ownershipLabel && (
-                        <span className="text-slate-400 truncate">{ownershipLabel}</span>
-                    )}
-                    {closed && <CheckCircle className="w-3.5 h-3.5 text-slate-300 mr-auto" />}
+                    {ownershipLabel && <span className="text-slate-400 truncate">{ownershipLabel}</span>}
                 </div>
             </div>
 
