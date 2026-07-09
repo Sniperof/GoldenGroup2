@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useCandidateStore } from '../../hooks/useCandidateStore';
-import { UserPlus, Search, Filter, Phone, Trash2, CheckCircle, XCircle, AlertCircle, FileText, Loader2 } from 'lucide-react';
+import { UserPlus, Search, Filter, Phone, Trash2, CheckCircle, XCircle, AlertCircle, FileText, Loader2 } from '../ui/icons';
 import AddCandidateModal from './AddCandidateModal';
 import { Candidate } from '../../lib/types';
 import { getEntityContacts, getPrimaryContact } from '../../lib/contactUtils';

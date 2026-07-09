@@ -13,7 +13,7 @@ import {
   UserRound,
   Wrench,
   Target,
-} from 'lucide-react';
+} from '../../components/ui/icons';
 import { api } from '../../lib/api';
 import type { TaskDetailData } from '../../components/tasks/types';
 import { Card, EmptyState } from '../../components/tasks/shared';

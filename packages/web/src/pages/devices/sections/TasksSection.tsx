@@ -19,7 +19,7 @@ import {
   Wrench,
   X,
   Zap,
-} from 'lucide-react';
+} from '../../../components/ui/icons';
 import SmartTable, { type ColumnDef } from '../../../components/SmartTable';
 import { api } from '../../../lib/api';
 import Button from '../../../components/ui/Button';

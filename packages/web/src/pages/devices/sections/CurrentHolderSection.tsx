@@ -1,4 +1,4 @@
-import { MapPin } from 'lucide-react';
+import { MapPin } from '../../../components/ui/icons';
 import { PossessionHolderChip } from '../../../components/devices/PossessionHolderChip';
 import { GeoPathDisplay } from '../../../components/geo/GeoPathDisplay';
 import { SectionShell } from './SectionShell';

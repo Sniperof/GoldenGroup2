@@ -1,5 +1,5 @@
 import { useParams } from 'react-router-dom';
-import { DollarSign } from 'lucide-react';
+import { DollarSign } from '../../components/ui/icons';
 import TaskDetailLayout from '../../components/tasks/TaskDetailLayout';
 import { InfoLine, formatDate } from '../../components/tasks/shared';
 import type { TaskDetailData, TaskTypeExtension } from '../../components/tasks/types';

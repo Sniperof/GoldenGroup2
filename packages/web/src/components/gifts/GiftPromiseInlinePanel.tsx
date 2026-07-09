@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Gift, Plus, Trash2 } from 'lucide-react';
+import { Gift, Plus, Trash2 } from '../ui/icons';
 import { api } from '../../lib/api';
 import {
   giftConditionStatusLabels,

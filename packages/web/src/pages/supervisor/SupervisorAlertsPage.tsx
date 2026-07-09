@@ -8,7 +8,7 @@
 
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, Activity, RefreshCw } from 'lucide-react';
+import { AlertTriangle, Activity, RefreshCw } from '../../components/ui/icons';
 import AttemptAlertsCard from '../../components/supervisor/AttemptAlertsCard';
 import { api } from '../../lib/api';
 import Button from '../../components/ui/Button';

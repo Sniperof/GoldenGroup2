@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Modal from '../ui/Modal';
 import DateField from '../ui/DateField';
-import { AlertCircle, Loader2, RotateCcw, XCircle } from 'lucide-react';
+import { AlertCircle, Loader2, RotateCcw, XCircle } from '../ui/icons';
 import type {
   MarketingVisit,
   MarketingVisitCancelRequest,

@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import {
   Loader2, ListPlus, AlertTriangle, FileText, Smartphone,
   Banknote, MapPin, Calendar, Flag, Tag, CheckCircle2,
-} from 'lucide-react';
+} from '../ui/icons';
 import { api } from '../../lib/api';
 import Modal from '../ui/Modal';
 

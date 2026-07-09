@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
-import { AlertTriangle, CheckCircle2, Edit, Loader2, Plus, Save, Trash2, X, Zap } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Edit, Loader2, Plus, Save, Trash2, X, Zap } from '../../components/ui/icons';
 import IconButton from '../../components/ui/IconButton';
 import Modal from '../../components/ui/Modal';
 import Toggle from '../../components/ui/Toggle';

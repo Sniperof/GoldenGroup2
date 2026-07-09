@@ -8,7 +8,7 @@ import PageHeader from '../../components/ui/PageHeader';
 import {
   Users, Plus, Filter, Calendar, CheckCircle, XCircle, Clock,
   AlertTriangle, Search
-} from 'lucide-react';
+} from '../../components/ui/icons';
 import Modal from '../../components/ui/Modal';
 import DateField from '../../components/ui/DateField';
 import Select from '../../components/ui/Select';

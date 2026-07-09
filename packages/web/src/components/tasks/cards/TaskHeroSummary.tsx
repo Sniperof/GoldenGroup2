@@ -1,4 +1,4 @@
-import { CalendarDays, Repeat2, Sparkles } from 'lucide-react';
+import { CalendarDays, Repeat2, Sparkles } from '../../ui/icons';
 import { OPEN_TASK_STATUS_LABELS, type OpenTaskStatus } from '@golden-crm/shared';
 import { formatDate } from '../shared';
 import { getDueDateStatus, getExpectedDateStatus } from '../../../lib/taskDateStatus';

@@ -17,7 +17,7 @@ import {
     FileText, FilePlus2, Headset, Settings, UserPlus, Menu, X as CloseIcon,
     ChevronLeft, ChevronRight, BadgeCheck, GraduationCap, Mic2, LogOut, Building2, SlidersHorizontal, ShieldCheck, ListChecks, Shield, Monitor, Settings2,
     Bell, Wrench, Gift, Inbox, LayoutGrid, UserCheck, CalendarCheck, Layers, HardDrive, Unplug,
-} from 'lucide-react';
+} from '../components/ui/icons';
 
 const navItems = [
     { path: '/', label: 'نظرة عامة', icon: LayoutDashboard },

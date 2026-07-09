@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { AlertTriangle, Eye, Calendar, User, Smartphone, AlertCircle, CheckCircle2, Clock, Battery, FileText, Phone, Droplets, Zap, Gauge, PenTool, Loader2 } from 'lucide-react';
+import { AlertTriangle, Eye, Calendar, User, Smartphone, AlertCircle, CheckCircle2, Clock, Battery, FileText, Phone, Droplets, Zap, Gauge, PenTool, Loader2 } from '../../components/ui/icons';
 import { api } from '../../lib/api';
 import type { MaintenanceRequest } from '../../lib/types';
 import SmartTable from '../../components/SmartTable';

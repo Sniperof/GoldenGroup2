@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Loader2, Monitor, Filter, Wrench, DollarSign, RefreshCw, Gift, ShieldCheck, UserCheck, Unplug } from 'lucide-react';
+import { Loader2, Monitor, Filter, Wrench, DollarSign, RefreshCw, Gift, ShieldCheck, UserCheck, Unplug } from '../../components/ui/icons';
 import { api } from '../../lib/api';
 import { useBranchListScope } from '../../hooks/useBranchListScope';
 import ClientCardPopup from '../../components/ClientCardPopup';

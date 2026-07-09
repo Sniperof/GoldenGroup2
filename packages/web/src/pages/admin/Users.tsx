@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
-import { User, UserPlus, ShieldCheck, Edit2, Building2, ToggleLeft, ToggleRight, Loader2 } from 'lucide-react';
+import { User, UserPlus, ShieldCheck, Edit2, Building2, ToggleLeft, ToggleRight, Loader2 } from '../../components/ui/icons';
 import { useRoleStore } from '../../hooks/useRoleStore';
 import type { HrUser } from '../../hooks/useRoleStore';
 import { usePermissions } from '../../hooks/usePermissions';

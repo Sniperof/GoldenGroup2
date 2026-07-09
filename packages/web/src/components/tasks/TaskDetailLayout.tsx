@@ -1,7 +1,7 @@
 import { useState, useEffect, type ReactNode } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import type { LucideIcon } from 'lucide-react';
-import { Loader2, AlertCircle, ChevronRight } from 'lucide-react';
+import type { LucideIcon } from '../ui/icons';
+import { Loader2, AlertCircle, ChevronRight } from '../ui/icons';
 import { api } from '../../lib/api';
 import ClientCardPopup from '../ClientCardPopup';
 import Button from '../ui/Button';

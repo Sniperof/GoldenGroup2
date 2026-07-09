@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import Modal from '../ui/Modal';
-import { Loader2, Plus, Trash2 } from 'lucide-react';
+import { Loader2, Plus, Trash2 } from '../ui/icons';
 import type { EmergencyFinalDecision } from '@golden-crm/shared';
 import {
   EMERGENCY_FINAL_DECISION_LABELS,

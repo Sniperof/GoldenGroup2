@@ -4,7 +4,7 @@ import {
     Plus, Wrench, PenTool, GraduationCap, Truck, Package, Cog, X, Save,
     RefreshCw, Gem, Loader2, Image, Video, FileText, Star, ChevronRight,
     AlertCircle, Pencil, Tag,
-} from 'lucide-react';
+} from '../components/ui/icons';
 import IconButton from '../components/ui/IconButton';
 import Modal from '../components/ui/Modal';
 import DataTable from '../components/ui/DataTable';

@@ -4,7 +4,7 @@ import { Navigate } from 'react-router-dom';
 import {
     Plus, Eye, Trash2, X, ArrowUp, ArrowDown,
     Route as RouteIcon, ChevronRight,
-} from 'lucide-react';
+} from '../components/ui/icons';
 import { api } from '../lib/api';
 import { levelNames } from '../lib/geoConstants';
 import SmartTable, { type ColumnDef } from '../components/SmartTable';

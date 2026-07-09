@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Users, Trash2, UserPlus, CheckCircle2, AlertCircle, Clock, Search, Lightbulb, Pencil, Loader2, Building2 } from 'lucide-react';
+import { Users, Trash2, UserPlus, CheckCircle2, AlertCircle, Clock, Search, Lightbulb, Pencil, Loader2, Building2 } from '../components/ui/icons';
 import { api } from '../lib/api';
 import type { Client, CustomerOwnership, GeoUnit, Contract } from '../lib/types';
 import ClientModal from '../components/ClientModal';

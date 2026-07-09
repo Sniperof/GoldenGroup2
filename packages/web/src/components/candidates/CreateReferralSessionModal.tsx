@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Save, PlusCircle, Building2, User, Handshake, Search, CheckCircle, AlertCircle } from 'lucide-react';
+import { Save, PlusCircle, Building2, User, Handshake, Search, CheckCircle, AlertCircle } from '../ui/icons';
 import { ReferralType, ReferralOriginChannel, Client } from '../../lib/types';
 import { useCandidateStore } from '../../hooks/useCandidateStore';
 import { api } from '../../lib/api';

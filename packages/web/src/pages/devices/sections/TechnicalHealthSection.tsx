@@ -8,7 +8,7 @@
 // in a dialog over the page.
 // ============================================================
 import { useEffect, useMemo, useState } from 'react';
-import { Activity, Loader2, LineChart, ListOrdered, ChevronLeft } from 'lucide-react';
+import { Activity, Loader2, LineChart, ListOrdered, ChevronLeft } from '../../../components/ui/icons';
 import Modal from '../../../components/ui/Modal';
 import SmartTable, { type ColumnDef } from '../../../components/SmartTable';
 import { api } from '../../../lib/api';

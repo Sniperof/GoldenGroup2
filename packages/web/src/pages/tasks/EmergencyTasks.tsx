@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ShieldAlert, Eye, Loader2 } from 'lucide-react';
+import { ShieldAlert, Eye, Loader2 } from '../../components/ui/icons';
 import SmartTable from '../../components/SmartTable';
 import ClientCardPopup from '../../components/ClientCardPopup';
 import { useOpenTaskStore } from '../../hooks/useOpenTaskStore';

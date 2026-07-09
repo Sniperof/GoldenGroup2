@@ -1,4 +1,4 @@
-import { Plus, X } from 'lucide-react';
+import { Plus, X } from '../ui/icons';
 import { useSystemListItems } from '../../hooks/useSystemListItems';
 import Select from '../ui/Select';
 import Input from '../ui/Input';

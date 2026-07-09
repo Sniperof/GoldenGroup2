@@ -11,7 +11,7 @@
 // Submits via the unified recordTaskResult; warranty creation is a reflection.
 // ============================================================
 import { useEffect, useMemo, useState } from 'react';
-import { Award, CalendarClock, ChevronDown, ChevronLeft, CircleCheck, CircleX, CreditCard, Loader2, Trash2, Wrench } from 'lucide-react';
+import { Award, CalendarClock, ChevronDown, ChevronLeft, CircleCheck, CircleX, CreditCard, Loader2, Trash2, Wrench } from '../../components/ui/icons';
 import { api } from '../../lib/api';
 import Modal from '../../components/ui/Modal';
 import type { TaskResultModalProps } from '../../components/tasks/types';

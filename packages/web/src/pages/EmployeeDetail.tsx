@@ -22,7 +22,7 @@ import {
   UserRound,
   UserRoundCog,
   Users,
-} from 'lucide-react';
+} from '../components/ui/icons';
 import { api } from '../lib/api';
 import type { EmployeeDetail as EmployeeDetailType } from '../lib/types';
 import { usePermissions } from '../hooks/usePermissions';

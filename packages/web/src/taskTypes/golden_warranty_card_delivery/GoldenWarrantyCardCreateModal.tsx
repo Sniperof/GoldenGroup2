@@ -5,7 +5,7 @@
 // golden warranty). Creation reason folded into notes.
 // ============================================================
 import { useEffect, useMemo, useState } from 'react';
-import { CreditCard, Loader2 } from 'lucide-react';
+import { CreditCard, Loader2 } from '../../components/ui/icons';
 import { api } from '../../lib/api';
 import Select from '../../components/ui/Select';
 import DateField from '../../components/ui/DateField';

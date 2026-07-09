@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { FileText, Plus, Eye, Loader2, Building2 } from 'lucide-react';
+import { FileText, Plus, Eye, Loader2, Building2 } from '../../components/ui/icons';
 import SmartTable from '../../components/SmartTable';
 import type { ColumnDef, FilterDef } from '../../components/SmartTable';
 import BranchScopeIndicator from '../../components/BranchScopeIndicator';

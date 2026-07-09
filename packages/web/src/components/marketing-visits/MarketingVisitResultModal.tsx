@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2 } from '../ui/icons';
 import Modal from '../ui/Modal';
 import DateField from '../ui/DateField';
 import type {

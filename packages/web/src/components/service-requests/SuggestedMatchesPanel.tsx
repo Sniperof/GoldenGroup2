@@ -3,7 +3,7 @@
 // Constitution: maintenance.md §٠.١١ (Suggested Records List)
 // ============================================================
 import { useEffect, useState } from 'react';
-import { Search, User, UserPlus, ArrowLeft } from 'lucide-react';
+import { Search, User, UserPlus, ArrowLeft } from '../ui/icons';
 import { api } from '../../lib/api';
 import Button from '../ui/Button';
 

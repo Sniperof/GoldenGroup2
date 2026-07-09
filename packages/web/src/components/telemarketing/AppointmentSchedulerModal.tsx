@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Calendar, Droplets, FileText, CheckCircle2 } from 'lucide-react';
+import { Calendar, Droplets, FileText, CheckCircle2 } from '../ui/icons';
 import { api } from '../../lib/api';
 import { OPEN_TASK_TYPE_LABELS } from '@golden-crm/shared';
 import type { OpenTaskType } from '@golden-crm/shared';

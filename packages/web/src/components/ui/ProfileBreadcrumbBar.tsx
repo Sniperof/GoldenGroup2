@@ -3,7 +3,7 @@
 // bar spans full width, its content is centered to max-w-[1600px], links are
 // pill-hover buttons, and separators are subtle chevrons.
 import { Fragment } from 'react';
-import { ChevronLeft } from 'lucide-react';
+import { ChevronLeft } from './icons';
 
 export interface Breadcrumb {
   label: string;

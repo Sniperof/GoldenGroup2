@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { FileText, Zap } from 'lucide-react';
+import { FileText, Zap } from '../../components/ui/icons';
 import TaskDetailLayout from '../../components/tasks/TaskDetailLayout';
 import type { TaskTypeExtension, TaskDetailData } from '../../components/tasks/types';
 import EmergencyDetailsTab from '../../taskTypes/emergency_maintenance/EmergencyDetailsTab';

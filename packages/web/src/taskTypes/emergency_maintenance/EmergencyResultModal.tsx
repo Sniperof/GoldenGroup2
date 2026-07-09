@@ -10,7 +10,7 @@
 //                       → same endpoint, open_task = cancelled
 // ============================================================
 import { useState, useEffect } from 'react';
-import { Wrench, CalendarClock, XCircle, ChevronLeft, Loader2 } from 'lucide-react';
+import { Wrench, CalendarClock, XCircle, ChevronLeft, Loader2 } from '../../components/ui/icons';
 import Modal from '../../components/ui/Modal';
 import DateField from '../../components/ui/DateField';
 import Select from '../../components/ui/Select';

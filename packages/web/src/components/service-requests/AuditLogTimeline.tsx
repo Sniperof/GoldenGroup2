@@ -2,7 +2,7 @@
 // AuditLogTimeline — chronological view of service_request audit events
 // Constitution: maintenance.md §٠.١٧ + §٠.١٩.و
 // ============================================================
-import { Clock, User, AlertTriangle, CheckCircle2, X, ArrowRight, MessageSquare, Wrench } from 'lucide-react';
+import { Clock, User, AlertTriangle, CheckCircle2, X, ArrowRight, MessageSquare, Wrench } from '../ui/icons';
 
 interface AuditEvent {
   id: number;

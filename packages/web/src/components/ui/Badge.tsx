@@ -16,7 +16,7 @@
 // Optional leading Lucide icon. Always pill-shaped.
 // ────────────────────────────────────────────────────────────────────────────
 import type { HTMLAttributes, ReactNode } from 'react';
-import type { LucideIcon } from 'lucide-react';
+import type { LucideIcon } from './icons';
 
 export type BadgeVariant = 'success' | 'error' | 'warning' | 'info' | 'neutral' | 'gold';
 export type BadgeSize = 'sm' | 'md';

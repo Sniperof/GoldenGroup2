@@ -8,7 +8,7 @@
 // And a link to the customer-wide statement (DEC-CT-10).
 
 import { Link } from 'react-router-dom';
-import { ListChecks, Receipt } from 'lucide-react';
+import { ListChecks, Receipt } from '../../../components/ui/icons';
 import { SectionShell } from './SectionShell';
 import SmartTable, { type ColumnDef } from '../../../components/SmartTable';
 

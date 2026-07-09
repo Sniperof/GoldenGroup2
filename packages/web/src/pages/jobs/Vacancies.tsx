@@ -7,7 +7,7 @@ import {
   MapPin, GraduationCap, Users, ChevronDown, RotateCcw, Lock, Eye,
   Mail, Phone, Smartphone, Globe, PhoneCall, AlertTriangle, CheckCircle,
   ClipboardList, ArrowLeft, ArrowRight,
-} from 'lucide-react';
+} from '../../components/ui/icons';
 import { motion, AnimatePresence } from 'framer-motion';
 import Modal from '../../components/ui/Modal';
 import DateField from '../../components/ui/DateField';

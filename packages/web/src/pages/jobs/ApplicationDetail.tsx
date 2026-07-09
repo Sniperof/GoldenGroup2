@@ -13,7 +13,7 @@ import {
   Eye, Minus, Play, ThumbsUp, ThumbsDown, LogOut, Zap, CircleDot,
   ArrowUpRight, ShieldCheck, Ban, RotateCcw, Sparkles, Loader2, Gavel,
   BookOpen, ExternalLink, Plus,
-} from 'lucide-react';
+} from '../../components/ui/icons';
 import { motion, AnimatePresence } from 'framer-motion';
 import Modal from '../../components/ui/Modal';
 import DateField from '../../components/ui/DateField';

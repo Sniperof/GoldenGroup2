@@ -8,7 +8,7 @@
 // from the legacy ContractsTab), and uses (2) for a separate "تاريخ القطع" sub-list.
 
 import { useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2 } from '../../../components/ui/icons';
 import { PartCard } from '../../../components/devices/PartCard';
 import { SectionShell } from './SectionShell';
 import { api } from '../../../lib/api';

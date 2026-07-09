@@ -11,7 +11,7 @@ import {
   ToggleLeft, ToggleRight, Save, Loader2, AlertTriangle,
   UserPlus, User, Eye, EyeOff, ChevronDown, Building2, Star,
   ExternalLink, ListChecks,
-} from 'lucide-react';
+} from '../../components/ui/icons';
 import Select from '../../components/ui/Select';
 import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';

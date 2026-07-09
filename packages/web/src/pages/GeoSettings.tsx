@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Navigate } from 'react-router-dom';
-import { Plus, Trash2, RotateCcw, Globe, MapPin, Map, Building, Home, X, Pencil } from 'lucide-react';
+import { Plus, Trash2, RotateCcw, Globe, MapPin, Map, Building, Home, X, Pencil } from '../components/ui/icons';
 import { levelNames } from '../lib/geoConstants';
 import { api } from '../lib/api';
 import type { GeoUnit } from '../lib/types';

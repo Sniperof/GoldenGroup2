@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useCandidateStore } from '../../hooks/useCandidateStore';
-import { Calendar, User, FileText, AlertCircle, Phone, MapPin, ShieldCheck, Gift, Plus, Trash2 } from 'lucide-react';
+import { Calendar, User, FileText, AlertCircle, Phone, MapPin, ShieldCheck, Gift, Plus, Trash2 } from '../ui/icons';
 import QualificationModal from './QualificationModal';
 import ClientModal from '../ClientModal';
 import { Candidate, Client, GeoUnit } from '../../lib/types';

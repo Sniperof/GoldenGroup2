@@ -2,8 +2,8 @@
 // underline, plus edge fades and chevron buttons when the tabs overflow.
 // Shared by the client profile and the device profile pages.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
+import { ChevronLeft, ChevronRight } from './icons';
+import type { LucideIcon } from './icons';
 
 export interface ProfileTab {
   id: string;

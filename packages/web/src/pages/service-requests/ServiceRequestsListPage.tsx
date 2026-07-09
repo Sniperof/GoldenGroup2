@@ -4,7 +4,7 @@
 // ============================================================
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ClipboardList, Filter, Hash, Loader2, Plus, RefreshCw, User } from 'lucide-react';
+import { ClipboardList, Filter, Hash, Loader2, Plus, RefreshCw, User } from '../../components/ui/icons';
 import { api } from '../../lib/api';
 import SmartTable, { type ColumnDef } from '../../components/SmartTable';
 import Select from '../../components/ui/Select';

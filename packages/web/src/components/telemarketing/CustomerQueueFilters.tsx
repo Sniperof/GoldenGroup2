@@ -1,5 +1,5 @@
 import React from 'react';
-import { Filter, ChevronDown, X, ArrowDownUp, UserSearch, MapPin, History, Layers, Tag, Star } from 'lucide-react';
+import { Filter, ChevronDown, X, ArrowDownUp, UserSearch, MapPin, History, Layers, Tag, Star } from '../ui/icons';
 import Select from '../ui/Select';
 
 export interface FilterOption { value: string; label: string; }

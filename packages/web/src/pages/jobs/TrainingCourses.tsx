@@ -8,7 +8,7 @@ import PageHeader from '../../components/ui/PageHeader';
 import {
   GraduationCap, Plus, Search, Filter, ChevronDown,
   Calendar, User, Monitor, Building2, Users, CheckCircle, Loader2,
-} from 'lucide-react';
+} from '../../components/ui/icons';
 import Modal from '../../components/ui/Modal';
 import Select from '../../components/ui/Select';
 import DateField from '../../components/ui/DateField';

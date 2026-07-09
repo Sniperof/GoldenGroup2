@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Building2, Plus, Users } from 'lucide-react';
+import { Building2, Plus, Users } from '../components/ui/icons';
 import { useNavigate } from 'react-router-dom';
 import SmartTable from '../components/SmartTable';
 import type { ColumnDef, FilterDef } from '../components/SmartTable';

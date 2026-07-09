@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Calendar, DollarSign, AlertCircle } from 'lucide-react';
+import { Calendar, DollarSign, AlertCircle } from './ui/icons';
 import { useCollectionStore } from '../hooks/useCollectionStore';
 import { Due } from '../lib/types';
 import Button from './ui/Button';

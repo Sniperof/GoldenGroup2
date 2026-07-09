@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
-import { Loader2, Search, MapPin, Zap, AlertTriangle, Phone } from 'lucide-react';
+import { Loader2, Search, MapPin, Zap, AlertTriangle, Phone } from '../ui/icons';
 import { api } from '../../lib/api';
 import Modal from '../ui/Modal';
 

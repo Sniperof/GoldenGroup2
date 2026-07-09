@@ -7,7 +7,7 @@ import {
     Plus, Briefcase, Activity, LayoutDashboard, Contact2, Navigation, Users, MessageCircle, ShieldCheck,
     X, Loader2, PhoneCall, Zap, FileText, CheckCircle2, Wrench, Check, Truck, Calendar, Layers, AlertCircle,
     Cpu, Package, Sparkles, Gift, Clock, DollarSign, Star
-} from 'lucide-react';
+} from '../components/ui/icons';
 import { DevicesTab } from './clientProfile/DevicesTab'; // plan §1 — replaces legacy ContractsTab
 import { PurchaseHistoryTab } from './clientProfile/PurchaseHistoryTab';
 import { PartsStockTab } from './clientProfile/PartsStockTab';

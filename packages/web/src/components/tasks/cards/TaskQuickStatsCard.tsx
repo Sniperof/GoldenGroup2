@@ -1,4 +1,4 @@
-import { Activity, MessageCircle, Smartphone, StickyNote, Clock } from 'lucide-react';
+import { Activity, MessageCircle, Smartphone, StickyNote, Clock } from '../../ui/icons';
 import { Card } from '../shared';
 
 export interface TaskQuickStatsCardProps {

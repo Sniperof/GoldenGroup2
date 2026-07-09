@@ -22,7 +22,7 @@ import {
   UserCheck,
   UsersRound,
   XCircle,
-} from 'lucide-react';
+} from '../../components/ui/icons';
 import SmartTable, { type ColumnDef } from '../../components/SmartTable';
 import Select from '../../components/ui/Select';
 import DateField from '../../components/ui/DateField';

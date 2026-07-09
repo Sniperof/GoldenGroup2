@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Loader2, History, Package, Cpu, Wrench, Receipt, BadgeDollarSign } from 'lucide-react';
+import { Loader2, History, Package, Cpu, Wrench, Receipt, BadgeDollarSign } from '../../components/ui/icons';
 
 import { api } from '../../lib/api';
 

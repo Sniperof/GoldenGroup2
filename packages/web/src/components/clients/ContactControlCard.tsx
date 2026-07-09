@@ -7,7 +7,7 @@
 // ============================================================
 
 import { useState } from 'react';
-import { Ban, Clock, ShieldOff, Lock, Unlock } from 'lucide-react';
+import { Ban, Clock, ShieldOff, Lock, Unlock } from '../ui/icons';
 import { api } from '../../lib/api';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import type { Client } from '../../lib/types';

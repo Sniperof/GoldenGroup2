@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MapPin, User, Calendar, CalendarOff } from 'lucide-react';
+import { MapPin, User, Calendar, CalendarOff } from '../ui/icons';
 import { Appointment } from '../../lib/types';
 
 interface TeamAgendaPanelProps {

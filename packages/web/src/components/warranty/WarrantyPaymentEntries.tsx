@@ -11,7 +11,7 @@
 // `usd_cash` from the legacy DB enum is intentionally NOT exposed — currency is
 // always its own axis.
 // ============================================================
-import { Plus, X } from 'lucide-react';
+import { Plus, X } from '../ui/icons';
 
 export type WarrantyPaymentCategory = 'hand' | 'transfer' | 'barter';
 export type WarrantyPaymentMethod =

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CalendarClock, CircleCheck, CircleX, Gift, Loader2, X } from 'lucide-react';
+import { CalendarClock, CircleCheck, CircleX, Gift, Loader2, X } from '../../components/ui/icons';
 import { api } from '../../lib/api';
 import type { TaskResultModalProps } from '../../components/tasks/types';
 import DateField from '../../components/ui/DateField';

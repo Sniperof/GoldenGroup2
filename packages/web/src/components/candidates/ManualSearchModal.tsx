@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Search, AlertCircle, ArrowLeft, User, Lock, Pencil, Link2, Loader2 } from 'lucide-react';
+import { Search, AlertCircle, ArrowLeft, User, Lock, Pencil, Link2, Loader2 } from '../ui/icons';
 import { Candidate, Client, ClientSmartMatchResponse, SmartMatchNameCheck } from '../../lib/types';
 import { api } from '../../lib/api';
 import Button from '../ui/Button';

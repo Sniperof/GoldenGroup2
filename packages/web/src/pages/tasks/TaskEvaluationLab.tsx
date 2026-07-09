@@ -1,5 +1,5 @@
 import { useMemo, useState, type ComponentType } from 'react';
-import { AlertCircle, Beaker, ClipboardCheck, Eye, FilePlus2, X } from 'lucide-react';
+import { AlertCircle, Beaker, ClipboardCheck, Eye, FilePlus2, X } from '../../components/ui/icons';
 import Button from '../../components/ui/Button';
 import IconButton from '../../components/ui/IconButton';
 import PageHeader from '../../components/ui/PageHeader';

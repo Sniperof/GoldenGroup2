@@ -1,5 +1,5 @@
 import { useParams } from 'react-router-dom';
-import { Monitor } from 'lucide-react';
+import { Monitor } from '../../components/ui/icons';
 import TaskDetailLayout from '../../components/tasks/TaskDetailLayout';
 import { InfoLine, formatDate } from '../../components/tasks/shared';
 import DeviceDemoOfferTab from '../../taskTypes/device_demo/DeviceDemoOfferTab';

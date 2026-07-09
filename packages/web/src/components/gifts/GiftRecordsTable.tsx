@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { CalendarCheck, ClipboardList, Gift, UserRound } from 'lucide-react';
+import { CalendarCheck, ClipboardList, Gift, UserRound } from '../ui/icons';
 import DataTable from '../ui/DataTable';
 import type { GiftRecordPrototype } from '../../data/giftsPrototype';
 import {

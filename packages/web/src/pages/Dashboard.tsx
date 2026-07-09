@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Users, UserCheck, Route, MapPin, TrendingUp, Clock } from 'lucide-react';
+import { Users, UserCheck, Route, MapPin, TrendingUp, Clock } from '../components/ui/icons';
 import { api } from '../lib/api';
 import PageHeader from '../components/ui/PageHeader';
 

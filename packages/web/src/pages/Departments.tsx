@@ -14,7 +14,7 @@ import Modal from '../components/ui/Modal';
 import {
   Building2, Plus, Edit, Trash2,
   Layers, Cpu, Users, StickyNote, CheckSquare, Square,
-} from 'lucide-react';
+} from '../components/ui/icons';
 
 // ─── Department form state ────────────────────────────────────────────────────
 interface DeptForm {

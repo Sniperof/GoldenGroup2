@@ -8,7 +8,7 @@ import {
   Shield, Save, Loader2, AlertTriangle, ShieldCheck,
   Key, Briefcase, Users, UserCheck, FileText, BarChart2,
   ClipboardList, Calendar, AlertCircle, BookOpen, Settings, ListChecks
-} from 'lucide-react';
+} from '../../components/ui/icons';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import PageHeader from '../../components/ui/PageHeader';

@@ -1,4 +1,4 @@
-import { Activity } from 'lucide-react';
+import { Activity } from '../../ui/icons';
 import { OPEN_TASK_STATUS_LABELS, type OpenTaskStatus } from '@golden-crm/shared';
 import { Card, InfoLine, formatDateTime } from '../shared';
 import Select from '../../ui/Select';

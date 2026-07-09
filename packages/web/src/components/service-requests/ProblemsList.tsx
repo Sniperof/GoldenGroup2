@@ -3,7 +3,7 @@
 // Constitution: maintenance.md §٠.١٩ (لائحة الأعطال)
 // ============================================================
 import { useEffect, useState } from 'react';
-import { Plus, Wrench, Trash2, CheckCircle2, AlertCircle, Edit2, RotateCcw } from 'lucide-react';
+import { Plus, Wrench, Trash2, CheckCircle2, AlertCircle, Edit2, RotateCcw } from '../ui/icons';
 import { api } from '../../lib/api';
 import Select from '../ui/Select';
 

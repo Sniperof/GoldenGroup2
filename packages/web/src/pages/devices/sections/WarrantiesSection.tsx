@@ -7,7 +7,7 @@
 // golden warranty). The task then surfaces in /tasks/group/warranty-services.
 
 import { useState } from 'react';
-import { Award, CreditCard } from 'lucide-react';
+import { Award, CreditCard } from '../../../components/ui/icons';
 import { WarrantyStatusBadge } from '../../../components/devices/WarrantyStatusBadge';
 import SmartTable, { type ColumnDef } from '../../../components/SmartTable';
 import GoldenWarrantyOfferCreateModal from '../../../taskTypes/golden_warranty_offer/GoldenWarrantyOfferCreateModal';

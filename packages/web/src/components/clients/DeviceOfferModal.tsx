@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle2, Download, Loader2, Plus, Printer, Share2, Trash2 } from 'lucide-react';
+import { CheckCircle2, Download, Loader2, Plus, Printer, Share2, Trash2 } from '../ui/icons';
 import { api } from '../../lib/api';
 import type { Client, DeviceDiscount, DeviceModel, SystemList } from '../../lib/types';
 import Select from '../ui/Select';

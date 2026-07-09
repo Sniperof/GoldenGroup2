@@ -16,7 +16,7 @@
 //   - Use Arabic labels backed by the constitutional enum values.
 // ============================================================
 import { useState } from 'react';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle } from '../ui/icons';
 import Button, { type ButtonVariant } from '../ui/Button';
 import Modal from '../ui/Modal';
 

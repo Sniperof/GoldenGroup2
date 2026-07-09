@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
     Search, AlertCircle, ArrowRight, Trash2, CheckCircle2,
     Loader2, ShieldAlert, Phone, MapPin, Building2, User,
-} from 'lucide-react';
+} from '../ui/icons';
 import { Candidate, Client, ClientSmartMatchResponse, GeoUnit } from '../../lib/types';
 import { api } from '../../lib/api';
 import Button from '../ui/Button';

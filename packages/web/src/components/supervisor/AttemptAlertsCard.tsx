@@ -8,7 +8,7 @@
 // ============================================================
 
 import { useEffect, useState } from 'react';
-import { AlertTriangle, Phone, RefreshCw } from 'lucide-react';
+import { AlertTriangle, Phone, RefreshCw } from '../ui/icons';
 import { api } from '../../lib/api';
 import Button from '../ui/Button';
 

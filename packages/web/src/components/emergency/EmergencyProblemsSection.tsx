@@ -17,7 +17,7 @@
 // detail page). The wizard's own Save (action meta) stays unchanged.
 // ============================================================
 import { useEffect, useState } from 'react';
-import { Plus, Wrench, CheckCircle2, Clock, XCircle, AlertCircle } from 'lucide-react';
+import { Plus, Wrench, CheckCircle2, Clock, XCircle, AlertCircle } from '../ui/icons';
 import { api } from '../../lib/api';
 import Select from '../ui/Select';
 import Input from '../ui/Input';

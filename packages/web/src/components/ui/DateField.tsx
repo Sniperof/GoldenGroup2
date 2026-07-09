@@ -10,7 +10,7 @@
 //   + <DateField value={x} onChange={setX} className={cls} />
 // ────────────────────────────────────────────────────────────────────────────
 import { useState, useRef } from 'react';
-import { Calendar } from 'lucide-react';
+import { Calendar } from './icons';
 import DatePicker from './DatePicker';
 
 // Mirrors the app's standard text-input styling (brand border + radius).

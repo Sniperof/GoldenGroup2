@@ -1,6 +1,6 @@
 import { useState, type ComponentType } from 'react';
 import { Link } from 'react-router-dom';
-import { CalendarClock, CheckCircle2, ChevronLeft, Clock, Footprints, Plus } from 'lucide-react';
+import { CalendarClock, CheckCircle2, ChevronLeft, Clock, Footprints, Plus } from '../../ui/icons';
 import { OPEN_TASK_STATUS_LABELS, type OpenTaskStatus } from '@golden-crm/shared';
 import { Card, InfoLine, TabAlert, formatDate, formatDateTime } from '../shared';
 import type { TaskResultModalProps, TaskResultRendererProps } from '../types';

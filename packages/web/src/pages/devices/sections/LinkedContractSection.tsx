@@ -3,7 +3,7 @@
 // remains accessible via the "صفحة العقد" link.
 
 import { useState } from 'react';
-import { ExternalLink, FileText, Loader2 } from 'lucide-react';
+import { ExternalLink, FileText, Loader2 } from '../../../components/ui/icons';
 import { Link } from 'react-router-dom';
 import { api } from '../../../lib/api';
 import { SectionShell } from './SectionShell';

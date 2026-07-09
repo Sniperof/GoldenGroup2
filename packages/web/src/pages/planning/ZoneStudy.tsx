@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
     Calendar, RefreshCw, Loader2, Lock, Plus, X, ArrowRight, ArrowLeft,
     LayoutGrid, Info, MapPin,
-} from 'lucide-react';
+} from '../../components/ui/icons';
 import { api } from '../../lib/api';
 import PageHeader from '../../components/ui/PageHeader';
 import DataTable from '../../components/ui/DataTable';

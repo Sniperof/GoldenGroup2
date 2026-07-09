@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { MapPin, Navigation, X } from 'lucide-react';
+import { MapPin, Navigation, X } from './ui/icons';
 import IconButton from './ui/IconButton';
 
 interface MapPickerProps {

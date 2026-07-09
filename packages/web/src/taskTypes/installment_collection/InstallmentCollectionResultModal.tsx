@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarClock, CircleCheck, CircleX, CreditCard, Loader2, Wallet } from 'lucide-react';
+import { CalendarClock, CircleCheck, CircleX, CreditCard, Loader2, Wallet } from '../../components/ui/icons';
 import { api } from '../../lib/api';
 import Modal from '../../components/ui/Modal';
 import DateField from '../../components/ui/DateField';

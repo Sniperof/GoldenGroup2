@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AlertCircle, ArrowLeft, ArrowRight, ChevronRight, Loader2, Save } from 'lucide-react';
+import { AlertCircle, ArrowLeft, ArrowRight, ChevronRight, Loader2, Save } from '../../ui/icons';
 import { api } from '../../../lib/api';
 import DSSelect from '../../ui/Select';
 import Card from '../../ui/Card';

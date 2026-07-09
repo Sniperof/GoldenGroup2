@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Clock, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Clock, CheckCircle2, AlertTriangle } from '../ui/icons';
 
 // ─── Time helpers ────────────────────────────────────────────────────────────
 

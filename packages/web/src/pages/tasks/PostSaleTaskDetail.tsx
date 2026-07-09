@@ -1,5 +1,5 @@
 import { useLocation, useParams } from 'react-router-dom';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw } from '../../components/ui/icons';
 import TaskDetailLayout from '../../components/tasks/TaskDetailLayout';
 import { InfoLine, formatDate } from '../../components/tasks/shared';
 import type { TaskResultModalProps, TaskTypeExtension, TaskDetailData } from '../../components/tasks/types';

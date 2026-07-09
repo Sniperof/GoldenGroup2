@@ -1,5 +1,5 @@
 import { useParams } from 'react-router-dom';
-import { Gift } from 'lucide-react';
+import { Gift } from '../../components/ui/icons';
 import TaskDetailLayout from '../../components/tasks/TaskDetailLayout';
 import { InfoLine } from '../../components/tasks/shared';
 import type { TaskDetailData, TaskTypeExtension } from '../../components/tasks/types';

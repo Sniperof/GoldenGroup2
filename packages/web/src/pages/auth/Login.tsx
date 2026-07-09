@@ -15,7 +15,7 @@ import {
   AlertCircle,
   Eye,
   EyeOff,
-} from 'lucide-react';
+} from '../../components/ui/icons';
 import logoMark from '../../assets/logo-mark.png';
 import logoName from '../../assets/logo-name.svg';
 import companyArt from '../../assets/company-illustration.svg';

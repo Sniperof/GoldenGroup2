@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Calendar, Users, UserCheck, Plus, User, Save, X, PhoneCall, GraduationCap, CheckCircle, AlertCircle, LayoutGrid, ArrowLeft } from 'lucide-react';
+import { Calendar, Users, UserCheck, Plus, User, Save, X, PhoneCall, GraduationCap, CheckCircle, AlertCircle, LayoutGrid, ArrowLeft } from '../../components/ui/icons';
 import { api } from '../../lib/api';
 import PageHeader from '../../components/ui/PageHeader';
 import IconButton from '../../components/ui/IconButton';

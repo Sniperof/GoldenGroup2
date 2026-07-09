@@ -17,7 +17,7 @@
 import { useState, useEffect, useLayoutEffect } from 'react';
 import type { RefObject } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronRight, ChevronLeft, ChevronDown } from 'lucide-react';
+import { ChevronRight, ChevronLeft, ChevronDown } from './icons';
 
 // Localized labels (Arabic) — derived from Intl so they always match locale.
 const AR_MONTH = new Intl.DateTimeFormat('ar', { month: 'long' });

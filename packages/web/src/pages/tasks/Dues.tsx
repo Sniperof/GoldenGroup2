@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { DollarSign, UserPlus, AlertTriangle, TrendingDown, Flag, Loader2 } from 'lucide-react';
+import { DollarSign, UserPlus, AlertTriangle, TrendingDown, Flag, Loader2 } from '../../components/ui/icons';
 import { useCollectionStore } from '../../hooks/useCollectionStore';
 import { api } from '../../lib/api';
 import SmartTable from '../../components/SmartTable';

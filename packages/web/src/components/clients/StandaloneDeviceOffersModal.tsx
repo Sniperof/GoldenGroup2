@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Loader2, Plus, Trash2 } from 'lucide-react';
+import { Loader2, Plus, Trash2 } from '../ui/icons';
 import { api } from '../../lib/api';
 import type { Client, DeviceDiscount, DeviceModel, SystemList } from '../../lib/types';
 import Select from '../ui/Select';

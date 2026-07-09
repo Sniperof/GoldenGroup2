@@ -7,7 +7,7 @@
 // ============================================================
 
 import { useEffect, useState } from 'react';
-import { ClipboardCheck, Save, SkipForward } from 'lucide-react';
+import { ClipboardCheck, Save, SkipForward } from '../ui/icons';
 import { api } from '../../lib/api';
 import Select from '../ui/Select';
 import Input from '../ui/Input';

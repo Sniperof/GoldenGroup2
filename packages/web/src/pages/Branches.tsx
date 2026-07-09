@@ -15,7 +15,7 @@ import {
   MapPin, Building2, Plus, Edit, Trash2, Network,
   Mail, Phone, Smartphone, Globe, Users, Briefcase,
   CircleUser, BadgeDollarSign, ChevronDown,
-} from 'lucide-react';
+} from '../components/ui/icons';
 
 // ─── Contact metadata ────────────────────────────────────────────────────────
 const CONTACT_TYPES: { value: BranchContactType; label: string; icon: React.ReactNode; placeholder: string; inputType: string }[] = [

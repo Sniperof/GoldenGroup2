@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { AlertCircle, CheckCircle2, Clock, Loader2, Unplug, XCircle } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Clock, Loader2, Unplug, XCircle } from '../../components/ui/icons';
 import { api } from '../../lib/api';
 import Modal from '../../components/ui/Modal';
 import DateField from '../../components/ui/DateField';

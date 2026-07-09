@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle2, ChevronRight, Loader2 } from 'lucide-react';
+import { CheckCircle2, ChevronRight, Loader2 } from '../ui/icons';
 import { api } from '../../lib/api';
 import TechStateForm from './result-phases/TechStateForm';
 import MaintenanceActionsForm from './result-phases/MaintenanceActionsForm';

@@ -13,7 +13,7 @@ import {
   Loader2, ArrowLeft, AlertTriangle,
   Fingerprint, Activity, UserCheck, History, Award,
   Puzzle, FileText, Wallet, ClipboardList, HeartPulse,
-} from 'lucide-react';
+} from '../../components/ui/icons';
 
 import ProfileTabsBar from '../../components/ui/ProfileTabsBar';
 import ProfileBreadcrumbBar from '../../components/ui/ProfileBreadcrumbBar';

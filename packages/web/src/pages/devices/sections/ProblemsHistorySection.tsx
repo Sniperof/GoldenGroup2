@@ -4,7 +4,7 @@
 // ============================================================
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, Loader2, Wrench } from 'lucide-react';
+import { AlertTriangle, Loader2, Wrench } from '../../../components/ui/icons';
 import { api } from '../../../lib/api';
 import SmartTable, { type ColumnDef } from '../../../components/SmartTable';
 

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { BadgeCheck, CalendarPlus, CheckCircle2, ClipboardCheck, HandHeart, XCircle } from 'lucide-react';
+import { BadgeCheck, CalendarPlus, CheckCircle2, ClipboardCheck, HandHeart, XCircle } from '../ui/icons';
 import Modal from '../ui/Modal';
 import DateField from '../ui/DateField';
 import { api } from '../../lib/api';

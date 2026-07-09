@@ -5,7 +5,7 @@ import type { ApplicationStage, ApplicationStatus } from '../../lib/types';
 import { getUnifiedApplicationState, getUnifiedApplicationStateClasses } from '../../lib/applicationState';
 import {
   ClipboardList, Search, Filter, ChevronDown, Eye, AlertTriangle, Calendar, Archive, Plus
-} from 'lucide-react';
+} from '../../components/ui/icons';
 import PermissionGate from '../../components/PermissionGate';
 import PageHeader from '../../components/ui/PageHeader';
 import SmartTable from '../../components/SmartTable';

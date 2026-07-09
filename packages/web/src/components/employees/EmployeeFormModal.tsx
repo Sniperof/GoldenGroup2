@@ -19,7 +19,7 @@ import {
   UserRound,
   Users,
   X,
-} from 'lucide-react';
+} from '../ui/icons';
 import GeoSmartSearch, { type GeoSelection } from '../GeoSmartSearch';
 import Button from '../ui/Button';
 import IconButton from '../ui/IconButton';

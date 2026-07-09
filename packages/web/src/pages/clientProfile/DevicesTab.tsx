@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Loader2, Cpu, ExternalLink, Plus, Save, MapPin } from 'lucide-react';
+import { Loader2, Cpu, ExternalLink, Plus, Save, MapPin } from '../../components/ui/icons';
 import Modal from '../../components/ui/Modal';
 
 import { api } from '../../lib/api';

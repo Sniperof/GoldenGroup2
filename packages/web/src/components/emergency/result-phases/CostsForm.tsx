@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   AlertCircle, ArrowRight, CheckCircle2, Loader2, Plus, Save,
-} from 'lucide-react';
+} from '../../ui/icons';
 import { api } from '../../../lib/api';
 import DateField from '../../ui/DateField';
 import { useSystemListItems } from '../../../hooks/useSystemListItems';

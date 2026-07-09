@@ -1,4 +1,4 @@
-import { PhoneCall, User, Briefcase, MapPin } from 'lucide-react';
+import { PhoneCall, User, Briefcase, MapPin } from '../ui/icons';
 import { Candidate, Client, GeoUnit } from '../../lib/types';
 import Button from '../ui/Button';
 import Modal from '../ui/Modal';

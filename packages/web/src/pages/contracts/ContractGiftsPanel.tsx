@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Gift, Info, Plus, Save, X } from 'lucide-react';
+import { Gift, Info, Plus, Save, X } from '../../components/ui/icons';
 import Modal from '../../components/ui/Modal';
 import GiftRecordsTable from '../../components/gifts/GiftRecordsTable';
 import { api } from '../../lib/api';

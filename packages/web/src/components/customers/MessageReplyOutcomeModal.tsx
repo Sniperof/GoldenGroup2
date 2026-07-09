@@ -3,7 +3,7 @@ import DateField from '../ui/DateField';
 import {
     CheckCircle2, Send, PhoneMissed, PhoneCall,
     PhoneForwarded, UserCheck, PhoneOff, Edit3, Calendar, Layers,
-} from 'lucide-react';
+} from '../ui/icons';
 import { TelemarketingOutcomeCode, OUTCOME_MAP } from '@golden-crm/shared';
 import { useSystemList } from '../../hooks/useSystemList';
 import Button from '../ui/Button';

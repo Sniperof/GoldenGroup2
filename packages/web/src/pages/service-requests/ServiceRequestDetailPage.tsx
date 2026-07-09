@@ -17,7 +17,7 @@ import {
   Phone,
   UserCheck,
   X,
-} from 'lucide-react';
+} from '../../components/ui/icons';
 import { api } from '../../lib/api';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useAuthStore } from '../../hooks/useAuthStore';

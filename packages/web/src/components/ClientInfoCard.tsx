@@ -3,7 +3,7 @@ import {
   User, Phone, Home, Building2, Briefcase, Star,
   MapPin, ChevronDown, ChevronUp, UserCheck, Smartphone,
   PhoneCall, Wifi, Globe, Wrench, Users, BadgeCheck,
-} from 'lucide-react';
+} from './ui/icons';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 

@@ -5,7 +5,7 @@
 // 'golden_warranty_offer'). Posts api.openTasks.create with installedDeviceIds.
 // ============================================================
 import { useEffect, useMemo, useState } from 'react';
-import { Award, Loader2 } from 'lucide-react';
+import { Award, Loader2 } from '../../components/ui/icons';
 import { api } from '../../lib/api';
 import Select from '../../components/ui/Select';
 import DateField from '../../components/ui/DateField';

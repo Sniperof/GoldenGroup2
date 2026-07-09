@@ -4,7 +4,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Loader2, Sparkles, ExternalLink, BadgeDollarSign, Calendar, User, Tag, Plus } from 'lucide-react';
+import { Loader2, Sparkles, ExternalLink, BadgeDollarSign, Calendar, User, Tag, Plus } from '../../components/ui/icons';
 
 import { api } from '../../lib/api';
 import SmartTable, { type ColumnDef } from '../../components/SmartTable';

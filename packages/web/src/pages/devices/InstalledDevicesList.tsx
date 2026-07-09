@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { HardDrive, Eye, Loader2, ShieldCheck, MapPin } from 'lucide-react';
+import { HardDrive, Eye, Loader2, ShieldCheck, MapPin } from '../../components/ui/icons';
 import SmartTable from '../../components/SmartTable';
 import type { ColumnDef, FilterDef } from '../../components/SmartTable';
 import BranchScopeIndicator from '../../components/BranchScopeIndicator';

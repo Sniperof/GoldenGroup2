@@ -22,7 +22,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { KeyboardEvent, ReactNode } from 'react';
-import { Check, ChevronDown } from 'lucide-react';
+import { Check, ChevronDown } from './icons';
 
 export type SelectOption<V extends string | number> = {
   value: V;

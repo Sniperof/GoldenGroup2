@@ -8,7 +8,7 @@ import {
     ShoppingCart, Smartphone, Wrench, Zap, Puzzle, Map as MapIcon,
     ClipboardCheck, ListPlus, Lock, Unlock, RefreshCw, FileText,
     Repeat, XCircle, ChevronLeft,
-} from 'lucide-react';
+} from '../../components/ui/icons';
 import { api } from '../../lib/api';
 import VisitSurveyModal from '../../components/fieldVisits/VisitSurveyModal';
 import ReferralSheetModal from '../../components/fieldVisits/ReferralSheetModal';

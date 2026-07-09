@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
-import type { LucideIcon } from 'lucide-react';
-import { AlertCircle } from 'lucide-react';
+import type { LucideIcon } from '../ui/icons';
+import { AlertCircle } from '../ui/icons';
 
 export type CardAccent = 'indigo' | 'emerald' | 'slate' | 'violet' | 'amber' | 'sky' | 'rose';
 

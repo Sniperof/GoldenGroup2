@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useCandidateStore } from '../../hooks/useCandidateStore';
-import { UserPlus, Search, Building2, MapPin, AlertCircle, ArrowRight, XCircle, FilePlus2, Download, Upload, Info, LayoutGrid, List, ShieldCheck, Edit, User } from 'lucide-react';
+import { UserPlus, Search, Building2, MapPin, AlertCircle, ArrowRight, XCircle, FilePlus2, Download, Upload, Info, LayoutGrid, List, ShieldCheck, Edit, User } from '../../components/ui/icons';
 import AddCandidateModal from '../../components/candidates/AddCandidateModal';
 import CreateReferralSheetModal from '../../components/candidates/CreateReferralSessionModal';
 import ImportCSVModal from '../../components/candidates/ImportCSVModal';

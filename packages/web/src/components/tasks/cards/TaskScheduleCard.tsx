@@ -1,4 +1,4 @@
-import { Calendar } from 'lucide-react';
+import { Calendar } from '../../ui/icons';
 import { Card, InfoLine, formatDate } from '../shared';
 import { getExpectedDateStatus } from '../../../lib/taskDateStatus';
 

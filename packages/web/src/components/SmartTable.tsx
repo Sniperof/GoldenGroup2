@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, type ReactNode } from 'react';
 import { motion } from 'framer-motion';
-import { Search, Download, RotateCcw, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
+import { Search, Download, RotateCcw, ChevronUp, ChevronDown, ChevronsUpDown } from './ui/icons';
+import type { LucideIcon } from './ui/icons';
 import Select from './ui/Select';
 import Input from './ui/Input';
 

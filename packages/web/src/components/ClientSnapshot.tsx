@@ -1,7 +1,7 @@
 import {
     Phone, Home, MessageCircle, Briefcase, MapPin, Navigation,
     Star, UserCog, FileText, Building2, Users, Globe,
-} from 'lucide-react';
+} from './ui/icons';
 import ClientAvatar from './ClientAvatar';
 
 // ============================================================

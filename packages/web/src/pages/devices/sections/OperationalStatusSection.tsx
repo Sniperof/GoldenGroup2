@@ -1,7 +1,7 @@
 // Device operational status + lifecycle dates.
 
 import { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, Loader2, MapPin, Truck, Unplug, Wrench, Zap } from 'lucide-react';
+import { AlertCircle, Loader2, MapPin, Truck, Unplug, Wrench, Zap } from '../../../components/ui/icons';
 import { DeviceStatusBadge } from '../../../components/devices/DeviceStatusBadge';
 import { SectionShell } from './SectionShell';
 import { api } from '../../../lib/api';

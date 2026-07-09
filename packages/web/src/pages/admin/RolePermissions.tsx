@@ -12,7 +12,7 @@ import {
   ToggleRight, Award, Users, BookOpen, ClipboardList,
   Briefcase, GraduationCap, Settings, ListChecks, CheckCheck,
   UserCheck, Calendar, FileText, AlertCircle, BarChart2, ChevronDown
-} from 'lucide-react';
+} from '../../components/ui/icons';
 
 type ScopeType = RolePermissionGrant['scopeType'];
 

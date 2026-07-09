@@ -13,7 +13,7 @@
 // places without N+1 traffic.
 
 import { useEffect, useState } from 'react';
-import { ChevronLeft, MapPin } from 'lucide-react';
+import { ChevronLeft, MapPin } from '../ui/icons';
 import { getGeoUnits, type GeoUnit } from '../../lib/geoUnitsCache';
 import { buildGeoPath, geoLevelLabel } from '../../lib/geoPath';
 

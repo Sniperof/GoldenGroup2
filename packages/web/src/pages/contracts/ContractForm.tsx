@@ -8,7 +8,7 @@ import {
     AlertTriangle, ShieldCheck, ArrowRightLeft, Globe, Landmark,
     BadgeDollarSign, Gift, Plus, X, Edit2,
     ExternalLink, Smartphone, Clipboard, Loader2
-} from 'lucide-react';
+} from '../../components/ui/icons';
 import { api } from '../../lib/api';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { useBranchContextStore } from '../../hooks/useBranchContextStore';

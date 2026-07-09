@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCandidateStore } from '../../hooks/useCandidateStore';
-import { UserPlus, PlusCircle, CheckCircle, AlertCircle, Save, MapPin, Trash2, MessageCircle, Plus, Building2, User } from 'lucide-react';
+import { UserPlus, PlusCircle, CheckCircle, AlertCircle, Save, MapPin, Trash2, MessageCircle, Plus, Building2, User } from '../ui/icons';
 import { CandidateStatus, ReferralType, ReferralOriginChannel, Client, ContactEntry, Candidate, ContactType, ContactStatus } from '../../lib/types';
 import CreateReferralSheetModal from './CreateReferralSessionModal';
 import GeoSmartSearch, { GeoSelection } from '../GeoSmartSearch';

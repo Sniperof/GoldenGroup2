@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, User, Phone, MapPin, Share2, Save, Plus, Trash2, MessageCircle, MapPinned, CheckCircle, AlertCircle, ClipboardList, Lock, ChevronDown } from 'lucide-react';
+import { X, User, Phone, MapPin, Share2, Save, Plus, Trash2, MessageCircle, MapPinned, CheckCircle, AlertCircle, ClipboardList, Lock, ChevronDown } from './ui/icons';
 import type { Client, GeoUnit, ContactEntry, ContactType, ContactStatus, ReferralType, ReferralOriginChannel } from '../lib/types';
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';

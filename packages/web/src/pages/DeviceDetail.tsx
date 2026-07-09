@@ -4,7 +4,7 @@ import {
     ChevronRight, Loader2, Package, Clock, Wrench, PenTool, GraduationCap,
     Truck, Gem, Star, Image, Video, FileText, AlertCircle, RefreshCw,
     Zap, Tag, Plus, Pencil, Trash2, Save, ShieldCheck,
-} from 'lucide-react';
+} from '../components/ui/icons';
 import Modal from '../components/ui/Modal';
 import DataTable from '../components/ui/DataTable';
 import DateField from '../components/ui/DateField';

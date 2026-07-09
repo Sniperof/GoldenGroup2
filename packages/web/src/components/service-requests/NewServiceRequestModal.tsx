@@ -8,7 +8,7 @@
 // ============================================================
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Send, AlertCircle, Loader2, Search, Check } from 'lucide-react';
+import { Send, AlertCircle, Loader2, Search, Check } from '../ui/icons';
 import { api } from '../../lib/api';
 import Select from '../ui/Select';
 import Modal from '../ui/Modal';

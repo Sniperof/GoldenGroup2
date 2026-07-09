@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   AlertCircle, ArrowLeft, ArrowRight, CheckCircle2,
   Edit, Loader2, Package, Plus, Save, Trash2, X,
-} from 'lucide-react';
+} from '../../ui/icons';
 import { api } from '../../../lib/api';
 import { useSystemListItems } from '../../../hooks/useSystemListItems';
 import Select from '../../ui/Select';

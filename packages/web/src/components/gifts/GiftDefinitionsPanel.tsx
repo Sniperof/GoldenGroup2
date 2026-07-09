@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle2, Edit2, Gift, Plus, Save, Settings2, Trash2, X } from 'lucide-react';
+import { CheckCircle2, Edit2, Gift, Plus, Save, Settings2, Trash2, X } from '../ui/icons';
 import Card, { CardHeader, CardTitle } from '../ui/Card';
 import DataTable from '../ui/DataTable';
 import Modal from '../ui/Modal';

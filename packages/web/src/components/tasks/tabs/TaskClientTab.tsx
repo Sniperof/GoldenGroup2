@@ -1,7 +1,7 @@
 import {
   UserRound, Phone, MapPin, Briefcase, Award, Users2,
   StickyNote, Tag, Map as MapIcon, MessageCircle, Home, Smartphone,
-} from 'lucide-react';
+} from '../../ui/icons';
 import { useEffect, useMemo, useState } from 'react';
 import { Card, InfoLine, TabAlert } from '../shared';
 import { getGeoUnits, type GeoUnit } from '../../../lib/geoUnitsCache';

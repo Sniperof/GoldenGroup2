@@ -13,7 +13,7 @@ import {
   Layers,
   ChevronLeft,
   ExternalLink
-} from 'lucide-react';
+} from '../ui/icons';
 import { api } from '../../lib/api';
 import Select from '../ui/Select';
 import Modal from '../ui/Modal';

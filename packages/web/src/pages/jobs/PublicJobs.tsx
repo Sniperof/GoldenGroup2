@@ -11,7 +11,7 @@ import {
   Calendar, Car, PartyPopper, AlertTriangle, X, User, CheckCircle,
   Phone, Home, BookOpen, Monitor, Globe, DollarSign, Send, Info, Loader2,
   File, UploadCloud, Paperclip
-} from 'lucide-react';
+} from '../../components/ui/icons';
 import { motion, AnimatePresence } from 'framer-motion';
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';

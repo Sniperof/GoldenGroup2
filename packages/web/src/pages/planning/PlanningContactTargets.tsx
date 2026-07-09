@@ -4,7 +4,7 @@ import {
     ArrowRight, Calendar, CheckSquare, ChevronRight,
     ExternalLink, Info, Loader2, PhoneCall, RotateCcw, Search, Square,
     Target, Users, X, Zap,
-} from 'lucide-react';
+} from '../../components/ui/icons';
 import { api } from '../../lib/api';
 import { useBranchContextStore } from '../../hooks/useBranchContextStore';
 import { getOutcomeMeta } from '@golden-crm/shared';

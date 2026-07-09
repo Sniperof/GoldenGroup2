@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Navigate } from 'react-router-dom';
-import { Settings, Database, Trash2, AlertTriangle, RefreshCw, CheckCircle2, Clock, Save } from 'lucide-react';
+import { Settings, Database, Trash2, AlertTriangle, RefreshCw, CheckCircle2, Clock, Save } from '../components/ui/icons';
 import { usePermissions } from '../hooks/usePermissions';
 import { api } from '../lib/api';
 import Button from '../components/ui/Button';

@@ -6,7 +6,7 @@ import {
   ArrowRight, Users, Calendar, Clock, User, Briefcase, MapPin,
   GraduationCap, CheckCircle, XCircle, Edit, AlertTriangle,
   Car, Monitor, Globe, DollarSign
-} from 'lucide-react';
+} from '../../components/ui/icons';
 import Modal from '../../components/ui/Modal';
 import DateField from '../../components/ui/DateField';
 import PermissionGate from '../../components/PermissionGate';

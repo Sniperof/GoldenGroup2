@@ -1,5 +1,5 @@
 import { useParams } from 'react-router-dom';
-import { ShieldCheck } from 'lucide-react';
+import { ShieldCheck } from '../../components/ui/icons';
 import TaskDetailLayout from '../../components/tasks/TaskDetailLayout';
 import type { TaskResultModalProps, TaskTypeExtension, TaskDetailData } from '../../components/tasks/types';
 import GoldenWarrantyOfferModal from '../../taskTypes/golden_warranty_offer/GoldenWarrantyOfferModal';

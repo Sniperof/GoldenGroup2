@@ -10,7 +10,7 @@ import {
   Trash2,
   XCircle,
   type LucideIcon,
-} from 'lucide-react';
+} from '../ui/icons';
 import Select from '../ui/Select';
 import Button from '../ui/Button';
 import Modal from '../ui/Modal';

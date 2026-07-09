@@ -6,7 +6,7 @@ import {
     Phone, CheckCircle2, PhoneOff, PhoneMissed, Send,
     MessageSquare, PhoneForwarded, UserCheck, PhoneCall,
     MapPin, AlertTriangle, Calendar, Edit3, Droplets, FileText,
-} from 'lucide-react';
+} from '../ui/icons';
 import Select from '../ui/Select';
 import Button from '../ui/Button';
 import Modal from '../ui/Modal';

@@ -6,7 +6,7 @@ import {
   GraduationCap, ArrowRight, Calendar, User, Monitor, Building2,
   CheckCircle, XCircle, Loader2, AlertTriangle, Play, Award,
   UserPlus, ChevronDown,
-} from 'lucide-react';
+} from '../../components/ui/icons';
 import PermissionGate from '../../components/PermissionGate';
 import Select from '../../components/ui/Select';
 import DateField from '../../components/ui/DateField';

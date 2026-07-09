@@ -8,7 +8,7 @@ import {
   ClipboardList, Eye, Mail, Phone, Smartphone, Globe,
   PhoneCall, User, BookOpen, Clock, TrendingUp,
   MessageSquare, Zap,
-} from 'lucide-react';
+} from '../../components/ui/icons';
 import Modal from '../../components/ui/Modal';
 import DateField from '../../components/ui/DateField';
 import SmartTable from '../../components/SmartTable';
