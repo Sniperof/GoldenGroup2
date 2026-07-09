@@ -52,6 +52,9 @@ export interface SmartTableProps<T> {
     emptyMessage?: string;
     getId: (item: T) => string | number;
     hideFilterBar?: boolean;
+    /** Hide the in-card title/toolbar header (when the page already has a title
+     * block + tabs above). The toolbar (reset · export) moves into the filter bar. */
+    hideHeader?: boolean;
     tableMinWidth?: number;
     defaultSortKey?: string;
     defaultSortDir?: 'asc' | 'desc';
@@ -119,6 +122,7 @@ export default function SmartTable<T>({
     getId,
     rowClassName,
     hideFilterBar = false,
+    hideHeader = false,
     tableMinWidth = 860,
     defaultSortKey,
     defaultSortDir,
@@ -277,20 +281,22 @@ export default function SmartTable<T>({
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
 
             {/* ── HEADER (unified section label inside the card) ── */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-5 py-4 border-b border-slate-100">
-                <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-xl bg-sky-50 border border-sky-100 flex items-center justify-center shrink-0">
-                        <Icon className="w-4 h-4 text-sky-600" />
+            {!hideHeader && (
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-5 py-4 border-b border-slate-100">
+                    <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-xl bg-sky-50 border border-sky-100 flex items-center justify-center shrink-0">
+                            <Icon className="w-4 h-4 text-sky-600" />
+                        </div>
+                        <div>
+                            <h2 className="text-lg font-bold text-slate-800 leading-tight">{title}</h2>
+                            <p className="text-xs text-slate-400 mt-0.5">{subtitle ?? countNode}</p>
+                        </div>
+                        {scopeIndicator}
                     </div>
-                    <div>
-                        <h2 className="text-lg font-bold text-slate-800 leading-tight">{title}</h2>
-                        <p className="text-xs text-slate-400 mt-0.5">{subtitle ?? countNode}</p>
-                    </div>
-                    {scopeIndicator}
-                </div>
 
-                <div className="flex items-center gap-2">{toolbar}</div>
-            </div>
+                    <div className="flex items-center gap-2">{toolbar}</div>
+                </div>
+            )}
 
             {/* ── FILTER BAR ── */}
             {!hideFilterBar && (
@@ -316,6 +322,8 @@ export default function SmartTable<T>({
                             ]}
                         />
                     ))}
+                    {/* When the card header is hidden, keep its toolbar (reset · export) here. */}
+                    {hideHeader && <div className="flex items-center gap-2 shrink-0">{toolbar}</div>}
                 </div>
             )}
 

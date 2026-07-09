@@ -114,7 +114,7 @@ export function WarrantiesSection({ warranties, device, onCreated }: Props) {
   ];
 
   return (
-    <section id="warranties" className="scroll-mt-24">
+    <section id="warranties" className="scroll-mt-16">
       <SmartTable<any>
         title="الكفالات"
         subtitle="حالة كل كفالة وتاريخ سريانها ومدتها"

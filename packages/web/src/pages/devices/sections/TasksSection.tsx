@@ -414,7 +414,7 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
   ];
 
   return (
-    <section id="tasks" className="scroll-mt-24">
+    <section id="tasks" className="scroll-mt-16">
       <SmartTable<any>
         title="المهام المرتبطة"
         subtitle="كل المهام الميدانية على هذا الجهاز"

@@ -8,9 +8,10 @@ import {
 import IconButton from '../components/ui/IconButton';
 import Modal from '../components/ui/Modal';
 import DataTable from '../components/ui/DataTable';
+import PageHeader from '../components/ui/PageHeader';
 import { api } from '../lib/api';
 import type { DeviceModel, SparePart, MaintenancePartType, CatalogPriceHistoryEntry } from '../lib/types';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import SmartTable from '../components/SmartTable';
 import type { ColumnDef, FilterDef } from '../components/SmartTable';
 import { usePermissions } from '../hooks/usePermissions';
@@ -1023,125 +1024,123 @@ const DeviceManagement = () => {
         );
     }
 
+    // Inline add/edit device keeps its own full-height layout.
+    if (isAddingDevice && canManageDeviceModels) {
+        return (
+            <div className="h-full flex flex-col overflow-hidden">
+                <AddDevicePage
+                    device={editingDevice}
+                    onCancel={closeDeviceForm}
+                    onSaved={async () => { closeDeviceForm(); await fetchData(); }}
+                />
+            </div>
+        );
+    }
+
     return (
         <>
-            <div className="h-full flex flex-col overflow-hidden">
-                {/* TAB HEADER — hidden when adding device */}
-                {!isAddingDevice && (
-                    <div className="bg-white border-b border-slate-200 flex gap-1 px-6 pt-4 shrink-0">
-                        {tabs.map(tab => (
+            <div className="p-8 space-y-6" dir="rtl">
+                <PageHeader
+                    title="إدارة الأجهزة وقطع الغيار"
+                    subtitle="كتالوج الأجهزة وقطع الصيانة وأسعارها"
+                    actions={activeTab === 'devices'
+                        ? (canManageDeviceModels && (
                             <button
-                                key={tab.id}
-                                onClick={() => setActiveTab(tab.id)}
-                                className={`flex items-center gap-2 px-5 py-3 text-sm font-bold rounded-t-lg transition-all relative top-[1px] ${activeTab === tab.id
-                                    ? 'bg-slate-50 text-sky-600 border border-slate-200 border-b-slate-50 shadow-sm'
-                                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}
+                                onClick={openCreateDevice}
+                                className="flex items-center gap-2 px-5 py-2 bg-sky-600 hover:bg-sky-700 text-white text-sm font-bold rounded-xl shadow-md shadow-sky-500/20 transition-all"
                             >
-                                <tab.icon className="w-4 h-4" />
-                                <span>{tab.label}</span>
-                                <span className={`px-1.5 py-0.5 rounded text-xs font-bold ${activeTab === tab.id ? 'bg-sky-100 text-sky-600' : 'bg-slate-100 text-slate-500'}`}>
-                                    {tab.count}
-                                </span>
+                                <Plus className="w-4 h-4" /> إضافة جهاز
+                            </button>
+                        ))
+                        : (canManageSpareParts && (
+                            <button
+                                onClick={() => openPartForm()}
+                                className="flex items-center gap-2 px-5 py-2 bg-sky-600 hover:bg-sky-700 text-white text-sm font-bold rounded-xl shadow-md shadow-sky-500/20 transition-all"
+                            >
+                                <Plus className="w-4 h-4" /> إضافة قطعة
                             </button>
                         ))}
-                    </div>
-                )}
+                />
 
-                {/* TAB CONTENT */}
-                <div className="flex-1 overflow-hidden min-h-0 flex flex-col">
-                    <AnimatePresence mode="wait">
-                        {isAddingDevice && canManageDeviceModels ? (
-                            <AddDevicePage
-                                key="add-device"
-                                device={editingDevice}
-                                onCancel={closeDeviceForm}
-                                onSaved={async () => { closeDeviceForm(); await fetchData(); }}
-                            />
-                        ) : activeTab === 'devices' ? (
-                            <motion.div key="devices-table" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex-1 overflow-hidden min-h-0 flex flex-col">
-                                <SmartTable<DeviceModel>
-                                    title="إدارة الأجهزة"
-                                    icon={Package}
-                                    data={devices}
-                                    columns={deviceColumns}
-                                    filters={deviceFilters}
-                                    searchKeys={['name', 'nameAr', 'nameEn', 'brand']}
-                                    searchPlaceholder="بحث عن جهاز..."
-                                    getId={(d) => d.id}
-                                    onRowClick={(d) => navigate(`/devices/${d.id}`)}
-                                    headerActions={canManageDeviceModels ? (
-                                        <button
-                                            onClick={openCreateDevice}
-                                            className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition-all"
-                                        >
-                                            <Plus className="w-4 h-4" /><span>إضافة جهاز</span>
-                                        </button>
-                                    ) : undefined}
-                                    emptyIcon={Package}
-                                    emptyMessage="لا توجد أجهزة"
-                                    actions={canManageDeviceModels ? (d) => (
-                                        <button
-                                            type="button"
-                                            onClick={() => openEditDevice(d)}
-                                            className="p-1.5 rounded-lg hover:bg-sky-50 text-slate-400 hover:text-sky-600 transition-colors"
-                                            title="تعديل الجهاز"
-                                        >
-                                            <Pencil className="w-4 h-4" />
-                                        </button>
-                                    ) : undefined}
-                                />
-                            </motion.div>
-                        ) : (
-                            <motion.div key="parts-table" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex-1 overflow-hidden min-h-0 flex flex-col">
-                                <SmartTable<SparePart>
-                                    title="قطع الأجهزة"
-                                    icon={Cog}
-                                    data={parts}
-                                    columns={partColumns}
-                                    filters={partFilters}
-                                    searchKeys={['name', 'code']}
-                                    searchPlaceholder="بحث عن قطعة..."
-                                    getId={(p) => p.id}
-                                    onRowClick={canManageSpareParts ? (p) => openPartForm(p) : undefined}
-                                    headerActions={canManageSpareParts ? (
-                                        <button
-                                            onClick={() => openPartForm()}
-                                            className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition-all"
-                                        >
-                                            <Plus className="w-4 h-4" /><span>إضافة قطعة</span>
-                                        </button>
-                                    ) : undefined}
-                                    emptyIcon={Cog}
-                                    actions={(canManageSpareParts || canManageSparePartPrices) ? (p) => (
-                                        <div className="flex items-center gap-1">
-                                            {canManageSparePartPrices && (
-                                                <button
-                                                    type="button"
-                                                    onClick={(event) => { event.stopPropagation(); openPartPrices(p); }}
-                                                    className="p-1.5 rounded-lg hover:bg-sky-50 text-slate-400 hover:text-sky-600 transition-colors"
-                                                    title="سجل أسعار القطعة"
-                                                >
-                                                    <Tag className="w-4 h-4" />
-                                                </button>
-                                            )}
-                                            {canManageSpareParts && (
-                                                <button
-                                                    type="button"
-                                                    onClick={(event) => { event.stopPropagation(); openPartForm(p); }}
-                                                    className="p-1.5 rounded-lg hover:bg-sky-50 text-slate-400 hover:text-sky-600 transition-colors"
-                                                    title="تعديل القطعة"
-                                                >
-                                                    <Pencil className="w-4 h-4" />
-                                                </button>
-                                            )}
-                                        </div>
-                                    ) : undefined}
-                                    emptyMessage="لا توجد قطع غيار"
-                                />
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
+                {/* Tabs Navigation */}
+                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl w-fit">
+                    {tabs.map(tab => (
+                        <button
+                            key={tab.id}
+                            onClick={() => setActiveTab(tab.id)}
+                            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === tab.id ? 'bg-white text-sky-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                            <tab.icon className="w-4 h-4" /> {tab.label} ({tab.count})
+                        </button>
+                    ))}
                 </div>
+
+                {/* Active table */}
+                {activeTab === 'devices' ? (
+                    <SmartTable<DeviceModel>
+                        hideHeader
+                        title="إدارة الأجهزة"
+                        icon={Package}
+                        data={devices}
+                        columns={deviceColumns}
+                        filters={deviceFilters}
+                        searchKeys={['name', 'nameAr', 'nameEn', 'brand']}
+                        searchPlaceholder="بحث عن جهاز..."
+                        getId={(d) => d.id}
+                        onRowClick={(d) => navigate(`/devices/${d.id}`)}
+                        emptyIcon={Package}
+                        emptyMessage="لا توجد أجهزة"
+                        actions={canManageDeviceModels ? (d) => (
+                            <button
+                                type="button"
+                                onClick={() => openEditDevice(d)}
+                                className="p-1.5 rounded-lg hover:bg-sky-50 text-slate-400 hover:text-sky-600 transition-colors"
+                                title="تعديل الجهاز"
+                            >
+                                <Pencil className="w-4 h-4" />
+                            </button>
+                        ) : undefined}
+                    />
+                ) : (
+                    <SmartTable<SparePart>
+                        hideHeader
+                        title="قطع الأجهزة"
+                        icon={Cog}
+                        data={parts}
+                        columns={partColumns}
+                        filters={partFilters}
+                        searchKeys={['name', 'code']}
+                        searchPlaceholder="بحث عن قطعة..."
+                        getId={(p) => p.id}
+                        onRowClick={canManageSpareParts ? (p) => openPartForm(p) : undefined}
+                        emptyIcon={Cog}
+                        actions={(canManageSpareParts || canManageSparePartPrices) ? (p) => (
+                            <div className="flex items-center gap-1">
+                                {canManageSparePartPrices && (
+                                    <button
+                                        type="button"
+                                        onClick={(event) => { event.stopPropagation(); openPartPrices(p); }}
+                                        className="p-1.5 rounded-lg hover:bg-sky-50 text-slate-400 hover:text-sky-600 transition-colors"
+                                        title="سجل أسعار القطعة"
+                                    >
+                                        <Tag className="w-4 h-4" />
+                                    </button>
+                                )}
+                                {canManageSpareParts && (
+                                    <button
+                                        type="button"
+                                        onClick={(event) => { event.stopPropagation(); openPartForm(p); }}
+                                        className="p-1.5 rounded-lg hover:bg-sky-50 text-slate-400 hover:text-sky-600 transition-colors"
+                                        title="تعديل القطعة"
+                                    >
+                                        <Pencil className="w-4 h-4" />
+                                    </button>
+                                )}
+                            </div>
+                        ) : undefined}
+                        emptyMessage="لا توجد قطع غيار"
+                    />
+                )}
             </div>
 
             {pricingPart && (

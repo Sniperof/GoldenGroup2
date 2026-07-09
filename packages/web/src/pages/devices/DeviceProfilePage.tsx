@@ -3,13 +3,20 @@
 // Reachable from the customer-profile devices tab AND directly via
 // /installed-devices/:id (any user with contracts.view_list).
 //
-// Layout: sticky side-rail jump-links + a vertical stack of 9 sections
-// in the order mandated by the constitution (§01-what-is-a-device.md and
+// Layout: a sticky top ProfileTabsBar switches between the sections, in the
+// order mandated by the constitution (§01-what-is-a-device.md and
 // §08-resolved-decisions.md).
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Loader2, ChevronRight, ArrowLeft, AlertTriangle } from 'lucide-react';
+import {
+  Loader2, ArrowLeft, AlertTriangle,
+  Fingerprint, Activity, UserCheck, History, Award,
+  Puzzle, FileText, Wallet, ClipboardList, HeartPulse,
+} from 'lucide-react';
+
+import ProfileTabsBar from '../../components/ui/ProfileTabsBar';
+import ProfileBreadcrumbBar from '../../components/ui/ProfileBreadcrumbBar';
 
 import { api, API_BASE } from '../../lib/api';
 import { DeviceStatusBadge } from '../../components/devices/DeviceStatusBadge';
@@ -28,18 +35,18 @@ import { TasksSection } from './sections/TasksSection';
 import { ProblemsHistorySection } from './sections/ProblemsHistorySection';
 import { TechnicalHealthSection } from './sections/TechnicalHealthSection';
 
-const JUMP_LINKS = [
-  { id: 'identity',          label: '١. الهوية' },
-  { id: 'operational',       label: '٢. الحالة' },
-  { id: 'current-holder',    label: '٣. الحيازة الحالية' },
-  { id: 'possession-history',label: '٤. سجل الحيازة' },
-  { id: 'warranties',        label: '٥. الكفالات' },
-  { id: 'parts',             label: '٦. القطع' },
-  { id: 'contract',          label: '٧. العقد' },
-  { id: 'financial',         label: '٨. المالية' },
-  { id: 'tasks',             label: '٩. المهام' },
-  { id: 'problems',          label: '١٠. سجل الأعطال' },
-  { id: 'technical-health',  label: '١١. الصحة الفنية' },
+const SECTIONS = [
+  { id: 'identity',          label: 'الهوية',          icon: Fingerprint },
+  { id: 'operational',       label: 'الحالة',          icon: Activity },
+  { id: 'current-holder',    label: 'الحيازة الحالية', icon: UserCheck },
+  { id: 'possession-history',label: 'سجل الحيازة',     icon: History },
+  { id: 'warranties',        label: 'الكفالات',        icon: Award },
+  { id: 'parts',             label: 'القطع',           icon: Puzzle },
+  { id: 'contract',          label: 'العقد',           icon: FileText },
+  { id: 'financial',         label: 'المالية',         icon: Wallet },
+  { id: 'tasks',             label: 'المهام',          icon: ClipboardList },
+  { id: 'problems',          label: 'سجل الأعطال',     icon: AlertTriangle },
+  { id: 'technical-health',  label: 'الصحة الفنية',    icon: HeartPulse },
 ];
 
 const MISSING_LABELS: Record<string, string> = {
@@ -114,6 +121,45 @@ export default function DeviceProfilePage() {
     );
   }, [warranties]);
 
+  // Sticky top tabs: all sections are stacked and scrolled through; the tabs
+  // jump to a section and scroll-spy highlights whichever is under the bar.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [activeSection, setActiveSection] = useState<string>(SECTIONS[0].id);
+
+  useEffect(() => {
+    if (!device) return;
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+    // The active section is the last one (document order) whose top has scrolled
+    // up past the sticky tab bar. MARKER is a viewport y just below breadcrumb +
+    // tabs. A scroll listener is used because it fires reliably on user scroll.
+    const MARKER = 175;
+    const onScroll = () => {
+      let current = SECTIONS[0].id;
+      for (const s of SECTIONS) {
+        const el = document.getElementById(s.id);
+        if (!el) continue;
+        if (el.getBoundingClientRect().top - MARKER <= 0) current = s.id;
+        else break;
+      }
+      setActiveSection(current);
+    };
+    onScroll();
+    scroller.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll);
+    return () => {
+      scroller.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onScroll);
+    };
+    // `loading` is included so the effect re-runs once the scroll container is
+    // actually mounted (device is set a render before loading flips false).
+  }, [device, loading]);
+
+  const handleJump = useCallback((id: string) => {
+    setActiveSection(id);
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-slate-500">
@@ -139,27 +185,22 @@ export default function DeviceProfilePage() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
-      {/* Breadcrumb */}
-      <nav className="flex items-center gap-1 text-xs text-slate-500 font-medium">
-        <button
-          onClick={() => navigate('/clients')}
-          className="hover:text-sky-600 hover:underline"
-        >
-          الزبائن
-        </button>
-        <ChevronRight className="w-3 h-3 -scale-x-100" />
-        <button
-          onClick={() => device.customerId && navigate(`/clients/${device.customerId}`)}
-          className="hover:text-sky-600 hover:underline"
-        >
-          {device.customerName ?? `#${device.customerId}`}
-        </button>
-        <ChevronRight className="w-3 h-3 -scale-x-100" />
-        <span className="text-slate-700 font-bold">
-          {device.deviceModelName || `جهاز #${device.id}`} #{device.serialNumber || device.id}
-        </span>
-      </nav>
+    <div className="h-full flex flex-col overflow-hidden bg-slate-50" style={{ direction: 'rtl' }}>
+      {/* Full-width white breadcrumb bar (fixed above the scroll area) */}
+      <ProfileBreadcrumbBar
+        items={[
+          { label: 'الزبائن', onClick: () => navigate('/clients') },
+          {
+            label: device.customerName ?? `#${device.customerId}`,
+            onClick: device.customerId ? () => navigate(`/clients/${device.customerId}`) : undefined,
+          },
+          { label: `${device.deviceModelName || `جهاز #${device.id}`} #${device.serialNumber || device.id}` },
+        ]}
+      />
+
+      {/* Scrollable area */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto custom-scroll">
+        <div className="mx-auto max-w-[1600px] px-4 py-6 space-y-6 sm:px-6 lg:px-8">
 
       {/* Header card */}
       <header className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
@@ -208,39 +249,28 @@ export default function DeviceProfilePage() {
         </div>
       )}
 
-      {/* Side rail + sections */}
-      <div className="flex gap-6">
-        <aside className="hidden lg:block w-48 shrink-0">
-          <nav className="sticky top-20 space-y-1 text-xs">
-            {JUMP_LINKS.map(j => (
-              <a
-                key={j.id}
-                href={`#${j.id}`}
-                className="block px-3 py-2 rounded-xl text-slate-600 hover:bg-slate-100 hover:text-slate-800 font-bold"
-              >
-                {j.label}
-              </a>
-            ))}
-          </nav>
-        </aside>
+      {/* Sticky section tabs — rise on scroll and stop just under the breadcrumb bar */}
+      <div className="sticky top-0 z-30 -mx-4 border-b border-slate-200 bg-white px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
+        <ProfileTabsBar tabs={SECTIONS} activeId={activeSection} onChange={handleJump} />
+      </div>
 
-        <main className="flex-1 min-w-0 space-y-6">
-          <IdentitySection device={device} />
-          <OperationalStatusSection device={device} tasks={tasks} onTaskCreated={fetchAll} />
-          <CurrentHolderSection device={device} currentPossession={currentPossession} />
-          <PossessionHistorySection entries={possessionLog} />
-          <WarrantiesSection
-            warranties={warranties}
-            device={{ id: device.id, customerId: device.customerId, contractId: device.contractId, branchId: device.branchId, status: device.status }}
-            onCreated={fetchAll}
-          />
-          <InstalledPartsSection contract={contract} deviceParts={parts} onChanged={fetchAll} />
-          <LinkedContractSection contract={contract} apiBase={API_BASE} />
-          <FinancialSection contract={contract} customerId={device.customerId ?? null} />
-          <TasksSection tasks={tasks} deviceId={deviceId} contractId={device.contractId} device={device} onTaskCreated={fetchAll} />
-          <ProblemsHistorySection deviceId={deviceId} />
-          <TechnicalHealthSection deviceId={deviceId} />
-        </main>
+      {/* All sections stacked; the tabs jump / scroll-spy through them */}
+      <IdentitySection device={device} />
+      <OperationalStatusSection device={device} tasks={tasks} onTaskCreated={fetchAll} />
+      <CurrentHolderSection device={device} currentPossession={currentPossession} />
+      <PossessionHistorySection entries={possessionLog} />
+      <WarrantiesSection
+        warranties={warranties}
+        device={{ id: device.id, customerId: device.customerId, contractId: device.contractId, branchId: device.branchId, status: device.status }}
+        onCreated={fetchAll}
+      />
+      <InstalledPartsSection contract={contract} deviceParts={parts} onChanged={fetchAll} />
+      <LinkedContractSection contract={contract} apiBase={API_BASE} />
+      <FinancialSection contract={contract} customerId={device.customerId ?? null} />
+      <TasksSection tasks={tasks} deviceId={deviceId} contractId={device.contractId} device={device} onTaskCreated={fetchAll} />
+      <ProblemsHistorySection deviceId={deviceId} />
+      <TechnicalHealthSection deviceId={deviceId} />
+        </div>
       </div>
     </div>
   );

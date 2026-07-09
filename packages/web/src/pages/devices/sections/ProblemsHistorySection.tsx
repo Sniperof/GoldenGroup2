@@ -95,7 +95,7 @@ export function ProblemsHistorySection({ deviceId }: { deviceId: number }) {
   ];
 
   return (
-    <section id="problems" className="scroll-mt-24">
+    <section id="problems" className="scroll-mt-16">
       {loading ? (
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm flex justify-center py-10">
           <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
