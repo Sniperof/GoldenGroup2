@@ -263,7 +263,7 @@ export default function MainLayout() {
                             onClick={() => setIsMobileMenuOpen(false)}
                             className={({ isActive }: { isActive: boolean }) =>
                                 `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
-                                    ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
+                                    ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500'
                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
                             }
@@ -280,7 +280,7 @@ export default function MainLayout() {
                         <button
                             onClick={() => setRecordsOpen(o => !o)}
                             className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isRecordsActive
-                                ? 'bg-sky-50 text-sky-600 font-bold'
+                                ? 'bg-sky-50 text-sky-600'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 }`}
                         >
@@ -306,7 +306,7 @@ export default function MainLayout() {
                                             onClick={() => setIsMobileMenuOpen(false)}
                                             className={({ isActive }: { isActive: boolean }) =>
                                                 `w-full flex items-center gap-3 pr-12 pl-4 py-2.5 rounded-lg no-pill transition-all text-right text-sm leading-snug ${isActive
-                                                    ? 'text-sky-600 bg-sky-50 font-bold'
+                                                    ? 'text-sky-600 bg-sky-50'
                                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                                 }`
                                             }
@@ -328,7 +328,7 @@ export default function MainLayout() {
                         onClick={() => setIsMobileMenuOpen(false)}
                         className={({ isActive }: { isActive: boolean }) =>
                             `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
-                                ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
+                                ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                             } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
                         }
@@ -345,7 +345,7 @@ export default function MainLayout() {
                         onClick={() => setIsMobileMenuOpen(false)}
                         className={({ isActive }: { isActive: boolean }) =>
                             `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive || isVisitsActive
-                                ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
+                                ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                             } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
                         }
@@ -362,7 +362,7 @@ export default function MainLayout() {
                         onClick={() => setIsMobileMenuOpen(false)}
                         className={({ isActive }: { isActive: boolean }) =>
                             `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
-                                ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
+                                ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                             } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
                         }
@@ -379,7 +379,7 @@ export default function MainLayout() {
                         onClick={() => setIsMobileMenuOpen(false)}
                         className={({ isActive }: { isActive: boolean }) =>
                             `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
-                                ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
+                                ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                             } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
                         }
@@ -396,7 +396,7 @@ export default function MainLayout() {
                         onClick={() => setIsMobileMenuOpen(false)}
                         className={({ isActive }: { isActive: boolean }) =>
                             `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
-                                ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
+                                ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                             } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
                         }
@@ -412,7 +412,7 @@ export default function MainLayout() {
                         <button
                             onClick={() => setJobsOpen(o => !o)}
                             className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isJobsActive
-                                ? 'bg-sky-50 text-sky-600 font-bold'
+                                ? 'bg-sky-50 text-sky-600'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 }`}
                         >
@@ -438,7 +438,7 @@ export default function MainLayout() {
                                             onClick={() => setIsMobileMenuOpen(false)}
                                             className={({ isActive }: { isActive: boolean }) =>
                                                 `w-full flex items-center gap-3 pr-12 pl-4 py-2.5 rounded-lg no-pill transition-all text-right text-sm leading-snug ${isActive
-                                                    ? 'text-sky-600 bg-sky-50 font-bold'
+                                                    ? 'text-sky-600 bg-sky-50'
                                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                                 }`
                                             }
@@ -459,7 +459,7 @@ export default function MainLayout() {
                         <button
                             onClick={() => setPlanningOpen((o: boolean) => !o)}
                             className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isPlanningActive
-                                ? 'bg-sky-50 text-sky-600 font-bold'
+                                ? 'bg-sky-50 text-sky-600'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 }`}
                         >
@@ -485,7 +485,7 @@ export default function MainLayout() {
                                             onClick={() => setIsMobileMenuOpen(false)}
                                             className={({ isActive }: { isActive: boolean }) =>
                                                 `w-full flex items-center gap-3 pr-12 pl-4 py-2.5 rounded-lg no-pill transition-all text-right text-sm leading-snug ${isActive
-                                                    ? 'text-sky-600 bg-sky-50 font-bold'
+                                                    ? 'text-sky-600 bg-sky-50'
                                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                                 }`
                                             }
@@ -506,7 +506,7 @@ export default function MainLayout() {
                         <button
                             onClick={() => setRequestsOpen((o: boolean) => !o)}
                             className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isRequestsActive
-                                ? 'bg-sky-50 text-sky-600 font-bold'
+                                ? 'bg-sky-50 text-sky-600'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 }`}
                         >
@@ -532,7 +532,7 @@ export default function MainLayout() {
                                             onClick={() => setIsMobileMenuOpen(false)}
                                             className={({ isActive }: { isActive: boolean }) =>
                                                 `w-full flex items-center gap-3 pr-12 pl-4 py-2.5 rounded-lg no-pill transition-all text-right text-sm leading-snug ${isActive
-                                                    ? 'text-sky-600 bg-sky-50 font-bold'
+                                                    ? 'text-sky-600 bg-sky-50'
                                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                                 }`
                                             }
@@ -555,7 +555,7 @@ export default function MainLayout() {
                             onClick={() => setIsMobileMenuOpen(false)}
                             className={({ isActive }: { isActive: boolean }) =>
                                 `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
-                                    ? 'bg-sky-50 text-sky-600 font-bold'
+                                    ? 'bg-sky-50 text-sky-600'
                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 }`
                             }
@@ -574,7 +574,7 @@ export default function MainLayout() {
                             onClick={() => setIsMobileMenuOpen(false)}
                             className={({ isActive }: { isActive: boolean }) =>
                                 `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
-                                    ? 'bg-sky-50 text-sky-600 font-bold'
+                                    ? 'bg-sky-50 text-sky-600'
                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 }`
                             }
@@ -593,7 +593,7 @@ export default function MainLayout() {
                             onClick={() => setIsMobileMenuOpen(false)}
                             className={({ isActive }: { isActive: boolean }) =>
                                 `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive || isGiftsActive
-                                    ? 'bg-sky-50 text-sky-600 font-bold'
+                                    ? 'bg-sky-50 text-sky-600'
                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 }`
                             }
@@ -610,7 +610,7 @@ export default function MainLayout() {
                         <button
                             onClick={() => setOperationsOpen((o: boolean) => !o)}
                             className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isOperationsActive
-                                ? 'bg-sky-50 text-sky-600 font-bold'
+                                ? 'bg-sky-50 text-sky-600'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 }`}
                         >
@@ -636,7 +636,7 @@ export default function MainLayout() {
                                             onClick={() => setIsMobileMenuOpen(false)}
                                             className={({ isActive }: { isActive: boolean }) =>
                                                 `w-full flex items-center gap-3 pr-12 pl-4 py-2.5 rounded-lg no-pill transition-all text-right text-sm leading-snug ${isActive
-                                                    ? 'text-sky-600 bg-sky-50 font-bold'
+                                                    ? 'text-sky-600 bg-sky-50'
                                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                                 }`
                                             }
@@ -657,7 +657,7 @@ export default function MainLayout() {
                         <button
                             onClick={() => setGeoOpen(o => !o)}
                             className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isGeoActive
-                                ? 'bg-sky-50 text-sky-600 font-bold'
+                                ? 'bg-sky-50 text-sky-600'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 }`}
                         >
@@ -683,7 +683,7 @@ export default function MainLayout() {
                                             onClick={() => setIsMobileMenuOpen(false)}
                                             className={({ isActive }: { isActive: boolean }) =>
                                                 `w-full flex items-center gap-3 pr-12 pl-4 py-2.5 rounded-lg no-pill transition-all text-right text-sm leading-snug ${isActive
-                                                    ? 'text-sky-600 bg-sky-50 font-bold'
+                                                    ? 'text-sky-600 bg-sky-50'
                                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                                 }`
                                             }
@@ -705,7 +705,7 @@ export default function MainLayout() {
                         onClick={() => setIsMobileMenuOpen(false)}
                         className={({ isActive }: { isActive: boolean }) =>
                             `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
-                                ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
+                                ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                             } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
                         }
@@ -722,7 +722,7 @@ export default function MainLayout() {
                         onClick={() => setIsMobileMenuOpen(false)}
                         className={({ isActive }: { isActive: boolean }) =>
                             `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
-                                ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
+                                ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                             } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
                         }
@@ -739,7 +739,7 @@ export default function MainLayout() {
                             onClick={() => setIsMobileMenuOpen(false)}
                             className={({ isActive }: { isActive: boolean }) =>
                                 `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
-                                    ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
+                                    ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500'
                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
                             }
@@ -756,7 +756,7 @@ export default function MainLayout() {
                             onClick={() => setIsMobileMenuOpen(false)}
                             className={({ isActive }: { isActive: boolean }) =>
                                 `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
-                                    ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
+                                    ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500'
                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
                             }
@@ -773,7 +773,7 @@ export default function MainLayout() {
                             onClick={() => setIsMobileMenuOpen(false)}
                             className={({ isActive }: { isActive: boolean }) =>
                                 `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
-                                    ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
+                                    ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500'
                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
                             }
@@ -790,7 +790,7 @@ export default function MainLayout() {
                             onClick={() => setIsMobileMenuOpen(false)}
                             className={({ isActive }: { isActive: boolean }) =>
                                 `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
-                                    ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
+                                    ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500'
                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
                             }
@@ -807,7 +807,7 @@ export default function MainLayout() {
                             onClick={() => setIsMobileMenuOpen(false)}
                             className={({ isActive }: { isActive: boolean }) =>
                                 `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
-                                    ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
+                                    ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500'
                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
                             }
@@ -824,7 +824,7 @@ export default function MainLayout() {
                         onClick={() => setIsMobileMenuOpen(false)}
                         className={({ isActive }: { isActive: boolean }) =>
                             `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
-                                ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
+                                ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                             } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
                         }
