@@ -36,12 +36,15 @@ const selectFields = `
   d.contract_warranty_end_date AS "contractWarrantyEndDate",
   d.warranty_months           AS "warrantyMonths",
   d.warranty_visits           AS "warrantyVisits",
+  active_sa.id                AS "activeServiceAgreementId",
+  active_sa.maintenance_plan  AS "activeServiceAgreementMaintenancePlan",
+  active_sa.visits_count      AS "activeServiceAgreementVisitsCount",
   d.activated_at              AS "activatedAt",
   d.created_at                AS "createdAt",
   d.updated_at                AS "updatedAt",
   c.contract_number           AS "contractNumber",
   c.sale_subtype              AS "saleSubtype",
-  c.customer_name             AS "customerName",
+  COALESCE(c.customer_name, cl.name) AS "customerName",
   b.name                      AS "branchName",
   gu.name                     AS "installationGeoUnitName",
   jsonb_strip_nulls(jsonb_build_object(
@@ -97,9 +100,20 @@ router.get('/', requirePermission('installed_devices.view', 'clients.devices.vie
     `SELECT ${selectFields}
      FROM installed_devices d
      LEFT JOIN contracts c ON c.id = d.contract_id
+     LEFT JOIN clients cl ON cl.id = d.customer_id
      LEFT JOIN branches b ON b.id = d.branch_id
      LEFT JOIN geo_units gu ON gu.id = d.installation_geo_unit_id
      LEFT JOIN device_models dm ON dm.id = COALESCE(d.device_model_id, c.device_model_id)
+     LEFT JOIN LATERAL (
+       SELECT sa.id, sa.maintenance_plan, sa.visits_count
+         FROM service_agreements sa
+        WHERE sa.installed_device_id = d.id
+          AND sa.status = 'active'
+          AND (sa.start_date IS NULL OR sa.start_date <= CURRENT_DATE)
+          AND (sa.end_date IS NULL OR sa.end_date >= CURRENT_DATE)
+        ORDER BY COALESCE(sa.start_date, sa.agreement_date) DESC, sa.id DESC
+        LIMIT 1
+     ) active_sa ON TRUE
      ${where}
      ORDER BY d.created_at DESC`,
     params
@@ -114,6 +128,7 @@ router.post('/external', requirePermission('installed_devices.create_external'),
     const customerId = Number(req.body.customerId ?? req.body.customer_id);
     const deviceModelId = Number(req.body.deviceModelId ?? req.body.device_model_id);
     const serialNumber = String(req.body.serialNumber ?? req.body.externalDeviceSerial ?? '').trim();
+    const requestedStatus = String(req.body.status ?? req.body.deviceStatus ?? '').trim();
     const externalDeviceNotes = String(req.body.externalDeviceNotes ?? '').trim() || null;
     const installationAddressText = String(req.body.installationAddressText ?? '').trim() || null;
     const installationGeoUnitId = Number(req.body.installationGeoUnitId ?? req.body.installation_geo_unit_id);
@@ -121,6 +136,8 @@ router.post('/external', requirePermission('installed_devices.create_external'),
     const installationLngRaw = req.body.installationLng ?? req.body.installation_lng;
     const installationLat = installationLatRaw == null || installationLatRaw === '' ? null : Number(installationLatRaw);
     const installationLng = installationLngRaw == null || installationLngRaw === '' ? null : Number(installationLngRaw);
+    const serviceAgreement = req.body.serviceAgreement ?? req.body.service_agreement ?? null;
+    const wantsServiceAgreement = Boolean(serviceAgreement && typeof serviceAgreement === 'object');
 
     if (!Number.isInteger(customerId) || customerId <= 0) {
       return res.status(400).json({ error: 'Invalid customerId' });
@@ -130,6 +147,10 @@ router.post('/external', requirePermission('installed_devices.create_external'),
     }
     if (!serialNumber) {
       return res.status(400).json({ error: 'Serial number is required' });
+    }
+    const allowedExternalStatuses = new Set(['delivered', 'installed', 'active', 'faulty']);
+    if (!allowedExternalStatuses.has(requestedStatus)) {
+      return res.status(400).json({ error: 'Device status is required and must be delivered, installed, active, or faulty' });
     }
     if (!Number.isInteger(installationGeoUnitId) || installationGeoUnitId <= 0) {
       return res.status(400).json({ error: 'Installation neighborhood is required' });
@@ -146,7 +167,7 @@ router.post('/external', requirePermission('installed_devices.create_external'),
     }
 
     const { rows: clientRows } = await pool.query(
-      'SELECT id, branch_id AS "branchId" FROM clients WHERE id = $1',
+      'SELECT id, name, branch_id AS "branchId" FROM clients WHERE id = $1',
       [customerId],
     );
     if (!clientRows[0]) return res.status(404).json({ error: 'Client not found' });
@@ -157,6 +178,25 @@ router.post('/external', requirePermission('installed_devices.create_external'),
 
     const createAccess = authorize(authContext, { permission: 'installed_devices.create_external', branchId });
     if (!createAccess.allowed) return res.status(403).json({ error: 'Forbidden' });
+    if (wantsServiceAgreement) {
+      const agreementAccess = authorize(authContext, { permission: 'contracts.edit', branchId });
+      if (!agreementAccess.allowed) {
+        return res.status(403).json({ error: 'إنشاء اتفاق الخدمة يحتاج صلاحية تعديل العقود ضمن فرع الزبون' });
+      }
+    }
+    const agreementDate = wantsServiceAgreement
+      ? String(serviceAgreement.agreementDate ?? serviceAgreement.agreement_date ?? '').trim() || new Date().toISOString().slice(0, 10)
+      : null;
+    const visitsCountRaw = wantsServiceAgreement ? (serviceAgreement.visitsCount ?? serviceAgreement.visits_count) : null;
+    const visitsCount = visitsCountRaw == null || visitsCountRaw === '' ? null : Number(visitsCountRaw);
+    const feeRaw = wantsServiceAgreement ? (serviceAgreement.feeSyp ?? serviceAgreement.fee_syp) : null;
+    const feeSyp = feeRaw == null || feeRaw === '' ? 0 : Number(feeRaw);
+    if (wantsServiceAgreement && visitsCount != null && (!Number.isFinite(visitsCount) || visitsCount <= 0)) {
+      return res.status(400).json({ error: 'عدد زيارات اتفاق الخدمة غير صالح' });
+    }
+    if (wantsServiceAgreement && (!Number.isFinite(feeSyp) || feeSyp < 0)) {
+      return res.status(400).json({ error: 'بدل اتفاق الخدمة غير صالح' });
+    }
 
     const deviceCheck = await assertDeviceModelInScope(authContext, deviceModelId, branchId);
     if (!deviceCheck.allowed) {
@@ -200,38 +240,102 @@ router.post('/external', requirePermission('installed_devices.create_external'),
     }
 
     const deviceModelName = branchDeviceRows[0].deviceModelName;
-    const { rows } = await pool.query(
-      `INSERT INTO installed_devices (
-         contract_id, customer_id, branch_id, device_source,
-         device_model_id, device_model_name,
-         external_device_name, external_device_serial, external_device_notes,
-         serial_number, status,
-         installation_geo_unit_id, installation_address_text, installation_lat, installation_lng,
-         is_golden_warranty, warranty_months, warranty_visits
-       ) VALUES (
-         NULL, $1, $2, 'external',
-         $3, $4,
-         $4, $5, $6,
-         $5, 'active',
-         $7, $8, $9, $10,
-         false, NULL, NULL
-       )
-       RETURNING id`,
-      [
-        customerId,
-        branchId,
-        deviceModelId,
-        deviceModelName,
-        serialNumber,
-        externalDeviceNotes,
-        installationGeoUnitId,
-        installationAddressText,
-        installationLat,
-        installationLng,
-      ],
-    );
+    const db = await pool.connect();
+    try {
+      await db.query('BEGIN');
 
-    res.status(201).json({ ok: true, id: rows[0].id });
+      const { rows } = await db.query(
+        `INSERT INTO installed_devices (
+           contract_id, customer_id, branch_id, device_source,
+           device_model_id, device_model_name,
+           external_device_name, external_device_serial, external_device_notes,
+           serial_number, status,
+           installation_geo_unit_id, installation_address_text, installation_lat, installation_lng,
+           is_golden_warranty, warranty_months, warranty_visits
+         ) VALUES (
+           NULL, $1, $2, 'external',
+           $3, $4,
+           $4, $5, $6,
+           $5, $7,
+           $8, $9, $10, $11,
+           false, NULL, NULL
+         )
+         RETURNING id`,
+        [
+          customerId,
+          branchId,
+          deviceModelId,
+          deviceModelName,
+          serialNumber,
+          externalDeviceNotes,
+          requestedStatus,
+          installationGeoUnitId,
+          installationAddressText,
+          installationLat,
+          installationLng,
+        ],
+      );
+
+      const deviceId = Number(rows[0].id);
+      const { rows: actorRows } = await db.query(
+        'SELECT employee_id AS "employeeId" FROM hr_users WHERE id = $1',
+        [authContext.userId],
+      );
+      const createdByEmployeeId = Number(actorRows[0]?.employeeId);
+      await db.query(
+        `INSERT INTO device_possession_log
+           (device_id, holder_type, holder_id, start_at, reason, notes, created_by)
+         VALUES ($1, 'customer', $2, NOW(), 'external_registration', $3, $4)`,
+        [
+          deviceId,
+          customerId,
+          externalDeviceNotes ?? 'External device registered under customer possession',
+          Number.isInteger(createdByEmployeeId) && createdByEmployeeId > 0 ? createdByEmployeeId : null,
+        ],
+      );
+
+      if (wantsServiceAgreement) {
+        await db.query(
+          `INSERT INTO service_agreements (
+             agreement_number, customer_id, customer_name, branch_id, installed_device_id, agreement_date,
+             external_device_model_name, external_device_serial, external_device_notes,
+             maintenance_plan, visits_count, fee_syp,
+             status, start_date, end_date,
+             created_by, notes
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'active',$13,$14,$15,$16)`,
+          [
+            serviceAgreement.agreementNumber ?? serviceAgreement.agreement_number ?? null,
+            customerId,
+            clientRows[0].name,
+            branchId,
+            deviceId,
+            agreementDate,
+            deviceModelName,
+            serialNumber,
+            externalDeviceNotes,
+            serviceAgreement.maintenancePlan ?? serviceAgreement.maintenance_plan ?? null,
+            visitsCount,
+            feeSyp,
+            serviceAgreement.startDate ?? serviceAgreement.start_date ?? null,
+            serviceAgreement.endDate ?? serviceAgreement.end_date ?? null,
+            authContext.userId ?? null,
+            serviceAgreement.notes ?? null,
+          ],
+        );
+      }
+
+      await db.query('COMMIT');
+      res.status(201).json({ ok: true, id: deviceId });
+    } catch (err) {
+      try {
+        await db.query('ROLLBACK');
+      } catch {
+        // Keep the original database error visible to the API error handler.
+      }
+      throw err;
+    } finally {
+      db.release();
+    }
   } catch (err) {
     next(err);
   }
@@ -244,9 +348,20 @@ router.get('/:id', requirePermission('installed_devices.view', 'clients.devices.
     `SELECT ${selectFields}
      FROM installed_devices d
      LEFT JOIN contracts c ON c.id = d.contract_id
+     LEFT JOIN clients cl ON cl.id = d.customer_id
      LEFT JOIN branches b ON b.id = d.branch_id
      LEFT JOIN geo_units gu ON gu.id = d.installation_geo_unit_id
      LEFT JOIN device_models dm ON dm.id = COALESCE(d.device_model_id, c.device_model_id)
+     LEFT JOIN LATERAL (
+       SELECT sa.id, sa.maintenance_plan, sa.visits_count
+         FROM service_agreements sa
+        WHERE sa.installed_device_id = d.id
+          AND sa.status = 'active'
+          AND (sa.start_date IS NULL OR sa.start_date <= CURRENT_DATE)
+          AND (sa.end_date IS NULL OR sa.end_date >= CURRENT_DATE)
+        ORDER BY COALESCE(sa.start_date, sa.agreement_date) DESC, sa.id DESC
+        LIMIT 1
+     ) active_sa ON TRUE
      WHERE d.id = $1`,
     [req.params.id]
   );

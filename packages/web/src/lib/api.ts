@@ -234,7 +234,7 @@ export const api = {
         request<any>(`/gifts/records/${id}/condition`, { method: 'PATCH', body: JSON.stringify(data) }),
       approve: (id: number | string, data?: { approvedQuantity?: number; approvalNotes?: string }) =>
         request<any>(`/gifts/records/${id}/approve`, { method: 'POST', body: JSON.stringify(data ?? {}) }),
-      createDeliveryTask: (id: number | string, data?: { giftRecordIds?: Array<number | string>; dueDate?: string; priority?: 'low' | 'medium' | 'high'; notes?: string }) =>
+      createDeliveryTask: (id: number | string, data?: { giftRecordIds?: Array<number | string>; dueDate?: string; priority?: 'low' | 'medium' | 'high'; creationReason?: string; notes?: string }) =>
         request<any>(`/gifts/records/${id}/create-delivery-task`, { method: 'POST', body: JSON.stringify(data ?? {}) }),
       manualDelivery: (id: number | string, data?: { notes?: string }) =>
         request<any>(`/gifts/records/${id}/manual-delivery`, { method: 'POST', body: JSON.stringify(data ?? {}) }),
@@ -326,6 +326,7 @@ export const api = {
       branchId != null ? { headers: { 'X-Branch-Id': String(branchId) } } : undefined,
     ),
     get: (id: number) => request<any>(`/clients/${id}`),
+    snapshot: (id: number) => request<{ snapshot: any }>(`/clients/${id}/snapshot`),
     getNetwork: (id: number) => request<any>(`/clients/${id}/network`),
     getRatingHistory: (id: number) => request<any[]>(`/clients/${id}/rating-history`),
     updateRating: (id: number, data: { rating: 'Committed' | 'NotCommitted' | 'Undefined'; notes?: string | null }) =>
@@ -498,6 +499,17 @@ export const api = {
       request<any>(`/installed-devices/${id}/periodic-maintenance`, { method: 'POST', body: JSON.stringify(data) }),
     problems: (id: number) => request<any[]>(`/installed-devices/${id}/problems`),
     technicalStates: (id: number) => request<any[]>(`/installed-devices/${id}/technical-states`),
+  },
+  serviceAgreements: {
+    list: (params?: { installedDeviceId?: number; branchId?: number }) => {
+      const qs = new URLSearchParams();
+      if (params?.installedDeviceId) qs.set('installedDeviceId', String(params.installedDeviceId));
+      if (params?.branchId) qs.set('branchId', String(params.branchId));
+      return request<any[]>(`/service-agreements${toQueryString(qs)}`);
+    },
+    get: (id: number) => request<any>(`/service-agreements/${id}`),
+    create: (data: any) => request<any>('/service-agreements', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: number, data: any) => request<any>(`/service-agreements/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   },
   // DEC-CT-09: device possession ledger.
   // Backend route is mounted at /api/devices/:deviceId/possession.
@@ -777,10 +789,12 @@ export const api = {
       return request<any[]>(`/field-visits/my-visits?${qs.toString()}`);
     },
     get: (id: number) => request<any>(`/field-visits/${id}`),
-    start: (id: number, data?: { lat?: number; lng?: number; accuracy?: number }) =>
+    start: (id: number, data?: { lat?: number; lng?: number; accuracy?: number; locationMissingReasonId?: number }) =>
       request<any>(`/field-visits/${id}/start`, { method: 'POST', body: JSON.stringify(data ?? {}) }),
-    end: (id: number, data?: { lat?: number; lng?: number; accuracy?: number }) =>
+    end: (id: number, data?: { lat?: number; lng?: number; accuracy?: number; locationMissingReasonId?: number }) =>
       request<any>(`/field-visits/${id}/end`, { method: 'POST', body: JSON.stringify(data ?? {}) }),
+    cancel: (id: number, data: { cancellationReasonId: number; notes?: string | null }) =>
+      request<any>(`/field-visits/${id}/cancel`, { method: 'POST', body: JSON.stringify(data) }),
     complete: (id: number) =>
       request<any>(`/field-visits/${id}/complete`, { method: 'POST' }),
     close: (id: number) =>
@@ -903,6 +917,20 @@ export const api = {
         teamResponsibleUserId: number | null;
         hoursSinceUpdate: number;
         tiersAlerted: number[];
+      }>;
+      scheduledCount: number;
+      scheduledItems: Array<{
+        visitId: number;
+        status: string;
+        branchId: number;
+        clientId: number;
+        clientName: string | null;
+        teamResponsibleUserId: number | null;
+        teamResponsibleName: string | null;
+        scheduledDate: string;
+        scheduledTime: string | null;
+        alertedAt: string;
+        hoursSinceAlert: number;
       }>;
     }>('/field-visits/escalation-alerts'),
     /** Executive view: one row per branch with comparison KPIs over a date range. */
@@ -1124,8 +1152,15 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(data),
       }),
-    suggestedMatches: (id: number) =>
-      request<{ clients: any[]; candidates: any[] }>(`/service-requests/${id}/suggested-matches`),
+    suggestedMatches: (id: number, party?: 'beneficiary' | 'referrer') =>
+      request<{ clients: any[]; candidates: any[] }>(
+        `/service-requests/${id}/suggested-matches${party ? `?party=${party}` : ''}`,
+      ),
+    linkReferrer: (id: number, referrerClientId: number) =>
+      request<any>(`/service-requests/${id}/link-referrer`, {
+        method: 'POST',
+        body: JSON.stringify({ referrerClientId }),
+      }),
     requestInfo: (id: number, body: any = {}) =>
       request<any>(`/service-requests/${id}/request-info`, {
         method: 'POST',
@@ -1143,6 +1178,11 @@ export const api = {
       }),
     escalate: (id: number, reason?: string | null) =>
       request<any>(`/service-requests/${id}/escalate`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: reason ?? null }),
+      }),
+    resolveEscalation: (id: number, reason?: string | null) =>
+      request<any>(`/service-requests/${id}/resolve-escalation`, {
         method: 'POST',
         body: JSON.stringify({ reason: reason ?? null }),
       }),
@@ -1195,7 +1235,12 @@ export const api = {
       }),
     handoffWaterCheck: (
       id: number,
-      data: { priority?: 'high' | 'medium' | 'low'; operatorNote?: string | null } = {},
+      data: {
+        priority?: 'high' | 'medium' | 'low';
+        operatorNote?: string | null;
+        dueDate?: string | null;
+        creationReason?: string | null;
+      } = {},
     ) =>
       request<any>(`/service-requests/${id}/handoff-water-check`, {
         method: 'POST',

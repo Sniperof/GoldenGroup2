@@ -27,11 +27,12 @@ function resolveGeoName(unitsById: Map<number, string>, value: unknown): string 
 }
 
 function Field({ label, value }: { label: string; value: unknown }) {
-  const text = value == null || value === '' ? '-' : String(value);
+  const empty = value == null || value === '';
+  const text = empty ? '—' : String(value);
   return (
-    <div>
-      <div className="text-xs font-medium text-slate-500">{label}</div>
-      <div className="mt-1 text-sm font-semibold text-slate-800">{text}</div>
+    <div className="rounded-lg bg-slate-50/70 px-3 py-2">
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{label}</div>
+      <div className={`mt-0.5 text-sm font-bold ${empty ? 'text-slate-300' : 'text-slate-800'}`}>{text}</div>
     </div>
   );
 }
@@ -115,31 +116,94 @@ export default function WaterCheckRequestDetailPanel({
     resolveGeoName(unitsById, address.neighborhoodId ?? submitted.neighborhoodId),
   ].filter(Boolean).join(' / ');
 
+  const mediator = (request.referrerExternal && typeof request.referrerExternal === 'object') ? request.referrerExternal : null;
+  const mediatorName = mediator
+    ? (readText(mediator.name) || [readText(mediator.firstName), readText(mediator.lastName)].filter(Boolean).join(' '))
+    : '';
+  const mediatorGeoPath = mediator
+    ? [
+        resolveGeoName(unitsById, mediator.governorateId),
+        resolveGeoName(unitsById, mediator.regionId),
+        resolveGeoName(unitsById, mediator.subdistrictId),
+        resolveGeoName(unitsById, mediator.neighborhoodId),
+      ].filter(Boolean).join(' / ')
+    : '';
+
   const mapUrl = mapLocation
     ? `https://www.openstreetmap.org/export/embed.html?bbox=${mapLocation.lng - 0.01},${mapLocation.lat - 0.005},${mapLocation.lng + 0.01},${mapLocation.lat + 0.005}&layer=mapnik&marker=${mapLocation.lat},${mapLocation.lng}`
     : null;
 
   return (
     <div className="space-y-4">
-      <section className="rounded border border-slate-200 bg-white p-4">
-        <div className="mb-4 flex items-center gap-2">
+      <section className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+        <div className="mb-4 flex flex-wrap items-center gap-2">
           <Beaker className="h-5 w-5 text-sky-600" />
           <h2 className="text-lg font-bold text-slate-800">بيانات طلب فحص المياه</h2>
+          <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+            request.submissionType === 'refer_a_candidate'
+              ? 'bg-amber-100 text-amber-700'
+              : 'bg-slate-100 text-slate-600'
+          }`}>
+            {request.submissionType === 'refer_a_candidate' ? 'طلب لعنوان شخص آخر' : 'طلب لعنواني'}
+          </span>
         </div>
-        <div className="grid gap-4 md:grid-cols-3">
-          <Field label="صاحب الطلب" value={fullName} />
-          <Field label="نوع الطلب" value={request.requestTypeLabel ?? 'طلب فحص المياه'} />
-          <Field label="مصدر الطلب" value={request.channelLabel} />
-          <Field label="رقم الهاتف" value={primaryPhone} />
-          <Field label="واتساب الرقم الأساسي" value={external.primaryPhoneHasWhatsapp ? 'نعم' : 'لا'} />
-          <Field label="رقم ثانوي" value={secondaryPhone} />
-          <Field label="واتساب الرقم الثانوي" value={secondaryPhone ? (external.secondaryPhoneHasWhatsapp ? 'نعم' : 'لا') : '-'} />
-          <Field label="حالة الطلب" value={request.statusLabel} />
-          <Field label="المستلم" value={request.reviewedByUserName ?? 'لم يتول أحد'} />
+        <div className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-3">
+            <Field label="صاحب الطلب" value={fullName} />
+            <Field label="نوع الطلب (لمن؟)" value={request.submissionType === 'refer_a_candidate' ? 'لعنوان شخص آخر' : 'لعنواني'} />
+            <Field label="مصدر الطلب" value={request.channelLabel} />
+            <Field label="حالة الطلب" value={request.statusLabel} />
+            <Field label="المُستلِم" value={request.reviewedByUserName ?? 'لم يتول أحد'} />
+          </div>
+
+          <div>
+            <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-slate-400">التواصل</div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <Field
+                label="رقم الهاتف الأساسي"
+                value={primaryPhone ? `${primaryPhone}${external.primaryPhoneHasWhatsapp ? ' · واتساب' : ''}` : ''}
+              />
+              <Field
+                label="رقم ثانوي"
+                value={secondaryPhone ? `${secondaryPhone}${external.secondaryPhoneHasWhatsapp ? ' · واتساب' : ''}` : ''}
+              />
+            </div>
+          </div>
         </div>
       </section>
 
-      <section className="rounded border border-slate-200 bg-white p-4">
+      {mediator && (
+        <section className="rounded-2xl border border-amber-200 bg-amber-50/40 p-4 shadow-sm">
+          <div className="mb-4 flex items-center gap-2">
+            <User className="h-5 w-5 text-amber-600" />
+            <h2 className="text-lg font-bold text-slate-800">الوسيط (مُرسِل الطلب)</h2>
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">طلب لشخص آخر</span>
+          </div>
+          <div className="grid gap-4 md:grid-cols-3">
+            <Field label="اسم الوسيط" value={mediatorName} />
+            <Field label="رقم الهاتف" value={readText(mediator.primary_phone)} />
+            <Field label="واتساب" value={mediator.primaryPhoneHasWhatsapp ? 'نعم' : 'لا'} />
+            <Field label="المهنة" value={readText(mediator.occupation)} />
+            <Field label="المسار الجغرافي" value={mediatorGeoPath} />
+            <Field label="العنوان التفصيلي" value={readText(mediator.detailedAddress)} />
+            <Field label="ملاحظات الوسيط" value={readText(mediator.notes)} />
+            <Field label="وافق على مشاركة بياناته" value={mediator.awarenessOrConsent ? 'نعم' : 'لا'} />
+            <Field
+              label="الوسيط كزبون"
+              value={request.referrerClientId
+                ? (request.referrerClientName ?? `#${request.referrerClientId}`)
+                : 'غير مربوط بعد'}
+            />
+          </div>
+          <div className="mt-3 rounded bg-white/60 p-2 text-xs text-amber-800">
+            {request.referrerClientId
+              ? 'الوسيط مربوط بسجل زبون، وسيُسنَد كمُحيل رسمي (referrer_type=Client) عند إنشاء سجل المستفيد.'
+              : 'اربط الوسيط بسجل زبون من تبويب «الربط»؛ عندها يُسنَد كمُحيل رسمي للمستفيد (وإلا يُسجَّل كمُحيل بالاسم فقط).'}
+          </div>
+        </section>
+      )}
+
+      <section className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
         <div className="mb-4 flex items-center gap-2">
           <MapPin className="h-5 w-5 text-sky-600" />
           <h2 className="text-lg font-bold text-slate-800">العنوان والتغطية</h2>
@@ -159,7 +223,7 @@ export default function WaterCheckRequestDetailPanel({
       </section>
 
       {mapUrl && (
-        <section className="rounded border border-slate-200 bg-white p-4">
+        <section className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
           <div className="mb-3 flex items-center gap-2 text-sm font-bold text-slate-700">
             <MapPin className="h-4 w-4 text-sky-600" />
             موقع الخريطة
@@ -176,7 +240,7 @@ export default function WaterCheckRequestDetailPanel({
       )}
 
       {handoff && (
-        <section className="rounded border border-slate-200 bg-white p-4">
+        <section className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
           <div className="mb-4 flex items-center gap-2">
             <ArrowUpCircle className="h-5 w-5 text-sky-600" />
             <h2 className="text-lg font-bold text-slate-800">التحويل إلى مهمة عرض جهاز</h2>
@@ -237,7 +301,7 @@ export default function WaterCheckRequestDetailPanel({
         </section>
       )}
 
-      <section className="rounded border border-slate-200 bg-white p-4">
+      <section className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
         <div className="mb-4 flex items-center gap-2">
           <User className="h-5 w-5 text-sky-600" />
           <h2 className="text-lg font-bold text-slate-800">الربط</h2>

@@ -81,9 +81,34 @@ function statusFromCode(code: string): number {
     case 'periodic_attachment_candidate_not_available':
     case 'active_device_demo_exists':
       return 409;
+    case 'request_is_escalated_actions_blocked':
+      return 423; // Locked — restricted mode (SR-ESC-01)
     default:
       return 400;
   }
+}
+
+/**
+ * SR-ESC-01 — restricted mode guard. While a request is escalated
+ * (escalated_at IS NOT NULL) every mutating action is blocked except the two
+ * exits (resolve-escalation, reject) and non-mutating ones (view, notes).
+ * Applied as route middleware after requirePermission on gated endpoints.
+ */
+async function blockIfEscalated(req: Request, res: Response, next: () => void) {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return next();
+  const { rows } = await pool.query<{ escalated_at: string | null }>(
+    `SELECT escalated_at FROM service_requests WHERE id = $1`,
+    [id],
+  );
+  if (rows.length > 0 && rows[0].escalated_at != null) {
+    return res.status(423).json({
+      error: 'request_is_escalated_actions_blocked',
+      message: 'الطلب مُصعَّد (وضع مقيَّد): لا يُسمح بأي إجراء قبل فكّ التصعيد أو الرفض.',
+      details: null,
+    });
+  }
+  next();
 }
 
 function sendErr(res: Response, result: { code: string; message?: string; details?: unknown }) {
@@ -168,6 +193,11 @@ const SR_SELECT = `
   sr.beneficiary_external AS "beneficiaryExternal",
   sr.referrer_user_id AS "referrerUserId",
   sr.referrer_external AS "referrerExternal",
+  sr.referrer_client_id AS "referrerClientId",
+  COALESCE(
+    rc.name,
+    NULLIF(CONCAT_WS(' ', rc.first_name, rc.father_name, rc.last_name), '')
+  ) AS "referrerClientName",
   sr.submission_type AS "submissionType",
   sr.submitter_tier AS "submitterTier",
   sr.contract_id AS "contractId",
@@ -205,6 +235,10 @@ const SR_SELECT = `
   sr.duplicate_flag AS "duplicateFlag",
   sr.duplicate_of_request_id AS "duplicateOfRequestId",
   sr.review_required_flag AS "reviewRequiredFlag",
+  sr.escalated_at AS "escalatedAt",
+  sr.escalated_by_user_id AS "escalatedByUserId",
+  escalator.name AS "escalatedByUserName",
+  sr.escalation_reason AS "escalationReason",
   sr.rejected_by_user_id AS "rejectedByUserId",
   sr.rejection_reason AS "rejectionReason",
   sr.archived_at AS "archivedAt",
@@ -235,8 +269,10 @@ const SR_DISPLAY_JOINS = `
   LEFT JOIN branches br ON br.id = sr.branch_id
   LEFT JOIN geo_units brg ON brg.id = sr.branch_resolution_geo_unit_id
   LEFT JOIN hr_users reviewer ON reviewer.id = sr.reviewed_by_user_id
+  LEFT JOIN hr_users escalator ON escalator.id = sr.escalated_by_user_id
   LEFT JOIN hr_users archiver ON archiver.id = sr.archived_by_user_id
   LEFT JOIN clients bc ON bc.id = sr.beneficiary_client_id
+  LEFT JOIN clients rc ON rc.id = sr.referrer_client_id
   LEFT JOIN candidates bcan ON bcan.id = sr.beneficiary_candidate_id
   LEFT JOIN open_tasks lot ON lot.id = sr.linked_open_task_id
 `;
@@ -303,6 +339,13 @@ router.post('/water-check', requirePermission('service_requests.create'), async 
     return res.status(400).json({ error: 'missing_required_fields', fields: missing });
   }
 
+  if (!/^\d{10}$/.test(phoneNumber.replace(/\D/g, ''))) {
+    return res.status(400).json({ error: 'invalid_phone', message: 'رقم الهاتف يجب أن يتكون من 10 أرقام.' });
+  }
+  if (secondaryPhone && !/^\d{10}$/.test(secondaryPhone.replace(/\D/g, ''))) {
+    return res.status(400).json({ error: 'invalid_secondary_phone', message: 'الرقم الثانوي يجب أن يتكون من 10 أرقام.' });
+  }
+
   const mapLocation = readMapLocation(body);
   const name = [firstName, fatherName, lastName].filter(Boolean).join(' ');
   const clientCompatible: Record<string, unknown> = {
@@ -337,6 +380,70 @@ router.post('/water-check', requirePermission('service_requests.create'), async 
   }
   if (notes) externalSnapshot.notes = notes;
 
+  // Submission path — "for another" makes the submitter a mediator (referrer)
+  // for the beneficiary. The mediator's data is captured only after opt-in.
+  const submissionMode = readText(body, 'submissionMode') === 'for_another' ? 'for_another' : 'for_self';
+  const shareMediatorData = readBoolean(body, 'shareMediatorData');
+  let referrerExternal: Record<string, unknown> | null = null;
+  if (submissionMode === 'for_another' && shareMediatorData) {
+    const mFirst = readText(body, 'mediatorFirstName');
+    const mLast = readText(body, 'mediatorLastName');
+    const mPhone = readFirstText(body, ['mediatorPhone', 'mediator_phone']);
+    const mOccupation = readText(body, 'mediatorOccupation');
+    const mDetailedAddress = readFirstText(body, ['mediatorDetailedAddress', 'mediatorAddress']);
+    const mNotes = readText(body, 'mediatorNotes');
+    const mGovernorateId = readNumber(body, ['mediatorGovernorateId']);
+    const mRegionId = readNumber(body, ['mediatorRegionId']);
+    const mSubdistrictId = readNumber(body, ['mediatorSubdistrictId']);
+    const mNeighborhoodId = readNumber(body, ['mediatorNeighborhoodId']);
+    const mDeepestGeoUnitId = mNeighborhoodId ?? mSubdistrictId ?? mRegionId ?? mGovernorateId;
+    const mName = [mFirst, mLast].filter(Boolean).join(' ');
+    if (!mFirst || !mLast || !mPhone || !mGovernorateId) {
+      return res.status(400).json({
+        error: 'mediator_required_fields',
+        message: 'حقول الوسيط الإلزامية: الاسم الأول، الكنية، رقم الهاتف، المحافظة.',
+      });
+    }
+    if (!/^\d{10}$/.test(mPhone.replace(/\D/g, ''))) {
+      return res.status(400).json({ error: 'invalid_mediator_phone', message: 'رقم هاتف الوسيط يجب أن يتكون من 10 أرقام.' });
+    }
+    {
+      referrerExternal = {
+        snapshotSchemaVersion: 1,
+        partyRole: 'referrer',
+        awarenessOrConsent: true,
+        firstName: mFirst || null,
+        lastName: mLast || null,
+        name: mName || null,
+        primary_phone: mPhone || null,
+        primaryPhoneHasWhatsapp: readBoolean(body, 'mediatorPhoneHasWhatsapp'),
+        occupation: mOccupation || null,
+        governorateId: mGovernorateId,
+        regionId: mRegionId,
+        subdistrictId: mSubdistrictId,
+        neighborhoodId: mNeighborhoodId,
+        geoUnitId: mDeepestGeoUnitId,
+        detailedAddress: mDetailedAddress || null,
+        notes: mNotes || null,
+        clientCompatible: {
+          firstName: mFirst || null,
+          lastName: mLast || null,
+          mobile: mPhone || null,
+          occupation: mOccupation || null,
+          governorate: mGovernorateId,
+          district: mRegionId,
+          neighborhood: mNeighborhoodId,
+          detailedAddress: mDetailedAddress || null,
+        },
+      };
+    }
+  }
+  // Walk-in validation needs an identifiable requester. Use the mediator as the
+  // requester only when they shared a name+phone; otherwise the beneficiary (who
+  // always has both) stands in as the requester of record.
+  const mediatorIdentifiable = !!(referrerExternal && referrerExternal.name && referrerExternal.primary_phone);
+  const requesterExternal = mediatorIdentifiable ? (referrerExternal as Record<string, unknown>) : externalSnapshot;
+
   const serviceAddress = {
     governorate: String(governorateId),
     governorateId,
@@ -360,9 +467,10 @@ router.post('/water-check', requirePermission('service_requests.create'), async 
       receivedAt: new Date().toISOString(),
       data: body,
     },
-    requesterExternal: externalSnapshot,
+    requesterExternal,
     beneficiaryExternal: externalSnapshot,
-    submissionType: 'apply',
+    referrerExternal,
+    submissionType: submissionMode === 'for_another' ? 'refer_a_candidate' : 'apply',
     submitterTier: readText(body, 'submitterTier') === 'lead' ? 'lead' : 'visitor',
     problemDescription: notes ? `طلب فحص مياه - ${notes}` : 'طلب فحص مياه',
     attachments: [],
@@ -443,6 +551,7 @@ router.get('/', requirePermission('service_requests.view'), async (req, res) => 
   }
   if (q.duplicateOnly === 'true') filters.push(`sr.duplicate_flag = TRUE`);
   if (q.reviewRequired === 'true') filters.push(`sr.review_required_flag = TRUE`);
+  if (q.escalatedOnly === 'true') filters.push(`sr.escalated_at IS NOT NULL`);
   if (q.archived === 'true') filters.push(`sr.archived_at IS NOT NULL`);
   else if (q.archived !== 'all') filters.push(`sr.archived_at IS NULL`);
   if (q.mine === 'true') {
@@ -480,12 +589,14 @@ router.get('/:id', requirePermission('service_requests.view'), async (req, res) 
   const [reqRes, logRes, problemsRes] = await Promise.all([
     pool.query(`SELECT ${SR_SELECT} FROM service_requests sr ${SR_DISPLAY_JOINS} WHERE sr.id = $1`, [id]),
     pool.query(
-      `SELECT id, event_type AS "eventType", event_payload AS "eventPayload",
-              actor_user_id AS "actorUserId", actor_role AS "actorRole",
-              note, created_at AS "createdAt"
-         FROM service_request_audit_log
-        WHERE service_request_id = $1
-        ORDER BY created_at ASC, id ASC`,
+      `SELECT al.id, al.event_type AS "eventType", al.event_payload AS "eventPayload",
+              al.actor_user_id AS "actorUserId", al.actor_role AS "actorRole",
+              au.name AS "actorName",
+              al.note, al.created_at AS "createdAt"
+         FROM service_request_audit_log al
+         LEFT JOIN hr_users au ON au.id = al.actor_user_id
+        WHERE al.service_request_id = $1
+        ORDER BY al.created_at ASC, al.id ASC`,
       [id],
     ),
     pool.query(
@@ -527,7 +638,7 @@ router.get('/:id', requirePermission('service_requests.view'), async (req, res) 
 // CLAIM / TAKE-OVER (٠.٤.أ)
 // ------------------------------------------------------------
 
-router.post('/:id/claim', requirePermission('service_requests.review'), async (req, res) => {
+router.post('/:id/claim', requirePermission('service_requests.review'), blockIfEscalated, async (req, res) => {
   const actor = getActor(req);
   const result = await claimOrTakeOver({
     serviceRequestId: Number(req.params.id),
@@ -538,7 +649,7 @@ router.post('/:id/claim', requirePermission('service_requests.review'), async (r
   res.json(result.data);
 });
 
-router.post('/:id/take-over', requirePermission('service_requests.review'), async (req, res) => {
+router.post('/:id/take-over', requirePermission('service_requests.review'), blockIfEscalated, async (req, res) => {
   const actor = getActor(req);
   const result = await claimOrTakeOver({
     serviceRequestId: Number(req.params.id),
@@ -554,6 +665,42 @@ router.post('/:id/take-over', requirePermission('service_requests.review'), asyn
 // LINK / RELINK (٠.١٢ — beneficiary/candidate)
 // Inline service: validates target, updates row, writes audit.
 // ------------------------------------------------------------
+
+/**
+ * The request's mediator is the beneficiary's referrer. Once both the
+ * beneficiary and the mediator are linked to clients, stamp the beneficiary
+ * client's referrer with the mediator client (referrer_type='Client'). Safe:
+ * only fills when the beneficiary has no real referrer yet (referrer_id NULL),
+ * so it never clobbers an existing referral and is order-independent.
+ */
+async function syncBeneficiaryReferrer(db: PoolClientLike, serviceRequestId: number): Promise<void> {
+  await db.query(
+    `UPDATE clients b
+        SET referrer_type = 'Client',
+            referrer_id = sr.referrer_client_id,
+            referrer_name = rcn.name,
+            referrers = jsonb_build_array(jsonb_build_object(
+              'type', 'Client',
+              'referrerType', 'Client',
+              'referrerId', sr.referrer_client_id,
+              'name', rcn.name,
+              'referrerName', rcn.name
+            ))
+       FROM service_requests sr
+       CROSS JOIN LATERAL (
+         SELECT COALESCE(rc.name, NULLIF(CONCAT_WS(' ', rc.first_name, rc.father_name, rc.last_name), '')) AS name
+           FROM clients rc WHERE rc.id = sr.referrer_client_id
+       ) rcn
+      WHERE sr.id = $1
+        AND sr.beneficiary_client_id = b.id
+        AND sr.referrer_client_id IS NOT NULL
+        AND sr.referrer_client_id <> b.id
+        AND b.referrer_id IS NULL`,
+    [serviceRequestId],
+  );
+}
+
+type PoolClientLike = { query: (text: string, params?: any[]) => Promise<{ rows: any[]; rowCount?: number | null }> };
 
 async function linkBeneficiary(input: {
   serviceRequestId: number;
@@ -582,6 +729,17 @@ async function linkBeneficiary(input: {
     if (rows.length === 0) {
       await client.query('ROLLBACK');
       return { ok: false as const, code: 'not_found' };
+    }
+    // SR-LINK-01 — linking is a review decision; it requires the request to be
+    // claimed (in_review with an assigned reviewer). No linking before claim.
+    if (rows[0].status !== 'in_review') {
+      await client.query('ROLLBACK');
+      return {
+        ok: false as const,
+        code: 'link_requires_claim',
+        message: 'تولَّ الطلب أولاً (in_review) قبل ربطه بزبون أو مرشح.',
+        details: { status: rows[0].status },
+      };
     }
     if (input.isChange && rows[0].beneficiary_client_id == null && rows[0].beneficiary_candidate_id == null) {
       await client.query('ROLLBACK');
@@ -652,6 +810,8 @@ async function linkBeneficiary(input: {
           },
     });
 
+    await syncBeneficiaryReferrer(client, input.serviceRequestId);
+
     await client.query('COMMIT');
     return { ok: true as const };
   } catch (err) {
@@ -662,7 +822,7 @@ async function linkBeneficiary(input: {
   }
 }
 
-router.post('/:id/link', requirePermission('service_requests.review'), async (req, res) => {
+router.post('/:id/link', requirePermission('service_requests.review'), blockIfEscalated, async (req, res) => {
   const actor = getActor(req);
   const result = await linkBeneficiary({
     serviceRequestId: Number(req.params.id),
@@ -678,7 +838,7 @@ router.post('/:id/link', requirePermission('service_requests.review'), async (re
   res.json({ ok: true });
 });
 
-router.post('/:id/change-linkage', requirePermission('service_requests.review'), async (req, res) => {
+router.post('/:id/change-linkage', requirePermission('service_requests.review'), blockIfEscalated, async (req, res) => {
   const actor = getActor(req);
   const result = await linkBeneficiary({
     serviceRequestId: Number(req.params.id),
@@ -696,37 +856,96 @@ router.post('/:id/change-linkage', requirePermission('service_requests.review'),
 });
 
 router.get('/:id/suggested-matches', requirePermission('service_requests.review'), async (req, res) => {
-  // Load name + phone from the request's requester_external and use them as
-  // the seed for the fuzzy search.
+  // Load name + phone for the requested party and use them as the fuzzy seed.
+  // party=referrer searches by the mediator's snapshot; default is the beneficiary.
+  const party = req.query.party === 'referrer' ? 'referrer' : 'beneficiary';
+  const seedSql = party === 'referrer'
+    ? `SELECT referrer_external->>'name' AS name,
+              referrer_external->>'primary_phone' AS phone,
+              request_type
+         FROM service_requests WHERE id = $1`
+    : `SELECT COALESCE(
+                beneficiary_external->>'name',
+                requester_external->>'name',
+                NULLIF(CONCAT_WS(' ',
+                  submitted_payload #>> '{data,firstName}',
+                  submitted_payload #>> '{data,lastName}'
+                ), '')
+              ) AS name,
+              COALESCE(
+                beneficiary_external->>'primary_phone',
+                requester_external->>'primary_phone',
+                submitted_payload #>> '{data,phoneNumber}'
+              ) AS phone,
+              request_type
+         FROM service_requests WHERE id = $1`;
   const { rows } = await pool.query<{ name: string | null; phone: string | null; request_type: string }>(
-    `SELECT COALESCE(
-              beneficiary_external->>'name',
-              requester_external->>'name',
-              NULLIF(CONCAT_WS(' ',
-                submitted_payload #>> '{data,firstName}',
-                submitted_payload #>> '{data,lastName}'
-              ), '')
-            ) AS name,
-            COALESCE(
-              beneficiary_external->>'primary_phone',
-              requester_external->>'primary_phone',
-              submitted_payload #>> '{data,phoneNumber}'
-            ) AS phone,
-            request_type
-       FROM service_requests WHERE id = $1`,
+    seedSql,
     [Number(req.params.id)],
   );
   if (rows.length === 0) return res.status(404).json({ error: 'not_found' });
+  // Mediator (referrer) is always linked to a client entity; water_check
+  // beneficiaries likewise link to clients only.
+  const clientsOnly = party === 'referrer' || rows[0].request_type === 'water_check';
   const suggestions = await suggestRecords({
     name: rows[0].name,
     phone: rows[0].phone,
-    sources: rows[0].request_type === 'water_check' ? 'clients' : 'all',
+    sources: clientsOnly ? 'clients' : 'all',
     limit: 10,
   });
-  if (rows[0].request_type === 'water_check') {
+  if (clientsOnly) {
     return res.json({ clients: suggestions.clients, candidates: [] });
   }
   res.json(suggestions);
+});
+
+// SR-LINK-01 — link the mediator (referrer) to a client, same guard as beneficiary.
+router.post('/:id/link-referrer', requirePermission('service_requests.review'), blockIfEscalated, async (req, res) => {
+  const actor = getActor(req);
+  const referrerClientId = Number(req.body.referrerClientId);
+  if (!Number.isInteger(referrerClientId) || referrerClientId <= 0) {
+    return res.status(400).json({ error: 'referrer_client_id_required' });
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query<{ status: string }>(
+      `SELECT status FROM service_requests WHERE id = $1 FOR UPDATE`,
+      [Number(req.params.id)],
+    );
+    if (rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'not_found' });
+    }
+    if (rows[0].status !== 'in_review') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'link_requires_claim', details: { status: rows[0].status } });
+    }
+    const exists = await client.query(`SELECT 1 FROM clients WHERE id = $1 AND deleted_at IS NULL`, [referrerClientId]);
+    if (exists.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'client_not_found' });
+    }
+    await client.query(
+      `UPDATE service_requests SET referrer_client_id = $2, updated_at = NOW() WHERE id = $1`,
+      [Number(req.params.id), referrerClientId],
+    );
+    await appendAudit(client, {
+      serviceRequestId: Number(req.params.id),
+      eventType: 'party_linked',
+      actorUserId: actor.userId,
+      actorRole: 'operator',
+      payload: { party_role: 'referrer', referrer_client_id: referrerClientId },
+    });
+    await syncBeneficiaryReferrer(client, Number(req.params.id));
+    await client.query('COMMIT');
+    res.json({ ok: true });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 });
 
 router.get('/:id/periodic-attachment-candidate', requirePermission('service_requests.review'), async (req, res) => {
@@ -776,29 +995,57 @@ function transitionEndpoint(
 router.post(
   '/:id/request-info',
   requirePermission('service_requests.review'),
+  blockIfEscalated,
   transitionEndpoint('service_requests.review', 'awaiting_customer_info'),
 );
 
 router.post(
   '/:id/resume-review',
   requirePermission('service_requests.review'),
+  blockIfEscalated,
   transitionEndpoint('service_requests.review', 'in_review'),
 );
 
 router.post(
   '/:id/resolve-at-intake',
   requirePermission('service_requests.review'),
+  blockIfEscalated,
   transitionEndpoint('service_requests.review', 'resolved_at_intake'),
 );
 
+// SR-ESC-01 — escalate to restricted mode. Sets ONLY the dedicated escalation
+// marker (freezes all actions). It does NOT touch review_required_flag — the two
+// are decoupled (SR-ESC-02); escalation itself opens the reject door (SR-AUTH-01).
 router.post('/:id/escalate', requirePermission('service_requests.review'), async (req, res) => {
   const actor = getActor(req);
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query(
-      `UPDATE service_requests SET review_required_flag = TRUE, updated_at = NOW() WHERE id = $1`,
+    const { rows } = await client.query<{ status: string; escalated_at: string | null; archived_at: string | null }>(
+      `SELECT status, escalated_at, archived_at FROM service_requests WHERE id = $1 FOR UPDATE`,
       [Number(req.params.id)],
+    );
+    if (rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'not_found' });
+    }
+    if (rows[0].escalated_at != null) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'already_escalated' });
+    }
+    const terminal = ['resolved_at_intake', 'rejected', 'promoted', 'cancelled'];
+    if (terminal.includes(rows[0].status)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'cannot_escalate_terminal_request', details: { status: rows[0].status } });
+    }
+    await client.query(
+      `UPDATE service_requests
+          SET escalated_at = NOW(),
+              escalated_by_user_id = $2,
+              escalation_reason = $3,
+              updated_at = NOW()
+        WHERE id = $1`,
+      [Number(req.params.id), actor.userId, req.body.reason ?? null],
     );
     await appendAudit(client, {
       serviceRequestId: Number(req.params.id),
@@ -807,12 +1054,51 @@ router.post('/:id/escalate', requirePermission('service_requests.review'), async
       actorRole: 'operator',
       payload: { reason: req.body.reason ?? null },
     });
+    await client.query('COMMIT');
+    res.json({ ok: true });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+});
+
+// SR-ESC-02 — resolve escalation (فك التصعيد). Dedicated permission, separate
+// from reject (§4.1: de-escalation reopens the workflow, reject is terminal).
+// Clears the restricted-mode marker so operators can resume normal actions.
+router.post('/:id/resolve-escalation', requirePermission('service_requests.resolve_escalation'), async (req, res) => {
+  const actor = getActor(req);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query<{ escalated_at: string | null }>(
+      `SELECT escalated_at FROM service_requests WHERE id = $1 FOR UPDATE`,
+      [Number(req.params.id)],
+    );
+    if (rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'not_found' });
+    }
+    if (rows[0].escalated_at == null) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'not_escalated' });
+    }
+    await client.query(
+      `UPDATE service_requests
+          SET escalated_at = NULL,
+              escalated_by_user_id = NULL,
+              escalation_reason = NULL,
+              updated_at = NOW()
+        WHERE id = $1`,
+      [Number(req.params.id)],
+    );
     await appendAudit(client, {
       serviceRequestId: Number(req.params.id),
-      eventType: 'review_required_flag_set',
+      eventType: 'escalation_resolved',
       actorUserId: actor.userId,
-      actorRole: 'operator',
-      payload: { reason: 'escalated_by_operator', auto: false },
+      actorRole: 'audit_admin',
+      payload: { reason: req.body.reason ?? null },
     });
     await client.query('COMMIT');
     res.json({ ok: true });
@@ -833,6 +1119,7 @@ router.post(
 router.post(
   '/:id/cancel',
   requirePermission('service_requests.review'),
+  blockIfEscalated,
   transitionEndpoint('service_requests.review', 'cancelled'),
 );
 
@@ -862,7 +1149,7 @@ router.post('/:id/reopen', async (req, res) => {
 // PROMOTE / MERGE
 // ------------------------------------------------------------
 
-router.post('/:id/promote', requirePermission('service_requests.promote'), async (req, res) => {
+router.post('/:id/promote', requirePermission('service_requests.promote'), blockIfEscalated, async (req, res) => {
   const actor = getActor(req);
   const result = await promote({
     serviceRequestId: Number(req.params.id),
@@ -885,7 +1172,7 @@ router.post('/:id/promote', requirePermission('service_requests.promote'), async
   res.json(result.data);
 });
 
-router.post('/:id/handoff-water-check', requirePermission('service_requests.promote'), async (req, res) => {
+router.post('/:id/handoff-water-check', requirePermission('service_requests.promote'), blockIfEscalated, async (req, res) => {
   const serviceRequestId = Number(req.params.id);
   if (!Number.isInteger(serviceRequestId) || serviceRequestId <= 0) {
     return res.status(400).json({ error: 'invalid_service_request_id' });
@@ -929,17 +1216,25 @@ router.post('/:id/handoff-water-check', requirePermission('service_requests.prom
   const operatorNote = typeof req.body?.operatorNote === 'string'
     ? req.body.operatorNote.trim() || null
     : null;
+  const dueDate = typeof req.body?.dueDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.body.dueDate.trim())
+    ? req.body.dueDate.trim()
+    : null;
+  const creationReason = typeof req.body?.creationReason === 'string' && req.body.creationReason.trim()
+    ? req.body.creationReason.trim()
+    : null;
   const result = await handoffWaterCheckToDeviceDemo({
     serviceRequestId,
     operatorUserId: actor.userId,
     priority,
     operatorNote,
+    dueDate,
+    creationReason,
   });
   if (result.ok !== true) return sendErr(res, result);
   res.json(result.data);
 });
 
-router.post('/:id/merge', requirePermission('service_requests.promote'), async (req, res) => {
+router.post('/:id/merge', requirePermission('service_requests.promote'), blockIfEscalated, async (req, res) => {
   const actor = getActor(req);
   if (!req.body.existingOpenTaskId) {
     return res.status(400).json({ error: 'existingOpenTaskId_required' });
@@ -954,7 +1249,7 @@ router.post('/:id/merge', requirePermission('service_requests.promote'), async (
   res.json(result.data);
 });
 
-router.post('/:id/attach-periodic', requirePermission('service_requests.promote'), async (req, res) => {
+router.post('/:id/attach-periodic', requirePermission('service_requests.promote'), blockIfEscalated, async (req, res) => {
   const actor = getActor(req);
   if (!req.body.periodicOpenTaskId) {
     return res.status(400).json({ error: 'periodicOpenTaskId_required' });
@@ -1088,7 +1383,7 @@ router.post('/:id/notes', requirePermission('service_requests.review'), async (r
 // PROBLEMS (٠.١٩) — per-phase auth left to caller; we expose actions.
 // ------------------------------------------------------------
 
-router.post('/:id/problems', requirePermission('service_requests.review'), async (req, res) => {
+router.post('/:id/problems', requirePermission('service_requests.review'), blockIfEscalated, async (req, res) => {
   const actor = getActor(req);
   const result = await addProblem({
     serviceRequestId: Number(req.params.id),
@@ -1117,7 +1412,7 @@ router.post('/:id/problems', requirePermission('service_requests.review'), async
   res.status(201).json(result.data);
 });
 
-router.patch('/:id/problems/:pid', requirePermission('service_requests.review'), async (req, res) => {
+router.patch('/:id/problems/:pid', requirePermission('service_requests.review'), blockIfEscalated, async (req, res) => {
   const actor = getActor(req);
   const result = await editProblem({
     problemId: Number(req.params.pid),
@@ -1130,7 +1425,7 @@ router.patch('/:id/problems/:pid', requirePermission('service_requests.review'),
   res.json({ ok: true });
 });
 
-router.patch('/:id/problems/:pid/status', requirePermission('service_requests.review'), async (req, res) => {
+router.patch('/:id/problems/:pid/status', requirePermission('service_requests.review'), blockIfEscalated, async (req, res) => {
   const actor = getActor(req);
   const result = await changeProblemStatus({
     problemId: Number(req.params.pid),
@@ -1152,6 +1447,7 @@ router.patch('/:id/problems/:pid/status', requirePermission('service_requests.re
 router.post(
   '/:id/problems/:pid/record-resolution',
   requirePermission('service_requests.review'),
+  blockIfEscalated,
   async (req, res) => {
     // Shortcut: changes status to 'resolved' and fills resolution fields.
     const actor = getActor(req);
@@ -1171,7 +1467,7 @@ router.post(
   },
 );
 
-router.delete('/:id/problems/:pid', requirePermission('service_requests.review'), async (req, res) => {
+router.delete('/:id/problems/:pid', requirePermission('service_requests.review'), blockIfEscalated, async (req, res) => {
   const actor = getActor(req);
   const result = await softDeleteProblem({
     problemId: Number(req.params.pid),
@@ -1186,6 +1482,7 @@ router.delete('/:id/problems/:pid', requirePermission('service_requests.review')
 router.post(
   '/:id/problems/:pid/restore',
   requirePermission('service_requests.reject'), // audit-admin perm gates restore
+  blockIfEscalated,
   async (req, res) => {
     const actor = getActor(req);
     const result = await restoreProblem({
@@ -1201,6 +1498,7 @@ router.post(
 router.post(
   '/:id/problems/:pid/override',
   requirePermission('service_requests.reject'), // audit-admin perm gates override
+  blockIfEscalated,
   async (req, res) => {
     const actor = getActor(req);
     const result = await auditAdminOverride({

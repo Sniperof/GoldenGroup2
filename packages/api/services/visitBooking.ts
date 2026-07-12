@@ -21,6 +21,7 @@
 import type { PoolClient } from 'pg';
 import pool from '../db.js';
 import { resolveTeamZoneIds } from './planningMarketingTargets.js';
+import { refreshVisitType } from './visitClassification.js';
 
 export type VisitOriginType =
   | 'telemarketing'
@@ -58,14 +59,6 @@ class BookingError extends Error {
     this.statusCode = statusCode;
   }
 }
-
-const POST_SALE_TASK_TYPES = new Set([
-  'device_delivery',
-  'gift_delivery',
-  'device_installation',
-  'device_activation',
-  'device_disconnection',
-]);
 
 // ─── D18 triple guard ──────────────────────────────────────────────────────
 
@@ -123,6 +116,7 @@ interface TaskRow {
   status: string;
   client_id: number;
   task_type: string;
+  task_family: string;
 }
 
 const LOCKED_TASK_STATUSES = new Set([
@@ -142,7 +136,8 @@ async function validateSelectedTasks(
 
   const taskIds = input.selectedTasks.map((t) => t.openTaskId);
   const { rows } = await db.query<TaskRow>(
-    `SELECT ot.id, ot.status, ot.client_id, ot.task_type
+    `SELECT ot.id, ot.status, ot.client_id, ot.task_type,
+            COALESCE(ot.task_family, ttc.task_family) AS task_family
        FROM open_tasks ot
        INNER JOIN task_type_config ttc ON ttc.task_type = ot.task_type
       WHERE ot.id = ANY($1::int[])
@@ -276,13 +271,6 @@ async function resolveHrUserId(
   return rows[0]?.id ?? null;
 }
 
-// ─── Visit family inference ────────────────────────────────────────────────
-
-function inferVisitFamily(selectedTasks: BookVisitInput['selectedTasks']): 'marketing' | 'service' {
-  const allPostSale = selectedTasks.every((t) => POST_SALE_TASK_TYPES.has(t.taskType));
-  return allPostSale ? 'service' : 'marketing';
-}
-
 // ─── The unified booking entry point ───────────────────────────────────────
 
 export async function bookVisit(input: BookVisitInput): Promise<BookVisitResult> {
@@ -311,7 +299,11 @@ export async function bookVisit(input: BookVisitInput): Promise<BookVisitResult>
     });
 
     // 4. Create the field_visit
-    const visitFamily = inferVisitFamily(input.selectedTasks);
+    // Compatibility-only legacy column. The authoritative visit_type is
+    // recomputed from visit_tasks below; any non-marketing family is service.
+    const visitFamily = input.selectedTasks.every(
+      (selected) => taskById.get(selected.openTaskId)?.task_family === 'marketing',
+    ) ? 'marketing' : 'service';
     const { rows: visitRows } = await db.query<{ id: number }>(
       `INSERT INTO field_visits (
          visit_type, visit_family, branch_id, client_id, status,
@@ -358,7 +350,7 @@ export async function bookVisit(input: BookVisitInput): Promise<BookVisitResult>
     for (let i = 0; i < input.selectedTasks.length; i++) {
       const sel = input.selectedTasks[i];
       const taskRow = taskById.get(sel.openTaskId)!;
-      const taskFamily = POST_SALE_TASK_TYPES.has(sel.taskType) ? 'service' : 'marketing';
+      const taskFamily = taskRow.task_family;
       const { rows: vtRows } = await db.query<{ id: number }>(
         `INSERT INTO visit_tasks (
            field_visit_id, source_open_task_id,
@@ -409,6 +401,7 @@ export async function bookVisit(input: BookVisitInput): Promise<BookVisitResult>
       }
     }
 
+    await refreshVisitType(db, fieldVisitId);
     await db.query('COMMIT');
     return { fieldVisitId, visitTaskIds };
   } catch (err) {

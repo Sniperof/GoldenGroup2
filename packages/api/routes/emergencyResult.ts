@@ -26,6 +26,11 @@ import {
   generateNextPeriodicMaintenanceTask,
   supersedePeriodicWithinEmergency,
 } from '../services/periodicMaintenanceTasks.js';
+import {
+  assertCanRecordSuccessfulDeviceTaskResult,
+  DeviceTaskEligibilityError,
+  type DeviceTaskType,
+} from '../services/deviceTaskEligibilityGuard.js';
 
 const router = Router();
 
@@ -1067,6 +1072,16 @@ router.put('/:taskId/costs', requirePermission('marketing_visits.update_result')
     const db = await pool.connect();
     try {
       await db.query('BEGIN');
+      if (
+        (meta.taskType === 'emergency_maintenance' || meta.taskType === 'periodic_maintenance')
+        && meta.installedDeviceId
+      ) {
+        await assertCanRecordSuccessfulDeviceTaskResult(db, {
+          taskType: meta.taskType as DeviceTaskType,
+          installedDeviceId: Number(meta.installedDeviceId),
+          finalDecision,
+        });
+      }
 
       // Compute total paid in SYP from multi-currency inputs
       const p1Syp = pay1Currency === 'usd'
@@ -1302,6 +1317,9 @@ router.put('/:taskId/costs', requirePermission('marketing_visits.update_result')
       db.release();
     }
   } catch (err: any) {
+    if (err instanceof DeviceTaskEligibilityError) {
+      return res.status(err.status).json({ error: err.message });
+    }
     console.error('[emergency-result] costs error:', err);
     res.status(500).json({ error: err.message });
   }

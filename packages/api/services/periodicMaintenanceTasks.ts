@@ -84,6 +84,97 @@ function resolveIntervalDays(input: {
   return Math.max(1, parseMaintenancePlanDays(input.maintenancePlan, input.defaultIntervalMonths));
 }
 
+function daysBetweenDates(start: string | Date | null | undefined, end: string | Date | null | undefined): number | null {
+  if (!start || !end) return null;
+  const startTime = new Date(start).getTime();
+  const endTime = new Date(end).getTime();
+  if (!Number.isFinite(startTime) || !Number.isFinite(endTime) || endTime <= startTime) return null;
+  return Math.max(1, Math.ceil((endTime - startTime) / 86_400_000));
+}
+
+function resolveServiceAgreementIntervalDays(input: {
+  maintenancePlan: string | null;
+  visitsCount: number | null;
+  startDate: string | Date | null;
+  endDate: string | Date | null;
+  defaultIntervalMonths: number;
+}): number {
+  const plan = String(input.maintenancePlan ?? '').trim();
+  if (plan) return Math.max(1, parseMaintenancePlanDays(plan, input.defaultIntervalMonths));
+
+  const visitsCount = Number(input.visitsCount);
+  const durationDays = daysBetweenDates(input.startDate, input.endDate);
+  if (Number.isFinite(visitsCount) && visitsCount > 0 && durationDays != null) {
+    return Math.max(1, Math.floor(durationDays / visitsCount));
+  }
+
+  return Math.max(1, input.defaultIntervalMonths * 30);
+}
+
+function activeServiceAgreementJoin(alias = 'd') {
+  return `LEFT JOIN LATERAL (
+          SELECT sa.id,
+                 sa.maintenance_plan,
+                 sa.visits_count,
+                 sa.start_date,
+                 sa.end_date
+            FROM service_agreements sa
+           WHERE sa.installed_device_id = ${alias}.id
+             AND sa.status = 'active'
+             AND (sa.start_date IS NULL OR sa.start_date <= CURRENT_DATE)
+             AND (sa.end_date IS NULL OR sa.end_date >= CURRENT_DATE)
+           ORDER BY COALESCE(sa.start_date, sa.agreement_date) DESC, sa.id DESC
+           LIMIT 1
+        ) sa ON TRUE`;
+}
+
+function resolvePeriodicPlanSource(row: any, defaultIntervalMonths: number): {
+  ok: boolean;
+  skippedReason: string | null;
+  intervalDays: number | null;
+  contractId: number | null;
+  serviceAgreementId: number | null;
+} {
+  if (!row.clientId || !row.branchId) {
+    return { ok: false, skippedReason: 'missing_customer_or_branch', intervalDays: null, contractId: null, serviceAgreementId: null };
+  }
+
+  const contractId = row.contractId == null ? null : Number(row.contractId);
+  if (Number.isInteger(contractId) && contractId > 0) {
+    return {
+      ok: true,
+      skippedReason: null,
+      intervalDays: resolveIntervalDays({
+        warrantyMonths: row.warrantyMonths == null ? null : Number(row.warrantyMonths),
+        warrantyVisits: row.warrantyVisits == null ? null : Number(row.warrantyVisits),
+        maintenancePlan: row.maintenancePlan ?? null,
+        defaultIntervalMonths,
+      }),
+      contractId,
+      serviceAgreementId: null,
+    };
+  }
+
+  const serviceAgreementId = row.serviceAgreementId == null ? null : Number(row.serviceAgreementId);
+  if (Number.isInteger(serviceAgreementId) && serviceAgreementId > 0) {
+    return {
+      ok: true,
+      skippedReason: null,
+      intervalDays: resolveServiceAgreementIntervalDays({
+        maintenancePlan: row.serviceAgreementMaintenancePlan ?? null,
+        visitsCount: row.serviceAgreementVisitsCount == null ? null : Number(row.serviceAgreementVisitsCount),
+        startDate: row.serviceAgreementStartDate ?? null,
+        endDate: row.serviceAgreementEndDate ?? null,
+        defaultIntervalMonths,
+      }),
+      contractId: null,
+      serviceAgreementId,
+    };
+  }
+
+  return { ok: false, skippedReason: 'missing_active_service_agreement', intervalDays: null, contractId: null, serviceAgreementId: null };
+}
+
 export async function generateFirstPeriodicMaintenanceTask(
   db: Queryable,
   installedDeviceId: number,
@@ -103,9 +194,15 @@ export async function generateFirstPeriodicMaintenanceTask(
             d.activated_at AS "activatedAt",
             d.warranty_months AS "warrantyMonths",
             d.warranty_visits AS "warrantyVisits",
-            c.maintenance_plan AS "maintenancePlan"
+            c.maintenance_plan AS "maintenancePlan",
+            sa.id AS "serviceAgreementId",
+            sa.maintenance_plan AS "serviceAgreementMaintenancePlan",
+            sa.visits_count AS "serviceAgreementVisitsCount",
+            sa.start_date AS "serviceAgreementStartDate",
+            sa.end_date AS "serviceAgreementEndDate"
        FROM installed_devices d
        LEFT JOIN contracts c ON c.id = d.contract_id
+       ${activeServiceAgreementJoin('d')}
       WHERE d.id = $1
       LIMIT 1`,
     [installedDeviceId],
@@ -117,16 +214,11 @@ export async function generateFirstPeriodicMaintenanceTask(
   if (device.status !== 'active') {
     return { createdTaskId: null, skippedReason: 'device_not_active', dueDate: null, intervalDays: null };
   }
-  if (!device.clientId || !device.branchId || !device.contractId) {
-    return { createdTaskId: null, skippedReason: 'missing_required_links', dueDate: null, intervalDays: null };
+  const plan = resolvePeriodicPlanSource(device, settings.defaultIntervalMonths);
+  if (!plan.ok || plan.intervalDays == null) {
+    return { createdTaskId: null, skippedReason: plan.skippedReason, dueDate: null, intervalDays: null };
   }
-
-  const intervalDays = resolveIntervalDays({
-    warrantyMonths: device.warrantyMonths == null ? null : Number(device.warrantyMonths),
-    warrantyVisits: device.warrantyVisits == null ? null : Number(device.warrantyVisits),
-    maintenancePlan: device.maintenancePlan ?? null,
-    defaultIntervalMonths: settings.defaultIntervalMonths,
-  });
+  const intervalDays = plan.intervalDays;
 
   const { rows: dueRows } = await db.query(
     `SELECT (COALESCE($1::timestamptz, NOW())::date + $2::int) AS "dueDate"`,
@@ -167,7 +259,7 @@ export async function generateFirstPeriodicMaintenanceTask(
     [
       Number(device.clientId),
       Number(device.branchId),
-      Number(device.contractId),
+      plan.contractId,
       installedDeviceId,
       dueDate,
       `أول صيانة دورية مولدة تلقائياً بعد تفعيل الجهاز. الفاصل: ${intervalDays} يوم.`,
@@ -182,19 +274,20 @@ export async function generateFirstPeriodicMaintenanceTask(
 
   await db.query(
     `INSERT INTO open_task_periodic_payload
-       (open_task_id, generation_origin, interval_days_snapshot, created_by)
-     VALUES ($1, 'system', $2, $3)
+       (open_task_id, generation_origin, interval_days_snapshot, service_agreement_id, created_by)
+     VALUES ($1, 'system', $2, $3, $4)
      ON CONFLICT (open_task_id) DO UPDATE
        SET interval_days_snapshot = EXCLUDED.interval_days_snapshot,
+           service_agreement_id = EXCLUDED.service_agreement_id,
            updated_at = NOW()`,
-    [createdTaskId, intervalDays, createdByUserId],
+    [createdTaskId, intervalDays, plan.serviceAgreementId, createdByUserId],
   );
 
   await persistOpenTaskSnapshots(
     db,
     createdTaskId,
     Number(device.clientId),
-    Number(device.contractId),
+    plan.contractId,
     installedDeviceId,
   );
 
@@ -223,11 +316,17 @@ export async function generateNextPeriodicMaintenanceTask(
             d.status AS "deviceStatus",
             d.warranty_months AS "warrantyMonths",
             d.warranty_visits AS "warrantyVisits",
-            c.maintenance_plan AS "maintenancePlan"
+            c.maintenance_plan AS "maintenancePlan",
+            sa.id AS "serviceAgreementId",
+            sa.maintenance_plan AS "serviceAgreementMaintenancePlan",
+            sa.visits_count AS "serviceAgreementVisitsCount",
+            sa.start_date AS "serviceAgreementStartDate",
+            sa.end_date AS "serviceAgreementEndDate"
        FROM open_tasks ot
        LEFT JOIN open_task_periodic_payload otp ON otp.open_task_id = ot.id
        LEFT JOIN installed_devices d ON d.id = ot.device_id
        LEFT JOIN contracts c ON c.id = ot.contract_id
+       ${activeServiceAgreementJoin('d')}
       WHERE ot.id = $1
       LIMIT 1`,
     [completedPeriodicTaskId],
@@ -245,19 +344,15 @@ export async function generateNextPeriodicMaintenanceTask(
   if (task.deviceStatus !== 'active') {
     return { createdTaskId: null, skippedReason: 'device_not_active', dueDate: null, intervalDays: null };
   }
-  if (!task.clientId || !task.branchId || !task.contractId) {
-    return { createdTaskId: null, skippedReason: 'missing_required_links', dueDate: null, intervalDays: null };
+  const plan = resolvePeriodicPlanSource(task, settings.defaultIntervalMonths);
+  if (!plan.ok) {
+    return { createdTaskId: null, skippedReason: plan.skippedReason, dueDate: null, intervalDays: null };
   }
 
   const intervalSnapshot = task.intervalDaysSnapshot == null ? null : Number(task.intervalDaysSnapshot);
   const intervalDays = Number.isFinite(intervalSnapshot) && intervalSnapshot! > 0
     ? Math.floor(intervalSnapshot!)
-    : resolveIntervalDays({
-        warrantyMonths: task.warrantyMonths == null ? null : Number(task.warrantyMonths),
-        warrantyVisits: task.warrantyVisits == null ? null : Number(task.warrantyVisits),
-        maintenancePlan: task.maintenancePlan ?? null,
-        defaultIntervalMonths: settings.defaultIntervalMonths,
-      });
+    : Number(plan.intervalDays);
 
   const { rows: dueRows } = await db.query(
     `SELECT (GREATEST(COALESCE($1::date, CURRENT_DATE), CURRENT_DATE) + $2::int) AS "dueDate"`,
@@ -299,7 +394,7 @@ export async function generateNextPeriodicMaintenanceTask(
     [
       Number(task.clientId),
       Number(task.branchId),
-      Number(task.contractId),
+      plan.contractId,
       Number(task.installedDeviceId),
       dueDate,
       `صيانة دورية تالية مولدة تلقائياً بعد تنفيذ المهمة #${completedPeriodicTaskId}. الفاصل: ${intervalDays} يوم.`,
@@ -314,19 +409,20 @@ export async function generateNextPeriodicMaintenanceTask(
 
   await db.query(
     `INSERT INTO open_task_periodic_payload
-       (open_task_id, generation_origin, interval_days_snapshot, created_by)
-     VALUES ($1, 'system', $2, $3)
+       (open_task_id, generation_origin, interval_days_snapshot, service_agreement_id, created_by)
+     VALUES ($1, 'system', $2, $3, $4)
      ON CONFLICT (open_task_id) DO UPDATE
        SET interval_days_snapshot = EXCLUDED.interval_days_snapshot,
+           service_agreement_id = EXCLUDED.service_agreement_id,
            updated_at = NOW()`,
-    [createdTaskId, intervalDays, createdByUserId],
+    [createdTaskId, intervalDays, plan.serviceAgreementId, createdByUserId],
   );
 
   await persistOpenTaskSnapshots(
     db,
     createdTaskId,
     Number(task.clientId),
-    Number(task.contractId),
+    plan.contractId,
     Number(task.installedDeviceId),
   );
 
@@ -350,9 +446,15 @@ export async function createManualPeriodicMaintenanceTask(
             d.status,
             d.warranty_months AS "warrantyMonths",
             d.warranty_visits AS "warrantyVisits",
-            c.maintenance_plan AS "maintenancePlan"
+            c.maintenance_plan AS "maintenancePlan",
+            sa.id AS "serviceAgreementId",
+            sa.maintenance_plan AS "serviceAgreementMaintenancePlan",
+            sa.visits_count AS "serviceAgreementVisitsCount",
+            sa.start_date AS "serviceAgreementStartDate",
+            sa.end_date AS "serviceAgreementEndDate"
        FROM installed_devices d
        LEFT JOIN contracts c ON c.id = d.contract_id
+       ${activeServiceAgreementJoin('d')}
       WHERE d.id = $1
       LIMIT 1`,
     [input.installedDeviceId],
@@ -360,8 +462,11 @@ export async function createManualPeriodicMaintenanceTask(
   const device = rows[0];
   if (!device) throw new Error('الجهاز غير موجود.');
   if (device.status !== 'active') throw new Error('لا يمكن إنشاء دورية يدوية إلا لجهاز active.');
-  if (!device.clientId || !device.branchId || !device.contractId) {
-    throw new Error('الجهاز لا يملك روابط زبون/فرع/عقد كافية لإنشاء دورية.');
+  const plan = resolvePeriodicPlanSource(device, settings.defaultIntervalMonths);
+  if (!plan.ok) {
+    throw new Error(plan.skippedReason === 'missing_active_service_agreement'
+      ? 'الجهاز الخارجي يحتاج اتفاق خدمة فعالاً قبل إنشاء صيانة دورية.'
+      : 'الجهاز لا يملك روابط زبون/فرع كافية لإنشاء دورية.');
   }
 
   const dueDate = String(input.dueDate ?? '').trim();
@@ -378,12 +483,7 @@ export async function createManualPeriodicMaintenanceTask(
 
   const intervalDays = overrideMonths != null
     ? Math.max(1, Math.floor(overrideMonths * 30))
-    : resolveIntervalDays({
-        warrantyMonths: device.warrantyMonths == null ? null : Number(device.warrantyMonths),
-        warrantyVisits: device.warrantyVisits == null ? null : Number(device.warrantyVisits),
-        maintenancePlan: device.maintenancePlan ?? null,
-        defaultIntervalMonths: settings.defaultIntervalMonths,
-      });
+    : Number(plan.intervalDays);
 
   const { rows: existingRows } = await db.query(
     `SELECT id
@@ -423,7 +523,7 @@ export async function createManualPeriodicMaintenanceTask(
     [
       Number(device.clientId),
       Number(device.branchId),
-      Number(device.contractId),
+      plan.contractId,
       input.installedDeviceId,
       dueDate,
       manualReason,
@@ -436,16 +536,16 @@ export async function createManualPeriodicMaintenanceTask(
 
   await db.query(
     `INSERT INTO open_task_periodic_payload
-       (open_task_id, generation_origin, interval_days_snapshot, manual_reason, created_by)
-     VALUES ($1, 'manual', $2, $3, $4)`,
-    [createdTaskId, intervalDays, manualReason, input.createdByUserId ?? null],
+       (open_task_id, generation_origin, interval_days_snapshot, service_agreement_id, manual_reason, created_by)
+     VALUES ($1, 'manual', $2, $3, $4, $5)`,
+    [createdTaskId, intervalDays, plan.serviceAgreementId, manualReason, input.createdByUserId ?? null],
   );
 
   await persistOpenTaskSnapshots(
     db,
     createdTaskId,
     Number(device.clientId),
-    Number(device.contractId),
+    plan.contractId,
     input.installedDeviceId,
   );
 

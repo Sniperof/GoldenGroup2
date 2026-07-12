@@ -11,6 +11,7 @@ import {
   canViewCandidate,
 } from '../policies/candidatePolicy.js';
 import { canViewClient } from '../policies/clientPolicy.js';
+import { eligibleHrUserWithPermissionCondition } from '../services/assigneeEligibility.js';
 import { buildClientLifecycleStatusSql } from '../services/customerOwnership.js';
 import {
   getCanonicalContactNumber,
@@ -135,10 +136,10 @@ function canAssignCandidatesAcrossBranches(authContext: ReturnType<typeof getReq
   return grant?.scope === 'GLOBAL';
 }
 
-// Validates an explicit candidate responsible: must be active and eligible
-// (role carries candidates.can_be_assigned — managers are excluded by not
-// holding it). When branchId is set (assigner is not super/GLOBAL), the user
-// must also belong to that branch. deny-by-default (engineering standard §5.1).
+// Validates a candidate responsible with the same assignee shape as clients:
+// active HR user, linked to an active employee, active employee status, and a
+// role carrying candidates.can_be_assigned. When branchId is set (assigner is
+// not super/GLOBAL), the user must also belong to that branch.
 async function assertCandidateResponsible(
   userId: number,
   branchId: number | null,
@@ -150,13 +151,12 @@ async function assertCandidateResponsible(
     branchClause = `AND u.branch_id = $${params.length}`;
   }
   const { rows } = await pool.query(
-    `SELECT u.id FROM hr_users u
-      WHERE u.id = $1 AND u.is_active = TRUE
-        AND u.role_id IN (
-          SELECT rpg.role_id FROM role_permission_grants rpg
-            JOIN permissions p ON p.id = rpg.permission_id
-           WHERE p.key = 'candidates.can_be_assigned'
-        )
+    `SELECT u.id
+       FROM hr_users u
+       LEFT JOIN roles r ON r.id = u.role_id
+       LEFT JOIN employees e ON e.id = u.employee_id
+      WHERE u.id = $1
+        AND ${eligibleHrUserWithPermissionCondition('u', 'r', 'e', 'candidates.can_be_assigned')}
         ${branchClause}`,
     params,
   );
@@ -682,14 +682,12 @@ router.post('/', requirePermission('candidates.create'), async (req, res) => {
     // the sole assignee. The creator is the owner only when no explicit
     // responsible was chosen — never added on top of a chosen one. An explicit
     // responsible must be eligible (and in-branch unless super/GLOBAL).
-    if (ownerUserId !== authContext.userId) {
-      const responsibleError = await assertCandidateResponsible(
-        ownerUserId,
-        canAssignCandidatesAcrossBranches(authContext) ? null : targetBranchId,
-      );
-      if (responsibleError) {
-        return res.status(400).json({ error: responsibleError });
-      }
+    const responsibleError = await assertCandidateResponsible(
+      ownerUserId,
+      canAssignCandidatesAcrossBranches(authContext) ? null : targetBranchId,
+    );
+    if (responsibleError) {
+      return res.status(400).json({ error: responsibleError });
     }
     await insertCandidateAssignments(candidateId, [ownerUserId], authContext.userId);
 
@@ -977,14 +975,12 @@ router.put('/:id', requirePermission('candidates.edit'), async (req, res) => {
         .filter((n: number) => Number.isFinite(n) && n > 0);
       // One responsible: the chosen user is the sole assignee (no auto-added creator).
       const responsibleUserId = rawUserIds.length > 0 ? rawUserIds[0] : authContext.userId;
-      if (responsibleUserId !== authContext.userId) {
-        const responsibleError = await assertCandidateResponsible(
-          responsibleUserId,
-          canAssignCandidatesAcrossBranches(authContext) ? null : targetBranchId,
-        );
-        if (responsibleError) {
-          return res.status(400).json({ error: responsibleError });
-        }
+      const responsibleError = await assertCandidateResponsible(
+        responsibleUserId,
+        canAssignCandidatesAcrossBranches(authContext) ? null : targetBranchId,
+      );
+      if (responsibleError) {
+        return res.status(400).json({ error: responsibleError });
       }
       await pool.query('DELETE FROM candidate_assignments WHERE candidate_id = $1', [candidateId]);
       await insertCandidateAssignments(Number(candidateId), [responsibleUserId], authContext.userId);

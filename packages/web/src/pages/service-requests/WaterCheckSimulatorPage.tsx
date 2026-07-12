@@ -9,7 +9,10 @@ import Select from '../../components/ui/Select';
 import PageHeader from '../../components/ui/PageHeader';
 import MapPicker from '../../components/MapPicker';
 
+type SubmissionMode = 'for_self' | 'for_another';
+
 interface FormState {
+  submissionMode: SubmissionMode;
   firstName: string;
   lastName: string;
   phoneNumber: string;
@@ -23,6 +26,21 @@ interface FormState {
   detailedAddress: string;
   mapLocation: { lat: number; lng: number } | null;
   notes: string;
+
+  // Mediator (وسيط) — only when submissionMode === 'for_another'. Data is
+  // captured ONLY after the mediator opts in (shareMediatorData).
+  shareMediatorData: boolean;
+  mediatorFirstName: string;
+  mediatorLastName: string;
+  mediatorPhone: string;
+  mediatorPhoneHasWhatsapp: boolean;
+  mediatorOccupation: string;
+  mediatorGovernorateId: number | null;
+  mediatorRegionId: number | null;
+  mediatorSubdistrictId: number | null;
+  mediatorNeighborhoodId: number | null;
+  mediatorDetailedAddress: string;
+  mediatorNotes: string;
 }
 
 const BRANCH_RESOLUTION_LABELS: Record<string, string> = {
@@ -43,6 +61,10 @@ function getUserField(user: unknown, keys: string[]): string {
   return '';
 }
 
+function isValidPhone(value: string): boolean {
+  return /^\d{10}$/.test(value.replace(/\D/g, ''));
+}
+
 function optionList(items: GeoUnit[], placeholder: string) {
   return [
     { value: 0, label: placeholder },
@@ -55,10 +77,12 @@ export default function WaterCheckSimulatorPage() {
   const authUser = useAuthStore((s) => s.user);
   const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
   const [loadingGeo, setLoadingGeo] = useState(true);
+  const [occupations, setOccupations] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<any | null>(null);
   const [form, setForm] = useState<FormState>({
+    submissionMode: 'for_self',
     firstName: getUserField(authUser, ['firstName', 'first_name']),
     lastName: getUserField(authUser, ['lastName', 'last_name']),
     phoneNumber: getUserField(authUser, ['mobile', 'phone', 'phoneNumber']),
@@ -72,6 +96,18 @@ export default function WaterCheckSimulatorPage() {
     detailedAddress: getUserField(authUser, ['detailedAddress', 'address']),
     mapLocation: null,
     notes: '',
+    shareMediatorData: false,
+    mediatorFirstName: '',
+    mediatorLastName: '',
+    mediatorPhone: '',
+    mediatorPhoneHasWhatsapp: false,
+    mediatorOccupation: '',
+    mediatorGovernorateId: null,
+    mediatorRegionId: null,
+    mediatorSubdistrictId: null,
+    mediatorNeighborhoodId: null,
+    mediatorDetailedAddress: '',
+    mediatorNotes: '',
   });
 
   useEffect(() => {
@@ -92,6 +128,16 @@ export default function WaterCheckSimulatorPage() {
     };
   }, []);
 
+  useEffect(() => {
+    let mounted = true;
+    api.systemLists.list({ category: 'occupation', activeOnly: true })
+      .then((rows: any[]) => {
+        if (mounted) setOccupations((Array.isArray(rows) ? rows : []).map((r) => String(r.value)).filter(Boolean));
+      })
+      .catch(() => { if (mounted) setOccupations([]); });
+    return () => { mounted = false; };
+  }, []);
+
   const governorates = useMemo(
     () => geoUnits.filter((unit) => unit.level === 1),
     [geoUnits],
@@ -109,8 +155,65 @@ export default function WaterCheckSimulatorPage() {
     [geoUnits, form.subdistrictId],
   );
 
+  const mediatorRegions = useMemo(
+    () => geoUnits.filter((unit) => unit.parentId === form.mediatorGovernorateId && unit.level === 2),
+    [geoUnits, form.mediatorGovernorateId],
+  );
+  const mediatorSubdistricts = useMemo(
+    () => geoUnits.filter((unit) => unit.parentId === form.mediatorRegionId && unit.level === 3),
+    [geoUnits, form.mediatorRegionId],
+  );
+  const mediatorNeighborhoods = useMemo(
+    () => geoUnits.filter((unit) => unit.parentId === form.mediatorSubdistrictId && unit.level === 4),
+    [geoUnits, form.mediatorSubdistrictId],
+  );
+
   function setField<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((current) => ({ ...current, [key]: value }));
+  }
+
+  function setSubmissionMode(mode: SubmissionMode) {
+    setForm((current) => {
+      if (mode === current.submissionMode) return current;
+      if (mode === 'for_another') {
+        // Beneficiary is a different person → clear the pre-filled identity.
+        return { ...current, submissionMode: mode, firstName: '', lastName: '', phoneNumber: '' };
+      }
+      // Back to "for self" → drop mediator data and restore submitter as beneficiary.
+      return {
+        ...current,
+        submissionMode: mode,
+        shareMediatorData: false,
+        mediatorFirstName: '', mediatorLastName: '', mediatorPhone: '', mediatorPhoneHasWhatsapp: false,
+        mediatorOccupation: '',
+        mediatorGovernorateId: null, mediatorRegionId: null, mediatorSubdistrictId: null, mediatorNeighborhoodId: null,
+        mediatorDetailedAddress: '', mediatorNotes: '',
+        firstName: getUserField(authUser, ['firstName', 'first_name']),
+        lastName: getUserField(authUser, ['lastName', 'last_name']),
+        phoneNumber: getUserField(authUser, ['mobile', 'phone', 'phoneNumber']),
+      };
+    });
+  }
+
+  function setShareMediatorData(share: boolean) {
+    setForm((current) => {
+      if (!share) {
+        return {
+          ...current,
+          shareMediatorData: false,
+          mediatorFirstName: '', mediatorLastName: '', mediatorPhone: '',
+          mediatorOccupation: '', mediatorAddress: '', mediatorNotes: '',
+        };
+      }
+      // Opt-in → prefill from the logged-in submitter (editable).
+      return {
+        ...current,
+        shareMediatorData: true,
+        mediatorFirstName: current.mediatorFirstName || getUserField(authUser, ['firstName', 'first_name']),
+        mediatorLastName: current.mediatorLastName || getUserField(authUser, ['lastName', 'last_name']),
+        mediatorPhone: current.mediatorPhone || getUserField(authUser, ['mobile', 'phone', 'phoneNumber']),
+      };
+    });
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -127,6 +230,30 @@ export default function WaterCheckSimulatorPage() {
     if (missing.length > 0) {
       setError(`الحقول المطلوبة: ${missing.join('، ')}`);
       return;
+    }
+
+    if (!isValidPhone(form.phoneNumber)) {
+      setError('رقم الهاتف يجب أن يتكون من 10 أرقام.');
+      return;
+    }
+    if (form.secondaryPhone.trim() && !isValidPhone(form.secondaryPhone)) {
+      setError('الرقم الثانوي يجب أن يتكون من 10 أرقام.');
+      return;
+    }
+    if (form.submissionMode === 'for_another' && form.shareMediatorData) {
+      const mMissing: string[] = [];
+      if (!form.mediatorFirstName.trim()) mMissing.push('اسم الوسيط الأول');
+      if (!form.mediatorLastName.trim()) mMissing.push('كنية الوسيط');
+      if (!form.mediatorPhone.trim()) mMissing.push('رقم هاتف الوسيط');
+      if (!form.mediatorGovernorateId) mMissing.push('محافظة الوسيط');
+      if (mMissing.length > 0) {
+        setError(`حقول الوسيط المطلوبة: ${mMissing.join('، ')}`);
+        return;
+      }
+      if (!isValidPhone(form.mediatorPhone)) {
+        setError('رقم هاتف الوسيط يجب أن يتكون من 10 أرقام.');
+        return;
+      }
     }
 
     setSubmitting(true);
@@ -162,6 +289,38 @@ export default function WaterCheckSimulatorPage() {
 
       <form onSubmit={handleSubmit} className="grid gap-4 lg:grid-cols-[1fr_360px]">
         <section className="rounded border border-slate-200 bg-white p-4">
+          {/* Submission path — for self or on behalf of another person */}
+          <div className="mb-4">
+            <div className="mb-2 text-base font-semibold text-slate-700">لمن هذا الطلب؟</div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setSubmissionMode('for_self')}
+                className={`rounded-lg border px-4 py-2 text-sm font-semibold transition-colors ${
+                  form.submissionMode === 'for_self'
+                    ? 'border-sky-500 bg-sky-50 text-sky-700'
+                    : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                الطلب لنفسي
+              </button>
+              <button
+                type="button"
+                onClick={() => setSubmissionMode('for_another')}
+                className={`rounded-lg border px-4 py-2 text-sm font-semibold transition-colors ${
+                  form.submissionMode === 'for_another'
+                    ? 'border-sky-500 bg-sky-50 text-sky-700'
+                    : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                الطلب لشخص آخر
+              </button>
+            </div>
+          </div>
+
+          <div className="mb-2 text-sm font-bold text-slate-500">
+            {form.submissionMode === 'for_another' ? 'بيانات صاحب الطلب (المستفيد)' : 'بياناتك'}
+          </div>
           <div className="grid gap-4 md:grid-cols-2">
             <Input
               label="الاسم الأول"
@@ -287,6 +446,139 @@ export default function WaterCheckSimulatorPage() {
               />
             </label>
           </div>
+
+          {form.submissionMode === 'for_another' && (
+            <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50/50 p-4">
+              <div className="mb-1 text-base font-semibold text-slate-700">بيانات الوسيط</div>
+              <p className="mb-3 text-sm text-slate-500">
+                أنت مُرسِل هذا الطلب نيابةً عن شخص آخر، لذا تُعتبر وسيطاً لهذا الزبون. يمكنك اختيار مشاركة بياناتك.
+              </p>
+              <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={form.shareMediatorData}
+                  onChange={(event) => setShareMediatorData(event.target.checked)}
+                />
+                أوافق على مشاركة بياناتي كوسيط
+              </label>
+
+              {form.shareMediatorData && (
+                <div className="mt-4 grid gap-4 md:grid-cols-2">
+                  <Input
+                    label="الاسم الأول"
+                    required
+                    value={form.mediatorFirstName}
+                    onChange={(event) => setField('mediatorFirstName', event.target.value)}
+                  />
+                  <Input
+                    label="الكنية"
+                    required
+                    value={form.mediatorLastName}
+                    onChange={(event) => setField('mediatorLastName', event.target.value)}
+                  />
+                  <div className="space-y-2">
+                    <Input
+                      label="رقم الهاتف"
+                      required
+                      value={form.mediatorPhone}
+                      onChange={(event) => setField('mediatorPhone', event.target.value)}
+                      dir="ltr"
+                    />
+                    <label className="flex items-center gap-2 text-sm text-slate-600">
+                      <input
+                        type="checkbox"
+                        checked={form.mediatorPhoneHasWhatsapp}
+                        onChange={(event) => setField('mediatorPhoneHasWhatsapp', event.target.checked)}
+                      />
+                      الرقم لديه واتساب
+                    </label>
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-base font-semibold text-slate-700">المهنة</label>
+                    <Select
+                      value={form.mediatorOccupation}
+                      onChange={(value) => setField('mediatorOccupation', value)}
+                      ariaLabel="مهنة الوسيط"
+                      options={[{ value: '', label: 'اختر المهنة' }, ...occupations.map((o) => ({ value: o, label: o }))]}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-1.5 block text-base font-semibold text-slate-700">
+                      المحافظة <span className="ms-1 text-red-500">*</span>
+                    </label>
+                    <Select<number>
+                      value={form.mediatorGovernorateId ?? 0}
+                      onChange={(value) => setForm((current) => ({
+                        ...current,
+                        mediatorGovernorateId: value || null,
+                        mediatorRegionId: null,
+                        mediatorSubdistrictId: null,
+                        mediatorNeighborhoodId: null,
+                      }))}
+                      options={optionList(governorates, loadingGeo ? 'جاري التحميل...' : 'اختر المحافظة')}
+                      disabled={loadingGeo}
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-base font-semibold text-slate-700">المنطقة</label>
+                    <Select<number>
+                      value={form.mediatorRegionId ?? 0}
+                      onChange={(value) => setForm((current) => ({
+                        ...current,
+                        mediatorRegionId: value || null,
+                        mediatorSubdistrictId: null,
+                        mediatorNeighborhoodId: null,
+                      }))}
+                      options={optionList(mediatorRegions, 'اختر المنطقة')}
+                      disabled={!form.mediatorGovernorateId || mediatorRegions.length === 0}
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-base font-semibold text-slate-700">الناحية</label>
+                    <Select<number>
+                      value={form.mediatorSubdistrictId ?? 0}
+                      onChange={(value) => setForm((current) => ({
+                        ...current,
+                        mediatorSubdistrictId: value || null,
+                        mediatorNeighborhoodId: null,
+                      }))}
+                      options={optionList(mediatorSubdistricts, 'اختر الناحية')}
+                      disabled={!form.mediatorRegionId || mediatorSubdistricts.length === 0}
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-base font-semibold text-slate-700">الحي</label>
+                    <Select<number>
+                      value={form.mediatorNeighborhoodId ?? 0}
+                      onChange={(value) => setField('mediatorNeighborhoodId', value || null)}
+                      options={optionList(mediatorNeighborhoods, 'اختر الحي')}
+                      disabled={!form.mediatorSubdistrictId || mediatorNeighborhoods.length === 0}
+                    />
+                  </div>
+
+                  <label className="block md:col-span-2">
+                    <span className="mb-1.5 block text-base font-semibold text-slate-700">العنوان التفصيلي</span>
+                    <textarea
+                      value={form.mediatorDetailedAddress}
+                      onChange={(event) => setField('mediatorDetailedAddress', event.target.value)}
+                      rows={2}
+                      className="w-full rounded border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-500"
+                    />
+                  </label>
+                  <label className="block md:col-span-2">
+                    <span className="mb-1.5 block text-base font-semibold text-slate-700">ملاحظات الوسيط</span>
+                    <textarea
+                      value={form.mediatorNotes}
+                      onChange={(event) => setField('mediatorNotes', event.target.value)}
+                      rows={2}
+                      className="w-full rounded border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-500"
+                    />
+                  </label>
+                </div>
+              )}
+            </div>
+          )}
         </section>
 
         <aside className="space-y-4">

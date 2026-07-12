@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { FileText, Zap } from 'lucide-react';
+import { FileText, Wrench } from 'lucide-react';
 import TaskDetailLayout from '../../components/tasks/TaskDetailLayout';
 import type { TaskTypeExtension, TaskDetailData } from '../../components/tasks/types';
 import EmergencyDetailsTab from '../../taskTypes/emergency_maintenance/EmergencyDetailsTab';
@@ -30,7 +30,7 @@ export default function EmergencyTaskDetail() {
     extraTabs: [
       {
         id: 'emergency',
-        label: 'تفاصيل الطوارئ',
+        label: 'تفاصيل الصيانة',
         render: (data: TaskDetailData) => <EmergencyDetailsTab data={data} />,
       },
     ],
@@ -52,10 +52,10 @@ export default function EmergencyTaskDetail() {
     <>
       <TaskDetailLayout
         taskId={taskId}
-        typeIcon={Zap}
-        typeIconColor="text-rose-500"
-        backLabel="مهام الصيانة الطارئة"
-        backHref="/tasks/emergency"
+        typeIcon={Wrench}
+        typeIconColor="text-amber-500"
+        backLabel="مهام الصيانة"
+        backHref="/tasks/group/maintenance"
         extension={emergencyExtension}
         overviewIssuesFor={overviewIssuesFor}
         hasResultFor={hasResultFor}

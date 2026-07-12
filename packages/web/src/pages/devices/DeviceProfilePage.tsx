@@ -21,6 +21,7 @@ import { OperationalStatusSection } from './sections/OperationalStatusSection';
 import { CurrentHolderSection } from './sections/CurrentHolderSection';
 import { PossessionHistorySection } from './sections/PossessionHistorySection';
 import { WarrantiesSection } from './sections/WarrantiesSection';
+import { ServiceAgreementsSection } from './sections/ServiceAgreementsSection';
 import { InstalledPartsSection } from './sections/InstalledPartsSection';
 import { LinkedContractSection } from './sections/LinkedContractSection';
 import { FinancialSection } from './sections/FinancialSection';
@@ -34,6 +35,7 @@ const JUMP_LINKS = [
   { id: 'current-holder',    label: '٣. الحيازة الحالية' },
   { id: 'possession-history',label: '٤. سجل الحيازة' },
   { id: 'warranties',        label: '٥. الكفالات' },
+  { id: 'service-agreements',label: '٥.١ اتفاق الخدمة' },
   { id: 'parts',             label: '٦. القطع' },
   { id: 'contract',          label: '٧. العقد' },
   { id: 'financial',         label: '٨. المالية' },
@@ -234,6 +236,7 @@ export default function DeviceProfilePage() {
             device={{ id: device.id, customerId: device.customerId, contractId: device.contractId, branchId: device.branchId, status: device.status }}
             onCreated={fetchAll}
           />
+          <ServiceAgreementsSection device={device} onChanged={fetchAll} />
           <InstalledPartsSection contract={contract} deviceParts={parts} onChanged={fetchAll} />
           <LinkedContractSection contract={contract} apiBase={API_BASE} />
           <FinancialSection contract={contract} customerId={device.customerId ?? null} />

@@ -3,6 +3,7 @@ import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
 import { resolveActingBranch } from '../services/authorizationService.js';
+import { eligibleHrUserWithPermissionCondition } from '../services/assigneeEligibility.js';
 import {
   canCreateReferralSheet,
   canEditReferralSheet,
@@ -184,9 +185,9 @@ async function assertAssignedHrUserExists(
     return { ok: false, error: 'يجب تحديد assigned_hr_user_id صالح' };
   }
 
-  // Eligibility: the target must be an active HR user whose role carries
-  // candidates.name_lists.can_be_assigned. Being a valid user is not enough —
-  // only eligible staff may be made responsible for a name list.
+  // Eligibility: the target must match the same assignee rule as clients:
+  // active HR user, linked to an active employee, and a role carrying
+  // candidates.name_lists.can_be_assigned.
   // Branch: when mustBeInBranchId is set (assigner is not GLOBAL/super), the
   // target must also belong to the operation's branch — deny-by-default so a
   // forged cross-branch assignee is rejected even if the UI filtered it out.
@@ -200,14 +201,10 @@ async function assertAssignedHrUserExists(
   const { rows } = await pool.query(
     `SELECT u.id
        FROM hr_users u
+       LEFT JOIN roles r ON r.id = u.role_id
+       LEFT JOIN employees e ON e.id = u.employee_id
       WHERE u.id = $1
-        AND u.is_active = TRUE
-        AND u.role_id IN (
-          SELECT rpg.role_id
-            FROM role_permission_grants rpg
-            JOIN permissions p ON p.id = rpg.permission_id
-           WHERE p.key = 'candidates.name_lists.can_be_assigned'
-        )
+        AND ${eligibleHrUserWithPermissionCondition('u', 'r', 'e', 'candidates.name_lists.can_be_assigned')}
         ${branchClause}`,
     params,
   );
@@ -434,11 +431,11 @@ router.post('/', requirePermission('candidates.name_lists.create'), async (req, 
     }
 
     const canManageAssignment = canManageReferralSheetAssignment(authContext, targetBranchId);
-    const requestedAssignedHrUserId = canManageAssignment ? req.body?.assignedHrUserId : authContext.userId;
+    const requestedAssignedHrUserId = canManageAssignment && req.body?.assignedHrUserId != null && req.body.assignedHrUserId !== ''
+      ? req.body.assignedHrUserId
+      : authContext.userId;
     const assigneeBranchGuard = canAssignAcrossBranches(authContext) ? null : targetBranchId;
-    const assignedHrUserCheck = requestedAssignedHrUserId == null || requestedAssignedHrUserId === ''
-      ? { ok: true as const, assignedHrUserId: authContext.userId }
-      : await assertAssignedHrUserExists(requestedAssignedHrUserId, assigneeBranchGuard);
+    const assignedHrUserCheck = await assertAssignedHrUserExists(requestedAssignedHrUserId, assigneeBranchGuard);
     if ('error' in assignedHrUserCheck) {
       return res.status(400).json({ error: assignedHrUserCheck.error });
     }

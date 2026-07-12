@@ -86,6 +86,7 @@ export const SYSTEM_SETTING_DEFAULTS = {
   visit_undocumented_alert_hours_l1: 24,       // DEC-006 D38
   visit_undocumented_alert_hours_l2: 48,       // DEC-006 D38
   visit_undocumented_alert_hours_l3: 72,       // DEC-006 D38
+  visit_escalation_job_interval_minutes: 15,
   periodic_auto_generate_enabled: true,
   periodic_manual_creation_enabled: true,
   periodic_default_interval_months: 6,

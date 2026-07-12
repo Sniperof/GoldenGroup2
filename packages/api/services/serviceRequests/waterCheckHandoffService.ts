@@ -39,6 +39,11 @@ export interface WaterCheckHandoffInput {
   operatorUserId: number;
   priority?: 'high' | 'medium' | 'low' | null;
   operatorNote?: string | null;
+  /** Optional due date (YYYY-MM-DD) for the created device_demo task. */
+  dueDate?: string | null;
+  /** Optional creation reason (device_demo_creation_reasons value). Falls back
+   *  to the auto-resolved 'customer_request' reason when not provided. */
+  creationReason?: string | null;
 }
 
 export interface WaterCheckHandoffOutput {
@@ -341,7 +346,7 @@ export async function handoffWaterCheckToDeviceDemo(
       'marketing',
       'device_demo',
       'open',
-      null,
+      input.dueDate ?? null,
       null,
       input.priority ?? 'medium',
       'service_request',
@@ -362,7 +367,10 @@ export async function handoffWaterCheckToDeviceDemo(
     await addOptionalColumn('source_context_type', 'service_request');
     await addOptionalColumn('source_context_id', sr.id);
     await addOptionalColumn('delivery_address', extractDetailedAddress(sr));
-    await addOptionalColumn('creation_reason', await resolveDeviceDemoCreationReason(tx.client));
+    const cleanCreationReason = typeof input.creationReason === 'string' && input.creationReason.trim()
+      ? input.creationReason.trim()
+      : null;
+    await addOptionalColumn('creation_reason', cleanCreationReason ?? await resolveDeviceDemoCreationReason(tx.client));
 
     const placeholders = taskValues.map((_, index) => `$${index + 1}`);
     const { rows: taskRows } = await tx.client.query<{ id: number }>(

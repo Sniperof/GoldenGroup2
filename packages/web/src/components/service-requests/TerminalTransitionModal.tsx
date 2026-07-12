@@ -21,7 +21,7 @@ import Button, { type ButtonVariant } from '../ui/Button';
 import Modal from '../ui/Modal';
 import { api } from '../../lib/api';
 
-export type ModalMode = 'requestInfo' | 'resolveAtIntake' | 'escalate' | 'cancel';
+export type ModalMode = 'requestInfo' | 'resolveAtIntake' | 'escalate' | 'cancel' | 'reject';
 
 interface Option {
   value: string;
@@ -51,6 +51,18 @@ const CANCEL_OUTCOMES: Option[] = [
   { value: 'data_entry_error',           label: 'خطأ في الإدخال',          description: 'الـ Operator أَخطأ عند الإنشاء' },
   { value: 'customer_withdrew_via_support', label: 'الزبون ألغى عبر دعم آخر', description: 'وَصلَنا اعتذار من قناة أخرى' },
   { value: 'redundant_with_existing_task',  label: 'مُكَرَّر مع مهمة قائمة',  description: 'يَنبغي التَحقُّق ودَمج إن لزم' },
+];
+
+// Reject outcomes — mirror stateMachine.ts TRIAGE_OUTCOMES_BY_TERMINAL.rejected.
+// A closed radio list prevents the invalid_triage_outcome error that a free
+// prompt allowed.
+const REJECT_OUTCOMES: Option[] = [
+  { value: 'duplicate',         label: 'مُكرَّر',               description: 'طلب مطابق لطلب آخر قائم' },
+  { value: 'invalid_request',   label: 'طلب غير صالح',          description: 'بيانات ناقصة أو غير منطقية' },
+  { value: 'spam',              label: 'مزعج / سبام',           description: 'طلب عبثي أو دعائي' },
+  { value: 'out_of_scope',      label: 'خارج النطاق',           description: 'لا يخصّ خدماتنا' },
+  { value: 'unverified_caller', label: 'متصل غير موثّق',        description: 'تعذّر التحقق من هوية مقدّم الطلب' },
+  { value: 'device_not_company', label: 'الجهاز ليس من الشركة',  description: 'الجهاز خارج نطاق أجهزتنا' },
 ];
 
 const MODE_CONFIG: Record<ModalMode, {
@@ -126,6 +138,21 @@ const MODE_CONFIG: Record<ModalMode, {
     confirmText: 'تَأكيد الإلغاء',
     confirmClass: 'bg-slate-700 hover:bg-slate-800',
     confirmVariant: 'primary',
+  },
+  reject: {
+    title: 'رَفض الطلب (مدقّق)',
+    badge: 'نهائي',
+    badgeClass: 'bg-red-100 text-red-700',
+    description: 'رفض نهائي للطلب. يتطلب سبباً من القائمة. يُمكن إعادة الفتح لاحقاً بصلاحية المدقّق.',
+    isTerminal: true,
+    requiresOutcome: true,
+    outcomes: REJECT_OUTCOMES,
+    noteLabel: 'ملاحظة الرفض',
+    noteRequired: false,
+    notePlaceholder: 'تفاصيل إضافية (اختياري)',
+    confirmText: 'تَأكيد الرفض',
+    confirmClass: 'bg-red-600 hover:bg-red-700',
+    confirmVariant: 'danger',
   },
 };
 

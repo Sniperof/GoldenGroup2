@@ -30,6 +30,7 @@ import { checkAndCompleteVisit } from './visitCompletion.js';
 import { recordContractPaymentMovement, recordMovement } from './financialMovements.js';
 import { createInstallmentCollectionTask } from './installmentCollectionTasks.js';
 import { findUnavailableDeviceModelsForNewCommercialUse } from './catalogActiveStateService.js';
+import { assertCanRecordSuccessfulDeviceTaskResult } from './deviceTaskEligibilityGuard.js';
 
 export type DeviceDemoFinalDecision =
   | 'offer_presented'
@@ -2250,6 +2251,11 @@ export async function applyDeviceDeliveryResult(
     }
 
     const shape = assertDeliveryShape(body, vt);
+    await assertCanRecordSuccessfulDeviceTaskResult(db, {
+      taskType: 'device_delivery',
+      installedDeviceId: Number(vt.device_id),
+      finalDecision: shape.decision,
+    });
     let rescheduleReasonId: number | null = null;
     let failureReasonId: number | null = null;
     if (shape.decision === 'rescheduled') {
@@ -2597,6 +2603,11 @@ export async function applyDeviceInstallationResult(
     }
 
     const shape = assertInstallationShape(body);
+    await assertCanRecordSuccessfulDeviceTaskResult(db, {
+      taskType: 'device_installation',
+      installedDeviceId: Number(vt.device_id),
+      finalDecision: shape.decision,
+    });
     const notes = body.closing_notes ?? body.notes ?? null;
 
     const { rows: vtrRows } = await db.query(
@@ -2908,6 +2919,11 @@ export async function applyDeviceActivationResult(
     }
 
     const shape = assertActivationShape(body);
+    await assertCanRecordSuccessfulDeviceTaskResult(db, {
+      taskType: 'device_activation',
+      installedDeviceId: Number(vt.device_id),
+      finalDecision: shape.decision,
+    });
     const notes = body.closing_notes ?? body.notes ?? null;
     const activationReasonCode = shape.decision === 'activation_failed'
       ? await assertSystemListValue(db, body.reason_code, 'device_activation_failure_reasons', 'سبب فشل التشغيل')
@@ -3106,6 +3122,11 @@ export async function applyDeviceDisconnectionResult(
     }
 
     const shape = assertDisconnectionShape(body);
+    await assertCanRecordSuccessfulDeviceTaskResult(db, {
+      taskType: 'device_disconnection',
+      installedDeviceId: Number(vt.device_id),
+      finalDecision: shape.decision,
+    });
     const notes = body.closing_notes ?? body.notes ?? null;
     let rescheduleReasonId: number | null = null;
     let failureReasonId: number | null = null;
@@ -3346,6 +3367,11 @@ export async function applyDeviceRetrievalResult(
     }
 
     const shape = assertRetrievalShape(body, vt);
+    await assertCanRecordSuccessfulDeviceTaskResult(db, {
+      taskType: 'device_retrieval',
+      installedDeviceId: Number(vt.device_id),
+      finalDecision: shape.decision,
+    });
     let refusalReasonId: number | null = null;
     let rescheduleReasonId: number | null = null;
 
@@ -3635,6 +3661,11 @@ export async function applyDeviceCheckupResult(
     if (decision === 'checked_successfully' && !hasAnyReading(body.technical_state)) {
       throw new ResultValidationError('الحالة الفنية مطلوبة لتسجيل تشييك الجهاز');
     }
+    await assertCanRecordSuccessfulDeviceTaskResult(db, {
+      taskType: 'device_checkup',
+      installedDeviceId: Number(vt.device_id),
+      finalDecision: decision,
+    });
 
     let refusalReasonId: number | null = null;
     let rescheduleReasonId: number | null = null;
@@ -3883,6 +3914,11 @@ export async function applyDeviceReturnResult(
     }
 
     const shape = assertReturnShape(body);
+    await assertCanRecordSuccessfulDeviceTaskResult(db, {
+      taskType: 'device_return',
+      installedDeviceId: Number(vt.device_id),
+      finalDecision: shape.decision,
+    });
     let refusalReasonId: number | null = null;
     let rescheduleReasonId: number | null = null;
 
@@ -4122,8 +4158,25 @@ export async function applyDeviceTransferResult(
     if (!isPositiveInteger(vt.device_id)) {
       throw new ResultValidationError('مهمة نقل الجهاز يجب أن ترتبط بجهاز مثبت');
     }
-    if (!['delivered', 'installed', 'active'].includes(String(vt.device_status))) {
-      throw new ResultValidationError('لا يمكن نقل الجهاز إلا عندما يكون عند الزبون');
+    const deviceStatus = String(vt.device_status);
+    if (deviceStatus !== 'out_of_service') {
+      throw new ResultValidationError('لا يمكن تسجيل نقل إلا لجهاز مفكوك حالته out_of_service');
+    }
+    const { rows: disconnectionRows } = await db.query(
+      `SELECT vtr.id
+         FROM visit_tasks dvt
+         JOIN visit_task_results vtr ON vtr.visit_task_id = dvt.id
+        WHERE dvt.task_type = 'device_disconnection'
+          AND dvt.source_open_task_id IN (
+            SELECT id FROM open_tasks WHERE device_id = $1 AND task_type = 'device_disconnection'
+          )
+          AND vtr.final_decision IN ('disconnected_successfully', 'requires_retrieval')
+        ORDER BY vtr.closed_at DESC NULLS LAST, vtr.id DESC
+        LIMIT 1`,
+      [Number(vt.device_id)],
+    );
+    if (disconnectionRows.length === 0) {
+      throw new ResultValidationError('لا يمكن تسجيل نقل قبل وجود مهمة فك ناجحة سابقة لهذا الجهاز');
     }
     if (!['in_progress', 'ended', 'completed'].includes(vt.visit_status)) {
       throw new ResultValidationError(`لا يمكن تسجيل النتيجة - الزيارة في حالة "${vt.visit_status}"`);
@@ -4133,6 +4186,11 @@ export async function applyDeviceTransferResult(
     }
 
     const shape = assertTransferShape(body, vt);
+    await assertCanRecordSuccessfulDeviceTaskResult(db, {
+      taskType: 'device_transfer',
+      installedDeviceId: Number(vt.device_id),
+      finalDecision: shape.decision,
+    });
 
     const { rows: geoRows } = await db.query(
       `SELECT id, level, status

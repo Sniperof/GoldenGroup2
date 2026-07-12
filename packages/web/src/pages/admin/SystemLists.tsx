@@ -822,6 +822,15 @@ const CATEGORIES: CategoryMeta[] = [
   // قوائم الهَدايا
   // ══════════════════════════════════════════════════════════════
   {
+    id: 'gift_delivery_creation_reasons',
+    label: 'أسباب إنشاء مهمة تَسليم الهَدية',
+    description: 'الأسباب التشغيلية المعتمدة عند إنشاء مهمة تسليم هدية من سجل هدية معتمد. تحفظ في سبب الإنشاء ولا تستخدم ككود reason النظامي.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال إنشاء مهمة تسليم هدية', route: 'الهدايا ← إنشاء مهمة تسليم', icon: <ClipboardList className="w-3 h-3" /> },
+    ],
+  },
+  {
     id: 'gift_delivery_refusal_reasons',
     label: 'أسباب رَفض تَسليم الهَدية',
     description: 'الأسباب المعتمدة عند رَفض الزبون استلام الهدية في مهمة تسليم الهدايا.',
@@ -1014,6 +1023,7 @@ const CATEGORY_GROUP: Record<string, string> = {
   collection_refusal_reasons: 'collection',
   collection_reschedule_reasons: 'collection',
 
+  gift_delivery_creation_reasons: 'gifts',
   gift_delivery_refusal_reasons: 'gifts',
   gift_delivery_reschedule_reasons: 'gifts',
   gift_promise_conditions: 'gifts',

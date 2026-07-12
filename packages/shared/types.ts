@@ -246,6 +246,7 @@ export interface ClientAssignment {
 export type CustomerOwnershipType =
     | 'personal_single_supervisor'
     | 'personal_single_technician'
+    | 'personal_single_employee'
     | 'personal_multi'
     | 'company_branch'
     | 'company_global';
@@ -262,7 +263,7 @@ export interface PersonalOwnershipAssignment {
     userId: number;
     userName: string;
     roleDisplayName: string | null;
-    teamSlotType: 'SUPERVISOR' | 'TECHNICIAN';
+    teamSlotType: string | null;
     employeeId: number | null;
 }
 

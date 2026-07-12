@@ -20,8 +20,10 @@
 //   - apply auth/role     → endpoint layer (Phase 3)
 //
 // All terminal transitions require a triage_outcome from the per-terminal
-// list (٠.٤ table). SR-R005: resolved_at_intake additionally requires
-// a triager-present channel and non-empty triage_notes.
+// list (٠.٤ table). SR-R005: resolved_at_intake additionally requires the
+// request to be claimed (in_review with reviewed_by_user_id set — i.e. a
+// human triager is present regardless of the intake channel) and non-empty
+// triage_notes. The old channel-based gate wrongly blocked mobile_app.
 // ============================================================
 
 import type { PoolClient } from 'pg';
@@ -31,7 +33,6 @@ import {
   rollbackTx,
   appendAudit,
   isTerminal,
-  isTriagerPresent,
   type ActorRole,
   type ServiceRequestChannel,
   type ServiceRequestStatus,
@@ -132,13 +133,15 @@ export async function transitionStatus(
       status: ServiceRequestStatus;
       channel: ServiceRequestChannel;
       request_type: string | null;
+      reviewed_by_user_id: number | null;
       reopen_count: number;
       review_required_flag: boolean;
+      escalated_at: string | null;
       duplicate_flag: boolean;
       archived_at: string | null;
     }>(
-      `SELECT id, status, channel, request_type, reopen_count, review_required_flag,
-              duplicate_flag, archived_at
+      `SELECT id, status, channel, request_type, reviewed_by_user_id, reopen_count,
+              review_required_flag, escalated_at, duplicate_flag, archived_at
          FROM service_requests
         WHERE id = $1
         FOR UPDATE`,
@@ -183,13 +186,16 @@ export async function transitionStatus(
 
     // 4. Per-target validation.
     if (input.toStatus === 'resolved_at_intake') {
-      // SR-R005: channel must be triager-present + triage_notes non-empty.
-      if (!isTriagerPresent(row.channel)) {
+      // SR-R005: request must be claimed (a human triager is present) +
+      // triage_notes non-empty. Presence is proven by reviewed_by_user_id
+      // being set — this holds for any channel once an operator claims,
+      // so mobile_app/website/whatsapp intakes are no longer blocked.
+      if (row.reviewed_by_user_id == null) {
         await rollbackTx(tx);
         return {
           ok: false,
-          code: 'resolved_at_intake_requires_triager_channel',
-          details: { channel: row.channel },
+          code: 'resolved_at_intake_requires_claim',
+          message: 'SR-R005: claim the request (assign a reviewer) before resolving at intake',
         };
       }
       if (!input.triageNotes || input.triageNotes.trim().length === 0) {
@@ -218,13 +224,15 @@ export async function transitionStatus(
         };
       }
 
-      // SR-AUTH-01: cannot reach rejected without review_required_flag.
-      if (input.toStatus === 'rejected' && !row.review_required_flag) {
+      // SR-AUTH-01: reject requires the request to be either escalated
+      // (escalated_at set) or carry review_required_flag (duplicate/branch/reopen).
+      // The two are decoupled (SR-ESC-02) but both open the reject door.
+      if (input.toStatus === 'rejected' && !row.review_required_flag && row.escalated_at == null) {
         await rollbackTx(tx);
         return {
           ok: false,
           code: 'review_required_flag_must_be_set',
-          message: 'SR-AUTH-01: flag review_required first',
+          message: 'SR-AUTH-01: escalate the request or flag review_required first',
         };
       }
     }
@@ -238,6 +246,10 @@ export async function transitionStatus(
       setParts.push(`triage_outcome = $${idx++}`);
       params.push(input.triageOutcome ?? null);
       setParts.push('closed_at = NOW()');
+      // SR-ESC-02: reaching any terminal clears the escalation lock — reject is
+      // the only terminal reachable while escalated; other terminals are gated
+      // and already have a null marker, so clearing is a harmless no-op there.
+      setParts.push('escalated_at = NULL', 'escalated_by_user_id = NULL', 'escalation_reason = NULL');
 
       if (input.toStatus === 'resolved_at_intake' && input.triageNotes) {
         setParts.push(`triage_notes = $${idx++}`);

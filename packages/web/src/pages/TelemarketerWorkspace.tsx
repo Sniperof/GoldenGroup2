@@ -7,6 +7,7 @@ import {
     Search, ChevronLeft, ChevronRight, Layers, Eye, Edit3, X, Cpu, Gift,
 } from 'lucide-react';
 import { api } from '../lib/api';
+import { getOpenTaskDetailPath } from '../lib/taskRoutes';
 import IconButton from '../components/ui/IconButton';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import { useCandidateStore } from '../hooks/useCandidateStore';
@@ -224,13 +225,6 @@ const getAppointmentForCustomer = (cg: CustomerGroup, appointments: Appointment[
         a.date === date &&
         (cg.contactTargetId ? a.contactTargetId === cg.contactTargetId : true),
     );
-
-const getOpenTaskDetailPath = (taskType: string | null | undefined, taskId: number | null | undefined) => {
-    if (!taskId) return null;
-    if (taskType === 'emergency_maintenance') return `/tasks/emergency/${taskId}`;
-    if (taskType === 'device_demo') return `/tasks/device-demo/${taskId}`;
-    return null;
-};
 
 const getPriorityLabel = (priority: string | null | undefined) => {
     if (!priority) return '-';

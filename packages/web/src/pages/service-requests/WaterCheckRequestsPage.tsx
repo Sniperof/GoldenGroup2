@@ -25,20 +25,13 @@ const STATUS_COLORS: Record<string, string> = {
   cancelled: 'bg-slate-100 text-slate-500',
 };
 
+// Kept only as a tooltip explanation for the "-" (unlinked) branch case.
 const BRANCH_RESOLUTION_LABELS: Record<string, string> = {
   resolved: 'تم ربط الفرع',
   ambiguous: 'أكثر من فرع',
   no_coverage: 'خارج التغطية',
   missing_geo: 'موقع ناقص',
   not_applicable: 'غير مطبق',
-};
-
-const BRANCH_RESOLUTION_COLORS: Record<string, string> = {
-  resolved: 'bg-emerald-100 text-emerald-700',
-  ambiguous: 'bg-amber-100 text-amber-700',
-  no_coverage: 'bg-red-100 text-red-700',
-  missing_geo: 'bg-slate-100 text-slate-600',
-  not_applicable: 'bg-slate-100 text-slate-600',
 };
 
 function formatDate(value?: string | null): string {
@@ -104,6 +97,20 @@ export default function WaterCheckRequestsPage() {
       ),
     },
     {
+      key: 'submissionMode',
+      label: 'نوع الطلب',
+      sortable: true,
+      getValue: (r) => (r.submissionType === 'refer_a_candidate' ? 'لعنوان شخص آخر' : 'لعنواني'),
+      render: (r) => {
+        const forAnother = r.submissionType === 'refer_a_candidate';
+        return (
+          <span className={`rounded px-2 py-0.5 text-xs font-medium ${forAnother ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>
+            {forAnother ? 'لعنوان شخص آخر' : 'لعنواني'}
+          </span>
+        );
+      },
+    },
+    {
       key: 'phone',
       label: 'الهاتف',
       minWidth: '140px',
@@ -128,21 +135,21 @@ export default function WaterCheckRequestsPage() {
       ),
     },
     {
-      key: 'branchResolutionStatus',
-      label: 'ربط الفرع',
+      key: 'branch',
+      label: 'الفرع',
       sortable: true,
-      getValue: (r) => r.branchResolutionLabel ?? BRANCH_RESOLUTION_LABELS[r.branchResolutionStatus] ?? r.branchResolutionStatus ?? '',
-      render: (r) => {
-        const status = r.branchResolutionStatus ?? 'not_applicable';
-        return (
-          <div className="flex flex-col gap-1">
-            <span className={`w-fit rounded px-2 py-0.5 text-xs ${BRANCH_RESOLUTION_COLORS[status] ?? 'bg-slate-100 text-slate-600'}`}>
-              {r.branchResolutionLabel ?? BRANCH_RESOLUTION_LABELS[status] ?? status}
-            </span>
-            {r.branchName ? <span className="text-xs text-slate-500">{r.branchName}</span> : null}
-          </div>
-        );
-      },
+      getValue: (r) => r.branchName ?? '',
+      render: (r) =>
+        r.branchName ? (
+          <span className="text-sm text-slate-700">{r.branchName}</span>
+        ) : (
+          <span
+            className="text-xs text-slate-400"
+            title={BRANCH_RESOLUTION_LABELS[r.branchResolutionStatus ?? ''] ?? undefined}
+          >
+            -
+          </span>
+        ),
     },
     {
       key: 'status',
@@ -150,9 +157,19 @@ export default function WaterCheckRequestsPage() {
       sortable: true,
       getValue: (r) => r.statusLabel ?? STATUS_LABELS[r.status] ?? r.status ?? '',
       render: (r) => (
-        <span className={`rounded px-2 py-0.5 text-xs ${STATUS_COLORS[r.status] ?? 'bg-slate-100 text-slate-600'}`}>
-          {r.statusLabel ?? STATUS_LABELS[r.status] ?? r.status}
-        </span>
+        <div className="flex flex-col gap-1">
+          <span className={`w-fit rounded px-2 py-0.5 text-xs ${STATUS_COLORS[r.status] ?? 'bg-slate-100 text-slate-600'}`}>
+            {r.statusLabel ?? STATUS_LABELS[r.status] ?? r.status}
+          </span>
+          {r.escalatedAt && (
+            <span
+              className="w-fit rounded bg-red-600 px-2 py-0.5 text-xs font-semibold text-white"
+              title="مُصعَّد — وضع مقيَّد حتى فكّ التصعيد أو الرفض"
+            >
+              مُصعَّد
+            </span>
+          )}
+        </div>
       ),
     },
     {
@@ -178,31 +195,32 @@ export default function WaterCheckRequestsPage() {
   ];
 
   return (
-    <div className="mx-auto max-w-7xl p-4" dir="rtl">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <PageHeader
-          title="طلبات فحص المياه"
-          icon={<Beaker className="h-6 w-6 text-sky-600" />}
-        />
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => void load()}
-            className="inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-          >
-            <RefreshCw className="h-4 w-4" />
-            تحديث
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate('/service-requests/water-check/simulator')}
-            className="inline-flex items-center gap-1.5 rounded bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700"
-          >
-            <Send className="h-4 w-4" />
-            محاكاة إرسال
-          </button>
-        </div>
-      </div>
+    <div className="p-8 space-y-6" dir="rtl">
+      <PageHeader
+        title="طلبات فحص المياه"
+        subtitle="استقبال طلبات فحص المياه ومتابعة ربطها بالفروع وتحويلها إلى مهام"
+        icon={<Beaker className="h-6 w-6 text-sky-600" />}
+        actions={
+          <>
+            <button
+              type="button"
+              onClick={() => void load()}
+              className="inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              <RefreshCw className="h-4 w-4" />
+              تحديث
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/service-requests/water-check/simulator')}
+              className="inline-flex items-center gap-1.5 rounded bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700"
+            >
+              <Send className="h-4 w-4" />
+              محاكاة إرسال
+            </button>
+          </>
+        }
+      />
 
       {loading ? (
         <div className="flex items-center justify-center py-16 text-slate-400">
@@ -216,6 +234,8 @@ export default function WaterCheckRequestsPage() {
           columns={columns}
           getId={(r) => r.id}
           hideFilterBar
+          defaultSortKey="createdAt"
+          defaultSortDir="desc"
           onRowClick={(r) => navigate(`/service-requests/${r.id}`)}
           emptyIcon={Beaker}
           emptyMessage="لا توجد طلبات فحص مياه مستلمة."

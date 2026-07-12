@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { BadgeCheck, CalendarPlus, CheckCircle2, ClipboardCheck, HandHeart, XCircle } from 'lucide-react';
 import Modal from '../ui/Modal';
 import DateField from '../ui/DateField';
@@ -61,6 +61,8 @@ export default function GiftRecordActions({
   const [approvalNotes, setApprovalNotes] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [priority, setPriority] = useState<'low' | 'medium' | 'high'>('medium');
+  const [creationReason, setCreationReason] = useState('');
+  const [creationReasons, setCreationReasons] = useState<any[]>([]);
   const [notes, setNotes] = useState('');
   const [reason, setReason] = useState('');
 
@@ -75,11 +77,26 @@ export default function GiftRecordActions({
 
   const hasAnyAction = canVerify || canApprove || canCreateTask || canManual || canCancel;
 
+  useEffect(() => {
+    api.systemLists.getItemsByCode('gift_delivery_creation_reasons')
+      .then((items: any) => {
+        const list = Array.isArray(items) ? items : [];
+        setCreationReasons(list);
+        setCreationReason((current) => current || (list[0]?.value ?? ''));
+      })
+      .catch(() => setCreationReasons([]));
+  }, []);
+
   function openAction(kind: ActionKind) {
     setError(null);
     if (kind === 'condition') setConditionStatus(record.conditionStatus);
     if (kind === 'approve') { setApprovedQuantity(record.approvedQuantity || 1); setApprovalNotes(''); }
-    if (kind === 'task') { setDueDate(''); setPriority('medium'); setNotes(''); }
+    if (kind === 'task') {
+      setDueDate('');
+      setPriority('medium');
+      setCreationReason(creationReasons[0]?.value ?? '');
+      setNotes('');
+    }
     if (kind === 'manual') setNotes('');
     if (kind === 'cancel') setReason('');
     setAction(kind);
@@ -107,7 +124,17 @@ export default function GiftRecordActions({
         await api.gifts.records.approve(record.id, { approvedQuantity, approvalNotes: approvalNotes.trim() || undefined });
       } else if (action === 'task') {
         if (!dueDate) { setError('تاريخ التسليم المطلوب إلزامي'); setSubmitting(false); return; }
-        await api.gifts.records.createDeliveryTask(record.id, { dueDate, priority, notes: notes.trim() || undefined });
+        if (creationReasons.length > 0 && !creationReason) {
+          setError('سبب إنشاء مهمة تسليم الهدية إلزامي');
+          setSubmitting(false);
+          return;
+        }
+        await api.gifts.records.createDeliveryTask(record.id, {
+          dueDate,
+          priority,
+          creationReason: creationReason || undefined,
+          notes: notes.trim() || undefined,
+        });
       } else if (action === 'manual') {
         await api.gifts.records.manualDelivery(record.id, { notes: notes.trim() || undefined });
       } else if (action === 'cancel') {
@@ -271,6 +298,23 @@ export default function GiftRecordActions({
                   <option value="high">عالية</option>
                 </select>
               </label>
+              {creationReasons.length > 0 && (
+                <label className="block text-xs font-bold text-slate-500">
+                  سبب إنشاء المهمة
+                  <select
+                    value={creationReason}
+                    onChange={(e) => setCreationReason(e.target.value)}
+                    className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"
+                  >
+                    <option value="">— اختر سبب الإنشاء —</option>
+                    {creationReasons.map((item: any) => (
+                      <option key={item.id ?? item.value} value={item.value}>
+                        {item.label || item.value}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <label className="block text-xs font-bold text-slate-500">
                 ملاحظات (اختياري)
                 <textarea

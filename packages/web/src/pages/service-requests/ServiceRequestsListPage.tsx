@@ -54,6 +54,7 @@ export default function ServiceRequestsListPage() {
     channel?: string;
     mine?: boolean;
     reviewRequired?: boolean;
+    escalatedOnly?: boolean;
     duplicateOnly?: boolean;
     archived?: 'true' | 'false' | 'all';
   }>({ archived: 'false' });
@@ -70,6 +71,7 @@ export default function ServiceRequestsListPage() {
         channel: filters.channel,
         mine: filters.mine || undefined,
         reviewRequired: filters.reviewRequired || undefined,
+        escalatedOnly: filters.escalatedOnly || undefined,
         duplicateOnly: filters.duplicateOnly || undefined,
         archived: filters.archived,
         limit: 1000,
@@ -159,9 +161,10 @@ export default function ServiceRequestsListPage() {
       label: 'العلامات',
       render: (r) => (
         <div className="flex gap-1">
-          {r.duplicateFlag && <span className="text-xs px-1.5 py-0.5 bg-orange-100 text-orange-700 rounded">د</span>}
-          {r.reviewRequiredFlag && <span className="text-xs px-1.5 py-0.5 bg-yellow-100 text-yellow-700 rounded">م</span>}
-          {r.archivedAt && <span className="text-xs px-1.5 py-0.5 bg-slate-200 text-slate-600 rounded">أ</span>}
+          {r.duplicateFlag && <span className="text-xs px-1.5 py-0.5 bg-orange-100 text-orange-700 rounded" title="مُكرَّر">د</span>}
+          {r.reviewRequiredFlag && <span className="text-xs px-1.5 py-0.5 bg-yellow-100 text-yellow-700 rounded" title="يَحتاج مراجعة مدقّق">م</span>}
+          {r.escalatedAt && <span className="text-xs px-1.5 py-0.5 bg-red-600 text-white rounded font-semibold" title="مُصعَّد — وضع مقيَّد">ص</span>}
+          {r.archivedAt && <span className="text-xs px-1.5 py-0.5 bg-slate-200 text-slate-600 rounded" title="مُؤرشَف">أ</span>}
         </div>
       ),
     },
@@ -232,6 +235,14 @@ export default function ServiceRequestsListPage() {
             onChange={(e) => setFilters((f) => ({ ...f, reviewRequired: e.target.checked }))}
           />
           يَحتاج مراجعة مدقّق
+        </label>
+        <label className="text-sm flex items-center gap-1">
+          <input
+            type="checkbox"
+            checked={!!filters.escalatedOnly}
+            onChange={(e) => setFilters((f) => ({ ...f, escalatedOnly: e.target.checked }))}
+          />
+          مُصعَّد فقط
         </label>
         <label className="text-sm flex items-center gap-1">
           <input

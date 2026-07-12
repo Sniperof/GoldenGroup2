@@ -27,6 +27,7 @@ import {
 } from '../services/customerOwnership.js';
 import { getSystemSettingNumber } from '../services/systemSettings.js';
 import { bookVisit, BookingError } from '../services/visitBooking.js';
+import { refreshVisitType } from '../services/visitClassification.js';
 import {
   claimContactTarget,
   ContactTargetLockError,
@@ -401,10 +402,15 @@ async function createMarketingVisitForAppointment(
   const schedule = await loadDaySchedule(params.date);
   const teamContext = getTeamSnapshotForVisit(schedule, params.teamKey);
 
-  const POST_SALE_TYPES = ['device_delivery', 'device_installation', 'device_activation', 'device_disconnection'];
-  const isPostSale = params.selectedTasks.length > 0 &&
-    params.selectedTasks.every(t => POST_SALE_TYPES.includes(t.taskType));
-  const visitFamily = isPostSale ? 'service' : 'marketing';
+  const taskTypes = params.selectedTasks.map((task) => task.taskType || 'device_demo');
+  const { rows: familyRows } = await db.query(
+    `SELECT task_type, task_family FROM task_type_config WHERE task_type = ANY($1::text[])`,
+    [taskTypes],
+  );
+  const familyByType = new Map(familyRows.map((row: any) => [row.task_type, row.task_family]));
+  const visitFamily = taskTypes.every((taskType) => familyByType.get(taskType) === 'marketing')
+    ? 'marketing'
+    : 'service';
 
   const customerSnapshot = {
     name: params.customerName,
@@ -468,7 +474,7 @@ async function createMarketingVisitForAppointment(
   for (let i = 0; i < params.selectedTasks.length; i++) {
     const task = params.selectedTasks[i];
     const taskType = task.taskType || 'device_demo';
-    const taskFamily = POST_SALE_TYPES.includes(taskType) ? 'service' : 'marketing';
+    const taskFamily = String(familyByType.get(taskType) ?? 'service');
 
     if (task.openTaskId != null) {
       const legacyId = `fv${fieldVisitId}_ot${task.openTaskId}`;
@@ -510,6 +516,8 @@ async function createMarketingVisitForAppointment(
       );
     }
   }
+
+  await refreshVisitType(db, fieldVisitId);
 
   return fieldVisitId;
 }

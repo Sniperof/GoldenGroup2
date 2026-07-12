@@ -15,6 +15,7 @@ import DeviceTransferResultModal from '../../taskTypes/device_delivery/DeviceTra
 import EmergencyResultModal from '../../taskTypes/emergency_maintenance/EmergencyResultModal';
 import GoldenWarrantyOfferModal from '../../taskTypes/golden_warranty_offer/GoldenWarrantyOfferModal';
 import GoldenWarrantyCardDeliveryModal from '../../taskTypes/golden_warranty_card_delivery/GoldenWarrantyCardDeliveryModal';
+import GiftDeliveryResultModal from '../../taskTypes/gift_delivery/GiftDeliveryResultModal';
 import InstallmentCollectionResultModal from '../../taskTypes/installment_collection/InstallmentCollectionResultModal';
 import type { TaskResultModalProps } from '../../components/tasks/types';
 import { isHiddenOperationalTaskType } from '@golden-crm/shared';
@@ -170,9 +171,11 @@ const TASKS: TaskLabItem[] = [
     group: 'مهام الهدايا',
     taskFamily: 'delivery',
     createModel: 'external',
-    resultModel: 'missing',
+    resultModel: 'available',
+    ResultModal: GiftDeliveryResultModal,
+    resultKind: 'standard',
     createFields: ['زبون', 'هدية', 'سبب الاستحقاق', 'كمية', 'تاريخ تسليم'],
-    resultFields: ['تم التسليم', 'تعذر التسليم', 'حالة الهدية', 'مستلم الهدية'],
+    resultFields: ['تم التسليم', 'رفض الهدية', 'إعادة جدولة', 'إقرار استلام كامل الكمية'],
     notes: 'الإنشاء الطبيعي من إدارة الهدايا.',
   },
   {
@@ -326,6 +329,15 @@ function makeMockTask(item: TaskLabItem) {
     device_id: 701,
     installedDeviceId: 701,
     installed_device_id: 701,
+    giftName: 'هدية تجريبية',
+    gift_name: 'هدية تجريبية',
+    giftRecordId: 601,
+    gift_record_id: 601,
+    approvedQuantity: 1,
+    approved_quantity: 1,
+    unitLabel: 'هدية',
+    unit_label: 'هدية',
+    reason: item.taskType === 'gift_delivery' ? 'gift_delivery' : undefined,
     expectedAmountSyp: 250000,
     remainingBalance: 250000,
     activeVisit: {

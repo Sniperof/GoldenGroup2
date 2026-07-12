@@ -28,6 +28,12 @@ interface SuggestedMatch {
 
 type ComparisonStatus = 'match' | 'close' | 'partial' | 'mismatch' | 'missing';
 
+interface GeoMeta {
+  name: string;
+  parentId: number | null;
+  level: number | null;
+}
+
 function readText(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
@@ -93,7 +99,23 @@ function statusBadge(status: ComparisonStatus) {
   return <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${m[status]}`}>{l[status]}</span>;
 }
 
-function getRequestSnapshot(request: any) {
+function getRequestSnapshot(request: any, party: 'beneficiary' | 'referrer' = 'beneficiary') {
+  if (party === 'referrer') {
+    const ext = asRecord(request?.referrerExternal);
+    const compatible = asRecord(ext.clientCompatible);
+    return {
+      firstName: readText(ext.firstName) || readText(compatible.firstName),
+      lastName: readText(ext.lastName) || readText(compatible.lastName),
+      primaryMobile: readText(ext.primary_phone) || readText(compatible.mobile),
+      secondaryMobile: '',
+      governorateId: numberValue(ext.governorateId ?? compatible.governorate),
+      regionId: numberValue(ext.regionId ?? compatible.district),
+      subdistrictId: numberValue(ext.subdistrictId),
+      neighborhoodId: numberValue(ext.neighborhoodId ?? compatible.neighborhood),
+      detailedAddress: readText(ext.detailedAddress) || readText(compatible.detailedAddress),
+    };
+  }
+
   const external = asRecord(request?.beneficiaryExternal ?? request?.requesterExternal);
   const submitted = asRecord(asRecord(request?.submittedPayload).data);
   const address = asRecord(request?.serviceAddress);
@@ -155,8 +177,21 @@ function addressStatus(a: unknown, b: unknown): ComparisonStatus {
   return hits > 0 ? 'partial' : 'mismatch';
 }
 
-function comparisonRows(request: any, match: SuggestedMatch) {
-  const snap = getRequestSnapshot(request);
+function comparisonRows(
+  request: any,
+  match: SuggestedMatch,
+  geoName: (id: number | null | undefined) => string,
+  resolveGeoChain: (ids: {
+    governorateId?: number | null;
+    regionId?: number | null;
+    subdistrictId?: number | null;
+    neighborhoodId?: number | null;
+  }) => Record<number, number>,
+  party: 'beneficiary' | 'referrer' = 'beneficiary',
+) {
+  const snap = getRequestSnapshot(request, party);
+  const reqGeo = resolveGeoChain(snap);
+  const recGeo = resolveGeoChain(match);
   return [
     {
       label: 'رقم الموبايل الرئيسي',
@@ -184,27 +219,27 @@ function comparisonRows(request: any, match: SuggestedMatch) {
     },
     {
       label: 'المحافظة',
-      requestValue: snap.governorateId,
-      recordValue: match.governorateId,
-      status: exactStatus(snap.governorateId, match.governorateId),
+      requestValue: geoName(reqGeo[1]),
+      recordValue: geoName(recGeo[1]),
+      status: exactStatus(reqGeo[1], recGeo[1]),
     },
     {
       label: 'المنطقة',
-      requestValue: snap.regionId,
-      recordValue: match.regionId,
-      status: exactStatus(snap.regionId, match.regionId),
+      requestValue: geoName(reqGeo[2]),
+      recordValue: geoName(recGeo[2]),
+      status: exactStatus(reqGeo[2], recGeo[2]),
     },
     {
       label: 'الناحية',
-      requestValue: snap.subdistrictId,
-      recordValue: match.subdistrictId,
-      status: exactStatus(snap.subdistrictId, match.subdistrictId),
+      requestValue: geoName(reqGeo[3]),
+      recordValue: geoName(recGeo[3]),
+      status: exactStatus(reqGeo[3], recGeo[3]),
     },
     {
       label: 'الحي',
-      requestValue: snap.neighborhoodId,
-      recordValue: match.neighborhoodId,
-      status: exactStatus(snap.neighborhoodId, match.neighborhoodId),
+      requestValue: geoName(reqGeo[4]),
+      recordValue: geoName(recGeo[4]),
+      status: exactStatus(reqGeo[4], recGeo[4]),
     },
     {
       label: 'العنوان التفصيلي',
@@ -220,6 +255,7 @@ export default function SuggestedMatchesPanel({
   request,
   onLink,
   sources = 'all',
+  party = 'beneficiary',
   canCreateFromRequest = false,
   createBusy = false,
   onCreateFromRequest,
@@ -228,6 +264,7 @@ export default function SuggestedMatchesPanel({
   request?: any;
   onLink: (m: { source: 'client' | 'candidate'; id: number }) => Promise<void>;
   sources?: 'all' | 'clients';
+  party?: 'beneficiary' | 'referrer';
   canCreateFromRequest?: boolean;
   createBusy?: boolean;
   onCreateFromRequest?: () => Promise<void>;
@@ -238,12 +275,74 @@ export default function SuggestedMatchesPanel({
   const [selected, setSelected] = useState<SuggestedMatch | null>(null);
   const [linkingKey, setLinkingKey] = useState<string | null>(null);
   const [confirmCreateOpen, setConfirmCreateOpen] = useState(false);
+  const [geoMeta, setGeoMeta] = useState<Map<number, GeoMeta>>(new Map());
+
+  useEffect(() => {
+    let cancelled = false;
+    api.geoUnits.names()
+      .then((rows) => {
+        if (cancelled) return;
+        const map = new Map<number, GeoMeta>();
+        for (const g of Array.isArray(rows) ? rows : []) {
+          const id = Number((g as any)?.id);
+          const name = (g as any)?.name;
+          if (!Number.isInteger(id) || typeof name !== 'string') continue;
+          const parentId = Number((g as any)?.parentId);
+          const level = Number((g as any)?.level);
+          map.set(id, {
+            name,
+            parentId: Number.isInteger(parentId) && parentId > 0 ? parentId : null,
+            level: Number.isInteger(level) ? level : null,
+          });
+        }
+        setGeoMeta(map);
+      })
+      .catch(() => { if (!cancelled) setGeoMeta(new Map()); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const geoName = (id: number | null | undefined): string => {
+    if (id == null) return '';
+    const n = Number(id);
+    if (!Number.isInteger(n) || n <= 0) return '';
+    return geoMeta.get(n)?.name ?? `#${n}`;
+  };
+
+  // Derive the full governorate→region→subdistrict→neighborhood chain (by level)
+  // from the DEEPEST known geo id, walking up parent_id. This fills intermediate
+  // levels the flat record columns skip (clients have no subdistrict column, and
+  // may leave region null even when the neighborhood is set).
+  const resolveGeoChain = (ids: {
+    governorateId?: number | null;
+    regionId?: number | null;
+    subdistrictId?: number | null;
+    neighborhoodId?: number | null;
+  }): Record<number, number> => {
+    const out: Record<number, number> = {};
+    const deepest = ids.neighborhoodId ?? ids.subdistrictId ?? ids.regionId ?? ids.governorateId ?? null;
+    let cur: number | null = deepest;
+    const seen = new Set<number>();
+    while (cur != null && !seen.has(cur)) {
+      seen.add(cur);
+      const meta = geoMeta.get(cur);
+      if (!meta || meta.level == null) break;
+      out[meta.level] = cur;
+      cur = meta.parentId;
+    }
+    // Fall back to stored per-level ids for anything the tree walk didn't fill
+    // (e.g. tree not loaded yet, or an orphan id).
+    if (out[1] == null && ids.governorateId != null) out[1] = ids.governorateId;
+    if (out[2] == null && ids.regionId != null) out[2] = ids.regionId;
+    if (out[3] == null && ids.subdistrictId != null) out[3] = ids.subdistrictId;
+    if (out[4] == null && ids.neighborhoodId != null) out[4] = ids.neighborhoodId;
+    return out;
+  };
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     api.serviceRequests
-      .suggestedMatches(serviceRequestId)
+      .suggestedMatches(serviceRequestId, party === 'referrer' ? 'referrer' : undefined)
       .then((res) => {
         if (cancelled) return;
         setClients((res.clients as SuggestedMatch[]).slice(0, 10));
@@ -254,14 +353,14 @@ export default function SuggestedMatchesPanel({
     return () => {
       cancelled = true;
     };
-  }, [serviceRequestId, sources]);
+  }, [serviceRequestId, sources, party]);
 
   const records = useMemo(
     () => [...clients, ...candidates].sort((a, b) => b.score - a.score).slice(0, 10),
     [clients, candidates],
   );
   const allEmpty = records.length === 0;
-  const selectedRows = request && selected ? comparisonRows(request, selected) : [];
+  const selectedRows = request && selected ? comparisonRows(request, selected, geoName, resolveGeoChain, party) : [];
   const highConfidenceRecords = records.filter((record) => record.score > 0.75 || record.confidence === 'high');
 
   const requestCreate = async () => {

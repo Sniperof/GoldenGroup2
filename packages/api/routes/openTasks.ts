@@ -127,6 +127,37 @@ function shouldUseDeviceBranch(taskFamily: string, taskType: string): boolean {
   return ['delivery', 'service', 'maintenance', 'emergency', 'warranty'].includes(taskFamily);
 }
 
+const GIFT_DELIVERY_INFO_COLUMNS = `
+    gift_info.gift_record_id AS "giftRecordId",
+    gift_info.gift_records_count AS "giftRecordsCount",
+    gift_info.gift_name AS "giftName",
+    gift_info.approved_quantity AS "approvedQuantity",
+    gift_info.unit_label AS "unitLabel",
+    gift_info.gift_beneficiary_name AS "giftBeneficiaryName",
+`;
+
+const GIFT_DELIVERY_INFO_LATERAL = `
+  LEFT JOIN LATERAL (
+    SELECT
+      MIN(gr.id) AS gift_record_id,
+      COUNT(*)::int AS gift_records_count,
+      STRING_AGG(DISTINCT gd.name, '، ' ORDER BY gd.name) AS gift_name,
+      SUM(gr.approved_quantity)::int AS approved_quantity,
+      STRING_AGG(DISTINCT gd.default_unit_label, '، ' ORDER BY gd.default_unit_label) AS unit_label,
+      STRING_AGG(DISTINCT gr.beneficiary_name_snapshot, '، ' ORDER BY gr.beneficiary_name_snapshot) AS gift_beneficiary_name
+    FROM gift_records gr
+    JOIN gift_definitions gd ON gd.id = gr.gift_definition_id
+    WHERE ot.task_type = 'gift_delivery'
+      AND (
+        gr.delivery_task_id = ot.id
+        OR (
+          ot.source_context_type = 'gift_records'
+          AND gr.id = ot.source_context_id
+        )
+      )
+  ) gift_info ON true
+`;
+
 const OPEN_TASK_SELECT = `
   SELECT
     ot.*, 
@@ -162,6 +193,7 @@ const OPEN_TASK_SELECT = `
     b.name AS "branchName",
     service_branch.name AS "serviceBranchName",
     creator.name AS "createdByName",
+    ${GIFT_DELIVERY_INFO_COLUMNS}
     -- Active visit: a booked visit not yet resulted (story is "live"). Null otherwise.
     CASE WHEN active_visit.id IS NOT NULL THEN json_build_object(
       'id',            active_visit.id,
@@ -207,6 +239,7 @@ const OPEN_TASK_SELECT = `
   LEFT JOIN branches cb ON cb.id = c.branch_id
   LEFT JOIN hr_users creator ON creator.id = ot.created_by
   LEFT JOIN open_task_periodic_payload otp ON otp.open_task_id = ot.id
+  ${GIFT_DELIVERY_INFO_LATERAL}
   -- Active visit: at most one booking that hasn't been resulted yet.
   -- A booking is "scheduled" before start, "in_progress" during the field, "ended" after end
   -- but before result is saved. Once final_decision lands, the booking is no longer "active".
@@ -340,6 +373,12 @@ function mapOpenTaskRow(row: any) {
     plannedTransferLng: row.planned_transfer_lng == null ? null : Number(row.planned_transfer_lng),
     sourceContextType: row.source_context_type ?? null,
     sourceContextId: row.source_context_id ?? null,
+    giftRecordId: row.giftRecordId ?? null,
+    giftRecordsCount: row.giftRecordsCount == null ? null : Number(row.giftRecordsCount),
+    giftName: row.giftName ?? null,
+    approvedQuantity: row.approvedQuantity == null ? null : Number(row.approvedQuantity),
+    unitLabel: row.unitLabel ?? null,
+    giftBeneficiaryName: row.giftBeneficiaryName ?? null,
     dispatchOriginType: row.dispatch_origin_type ?? null,
     dispatchOriginLabel: row.dispatch_origin_label ?? null,
     cancellationReason: row.cancellation_reason ?? null,
@@ -1445,8 +1484,25 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
     if (!deviceIdFromContract) {
       return res.status(400).json({ error: 'device_transfer يتطلب installedDeviceId' });
     }
-    if (!['delivered', 'installed', 'active'].includes(String(deviceStatusFromCurrentDevice))) {
-      return res.status(400).json({ error: 'لا يمكن إنشاء مهمة نقل إلا لجهاز موجود عند الزبون' });
+    const deviceStatus = String(deviceStatusFromCurrentDevice);
+    if (deviceStatus !== 'out_of_service') {
+      return res.status(400).json({ error: 'لا يمكن إنشاء مهمة نقل إلا لجهاز مفكوك حالته out_of_service' });
+    }
+    const { rows: disconnectionRows } = await pool.query(
+      `SELECT vtr.id
+         FROM visit_tasks vt
+         JOIN visit_task_results vtr ON vtr.visit_task_id = vt.id
+        WHERE vt.task_type = 'device_disconnection'
+          AND vt.source_open_task_id IN (
+            SELECT id FROM open_tasks WHERE device_id = $1 AND task_type = 'device_disconnection'
+          )
+          AND vtr.final_decision IN ('disconnected_successfully', 'requires_retrieval')
+        ORDER BY vtr.closed_at DESC NULLS LAST, vtr.id DESC
+        LIMIT 1`,
+      [deviceIdFromContract],
+    );
+    if (disconnectionRows.length === 0) {
+      return res.status(400).json({ error: 'لا يمكن إنشاء مهمة نقل قبل وجود مهمة فك ناجحة سابقة لهذا الجهاز' });
     }
     if (transferKind !== 'same_customer_new_address' && transferKind !== 'another_customer') {
       return res.status(400).json({ error: 'نوع النقل مطلوب ويجب أن يكون same_customer_new_address أو another_customer' });
@@ -2350,6 +2406,7 @@ function buildTaskRowsSelectFrom(hasDeliveryAddressColumn: boolean): string {
         cb.name AS "clientBranchName",
         b.name AS "branchName",
         COALESCE(creator.name, creator.username, '') AS "createdByName",
+        ${GIFT_DELIVERY_INFO_COLUMNS}
         ${buildCustomerOwnershipSelectColumns()},
         -- Active visit fields (legacy aliases — sourced from the live booking only).
         active_visit_fv.id AS "marketingVisitId",
@@ -2379,6 +2436,7 @@ function buildTaskRowsSelectFrom(hasDeliveryAddressColumn: boolean): string {
       LEFT JOIN open_task_periodic_payload otp ON otp.open_task_id = ot.id
       ${buildCustomerOwnershipSql({ clientAlias: 'c', branchNameExpression: 'cb.name' })}
       LEFT JOIN installed_devices idev ON idev.id = ot.device_id
+      ${GIFT_DELIVERY_INFO_LATERAL}
       LEFT JOIN LATERAL (
         SELECT fv.id, fv.status, fv.scheduled_date, fv.scheduled_time,
                fv.customer_snapshot, fv.team_snapshot
@@ -3648,13 +3706,14 @@ router.post('/:id/emergency-result', requirePermission('tasks.results.record'), 
            closed_by, closed_at,
            created_at, updated_at
          ) VALUES (
-           'emergency', 'service', 'ended',
+           'service', 'service', 'ended',
            $1, $2,
            'open_task', $3::text,
            $4, NOW(),
            NOW(), NOW()
          )
          ON CONFLICT (source_legacy_type, source_legacy_id) DO UPDATE SET
+           visit_type = 'service',
            status     = 'ended',
            closed_by  = EXCLUDED.closed_by,
            closed_at  = NOW(),

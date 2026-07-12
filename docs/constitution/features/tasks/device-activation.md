@@ -13,7 +13,7 @@
 هذه المهمة:
 - تبدأ بعد انتهاء `device_delivery` + `device_installation` (أو تُنفّذ في نفس الزيارة)
 - ترتبط دائماً بجهاز فعلي في `installed_devices`
-- تُجرى في موقع التركيب النهائي (عنوان العقد)
+- تُجرى في موقع التركيب النهائي المثبت على الجهاز، ويكون عنوان العقد سياقاً فقط إذا وجد عقد
 - لا تُنشأ إلّا إذا كان الجهاز مُركَّباً فعلياً (installation successfully أو external device)
 - لا تُنشأ تلقائياً — إما cascading من installation result أو يدوياً
 
@@ -120,7 +120,7 @@
 > **قاعدة التفرّد:** المنع يكون على مستوى الجهاز، لا على مستوى الزبون. يمكن للزبون أن يملك أكثر من جهاز، ولكل جهاز مسار تشغيل مستقل.
 
 ### المحور 6 — `location_basis`
-`contract` — التشغيل يحدث في عنوان العقد/التركيب النهائي.
+`installed_device` — التشغيل يحدث في عنوان التركيب النهائي المثبت على `installed_devices`. إذا كان للجهاز عقد، يمكن استخدام عنوان العقد كسياق مطابق أو تاريخي، لكنه ليس شرطاً لإنشاء مهمة تشغيل الجهاز الخارجي.
 
 ### المحور 7 — منطق التاريخ والنافذة
 | `open_task.status` | التاريخ المرجعي | النافذة |
@@ -211,7 +211,7 @@
 ## قائمة فحص الإصدار (Release Checklist)
 
 - [x] صف في `task_type_config` بقيم: `task_type='device_activation'`, `task_family='delivery'`, `display_group='after_sale_services'`, `visit_family='service'`.
-- [x] `location_basis` = `contract`.
+- [x] `location_basis` = `installed_device`.
 - [x] `planning_window_days` = 3.
 - [x] CHECK على `visit_tasks.task_type` يشمل `device_activation`.
 - [x] `visit_task_device_activation_results` موجود وشغال (GAP-057 ✅).

@@ -110,6 +110,7 @@ const ORIGIN_LABELS: Record<string, string> = {
   emergency_request: 'بلاغ طارئ',
   system: 'نظام',
   expected_followup: 'متابعة متوقعة',
+  field_initiated: 'زيارة فورية ميدانية',
 };
 
 const VIEW_META: Record<VisitView, { label: string; description: string; icon: any }> = {

@@ -253,7 +253,7 @@ export default function EmergencyTasks() {
               icon={Eye}
               onClick={(e) => {
                 e.stopPropagation();
-                navigate(`/tasks/emergency/${t.id}`);
+                navigate(`/tasks/group/maintenance/${t.id}`);
               }}
             >
               عرض التفاصيل
