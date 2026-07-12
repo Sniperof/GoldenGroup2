@@ -19,6 +19,7 @@ const statusConfig: Record<string, { label: string; style: string }> = {
     active: { label: 'فعال', style: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
     completed: { label: 'مكتمل', style: 'bg-blue-50 text-blue-700 border-blue-200' },
     cancelled: { label: 'ملغي', style: 'bg-red-50 text-red-600 border-red-200' },
+    discarded: { label: 'مؤرشف / مرفوض', style: 'bg-slate-200 text-slate-700 border-slate-300' },
 };
 
 const paymentLabels: Record<string, string> = { cash: 'نقدي', installment: 'أقساط' };
@@ -121,7 +122,7 @@ export default function ContractList() {
         {
             key: 'status', label: 'الحالة', sortable: true,
             render: (c) => {
-                const s = statusConfig[c.status];
+                const s = statusConfig[c.status] ?? { label: String(c.status ?? '—'), style: 'bg-slate-100 text-slate-600 border-slate-200' };
                 return <span className={`px-2.5 py-1 rounded-full text-xs font-medium border ${s.style}`}>{s.label}</span>;
             },
         },

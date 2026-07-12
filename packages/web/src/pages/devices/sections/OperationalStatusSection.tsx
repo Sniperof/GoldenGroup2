@@ -16,6 +16,7 @@ interface Props {
   device: any;
   tasks?: any[];
   onTaskCreated?: () => void;
+  deviceSource?: string | null;
 }
 
 type DeliveryCreationReason = {
@@ -88,12 +89,12 @@ function selectedCreationOption(current: string, options: CreationReasonOption[]
   return options.find((item) => item.value === value) ?? null;
 }
 
-function LifecycleValue({ value, reason }: { value?: string | null; reason: string }) {
+function LifecycleValue({ value, reason, label = 'غير مثبت بعد' }: { value?: string | null; reason: string; label?: string }) {
   const formatted = fmt(value);
   if (formatted) return <div className="text-sm font-semibold text-slate-700">{formatted}</div>;
   return (
     <div className="inline-flex flex-col">
-      <span className="text-sm font-bold text-amber-700">غير مثبت بعد</span>
+      <span className="text-sm font-bold text-amber-700">{label}</span>
       <span className="text-xs text-slate-400">{reason}</span>
     </div>
   );
@@ -106,7 +107,7 @@ const ALLOWED_NEXT_TASK: Record<string, { type: 'device_delivery' | 'device_inst
   active: { type: 'device_disconnection', label: 'جدولة مهمة فك', Icon: Unplug, reason: 'customer_request' },
 };
 
-export function OperationalStatusSection({ device, tasks, onTaskCreated }: Props) {
+export function OperationalStatusSection({ device, tasks, onTaskCreated, deviceSource }: Props) {
   const [busy, setBusy] = useState(false);
   const [showInstallationModal, setShowInstallationModal] = useState(false);
   const [showActivationModal, setShowActivationModal] = useState(false);
@@ -432,7 +433,9 @@ export function OperationalStatusSection({ device, tasks, onTaskCreated }: Props
       <SectionShell
         id="operational"
         title="الحالة التشغيلية"
-        subtitle="حالة الجهاز الحالية وتواريخ مراحل دورة حياته"
+        subtitle={deviceSource === 'external'
+          ? 'جهاز خارجي مستقل عن العقد؛ تُعرض هنا حالته التشغيلية ومهامه فقط'
+          : 'حالة الجهاز الحالية وتواريخ مراحل دورة حياته'}
         actions={
           next && (
             existingActiveTask ? (
@@ -460,15 +463,26 @@ export function OperationalStatusSection({ device, tasks, onTaskCreated }: Props
           </div>
           <div>
             <div className="mb-1 text-xs font-bold text-slate-400">تاريخ التسليم</div>
-            <LifecycleValue value={device?.deliveryDate} reason="يثبت عند إغلاق مهمة التسليم بنجاح." />
+            <LifecycleValue
+              value={device?.deliveryDate}
+              label={deviceSource === 'external' ? 'غير مطبق' : 'غير مثبت بعد'}
+              reason={deviceSource === 'external' ? 'هذا جهاز خارجي مستقل عن العقد، لذلك لا ينطبق عليه تاريخ التسليم الخاص بالأجهزة المباعة.' : 'يثبت عند إغلاق مهمة التسليم بنجاح.'}
+            />
           </div>
           <div>
             <div className="mb-1 text-xs font-bold text-slate-400">تاريخ التركيب</div>
-            <LifecycleValue value={device?.installationDate} reason="يثبت عند إغلاق مهمة التركيب بنجاح." />
+            <LifecycleValue
+              value={device?.installationDate}
+              label={deviceSource === 'external' ? 'غير مطبق' : 'غير مثبت بعد'}
+              reason={deviceSource === 'external' ? 'هذا جهاز خارجي، لذلك لا ينطبق عليه تاريخ التركيب الخاص بمهمة العقد.' : 'يثبت عند إغلاق مهمة التركيب بنجاح.'}
+            />
           </div>
           <div>
             <div className="mb-1 text-xs font-bold text-slate-400">تاريخ التشغيل</div>
-            <LifecycleValue value={device?.activatedAt} reason="يثبت عند انتقال الجهاز إلى حالة active." />
+            <LifecycleValue
+              value={device?.activatedAt}
+              reason={deviceSource === 'external' ? 'يُسجل عند اعتماد الجهاز وتشغيله فعلياً ضمن الخدمة.' : 'يثبت عند انتقال الجهاز إلى حالة active.'}
+            />
           </div>
         </div>
       </SectionShell>

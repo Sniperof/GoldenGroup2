@@ -11,6 +11,7 @@ import Button from '../../../components/ui/Button';
 
 interface Props {
   contract: any | null;
+  deviceSource?: string | null;
   /**
    * Kept for backwards compatibility but no longer used: the printable HTML
    * is now fetched through the authenticated `api.contracts.getPrintableHtml`
@@ -32,7 +33,7 @@ function fmt(d?: string | null) {
   try { return new Date(d).toLocaleDateString('ar-SY'); } catch { return d; }
 }
 
-export function LinkedContractSection({ contract }: Props) {
+export function LinkedContractSection({ contract, deviceSource }: Props) {
   const [printLoading, setPrintLoading] = useState(false);
 
   const openPrintable = async () => {
@@ -62,7 +63,11 @@ export function LinkedContractSection({ contract }: Props) {
   if (!contract) {
     return (
       <SectionShell id="contract" title="العقد المرتبط">
-        <p className="text-xs text-slate-400 italic">لا يوجد عقد مرتبط بهذا الجهاز.</p>
+        <p className="text-xs text-slate-400 italic">
+          {deviceSource === 'external'
+            ? 'هذا جهاز خارجي مستقل عن العقد، لذلك لا يوجد عقد بيع مرتبط به.'
+            : 'لا يوجد عقد مرتبط بهذا الجهاز.'}
+        </p>
       </SectionShell>
     );
   }

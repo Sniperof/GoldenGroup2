@@ -63,7 +63,12 @@ const MISSING_LABELS: Record<string, string> = {
 
 function missingItems(device: any): string[] {
   const missing = device?.missingFields ?? {};
-  return Object.keys(missing).map(key => MISSING_LABELS[key] ?? key);
+  const isExternal = device?.deviceSource === 'external';
+  const ignoredForExternal = new Set(['deliveryDate', 'installationDate', 'activatedAt', 'warrantyTerms']);
+
+  return Object.keys(missing)
+    .filter((key) => !(isExternal && ignoredForExternal.has(key)))
+    .map(key => MISSING_LABELS[key] ?? key);
 }
 
 export default function DeviceProfilePage() {
@@ -186,6 +191,8 @@ export default function DeviceProfilePage() {
     );
   }
 
+  const isExternalDevice = device?.deviceSource === 'external';
+
   return (
     <div className="h-full flex flex-col overflow-hidden bg-slate-50" style={{ direction: 'rtl' }}>
       {/* Full-width white breadcrumb bar (fixed above the scroll area) */}
@@ -243,7 +250,9 @@ export default function DeviceProfilePage() {
           <div>
             <div className="text-sm font-black text-amber-800">بيانات الجهاز تحتاج استكمال</div>
             <div className="text-xs text-amber-700 mt-1 leading-relaxed">
-              هذا الجهاز موجود ومربوط بالعقد، لكن بعض معلوماته التشغيلية لم تحفظ بعد:
+              {isExternalDevice
+                ? 'هذا جهاز خارجي مستقل عن العقد، لكن بعض معلوماته التشغيلية لم تحفظ بعد:'
+                : 'هذا الجهاز موجود ومربوط بالعقد، لكن بعض معلوماته التشغيلية لم تحفظ بعد:'}
               {' '}
               <span className="font-bold">{missingItems(device).join('، ')}</span>.
             </div>
@@ -256,25 +265,26 @@ export default function DeviceProfilePage() {
         <ProfileTabsBar tabs={SECTIONS} activeId={activeSection} onChange={handleJump} />
       </div>
 
-      {/* All sections stacked; the tabs jump / scroll-spy through them */}
-      <IdentitySection device={device} />
-      <OperationalStatusSection device={device} tasks={tasks} onTaskCreated={fetchAll} />
-      <CurrentHolderSection device={device} currentPossession={currentPossession} />
-      <PossessionHistorySection entries={possessionLog} />
-      <WarrantiesSection
-        warranties={warranties}
-        device={{ id: device.id, customerId: device.customerId, contractId: device.contractId, branchId: device.branchId, status: device.status }}
-        onCreated={fetchAll}
-      />
-      <ServiceAgreementsSection device={device} onChanged={fetchAll} />
-      <InstalledPartsSection contract={contract} deviceParts={parts} onChanged={fetchAll} />
-      <LinkedContractSection contract={contract} apiBase={API_BASE} />
-      <FinancialSection contract={contract} customerId={device.customerId ?? null} />
-      <TasksSection tasks={tasks} deviceId={deviceId} contractId={device.contractId} device={device} onTaskCreated={fetchAll} />
-      <ProblemsHistorySection deviceId={deviceId} />
-      <TechnicalHealthSection deviceId={deviceId} />
-        </div>
+        <main className="flex-1 min-w-0 space-y-6">
+          <IdentitySection device={device} />
+          <OperationalStatusSection device={device} deviceSource={device.deviceSource} tasks={tasks} onTaskCreated={fetchAll} />
+          <CurrentHolderSection device={device} currentPossession={currentPossession} />
+          <PossessionHistorySection entries={possessionLog} />
+          <WarrantiesSection
+            warranties={warranties}
+            device={{ id: device.id, customerId: device.customerId, contractId: device.contractId, branchId: device.branchId, status: device.status }}
+            onCreated={fetchAll}
+          />
+          <ServiceAgreementsSection device={device} onChanged={fetchAll} />
+          <InstalledPartsSection contract={contract} deviceParts={parts} onChanged={fetchAll} />
+          <LinkedContractSection contract={contract} deviceSource={device.deviceSource} apiBase={API_BASE} />
+          <FinancialSection contract={contract} customerId={device.customerId ?? null} deviceSource={device.deviceSource} />
+          <TasksSection tasks={tasks} deviceId={deviceId} contractId={device.contractId} device={device} onTaskCreated={fetchAll} />
+          <ProblemsHistorySection deviceId={deviceId} />
+          <TechnicalHealthSection deviceId={deviceId} />
+        </main>
       </div>
     </div>
+  </div>
   );
 }

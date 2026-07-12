@@ -15,6 +15,7 @@ import SmartTable, { type ColumnDef } from '../../../components/SmartTable';
 interface Props {
   contract: any | null;
   customerId: number | null;
+  deviceSource?: string | null;
 }
 
 function fmt(d?: string | null) {
@@ -32,11 +33,15 @@ const INSTALLMENT_STATUS_LABEL: Record<string, { cls: string; label: string }> =
   overdue: { cls: 'bg-rose-100 text-rose-700',       label: 'متأخر' },
 };
 
-export function FinancialSection({ contract, customerId }: Props) {
+export function FinancialSection({ contract, customerId, deviceSource }: Props) {
   if (!contract) {
     return (
       <SectionShell id="financial" title="الوضع المالي">
-        <p className="text-xs text-slate-400 italic">لا يوجد عقد مرتبط لعرض حالته المالية.</p>
+        <p className="text-xs text-slate-400 italic">
+          {deviceSource === 'external'
+            ? 'هذا جهاز خارجي مستقل عن العقد، لذلك لا توجد له ذمم بيع مرتبطة هنا.'
+            : 'لا يوجد عقد مرتبط لعرض حالته المالية.'}
+        </p>
       </SectionShell>
     );
   }
