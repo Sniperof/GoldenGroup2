@@ -283,9 +283,9 @@ export default function ContractForm() {
         setCanAssignSaleOwner(hasPermission('contracts.assign_sale_owner'));
         const baseRequests: Promise<any>[] = [
             api.clients.list(),
-            api.deviceModels.list(),
+            api.deviceModels.list({ activeOnly: true }),
             api.geoUnits.list(),
-            api.spareParts.list(),
+            api.spareParts.list({ activeOnly: true }),
             // Optional lookups: a 403 here (e.g. a supervisor without the sale-
             // owner permission) must NOT abort the whole form load — otherwise
             // the customer/device/geo data never loads and the form looks empty.
@@ -438,6 +438,18 @@ export default function ContractForm() {
                         unitPrice: li.unitPrice,
                         sparePartId: li.sparePartId || undefined,
                     })));
+                    // وعود الهدايا المسودة المحفوظة على العقد (حتى لا تُدهس عند التعديل).
+                    if (Array.isArray(c.draftGiftPromises)) {
+                        setGiftPromises(c.draftGiftPromises.map((p: any, idx: number) => ({
+                            id: `GP-EDIT-${idx}`,
+                            giftDefinitionId: p.giftDefinitionId != null ? String(p.giftDefinitionId) : '',
+                            beneficiaryKind: p.beneficiaryKind === 'customer_referrer' ? 'customer_referrer' : 'contract_customer',
+                            referrerId: p.referrerId != null ? String(p.referrerId) : '',
+                            conditionLabel: p.conditionLabel ?? '',
+                            conditionStatus: (p.conditionStatus ?? 'pending') as GiftConditionStatus,
+                            quantity: Math.max(1, Number(p.quantity) || 1),
+                        })));
+                    }
                     if (c.paymentType) setPaymentType(c.paymentType);
                     if (Array.isArray(c.paymentEntries) && c.paymentEntries.length > 0) {
                         const entries: PaymentEntryDraft[] = c.paymentEntries.map((e: any, idx: number) => ({
@@ -1295,6 +1307,15 @@ export default function ContractForm() {
                         confirmed: installmentsConfirmed,
                     }))
                     : []),
+                // وعود الهدايا تُحفظ كمسودة على العقد وتُحوَّل إلى gift_records عند الاعتماد.
+                giftPromises: giftPromises.map(p => ({
+                    giftDefinitionId: Number(p.giftDefinitionId) || null,
+                    beneficiaryKind: p.beneficiaryKind,
+                    referrerId: p.beneficiaryKind === 'customer_referrer' ? (p.referrerId || null) : null,
+                    conditionLabel: p.conditionLabel,
+                    conditionStatus: p.conditionStatus,
+                    quantity: Math.max(1, Number(p.quantity) || 1),
+                })),
             };
 
             const result = isEdit && editId
@@ -1340,7 +1361,7 @@ export default function ContractForm() {
         paymentType, grandTotal, basePrice, installmentDrafts, installmentsConfirmed,
         persistedInstallmentsConfirmed, paymentEntries, closingEmployeeId,
         invoiceNotes, lineItems, geoSelection, detailedAddress, mapPosition, fatherNameOverride,
-        nationalIdOverride, saleSubtype, selectedReferrerIds, sourceOpenTaskId, sourceTaskOfferId, saleReferenceNumber,
+        nationalIdOverride, saleSubtype, selectedReferrerIds, sourceOpenTaskId, sourceTaskOfferId, saleReferenceNumber, giftPromises,
         selectedOfferVisitId, selectedOfferTaskId, noClosingReasonId, saleOwnerId, navigate,
         warrantyMonths, warrantyVisits, deliveryDate, installationDate,
         buyerBirthDate, buyerGender, buyerMotherName, buyerNationalIdRegistry,

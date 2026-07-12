@@ -12,7 +12,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import {
   Loader2, ArrowLeft, AlertTriangle,
   Fingerprint, Activity, UserCheck, History, Award,
-  Puzzle, FileText, Wallet, ClipboardList, HeartPulse,
+  Puzzle, FileText, Wallet, ClipboardList, HeartPulse, ScrollText,
 } from '../../components/ui/icons';
 
 import ProfileTabsBar from '../../components/ui/ProfileTabsBar';
@@ -28,6 +28,7 @@ import { OperationalStatusSection } from './sections/OperationalStatusSection';
 import { CurrentHolderSection } from './sections/CurrentHolderSection';
 import { PossessionHistorySection } from './sections/PossessionHistorySection';
 import { WarrantiesSection } from './sections/WarrantiesSection';
+import { ServiceAgreementsSection } from './sections/ServiceAgreementsSection';
 import { InstalledPartsSection } from './sections/InstalledPartsSection';
 import { LinkedContractSection } from './sections/LinkedContractSection';
 import { FinancialSection } from './sections/FinancialSection';
@@ -41,6 +42,7 @@ const SECTIONS = [
   { id: 'current-holder',    label: 'الحيازة الحالية', icon: UserCheck },
   { id: 'possession-history',label: 'سجل الحيازة',     icon: History },
   { id: 'warranties',        label: 'الكفالات',        icon: Award },
+  { id: 'service-agreements',label: 'اتفاق الخدمة',    icon: ScrollText },
   { id: 'parts',             label: 'القطع',           icon: Puzzle },
   { id: 'contract',          label: 'العقد',           icon: FileText },
   { id: 'financial',         label: 'المالية',         icon: Wallet },
@@ -264,6 +266,7 @@ export default function DeviceProfilePage() {
         device={{ id: device.id, customerId: device.customerId, contractId: device.contractId, branchId: device.branchId, status: device.status }}
         onCreated={fetchAll}
       />
+      <ServiceAgreementsSection device={device} onChanged={fetchAll} />
       <InstalledPartsSection contract={contract} deviceParts={parts} onChanged={fetchAll} />
       <LinkedContractSection contract={contract} apiBase={API_BASE} />
       <FinancialSection contract={contract} customerId={device.customerId ?? null} />

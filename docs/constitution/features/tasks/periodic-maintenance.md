@@ -42,7 +42,7 @@
 3. **التوقيت (#3):** **eager** — أول دورية تُزرَع عند التفعيل (`activation_date + interval`)، وكل تالية منزاحة `closed_at + interval`.
 4. **التزام الزبون (#9):** تصنيف **مشتقّ** من سجل الدورية (ملتزم/متهاون/غير ملتزم) **يؤثّر في أولوية** الخطة لا في التوليد.
 5. **محتوى الزيارة (#4):** **نفس wizard نتيجة الطارئة** بالكامل؛ الفرق في مسارات المهمة (`apply_maintenance/rescheduled/cancelled`) وقرارات نتيجة التطبيق والتغطية المالية.
-6. **schema (#7/#8):** مصدر الفترة المعتمد هو لقطة الجهاز/العقد لا `device_models`؛ و`service_request_problems.service_request_id` يصير nullable (الدورية تربط بـ`open_task_id`).
+6. **schema (#7/#8):** مصدر الفترة المعتمد هو لقطة الجهاز/العقد أو اتفاق الخدمة الخارجي لا `device_models`؛ و`service_request_problems.service_request_id` يصير nullable (الدورية تربط بـ`open_task_id`).
 
 ---
 
@@ -66,8 +66,8 @@
 | **بنية التوليد (P-MAINT-01)** | ✅ مُحسَم 2026-06-25: **مفتوح بلا سقف** — الدورية تتكرّر حسب فاصل الصيانة ما دام الجهاز `active`. الفاصل يحكم **التباعد الزمني** فقط (لا عدّاد منتهٍ). لا جدول `device_periodic_schedule` في V1 (مؤجَّل لـper-part intervals). |
 | **التزام الزبون** | ✅ مُحسَم #9: تصنيف **مشتقّ** من سجل الدورية (ملتزم/متهاون/غير ملتزم) **يؤثّر في أولوية** الدورية في خطة الفرع — لا يَحُدّ التوليد. التفاصيل في §ي |
 | **توقيت التوليد (P-MAINT-05)** | ✅ مُحسَم #3: **eager**. أول دورية تُزرَع عند **التفعيل** (`active`) بمرساة تاريخ التشغيل + الفترة (متوائم DEC-CT-04)؛ كل دورية تالية تُولَّد نتيجةً لإغلاق سابقتها. open-ended (قرار #2). |
-| `open_task_periodic_payload` | ✅ منفّذ جزئياً للمرحلتين 3/4: `generation_origin` + `interval_days_snapshot` + `manual_reason`. `periodic_cycle_no` ومرجع template وبيانات التغطية مؤجّلة. |
-| **فترة الصيانة (GAP-058)** | ✅ مُحسَم مُحدَّث: الفاصل يُحسب من `installed_devices.warranty_months` و`installed_devices.warranty_visits`: `floor((warranty_months × 30) / warranty_visits)` أو ما يعادله بالأشهر. `contracts.maintenance_plan` fallback للعقود القديمة فقط. في الإنشاء اليدوي يمكن تحديد/تجاوز الفترة لهذه السلسلة عند الحاجة. |
+| `open_task_periodic_payload` | ✅ منفّذ جزئياً للمرحلتين 3/4: `generation_origin` + `interval_days_snapshot` + `manual_reason` + `service_agreement_id` للأجهزة الخارجية. `periodic_cycle_no` ومرجع template وبيانات التغطية مؤجّلة. |
+| **فترة الصيانة (GAP-058)** | ✅ مُحسَم مُحدَّث: الفاصل يُحسب من `installed_devices.warranty_months` و`installed_devices.warranty_visits`: `floor((warranty_months × 30) / warranty_visits)` أو ما يعادله بالأشهر. `contracts.maintenance_plan` fallback للعقود القديمة، و`service_agreements.maintenance_plan/visits_count` أساس الجهاز الخارجي. في الإنشاء اليدوي يمكن تحديد/تجاوز الفترة لهذه السلسلة عند الحاجة. |
 
 ---
 
@@ -240,7 +240,7 @@
 | 4 | P-MAINT-11 | لائحة (أ): template أم اختيار Operator؟ | ✅ محسوم: لا قالب منفصل — إعادة استخدام تدفّق الطارئة بالكامل (§د) |
 | 5 | P-MAINT-07 | skip مرحلة التكاليف أم total=0؟ | ✅ محسوم تبعاً لـ#1: لا skip؛ تظهر دائماً (total=0 عند الذهبية) |
 | 6 | P-MAINT-09 | هل عدم تنفيذ الدورية يُنقِص العدّاد؟ | ✅ لاغٍ بقرار #2 (لا عدّاد سقفي)؛ عدم التنفيذ قبل التطبيق يُعبَّر بمسار `rescheduled`/`cancelled` ويُعاد تأطيره ضمن #9 |
-| 7 | GAP-058 | تحويل `maintenance_interval` لقيمة محسوبة | ✅ محسوم مُحدَّث: الفاصل من `installed_devices.warranty_months / warranty_visits`، و`contracts.maintenance_plan` fallback للعقود القديمة |
+| 7 | GAP-058 | تحويل `maintenance_interval` لقيمة محسوبة | ✅ محسوم مُحدَّث: الفاصل من `installed_devices.warranty_months / warranty_visits` أو `service_agreements` للجهاز الخارجي، و`contracts.maintenance_plan` fallback للعقود القديمة |
 | 8 | مواءمة | `service_request_problems` تتطلّب طلباً — الدورية بلا طلب | ✅ محسوم: `service_request_id` nullable + ربط `open_task_id` + CHECK مرجع أب واحد |
 | 9 | الالتزام | نمذجة «التزام الزبون» المشتقّ + أثره | ✅ محسوم: مشتقّ، يؤثّر في الأولوية (§ي) — يبقى تعريف العتبات تفصيلاً لاحقاً |
 | 10 | سطح الإنشاء | تلقائي فقط أم + مسار يدوي؟ | ✅ محسوم: تلقائي أساسي + مودل يدوي خفيف بصلاحية (يُراجع محور 14) |
@@ -273,7 +273,7 @@
 
 القواعد المنفّذة:
 - لا توليد إذا كان `periodic_auto_generate_enabled = false`.
-- لا توليد إلا لجهاز `active` وله `customer_id` و`branch_id` و`contract_id`.
+- لا توليد إلا لجهاز `active` وله `customer_id` و`branch_id` وأساس جدولة صالح: `contract_id` لجهاز الشركة أو `service_agreement` فعّال مرتبط بالجهاز الخارجي.
 - لا توليد إذا توجد دورية نشطة لنفس `device_id`.
 - الفاصل الزمني يُحسب أولاً من `installed_devices.warranty_months / warranty_visits`:
   `floor((warranty_months * 30) / warranty_visits)`.
@@ -305,7 +305,7 @@
 - لا يمكن إنشاء دورية يدوية إذا توجد دورية نشطة لنفس الجهاز.
 - `dueDate` إلزامي.
 - `manualReason` إلزامي، ومصادره seeded في `system_lists.periodic_manual_creation_reasons`.
-- `intervalMonths` اختياري؛ إذا تُرك فارغاً تستخدم الدورية فترة الجهاز/العقد كما في المرحلة 3.
+- `intervalMonths` اختياري؛ إذا تُرك فارغاً تستخدم الدورية فترة الجهاز/العقد أو اتفاق الخدمة كما في المرحلة 3.
 - إذا أُدخل `intervalMonths`، يحفظ النظام `interval_days_snapshot` داخل `open_task_periodic_payload` حتى تستخدمه مرحلة توليد الدورية التالية لاحقاً.
 
 ---
@@ -365,7 +365,7 @@
 | **أساس الجدولة** | عقد أو اتفاق خدمة فعّال — وإلا حظر (#12) |
 
 ### ما يُنشِئه
-`open_task` (type=`periodic_maintenance`, origin=`manual_creation`, snapshots من الجهاز, `due_date`, `branch_id` من الجهاز/الزبون) + `open_task_periodic_payload` بالسبب والفاصل والمُنشئ.
+`open_task` (type=`periodic_maintenance`, origin=`manual_creation`, snapshots من الجهاز, `due_date`, `branch_id` من الجهاز/الزبون) + `open_task_periodic_payload` بالسبب والفاصل والمُنشئ، ومع `service_agreement_id` عندما يكون أساس الجدولة اتفاق خدمة خارجي.
 
 ---
 

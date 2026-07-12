@@ -62,3 +62,4 @@ nul
 
 # Excel temp lock files
 ~$*
+.vs/

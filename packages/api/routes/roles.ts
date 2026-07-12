@@ -17,6 +17,8 @@ import {
   RoleManagementError,
 } from '../services/roleManagementService.js';
 import { authorize, resolveListAccessScope } from '../services/authorizationService.js';
+import { eligibleHrUserWithPermissionCondition } from '../services/assigneeEligibility.js';
+import { eligiblePersonalOwnerCondition } from '../services/customerOwnership.js';
 
 const router = Router();
 const VALID_SCOPE_TYPES = new Set(['GLOBAL', 'BRANCH', 'ASSIGNED']);
@@ -789,7 +791,8 @@ router.put('/permissions/scopes', requireSuperAdmin, async (req, res) => {
 });
 
 // ── GET /hr-users/assignable — Users eligible to be assigned to clients ──────
-// Returns active HR users whose role has the 'clients.can_be_assigned' grant.
+// Returns active HR users linked to active employees whose role has the
+// 'clients.can_be_assigned' grant.
 // Branch-scoped: non-super-admins see only users from their own branch.
 // Requires clients.assignment.manage: seeing clients is not enough to enumerate
 // possible assignees for ownership changes.
@@ -835,13 +838,7 @@ router.get('/hr-users/assignable', requirePermission('clients.assignment.manage'
   try {
     const authContext = req.authContext!;
     const conditions: string[] = [
-      `u.is_active = TRUE`,
-      `u.role_id IN (
-        SELECT rpg.role_id
-          FROM role_permission_grants rpg
-          JOIN permissions p ON p.id = rpg.permission_id
-         WHERE p.key = 'clients.can_be_assigned'
-      )`,
+      eligiblePersonalOwnerCondition('u', 'r', 'e'),
     ];
     const params: any[] = [];
 
@@ -861,6 +858,7 @@ router.get('/hr-users/assignable', requirePermission('clients.assignment.manage'
               r.display_name AS role_display_name
          FROM hr_users u
          LEFT JOIN roles r ON r.id = u.role_id
+         LEFT JOIN employees e ON e.id = u.employee_id
          ${where}
          ORDER BY u.name`,
       params,
@@ -873,19 +871,13 @@ router.get('/hr-users/assignable', requirePermission('clients.assignment.manage'
 
 // ── GET /hr-users/name-list-assignable — Users eligible to own a name list ───
 // Mirrors /hr-users/assignable but for the name-lists family: gated by
-// candidates.name_lists.assignment.manage, returns active users whose role has
-// candidates.name_lists.can_be_assigned, branch-filtered for non-super-admins.
+// candidates.name_lists.assignment.manage, returns active users linked to active
+// employees whose role has candidates.name_lists.can_be_assigned.
 router.get('/hr-users/name-list-assignable', requirePermission('candidates.name_lists.assignment.manage'), async (req, res) => {
   try {
     const authContext = req.authContext!;
     const conditions: string[] = [
-      `u.is_active = TRUE`,
-      `u.role_id IN (
-        SELECT rpg.role_id
-          FROM role_permission_grants rpg
-          JOIN permissions p ON p.id = rpg.permission_id
-         WHERE p.key = 'candidates.name_lists.can_be_assigned'
-      )`,
+      eligibleHrUserWithPermissionCondition('u', 'r', 'e', 'candidates.name_lists.can_be_assigned'),
     ];
     const params: any[] = [];
 
@@ -902,6 +894,7 @@ router.get('/hr-users/name-list-assignable', requirePermission('candidates.name_
               r.display_name AS role_display_name
          FROM hr_users u
          LEFT JOIN roles r ON r.id = u.role_id
+         LEFT JOIN employees e ON e.id = u.employee_id
          ${where}
          ORDER BY u.name`,
       params,
@@ -915,18 +908,12 @@ router.get('/hr-users/name-list-assignable', requirePermission('candidates.name_
 // ── GET /hr-users/candidate-assignable — Users eligible to own a candidate ───
 // Mirrors /hr-users/name-list-assignable for the candidate-names family: gated
 // by candidates.edit/create (assignment rides on edit), returns active users
-// whose role has candidates.can_be_assigned, branch-filtered for non-super.
+// linked to active employees whose role has candidates.can_be_assigned.
 router.get('/hr-users/candidate-assignable', requirePermission('candidates.edit', 'candidates.create'), async (req, res) => {
   try {
     const authContext = req.authContext!;
     const conditions: string[] = [
-      `u.is_active = TRUE`,
-      `u.role_id IN (
-        SELECT rpg.role_id
-          FROM role_permission_grants rpg
-          JOIN permissions p ON p.id = rpg.permission_id
-         WHERE p.key = 'candidates.can_be_assigned'
-      )`,
+      eligibleHrUserWithPermissionCondition('u', 'r', 'e', 'candidates.can_be_assigned'),
     ];
     const params: any[] = [];
 
@@ -946,6 +933,7 @@ router.get('/hr-users/candidate-assignable', requirePermission('candidates.edit'
               r.display_name AS role_display_name
          FROM hr_users u
          LEFT JOIN roles r ON r.id = u.role_id
+         LEFT JOIN employees e ON e.id = u.employee_id
          ${where}
          ORDER BY u.name`,
       params,

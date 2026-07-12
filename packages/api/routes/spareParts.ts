@@ -13,6 +13,15 @@ function serializePrice(row: any) {
   };
 }
 
+function serializeSparePart(row: any) {
+  return {
+    ...row,
+    basePrice: Number(row.basePrice ?? 0),
+    compatibleDeviceIds: Array.isArray(row.compatibleDeviceIds) ? row.compatibleDeviceIds : [],
+    isActive: row.isActive !== false,
+  };
+}
+
 async function insertSparePartPriceHistory(sparePartId: number, body: any, createdBy: number | null) {
   const price = Number(body.price);
   const note = String(body.note ?? '').trim() || null;
@@ -116,6 +125,8 @@ async function insertSparePartPriceHistory(sparePartId: number, body: any, creat
  *           type: array
  *           items:
  *             type: integer
+ *         isActive:
+ *           type: boolean
  */
 
 /**
@@ -170,7 +181,8 @@ async function insertSparePartPriceHistory(sparePartId: number, body: any, creat
 router.get(
   '/',
   requirePermission('spare_parts.lookup', 'spare_parts.task_lookup', 'reference_data.lookup', 'catalog.manage'),
-  async (_req, res) => {
+  async (req, res) => {
+  const activeOnly = req.query.activeOnly === 'true' && req.query.includeInactive !== 'true';
   const { rows } = await pool.query(`
     SELECT id, name, code,
       COALESCE((
@@ -183,10 +195,14 @@ router.get(
         LIMIT 1
       ), base_price) AS "basePrice",
       maintenance_type AS "maintenanceType",
-      compatible_device_ids AS "compatibleDeviceIds"
-    FROM spare_parts WHERE deleted_at IS NULL ORDER BY id
+      compatible_device_ids AS "compatibleDeviceIds",
+      is_active AS "isActive"
+    FROM spare_parts
+    WHERE deleted_at IS NULL
+      ${activeOnly ? 'AND is_active = TRUE' : ''}
+    ORDER BY id
   `);
-  res.json(rows.map(r => ({ ...r, basePrice: Number(r.basePrice) })));
+  res.json(rows.map(serializeSparePart));
 });
 
 /**
@@ -244,10 +260,11 @@ router.post('/', requirePermission('spare_parts.manage', 'catalog.manage'), asyn
   try {
     await client.query('BEGIN');
     const { rows } = await client.query(
-      `INSERT INTO spare_parts (name, code, base_price, maintenance_type, compatible_device_ids)
-      VALUES ($1,$2,$3,$4,$5) RETURNING id, name, code, base_price AS "basePrice",
-        maintenance_type AS "maintenanceType", compatible_device_ids AS "compatibleDeviceIds"`,
-      [s.name, s.code, s.basePrice, s.maintenanceType, JSON.stringify(s.compatibleDeviceIds || [])]
+      `INSERT INTO spare_parts (name, code, base_price, maintenance_type, compatible_device_ids, is_active)
+      VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, name, code, base_price AS "basePrice",
+        maintenance_type AS "maintenanceType", compatible_device_ids AS "compatibleDeviceIds",
+        is_active AS "isActive"`,
+      [s.name, s.code, s.basePrice, s.maintenanceType, JSON.stringify(s.compatibleDeviceIds || []), s.isActive !== false]
     );
     await client.query(
       `INSERT INTO spare_part_price_history
@@ -256,7 +273,7 @@ router.post('/', requirePermission('spare_parts.manage', 'catalog.manage'), asyn
       [rows[0].id, Number(s.basePrice), 'Initial catalog price', req.user?.id ?? null],
     );
     await client.query('COMMIT');
-    res.json({ ...rows[0], basePrice: Number(rows[0].basePrice) });
+    res.json(serializeSparePart(rows[0]));
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
@@ -319,12 +336,25 @@ router.put('/:id', requirePermission('spare_parts.manage', 'catalog.manage'), as
   const s = req.body;
   const { rows } = await pool.query(
     `UPDATE spare_parts SET name=$1, code=$2, maintenance_type=$3,
-      compatible_device_ids=$4 WHERE id=$5 AND deleted_at IS NULL
+      compatible_device_ids=$4,
+      is_active=COALESCE($5, is_active)
+      WHERE id=$6 AND deleted_at IS NULL
     RETURNING id, name, code, base_price AS "basePrice",
-      maintenance_type AS "maintenanceType", compatible_device_ids AS "compatibleDeviceIds"`,
-    [s.name, s.code, s.maintenanceType, JSON.stringify(s.compatibleDeviceIds || []), req.params.id]
+      maintenance_type AS "maintenanceType", compatible_device_ids AS "compatibleDeviceIds",
+      is_active AS "isActive"`,
+    [
+      s.name,
+      s.code,
+      s.maintenanceType,
+      JSON.stringify(s.compatibleDeviceIds || []),
+      Object.prototype.hasOwnProperty.call(s, 'isActive') ? s.isActive !== false : null,
+      req.params.id,
+    ]
   );
-  res.json({ ...rows[0], basePrice: Number(rows[0].basePrice) });
+  if (!rows[0]) {
+    return res.status(404).json({ error: 'Spare part not found' });
+  }
+  res.json(serializeSparePart(rows[0]));
 });
 
 /**

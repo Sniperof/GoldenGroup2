@@ -13,6 +13,7 @@ import { api } from '../../lib/api';
 import VisitSurveyModal from '../../components/fieldVisits/VisitSurveyModal';
 import ReferralSheetModal from '../../components/fieldVisits/ReferralSheetModal';
 import PullTaskModal from '../../components/fieldVisits/PullTaskModal';
+import VisitReasonModal from '../../components/fieldVisits/VisitReasonModal';
 import DeviceDemoResultModal from '../../taskTypes/device_demo/DeviceDemoResultModal';
 import DeviceActivationResultModal from '../../taskTypes/device_delivery/DeviceActivationResultModal';
 import DeviceDeliveryResultModal from '../../taskTypes/device_delivery/DeviceDeliveryResultModal';
@@ -266,6 +267,8 @@ export default function VisitDetailPage() {
     const [removingTaskId, setRemovingTaskId] = useState<number | null>(null);
     const [resultTask, setResultTask] = useState<any | null>(null);
     const [reopening, setReopening] = useState(false);
+    const [gpsReasonAction, setGpsReasonAction] = useState<'start' | 'end' | null>(null);
+    const [cancelOpen, setCancelOpen] = useState(false);
     const hasPermission = useAuthStore((s) => s.hasPermission);
     const canReopen = hasPermission('field_visits.reopen_closed');
 
@@ -293,7 +296,7 @@ export default function VisitDetailPage() {
             navigator.geolocation.getCurrentPosition(
                 pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }),
                 () => resolve(null),
-                { timeout: 8000, maximumAge: 30000 },
+                { timeout: 30000, maximumAge: 30000, enableHighAccuracy: true },
             );
         });
 
@@ -301,7 +304,11 @@ export default function VisitDetailPage() {
         setActionLoading('start');
         try {
             const gps = await captureGps();
-            await api.fieldVisits.start(visitId, gps ?? {});
+            if (!gps) {
+                setGpsReasonAction('start');
+                return;
+            }
+            await api.fieldVisits.start(visitId, gps);
             await load();
         } catch (err: any) {
             alert(err?.message ?? 'فشل في تسجيل بداية الزيارة');
@@ -312,21 +319,14 @@ export default function VisitDetailPage() {
         setActionLoading('end');
         try {
             const gps = await captureGps();
-            await api.fieldVisits.end(visitId, gps ?? {});
+            if (!gps) {
+                setGpsReasonAction('end');
+                return;
+            }
+            await api.fieldVisits.end(visitId, gps);
             await load();
         } catch (err: any) {
             alert(err?.message ?? 'فشل في تسجيل نهاية الزيارة');
-        } finally { setActionLoading(null); }
-    };
-
-    const handleComplete = async () => {
-        if (!confirm('تأكيد إتمام الزيارة؟')) return;
-        setActionLoading('complete');
-        try {
-            await api.fieldVisits.complete(visitId);
-            await load();
-        } catch (err: any) {
-            alert(err?.message ?? 'فشل في إتمام الزيارة');
         } finally { setActionLoading(null); }
     };
 
@@ -380,9 +380,10 @@ export default function VisitDetailPage() {
     const survey = visit.survey;
     const gps = visit.client_gps;
 
-    const canStart = visit.status === 'scheduled';
-    const canEnd = visit.status === 'in_progress';
-    const canComplete = visit.status === 'ended';
+    const canExecute = hasPermission('field_visits.edit');
+    const canStart = canExecute && visit.status === 'scheduled';
+    const canCancel = canExecute && visit.status === 'scheduled';
+    const canEnd = canExecute && visit.status === 'in_progress';
     const canManageReferral = visit.status === 'in_progress' || visit.status === 'ended';
     const allTasksHaveResult = tasks.every((t: any) => t.result_id != null);
     const canCloseVisit = visit.status === 'completed' && allTasksHaveResult;
@@ -490,19 +491,18 @@ export default function VisitDetailPage() {
                             <span>بدء الزيارة</span>
                         </button>
                     )}
+                    {canCancel && (
+                        <button onClick={() => setCancelOpen(true)} disabled={actionLoading === 'cancel'}
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-rose-600 text-white text-sm font-bold hover:bg-rose-500 disabled:opacity-60 transition-colors">
+                            {actionLoading === 'cancel' ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />}
+                            <span>إلغاء الزيارة</span>
+                        </button>
+                    )}
                     {canEnd && (
                         <button onClick={handleEnd} disabled={actionLoading === 'end'}
                             className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-600 text-white text-sm font-bold hover:bg-amber-500 disabled:opacity-60 transition-colors">
                             {actionLoading === 'end' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Square className="w-4 h-4" />}
                             <span>إنهاء الزيارة</span>
-                        </button>
-                    )}
-                    {canComplete && (
-                        <button onClick={handleComplete} disabled={actionLoading === 'complete' || !allTasksHaveResult}
-                            title={!allTasksHaveResult ? 'يجب تسجيل نتائج جميع المهام أولاً' : ''}
-                            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600 text-white text-sm font-bold hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
-                            {actionLoading === 'complete' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Flag className="w-4 h-4" />}
-                            <span>إتمام الزيارة</span>
                         </button>
                     )}
                     {canCloseVisit && (
@@ -975,6 +975,48 @@ export default function VisitDetailPage() {
                     onSaved={() => { setResultTask(null); load(); }}
                 />
             )}
+            <VisitReasonModal
+                open={gpsReasonAction != null}
+                category="location_missing_reasons"
+                title={gpsReasonAction === 'end' ? 'تعذر تسجيل موقع إنهاء الزيارة' : 'تعذر تسجيل موقع بدء الزيارة'}
+                description="اختر سبب غياب GPS للمتابعة. تُستخدم القائمة نفسها عند البدء والإنهاء."
+                confirmLabel={gpsReasonAction === 'end' ? 'إنهاء بدون GPS' : 'بدء بدون GPS'}
+                saving={actionLoading === 'gps-reason'}
+                onClose={() => setGpsReasonAction(null)}
+                onConfirm={async (reasonId) => {
+                    const action = gpsReasonAction;
+                    if (!action) return;
+                    setActionLoading('gps-reason');
+                    try {
+                        if (action === 'start') await api.fieldVisits.start(visitId, { locationMissingReasonId: reasonId });
+                        else await api.fieldVisits.end(visitId, { locationMissingReasonId: reasonId });
+                        setGpsReasonAction(null);
+                        await load();
+                    } catch (err: any) {
+                        alert(err?.message ?? 'فشل حفظ سبب غياب GPS');
+                    } finally { setActionLoading(null); }
+                }}
+            />
+            <VisitReasonModal
+                open={cancelOpen}
+                category="visit_cancellation_reasons"
+                title="إلغاء الزيارة"
+                description="الإلغاء متاح قبل بدء الزيارة فقط، وستعود المهام المرتبطة إلى قائمة الانتظار."
+                confirmLabel="تأكيد الإلغاء"
+                includeNotes
+                saving={actionLoading === 'cancel'}
+                onClose={() => setCancelOpen(false)}
+                onConfirm={async (reasonId, notes) => {
+                    setActionLoading('cancel');
+                    try {
+                        await api.fieldVisits.cancel(visitId, { cancellationReasonId: reasonId, notes });
+                        setCancelOpen(false);
+                        await load();
+                    } catch (err: any) {
+                        alert(err?.message ?? 'فشل إلغاء الزيارة');
+                    } finally { setActionLoading(null); }
+                }}
+            />
         </div>
     );
 }

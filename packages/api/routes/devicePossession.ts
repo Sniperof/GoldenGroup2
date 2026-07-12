@@ -19,7 +19,8 @@ router.use(requireAuth);
 
 const HOLDER_TYPES = ['warehouse', 'technician', 'customer', 'workshop', 'supplier'] as const;
 const REASONS      = ['sale_delivery', 'repair_pickup', 'temporary_swap',
-                      'retrieval', 'cancellation', 'transfer'] as const;
+                      'retrieval', 'cancellation', 'transfer',
+                      'external_registration'] as const;
 
 function mapRow(r: any) {
   return {

@@ -114,14 +114,15 @@
 
 #### BR-4: قواعد الملكية التشغيلية للزبائن (Customer Ownership Logic)
 ملكية الزبون تنظمها قواعد صارمة مبنية على التعيينات والحالة (`packages/api/services/customerOwnership.ts`):
-1. **ملكية الفرع العامة (Company Branch Owned):** إذا كان العميل يملك حالة `candidate_status` ضمن قيم `OP` أو `FOP` (مرشح تشغيلي)، أو إذا لم يكن لديه أي موظف مسند مؤهل، تعتبر الملكية تابعة للشركة في حدود الفرع (`company_branch`).
+1. **ملكية الفرع العامة (Company Branch Owned):** إذا كان تصنيف دورة حياة العميل المحسوب `OP` أو `FOP`، أو إذا لم يكن لديه أي موظف مسند مؤهل، تعتبر الملكية تابعة للشركة في حدود الفرع (`company_branch`). يُصنَّف العميل `OP` عند وجود عقد تشغيلي غير مسودة/مستبعد، **أو عند وجود جهاز خارجي مسجل باسمه** (`installed_devices.device_source = 'external'`)؛ تسجيل الجهاز الخارجي كافٍ للتصنيف ولا يحتاج عقد بيع من الشركة.
 2. **الملكية الفردية المشروطة (Personal Single Owner):** يعتبر الموظف مالكاً شخصياً للزبون إذا تم ربطه بـ `client_assignments` وكان الموظف مستوفياً للشروط التالية:
    - المستخدم فعال (`u.is_active = TRUE`).
    - المستخدم مرتبط بملف موظف (`u.employee_id IS NOT NULL`).
    - حالة الموظف نشطة (`e.status = 'active'`).
-   - الموظف يملك دوراً يصنف كـ `SUPERVISOR` أو `TECHNICIAN`.
+   - دور المستخدم يملك منحة `clients.can_be_assigned` عبر `role_permission_grants`، ولا يشترط أن يكون `team_slot_type` مصنفاً كـ `SUPERVISOR` أو `TECHNICIAN`.
    - إذا كان المالك واحداً وسوبرفايزر: `personal_single_supervisor`.
    - إذا كان المالك واحداً وتكنيشن: `personal_single_technician`.
+   - إذا كان المالك واحداً بدور مؤهل آخر: `personal_single_employee`.
 3. **الملكية الفردية المتعددة (Personal Multi Owner):** في حال وجود أكثر من موظف مستوف للشروط السابقة مسندين للعميل: `personal_multi`.
 
 #### BR-5: تغيير الفرع المشروط (Conditional Branch Migration)
@@ -529,6 +530,7 @@ erDiagram
 | **2026-04** | `042_assignments_m2m.sql` | الانتقال الكامل للنظام التشغيلي متعدد الملاك للزبائن عبر تأسيس جدول الجانكشن `client_assignments` والتخلص من فكرة المالك الفردي المغلق. |
 | **2026-04** | `043_clients_can_be_assigned_permission.sql`| تسجيل وبذر الصلاحية الراية `clients.can_be_assigned` للتحكم بقائمة ظهور الموظفين في منسدلات الإسناد الشخصي. |
 | **2026-06-12** | `273_clients_assignment_manage_permission.sql` | فصل حق إدارة مسؤولي الزبون إلى `clients.assignment.manage` بدل استخدام `clients.edit`. |
+| **2026-07-08** | `customerOwnership.ts` + `360_visit_sources_employee_source_type.sql` | إزالة شرط `team_slot_type IN ('SUPERVISOR', 'TECHNICIAN')` من أهلية التملك الشخصي؛ أصبح أي مستخدم فعال مرتبط بموظف نشط ودوره يحمل `clients.can_be_assigned` مؤهلاً لتملك الزبون. |
 | **2026-04** | `049_cleanup_null_branch_telemarketing_data.sql`| تنظيف كافة البيانات التالفة وإلغاء تيتيم الزبائن مجهولي الفروع وحفظ سلامة دورات اتصال الزبائن. |
 | **2026-05** | `079_client_audit_and_soft_delete.sql`| تأسيس البنية الأمنية للزبائن عبر تسجيل جدول تغيرات العملاء `client_audit_log` وتدشين أعمدة الحذف الناعم `deleted_at`, `deleted_by`, `is_active`. |
 | **2026-05** | `131_client_legal_fields.sql` | استكمال حقول الدفتر القانوني للزبائن للتحقق المطلق: اسم الأم، قيد النفوس، الجهة المصدرة للهوية وتاريخها ورقمه. |

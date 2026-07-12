@@ -1,0 +1,7 @@
+{"kind":"sheet","id":"ws/qd9zd4","name":"00 ملخص","index":0,"range":"A1:H12","address":"A1:H12"}
+{"kind":"sheet","id":"ws/93beny","name":"01 مصفوفة الحارس","index":1,"range":"A1:K24","address":"A1:K24"}
+{"kind":"sheet","id":"ws/9eh4np","name":"02 التعارضات","index":2,"range":"A1:I14","address":"A1:I14"}
+{"kind":"sheet","id":"ws/3qbs9e","name":"03 قرارات النظام","index":3,"range":"A1:J11","address":"A1:J11"}
+{"kind":"sheet","id":"ws/4k50jt","name":"04 المصادر","index":4,"range":"A1:F12","address":"A1:F12"}
+
+{"kind":"notice","message":"Cell search matched 0 entries."}

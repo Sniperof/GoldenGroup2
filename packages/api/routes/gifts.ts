@@ -47,6 +47,7 @@ const recordSelect = `
         'contractId', src.contract_id,
         'referralSheetId', src.referral_sheet_id,
         'directReferralId', src.direct_referral_id,
+        'candidateId', src.candidate_id,
         'label', src.source_label,
         'quantity', src.quantity,
         'notes', src.notes
@@ -170,6 +171,28 @@ async function loadGiftPromiseCondition(conditionId: number | null) {
     [conditionId],
   );
   return rows[0] ?? null;
+}
+
+async function resolveGiftDeliveryCreationReason(value: unknown) {
+  const creationReason = normalizeText(value);
+  const { rows } = await pool.query(
+    `SELECT value
+       FROM system_lists
+      WHERE category = 'gift_delivery_creation_reasons'
+        AND is_active = TRUE
+        AND COALESCE(metadata->>'systemReason', 'gift_delivery') = 'gift_delivery'
+        AND (
+          NULLIF($1::text, '') IS NULL
+          OR value = $1
+        )
+      ORDER BY
+        CASE WHEN value = $1 THEN 0 ELSE 1 END,
+        display_order ASC,
+        id ASC
+      LIMIT 1`,
+    [creationReason || null],
+  );
+  return rows[0]?.value ? String(rows[0].value) : null;
 }
 
 router.get('/definitions', requirePermission('contract_gifts.view'), async (_req, res) => {
@@ -392,8 +415,20 @@ router.post('/records', requirePermission('contract_gifts.manage'), async (req, 
   if ((beneficiaryType === 'contract_customer' || beneficiaryType === 'customer_referrer') && !beneficiaryClientId) {
     return res.status(400).json({ error: 'المستفيد الزبون يجب أن يرتبط بسجل زبون معروف' });
   }
-  if (!['contract', 'name_list', 'direct_referral'].includes(sourceType)) {
+  if (!['contract', 'name_list', 'direct_referral', 'candidate'].includes(sourceType)) {
     return res.status(400).json({ error: 'مصدر الوعد غير صالح' });
+  }
+  if (sourceType === 'contract' && !(normalizePositiveInt(source.contractId) ?? normalizePositiveInt(req.body?.contractId))) {
+    return res.status(400).json({ error: 'مصدر العقد مطلوب لوعد الهدية' });
+  }
+  if (sourceType === 'name_list' && !normalizePositiveInt(source.referralSheetId)) {
+    return res.status(400).json({ error: 'مصدر لائحة الأسماء مطلوب لوعد الهدية' });
+  }
+  if (sourceType === 'direct_referral' && !normalizePositiveInt(source.directReferralId)) {
+    return res.status(400).json({ error: 'مصدر الاقتراح المباشر مطلوب لوعد الهدية' });
+  }
+  if (sourceType === 'candidate' && !normalizePositiveInt(source.candidateId)) {
+    return res.status(400).json({ error: 'مصدر الاسم المقترح مطلوب لوعد الهدية' });
   }
 
   const sourceBranchId = normalizePositiveInt(req.body?.sourceBranchId);
@@ -446,15 +481,16 @@ router.post('/records', requirePermission('contract_gifts.manage'), async (req, 
     await db.query(
       `INSERT INTO gift_record_sources (
           gift_record_id, source_type, contract_id, referral_sheet_id,
-          direct_referral_id, source_label, quantity, notes
+          direct_referral_id, candidate_id, source_label, quantity, notes
         )
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
       [
         recordId,
         sourceType,
         normalizePositiveInt(source.contractId) ?? normalizePositiveInt(req.body?.contractId),
         normalizePositiveInt(source.referralSheetId),
         normalizePositiveInt(source.directReferralId),
+        normalizePositiveInt(source.candidateId),
         normalizeText(source.sourceLabel ?? source.label) || 'مصدر وعد هدية',
         Math.max(1, normalizePositiveInt(source.quantity) ?? approvedQuantity),
         normalizeText(source.notes) || null,
@@ -533,6 +569,10 @@ async function createDeliveryTaskForGiftRecords(req: any, res: any, ids: number[
     return res.status(400).json({ error: 'أولوية مهمة التسليم إلزامية' });
   }
   const notes = normalizeText(req.body?.notes);
+  const creationReason = await resolveGiftDeliveryCreationReason(req.body?.creationReason);
+  if (!creationReason) {
+    return res.status(400).json({ error: 'سبب إنشاء مهمة تسليم الهدية مطلوب ويجب اختياره من قائمة أسباب إنشاء مهمة تسليم الهدية' });
+  }
   const giftLabel = rows.length === 1
     ? rows[0].gift_name
     : `${rows.length} سجلات هدايا`;
@@ -547,7 +587,7 @@ async function createDeliveryTaskForGiftRecords(req: any, res: any, ids: number[
          source_context_type, source_context_id, creation_origin, creation_reason
        ) VALUES ($1, $2, 'gift_delivery', 'delivery', 'gift_delivery', 'open',
          $3::date, $3::date, $4, 'manual', $5, $6, 'gift_record',
-         'gift_records', $7, 'gift_record', 'gift_delivery')
+         'gift_records', $7, 'manual_creation', $8)
        RETURNING id`,
       [
         beneficiaryClientId,
@@ -557,6 +597,7 @@ async function createDeliveryTaskForGiftRecords(req: any, res: any, ids: number[
         notes || `تسليم ${giftLabel} للمستفيد: ${rows[0].beneficiary_name_snapshot}`,
         authContext.userId ?? null,
         rows[0].id,
+        creationReason,
       ],
     );
     const taskId = Number(taskRows[0].id);

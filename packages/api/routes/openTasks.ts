@@ -15,6 +15,10 @@ import {
   redactPersonalAssignments,
 } from '../services/customerOwnership.js';
 import { claimContactTarget, ContactTargetLockError } from '../services/contactTargetLocks.js';
+import {
+  catalogUnavailablePayload,
+  findUnavailableDeviceModelsForNewCommercialUse,
+} from '../services/catalogActiveStateService.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -123,6 +127,37 @@ function shouldUseDeviceBranch(taskFamily: string, taskType: string): boolean {
   return ['delivery', 'service', 'maintenance', 'emergency', 'warranty'].includes(taskFamily);
 }
 
+const GIFT_DELIVERY_INFO_COLUMNS = `
+    gift_info.gift_record_id AS "giftRecordId",
+    gift_info.gift_records_count AS "giftRecordsCount",
+    gift_info.gift_name AS "giftName",
+    gift_info.approved_quantity AS "approvedQuantity",
+    gift_info.unit_label AS "unitLabel",
+    gift_info.gift_beneficiary_name AS "giftBeneficiaryName",
+`;
+
+const GIFT_DELIVERY_INFO_LATERAL = `
+  LEFT JOIN LATERAL (
+    SELECT
+      MIN(gr.id) AS gift_record_id,
+      COUNT(*)::int AS gift_records_count,
+      STRING_AGG(DISTINCT gd.name, '، ' ORDER BY gd.name) AS gift_name,
+      SUM(gr.approved_quantity)::int AS approved_quantity,
+      STRING_AGG(DISTINCT gd.default_unit_label, '، ' ORDER BY gd.default_unit_label) AS unit_label,
+      STRING_AGG(DISTINCT gr.beneficiary_name_snapshot, '، ' ORDER BY gr.beneficiary_name_snapshot) AS gift_beneficiary_name
+    FROM gift_records gr
+    JOIN gift_definitions gd ON gd.id = gr.gift_definition_id
+    WHERE ot.task_type = 'gift_delivery'
+      AND (
+        gr.delivery_task_id = ot.id
+        OR (
+          ot.source_context_type = 'gift_records'
+          AND gr.id = ot.source_context_id
+        )
+      )
+  ) gift_info ON true
+`;
+
 const OPEN_TASK_SELECT = `
   SELECT
     ot.*, 
@@ -158,6 +193,7 @@ const OPEN_TASK_SELECT = `
     b.name AS "branchName",
     service_branch.name AS "serviceBranchName",
     creator.name AS "createdByName",
+    ${GIFT_DELIVERY_INFO_COLUMNS}
     -- Active visit: a booked visit not yet resulted (story is "live"). Null otherwise.
     CASE WHEN active_visit.id IS NOT NULL THEN json_build_object(
       'id',            active_visit.id,
@@ -203,6 +239,7 @@ const OPEN_TASK_SELECT = `
   LEFT JOIN branches cb ON cb.id = c.branch_id
   LEFT JOIN hr_users creator ON creator.id = ot.created_by
   LEFT JOIN open_task_periodic_payload otp ON otp.open_task_id = ot.id
+  ${GIFT_DELIVERY_INFO_LATERAL}
   -- Active visit: at most one booking that hasn't been resulted yet.
   -- A booking is "scheduled" before start, "in_progress" during the field, "ended" after end
   -- but before result is saved. Once final_decision lands, the booking is no longer "active".
@@ -266,6 +303,31 @@ function getAuthContext(req: any) {
   return req.authContext as AuthContext;
 }
 
+async function resolveCreationReasonFromList(
+  db: Queryable,
+  category: string,
+  creationReason: string | null,
+  systemReason: string,
+) {
+  const { rows } = await db.query(
+    `SELECT value
+       FROM system_lists
+      WHERE category = $1
+        AND is_active = TRUE
+        AND (
+          ($2::text IS NOT NULL AND value = $2 AND COALESCE(metadata->>'systemReason', $3) = $3)
+          OR ($2::text IS NULL AND metadata->>'systemReason' = $3)
+        )
+      ORDER BY
+        CASE WHEN value = $2 THEN 0 ELSE 1 END,
+        display_order ASC,
+        id ASC
+      LIMIT 1`,
+    [category, creationReason, systemReason],
+  );
+  return rows.length > 0 ? String(rows[0].value) : null;
+}
+
 function mapOpenTaskRow(row: any) {
   return {
     id: row.id,
@@ -292,6 +354,7 @@ function mapOpenTaskRow(row: any) {
     priority: row.priority,
     source: row.source,
     creationOrigin: row.creation_origin ?? null,
+    creationReason: row.creation_reason ?? null,
     assignedBy: row.assigned_by ?? null,
     assignedVia: row.assigned_via ?? null,
     expectedTime: row.expected_time ?? null,
@@ -310,6 +373,12 @@ function mapOpenTaskRow(row: any) {
     plannedTransferLng: row.planned_transfer_lng == null ? null : Number(row.planned_transfer_lng),
     sourceContextType: row.source_context_type ?? null,
     sourceContextId: row.source_context_id ?? null,
+    giftRecordId: row.giftRecordId ?? null,
+    giftRecordsCount: row.giftRecordsCount == null ? null : Number(row.giftRecordsCount),
+    giftName: row.giftName ?? null,
+    approvedQuantity: row.approvedQuantity == null ? null : Number(row.approvedQuantity),
+    unitLabel: row.unitLabel ?? null,
+    giftBeneficiaryName: row.giftBeneficiaryName ?? null,
     dispatchOriginType: row.dispatch_origin_type ?? null,
     dispatchOriginLabel: row.dispatch_origin_label ?? null,
     cancellationReason: row.cancellation_reason ?? null,
@@ -1035,7 +1104,7 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
     'system_trigger',
   ]);
   const creationOrigin = allowedCreationOrigins.has(creationOriginInput) ? creationOriginInput : 'manual_creation';
-  const creationReason = typeof req.body?.creationReason === 'string' ? req.body.creationReason.trim() || null : null;
+  let creationReason = typeof req.body?.creationReason === 'string' ? req.body.creationReason.trim() || null : null;
   const receivableSourceTypeInput = typeof req.body?.receivableSourceType === 'string' ? req.body.receivableSourceType.trim() : '';
   const receivableSourceIdInput = Number(req.body?.receivableSourceId) || null;
   const receivableSourceLabelInput = typeof req.body?.receivableSourceLabel === 'string' ? req.body.receivableSourceLabel.trim() || null : null;
@@ -1415,8 +1484,25 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
     if (!deviceIdFromContract) {
       return res.status(400).json({ error: 'device_transfer يتطلب installedDeviceId' });
     }
-    if (!['delivered', 'installed', 'active'].includes(String(deviceStatusFromCurrentDevice))) {
-      return res.status(400).json({ error: 'لا يمكن إنشاء مهمة نقل إلا لجهاز موجود عند الزبون' });
+    const deviceStatus = String(deviceStatusFromCurrentDevice);
+    if (deviceStatus !== 'out_of_service') {
+      return res.status(400).json({ error: 'لا يمكن إنشاء مهمة نقل إلا لجهاز مفكوك حالته out_of_service' });
+    }
+    const { rows: disconnectionRows } = await pool.query(
+      `SELECT vtr.id
+         FROM visit_tasks vt
+         JOIN visit_task_results vtr ON vtr.visit_task_id = vt.id
+        WHERE vt.task_type = 'device_disconnection'
+          AND vt.source_open_task_id IN (
+            SELECT id FROM open_tasks WHERE device_id = $1 AND task_type = 'device_disconnection'
+          )
+          AND vtr.final_decision IN ('disconnected_successfully', 'requires_retrieval')
+        ORDER BY vtr.closed_at DESC NULLS LAST, vtr.id DESC
+        LIMIT 1`,
+      [deviceIdFromContract],
+    );
+    if (disconnectionRows.length === 0) {
+      return res.status(400).json({ error: 'لا يمكن إنشاء مهمة نقل قبل وجود مهمة فك ناجحة سابقة لهذا الجهاز' });
     }
     if (transferKind !== 'same_customer_new_address' && transferKind !== 'another_customer') {
       return res.status(400).json({ error: 'نوع النقل مطلوب ويجب أن يكون same_customer_new_address أو another_customer' });
@@ -1521,6 +1607,19 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
     ['sale_delivery', 'post_maintenance_return', 'temporary_swap_delivery', 'replacement_delivery', 'manual_delivery']
       .forEach((value) => allowedReasons.add(value));
   }
+  if (taskType === 'installment_collection') {
+    [
+      'contract_installment_due',
+      'maintenance_receivable_due',
+      'golden_warranty_receivable_due',
+      'remaining_installment_balance',
+      'rescheduled_collection',
+      'previous_task_cancelled',
+      'manager_followup',
+      'data_correction',
+      'other',
+    ].forEach((value) => allowedReasons.add(value));
+  }
   if (taskType === 'device_checkup') {
     ['device_checkup', 'manual_checkup', 'other']
       .forEach((value) => allowedReasons.add(value));
@@ -1554,6 +1653,87 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
     if (['temporary_swap_delivery', 'replacement_delivery'].includes(reason) && (!sourceContextType || !sourceContextId)) {
       return res.status(400).json({ error: 'sourceContextType و sourceContextId مطلوبان لهذا السبب' });
     }
+    const { rows: deliveryCreationReasonRows } = await pool.query(
+      `SELECT value
+         FROM system_lists
+        WHERE category = 'device_delivery_creation_reasons'
+          AND is_active = TRUE
+          AND (
+            ($1::text IS NOT NULL AND value = $1)
+            OR ($1::text IS NULL AND metadata->>'systemReason' = $2)
+          )
+        ORDER BY
+          CASE WHEN value = $1 THEN 0 ELSE 1 END,
+          display_order ASC,
+          id ASC
+        LIMIT 1`,
+      [creationReason, reason],
+    );
+    if (deliveryCreationReasonRows.length === 0) {
+      return res.status(400).json({ error: 'سبب إنشاء مهمة تسليم الجهاز مطلوب ويجب اختياره من قائمة أسباب إنشاء مهمة تسليم الجهاز' });
+    }
+    creationReason = String(deliveryCreationReasonRows[0].value);
+  }
+  if (taskType === 'device_installation') {
+    const { rows: installationCreationReasonRows } = await pool.query(
+      `SELECT value
+         FROM system_lists
+        WHERE category = 'device_installation_creation_reasons'
+          AND is_active = TRUE
+          AND (
+            ($1::text IS NOT NULL AND value = $1)
+            OR ($1::text IS NULL AND metadata->>'systemReason' = $2)
+          )
+        ORDER BY
+          CASE WHEN value = $1 THEN 0 ELSE 1 END,
+          display_order ASC,
+          id ASC
+        LIMIT 1`,
+      [creationReason, reason],
+    );
+    if (installationCreationReasonRows.length === 0) {
+      return res.status(400).json({ error: 'سبب إنشاء مهمة تركيب الجهاز مطلوب ويجب اختياره من قائمة أسباب إنشاء مهمة تركيب الجهاز' });
+    }
+    creationReason = String(installationCreationReasonRows[0].value);
+  }
+  const creationReasonRule: Record<string, { category: string; label: string }> = {
+    installment_collection: {
+      category: 'installment_collection_creation_reasons',
+      label: 'سبب إنشاء مهمة التحصيل',
+    },
+    device_retrieval: {
+      category: 'device_retrieval_creation_reasons',
+      label: 'سبب إنشاء مهمة سحب الجهاز',
+    },
+    device_return: {
+      category: 'device_return_creation_reasons',
+      label: 'سبب إنشاء مهمة إرجاع الجهاز',
+    },
+    device_checkup: {
+      category: 'device_checkup_creation_reasons',
+      label: 'سبب إنشاء مهمة تشييك الجهاز',
+    },
+    device_transfer: {
+      category: 'device_transfer_creation_reasons',
+      label: 'سبب إنشاء مهمة نقل الجهاز',
+    },
+    device_disconnection: {
+      category: 'device_disconnection_creation_reasons',
+      label: 'سبب إنشاء مهمة فك الجهاز',
+    },
+  };
+  const creationRule = creationReasonRule[taskType];
+  if (creationRule) {
+    const resolvedCreationReason = await resolveCreationReasonFromList(
+      pool,
+      creationRule.category,
+      creationReason,
+      reason,
+    );
+    if (!resolvedCreationReason) {
+      return res.status(400).json({ error: `${creationRule.label} مطلوب ويجب اختياره من قائمته المعتمدة` });
+    }
+    creationReason = resolvedCreationReason;
   }
 
   const pgClient = await pool.connect();
@@ -1723,6 +1903,28 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
       openTaskValues,
     );
     const openTaskId = taskRows[0].id;
+
+    if (taskType === 'device_demo' && Array.isArray(devices) && devices.length > 0) {
+      const unavailableDeviceModels = await findUnavailableDeviceModelsForNewCommercialUse(
+        pgClient,
+        devices.map((device: any) => device.deviceModelId),
+      );
+      if (unavailableDeviceModels.length > 0) {
+        await pgClient.query('ROLLBACK');
+        return res.status(400).json(catalogUnavailablePayload('device_model', unavailableDeviceModels));
+      }
+    }
+
+    if (Array.isArray(preOffers) && preOffers.length > 0) {
+      const unavailableDeviceModels = await findUnavailableDeviceModelsForNewCommercialUse(
+        pgClient,
+        preOffers.map((offer: any) => offer.deviceModelId),
+      );
+      if (unavailableDeviceModels.length > 0) {
+        await pgClient.query('ROLLBACK');
+        return res.status(400).json(catalogUnavailablePayload('device_model', unavailableDeviceModels));
+      }
+    }
 
     if (Array.isArray(devices) && devices.length > 0) {
       for (const device of devices) {
@@ -2204,6 +2406,7 @@ function buildTaskRowsSelectFrom(hasDeliveryAddressColumn: boolean): string {
         cb.name AS "clientBranchName",
         b.name AS "branchName",
         COALESCE(creator.name, creator.username, '') AS "createdByName",
+        ${GIFT_DELIVERY_INFO_COLUMNS}
         ${buildCustomerOwnershipSelectColumns()},
         -- Active visit fields (legacy aliases — sourced from the live booking only).
         active_visit_fv.id AS "marketingVisitId",
@@ -2233,6 +2436,7 @@ function buildTaskRowsSelectFrom(hasDeliveryAddressColumn: boolean): string {
       LEFT JOIN open_task_periodic_payload otp ON otp.open_task_id = ot.id
       ${buildCustomerOwnershipSql({ clientAlias: 'c', branchNameExpression: 'cb.name' })}
       LEFT JOIN installed_devices idev ON idev.id = ot.device_id
+      ${GIFT_DELIVERY_INFO_LATERAL}
       LEFT JOIN LATERAL (
         SELECT fv.id, fv.status, fv.scheduled_date, fv.scheduled_time,
                fv.customer_snapshot, fv.team_snapshot
@@ -3502,13 +3706,14 @@ router.post('/:id/emergency-result', requirePermission('tasks.results.record'), 
            closed_by, closed_at,
            created_at, updated_at
          ) VALUES (
-           'emergency', 'service', 'ended',
+           'service', 'service', 'ended',
            $1, $2,
            'open_task', $3::text,
            $4, NOW(),
            NOW(), NOW()
          )
          ON CONFLICT (source_legacy_type, source_legacy_id) DO UPDATE SET
+           visit_type = 'service',
            status     = 'ended',
            closed_by  = EXCLUDED.closed_by,
            closed_at  = NOW(),
@@ -4282,7 +4487,7 @@ router.get('/:id/activity', requirePermission('open_tasks.view'), async (req, re
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'معرف المهمة غير صالح' });
 
-    const { rows: taskRows } = await pool.query('SELECT branch_id FROM open_tasks WHERE id = $1', [id]);
+    const { rows: taskRows } = await pool.query('SELECT branch_id, task_type FROM open_tasks WHERE id = $1', [id]);
     if (taskRows.length === 0) return res.status(404).json({ error: 'المهمة غير موجودة' });
     if (!canViewOpenTask(authContext, taskRows[0].branch_id).allowed) {
       return res.status(403).json({ error: 'ليس لديك صلاحية الوصول لهذه المهمة' });
@@ -4667,6 +4872,16 @@ router.post('/:id/devices', requirePermission('open_tasks.edit'), async (req, re
 
     const devices: any[] = Array.isArray(req.body?.devices) ? req.body.devices : [];
     if (devices.length === 0) return res.status(400).json({ error: 'لا توجد أجهزة للإضافة' });
+
+    if (taskRows[0].task_type === 'device_demo') {
+      const unavailableDeviceModels = await findUnavailableDeviceModelsForNewCommercialUse(
+        pool,
+        devices.map((device: any) => device.deviceModelId),
+      );
+      if (unavailableDeviceModels.length > 0) {
+        return res.status(400).json(catalogUnavailablePayload('device_model', unavailableDeviceModels));
+      }
+    }
 
     const inserted: any[] = [];
     for (const device of devices) {

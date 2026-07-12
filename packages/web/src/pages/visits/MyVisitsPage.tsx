@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CalendarCheck, MapPin, Phone, Users2, Loader2, Zap } from '../../components/ui/icons';
+import { AlertTriangle, CalendarCheck, MapPin, Phone, Users2, Loader2, Zap } from '../../components/ui/icons';
 import { api } from '../../lib/api';
 import PageHeader from '../../components/ui/PageHeader';
 import DateField from '../../components/ui/DateField';
@@ -43,6 +43,7 @@ interface MyVisitRow {
   technicianName: string | null;
   traineeName: string | null;
   taskCount: number;
+  hasPendingStartAlert: boolean;
 }
 
 export default function MyVisitsPage() {
@@ -132,7 +133,14 @@ export default function MyVisitsPage() {
               >
                 <div className="flex items-center justify-between gap-3">
                   <span className="font-bold text-slate-800">{r.clientName || '—'}</span>
-                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold border ${st.cls}`}>{st.label}</span>
+                  <div className="flex items-center gap-2">
+                    {r.hasPendingStartAlert && (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-2.5 py-0.5 text-xs font-bold text-rose-700">
+                        <AlertTriangle className="h-3.5 w-3.5" /> معلّقة — ابدأ أو ألغِ
+                      </span>
+                    )}
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold border ${st.cls}`}>{st.label}</span>
+                  </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-slate-500">
                   <span className="font-mono text-slate-600">{r.scheduledTime?.slice(0, 5) ?? '—'}</span>

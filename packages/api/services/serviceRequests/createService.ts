@@ -31,8 +31,10 @@ import {
 } from '../periodicMaintenanceTasks.js';
 
 export interface CreateServiceRequestInput {
+  requestType?: string | null;
   channel: ServiceRequestChannel;
   applicationSource?: string | null;
+  submittedPayload?: Record<string, unknown> | null;
 
   // Three parties (٠.١٢)
   requesterUserId?: number | null;
@@ -65,6 +67,9 @@ export interface CreateServiceRequestInput {
 
   // Scope (tracking only, SR-08)
   branchId?: number | null;
+  branchResolutionStatus?: 'not_applicable' | 'resolved' | 'ambiguous' | 'no_coverage' | 'missing_geo' | null;
+  branchResolutionReason?: string | null;
+  branchResolutionGeoUnitId?: number | null;
 
   // Actor context
   actorUserId: number | null;
@@ -74,6 +79,7 @@ export interface CreateServiceRequestInput {
 export interface CreatedServiceRequest {
   id: number;
   publicRefNumber: string;
+  requestType: string;
   status: 'received' | 'in_review';
   duplicateFlag: boolean;
   duplicateOfRequestId: number | null;
@@ -158,7 +164,7 @@ export async function createServiceRequest(
       try {
         const { rows } = await tx.client.query<{ id: number }>(
           `INSERT INTO service_requests (
-             public_ref_number, channel, application_source,
+             public_ref_number, request_type, channel, application_source, submitted_payload,
              requester_user_id, requester_external,
              beneficiary_client_id, beneficiary_candidate_id, beneficiary_external,
              referrer_user_id, referrer_external,
@@ -169,26 +175,30 @@ export async function createServiceRequest(
              service_address,
              priority, status,
              reviewed_by_user_id, claimed_at,
-             branch_id
+             branch_id, branch_resolution_status, branch_resolution_reason,
+             branch_resolution_geo_unit_id
            ) VALUES (
-             $1, $2, $3,
-             $4, $5::jsonb,
-             $6, $7, $8::jsonb,
-             $9, $10::jsonb,
-             $11, $12,
-             $13, $14, $15,
-             $16, $17,
-             $18, $19, $20::jsonb,
-             $21::jsonb,
-             $22, $23,
-             $24, ${claimedAt},
-             $25
+             $1, $2, $3, $4, $5::jsonb,
+             $6, $7::jsonb,
+             $8, $9, $10::jsonb,
+             $11, $12::jsonb,
+             $13, $14,
+             $15, $16, $17,
+             $18, $19,
+             $20, $21, $22::jsonb,
+             $23::jsonb,
+             $24, $25,
+             $26, ${claimedAt},
+             $27, $28, $29,
+             $30
            )
            RETURNING id`,
           [
             ref,
+            input.requestType ?? 'emergency_maintenance',
             input.channel,
             input.applicationSource ?? null,
+            JSON.stringify(input.submittedPayload ?? null),
             input.requesterUserId ?? null,
             JSON.stringify(input.requesterExternal ?? null),
             input.beneficiaryClientId ?? null,
@@ -211,6 +221,9 @@ export async function createServiceRequest(
             initialStatus,
             initialStatus === 'in_review' ? input.actorUserId : null,
             input.branchId ?? null,
+            input.branchResolutionStatus ?? 'not_applicable',
+            input.branchResolutionReason ?? null,
+            input.branchResolutionGeoUnitId ?? null,
           ],
         );
         inserted = { id: rows[0].id, ref };
@@ -241,8 +254,11 @@ export async function createServiceRequest(
       actorRole: input.actorRole,
       payload: {
         channel: input.channel,
+        request_type: input.requestType ?? 'emergency_maintenance',
         public_ref_number: inserted.ref,
         initial_status: initialStatus,
+        branch_id: input.branchId ?? null,
+        branch_resolution_status: input.branchResolutionStatus ?? 'not_applicable',
       },
     });
 
@@ -278,6 +294,7 @@ export async function createServiceRequest(
       data: {
         id: inserted.id,
         publicRefNumber: inserted.ref,
+        requestType: input.requestType ?? 'emergency_maintenance',
         status: initialStatus,
         duplicateFlag: dup.flagged,
         duplicateOfRequestId: dup.bestMatch?.candidateId ?? null,

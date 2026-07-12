@@ -15,12 +15,13 @@
 //   - Enforce required fields client-side (matches backend validation).
 //   - Use Arabic labels backed by the constitutional enum values.
 // ============================================================
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AlertTriangle } from '../ui/icons';
 import Button, { type ButtonVariant } from '../ui/Button';
 import Modal from '../ui/Modal';
+import { api } from '../../lib/api';
 
-export type ModalMode = 'requestInfo' | 'resolveAtIntake' | 'escalate' | 'cancel';
+export type ModalMode = 'requestInfo' | 'resolveAtIntake' | 'escalate' | 'cancel' | 'reject';
 
 interface Option {
   value: string;
@@ -28,17 +29,40 @@ interface Option {
   description?: string;
 }
 
-const RESOLVE_OUTCOMES: Option[] = [
-  { value: 'resolved_by_advice',     label: 'حُلَّ بنصيحة هاتفية',     description: 'الفني وَصف خطوات على الهاتف وحُلَّ العطل' },
-  { value: 'customer_self_fixed',    label: 'الزبون حلَّه ذاتياً',      description: 'الزبون أصلحه قبل وصولنا' },
-  { value: 'false_alarm',            label: 'إنذار خاطئ',              description: 'لم يَكن هناك عطل فعلاً' },
-  { value: 'info_clarified_no_issue', label: 'استيضاح بلا عطل',         description: 'كان استفساراً لا مشكلة' },
-];
+const RESOLVE_AT_INTAKE_LIST_BY_REQUEST_TYPE: Record<string, string> = {
+  emergency_maintenance: 'service_request_resolve_at_intake_emergency_maintenance',
+  water_check: 'service_request_resolve_at_intake_water_check',
+};
+
+function resolveAtIntakeListCode(requestType?: string | null): string {
+  return RESOLVE_AT_INTAKE_LIST_BY_REQUEST_TYPE[requestType || '']
+    ?? RESOLVE_AT_INTAKE_LIST_BY_REQUEST_TYPE.emergency_maintenance;
+}
+
+function optionFromSystemListItem(item: any): Option {
+  return {
+    value: String(item?.value ?? ''),
+    label: String(item?.metadata?.label ?? item?.label ?? item?.value ?? ''),
+    description: item?.metadata?.description ? String(item.metadata.description) : undefined,
+  };
+}
 
 const CANCEL_OUTCOMES: Option[] = [
   { value: 'data_entry_error',           label: 'خطأ في الإدخال',          description: 'الـ Operator أَخطأ عند الإنشاء' },
   { value: 'customer_withdrew_via_support', label: 'الزبون ألغى عبر دعم آخر', description: 'وَصلَنا اعتذار من قناة أخرى' },
   { value: 'redundant_with_existing_task',  label: 'مُكَرَّر مع مهمة قائمة',  description: 'يَنبغي التَحقُّق ودَمج إن لزم' },
+];
+
+// Reject outcomes — mirror stateMachine.ts TRIAGE_OUTCOMES_BY_TERMINAL.rejected.
+// A closed radio list prevents the invalid_triage_outcome error that a free
+// prompt allowed.
+const REJECT_OUTCOMES: Option[] = [
+  { value: 'duplicate',         label: 'مُكرَّر',               description: 'طلب مطابق لطلب آخر قائم' },
+  { value: 'invalid_request',   label: 'طلب غير صالح',          description: 'بيانات ناقصة أو غير منطقية' },
+  { value: 'spam',              label: 'مزعج / سبام',           description: 'طلب عبثي أو دعائي' },
+  { value: 'out_of_scope',      label: 'خارج النطاق',           description: 'لا يخصّ خدماتنا' },
+  { value: 'unverified_caller', label: 'متصل غير موثّق',        description: 'تعذّر التحقق من هوية مقدّم الطلب' },
+  { value: 'device_not_company', label: 'الجهاز ليس من الشركة',  description: 'الجهاز خارج نطاق أجهزتنا' },
 ];
 
 const MODE_CONFIG: Record<ModalMode, {
@@ -79,7 +103,6 @@ const MODE_CONFIG: Record<ModalMode, {
     description: 'إغلاق الطلب بَدون إنشاء مهمة. لا يُعاد فتحه إلا عبر "إعادة فتح".',
     isTerminal: true,
     requiresOutcome: true,
-    outcomes: RESOLVE_OUTCOMES,
     noteLabel: 'ملاحظات الفرز',
     noteRequired: true,
     notePlaceholder: 'وَصف موجز لكيفية الحلّ + أي إرشاد للزبون',
@@ -116,10 +139,26 @@ const MODE_CONFIG: Record<ModalMode, {
     confirmClass: 'bg-slate-700 hover:bg-slate-800',
     confirmVariant: 'primary',
   },
+  reject: {
+    title: 'رَفض الطلب (مدقّق)',
+    badge: 'نهائي',
+    badgeClass: 'bg-red-100 text-red-700',
+    description: 'رفض نهائي للطلب. يتطلب سبباً من القائمة. يُمكن إعادة الفتح لاحقاً بصلاحية المدقّق.',
+    isTerminal: true,
+    requiresOutcome: true,
+    outcomes: REJECT_OUTCOMES,
+    noteLabel: 'ملاحظة الرفض',
+    noteRequired: false,
+    notePlaceholder: 'تفاصيل إضافية (اختياري)',
+    confirmText: 'تَأكيد الرفض',
+    confirmClass: 'bg-red-600 hover:bg-red-700',
+    confirmVariant: 'danger',
+  },
 };
 
 interface Props {
   mode: ModalMode;
+  requestType?: string | null;
   onClose: () => void;
   onConfirm: (data: {
     triageOutcome?: string;
@@ -129,8 +168,11 @@ interface Props {
   }) => Promise<void>;
 }
 
-export default function TerminalTransitionModal({ mode, onClose, onConfirm }: Props) {
+export default function TerminalTransitionModal({ mode, requestType, onClose, onConfirm }: Props) {
   const cfg = MODE_CONFIG[mode];
+  const [resolveOutcomes, setResolveOutcomes] = useState<Option[]>([]);
+  const [resolveOutcomesLoading, setResolveOutcomesLoading] = useState(false);
+  const [resolveOutcomesError, setResolveOutcomesError] = useState<string | null>(null);
   const [outcome, setOutcome] = useState('');
   const [note, setNote] = useState('');
   const [expectedCallback, setExpectedCallback] = useState('');
@@ -138,9 +180,39 @@ export default function TerminalTransitionModal({ mode, onClose, onConfirm }: Pr
   const [error, setError] = useState<string | null>(null);
   const [confirmStep, setConfirmStep] = useState(false);
 
+  useEffect(() => {
+    if (mode !== 'resolveAtIntake') return;
+    let active = true;
+    setOutcome('');
+    setResolveOutcomes([]);
+    setResolveOutcomesError(null);
+    setResolveOutcomesLoading(true);
+    api.systemLists
+      .getItemsByCode(resolveAtIntakeListCode(requestType))
+      .then((rows) => {
+        if (!active) return;
+        setResolveOutcomes(
+          (Array.isArray(rows) ? rows : [])
+            .filter((row: any) => row?.isActive !== false)
+            .map(optionFromSystemListItem)
+            .filter((option) => option.value && option.label),
+        );
+      })
+      .catch((e: any) => {
+        if (active) setResolveOutcomesError(e?.message ?? 'تعذر تحميل قائمة أسباب الحل في الاستلام');
+      })
+      .finally(() => {
+        if (active) setResolveOutcomesLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [mode, requestType]);
+
+  const outcomes = mode === 'resolveAtIntake' ? resolveOutcomes : (cfg.outcomes ?? []);
   const noteOk = !cfg.noteRequired || note.trim().length > 0;
   const outcomeOk = !cfg.requiresOutcome || outcome !== '';
-  const canSubmit = noteOk && outcomeOk && !busy;
+  const canSubmit = noteOk && outcomeOk && !busy && !(mode === 'resolveAtIntake' && resolveOutcomesLoading);
 
   async function handleConfirm() {
     if (cfg.isTerminal && !confirmStep) {
@@ -201,13 +273,31 @@ export default function TerminalTransitionModal({ mode, onClose, onConfirm }: Pr
             </div>
           )}
 
-          {cfg.requiresOutcome && cfg.outcomes && (
+          {mode === 'resolveAtIntake' && resolveOutcomesLoading && (
+            <div className="rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+              جارٍ تحميل قائمة أسباب الحل في الاستلام...
+            </div>
+          )}
+
+          {mode === 'resolveAtIntake' && resolveOutcomesError && (
+            <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              {resolveOutcomesError}
+            </div>
+          )}
+
+          {mode === 'resolveAtIntake' && !resolveOutcomesLoading && !resolveOutcomesError && outcomes.length === 0 && (
+            <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+              لا توجد أسباب فعّالة ضمن قائمة هذا النوع من الطلب. أضف سبباً من إدارة القوائم ضمن مجموعة قوائم الطلبات.
+            </div>
+          )}
+
+          {cfg.requiresOutcome && outcomes.length > 0 && (
             <div className="space-y-2">
               <label className="block text-sm font-medium text-slate-700">
                 السبب <span className="text-red-500">*</span>
               </label>
               <div className="space-y-1.5">
-                {cfg.outcomes.map((o) => (
+                {outcomes.map((o) => (
                   <label
                     key={o.value}
                     className={`block p-2.5 rounded border cursor-pointer ${

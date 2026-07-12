@@ -98,7 +98,8 @@ export default function ContractGiftsPanel({ contract }: { contract: any }) {
       })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [contractId, reloadToken]);
+    // contract?.status: يُعيد الجلب بعد الاعتماد (draft→active) حين تُنشأ السجلات.
+  }, [contractId, reloadToken, contract?.status]);
 
   useEffect(() => {
     let active = true;

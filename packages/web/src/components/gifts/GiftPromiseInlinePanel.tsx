@@ -7,18 +7,20 @@ import {
   type GiftDefinitionPrototype,
 } from '../../data/giftsPrototype';
 
+export interface InlineGiftPromiseDraft {
+  giftDefinitionId: string;
+  conditionLabel: string;
+  conditionStatus: GiftConditionStatus;
+  quantity: number;
+}
+
 interface GiftPromiseInlinePanelProps {
   enabled: boolean;
   sourceType: 'name_list' | 'direct_referral';
   beneficiaryName?: string | null;
   disabledReason?: string;
-}
-
-interface InlineGiftPromiseDraft {
-  giftDefinitionId: string;
-  conditionLabel: string;
-  conditionStatus: GiftConditionStatus;
-  quantity: number;
+  // يرفع الوعد المحفوظ للأب ليُنشئه كـ gift_record بعد حفظ اللائحة/الاقتراح.
+  onChange?: (promise: InlineGiftPromiseDraft | null) => void;
 }
 
 const defaultConditionBySource: Record<GiftPromiseInlinePanelProps['sourceType'], string> = {
@@ -36,6 +38,7 @@ export default function GiftPromiseInlinePanel({
   sourceType,
   beneficiaryName,
   disabledReason,
+  onChange,
 }: GiftPromiseInlinePanelProps) {
   const [activeGiftDefinitions, setActiveGiftDefinitions] = useState<GiftDefinitionPrototype[]>([]);
   const [definitionsLoading, setDefinitionsLoading] = useState(false);
@@ -71,12 +74,22 @@ export default function GiftPromiseInlinePanel({
     return () => { active = false; };
   }, []);
 
+  useEffect(() => {
+    if (!enabled && savedPromise) {
+      setSavedPromise(null);
+      onChange?.(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled]);
+
   const savePromise = () => {
     if (!selectedDefinition) return;
-    setSavedPromise({
+    const promise = {
       ...draft,
       quantity: Math.max(1, Number(draft.quantity) || 1),
-    });
+    };
+    setSavedPromise(promise);
+    onChange?.(promise);
     setIsAdding(false);
   };
 
@@ -195,7 +208,7 @@ export default function GiftPromiseInlinePanel({
           </div>
           <button
             type="button"
-            onClick={() => setSavedPromise(null)}
+            onClick={() => { setSavedPromise(null); onChange?.(null); }}
             className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
             title="حذف الوعد"
           >

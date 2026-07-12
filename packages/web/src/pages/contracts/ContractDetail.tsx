@@ -7,6 +7,7 @@ import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
 import { usePermissions } from '../../hooks/usePermissions';
 import ContractGiftsPanel from './ContractGiftsPanel';
+import { getOpenTaskDetailPath } from '../../lib/taskRoutes';
 
 // ── Lookup maps ───────────────────────────────────────────────────────────────
 
@@ -992,7 +993,7 @@ export default function ContractDetail() {
                 };
                 const ts = taskStatusMap[t.status] ?? { cls: 'bg-slate-100 text-slate-500', label: t.status };
                 const isEmergency = t.taskFamily === 'emergency' || t.taskType === 'emergency_maintenance';
-                const path = isEmergency ? `/tasks/emergency/${t.id}` : `/tasks/${t.taskType}/${t.id}`;
+                const path = getOpenTaskDetailPath(t.taskType, t.id) ?? '/tasks/group/maintenance';
                 return (
                   <div key={t.id} className="flex items-center justify-between gap-4 px-5 py-3.5 hover:bg-slate-50/60">
                     <div className="flex items-center gap-3 min-w-0">

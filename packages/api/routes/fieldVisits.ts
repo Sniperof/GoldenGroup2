@@ -9,12 +9,15 @@ import { canViewFieldVisit, canEditFieldVisit, getFieldVisitListAccessPlan } fro
 import { checkAndCompleteVisit } from '../services/visitCompletion.js';
 import { hasBlockingUndocumentedVisit } from '../services/visitEscalationJob.js';
 import { applyDeviceActivationResult, applyDeviceCheckupResult, applyDeviceDeliveryResult, applyDeviceDemoResult, applyDeviceDisconnectionResult, applyDeviceInstallationResult, applyDeviceRetrievalResult, applyDeviceReturnResult, applyDeviceTransferResult, applyEmergencyMaintenanceLifecycleResult, applyGiftDeliveryResult, applyGoldenWarrantyOfferResult, applyGoldenWarrantyCardDeliveryResult, applyInstallmentCollectionResult, ResultValidationError } from '../services/visitTaskResultReflection.js';
+import { DeviceTaskEligibilityError } from '../services/deviceTaskEligibilityGuard.js';
 import {
   buildClientLifecycleStatusSql,
   buildCustomerOwnershipSql,
+  eligiblePersonalOwnerCondition,
   mapCustomerOwnership,
 } from '../services/customerOwnership.js';
 import { createInstantVisit, BookingError } from '../services/visitBooking.js';
+import { refreshVisitType } from '../services/visitClassification.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -83,6 +86,20 @@ function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number)
   return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 }
 
+async function isActiveSystemListItem(
+  db: { query: (text: string, params?: any[]) => Promise<{ rows: any[] }> },
+  itemId: number,
+  category: string,
+): Promise<boolean> {
+  const { rows } = await db.query(
+    `SELECT 1 FROM system_lists
+      WHERE id = $1 AND category = $2 AND is_active = TRUE
+      LIMIT 1`,
+    [itemId, category],
+  );
+  return rows.length > 0;
+}
+
 async function hasOpenTaskColumn(columnName: string): Promise<boolean> {
   const { rows } = await pool.query(
     `SELECT EXISTS (
@@ -121,14 +138,17 @@ async function resolveVisitSource(visitId: number): Promise<{
 
   // Check personal assignments
   const { rows: assignRows } = await pool.query(
-    `SELECT u.id AS hr_user_id, u.name, u.employee_id, r.team_slot_type
+    `SELECT u.id AS hr_user_id,
+            u.name,
+            u.employee_id,
+            r.team_slot_type,
+            COALESCE(r.display_name, u.role) AS role_display_name
      FROM client_assignments ca
      JOIN hr_users u ON u.id = ca.hr_user_id
      LEFT JOIN roles r ON r.id = u.role_id
+     LEFT JOIN employees e ON e.id = u.employee_id
      WHERE ca.client_id = $1
-       AND u.is_active = TRUE
-       AND u.employee_id IS NOT NULL
-       AND r.team_slot_type IN ('SUPERVISOR', 'TECHNICIAN')`,
+       AND ${eligiblePersonalOwnerCondition('u', 'r', 'e')}`,
     [fv.client_id],
   );
 
@@ -145,18 +165,21 @@ async function resolveVisitSource(visitId: number): Promise<{
   // Match assignments to team snapshot
   let hasSup = false;
   let hasTech = false;
+  let hasEmployee = false;
   const actorIds: number[] = [];
   const labels: string[] = [];
 
   for (const a of assignRows) {
+    actorIds.push(a.employee_id);
     if (a.team_slot_type === 'SUPERVISOR') {
       hasSup = true;
-      actorIds.push(a.employee_id);
       labels.push(`مشرف: ${a.name}`);
     } else if (a.team_slot_type === 'TECHNICIAN') {
       hasTech = true;
-      actorIds.push(a.employee_id);
       labels.push(`فني: ${a.name}`);
+    } else {
+      hasEmployee = true;
+      labels.push(`${a.role_display_name ?? 'موظف'}: ${a.name}`);
     }
   }
 
@@ -166,7 +189,15 @@ async function resolveVisitSource(visitId: number): Promise<{
     if (teamSnap.technician?.name) labels.push(`فني: ${teamSnap.technician.name}`);
   }
 
-  const sourceType = hasSup && hasTech ? 'both' : hasSup ? 'supervisor' : 'technician';
+  const sourceType = hasSup && hasTech
+    ? 'both'
+    : hasSup
+      ? 'supervisor'
+      : hasTech
+        ? 'technician'
+        : hasEmployee
+          ? 'employee'
+          : 'both';
   return {
     source_type: sourceType,
     source_label: labels.join(' + ') || 'غير محدد',
@@ -387,12 +418,15 @@ router.post('/:id/start', requirePermission('field_visits.edit'), async (req, re
     if (!Number.isFinite(visitId)) return res.status(400).json({ error: 'معرف الزيارة غير صالح' });
 
     const { rows: fvRows } = await pool.query(
-      'SELECT id, branch_id, status FROM field_visits WHERE id = $1',
+      'SELECT id, branch_id, status, team_responsible_user_id FROM field_visits WHERE id = $1',
       [visitId],
     );
     if (!fvRows[0]) return res.status(404).json({ error: 'الزيارة غير موجودة' });
-    if (!canEditFieldVisit(authContext, fvRows[0].branch_id).allowed) {
+    if (!canEditFieldVisit(authContext, fvRows[0].branch_id, fvRows[0].team_responsible_user_id).allowed) {
       return res.status(403).json({ error: 'ليس لديك صلاحية الوصول' });
+    }
+    if (fvRows[0].status !== 'scheduled') {
+      return res.status(409).json({ error: 'يمكن بدء الزيارة فقط عندما تكون بحالة مجدولة.' });
     }
 
     // DEC-006 D38 L2: a technician with an undocumented visit older than L2 hours
@@ -418,6 +452,9 @@ router.post('/:id/start', requirePermission('field_visits.edit'), async (req, re
       return res.status(400).json({
         error: 'GPS غير متاح — يجب اختيار سبب من القائمة (locationMissingReasonId).',
       });
+    }
+    if (locationMissing && !await isActiveSystemListItem(pool, locationMissingReasonId!, 'location_missing_reasons')) {
+      return res.status(400).json({ error: 'سبب غياب GPS غير صالح أو غير فعال.' });
     }
 
     const now = new Date();
@@ -449,7 +486,12 @@ router.post('/:id/start', requirePermission('field_visits.edit'), async (req, re
 
     await pool.query(
       `UPDATE field_visits SET status = 'in_progress', updated_at = NOW()
-       WHERE id = $1 AND status NOT IN ('ended','completed','cancelled','closed')`,
+       WHERE id = $1 AND status = 'scheduled'`,
+      [visitId],
+    );
+    await pool.query(
+      `UPDATE visit_scheduled_alerts SET resolved_at = NOW()
+        WHERE visit_id = $1 AND resolved_at IS NULL`,
       [visitId],
     );
 
@@ -552,12 +594,15 @@ router.post('/:id/end', requirePermission('field_visits.edit'), async (req, res)
     if (!Number.isFinite(visitId)) return res.status(400).json({ error: 'معرف الزيارة غير صالح' });
 
     const { rows: fvRows } = await pool.query(
-      'SELECT id, branch_id, status FROM field_visits WHERE id = $1',
+      'SELECT id, branch_id, status, team_responsible_user_id FROM field_visits WHERE id = $1',
       [visitId],
     );
     if (!fvRows[0]) return res.status(404).json({ error: 'الزيارة غير موجودة' });
-    if (!canEditFieldVisit(authContext, fvRows[0].branch_id).allowed) {
+    if (!canEditFieldVisit(authContext, fvRows[0].branch_id, fvRows[0].team_responsible_user_id).allowed) {
       return res.status(403).json({ error: 'ليس لديك صلاحية الوصول' });
+    }
+    if (fvRows[0].status !== 'in_progress') {
+      return res.status(409).json({ error: 'يمكن إنهاء الزيارة فقط عندما تكون قيد التنفيذ.' });
     }
 
     const lat = req.body?.lat != null ? Number(req.body.lat) : null;
@@ -570,6 +615,9 @@ router.post('/:id/end', requirePermission('field_visits.edit'), async (req, res)
       return res.status(400).json({
         error: 'GPS غير متاح — يجب اختيار سبب من القائمة (locationMissingReasonId).',
       });
+    }
+    if (locationMissing && !await isActiveSystemListItem(pool, locationMissingReasonId!, 'location_missing_reasons')) {
+      return res.status(400).json({ error: 'سبب غياب GPS غير صالح أو غير فعال.' });
     }
 
     const now = new Date();
@@ -627,7 +675,7 @@ router.post('/:id/end', requirePermission('field_visits.edit'), async (req, res)
 
     await pool.query(
       `UPDATE field_visits SET status = 'ended', updated_at = NOW()
-       WHERE id = $1 AND status NOT IN ('completed','cancelled','closed')`,
+       WHERE id = $1 AND status = 'in_progress'`,
       [visitId],
     );
 
@@ -643,14 +691,97 @@ router.post('/:id/end', requirePermission('field_visits.edit'), async (req, res)
       [visitId],
     );
 
+    // DEC-007: completion is calculated, never a separate field action. If
+    // documentation was already finished during in_progress, ending the visit
+    // now promotes it immediately; otherwise later result/survey saves do it.
+    const completion = await checkAndCompleteVisit(visitId, authContext.userId ?? null);
+
     const { rows: updatedGeoRows } = await pool.query(
       'SELECT * FROM visit_geo_logs WHERE visit_id = $1',
       [visitId],
     );
-    res.json({ success: true, geo: updatedGeoRows[0] ?? null });
+    res.json({ success: true, geo: updatedGeoRows[0] ?? null, completed: completion.completed });
   } catch (err: any) {
     console.error('[field-visits] POST /:id/end error:', err);
     res.status(500).json({ error: 'فشل في تسجيل نهاية الزيارة' });
+  }
+});
+
+// DEC-004 D8/D10: cancellation exists only before execution. Visit-task rows
+// stay as attempt history; their open tasks return to the waiting phase.
+router.post('/:id/cancel', requirePermission('field_visits.edit'), async (req, res) => {
+  const authContext = getAuthContext(req);
+  const visitId = Number(req.params.id);
+  const cancellationReasonId = Number(req.body?.cancellationReasonId);
+  const notes = typeof req.body?.notes === 'string' ? req.body.notes.trim() || null : null;
+  if (!Number.isInteger(visitId) || visitId <= 0) {
+    return res.status(400).json({ error: 'معرف الزيارة غير صالح' });
+  }
+  if (!Number.isInteger(cancellationReasonId) || cancellationReasonId <= 0) {
+    return res.status(400).json({ error: 'سبب إلغاء الزيارة مطلوب.' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      `SELECT id, branch_id, status, team_responsible_user_id
+         FROM field_visits WHERE id = $1 FOR UPDATE`,
+      [visitId],
+    );
+    const visit = rows[0];
+    if (!visit) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'الزيارة غير موجودة' });
+    }
+    if (!canEditFieldVisit(authContext, visit.branch_id, visit.team_responsible_user_id).allowed) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'ليس لديك صلاحية الوصول' });
+    }
+    if (visit.status !== 'scheduled') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'يمكن إلغاء الزيارة فقط قبل بدء التنفيذ.' });
+    }
+    if (!await isActiveSystemListItem(client, cancellationReasonId, 'visit_cancellation_reasons')) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'سبب إلغاء الزيارة غير صالح أو غير فعال.' });
+    }
+
+    await client.query(
+      `UPDATE open_tasks ot
+          SET status = COALESCE(ot.last_waiting_status, 'open'), updated_at = NOW()
+        WHERE ot.id IN (
+          SELECT vt.source_open_task_id FROM visit_tasks vt
+           WHERE vt.field_visit_id = $1 AND vt.source_open_task_id IS NOT NULL
+        )
+          AND ot.status IN ('assigned', 'in_scheduling', 'scheduled', 'waiting_execution')`,
+      [visitId],
+    );
+    await client.query(
+      `UPDATE visit_tasks SET status = 'cancelled', updated_at = NOW()
+        WHERE field_visit_id = $1 AND status = 'pending'`,
+      [visitId],
+    );
+    await client.query(
+      `UPDATE field_visits
+          SET status = 'cancelled', cancellation_reason_id = $2,
+              cancellation_notes = $3, updated_at = NOW()
+        WHERE id = $1`,
+      [visitId, cancellationReasonId, notes],
+    );
+    await client.query(
+      `UPDATE visit_scheduled_alerts SET resolved_at = NOW()
+        WHERE visit_id = $1 AND resolved_at IS NULL`,
+      [visitId],
+    );
+    await client.query('COMMIT');
+    return res.json({ success: true, status: 'cancelled' });
+  } catch (err: any) {
+    await client.query('ROLLBACK');
+    console.error('[field-visits] POST /:id/cancel error:', err);
+    return res.status(500).json({ error: err?.message ?? 'فشل إلغاء الزيارة' });
+  } finally {
+    client.release();
   }
 });
 
@@ -1109,7 +1240,7 @@ router.get('/my-visits', requirePermission('field_visits.my_visits.view'), async
       return res.json([]);
     }
 
-    const params: any[] = [date, employeeId, employeeId, employeeId];
+    const params: any[] = [date, employeeId, employeeId, employeeId, authContext.userId];
     let statusClause = '';
     if (status !== null) {
       params.push(status);
@@ -1137,6 +1268,7 @@ router.get('/my-visits', requirePermission('field_visits.my_visits.view'), async
          sup.name   AS "supervisorName",
          tech.name  AS "technicianName",
          train.name AS "traineeName",
+         (vsa.visit_id IS NOT NULL) AS "hasPendingStartAlert",
          COUNT(DISTINCT vt.id)::int AS "taskCount",
          COALESCE(
            json_agg(DISTINCT jsonb_build_object('taskType', vt.task_type, 'taskFamily', vt.task_family, 'status', vt.status))
@@ -1153,6 +1285,10 @@ router.get('/my-visits', requirePermission('field_visits.my_visits.view'), async
        LEFT JOIN employees sup   ON sup.id   = COALESCE(fv.reassigned_supervisor_id, NULLIF((fv.team_snapshot->>'supervisorEmployeeId')::text, '')::int)
        LEFT JOIN employees tech  ON tech.id  = COALESCE(fv.reassigned_technician_id, NULLIF((fv.team_snapshot->>'technicianEmployeeId')::text, '')::int)
        LEFT JOIN employees train ON train.id = COALESCE(fv.reassigned_trainee_id, NULLIF((fv.team_snapshot->>'traineeEmployeeId')::text, '')::int)
+       LEFT JOIN visit_scheduled_alerts vsa
+         ON vsa.visit_id = fv.id
+        AND vsa.responsible_user_id = $5
+        AND vsa.resolved_at IS NULL
        LEFT JOIN visit_tasks vt ON vt.field_visit_id = fv.id
        WHERE fv.scheduled_date = $1
          AND (
@@ -1162,7 +1298,7 @@ router.get('/my-visits', requirePermission('field_visits.my_visits.view'), async
          )
          ${statusClause}
        GROUP BY fv.id, c.id, neigh.id, neigh.name, neigh.level, neigh_parent.id, neigh_parent.name,
-                district.id, district.name, sup.name, tech.name, train.name
+                district.id, district.name, sup.name, tech.name, train.name, vsa.visit_id
        ORDER BY fv.scheduled_date DESC, fv.scheduled_time ASC, fv.created_at DESC`,
       params,
     );
@@ -1229,7 +1365,7 @@ router.get('/escalation-alerts', requirePermission('field_visits.view'), async (
     let branchClause = '';
     if (plan.scope !== 'GLOBAL') {
       if (plan.allowedBranchIds.length === 0) {
-        return res.json({ count: 0, items: [] });
+        return res.json({ count: 0, items: [], scheduledCount: 0, scheduledItems: [] });
       }
       params.push(plan.allowedBranchIds);
       branchClause = `AND fv.branch_id = ANY($${params.length}::int[])`;
@@ -1257,7 +1393,35 @@ router.get('/escalation-alerts', requirePermission('field_visits.view'), async (
         LIMIT 200`,
       params,
     );
-    return res.json({ count: rows.length, items: rows });
+    const { rows: scheduledRows } = await pool.query(
+      `SELECT fv.id AS "visitId",
+              fv.status,
+              fv.branch_id AS "branchId",
+              fv.client_id AS "clientId",
+              c.name AS "clientName",
+              fv.team_responsible_user_id AS "teamResponsibleUserId",
+              responsible.name AS "teamResponsibleName",
+              fv.scheduled_date AS "scheduledDate",
+              fv.scheduled_time AS "scheduledTime",
+              vsa.alerted_at AS "alertedAt",
+              EXTRACT(EPOCH FROM (NOW() - vsa.alerted_at)) / 3600 AS "hoursSinceAlert"
+         FROM visit_scheduled_alerts vsa
+         JOIN field_visits fv ON fv.id = vsa.visit_id
+         LEFT JOIN clients c ON c.id = fv.client_id
+         LEFT JOIN hr_users responsible ON responsible.id = vsa.responsible_user_id
+        WHERE vsa.resolved_at IS NULL
+          AND fv.status = 'scheduled'
+          ${branchClause}
+        ORDER BY fv.scheduled_date ASC, fv.scheduled_time ASC
+        LIMIT 200`,
+      params,
+    );
+    return res.json({
+      count: rows.length,
+      items: rows,
+      scheduledCount: scheduledRows.length,
+      scheduledItems: scheduledRows,
+    });
   } catch (err: any) {
     console.error('[field-visits] GET /escalation-alerts error:', err);
     res.status(500).json({ error: err?.message ?? 'فشل تحميل التنبيهات' });
@@ -2286,6 +2450,8 @@ router.post('/:id/tasks', requirePermission('field_visits.edit'), async (req, re
       [openTaskId],
     );
 
+    await refreshVisitType(client, fieldVisitId);
+
     await client.query('COMMIT');
     return res.json({
       visitTaskId: vtRows[0].id,
@@ -2417,6 +2583,7 @@ router.delete('/:id/tasks/:visitTaskId', requirePermission('field_visits.edit'),
     }
 
     await client.query(`DELETE FROM visit_tasks WHERE id = $1`, [visitTaskId]);
+    await refreshVisitType(client, fieldVisitId);
     if (row.source_open_task_id) {
       await client.query(
         `UPDATE open_tasks
@@ -2980,7 +3147,7 @@ router.post('/:visitId/tasks/:taskId/result', requirePermission('tasks.results.r
       error: `تسجيل نتيجة موحَّد غير مدعوم بعد لنوع المهمة "${taskType}"`,
     });
   } catch (err: any) {
-    if (err instanceof ResultValidationError) {
+    if (err instanceof ResultValidationError || err instanceof DeviceTaskEligibilityError) {
       return res.status(err.status).json({ error: err.message });
     }
     console.error('[field-visits] POST /:visitId/tasks/:taskId/result error:', err);

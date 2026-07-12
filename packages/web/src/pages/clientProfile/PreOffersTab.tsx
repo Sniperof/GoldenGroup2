@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import { Loader2, Sparkles, ExternalLink, BadgeDollarSign, Calendar, User, Tag, Plus } from '../../components/ui/icons';
 
 import { api } from '../../lib/api';
+import { getOpenTaskDetailPath } from '../../lib/taskRoutes';
 import SmartTable, { type ColumnDef } from '../../components/SmartTable';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { OutcomeChip, type PreOfferOutcomeState } from '../../components/preOffers/OutcomeChip';
@@ -162,7 +163,7 @@ export function PreOffersTab({ client }: Props) {
         fetchData();
         if (created?.id) {
           navigate(hasPermission('tasks.demo.view')
-            ? `/tasks/device-demo/${created.id}`
+            ? (getOpenTaskDetailPath('device_demo', created.id) ?? '/tasks/group/device-demo')
             : '/tasks/group/my-customers');
         }
       }}
@@ -326,7 +327,10 @@ export function PreOffersTab({ client }: Props) {
         data={filtered}
         columns={columns}
         getId={e => e.preOfferId ?? `standalone-${e.customerPreOfferId}`}
-        onRowClick={e => { if (e.openTaskId) navigate(`/tasks/device-demo/${e.openTaskId}`); }}
+        onRowClick={e => {
+          const detailPath = getOpenTaskDetailPath('device_demo', e.openTaskId);
+          if (detailPath) navigate(detailPath);
+        }}
         rowClassName={e => e.openTaskId ? '' : 'bg-slate-50/40'}
         hideFilterBar
         tableMinWidth={1200}
