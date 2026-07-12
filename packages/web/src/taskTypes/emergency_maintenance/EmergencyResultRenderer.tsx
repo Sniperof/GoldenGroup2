@@ -3,10 +3,12 @@ import EmergencyResultWizard from '../../components/emergency/EmergencyResultWiz
 
 export default function EmergencyResultRenderer({ task }: TaskResultRendererProps) {
   const canRecord = !['completed', 'closed', 'cancelled'].includes(task.status);
+  const maintenanceKind = task.taskType === 'periodic_maintenance' ? 'periodic' : 'emergency';
   return (
     <EmergencyResultWizard
       taskId={task.id}
       contractId={task.contractId ?? null}
+      maintenanceKind={maintenanceKind}
       readOnly={!canRecord}
     />
   );

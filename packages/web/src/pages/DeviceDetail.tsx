@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
     ChevronRight, Loader2, Package, Clock, Wrench, PenTool, GraduationCap,
     Truck, Gem, Star, Image, Video, FileText, AlertCircle, RefreshCw,
-    Zap, Tag, Plus, Pencil, Trash2, Save, ShieldCheck,
+    Zap, Tag, Plus, Pencil, Trash2, Save, ShieldCheck, Cog,
 } from 'lucide-react';
 import Modal from '../components/ui/Modal';
 import DateField from '../components/ui/DateField';
@@ -70,19 +70,24 @@ function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
 }
 
 function PartCard({ part }: { part: SparePart }) {
-    const tc = partTypeConfig[part.maintenanceType];
+    const tc = part.maintenanceType ? partTypeConfig[part.maintenanceType] : null;
     return (
-        <div className="bg-white rounded-xl border border-slate-200 p-4 flex items-center gap-4 hover:shadow-sm transition-shadow">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${tc.bg} ${tc.border} border`}>
-                <tc.Icon className={`w-4.5 h-4.5 ${tc.color}`} size={18} />
+        <div className={`bg-white rounded-xl border p-4 flex items-center gap-4 hover:shadow-sm transition-shadow ${part.isActive === false ? 'border-amber-200 bg-amber-50/30' : 'border-slate-200'}`}>
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${tc ? `${tc.bg} ${tc.border}` : 'bg-slate-50 border-slate-200'} border`}>
+                {tc ? <tc.Icon className={`w-4.5 h-4.5 ${tc.color}`} size={18} /> : <Cog className="w-4.5 h-4.5 text-slate-400" size={18} />}
             </div>
             <div className="flex-1 min-w-0">
                 <span className="text-sm font-semibold text-slate-800 block">{part.name}</span>
                 <span className="text-xs text-slate-400 font-mono">{part.code}</span>
+                {part.isActive === false && (
+                    <span className="mt-1 inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-bold text-amber-700">
+                        غير نشطة في الكتالوج
+                    </span>
+                )}
             </div>
             <div className="shrink-0 text-left">
-                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold border ${tc.bg} ${tc.color} ${tc.border} mb-1 block text-center`}>
-                    {tc.label}
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold border ${tc ? `${tc.bg} ${tc.color} ${tc.border}` : 'bg-slate-50 text-slate-400 border-slate-200'} mb-1 block text-center`}>
+                    {tc ? tc.label : '—'}
                 </span>
                 <span className="text-sm font-bold text-slate-700 font-mono block text-center">{formatPrice(part.basePrice)}</span>
             </div>
@@ -119,8 +124,8 @@ export default function DeviceDetail() {
             setLoading(true);
             try {
                 const [devices, parts] = await Promise.all([
-                    api.deviceModels.list(),
-                    api.spareParts.list(),
+                    api.deviceModels.list({ includeInactive: true }),
+                    api.spareParts.list({ includeInactive: true }),
                 ]);
                 const found = devices.find(d => String(d.id) === String(id));
                 setDevice(found || null);
@@ -194,7 +199,7 @@ export default function DeviceDetail() {
     };
 
     const refetchDevice = () => {
-        api.deviceModels.list()
+        api.deviceModels.list({ includeInactive: true })
             .then(devices => {
                 const found = devices.find(d => String(d.id) === String(id));
                 if (found) setDevice(found);
@@ -286,6 +291,11 @@ export default function DeviceDetail() {
                                             <span>{cat.icon}</span>{cat.label}
                                         </span>
                                     </div>
+                                    {device.isActive === false && (
+                                        <div className="mb-2 inline-flex rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700">
+                                            غير نشط في الكتالوج
+                                        </div>
+                                    )}
                                     {device.nameEn && <p className="text-sm text-slate-400 font-mono">{device.nameEn}</p>}
                                     {device.code && (
                                         <div className="flex items-center gap-2 mt-1">

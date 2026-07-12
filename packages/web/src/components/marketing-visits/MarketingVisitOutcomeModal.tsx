@@ -492,9 +492,9 @@ export default function MarketingVisitOutcomeModal({
     if (!fetchedRef.current) {
       fetchedRef.current = true;
       Promise.all([
-        api.systemLists.getItemsByCode('visit_cancellation_reasons'),
-        api.systemLists.getItemsByCode('customer_followup_reasons'),
-        api.systemLists.getItemsByCode('offer_refusal_reasons'),
+        api.systemLists.getItemsByCode('device_demo_cancellation_reasons'),
+        api.systemLists.getItemsByCode('device_demo_reschedule_reasons'),
+        api.systemLists.getItemsByCode('device_demo_offer_refusal_reasons'),
         api.systemLists.getItemsByCode('no_closing_reasons'),
       ])
         .then(([cancellation, reschedule, rejection, noClosing]) => {

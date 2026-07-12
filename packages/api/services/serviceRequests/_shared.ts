@@ -71,6 +71,7 @@ export const SR_AUDIT_EVENT_TYPES = [
   'candidate_created',
   'priority_changed',
   'escalated_to_audit_admin',
+  'escalation_resolved',
   'rejected_decision',
   'promoted_to_task',
   'merged_into_existing_task',

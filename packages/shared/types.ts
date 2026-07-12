@@ -46,6 +46,8 @@ export interface ReferralSheet {
     referralNotes?: string;
     referralDate: string;
     ownerUserId: number;
+    /** Name of the actual field collector (owner_user_id) — distinct from assignedHrUserName's merged fallback chain. */
+    ownerUserName?: string | null;
     assignedHrUserId?: number | null;
     assignedHrUserName?: string | null;
     fieldVisitId?: number | null;
@@ -55,6 +57,7 @@ export interface ReferralSheet {
     stats: ReferralSheetStats;
     createdAt: string;
     createdBy: number;
+    createdByUserName?: string | null;
 }
 
 export type CandidateStatus = 'Prospect' | 'Suggested' | 'FollowUp' | 'Contacted' | 'Qualified' | 'Junk';
@@ -243,6 +246,7 @@ export interface ClientAssignment {
 export type CustomerOwnershipType =
     | 'personal_single_supervisor'
     | 'personal_single_technician'
+    | 'personal_single_employee'
     | 'personal_multi'
     | 'company_branch'
     | 'company_global';
@@ -259,7 +263,7 @@ export interface PersonalOwnershipAssignment {
     userId: number;
     userName: string;
     roleDisplayName: string | null;
-    teamSlotType: 'SUPERVISOR' | 'TECHNICIAN';
+    teamSlotType: string | null;
     employeeId: number | null;
 }
 
@@ -735,6 +739,7 @@ export interface DeviceModel {
     videos?: Array<{ id: string; name: string; url: string }>;
     documents?: Array<{ id: string; name: string; url: string }>;
     code?: string | null;
+    isActive: boolean;
 }
 
 export interface DeviceDiscount {
@@ -1020,6 +1025,7 @@ export interface SparePart {
     basePrice: number;
     maintenanceType: MaintenancePartType;
     compatibleDeviceIds: number[];
+    isActive: boolean;
 }
 
 export interface DevicePartCompatibility {

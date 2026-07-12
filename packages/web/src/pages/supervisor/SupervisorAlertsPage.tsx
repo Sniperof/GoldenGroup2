@@ -8,7 +8,7 @@
 
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, Activity, RefreshCw } from 'lucide-react';
+import { AlertTriangle, Activity, Clock3, RefreshCw } from 'lucide-react';
 import AttemptAlertsCard from '../../components/supervisor/AttemptAlertsCard';
 import { api } from '../../lib/api';
 import Button from '../../components/ui/Button';
@@ -25,6 +25,20 @@ interface EscalationItem {
   tiersAlerted: number[];
 }
 
+interface ScheduledAlertItem {
+  visitId: number;
+  status: string;
+  branchId: number;
+  clientId: number;
+  clientName: string | null;
+  teamResponsibleUserId: number | null;
+  teamResponsibleName: string | null;
+  scheduledDate: string;
+  scheduledTime: string | null;
+  alertedAt: string;
+  hoursSinceAlert: number;
+}
+
 const TIER_META: Record<number, { label: string; color: string; bg: string }> = {
   1: { label: 'L1 — تنبيه الفني', color: 'text-amber-800', bg: 'bg-amber-100' },
   2: { label: 'L2 — قفل بدء + المشرف', color: 'text-orange-800', bg: 'bg-orange-100' },
@@ -33,6 +47,7 @@ const TIER_META: Record<number, { label: string; color: string; bg: string }> = 
 
 export default function SupervisorAlertsPage() {
   const [escalations, setEscalations] = useState<EscalationItem[]>([]);
+  const [scheduledAlerts, setScheduledAlerts] = useState<ScheduledAlertItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,6 +57,7 @@ export default function SupervisorAlertsPage() {
     try {
       const res = await api.fieldVisits.escalationAlerts();
       setEscalations(res.items as unknown as EscalationItem[]);
+      setScheduledAlerts(res.scheduledItems ?? []);
     } catch (e: any) {
       setError(e?.message ?? 'فشل التحميل');
     } finally {
@@ -57,7 +73,7 @@ export default function SupervisorAlertsPage() {
     <div className="max-w-6xl mx-auto p-6 space-y-6">
       <PageHeader
         title="لوحة تنبيهات المشرف"
-        subtitle="تتبع المهام عالية المحاولات والزيارات بانتظار التوثيق."
+        subtitle="تتبع المهام عالية المحاولات والزيارات المعلقة أو بانتظار التوثيق."
         icon={
           <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center">
             <AlertTriangle className="w-5 h-5" />
@@ -76,9 +92,42 @@ export default function SupervisorAlertsPage() {
         }
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
         {/* DEC-006 D37: attempt threshold alerts */}
         <AttemptAlertsCard />
+
+        <div className="rounded-2xl border border-sky-200 bg-sky-50/60 p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <Clock3 className="w-4 h-4 text-sky-700" />
+            <h3 className="text-base font-bold text-sky-900">زيارات معلّقة قبل البدء</h3>
+          </div>
+          <p className="text-xs text-sky-800/80">
+            انتهت نافذة الموعد والزيارة ما زالت مجدولة. التنبيه موجّه لمسؤول الفريق: المشرف للفريق القياسي، والفني لفريق الطوارئ.
+          </p>
+
+          {scheduledAlerts.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-sky-300 bg-white/60 p-3 text-center text-xs text-sky-800">
+              لا توجد زيارات معلّقة قبل البدء.
+            </div>
+          ) : (
+            <div className="space-y-1.5 max-h-72 overflow-y-auto">
+              {scheduledAlerts.map((item) => (
+                <Link key={item.visitId} to={`/field-visits/${item.visitId}`}
+                  className="block rounded-lg bg-white border border-sky-200 p-2 hover:bg-sky-50/60">
+                  <div className="text-xs font-bold text-slate-800 truncate">
+                    {item.clientName || `زبون #${item.clientId}`}
+                  </div>
+                  <div className="text-xs text-slate-500">
+                    زيارة #{item.visitId} · {item.scheduledDate} · {item.scheduledTime || 'دون وقت محدد'}
+                  </div>
+                  <div className="mt-1 text-xs text-sky-700">
+                    المسؤول: {item.teamResponsibleName || 'غير معيّن'}
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* DEC-006 D38: undocumented visit escalation */}
         <div className="rounded-2xl border border-orange-200 bg-orange-50/60 p-4 space-y-3">

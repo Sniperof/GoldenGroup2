@@ -19,8 +19,9 @@ export function canViewFieldVisit(
 export function canEditFieldVisit(
   context: AuthContext,
   branchId: number | null,
+  assignedUserId?: number | null,
 ): AuthorizationResult {
-  return authorize(context, { permission: 'field_visits.edit', branchId });
+  return authorize(context, { permission: 'field_visits.edit', branchId, assignedUserId });
 }
 
 export function getFieldVisitListAccessPlan(context: AuthContext): ListAccessPlan {

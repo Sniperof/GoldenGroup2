@@ -31,6 +31,7 @@ import {
   personalOwnershipPredicate,
   redactPersonalAssignments,
 } from '../services/customerOwnership.js';
+import { buildClientSnapshot } from '../lib/clientSnapshot.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -1339,6 +1340,18 @@ router.post('/:id/rating-history', requirePermission('clients.rating.edit'), asy
   } catch (err: any) {
     res.status(err.status || 500).json({ error: err.message });
   }
+});
+
+// Level-2 client snapshot (docs/.../client-snapshot.md). Reused to render a
+// linked beneficiary/referrer inside other domains (e.g. service requests).
+router.get('/:id/snapshot', requirePermission('clients.view'), async (req, res) => {
+  const clientId = Number(req.params.id);
+  if (!Number.isInteger(clientId) || clientId <= 0) {
+    return res.status(400).json({ error: 'invalid_client_id' });
+  }
+  const snapshot = await buildClientSnapshot(pool, clientId);
+  if (!snapshot) return res.status(404).json({ error: 'not_found' });
+  res.json({ snapshot });
 });
 
 router.get('/:id', requirePermission('clients.view'), async (req, res) => {

@@ -14,7 +14,7 @@ interface CandidateState {
     addReferralSheet: (sheet: Omit<ReferralSheet, 'id' | 'createdAt' | 'stats' | 'ownerUserId' | 'createdBy'> & { ownerUserId?: number; createdBy?: number }) => Promise<number>;
     closeReferralSheet: (sheetId: number) => Promise<void>;
 
-    addCandidate: (candidate: Omit<Candidate, 'id' | 'createdAt' | 'duplicateFlag' | 'duplicateType' | 'duplicateReferenceId' | 'status' | 'referralConfirmationStatus' | 'convertedToLeadId' | 'referralSheetId'> & { referralSheetId: number | null; assignmentUserIds?: number[] }) => Promise<void>;
+    addCandidate: (candidate: Omit<Candidate, 'id' | 'createdAt' | 'duplicateFlag' | 'duplicateType' | 'duplicateReferenceId' | 'status' | 'referralConfirmationStatus' | 'convertedToLeadId' | 'referralSheetId'> & { referralSheetId: number | null; assignmentUserIds?: number[] }) => Promise<Candidate>;
     qualifyCandidate: (candidateId: number, clientData?: any) => Promise<void>;
     linkCandidateToClient: (candidateId: number, clientId: number) => Promise<void>;
     markJunk: (candidateId: number) => Promise<void>;
@@ -144,7 +144,7 @@ export const useCandidateStore = create<CandidateState>((set, get) => ({
             refId = candidateDupe.id;
         }
 
-        await api.candidates.create({
+        const newCandidate = await api.candidates.create({
             ...candidateData,
             status: 'Suggested',
             referralConfirmationStatus: 'Pending',
@@ -159,6 +159,8 @@ export const useCandidateStore = create<CandidateState>((set, get) => ({
         if (candidateData.referralSheetId) {
             await get().updateSheetStats(candidateData.referralSheetId);
         }
+
+        return newCandidate;
     },
 
     qualifyCandidate: async (candidateId, clientData) => {

@@ -188,6 +188,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
     const [originChannel, setOriginChannel] = useState<ReferralOriginChannel>('Acquaintance');
     const [referralNameSnapshot, setReferralNameSnapshot] = useState('');
     const [giftPromiseSheet, setGiftPromiseSheet] = useState<InlineGiftPromiseDraft | null>(null);
+    const [giftPromiseDirect, setGiftPromiseDirect] = useState<InlineGiftPromiseDraft | null>(null);
 
     const [employeeIdInput, setEmployeeIdInput] = useState('');
     const [employeeFound, setEmployeeFound] = useState<MediatorEmployee | null>(null);
@@ -206,6 +207,8 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
     useEffect(() => {
         if (isOpen) {
             if (initialData) {
+                setGiftPromiseSheet(null);
+                setGiftPromiseDirect(null);
                 const sheetId = initialData.referralSheetId;
                 setIsDirectMode(sheetId === null);
                 setCandidateData({
@@ -248,6 +251,8 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                 setClientSearch('');
                 setSelectedClientId(null);
                 setOriginChannel('Acquaintance');
+                setGiftPromiseSheet(null);
+                setGiftPromiseDirect(null);
                 setSelectedBranchId(contextBranchId ?? authUser?.branchId ?? '');
                 // Default empty so the responsible is an explicit single choice
                 // (no phantom first-option). Users who can't choose self-assign on save.
@@ -359,6 +364,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
         setReferralNameSnapshot(client.name);
         setSelectedClientId(client.id);
         setClientSuggestions([]);
+        setGiftPromiseDirect(null);
     };
 
     const selectedSheet = useMemo(
@@ -486,13 +492,15 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                 assignmentUserIds: canChooseAssignedOwner && resolvedResponsibleUserId ? [resolvedResponsibleUserId] : undefined,
                 createdBy: authUser?.id ?? 0
             };
+            let savedCandidate: Candidate | null = initialData ?? null;
             if (initialData?.id) {
                 await updateCandidate(initialData.id, newC as Partial<Candidate> & { assignmentUserIds?: number[] });
             } else {
-                await addCandidate(newC as any);
+                savedCandidate = await addCandidate(newC as any);
             }
+            const candidateSourceId = savedCandidate?.id ?? initialData?.id ?? null;
 
-            // وعد هدية من لائحة الأسماء — يُنشأ للوسيط الزبون (best-effort؛ القيد الفريد يمنع التكرار).
+            // وعد هدية من لائحة الأسماء — يُنشأ للوسيط الزبون؛ القيد الفريد يمنع التكرار.
             if (giftPromiseSheet && canCreateSheetGiftPromise && selectedSheet?.referralEntityId) {
                 try {
                     await api.gifts.records.create({
@@ -517,6 +525,39 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                     setGiftPromiseSheet(null);
                 } catch (giftErr) {
                     console.error('Failed to create gift promise from name list:', giftErr);
+                    throw new Error(`تم حفظ الاسم، لكن تعذر إنشاء وعد الهدية: ${(giftErr as any)?.message ?? 'خطأ غير معروف'}`);
+                }
+            }
+
+            // وعد هدية من اسم مقترح مباشر — المصدر الحقيقي هنا هو candidates.id.
+            if (giftPromiseDirect && canCreateDirectGiftPromise && selectedClientId && isDirectMode) {
+                if (!candidateSourceId) {
+                    throw new Error('تم حفظ الاسم، لكن تعذر إنشاء وعد الهدية لأن معرف الاسم المقترح غير متاح.');
+                }
+                try {
+                    await api.gifts.records.create({
+                        giftDefinitionId: Number(giftPromiseDirect.giftDefinitionId) || undefined,
+                        beneficiaryType: 'customer_referrer',
+                        beneficiaryClientId: selectedClientId,
+                        beneficiaryName: referralNameSnapshot,
+                        conditionLabel: giftPromiseDirect.conditionLabel,
+                        conditionStatus: giftPromiseDirect.conditionStatus,
+                        approvedQuantity: giftPromiseDirect.quantity,
+                        quantity: giftPromiseDirect.quantity,
+                        customerId: selectedClientId,
+                        sourceBranchId: resolvedBranchId,
+                        responsibleBranchId: resolvedBranchId,
+                        source: {
+                            sourceType: 'candidate',
+                            candidateId: candidateSourceId,
+                            sourceLabel: `وعد من اسم مقترح مباشر #${candidateSourceId}`,
+                            quantity: giftPromiseDirect.quantity,
+                        },
+                    });
+                    setGiftPromiseDirect(null);
+                } catch (giftErr) {
+                    console.error('Failed to create gift promise from direct candidate:', giftErr);
+                    throw new Error(`تم حفظ الاسم، لكن تعذر إنشاء وعد الهدية: ${(giftErr as any)?.message ?? 'خطأ غير معروف'}`);
                 }
             }
 
@@ -546,6 +587,8 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
         setClientSearch('');
         setClientSuggestions([]);
         setSelectedClientId(null);
+        setGiftPromiseSheet(null);
+        setGiftPromiseDirect(null);
         setSelectedBranchId(contextBranchId ?? authUser?.branchId ?? '');
         setSelectedResponsibleUserId(authUser?.id ?? '');
         onClose();
@@ -815,6 +858,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                                     sourceType="direct_referral"
                                     beneficiaryName={referralNameSnapshot}
                                     disabledReason="وعد الهدية من الاقتراح المباشر يحتاج وسيطا من نوع زبون مرتبط بسجل معروف."
+                                    onChange={setGiftPromiseDirect}
                                 />
                             )}
                         </div>

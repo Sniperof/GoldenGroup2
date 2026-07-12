@@ -156,7 +156,7 @@
 تعريف `customerOwnership.ts` الموجود:
 
 - **ملك الشركة (company-owned):** `ownerType IN ('company_branch', 'company_global')`. الزبون OP/FOP، أو زبون LEAD بلا أي `client_assignment` فعّال.
-- **ملك شخصي (personal-owned):** `ownerType IN ('personal_single_supervisor', 'personal_single_technician', 'personal_multi')`. الزبون LEAD مع `client_assignment` فعّال لمستخدم نشط بدور `team_slot_type IN ('SUPERVISOR', 'TECHNICIAN')`.
+- **ملك شخصي (personal-owned):** `ownerType IN ('personal_single_supervisor', 'personal_single_technician', 'personal_single_employee', 'personal_multi')`. الزبون LEAD مع `client_assignment` فعّال لمستخدم نشط مرتبط بموظف نشط ودوره يملك منحة `clients.can_be_assigned`.
 
 ### 4.4 الفريق في `day_schedule`
 

@@ -35,6 +35,47 @@ export interface AccountStatementResponse {
   entries: AccountStatementEntry[];
 }
 
+// ── Reporting & analytics (reporting-analytics §1.3) ─────────────────────────
+export interface MetricResponse {
+  metricKey: string;
+  title: string;
+  unit: 'count' | 'percent';
+  value: number;
+  previous: number | null;
+  deltaPct: number | null;
+  scope: 'GLOBAL' | 'BRANCH' | 'ASSIGNED';
+  branchIds: number[];
+  computedAt: string;
+  fromCache: boolean;
+}
+
+export interface BreakdownGroup {
+  key: string;
+  label: string;
+  value: number;
+  value2?: number;
+}
+
+export interface BreakdownResponse {
+  metricKey: string;
+  title: string;
+  kind: 'funnel' | 'ranked-bar' | 'donut';
+  valueUnit: 'count' | 'percent';
+  secondaryLabel: string | null;
+  groups: BreakdownGroup[];
+  total: number;
+  scope: 'GLOBAL' | 'BRANCH' | 'ASSIGNED';
+  branchIds: number[];
+  computedAt: string;
+  fromCache: boolean;
+}
+
+export interface DashboardWidget {
+  key: string;
+  size: 'sm' | 'md' | 'lg';
+  scope: { branchId?: number } | null;
+}
+
 // Read token from localStorage at call time (not at import time)
 function getToken(): string | null {
   return localStorage.getItem('hr_token');
@@ -88,7 +129,15 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     const text = await res.text();
     try {
       const parsed = JSON.parse(text);
-      throw new Error(parsed.error || parsed.message || `API Error ${res.status}`);
+      const err = new Error(parsed.error || parsed.message || `API Error ${res.status}`) as Error & {
+        status?: number;
+        payload?: unknown;
+        response?: { status: number; data: unknown };
+      };
+      err.status = res.status;
+      err.payload = parsed;
+      err.response = { status: res.status, data: parsed };
+      throw err;
     } catch (error) {
       if (error instanceof Error && !error.message.startsWith('Unexpected')) {
         throw error;
@@ -99,9 +148,70 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
+type CatalogStateListOptions = {
+  activeOnly?: boolean;
+  includeInactive?: boolean;
+};
+
+type DeviceModelListOptions = CatalogStateListOptions & {
+  branchId?: number | null;
+};
+
+function addCatalogStateParams(qs: URLSearchParams, options?: CatalogStateListOptions) {
+  if (options?.activeOnly) qs.set('activeOnly', 'true');
+  if (options?.includeInactive) qs.set('includeInactive', 'true');
+}
+
+function toQueryString(qs: URLSearchParams) {
+  const value = qs.toString();
+  return value ? `?${value}` : '';
+}
+
 export const api = {
   dashboard: {
     get: () => request<any>('/dashboard'),
+  },
+  reports: {
+    metric: (key: string, params?: Record<string, string | number | null | undefined>) => {
+      const query = new URLSearchParams();
+      Object.entries(params ?? {}).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '') query.set(k, String(v));
+      });
+      const suffix = query.toString() ? `?${query.toString()}` : '';
+      return request<MetricResponse>(`/reports/${key}${suffix}`);
+    },
+    refresh: (key: string, params?: Record<string, string | number | null | undefined>) => {
+      const query = new URLSearchParams();
+      Object.entries(params ?? {}).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '') query.set(k, String(v));
+      });
+      const suffix = query.toString() ? `?${query.toString()}` : '';
+      return request<MetricResponse>(`/reports/${key}/refresh${suffix}`, { method: 'POST' });
+    },
+    breakdown: (key: string, params?: Record<string, string | number | null | undefined>) => {
+      const query = new URLSearchParams();
+      Object.entries(params ?? {}).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '') query.set(k, String(v));
+      });
+      const suffix = query.toString() ? `?${query.toString()}` : '';
+      return request<BreakdownResponse>(`/reports/breakdown/${key}${suffix}`);
+    },
+    refreshBreakdown: (key: string, params?: Record<string, string | number | null | undefined>) => {
+      const query = new URLSearchParams();
+      Object.entries(params ?? {}).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '') query.set(k, String(v));
+      });
+      const suffix = query.toString() ? `?${query.toString()}` : '';
+      return request<BreakdownResponse>(`/reports/breakdown/${key}/refresh${suffix}`, { method: 'POST' });
+    },
+  },
+  dashboardLayout: {
+    get: () => request<{ layout: DashboardWidget[] }>('/me/dashboard-layout'),
+    save: (layout: DashboardWidget[]) =>
+      request<{ layout: DashboardWidget[] }>('/me/dashboard-layout', {
+        method: 'PUT',
+        body: JSON.stringify({ layout }),
+      }),
   },
   gifts: {
     definitions: {
@@ -124,7 +234,7 @@ export const api = {
         request<any>(`/gifts/records/${id}/condition`, { method: 'PATCH', body: JSON.stringify(data) }),
       approve: (id: number | string, data?: { approvedQuantity?: number; approvalNotes?: string }) =>
         request<any>(`/gifts/records/${id}/approve`, { method: 'POST', body: JSON.stringify(data ?? {}) }),
-      createDeliveryTask: (id: number | string, data?: { giftRecordIds?: Array<number | string>; dueDate?: string; priority?: 'low' | 'medium' | 'high'; notes?: string }) =>
+      createDeliveryTask: (id: number | string, data?: { giftRecordIds?: Array<number | string>; dueDate?: string; priority?: 'low' | 'medium' | 'high'; creationReason?: string; notes?: string }) =>
         request<any>(`/gifts/records/${id}/create-delivery-task`, { method: 'POST', body: JSON.stringify(data ?? {}) }),
       manualDelivery: (id: number | string, data?: { notes?: string }) =>
         request<any>(`/gifts/records/${id}/manual-delivery`, { method: 'POST', body: JSON.stringify(data ?? {}) }),
@@ -216,6 +326,7 @@ export const api = {
       branchId != null ? { headers: { 'X-Branch-Id': String(branchId) } } : undefined,
     ),
     get: (id: number) => request<any>(`/clients/${id}`),
+    snapshot: (id: number) => request<{ snapshot: any }>(`/clients/${id}/snapshot`),
     getNetwork: (id: number) => request<any>(`/clients/${id}/network`),
     getRatingHistory: (id: number) => request<any[]>(`/clients/${id}/rating-history`),
     updateRating: (id: number, data: { rating: 'Committed' | 'NotCommitted' | 'Undefined'; notes?: string | null }) =>
@@ -389,6 +500,17 @@ export const api = {
     problems: (id: number) => request<any[]>(`/installed-devices/${id}/problems`),
     technicalStates: (id: number) => request<any[]>(`/installed-devices/${id}/technical-states`),
   },
+  serviceAgreements: {
+    list: (params?: { installedDeviceId?: number; branchId?: number }) => {
+      const qs = new URLSearchParams();
+      if (params?.installedDeviceId) qs.set('installedDeviceId', String(params.installedDeviceId));
+      if (params?.branchId) qs.set('branchId', String(params.branchId));
+      return request<any[]>(`/service-agreements${toQueryString(qs)}`);
+    },
+    get: (id: number) => request<any>(`/service-agreements/${id}`),
+    create: (data: any) => request<any>('/service-agreements', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: number, data: any) => request<any>(`/service-agreements/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  },
   // DEC-CT-09: device possession ledger.
   // Backend route is mounted at /api/devices/:deviceId/possession.
   devicePossession: {
@@ -398,9 +520,13 @@ export const api = {
       request<any>(`/devices/${deviceId}/possession`, { method: 'POST', body: JSON.stringify(data) }),
   },
   deviceModels: {
-    list: (branchId?: number) => {
-      const qs = branchId ? `?branchId=${branchId}` : '';
-      return request<any[]>(`/device-models${qs}`);
+    list: (params?: number | DeviceModelListOptions) => {
+      const options: DeviceModelListOptions =
+        typeof params === 'number' ? { branchId: params } : (params ?? {});
+      const qs = new URLSearchParams();
+      if (options.branchId != null) qs.set('branchId', String(options.branchId));
+      addCatalogStateParams(qs, options);
+      return request<any[]>(`/device-models${toQueryString(qs)}`);
     },
     create: (data: any) => request<any>('/device-models', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/device-models/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
@@ -414,7 +540,11 @@ export const api = {
     createPrice: (deviceModelId: number, data: any) => request<any>(`/device-models/${deviceModelId}/prices`, { method: 'POST', body: JSON.stringify(data) }),
   },
   spareParts: {
-    list: () => request<any[]>('/spare-parts'),
+    list: (options?: CatalogStateListOptions) => {
+      const qs = new URLSearchParams();
+      addCatalogStateParams(qs, options);
+      return request<any[]>(`/spare-parts${toQueryString(qs)}`);
+    },
     create: (data: any) => request<any>('/spare-parts', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/spare-parts/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id: number) => request<any>(`/spare-parts/${id}`, { method: 'DELETE' }),
@@ -659,10 +789,12 @@ export const api = {
       return request<any[]>(`/field-visits/my-visits?${qs.toString()}`);
     },
     get: (id: number) => request<any>(`/field-visits/${id}`),
-    start: (id: number, data?: { lat?: number; lng?: number; accuracy?: number }) =>
+    start: (id: number, data?: { lat?: number; lng?: number; accuracy?: number; locationMissingReasonId?: number }) =>
       request<any>(`/field-visits/${id}/start`, { method: 'POST', body: JSON.stringify(data ?? {}) }),
-    end: (id: number, data?: { lat?: number; lng?: number; accuracy?: number }) =>
+    end: (id: number, data?: { lat?: number; lng?: number; accuracy?: number; locationMissingReasonId?: number }) =>
       request<any>(`/field-visits/${id}/end`, { method: 'POST', body: JSON.stringify(data ?? {}) }),
+    cancel: (id: number, data: { cancellationReasonId: number; notes?: string | null }) =>
+      request<any>(`/field-visits/${id}/cancel`, { method: 'POST', body: JSON.stringify(data) }),
     complete: (id: number) =>
       request<any>(`/field-visits/${id}/complete`, { method: 'POST' }),
     close: (id: number) =>
@@ -785,6 +917,20 @@ export const api = {
         teamResponsibleUserId: number | null;
         hoursSinceUpdate: number;
         tiersAlerted: number[];
+      }>;
+      scheduledCount: number;
+      scheduledItems: Array<{
+        visitId: number;
+        status: string;
+        branchId: number;
+        clientId: number;
+        clientName: string | null;
+        teamResponsibleUserId: number | null;
+        teamResponsibleName: string | null;
+        scheduledDate: string;
+        scheduledTime: string | null;
+        alertedAt: string;
+        hoursSinceAlert: number;
       }>;
     }>('/field-visits/escalation-alerts'),
     /** Executive view: one row per branch with comparison KPIs over a date range. */
@@ -975,6 +1121,8 @@ export const api = {
   serviceRequests: {
     create: (data: any) =>
       request<any>('/service-requests', { method: 'POST', body: JSON.stringify(data) }),
+    createWaterCheck: (data: any) =>
+      request<any>('/service-requests/water-check', { method: 'POST', body: JSON.stringify(data) }),
     createInternal: (data: any) =>
       request<any>('/service-requests/internal', { method: 'POST', body: JSON.stringify(data) }),
     list: (params: Record<string, string | number | boolean | undefined> = {}) => {
@@ -1004,8 +1152,15 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(data),
       }),
-    suggestedMatches: (id: number) =>
-      request<{ clients: any[]; candidates: any[] }>(`/service-requests/${id}/suggested-matches`),
+    suggestedMatches: (id: number, party?: 'beneficiary' | 'referrer') =>
+      request<{ clients: any[]; candidates: any[] }>(
+        `/service-requests/${id}/suggested-matches${party ? `?party=${party}` : ''}`,
+      ),
+    linkReferrer: (id: number, referrerClientId: number) =>
+      request<any>(`/service-requests/${id}/link-referrer`, {
+        method: 'POST',
+        body: JSON.stringify({ referrerClientId }),
+      }),
     requestInfo: (id: number, body: any = {}) =>
       request<any>(`/service-requests/${id}/request-info`, {
         method: 'POST',
@@ -1023,6 +1178,11 @@ export const api = {
       }),
     escalate: (id: number, reason?: string | null) =>
       request<any>(`/service-requests/${id}/escalate`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: reason ?? null }),
+      }),
+    resolveEscalation: (id: number, reason?: string | null) =>
+      request<any>(`/service-requests/${id}/resolve-escalation`, {
         method: 'POST',
         body: JSON.stringify({ reason: reason ?? null }),
       }),
@@ -1072,6 +1232,19 @@ export const api = {
       request<any>(`/service-requests/${id}/attach-periodic`, {
         method: 'POST',
         body: JSON.stringify({ periodicOpenTaskId, note: note ?? null }),
+      }),
+    handoffWaterCheck: (
+      id: number,
+      data: {
+        priority?: 'high' | 'medium' | 'low';
+        operatorNote?: string | null;
+        dueDate?: string | null;
+        creationReason?: string | null;
+      } = {},
+    ) =>
+      request<any>(`/service-requests/${id}/handoff-water-check`, {
+        method: 'POST',
+        body: JSON.stringify(data),
       }),
     archive: (id: number, reason?: string | null) =>
       request<any>(`/service-requests/${id}/archive`, {

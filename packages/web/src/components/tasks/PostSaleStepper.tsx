@@ -90,6 +90,7 @@ export const PostSaleStepper: React.FC<PostSaleStepperProps> = ({ contract, task
         taskType: 'device_installation',
         taskFamily: 'delivery',
         reason: 'service_request',
+        creationReason: 'متابعة ما بعد البيع',
         dueDate,
         contractId: contract.id,
         notes: 'مهمة تركيب مجدولة تلقائياً بعد التسليم'

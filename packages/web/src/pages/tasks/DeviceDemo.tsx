@@ -409,7 +409,7 @@ export default function DeviceDemo() {
           tableMinWidth={1900}
           emptyIcon={Monitor}
           emptyMessage="لا توجد مهام عروض أجهزة"
-          onRowClick={(row) => navigate(`/tasks/device-demo/${row.id}`)}
+          onRowClick={(row) => navigate(`/tasks/group/device-demo/${row.id}`)}
         />
       )}
 

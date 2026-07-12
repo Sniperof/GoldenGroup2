@@ -74,6 +74,10 @@ const OWNERSHIP_META: Record<string, {
     icon: Wrench,
     color: 'text-teal-700', bg: 'bg-teal-50', border: 'border-teal-200', dot: 'bg-teal-500',
   },
+  personal_single_employee: {
+    icon: User,
+    color: 'text-indigo-700', bg: 'bg-indigo-50', border: 'border-indigo-200', dot: 'bg-indigo-500',
+  },
   personal_multi: {
     icon: Users,
     color: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-200', dot: 'bg-amber-500',

@@ -29,6 +29,8 @@ import pool from '../db.js';
 import { checkAndCompleteVisit } from './visitCompletion.js';
 import { recordContractPaymentMovement, recordMovement } from './financialMovements.js';
 import { createInstallmentCollectionTask } from './installmentCollectionTasks.js';
+import { findUnavailableDeviceModelsForNewCommercialUse } from './catalogActiveStateService.js';
+import { assertCanRecordSuccessfulDeviceTaskResult } from './deviceTaskEligibilityGuard.js';
 
 export type DeviceDemoFinalDecision =
   | 'offer_presented'
@@ -519,6 +521,31 @@ async function assertSystemListCategory(
 }
 
 // camelCase reading key → device_technical_states column (constitution 01i).
+async function assertSystemListValue(
+  db: Pick<PoolClient, 'query'>,
+  value: unknown,
+  category: string,
+  label: string,
+): Promise<string> {
+  const parsed = typeof value === 'string' ? value.trim() : '';
+  if (!parsed) {
+    throw new ResultValidationError(`${label} مطلوب`);
+  }
+  const { rows } = await db.query(
+    `SELECT value
+       FROM system_lists
+      WHERE category = $1
+        AND value = $2
+        AND is_active = TRUE
+      LIMIT 1`,
+    [category, parsed],
+  );
+  if (rows.length === 0) {
+    throw new ResultValidationError(`${label} غير صالح`);
+  }
+  return parsed;
+}
+
 const TECH_STATE_COLUMN_MAP: Record<string, string> = {
   waterSourceType: 'water_source_type', waterSourceTds: 'water_source_tds',
   waterPressure: 'water_pressure', hasPressureRegulator: 'has_pressure_regulator',
@@ -744,8 +771,18 @@ function assertActivationShape(body: DeviceActivationResultBody): {
     return { decision, openTaskNewStatus: 'completed', deviceNewStatus: 'active' };
   }
 
+  if (decision === 'activation_failed') {
+    if (!optionalText(body.reason_code)) {
+      throw new ResultValidationError('سبب فشل التشغيل مطلوب');
+    }
+    return { decision, openTaskNewStatus: 'completed', deviceNewStatus: 'installed' };
+  }
+
+  if (!optionalText(body.reason_code)) {
+    throw new ResultValidationError('سبب إعادة جدولة التشغيل مطلوب');
+  }
   if (!optionalDate(body.expected_date)) {
-    throw new ResultValidationError('تاريخ المتابعة مطلوب عند فشل التشغيل أو وجود مشكلة بالجهاز');
+    throw new ResultValidationError('تاريخ المتابعة مطلوب عند وجود مشكلة بالجهاز');
   }
   return { decision, openTaskNewStatus: 'needs_follow_up', deviceNewStatus: 'installed' };
 }
@@ -1135,6 +1172,23 @@ export async function applyDeviceDemoResult(
         throw new ResultValidationError('offers مطلوبة عند offer_presented');
       }
       body.offers.forEach(assertOfferShape);
+      for (const [idx, offer] of body.offers.entries()) {
+        if (offer.customer_response === 'rejected') {
+          offer.no_closing_reason = await assertSystemListValue(
+            db,
+            offer.no_closing_reason,
+            'device_demo_offer_refusal_reasons',
+            `العرض #${idx + 1}: سبب الرفض`,
+          );
+        }
+      }
+      const unavailableDeviceModels = await findUnavailableDeviceModelsForNewCommercialUse(
+        db,
+        body.offers.map((offer) => offer.device_model_id),
+      );
+      if (unavailableDeviceModels.length > 0) {
+        throw new ResultValidationError(`device_model unavailable for new commercial use: ${unavailableDeviceModels.map((item) => item.id).join(', ')}`);
+      }
       if (false && body.offers.some(o => o.customer_response === 'accepted') && !isPositiveNumber(body.closed_by_employee_id)) {
         throw new ResultValidationError('closed_by_employee_id مطلوب');
       }
@@ -1153,14 +1207,30 @@ export async function applyDeviceDemoResult(
       if (body.offer_type === 'installment' && !isPositiveNumber(body.installment_months)) {
         throw new ResultValidationError('installment_months مطلوب للتقسيط');
       }
+      const unavailableDeviceModels = await findUnavailableDeviceModelsForNewCommercialUse(db, [body.sold_device_model_id]);
+      if (unavailableDeviceModels.length > 0) {
+        throw new ResultValidationError(`device_model unavailable for new commercial use: ${unavailableDeviceModels.map((item) => item.id).join(', ')}`);
+      }
       openTaskNewStatus = 'completed';
     } else if (decision === 'rescheduled') {
       if (!isPositiveNumber(body.reason_code_id)) throw new ResultValidationError('reason_code_id مطلوب');
       if (!body.expected_date) throw new ResultValidationError('expected_date مطلوب');
+      body.reason_code_id = await assertSystemListCategory(
+        db,
+        body.reason_code_id,
+        'device_demo_reschedule_reasons',
+        'سبب إعادة الجدولة',
+      );
       openTaskNewStatus = 'needs_follow_up';
       openTaskExpectedDate = body.expected_date;
     } else if (decision === 'cancelled') {
       if (!isPositiveNumber(body.reason_code_id)) throw new ResultValidationError('reason_code_id مطلوب');
+      body.reason_code_id = await assertSystemListCategory(
+        db,
+        body.reason_code_id,
+        'device_demo_cancellation_reasons',
+        'سبب الإلغاء',
+      );
       openTaskNewStatus = 'cancelled';
     }
 
@@ -2181,6 +2251,11 @@ export async function applyDeviceDeliveryResult(
     }
 
     const shape = assertDeliveryShape(body, vt);
+    await assertCanRecordSuccessfulDeviceTaskResult(db, {
+      taskType: 'device_delivery',
+      installedDeviceId: Number(vt.device_id),
+      finalDecision: shape.decision,
+    });
     let rescheduleReasonId: number | null = null;
     let failureReasonId: number | null = null;
     if (shape.decision === 'rescheduled') {
@@ -2444,11 +2519,11 @@ export async function applyDeviceDeliveryResult(
         `INSERT INTO open_tasks (
            client_id, branch_id, task_type, task_family, reason, status,
            due_date, priority, source, notes, created_by, origin,
-           contract_id, device_id, creation_origin, delivery_address,
+           contract_id, device_id, creation_origin, creation_reason, delivery_address,
            source_context_type, source_context_id
          ) VALUES ($1, $2, 'device_installation', 'delivery', 'service_request', 'open',
            $3::date, $4, 'system', $5, $6, 'device_delivery_result',
-           $7, $8, 'cascading_during_visit', $9, 'device_delivery', $10)
+           $7, $8, 'cascading_during_visit', 'تركيب بعد نجاح التسليم', $9, 'device_delivery', $10)
          RETURNING id`,
         [
           Number(vt.client_id),
@@ -2528,6 +2603,11 @@ export async function applyDeviceInstallationResult(
     }
 
     const shape = assertInstallationShape(body);
+    await assertCanRecordSuccessfulDeviceTaskResult(db, {
+      taskType: 'device_installation',
+      installedDeviceId: Number(vt.device_id),
+      finalDecision: shape.decision,
+    });
     const notes = body.closing_notes ?? body.notes ?? null;
 
     const { rows: vtrRows } = await db.query(
@@ -2839,7 +2919,17 @@ export async function applyDeviceActivationResult(
     }
 
     const shape = assertActivationShape(body);
+    await assertCanRecordSuccessfulDeviceTaskResult(db, {
+      taskType: 'device_activation',
+      installedDeviceId: Number(vt.device_id),
+      finalDecision: shape.decision,
+    });
     const notes = body.closing_notes ?? body.notes ?? null;
+    const activationReasonCode = shape.decision === 'activation_failed'
+      ? await assertSystemListValue(db, body.reason_code, 'device_activation_failure_reasons', 'سبب فشل التشغيل')
+      : shape.decision === 'device_issue'
+        ? await assertSystemListValue(db, body.reason_code, 'device_activation_reschedule_reasons', 'سبب إعادة جدولة التشغيل')
+        : null;
 
     const { rows: vtrRows } = await db.query(
       `INSERT INTO visit_task_results
@@ -2856,7 +2946,7 @@ export async function applyDeviceActivationResult(
       [
         visitTaskId,
         shape.decision,
-        optionalText(body.reason_code),
+        activationReasonCode,
         notes,
         performedByUserId,
       ],
@@ -2913,15 +3003,17 @@ export async function applyDeviceActivationResult(
 
     // Integrated technical health reading — baseline reference at first operation,
     // keyed on the physical device (constitution 01i §4). Same transaction.
-    await insertTechnicalState(db, {
-      installedDeviceId: Number(vt.device_id),
-      openTaskId: Number(vt.open_task_id),
-      contractId: vt.contract_id != null ? Number(vt.contract_id) : null,
-      taskTypeSnapshot: 'device_activation',
-      phase: 'baseline',
-      recordedBy: performedByUserId,
-      reading: body.technical_state ?? null,
-    });
+    if (shape.decision === 'activated_successfully') {
+      await insertTechnicalState(db, {
+        installedDeviceId: Number(vt.device_id),
+        openTaskId: Number(vt.open_task_id),
+        contractId: vt.contract_id != null ? Number(vt.contract_id) : null,
+        taskTypeSnapshot: 'device_activation',
+        phase: 'baseline',
+        recordedBy: performedByUserId,
+        reading: body.technical_state ?? null,
+      });
+    }
 
     await db.query(
       `UPDATE visit_tasks
@@ -3030,6 +3122,11 @@ export async function applyDeviceDisconnectionResult(
     }
 
     const shape = assertDisconnectionShape(body);
+    await assertCanRecordSuccessfulDeviceTaskResult(db, {
+      taskType: 'device_disconnection',
+      installedDeviceId: Number(vt.device_id),
+      finalDecision: shape.decision,
+    });
     const notes = body.closing_notes ?? body.notes ?? null;
     let rescheduleReasonId: number | null = null;
     let failureReasonId: number | null = null;
@@ -3054,6 +3151,14 @@ export async function applyDeviceDisconnectionResult(
         : failureReasonId != null ? String(failureReasonId)
           : optionalText(body.reason_code);
     const requiresRetrieval = shape.decision === 'disconnected_successfully' && body.requires_retrieval_task === true;
+    const retrievalReason = requiresRetrieval
+      ? await assertSystemListValue(
+          db,
+          body.retrieval_reason,
+          'device_disconnection_retrieval_reasons',
+          'سبب السحب اللاحق لفك الجهاز',
+        )
+      : null;
 
     const { rows: vtrRows } = await db.query(
       `INSERT INTO visit_task_results
@@ -3121,7 +3226,7 @@ export async function applyDeviceDisconnectionResult(
         body.accessories_removed === true,
         body.customer_acknowledged === true ? true : (body.customer_acknowledged === false ? false : null),
         requiresRetrieval,
-        requiresRetrieval ? optionalText(body.retrieval_reason) : null,
+        retrievalReason,
         isPositiveInteger(body.disconnected_by_employee_id) ? Number(body.disconnected_by_employee_id) : null,
         optionalText(body.technical_notes),
         rescheduleReasonId,
@@ -3262,6 +3367,11 @@ export async function applyDeviceRetrievalResult(
     }
 
     const shape = assertRetrievalShape(body, vt);
+    await assertCanRecordSuccessfulDeviceTaskResult(db, {
+      taskType: 'device_retrieval',
+      installedDeviceId: Number(vt.device_id),
+      finalDecision: shape.decision,
+    });
     let refusalReasonId: number | null = null;
     let rescheduleReasonId: number | null = null;
 
@@ -3544,18 +3654,50 @@ export async function applyDeviceCheckupResult(
     if (!['pending', 'in_progress', 'completed'].includes(vt.status)) {
       throw new ResultValidationError(`المهمة في حالة "${vt.status}" ولا تقبل تسجيل نتيجة جديدة`);
     }
-    if (body.final_decision !== 'checked_successfully') {
-      throw new ResultValidationError(`final_decision غير صالح: ${body.final_decision}`);
+    const decision = body.final_decision;
+    if (!['checked_successfully', 'reschedule', 'customer_refused_checkup'].includes(decision)) {
+      throw new ResultValidationError(`final_decision غير صالح: ${decision}`);
     }
-    if (!hasAnyReading(body.technical_state)) {
+    if (decision === 'checked_successfully' && !hasAnyReading(body.technical_state)) {
       throw new ResultValidationError('الحالة الفنية مطلوبة لتسجيل تشييك الجهاز');
+    }
+    await assertCanRecordSuccessfulDeviceTaskResult(db, {
+      taskType: 'device_checkup',
+      installedDeviceId: Number(vt.device_id),
+      finalDecision: decision,
+    });
+
+    let refusalReasonId: number | null = null;
+    let rescheduleReasonId: number | null = null;
+    if (decision === 'customer_refused_checkup') {
+      refusalReasonId = await assertSystemListCategory(
+        db,
+        body.refusal_reason_id,
+        'device_checkup_refusal_reasons',
+        'سبب رفض تشييك الجهاز',
+      );
+    }
+    if (decision === 'reschedule') {
+      rescheduleReasonId = await assertSystemListCategory(
+        db,
+        body.reschedule_reason_id,
+        'device_checkup_reschedule_reasons',
+        'سبب إعادة جدولة تشييك الجهاز',
+      );
+      if (!optionalDate(body.expected_date)) {
+        throw new ResultValidationError('تاريخ إعادة جدولة تشييك الجهاز مطلوب');
+      }
     }
 
     const notes = body.closing_notes ?? body.notes ?? body.technical_notes ?? null;
+    const reasonCode =
+      refusalReasonId != null ? String(refusalReasonId)
+      : rescheduleReasonId != null ? String(rescheduleReasonId)
+      : 'device_checkup';
     const { rows: vtrRows } = await db.query(
       `INSERT INTO visit_task_results
          (visit_task_id, final_decision, reason_code, closing_notes, closed_by, closed_at, created_at, updated_at)
-       VALUES ($1, 'checked_successfully', 'device_checkup', $2, $3, NOW(), NOW(), NOW())
+       VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), NOW())
        ON CONFLICT (visit_task_id) DO UPDATE SET
          final_decision = EXCLUDED.final_decision,
          reason_code    = EXCLUDED.reason_code,
@@ -3564,59 +3706,112 @@ export async function applyDeviceCheckupResult(
          closed_at      = NOW(),
          updated_at     = NOW()
        RETURNING id`,
-      [visitTaskId, notes, performedByUserId],
+      [visitTaskId, decision, reasonCode, notes, performedByUserId],
     );
     const visitTaskResultId = Number(vtrRows[0].id);
 
-    const technicalStateId = await insertTechnicalState(db, {
-      installedDeviceId: Number(vt.device_id),
-      openTaskId: Number(vt.open_task_id),
-      contractId: vt.contract_id != null ? Number(vt.contract_id) : null,
-      taskTypeSnapshot: 'device_checkup',
-      phase: 'diagnostic',
-      recordedBy: performedByUserId,
-      reading: body.technical_state ?? null,
-    });
-    if (!technicalStateId) {
+    const technicalStateId = decision === 'checked_successfully'
+      ? await insertTechnicalState(db, {
+          installedDeviceId: Number(vt.device_id),
+          openTaskId: Number(vt.open_task_id),
+          contractId: vt.contract_id != null ? Number(vt.contract_id) : null,
+          taskTypeSnapshot: 'device_checkup',
+          phase: 'diagnostic',
+          recordedBy: performedByUserId,
+          reading: body.technical_state ?? null,
+        })
+      : null;
+    if (decision === 'checked_successfully' && !technicalStateId) {
       throw new ResultValidationError('الحالة الفنية مطلوبة لتسجيل تشييك الجهاز');
     }
 
     const { rows: checkupRows } = await db.query(
       `INSERT INTO visit_task_device_checkup_results
-         (visit_task_result_id, technical_state_id, technical_notes, created_at, updated_at)
-       VALUES ($1, $2, $3, NOW(), NOW())
+         (visit_task_result_id, final_decision, technical_state_id,
+          refusal_reason_id, reschedule_reason_id, rescheduled_at,
+          technical_notes, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6::date, $7, NOW(), NOW())
        ON CONFLICT (visit_task_result_id) DO UPDATE SET
+         final_decision = EXCLUDED.final_decision,
          technical_state_id = EXCLUDED.technical_state_id,
+         refusal_reason_id = EXCLUDED.refusal_reason_id,
+         reschedule_reason_id = EXCLUDED.reschedule_reason_id,
+         rescheduled_at = EXCLUDED.rescheduled_at,
          technical_notes = EXCLUDED.technical_notes,
          updated_at = NOW()
        RETURNING id`,
-      [visitTaskResultId, technicalStateId, optionalText(body.technical_notes)],
+      [
+        visitTaskResultId,
+        decision,
+        technicalStateId,
+        refusalReasonId,
+        rescheduleReasonId,
+        optionalDate(body.expected_date),
+        optionalText(body.technical_notes),
+      ],
     );
     const deviceCheckupResultId = Number(checkupRows[0].id);
 
+    const openTaskNewStatus =
+      decision === 'reschedule' ? 'needs_follow_up'
+      : decision === 'customer_refused_checkup' ? 'cancelled'
+      : 'completed';
+
     await db.query(
       `UPDATE visit_tasks
-          SET status = 'completed',
+          SET status = $1,
               updated_at = NOW()
-        WHERE id = $1`,
-      [visitTaskId],
+        WHERE id = $2`,
+      [openTaskNewStatus === 'cancelled' ? 'cancelled' : 'completed', visitTaskId],
     );
-    await db.query(
-      `UPDATE open_tasks
-          SET last_waiting_status = CASE
-                WHEN status IN ('open', 'needs_follow_up') THEN status
-                ELSE last_waiting_status
-              END,
-              status = 'completed',
-              updated_at = NOW()
-        WHERE id = $1`,
-      [Number(vt.open_task_id)],
-    );
+    if (openTaskNewStatus === 'needs_follow_up') {
+      await db.query(
+        `UPDATE open_tasks
+            SET last_waiting_status = CASE
+                  WHEN status IN ('open', 'needs_follow_up') THEN status
+                  ELSE COALESCE(last_waiting_status, 'open')
+                END,
+                status = 'needs_follow_up',
+                expected_date = COALESCE($2::date, expected_date),
+                expected_time = $3,
+                updated_at = NOW()
+          WHERE id = $1`,
+        [Number(vt.open_task_id), optionalDate(body.expected_date), optionalText(body.expected_time)],
+      );
+    } else if (openTaskNewStatus === 'cancelled') {
+      await db.query(
+        `UPDATE open_tasks
+            SET status = 'cancelled',
+                cancellation_reason = COALESCE($2, cancellation_reason),
+                updated_at = NOW()
+          WHERE id = $1`,
+        [Number(vt.open_task_id), notes ?? reasonCode],
+      );
+    } else {
+      await db.query(
+        `UPDATE open_tasks
+            SET last_waiting_status = CASE
+                  WHEN status IN ('open', 'needs_follow_up') THEN status
+                  ELSE last_waiting_status
+                END,
+                status = 'completed',
+                updated_at = NOW()
+          WHERE id = $1`,
+        [Number(vt.open_task_id)],
+      );
+    }
     await db.query(
       `INSERT INTO task_activity_log
          (task_id, event_type, performed_by, old_value, new_value, reason, reference_id, created_at)
-       VALUES ($1, 'status_change', $2, $3, 'completed', 'checked_successfully', $4, NOW())`,
-      [Number(vt.open_task_id), performedByUserId, String(vt.open_task_status ?? ''), visitTaskResultId],
+       VALUES ($1, 'status_change', $2, $3, $4, $5, $6, NOW())`,
+      [
+        Number(vt.open_task_id),
+        performedByUserId,
+        String(vt.open_task_status ?? ''),
+        openTaskNewStatus,
+        decision,
+        visitTaskResultId,
+      ],
     );
 
     const completion = await checkAndCompleteVisit(vt.field_visit_id, performedByUserId, db);
@@ -3626,7 +3821,7 @@ export async function applyDeviceCheckupResult(
       visitTaskResultId,
       deviceCheckupResultId,
       technicalStateId,
-      openTaskNewStatus: 'completed',
+      openTaskNewStatus,
       visitCompleted: completion.completed,
     };
   } catch (err) {
@@ -3719,6 +3914,11 @@ export async function applyDeviceReturnResult(
     }
 
     const shape = assertReturnShape(body);
+    await assertCanRecordSuccessfulDeviceTaskResult(db, {
+      taskType: 'device_return',
+      installedDeviceId: Number(vt.device_id),
+      finalDecision: shape.decision,
+    });
     let refusalReasonId: number | null = null;
     let rescheduleReasonId: number | null = null;
 
@@ -3958,8 +4158,25 @@ export async function applyDeviceTransferResult(
     if (!isPositiveInteger(vt.device_id)) {
       throw new ResultValidationError('مهمة نقل الجهاز يجب أن ترتبط بجهاز مثبت');
     }
-    if (!['delivered', 'installed', 'active'].includes(String(vt.device_status))) {
-      throw new ResultValidationError('لا يمكن نقل الجهاز إلا عندما يكون عند الزبون');
+    const deviceStatus = String(vt.device_status);
+    if (deviceStatus !== 'out_of_service') {
+      throw new ResultValidationError('لا يمكن تسجيل نقل إلا لجهاز مفكوك حالته out_of_service');
+    }
+    const { rows: disconnectionRows } = await db.query(
+      `SELECT vtr.id
+         FROM visit_tasks dvt
+         JOIN visit_task_results vtr ON vtr.visit_task_id = dvt.id
+        WHERE dvt.task_type = 'device_disconnection'
+          AND dvt.source_open_task_id IN (
+            SELECT id FROM open_tasks WHERE device_id = $1 AND task_type = 'device_disconnection'
+          )
+          AND vtr.final_decision IN ('disconnected_successfully', 'requires_retrieval')
+        ORDER BY vtr.closed_at DESC NULLS LAST, vtr.id DESC
+        LIMIT 1`,
+      [Number(vt.device_id)],
+    );
+    if (disconnectionRows.length === 0) {
+      throw new ResultValidationError('لا يمكن تسجيل نقل قبل وجود مهمة فك ناجحة سابقة لهذا الجهاز');
     }
     if (!['in_progress', 'ended', 'completed'].includes(vt.visit_status)) {
       throw new ResultValidationError(`لا يمكن تسجيل النتيجة - الزيارة في حالة "${vt.visit_status}"`);
@@ -3969,6 +4186,11 @@ export async function applyDeviceTransferResult(
     }
 
     const shape = assertTransferShape(body, vt);
+    await assertCanRecordSuccessfulDeviceTaskResult(db, {
+      taskType: 'device_transfer',
+      installedDeviceId: Number(vt.device_id),
+      finalDecision: shape.decision,
+    });
 
     const { rows: geoRows } = await db.query(
       `SELECT id, level, status
@@ -4638,7 +4860,7 @@ export async function applyEmergencyMaintenanceLifecycleResult(
     );
     if (vtRows.length === 0) throw new ResultValidationError('visit_task غير موجود');
     const vt = vtRows[0];
-    if (vt.task_type !== 'emergency_maintenance') {
+    if (vt.task_type !== 'emergency_maintenance' && vt.task_type !== 'periodic_maintenance') {
       throw new ResultValidationError(`نوع المهمة "${vt.task_type}" غير مدعوم لهذا المسار`);
     }
     if (!['in_progress', 'ended', 'completed'].includes(vt.visit_status)) {
@@ -4657,6 +4879,24 @@ export async function applyEmergencyMaintenanceLifecycleResult(
     }
     if (decision === 'rescheduled' && !body.expected_date) {
       throw new ResultValidationError('expected_date مطلوب');
+    }
+    if (decision === 'rescheduled') {
+      body.reason_code_id = await assertSystemListCategory(
+        db,
+        body.reason_code_id,
+        vt.task_type === 'periodic_maintenance'
+          ? 'periodic_maintenance_reschedule_reasons'
+          : 'emergency_maintenance_reschedule_reasons',
+        'سبب إعادة الجدولة',
+      );
+    }
+    if (decision === 'cancelled' && vt.task_type === 'emergency_maintenance') {
+      body.reason_code_id = await assertSystemListCategory(
+        db,
+        body.reason_code_id,
+        'emergency_cancelled_reason',
+        'سبب الإلغاء',
+      );
     }
 
     // visit_task_results — single row per visit_task

@@ -66,6 +66,8 @@ import devicePossessionRouter from './routes/devicePossession.js';
 import devicePartsRouter from './routes/deviceParts.js';
 import systemSettingsRouter from './routes/systemSettings.js';
 import giftsRouter from './routes/gifts.js';
+import reportsRouter from './routes/reports.js';
+import dashboardLayoutRouter from './routes/dashboardLayout.js';
 
 const app = express();
 // Restrict origins when CORS_ORIGINS is set in the environment.
@@ -150,6 +152,10 @@ app.use('/api/devices', devicePossessionRouter); // DEC-CT-09
 app.use('/api/device-parts', devicePartsRouter);
 app.use('/api/spare-parts', sparePartsRouter);
 app.use('/api/dashboard', dashboardRouter);
+// reporting-analytics §1.3 — unified metrics surface + per-user dashboard layout.
+// Scope is enforced inside metricsService via each metric's own permission.
+app.use('/api/reports', requireAuth, reportsRouter);
+app.use('/api/me', requireAuth, dashboardLayoutRouter);
 app.use('/api/admin/vacancies', vacanciesRouter);
 app.use('/api/public/vacancies', publicVacanciesRouter);
 app.use('/api/public/applications', publicApplicationsRouter);

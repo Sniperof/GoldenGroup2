@@ -17,9 +17,15 @@ import { PossessionHolderChip } from '../../components/devices/PossessionHolderC
 import GeoSmartSearch, { type GeoSelection } from '../../components/GeoSmartSearch';
 import MapPicker from '../../components/MapPicker';
 import Select from '../../components/ui/Select';
+import { usePermissions } from '../../hooks/usePermissions';
+import ServiceAgreementForm, {
+  emptyServiceAgreementDraft,
+  serviceAgreementPayloadFromDraft,
+  type ServiceAgreementDraft,
+} from '../../components/devices/ServiceAgreementForm';
 
 interface Props {
-  client: { id: number; branchId?: number | null };
+  client: { id: number; branchId?: number | null; name?: string | null; customerName?: string | null; fullName?: string | null };
 }
 
 interface Filter {
@@ -36,6 +42,13 @@ const FILTERS: Filter[] = [
   { key: 'out_of_service', label: 'خارج الخدمة', test: s => s === 'out_of_service' },
 ];
 
+const EXTERNAL_DEVICE_STATUS_OPTIONS = [
+  { value: 'delivered', label: 'موجود وغير مركب' },
+  { value: 'installed', label: 'مركب وغير مشغل' },
+  { value: 'active', label: 'مركب ومشغل' },
+  { value: 'faulty', label: 'معطل/بحاجة صيانة' },
+];
+
 function fmt(d?: string | null) {
   if (!d) return '—';
   try { return new Date(d).toLocaleDateString('ar-SY'); } catch { return d; }
@@ -50,7 +63,11 @@ function ExternalDeviceModalV2({
   mapPosition,
   showMapPicker,
   serial,
+  status,
   notes,
+  createServiceAgreement,
+  serviceAgreement,
+  canCreateServiceAgreement,
   error,
   saving,
   loadingOptions,
@@ -60,7 +77,10 @@ function ExternalDeviceModalV2({
   onMapPositionChange,
   onToggleMapPicker,
   onSerialChange,
+  onStatusChange,
   onNotesChange,
+  onCreateServiceAgreementChange,
+  onServiceAgreementChange,
   onClose,
   onSave,
 }: {
@@ -72,7 +92,11 @@ function ExternalDeviceModalV2({
   mapPosition: [number, number] | null;
   showMapPicker: boolean;
   serial: string;
+  status: string;
   notes: string;
+  createServiceAgreement: boolean;
+  serviceAgreement: ServiceAgreementDraft;
+  canCreateServiceAgreement: boolean;
   error: string;
   saving: boolean;
   loadingOptions: boolean;
@@ -82,7 +106,10 @@ function ExternalDeviceModalV2({
   onMapPositionChange: (value: [number, number] | null) => void;
   onToggleMapPicker: () => void;
   onSerialChange: (value: string) => void;
+  onStatusChange: (value: string) => void;
   onNotesChange: (value: string) => void;
+  onCreateServiceAgreementChange: (value: boolean) => void;
+  onServiceAgreementChange: (value: ServiceAgreementDraft) => void;
   onClose: () => void;
   onSave: () => void;
 }) {
@@ -119,6 +146,17 @@ function ExternalDeviceModalV2({
           <label className="block space-y-1.5">
             <span className="text-sm font-bold text-slate-700">الرقم التسلسلي</span>
             <input value={serial} onChange={e => onSerialChange(e.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500" dir="ltr" />
+          </label>
+          <label className="block space-y-1.5">
+            <span className="text-sm font-bold text-slate-700">حالة الجهاز الحالية</span>
+            <Select
+              value={status}
+              onChange={onStatusChange}
+              placeholder="اختر حالة الجهاز"
+              ariaLabel="حالة الجهاز الخارجي"
+              className="w-full"
+              options={[{ value: '', label: 'اختر حالة الجهاز' }, ...EXTERNAL_DEVICE_STATUS_OPTIONS]}
+            />
           </label>
           <GeoSmartSearch
             geoUnits={geoUnits}
@@ -169,6 +207,30 @@ function ExternalDeviceModalV2({
             <span className="text-sm font-bold text-slate-700">ملاحظات</span>
             <textarea value={notes} onChange={e => onNotesChange(e.target.value)} rows={3} className="w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500" />
           </label>
+
+          {canCreateServiceAgreement && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <label className="flex items-center gap-2 text-sm font-bold text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={createServiceAgreement}
+                  disabled={saving || loadingOptions}
+                  onChange={(event) => onCreateServiceAgreementChange(event.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                />
+                <span>إنشاء اتفاق خدمة لهذا الجهاز</span>
+              </label>
+              {createServiceAgreement && (
+                <div className="mt-4">
+                  <ServiceAgreementForm
+                    value={serviceAgreement}
+                    onChange={onServiceAgreementChange}
+                    disabled={saving || loadingOptions}
+                  />
+                </div>
+              )}
+            </div>
+          )}
         </div>
     </Modal>
   );
@@ -182,17 +244,22 @@ interface DeviceRow {
 
 export function DevicesTab({ client }: Props) {
   const navigate = useNavigate();
+  const { hasPermission } = usePermissions();
+  const canCreateServiceAgreement = hasPermission('contracts.edit');
   const [rows, setRows] = useState<DeviceRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState<string>('all');
   const [externalModalOpen, setExternalModalOpen] = useState(false);
   const [externalDeviceModelId, setExternalDeviceModelId] = useState('');
   const [externalSerial, setExternalSerial] = useState('');
+  const [externalStatus, setExternalStatus] = useState('');
   const [externalGeoSelection, setExternalGeoSelection] = useState<GeoSelection>({ govId: '', regionId: '', subId: '', neighborhoodId: '' });
   const [externalAddress, setExternalAddress] = useState('');
   const [externalMapPosition, setExternalMapPosition] = useState<[number, number] | null>(null);
   const [showExternalMapPicker, setShowExternalMapPicker] = useState(false);
   const [externalNotes, setExternalNotes] = useState('');
+  const [createExternalServiceAgreement, setCreateExternalServiceAgreement] = useState(false);
+  const [externalServiceAgreement, setExternalServiceAgreement] = useState<ServiceAgreementDraft>(() => emptyServiceAgreementDraft());
   const [savingExternal, setSavingExternal] = useState(false);
   const [externalError, setExternalError] = useState('');
   const [externalDeviceModels, setExternalDeviceModels] = useState<any[]>([]);
@@ -238,7 +305,7 @@ export function DevicesTab({ client }: Props) {
     let cancelled = false;
     setExternalOptionsLoading(true);
     Promise.all([
-      api.deviceModels.list(client.branchId),
+      api.deviceModels.list({ branchId: client.branchId, includeInactive: true }),
       api.geoUnits.list(client.branchId),
     ])
       .then(([deviceModels, geoUnits]) => {
@@ -262,11 +329,14 @@ export function DevicesTab({ client }: Props) {
   const resetExternalForm = () => {
     setExternalDeviceModelId('');
     setExternalSerial('');
+    setExternalStatus('');
     setExternalGeoSelection({ govId: '', regionId: '', subId: '', neighborhoodId: '' });
     setExternalAddress('');
     setExternalMapPosition(null);
     setShowExternalMapPicker(false);
     setExternalNotes('');
+    setCreateExternalServiceAgreement(false);
+    setExternalServiceAgreement(emptyServiceAgreementDraft());
     setExternalError('');
   };
 
@@ -284,6 +354,10 @@ export function DevicesTab({ client }: Props) {
       setExternalError('الرقم التسلسلي مطلوب.');
       return;
     }
+    if (!externalStatus) {
+      setExternalError('حالة الجهاز الحالية مطلوبة.');
+      return;
+    }
     if (!externalGeoSelection.neighborhoodId) {
       setExternalError('عنوان التركيب يجب ان يكون على مستوى الحي.');
       return;
@@ -299,11 +373,15 @@ export function DevicesTab({ client }: Props) {
         customerId: client.id,
         deviceModelId: Number(externalDeviceModelId),
         serialNumber: externalSerial.trim(),
+        status: externalStatus,
         installationGeoUnitId: Number(externalGeoSelection.neighborhoodId),
         installationAddressText: externalAddress.trim(),
         installationLat: externalMapPosition?.[0] ?? null,
         installationLng: externalMapPosition?.[1] ?? null,
         externalDeviceNotes: externalNotes.trim() || null,
+        serviceAgreement: createExternalServiceAgreement
+          ? serviceAgreementPayloadFromDraft(externalServiceAgreement)
+          : null,
       });
       setExternalModalOpen(false);
       resetExternalForm();
@@ -355,7 +433,11 @@ export function DevicesTab({ client }: Props) {
             mapPosition={externalMapPosition}
             showMapPicker={showExternalMapPicker}
             serial={externalSerial}
+            status={externalStatus}
             notes={externalNotes}
+            createServiceAgreement={createExternalServiceAgreement}
+            serviceAgreement={externalServiceAgreement}
+            canCreateServiceAgreement={canCreateServiceAgreement}
             error={externalError}
             saving={savingExternal}
             loadingOptions={externalOptionsLoading}
@@ -365,7 +447,10 @@ export function DevicesTab({ client }: Props) {
             onMapPositionChange={setExternalMapPosition}
             onToggleMapPicker={() => setShowExternalMapPicker(prev => !prev)}
             onSerialChange={setExternalSerial}
+            onStatusChange={setExternalStatus}
             onNotesChange={setExternalNotes}
+            onCreateServiceAgreementChange={setCreateExternalServiceAgreement}
+            onServiceAgreementChange={setExternalServiceAgreement}
             onClose={() => setExternalModalOpen(false)}
             onSave={saveExternalDevice}
           />
@@ -455,7 +540,11 @@ export function DevicesTab({ client }: Props) {
           mapPosition={externalMapPosition}
           showMapPicker={showExternalMapPicker}
           serial={externalSerial}
+          status={externalStatus}
           notes={externalNotes}
+          createServiceAgreement={createExternalServiceAgreement}
+          serviceAgreement={externalServiceAgreement}
+          canCreateServiceAgreement={canCreateServiceAgreement}
           error={externalError}
           saving={savingExternal}
           loadingOptions={externalOptionsLoading}
@@ -465,7 +554,10 @@ export function DevicesTab({ client }: Props) {
           onMapPositionChange={setExternalMapPosition}
           onToggleMapPicker={() => setShowExternalMapPicker(prev => !prev)}
           onSerialChange={setExternalSerial}
+          onStatusChange={setExternalStatus}
           onNotesChange={setExternalNotes}
+          onCreateServiceAgreementChange={setCreateExternalServiceAgreement}
+          onServiceAgreementChange={setExternalServiceAgreement}
           onClose={() => setExternalModalOpen(false)}
           onSave={saveExternalDevice}
         />

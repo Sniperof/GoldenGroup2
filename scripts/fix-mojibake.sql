@@ -42,6 +42,9 @@ UPDATE emergency_action_types SET arabic_label = pg_temp.try_demojibake(arabic_l
 UPDATE permissions            SET display_name = pg_temp.try_demojibake(display_name) WHERE pg_temp.is_mojibake(display_name);
 UPDATE system_settings        SET description  = pg_temp.try_demojibake(description)  WHERE pg_temp.is_mojibake(description);
 UPDATE task_type_config       SET arabic_label = pg_temp.try_demojibake(arabic_label) WHERE pg_temp.is_mojibake(arabic_label);
+UPDATE branches               SET name         = pg_temp.try_demojibake(name),
+                                  detailed_address = pg_temp.try_demojibake(detailed_address)
+                              WHERE pg_temp.is_mojibake(name) OR pg_temp.is_mojibake(detailed_address);
 
 -- system_lists (per-row, with unique-violation skip) -------------------------
 DO $$
@@ -110,4 +113,5 @@ SELECT 'remaining mojibake (any column)' AS what,
        (SELECT count(*) FROM permissions   WHERE pg_temp.is_mojibake(display_name)) AS permissions,
        (SELECT count(*) FROM system_lists  WHERE pg_temp.is_mojibake(category) OR pg_temp.is_mojibake(value)) AS system_lists,
        (SELECT count(*) FROM geo_units     WHERE pg_temp.is_mojibake(name)) AS geo_units,
-       (SELECT count(*) FROM roles         WHERE pg_temp.is_mojibake(display_name) OR pg_temp.is_mojibake(description) OR pg_temp.is_mojibake(protected_reason)) AS roles;
+       (SELECT count(*) FROM roles         WHERE pg_temp.is_mojibake(display_name) OR pg_temp.is_mojibake(description) OR pg_temp.is_mojibake(protected_reason)) AS roles,
+       (SELECT count(*) FROM branches      WHERE pg_temp.is_mojibake(name) OR pg_temp.is_mojibake(detailed_address)) AS branches;

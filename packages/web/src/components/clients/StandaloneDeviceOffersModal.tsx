@@ -78,7 +78,7 @@ export default function StandaloneDeviceOffersModal({ isOpen, onClose, client, o
     setDraft(emptyDraft());
     setOffers([]);
     Promise.all([
-      api.deviceModels.list(),
+      api.deviceModels.list({ activeOnly: true }),
       api.employees.employeeClosers(),
       api.systemLists.getItemsByCode('no_closing_reasons'),
     ])

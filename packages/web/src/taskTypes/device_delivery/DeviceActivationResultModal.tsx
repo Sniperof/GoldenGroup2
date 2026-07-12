@@ -43,7 +43,8 @@ export default function DeviceActivationResultModal({
   const [expectedDate, setExpectedDate] = useState('');
   const [expectedTime, setExpectedTime] = useState('');
   const [reasonCode, setReasonCode] = useState('');
-  const [followupReasons, setFollowupReasons] = useState<any[]>([]);
+  const [failureReasons, setFailureReasons] = useState<any[]>([]);
+  const [rescheduleReasons, setRescheduleReasons] = useState<any[]>([]);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -57,24 +58,47 @@ export default function DeviceActivationResultModal({
       .catch(() => { /* default: show the block */ });
   }, [deviceId]);
 
-  // Admin-managed follow-up reasons (migration 325). The selected item's
-  // `value` is sent as `reason_code` — same text contract as before.
   useEffect(() => {
-    api.systemLists.getItemsByCode('device_activation_followup_reasons')
-      .then((rows: any[]) => setFollowupReasons(Array.isArray(rows) ? rows.filter((r) => r.isActive !== false) : []))
-      .catch(() => setFollowupReasons([]));
+    Promise.allSettled([
+      api.systemLists.getItemsByCode('device_activation_failure_reasons'),
+      api.systemLists.getItemsByCode('device_activation_reschedule_reasons'),
+    ]).then(([failure, reschedule]) => {
+      const failureRows = failure.status === 'fulfilled' ? failure.value.filter((r: any) => r.isActive !== false) : [];
+      const rescheduleRows = reschedule.status === 'fulfilled' ? reschedule.value.filter((r: any) => r.isActive !== false) : [];
+      setFailureReasons(failureRows);
+      setRescheduleReasons(rescheduleRows);
+    });
   }, []);
 
-  const needsFollowUp = decision !== 'activated_successfully';
+  const isActivated = decision === 'activated_successfully';
+  const isFailed = decision === 'activation_failed';
+  const hasDeviceIssue = decision === 'device_issue';
+  const activeReasons = isFailed ? failureReasons : hasDeviceIssue ? rescheduleReasons : [];
+
+  useEffect(() => {
+    setReasonCode('');
+    if (decision !== 'device_issue') {
+      setExpectedDate('');
+      setExpectedTime('');
+    }
+  }, [decision]);
 
   async function submit() {
     setError(null);
-    if (decision === 'activated_successfully' && !customerTrained) {
+    if (isActivated && !customerTrained) {
       setError('تأكيد تدريب الزبون مطلوب عند نجاح التشغيل');
       return;
     }
-    if (needsFollowUp && !expectedDate) {
-      setError('تاريخ المتابعة مطلوب عند فشل التشغيل أو وجود مشكلة بالجهاز');
+    if (isFailed && !reasonCode.trim()) {
+      setError('سبب فشل التشغيل مطلوب');
+      return;
+    }
+    if (hasDeviceIssue && !reasonCode.trim()) {
+      setError('سبب إعادة جدولة التشغيل مطلوب');
+      return;
+    }
+    if (hasDeviceIssue && !expectedDate) {
+      setError('تاريخ المتابعة مطلوب عند وجود مشكلة بالجهاز');
       return;
     }
 
@@ -84,14 +108,12 @@ export default function DeviceActivationResultModal({
         final_decision: decision,
         closing_notes: notes.trim() || null,
         notes: notes.trim() || null,
-        reason_code: needsFollowUp ? reasonCode.trim() || null : null,
-        expected_date: needsFollowUp ? expectedDate : null,
-        expected_time: needsFollowUp && expectedTime ? expectedTime : null,
-        // Integrated technical health reading (constitution 01i) — baseline phase
-        // is set server-side; null when the technician recorded no measurement.
-        technical_state: hasAnyTechnicalReading(techState) ? buildTechnicalStatePayload(techState) : null,
-        customer_trained: decision === 'activated_successfully' ? customerTrained : false,
-        training_notes: trainingNotes.trim() || null,
+        reason_code: isFailed || hasDeviceIssue ? reasonCode.trim() || null : null,
+        expected_date: hasDeviceIssue ? expectedDate : null,
+        expected_time: hasDeviceIssue && expectedTime ? expectedTime : null,
+        technical_state: isActivated && hasAnyTechnicalReading(techState) ? buildTechnicalStatePayload(techState) : null,
+        customer_trained: isActivated ? customerTrained : false,
+        training_notes: isActivated ? trainingNotes.trim() || null : null,
         activation_photos: [],
       });
       onSaved();
@@ -148,16 +170,18 @@ export default function DeviceActivationResultModal({
             })}
           </div>
 
-          <div className="rounded-lg border border-slate-200 bg-white p-4">
-            <div className="mb-3 flex items-center gap-2 text-sm font-black text-slate-800">
-              <Gauge className="h-4 w-4 text-sky-600" />
-              الحالة الفنية للجهاز
-              <span className="text-xs font-bold rounded-full border border-slate-200 bg-slate-50 text-slate-500 px-2 py-0.5">قراءة مرجعية</span>
+          {isActivated && (
+            <div className="rounded-lg border border-slate-200 bg-white p-4">
+              <div className="mb-3 flex items-center gap-2 text-sm font-black text-slate-800">
+                <Gauge className="h-4 w-4 text-sky-600" />
+                الحالة الفنية للجهاز
+                <span className="text-xs font-bold rounded-full border border-slate-200 bg-slate-50 text-slate-500 px-2 py-0.5">قراءة مرجعية</span>
+              </div>
+              <TechnicalStateFields value={techState} onChange={setTechState} hasSterilization={hasSterilization} />
             </div>
-            <TechnicalStateFields value={techState} onChange={setTechState} hasSterilization={hasSterilization} />
-          </div>
+          )}
 
-          {decision === 'activated_successfully' && (
+          {isActivated && (
             <div className="space-y-3 rounded-lg border border-emerald-200 bg-emerald-50/50 p-4">
               <label className="flex items-center gap-2 text-sm font-bold text-emerald-800">
                 <input type="checkbox" checked={customerTrained} onChange={(e) => setCustomerTrained(e.target.checked)} className="h-4 w-4 rounded border-emerald-300" />
@@ -170,23 +194,27 @@ export default function DeviceActivationResultModal({
             </div>
           )}
 
-          {needsFollowUp && (
-            <div className="grid gap-4 rounded-lg border border-amber-200 bg-amber-50/60 p-4 md:grid-cols-3">
+          {(isFailed || hasDeviceIssue) && (
+            <div className={`grid gap-4 rounded-lg border border-amber-200 bg-amber-50/60 p-4 ${hasDeviceIssue ? 'md:grid-cols-3' : 'md:grid-cols-1'}`}>
               <label className="space-y-1.5">
-                <span className="text-xs font-bold text-slate-500">تاريخ المتابعة</span>
-                <DateField value={expectedDate} onChange={setExpectedDate} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
-              </label>
-              <label className="space-y-1.5">
-                <span className="text-xs font-bold text-slate-500">وقت المتابعة</span>
-                <input type="time" value={expectedTime} onChange={(e) => setExpectedTime(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
-              </label>
-              <label className="space-y-1.5">
-                <span className="text-xs font-bold text-slate-500">سبب مختصر</span>
+                <span className="text-xs font-bold text-slate-500">{isFailed ? 'سبب فشل التشغيل' : 'سبب إعادة جدولة التشغيل'}</span>
                 <select value={reasonCode} onChange={(e) => setReasonCode(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
-                  <option value="">— اختر سبباً —</option>
-                  {followupReasons.map((reason) => <option key={reason.id} value={reason.value}>{listLabel(reason)}</option>)}
+                  <option value="">- اختر سببا -</option>
+                  {activeReasons.map((reason) => <option key={reason.id} value={reason.value}>{listLabel(reason)}</option>)}
                 </select>
               </label>
+              {hasDeviceIssue && (
+                <>
+                  <label className="space-y-1.5">
+                    <span className="text-xs font-bold text-slate-500">تاريخ المتابعة</span>
+                    <DateField value={expectedDate} onChange={setExpectedDate} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
+                  </label>
+                  <label className="space-y-1.5">
+                    <span className="text-xs font-bold text-slate-500">وقت المتابعة</span>
+                    <input type="time" value={expectedTime} onChange={(e) => setExpectedTime(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
+                  </label>
+                </>
+              )}
             </div>
           )}
 
