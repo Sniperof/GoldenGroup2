@@ -230,7 +230,7 @@ function ProfileSidebar({ client, geoUnits }: { client: Client; geoUnits: GeoUni
                 <p className="break-words text-sm font-bold leading-6 text-slate-700">{locationText || EMPTY_VALUE}</p>
                 {hasGps && (
                     <a href={mapOpenUrl} target="_blank" rel="noopener noreferrer" className="mt-3 block overflow-hidden rounded-xl border border-slate-200">
-                        <iframe src={mapEmbedUrl} className="pointer-events-none h-28 w-full" style={{ border: 0 }} loading="lazy" title="خريطة موقع الزبون" />
+                        <iframe src={mapEmbedUrl} className="pointer-events-none h-44 w-full" style={{ border: 0 }} loading="lazy" title="خريطة موقع الزبون" />
                     </a>
                 )}
             </div>

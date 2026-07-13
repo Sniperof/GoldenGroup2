@@ -93,7 +93,7 @@ export default function MapPicker({ position, onLocationSelect }: MapPickerProps
                     onBlur={applyManual}
                     placeholder="Lat"
                     dir="ltr"
-                    className="flex-1 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-700 placeholder:text-slate-300 focus:border-sky-500 focus:outline-none text-center"
+                    className="flex-1 min-w-0 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-700 placeholder:text-slate-300 focus:border-sky-500 focus:outline-none text-center"
                 />
 
                 {/* Lng */}
@@ -104,7 +104,7 @@ export default function MapPicker({ position, onLocationSelect }: MapPickerProps
                     onBlur={applyManual}
                     placeholder="Lng"
                     dir="ltr"
-                    className="flex-1 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-700 placeholder:text-slate-300 focus:border-sky-500 focus:outline-none text-center"
+                    className="flex-1 min-w-0 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-700 placeholder:text-slate-300 focus:border-sky-500 focus:outline-none text-center"
                 />
 
                 {/* Clear */}

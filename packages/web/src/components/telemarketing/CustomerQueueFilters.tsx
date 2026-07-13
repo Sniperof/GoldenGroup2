@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Filter, ChevronDown, X, ArrowDownUp, UserSearch, MapPin, History, Layers, Tag, Star } from '../ui/icons';
 import Select from '../ui/Select';
 
@@ -81,8 +81,25 @@ export default function CustomerQueueFilters(props: Props) {
 
     const withAll = (opts: FilterOption[], allLabel: string): FilterOption[] => [{ value: '', label: allLabel }, ...opts];
 
+    // Close the panel on any click outside its bounds — not just the chevron.
+    // A Select's dropdown menu is portalled to <body> (outside rootRef), so a
+    // click on one of its options must NOT count as "outside"; exclude it.
+    const rootRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        if (!open) return;
+        function onPointerDown(e: PointerEvent) {
+            const el = e.target instanceof Element ? e.target : null;
+            if (!el) return;
+            if (rootRef.current?.contains(el)) return;      // inside the filters panel
+            if (el.closest('[role="listbox"]')) return;     // inside a portalled Select menu
+            onToggle();                                      // outside → close (panel is open)
+        }
+        document.addEventListener('pointerdown', onPointerDown);
+        return () => document.removeEventListener('pointerdown', onPointerDown);
+    }, [open, onToggle]);
+
     return (
-        <div className="border-b border-slate-100">
+        <div ref={rootRef} className="border-b border-slate-100">
             {/* Toggle row */}
             <button
                 type="button"
@@ -117,7 +134,7 @@ export default function CustomerQueueFilters(props: Props) {
 
             {/* Panel */}
             {open && (
-                <div className="px-3 pb-3 space-y-3 bg-slate-50/60">
+                <div className="px-3 pb-3 space-y-3 bg-slate-50/60 max-h-[calc(100vh-380px)] overflow-y-auto custom-scroll">
                     <div>
                         <FieldLabel icon={UserSearch} hint="(ضمن القائمة)">الوسيط</FieldLabel>
                         <Select<string> value={referrer} onChange={setReferrer} className="w-full" options={withAll(referrerOptions, 'كل الوسطاء')} />
