@@ -50,6 +50,7 @@ import trainingCoursesRouter from './routes/trainingCourses.js';
 import publicAreasRouter from './routes/publicAreas.js';
 import authRouter from './routes/auth.js';
 import appOtpRouter from './routes/appOtp.js';
+import appAccountRouter from './routes/appAccount.js';
 import systemListsRouter from './routes/systemLists.js';
 import uploadRouter from './routes/upload.js';
 import rolesRouter from './routes/roles.js';
@@ -104,6 +105,8 @@ app.use('/trpc', createExpressMiddleware({ router: appRouter, createContext }));
 app.use('/api/auth', authRouter);
 // Customer mobile-app OTP — public (no staff auth). DEC-013 §6.
 app.use('/api/app/otp', appOtpRouter);
+// Customer mobile-app account status + creation request — public. DEC-013 §2.4.
+app.use('/api/app', appAccountRouter);
 app.use('/api/system-settings', requireAuth, systemSettingsRouter);
 app.use('/api/geo-units', geoUnitsRouter);
 app.use('/api/branches', branchesRouter);

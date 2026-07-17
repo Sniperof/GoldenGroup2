@@ -1,6 +1,6 @@
 # توصيف: إنشاء الحساب ومصادقة تطبيق الزبائن
 
-> **الحالة:** مسودة توصيف — فرع `Authenticate` · **المرحلة ١** ✅ (migr `365`/`366`) · **المرحلة ٢** ✅ (طبقة OTP على `/api/app/otp/{send,verify}` + Swagger)
+> **الحالة:** مسودة توصيف — فرع `Authenticate` · **م١** ✅ (migr `365`/`366`) · **م٢** ✅ (OTP) · **م٣** ✅ (migr `367` + status/account-requests)
 > **القرار الحاكم:** `DEC-013-account-creation-and-app-auth`
 > **المرجع الثانوي:** وثيقة «Account Creation Epic» + Swagger القديم (ABP)
 > **الجمهور:** فريق الـ Backend + **مطوّر تطبيق الموبايل** (كتالوج الـ API القسم 5)
