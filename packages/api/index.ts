@@ -51,6 +51,7 @@ import publicAreasRouter from './routes/publicAreas.js';
 import authRouter from './routes/auth.js';
 import appOtpRouter from './routes/appOtp.js';
 import appAccountRouter from './routes/appAccount.js';
+import adminAccountRequestsRouter from './routes/adminAccountRequests.js';
 import systemListsRouter from './routes/systemLists.js';
 import uploadRouter from './routes/upload.js';
 import rolesRouter from './routes/roles.js';
@@ -107,6 +108,8 @@ app.use('/api/auth', authRouter);
 app.use('/api/app/otp', appOtpRouter);
 // Customer mobile-app account status + creation request — public. DEC-013 §2.4.
 app.use('/api/app', appAccountRouter);
+// Web-portal admin review of account-creation requests. DEC-013 §2.5.
+app.use('/api/admin/account-requests', adminAccountRequestsRouter);
 app.use('/api/system-settings', requireAuth, systemSettingsRouter);
 app.use('/api/geo-units', geoUnitsRouter);
 app.use('/api/branches', branchesRouter);

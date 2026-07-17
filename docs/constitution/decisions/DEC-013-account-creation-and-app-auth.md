@@ -152,8 +152,8 @@
 1. **الأساس** ✅ (migr `365`/`366` — مطبَّقة على dev): جداول `app_accounts` و`otp_verifications` و`app_refresh_tokens` + مفاتيح الصلاحيات المستقلة (`account_requests.*` / `app_accounts.*`). مؤجَّل بوعيٍ: الحالة `completed` (للمرحلة ٣ مع آلة الحالة)، وانحراف registry (شأن منفصل لا يخصّ هذه الميزة).
 2. **طبقة OTP** ✅ (منفذ `OtpSender` محاكاةً + `services/otp` + `routes/appOtp.ts` على `/api/app/otp/{send,verify}` + مُعرّف تحقّق مبهم + توثيق Swagger «App - Auth»). القواعد مفعّلة: TTL 120ث، إعادة إرسال 60ث، ٥ محاولات، بصمة الرمز فقط.
 3. **مسار الطلب (Public)** ✅ (migr `367` يسجّل نوع `account_creation` في `service_request_type_config` + `services/appAccounts/accountRequestService.ts` + `routes/appAccount.ts` على `GET /api/app/account/status` و`POST /api/app/account-requests`). يستهلك الـ handle، ويفرض تفرّد الرقم وقاعدة الطلب المعلّق، ويحفظ `received` بتدقيق `request_created`. Swagger «App - Account».
-4. **لوحة التحكم**: إعادة استخدام قائمة `service_requests` + `SuggestedMatchesPanel` + المقارنة + قرارات الربط/التصعيد/الرفض.
-5. **مُوجِّه الأثر + التفعيل**: إنشاء/تفعيل `app_account` عند `completed`، والإنشاء المباشر.
+4. **لوحة التحكم — API القرارات** ✅ (migr `368` يضيف الحالة `completed` + `routes/adminAccountRequests.ts` على `/api/admin/account-requests`: list/details/suggestions/link/escalate/reject، بصلاحيات `account_requests.*` + Swagger «Admin - Account Requests»). الربط يفعّل `app_account` ويضبط `completed` (أثر §7)، ويعيد استخدام `fuzzyMatching`. **متبقٍّ:** واجهة React (القائمة/التفاصيل/المقارنة) تستهلك هذا الـ API.
+5. **الإنشاء المباشر والجماعي**: (أثر التفعيل عند الربط أُنجز ضمن م٤). المتبقّي: `POST /api/admin/clients/:id/app-account` + `POST /api/admin/app-accounts/bulk-activate` (مشرف تدقيق) تحت «Admin - App Accounts».
 6. **الدخول ودورة الحساب**: `access + refresh`، الإيقاف، وإعادة التفعيل.
 
 التوصيف التفصيلي وكتالوج الـ API في: `docs/constitution/features/account-creation-and-app-auth.md`.
