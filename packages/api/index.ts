@@ -49,6 +49,7 @@ import interviewsRouter from './routes/interviews.js';
 import trainingCoursesRouter from './routes/trainingCourses.js';
 import publicAreasRouter from './routes/publicAreas.js';
 import authRouter from './routes/auth.js';
+import appOtpRouter from './routes/appOtp.js';
 import systemListsRouter from './routes/systemLists.js';
 import uploadRouter from './routes/upload.js';
 import rolesRouter from './routes/roles.js';
@@ -101,6 +102,8 @@ app.get('/api/health', (_req, res) => {
 app.use('/trpc', createExpressMiddleware({ router: appRouter, createContext }));
 
 app.use('/api/auth', authRouter);
+// Customer mobile-app OTP — public (no staff auth). DEC-013 §6.
+app.use('/api/app/otp', appOtpRouter);
 app.use('/api/system-settings', requireAuth, systemSettingsRouter);
 app.use('/api/geo-units', geoUnitsRouter);
 app.use('/api/branches', branchesRouter);
