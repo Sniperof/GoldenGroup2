@@ -40,6 +40,7 @@ const options: swaggerJsdoc.Options = {
     path.join(__dirname, 'routes', 'appOtp.ts'),
     path.join(__dirname, 'routes', 'appAccount.ts'),
     path.join(__dirname, 'routes', 'adminAccountRequests.ts'),
+    path.join(__dirname, 'routes', 'adminAppAccounts.ts'),
     path.join(__dirname, 'routes', 'geoUnits.ts'),
     path.join(__dirname, 'routes', 'branches.ts'),
     path.join(__dirname, 'routes', 'employees.ts'),

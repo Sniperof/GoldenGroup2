@@ -52,6 +52,7 @@ import authRouter from './routes/auth.js';
 import appOtpRouter from './routes/appOtp.js';
 import appAccountRouter from './routes/appAccount.js';
 import adminAccountRequestsRouter from './routes/adminAccountRequests.js';
+import adminAppAccountsRouter from './routes/adminAppAccounts.js';
 import systemListsRouter from './routes/systemLists.js';
 import uploadRouter from './routes/upload.js';
 import rolesRouter from './routes/roles.js';
@@ -110,6 +111,8 @@ app.use('/api/app/otp', appOtpRouter);
 app.use('/api/app', appAccountRouter);
 // Web-portal admin review of account-creation requests. DEC-013 §2.5.
 app.use('/api/admin/account-requests', adminAccountRequestsRouter);
+// Admin direct + bulk app-account activation. DEC-013 §2.5.10.
+app.use('/api/admin', adminAppAccountsRouter);
 app.use('/api/system-settings', requireAuth, systemSettingsRouter);
 app.use('/api/geo-units', geoUnitsRouter);
 app.use('/api/branches', branchesRouter);
