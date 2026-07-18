@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { checkMobileStatus, createAccountRequest } from '../services/appAccounts/accountRequestService.js';
+import { deleteAccountByVerifiedHandle } from '../services/appAccounts/accountDeletionService.js';
+import { requireAppAuth } from '../middleware/appAuth.js';
 
 const router = Router();
 
@@ -117,6 +119,85 @@ router.post('/account-requests', async (req, res) => {
       return res.status(err.status).json({ error: err.message, ...(err.details ? { details: err.details } : {}) });
     }
     console.error('Account request error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * @swagger
+ * /api/app/account/delete:
+ *   post:
+ *     tags: [App - Account]
+ *     summary: Delete my account (in-app, Google Play)
+ *     description: >
+ *       Soft-deletes the app account (login access) and revokes all tokens.
+ *       The linked client business record is retained (disclosed). Requires an
+ *       OTP re-verification handle (purpose=account_deletion) for this number.
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema: { type: object, required: [handle], properties: { handle: { type: string, format: uuid } } }
+ *     responses:
+ *       200: { description: Account deleted }
+ *       400: { description: Invalid handle or phone mismatch }
+ *       404: { description: No account for this number }
+ */
+router.post('/account/delete', requireAppAuth, async (req, res) => {
+  try {
+    const result = await deleteAccountByVerifiedHandle({
+      handle: req.body?.handle,
+      source: 'app',
+      expectedPhone: req.appAccount!.phone,
+    });
+    res.json(result);
+  } catch (err: any) {
+    if (err?.status) {
+      return res.status(err.status).json({ error: err.message, ...(err.details ? { details: err.details } : {}) });
+    }
+    console.error('Account delete error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * @swagger
+ * /api/app/account/deletion-request:
+ *   post:
+ *     tags: [App - Account]
+ *     summary: Delete an account from the public web page (Google Play)
+ *     description: >
+ *       Unauthenticated deletion path (does not require the app). Gated by an
+ *       OTP handle (purpose=account_deletion) that must match the given phone.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [phone, handle]
+ *             properties:
+ *               phone: { type: string, example: "0912345678" }
+ *               handle: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: Account deleted }
+ *       400: { description: Invalid handle or phone mismatch }
+ *       404: { description: No account for this number }
+ */
+router.post('/account/deletion-request', async (req, res) => {
+  try {
+    const result = await deleteAccountByVerifiedHandle({
+      handle: req.body?.handle,
+      source: 'web',
+      expectedPhone: req.body?.phone,
+    });
+    res.json(result);
+  } catch (err: any) {
+    if (err?.status) {
+      return res.status(err.status).json({ error: err.message, ...(err.details ? { details: err.details } : {}) });
+    }
+    console.error('Account deletion-request error:', err);
     res.status(500).json({ error: err.message });
   }
 });

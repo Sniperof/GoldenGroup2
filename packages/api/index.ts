@@ -52,6 +52,7 @@ import authRouter from './routes/auth.js';
 import appOtpRouter from './routes/appOtp.js';
 import appAccountRouter from './routes/appAccount.js';
 import appAuthRouter from './routes/appAuth.js';
+import publicAccountDeletionRouter from './routes/publicAccountDeletion.js';
 import adminAccountRequestsRouter from './routes/adminAccountRequests.js';
 import adminAppAccountsRouter from './routes/adminAppAccounts.js';
 import systemListsRouter from './routes/systemLists.js';
@@ -112,6 +113,8 @@ app.use('/api/app/otp', appOtpRouter);
 app.use('/api/app', appAccountRouter);
 // Customer session: login / refresh / logout / session bootstrap. DEC-013 §6.
 app.use('/api/app', appAuthRouter);
+// Public account-deletion web page (Google Play). DEC-013 §8.
+app.use('/account-deletion', publicAccountDeletionRouter);
 // Web-portal admin review of account-creation requests. DEC-013 §2.5.
 app.use('/api/admin/account-requests', adminAccountRequestsRouter);
 // Admin direct + bulk app-account activation. DEC-013 §2.5.10.
