@@ -201,3 +201,87 @@ export async function bulkActivateAppAccounts(input: BulkActivateInput) {
     skippedMissing: missing,
   };
 }
+
+export async function suspendAppAccount(input: { accountId: number; reason: string; actorUserId: number }) {
+  const reason = String(input.reason ?? '').trim();
+  if (!reason) throw httpError(400, 'سبب الإيقاف مطلوب');
+
+  const tx = await acquireTx();
+  try {
+    const { rows } = await tx.client.query<{ status: string }>(
+      `SELECT status FROM app_accounts WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
+      [input.accountId],
+    );
+    if (rows.length === 0) throw httpError(404, 'الحساب غير موجود');
+    if (rows[0].status !== 'active') throw httpError(409, 'الحساب ليس مفعّلاً', { status: rows[0].status });
+
+    await tx.client.query(
+      `UPDATE app_accounts
+          SET status = 'suspended', suspended_by_user_id = $2, suspended_reason = $3, suspended_at = NOW()
+        WHERE id = $1`,
+      [input.accountId, input.actorUserId, reason],
+    );
+    // Revoke all sessions immediately (DEC-013 §7 "لحظة الإيقاف").
+    await tx.client.query(
+      `UPDATE app_refresh_tokens SET revoked_at = NOW()
+        WHERE app_account_id = $1 AND revoked_at IS NULL`,
+      [input.accountId],
+    );
+    await auditAppAccount(tx.client, {
+      appAccountId: input.accountId,
+      action: 'account_suspended',
+      performedByUserId: input.actorUserId,
+      reason,
+    });
+
+    await commitTx(tx);
+    return { status: 'suspended' as const };
+  } catch (err) {
+    await rollbackTx(tx);
+    throw err;
+  } finally {
+    tx.release();
+  }
+}
+
+export async function reactivateAppAccount(input: { accountId: number; actorUserId: number }) {
+  const tx = await acquireTx();
+  try {
+    const { rows } = await tx.client.query<{ status: string; primary_mobile: string }>(
+      `SELECT status, primary_mobile FROM app_accounts WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
+      [input.accountId],
+    );
+    if (rows.length === 0) throw httpError(404, 'الحساب غير موجود');
+    if (rows[0].status !== 'suspended') throw httpError(409, 'الحساب ليس موقوفاً', { status: rows[0].status });
+
+    // Uniqueness: another ACTIVE account may have claimed the number meanwhile.
+    const { rows: clash } = await tx.client.query(
+      `SELECT 1 FROM app_accounts
+        WHERE primary_mobile = $1 AND status = 'active' AND deleted_at IS NULL AND id <> $2
+        LIMIT 1`,
+      [rows[0].primary_mobile, input.accountId],
+    );
+    if (clash.length > 0) throw httpError(409, 'الرقم مرتبط بحساب مفعّل آخر', { code: 'mobile_in_use' });
+
+    await tx.client.query(
+      `UPDATE app_accounts
+          SET status = 'active', suspended_by_user_id = NULL, suspended_reason = NULL, suspended_at = NULL
+        WHERE id = $1`,
+      [input.accountId],
+    );
+    // Note: old sessions were revoked at suspend — the customer logs in fresh.
+    await auditAppAccount(tx.client, {
+      appAccountId: input.accountId,
+      action: 'account_reactivated',
+      performedByUserId: input.actorUserId,
+    });
+
+    await commitTx(tx);
+    return { status: 'active' as const };
+  } catch (err) {
+    await rollbackTx(tx);
+    throw err;
+  } finally {
+    tx.release();
+  }
+}

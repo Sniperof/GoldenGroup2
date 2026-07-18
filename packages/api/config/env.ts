@@ -57,3 +57,8 @@ export const OTP_CODE_LENGTH = parseInt(process.env.OTP_CODE_LENGTH || '6');
 // Expose the OTP code in API responses for local testing ONLY. Hard-gated to
 // non-production + simulated provider so a real deployment can never leak it.
 export const OTP_EXPOSE_CODE = NODE_ENV !== 'production' && OTP_PROVIDER === 'simulated';
+
+// ── Customer app tokens (DEC-013 §6) ────────────────────────────────────────
+// Short access token + long rotating refresh token (separate from staff auth).
+export const APP_ACCESS_TTL = process.env.APP_ACCESS_TTL || '60m';
+export const APP_REFRESH_TTL_DAYS = parseInt(process.env.APP_REFRESH_TTL_DAYS || '60');

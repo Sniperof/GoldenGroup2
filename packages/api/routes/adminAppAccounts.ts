@@ -4,6 +4,8 @@ import { requirePermission } from '../middleware/permission.js';
 import {
   directCreateAppAccount,
   bulkActivateAppAccounts,
+  suspendAppAccount,
+  reactivateAppAccount,
 } from '../services/appAccounts/adminAppAccountService.js';
 
 const router = Router();
@@ -113,6 +115,62 @@ router.post('/app-accounts/bulk-activate', requirePermission('app_accounts.bulk_
     res.json(result);
   } catch (err) {
     handle(res, err, 'Bulk activate app accounts');
+  }
+});
+
+/**
+ * @swagger
+ * /api/admin/app-accounts/{id}/suspend:
+ *   post:
+ *     tags: [Admin - App Accounts]
+ *     summary: Suspend an app account (audit admin)
+ *     description: Sets status suspended and revokes all refresh tokens immediately.
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: integer } }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema: { type: object, required: [reason], properties: { reason: { type: string } } }
+ *     responses:
+ *       200: { description: Suspended }
+ *       409: { description: Account not active }
+ */
+router.post('/app-accounts/:id/suspend', requirePermission('app_accounts.suspend'), async (req, res) => {
+  try {
+    res.json(await suspendAppAccount({
+      accountId: parseInt(String(req.params.id)),
+      reason: req.body?.reason,
+      actorUserId: req.authContext!.userId,
+    }));
+  } catch (err) {
+    handle(res, err, 'Suspend app account');
+  }
+});
+
+/**
+ * @swagger
+ * /api/admin/app-accounts/{id}/reactivate:
+ *   post:
+ *     tags: [Admin - App Accounts]
+ *     summary: Reactivate a suspended app account (audit admin)
+ *     description: Sets status active. Old sessions stay revoked — the customer logs in fresh.
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: integer } }
+ *     responses:
+ *       200: { description: Reactivated }
+ *       409: { description: Account not suspended, or number now used by another active account }
+ */
+router.post('/app-accounts/:id/reactivate', requirePermission('app_accounts.reactivate'), async (req, res) => {
+  try {
+    res.json(await reactivateAppAccount({
+      accountId: parseInt(String(req.params.id)),
+      actorUserId: req.authContext!.userId,
+    }));
+  } catch (err) {
+    handle(res, err, 'Reactivate app account');
   }
 });
 

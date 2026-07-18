@@ -51,6 +51,7 @@ import publicAreasRouter from './routes/publicAreas.js';
 import authRouter from './routes/auth.js';
 import appOtpRouter from './routes/appOtp.js';
 import appAccountRouter from './routes/appAccount.js';
+import appAuthRouter from './routes/appAuth.js';
 import adminAccountRequestsRouter from './routes/adminAccountRequests.js';
 import adminAppAccountsRouter from './routes/adminAppAccounts.js';
 import systemListsRouter from './routes/systemLists.js';
@@ -109,6 +110,8 @@ app.use('/api/auth', authRouter);
 app.use('/api/app/otp', appOtpRouter);
 // Customer mobile-app account status + creation request — public. DEC-013 §2.4.
 app.use('/api/app', appAccountRouter);
+// Customer session: login / refresh / logout / session bootstrap. DEC-013 §6.
+app.use('/api/app', appAuthRouter);
 // Web-portal admin review of account-creation requests. DEC-013 §2.5.
 app.use('/api/admin/account-requests', adminAccountRequestsRouter);
 // Admin direct + bulk app-account activation. DEC-013 §2.5.10.
