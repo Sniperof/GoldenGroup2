@@ -1118,6 +1118,36 @@ export const api = {
   // ─────────────────────────────────────────────────────────────────
   // Service Requests (Phase 3) — intake layer for emergency_maintenance
   // ─────────────────────────────────────────────────────────────────
+  accountRequests: {
+    list: (params: Record<string, string | number | boolean | undefined> = {}) => {
+      const qs = Object.entries(params)
+        .filter(([, v]) => v !== undefined && v !== '' && v !== null)
+        .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
+        .join('&');
+      return request<{ items: any[]; limit: number; offset: number }>(
+        `/admin/account-requests${qs ? `?${qs}` : ''}`,
+      );
+    },
+    get: (id: number) =>
+      request<{ request: any; audit: any[] }>(`/admin/account-requests/${id}`),
+    suggestions: (id: number) =>
+      request<{ suggestions: any[] }>(`/admin/account-requests/${id}/suggestions`),
+    link: (id: number, clientId: number) =>
+      request<any>(`/admin/account-requests/${id}/link`, {
+        method: 'POST',
+        body: JSON.stringify({ clientId }),
+      }),
+    escalate: (id: number, reason: string) =>
+      request<any>(`/admin/account-requests/${id}/escalate`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      }),
+    reject: (id: number, reasonCode: string) =>
+      request<any>(`/admin/account-requests/${id}/reject`, {
+        method: 'POST',
+        body: JSON.stringify({ reasonCode }),
+      }),
+  },
   serviceRequests: {
     create: (data: any) =>
       request<any>('/service-requests', { method: 'POST', body: JSON.stringify(data) }),
