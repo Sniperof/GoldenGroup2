@@ -437,15 +437,6 @@ export default function Clients() {
                 >
                     {mustPickBranch ? 'اختر فرعاً لإضافة زبون' : 'إضافة اسم مرشح جديد'}
                 </Button>
-                {canBulkActivate && (
-                    <button
-                        onClick={() => setIsBulkActivateOpen(true)}
-                        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold"
-                    >
-                        <CheckCircle2 className="w-4 h-4" />
-                        تفعيل حسابات جماعي
-                    </button>
-                )}
                 </div>
             </div>
 
@@ -524,6 +515,17 @@ export default function Clients() {
                         >
                             تفريغ الفلاتر
                         </button>
+
+                        {canBulkActivate && mainList.length > 0 && (
+                            <button
+                                onClick={() => setIsBulkActivateOpen(true)}
+                                title="تفعيل حساب تطبيق للزبائن المطابقين للفلاتر الحالية"
+                                className="text-xs font-bold text-emerald-600 hover:text-emerald-700 border border-emerald-200 hover:border-emerald-300 rounded-lg px-2.5 py-1 inline-flex items-center gap-1 transition-colors"
+                            >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                تفعيل حسابات ({mainList.length})
+                            </button>
+                        )}
                     </div>
                 </div>
             </div >
@@ -558,7 +560,7 @@ export default function Clients() {
             <BulkActivateModal
                 open={isBulkActivateOpen}
                 onClose={() => setIsBulkActivateOpen(false)}
-                geoUnits={geoUnits}
+                clientIds={mainList.map((c) => c.id)}
             />
 
             <ClientModal
