@@ -114,6 +114,19 @@ async function tryActivate(
   }
 }
 
+export async function getAppAccountForClient(clientId: number) {
+  const { rows } = await pool.query(
+    `SELECT id, primary_mobile, status, created_source, created_by_role, created_at,
+            suspended_reason, suspended_at
+       FROM app_accounts
+      WHERE linked_client_record_id = $1 AND deleted_at IS NULL
+      ORDER BY (status = 'active') DESC, created_at DESC
+      LIMIT 1`,
+    [clientId],
+  );
+  return { account: rows[0] ?? null };
+}
+
 export async function directCreateAppAccount(input: { clientId: number; actorUserId: number }) {
   const { rows } = await pool.query<ClientRow>(
     `SELECT id, mobile FROM clients WHERE id = $1 AND deleted_at IS NULL`,
@@ -133,7 +146,7 @@ export async function directCreateAppAccount(input: { clientId: number; actorUse
 
 export interface BulkActivateInput {
   mode: 'filter' | 'ids';
-  filter?: { branchId?: number | null; classification?: string | null } | null;
+  filter?: { branchId?: number | null; classification?: string | null; governorate?: number | null } | null;
   clientIds?: number[] | null;
   actorUserId: number;
 }
@@ -166,6 +179,10 @@ export async function bulkActivateAppAccounts(input: BulkActivateInput) {
     if (input.filter?.classification) {
       where.push(`candidate_status = $${i++}`);
       params.push(input.filter.classification);
+    }
+    if (input.filter?.governorate != null) {
+      where.push(`governorate = $${i++}`);
+      params.push(input.filter.governorate);
     }
     const { rows } = await pool.query<ClientRow>(
       `SELECT id, mobile FROM clients WHERE ${where.join(' AND ')} ORDER BY id LIMIT ${BULK_CAP + 1}`,

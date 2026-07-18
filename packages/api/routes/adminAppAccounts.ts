@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
 import {
+  getAppAccountForClient,
   directCreateAppAccount,
   bulkActivateAppAccounts,
   suspendAppAccount,
@@ -45,6 +46,26 @@ function handle(res: Response, err: any, label: string) {
  *       404: { description: Client not found or deleted }
  *       409: { description: Mobile already has an active account }
  */
+/**
+ * @swagger
+ * /api/admin/clients/{id}/app-account:
+ *   get:
+ *     tags: [Admin - App Accounts]
+ *     summary: Get the app account linked to a client (or null)
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: integer } }
+ *     responses:
+ *       200: { description: "{ account: {...} | null }" }
+ */
+router.get('/clients/:id/app-account', requirePermission('app_accounts.view'), async (req, res) => {
+  try {
+    res.json(await getAppAccountForClient(parseInt(String(req.params.id))));
+  } catch (err) {
+    handle(res, err, 'Get client app account');
+  }
+});
+
 router.post('/clients/:id/app-account', requirePermission('app_accounts.create_direct'), async (req, res) => {
   try {
     const result = await directCreateAppAccount({

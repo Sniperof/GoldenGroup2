@@ -1118,6 +1118,18 @@ export const api = {
   // ─────────────────────────────────────────────────────────────────
   // Service Requests (Phase 3) — intake layer for emergency_maintenance
   // ─────────────────────────────────────────────────────────────────
+  appAccounts: {
+    forClient: (clientId: number) =>
+      request<{ account: any | null }>(`/admin/clients/${clientId}/app-account`),
+    createDirect: (clientId: number) =>
+      request<any>(`/admin/clients/${clientId}/app-account`, { method: 'POST', body: '{}' }),
+    bulkActivate: (body: { mode: 'filter' | 'ids'; filter?: any; clientIds?: number[] }) =>
+      request<any>(`/admin/app-accounts/bulk-activate`, { method: 'POST', body: JSON.stringify(body) }),
+    suspend: (id: number, reason: string) =>
+      request<any>(`/admin/app-accounts/${id}/suspend`, { method: 'POST', body: JSON.stringify({ reason }) }),
+    reactivate: (id: number) =>
+      request<any>(`/admin/app-accounts/${id}/reactivate`, { method: 'POST', body: '{}' }),
+  },
   accountRequests: {
     list: (params: Record<string, string | number | boolean | undefined> = {}) => {
       const qs = Object.entries(params)
