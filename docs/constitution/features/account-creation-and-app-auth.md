@@ -118,6 +118,7 @@
 |---|---|---|---|
 | حالة الرقم (قبل الدخول) | `GET /api/app/account/status?phone=` | Visitor | يعيد العرض المحسوب بمفتاح الرقم: `visitor` / `pending` / `active` / `suspended`. يحدّد شاشة الزائر. |
 | تمهيد الجلسة (عند الفتح) | `GET /api/app/session` | زبون (بتوكن) | يوازي `GET /api/auth/session`. يتحقّق من التوكن **ويعيد قراءة `app_accounts.status`** فيلتقط الإيقاف، ويعيد الوضع + لقطة الملف. `401` → يستخدم الموبايل `refresh`. |
+| ملف الزبون | `GET /api/app/me` | زبون (بتوكن) | ملف مُقلَّل البيانات من سجل الزبون المرتبط (اسم/أرقام/عنوان مُحلّ الأسماء/تصنيف/حالة الحساب). الحقول الداخلية لا تُعرَض. |
 | إرسال رمز | `POST /api/app/otp/send` | Visitor | `{ phone, purpose }` → توليد رمز + محاكاة الإرسال. صلاحية 120ث. |
 | التحقّق | `POST /api/app/otp/verify` | Visitor | `{ phone, code, purpose }` → عند النجاح: `account_creation` يعيد `verificationHandle`؛ `login` يعيد `access + refresh`. |
 | إنشاء طلب حساب | `POST /api/app/account-requests` | Visitor | `{ form, verificationHandle }` → يحفظ الطلب `Pending` ويستهلك المُعرّف. |

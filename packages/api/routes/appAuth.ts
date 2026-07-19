@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireAppAuth } from '../middleware/appAuth.js';
 import { exchangeLoginHandle, refreshTokens, logout } from '../services/appAccounts/appAuthService.js';
+import { getMyProfile } from '../services/appAccounts/appProfileService.js';
 
 const router = Router();
 
@@ -126,6 +127,53 @@ router.post('/auth/logout', async (req, res) => {
  */
 router.get('/session', requireAppAuth, async (req, res) => {
   res.json({ status: 'active', account: req.appAccount });
+});
+
+/**
+ * @swagger
+ * /api/app/me:
+ *   get:
+ *     tags: [App - Account]
+ *     summary: The logged-in customer's own profile
+ *     description: >
+ *       Resolves the linked client record and returns a data-minimized profile
+ *       (name, mobiles, address, classification, account status). Internal CRM
+ *       fields are never exposed.
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200:
+ *         description: Profile
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 appAccountId: { type: integer }
+ *                 accountStatus: { type: string, example: active }
+ *                 memberSince: { type: string, format: date-time }
+ *                 firstName: { type: string, nullable: true }
+ *                 lastName: { type: string, nullable: true }
+ *                 primaryMobile: { type: string }
+ *                 secondaryMobiles: { type: array, items: { type: string } }
+ *                 classification: { type: string, nullable: true, enum: [OP, FOP, Lead] }
+ *                 address:
+ *                   type: object
+ *                   properties:
+ *                     governorate: { type: string, nullable: true }
+ *                     cityOrArea: { type: string, nullable: true }
+ *                     subArea: { type: string, nullable: true }
+ *                     neighborhood: { type: string, nullable: true }
+ *                     detailedAddress: { type: string, nullable: true }
+ *       401: { description: Missing/invalid/expired access token }
+ *       403: { description: Account suspended }
+ *       404: { description: Account or client record not found }
+ */
+router.get('/me', requireAppAuth, async (req, res) => {
+  try {
+    res.json(await getMyProfile(req.appAccount!));
+  } catch (err) {
+    fail(res, err, 'App profile');
+  }
 });
 
 export default router;

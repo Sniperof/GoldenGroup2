@@ -231,6 +231,40 @@
 
 ---
 
+### 3.5 `GET /api/app/me`
+
+ملف الزبون المسجّل دخوله عن نفسه، مُحلّاً من سجل الزبون المرتبط. **مصادقة: `Bearer`.** مُقلَّل البيانات — الحقول الداخلية لا تُعرَض.
+
+**استجابة `200`:**
+
+| الحقل | النوع | الوصف |
+|---|---|---|
+| `appAccountId` | `integer` | معرّف حساب التطبيق. |
+| `accountStatus` | `string` | `"active"`. |
+| `memberSince` | `timestamp` | تاريخ إنشاء الحساب. |
+| `firstName` | `string \| null` | الاسم الأول. |
+| `lastName` | `string \| null` | الكنية. |
+| `primaryMobile` | `string` | رقم الدخول (مطبَّع). |
+| `secondaryMobiles` | `string[]` | أرقام إضافية من `contacts` (مطبَّعة، بلا تكرار، وبلا الرقم الرئيسي). |
+| `classification` | `enum(OP, FOP, Lead) \| null` | تصنيف السجل (مشتق من `candidate_status`). |
+| `address` | `object` | كائن العنوان (أدناه). |
+
+**كائن `address`:**
+
+| الحقل | النوع | الوصف |
+|---|---|---|
+| `governorate` | `string \| null` | اسم المحافظة (مستوى 1). |
+| `cityOrArea` | `string \| null` | اسم المنطقة (مستوى 2). |
+| `subArea` | `string \| null` | اسم الناحية (مستوى 3). |
+| `neighborhood` | `string \| null` | اسم الحي (مستوى 4). |
+| `detailedAddress` | `string \| null` | العنوان التفصيلي النصّي. |
+
+**الأخطاء:** `401` (توكن)، `403` مع `details.code = "suspended"`، `404` (لا حساب/سجل).
+
+> الأجهزة والعقود والطلبات ميزات تطبيق منفصلة (خارج نطاق المصادقة)، تُبنى لاحقاً بنفس النمط المصادَق.
+
+---
+
 ## 4. الجلسة والتوكنات (Auth)
 
 نموذج التوكنات: `accessToken` قصير (JWT، ~60 دقيقة) + `refreshToken` طويل دوّار (~60 يوماً). عند كل `refresh` يُصدر `refreshToken` جديد ويُبطَل القديم.
