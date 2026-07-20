@@ -272,7 +272,7 @@
 | `lastName` | `string \| null` | الكنية. |
 | `primaryMobile` | `string` | رقم الدخول (مطبَّع). |
 | `secondaryMobiles` | `string[]` | أرقام إضافية من `contacts` (مطبَّعة، بلا تكرار، وبلا الرقم الرئيسي). |
-| `classification` | `enum(OP, FOP, Lead) \| null` | تصنيف السجل (مشتق من `candidate_status`). |
+| `classification` | `enum(OP, FOP, Lead)` | تصنيف السجل. `OP`/`FOP` حالتا ترقية؛ وكل ما عداهما `Lead` افتراضاً. **لا يكون `null` أبداً.** |
 | `address` | `object` | كائن العنوان (أدناه). |
 
 **كائن `address`:**

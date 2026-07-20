@@ -155,7 +155,7 @@ router.get('/session', requireAppAuth, async (req, res) => {
  *                 lastName: { type: string, nullable: true }
  *                 primaryMobile: { type: string }
  *                 secondaryMobiles: { type: array, items: { type: string } }
- *                 classification: { type: string, nullable: true, enum: [OP, FOP, Lead] }
+ *                 classification: { type: string, enum: [OP, FOP, Lead], description: "OP/FOP are promotions; everything else defaults to Lead. Never null." }
  *                 address:
  *                   type: object
  *                   properties:

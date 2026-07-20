@@ -9,18 +9,11 @@
 
 import pool from '../../db.js';
 import { normalizePhone } from '../../utils/contactValidation.js';
+import { deriveClientClassification, type ClientClassification } from '../../lib/clientClassification.js';
 import type { AppAccountClaims } from './appAuthService.js';
 
 function httpError(status: number, message: string) {
   return Object.assign(new Error(message), { status });
-}
-
-function normalizeClassification(candidateStatus: string | null): 'OP' | 'FOP' | 'Lead' | null {
-  const s = (candidateStatus ?? '').trim().toUpperCase();
-  if (s === 'OP') return 'OP';
-  if (s === 'FOP') return 'FOP';
-  if (s === 'LEAD') return 'Lead';
-  return null;
 }
 
 export interface MyProfile {
@@ -31,7 +24,7 @@ export interface MyProfile {
   lastName: string | null;
   primaryMobile: string;
   secondaryMobiles: string[];
-  classification: 'OP' | 'FOP' | 'Lead' | null;
+  classification: ClientClassification;
   address: {
     governorate: string | null;
     cityOrArea: string | null;
@@ -106,7 +99,7 @@ export async function getMyProfile(claims: AppAccountClaims): Promise<MyProfile>
     lastName: c.last_name,
     primaryMobile: claims.phone,
     secondaryMobiles,
-    classification: normalizeClassification(c.candidate_status),
+    classification: deriveClientClassification(c.candidate_status),
     address,
   };
 }
