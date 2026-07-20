@@ -18,6 +18,7 @@
 
 import pool from '../../db.js';
 import { normalizePhone, isValidSyrianMobile } from '../../utils/contactValidation.js';
+import { resolveAndValidateAddress } from './addressValidation.js';
 import {
   acquireTx,
   commitTx,
@@ -109,11 +110,18 @@ export async function createAccountRequest(
   const firstName = requireText(form.firstName, 'الاسم الأول');
   const lastName = requireText(form.lastName, 'الكنية');
   const detailedAddress = requireText(form.detailedAddress, 'العنوان التفصيلي');
-  if (form.governorate === undefined || form.governorate === null || form.governorate === '') {
-    throw httpError(400, 'المحافظة مطلوبة');
-  }
   const phone = normalizePhone(form.primaryMobile);
   if (!isValidSyrianMobile(phone)) throw httpError(400, 'رقم الموبايل الرئيسي غير صالح');
+
+  // Administrative address must be canonical geo_units IDs (picked via
+  // GET /api/public/areas), validated for level + parent chain. We keep both the
+  // ids and a resolved names snapshot so the admin comparison stays readable.
+  const address = await resolveAndValidateAddress({
+    governorate: form.governorate,
+    cityOrArea: form.cityOrArea,
+    subArea: form.subArea,
+    neighborhood: form.neighborhood,
+  });
 
   const tx = await acquireTx();
   try {
@@ -173,23 +181,31 @@ export async function createAccountRequest(
       primary_phone: phone,
       secondary_phone: form.secondaryMobile ? normalizePhone(form.secondaryMobile) : null,
     };
+    const addressLabels = {
+      governorate: address.labels.governorate,
+      city_or_area: address.labels.cityOrArea,
+      sub_area: address.labels.subArea,
+      neighborhood: address.labels.neighborhood,
+    };
     const serviceAddress = {
-      governorate: form.governorate,
-      city_or_area: form.cityOrArea ?? null,
-      sub_area: form.subArea ?? null,
-      neighborhood: form.neighborhood ?? null,
+      governorate: address.ids.governorate,
+      city_or_area: address.ids.cityOrArea,
+      sub_area: address.ids.subArea,
+      neighborhood: address.ids.neighborhood,
       detailed_address: detailedAddress,
       location: form.location ?? null,
+      labels: addressLabels,
     };
     const submittedPayload = {
       first_name: firstName,
       last_name: lastName,
       primary_mobile: phone,
       secondary_mobile: requesterExternal.secondary_phone,
-      governorate: form.governorate,
-      city_or_area: form.cityOrArea ?? null,
-      sub_area: form.subArea ?? null,
-      neighborhood: form.neighborhood ?? null,
+      governorate: address.ids.governorate,
+      city_or_area: address.ids.cityOrArea,
+      sub_area: address.ids.subArea,
+      neighborhood: address.ids.neighborhood,
+      address_labels: addressLabels,
       detailed_address: detailedAddress,
       notes: form.notes ?? null,
       location: form.location ?? null,

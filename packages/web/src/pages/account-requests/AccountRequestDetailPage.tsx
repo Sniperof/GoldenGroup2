@@ -118,10 +118,10 @@ export default function AccountRequestDetailPage() {
           <Field label="الكنية" value={p.last_name} />
           <Field label="رقم الموبايل الرئيسي" value={<span dir="ltr" className="font-mono">{p.primary_mobile}</span>} />
           <Field label="رقم ثانوي" value={p.secondary_mobile ? <span dir="ltr" className="font-mono">{p.secondary_mobile}</span> : '—'} />
-          <Field label="المحافظة" value={p.governorate} />
-          <Field label="المنطقة" value={p.city_or_area} />
-          <Field label="الناحية" value={p.sub_area} />
-          <Field label="الحي" value={p.neighborhood} />
+          <Field label="المحافظة" value={p.address_labels?.governorate ?? p.governorate} />
+          <Field label="المنطقة" value={p.address_labels?.city_or_area ?? p.city_or_area} />
+          <Field label="الناحية" value={p.address_labels?.sub_area ?? p.sub_area} />
+          <Field label="الحي" value={p.address_labels?.neighborhood ?? p.neighborhood} />
           <Field label="العنوان التفصيلي" value={p.detailed_address} />
           <Field label="ملاحظات" value={p.notes} />
         </div>

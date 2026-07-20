@@ -71,7 +71,8 @@ export async function listAccountRequests(filters: ListFilters) {
     `SELECT id, public_ref_number, status,
             requester_external->>'name'          AS full_name,
             requester_external->>'primary_phone' AS primary_phone,
-            service_address->>'governorate'      AS governorate,
+            COALESCE(service_address->'labels'->>'governorate',
+                     service_address->>'governorate')  AS governorate,
             duplicate_flag, review_required_flag, escalated_at,
             beneficiary_client_id, created_at
        FROM service_requests

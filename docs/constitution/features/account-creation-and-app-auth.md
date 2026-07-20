@@ -121,7 +121,8 @@
 | ملف الزبون | `GET /api/app/me` | زبون (بتوكن) | ملف مُقلَّل البيانات من سجل الزبون المرتبط (اسم/أرقام/عنوان مُحلّ الأسماء/تصنيف/حالة الحساب). الحقول الداخلية لا تُعرَض. |
 | إرسال رمز | `POST /api/app/otp/send` | Visitor | `{ phone, purpose }` → توليد رمز + محاكاة الإرسال. صلاحية 120ث. |
 | التحقّق | `POST /api/app/otp/verify` | Visitor | `{ phone, code, purpose }` → عند النجاح: `account_creation` يعيد `verificationHandle`؛ `login` يعيد `access + refresh`. |
-| إنشاء طلب حساب | `POST /api/app/account-requests` | Visitor | `{ form, verificationHandle }` → يحفظ الطلب `Pending` ويستهلك المُعرّف. |
+| قوائم العنوان | `GET /api/public/areas` | عام | إعادة استخدام المسار العام لشجرة `geo_units`؛ قوائم متتالية عبر `parent_id` (+`activeOnly`). يُغذّي منتقي المحافظة/المنطقة/الناحية/الحي. |
+| إنشاء طلب حساب | `POST /api/app/account-requests` | Visitor | `{ form, verificationHandle }` → يحفظ الطلب `Pending` ويستهلك المُعرّف. العنوان **بمعرّفات `geo_units` القانونية** (لا نص حر) مع تحقّق المستوى وسلسلة الآباء + لقطة أسماء للمقارنة. |
 | إرسال أي طلب خدمة | `POST /api/app/service-requests` | Visitor/زبون | أي نوع طلب؛ يتطلب تحقّق OTP لا حساباً. |
 | تجديد التوكن | `POST /api/app/auth/refresh` | زبون | `{ refreshToken }` → access جديد + **refresh جديد (دوران)** ويُبطل القديم. يفحص الحالة (`suspended` → رفض). |
 | تسجيل الخروج | `POST /api/app/auth/logout` | زبون | يُبطل الـ refresh الحالي (والعائلة). الموبايل يمسح التوكنين. |
