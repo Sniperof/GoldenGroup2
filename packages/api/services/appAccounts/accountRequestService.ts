@@ -19,6 +19,7 @@
 import pool from '../../db.js';
 import { normalizePhone, isValidSyrianMobile } from '../../utils/contactValidation.js';
 import { resolveAndValidateAddress } from './addressValidation.js';
+import { detectAccountRequestDuplicate } from './accountDuplicatePolicy.js';
 import {
   acquireTx,
   commitTx,
@@ -246,6 +247,10 @@ export async function createAccountRequest(
         primary_phone: phone,
       },
     });
+
+    // 7. Soft-duplicate policy (DEC-013 §6.3): flag + force review when the
+    // requester fuzzy-matches an existing account or another open request.
+    await detectAccountRequestDuplicate(tx.client, requestId, null, 'customer');
 
     await commitTx(tx);
     return { status: 'pending', requestId, publicRefNumber: ref };

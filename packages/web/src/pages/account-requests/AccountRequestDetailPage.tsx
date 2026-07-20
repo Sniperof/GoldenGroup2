@@ -85,6 +85,8 @@ export default function AccountRequestDetailPage() {
   const r = data.request;
   const p = r.submitted_payload ?? {};
   const isActive = ACTIVE.includes(r.status);
+  const dupEvent = (data.audit ?? []).find((a: any) => a.event_type === 'duplicate_flag_set');
+  const dup = dupEvent?.event_payload ?? null;
 
   return (
     <div className="max-w-5xl mx-auto p-4" dir="rtl">
@@ -107,6 +109,26 @@ export default function AccountRequestDetailPage() {
       {r.status === 'rejected' && (
         <div className="bg-red-50 border border-red-200 rounded p-3 mb-4 text-sm text-red-800">
           مرفوض — السبب: {r.rejection_reason ?? '—'}
+        </div>
+      )}
+
+      {r.duplicate_flag && (
+        <div className="bg-orange-50 border border-orange-200 rounded p-3 mb-4 text-sm text-orange-800 flex items-start gap-2">
+          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+          <span>
+            تكرار محتمل — يتطابق مع{' '}
+            {dup?.match_kind === 'account'
+              ? `حساب قائم (#${dup?.matched_id})`
+              : dup?.match_kind === 'request'
+                ? `طلب إنشاء آخر (#${dup?.matched_id})`
+                : 'سجل قائم'}
+            {typeof dup?.score === 'number' && ` — درجة التطابق ${Math.round(dup.score * 100)}%`}. مراجعة إلزامية قبل الاعتماد.
+          </span>
+        </div>
+      )}
+      {!r.duplicate_flag && r.review_required_flag && (
+        <div className="bg-amber-50 border border-amber-200 rounded p-3 mb-4 text-sm text-amber-800 flex items-center gap-2">
+          <AlertTriangle className="h-4 w-4" /> مراجعة إلزامية قبل الاعتماد.
         </div>
       )}
 
