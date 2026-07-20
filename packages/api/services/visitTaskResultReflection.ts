@@ -25,7 +25,9 @@
 // ============================================================
 
 import type { PoolClient } from 'pg';
+import { evaluateMembraneEfficiency, membraneEfficiencyIssueMessage } from '@golden-crm/shared';
 import pool from '../db.js';
+import { getGoldenWarrantyDeliveryResultIssue } from './openTaskLinkagePolicy.js';
 import { checkAndCompleteVisit } from './visitCompletion.js';
 import { recordContractPaymentMovement, recordMovement } from './financialMovements.js';
 import { createInstallmentCollectionTask } from './installmentCollectionTasks.js';
@@ -407,13 +409,24 @@ export interface DeviceDisconnectionReflectionResult {
 // جزء دفع واحد ضمن تسديد ذمة — يد/حوالة/مقايضة، بالليرة أو الدولار بسعر صرف.
 // (نموذج العقد بدون تقسيط؛ نفس بنية PaymentEntriesList في الواجهة.)
 export interface CollectionPaymentPart {
-  method: 'hand' | 'transfer' | 'barter';
+  paymentCategory?: 'hand' | 'transfer' | 'barter';
+  method: 'hand' | 'transfer' | 'barter' | ContractCollectionPaymentMethod;
   amountValue: number | string;
   currency?: 'syp' | 'usd';
   exchangeRate?: number | string | null;
   transferCompanyId?: number | string | null;
+  referenceNumber?: string | null;
   barterDescription?: string | null;
 }
+
+export type ContractCollectionPaymentMethod =
+  | 'cash'
+  | 'sham_cash'
+  | 'syriatel_cash'
+  | 'mtn_cash'
+  | 'alharam'
+  | 'bank_transfer'
+  | 'barter';
 
 export interface InstallmentCollectionResultBody {
   final_decision: InstallmentCollectionFinalDecision;
@@ -447,6 +460,53 @@ function collectionPartSyp(p: CollectionPaymentPart): number {
   if (p.method === 'barter') return v;
   if (p.currency === 'usd') return v * (Number(p.exchangeRate) || 0);
   return v;
+}
+
+const transferCollectionPaymentMethods = new Set<ContractCollectionPaymentMethod>([
+  'sham_cash',
+  'syriatel_cash',
+  'mtn_cash',
+  'alharam',
+  'bank_transfer',
+]);
+
+export function normalizeCollectionPaymentPart(part: CollectionPaymentPart): CollectionPaymentPart & {
+  paymentCategory: 'hand' | 'transfer' | 'barter';
+  method: ContractCollectionPaymentMethod;
+} {
+  const rawMethod = optionalText(part.method);
+  const paymentCategory = part.paymentCategory
+    ?? (rawMethod === 'hand' || rawMethod === 'transfer' || rawMethod === 'barter'
+      ? rawMethod
+      : rawMethod === 'cash'
+        ? 'hand'
+        : transferCollectionPaymentMethods.has(rawMethod as ContractCollectionPaymentMethod)
+          ? 'transfer'
+          : null);
+
+  if (!paymentCategory) {
+    throw new ResultValidationError('نوع جزء الدفع غير صالح');
+  }
+
+  let method: ContractCollectionPaymentMethod;
+  if (paymentCategory === 'hand') {
+    if (rawMethod !== 'hand' && rawMethod !== 'cash') {
+      throw new ResultValidationError('أداة الدفع النقدي غير صالحة');
+    }
+    method = 'cash';
+  } else if (paymentCategory === 'barter') {
+    if (rawMethod !== 'barter') {
+      throw new ResultValidationError('أداة المقايضة غير صالحة');
+    }
+    method = 'barter';
+  } else {
+    if (!transferCollectionPaymentMethods.has(rawMethod as ContractCollectionPaymentMethod)) {
+      throw new ResultValidationError('أداة الحوالة مطلوبة ويجب اختيارها من القائمة المعتمدة');
+    }
+    method = rawMethod as ContractCollectionPaymentMethod;
+  }
+
+  return { ...part, paymentCategory, method };
 }
 
 class ResultValidationError extends Error {
@@ -580,6 +640,11 @@ export async function insertTechnicalState(
   if (!reading || typeof reading !== 'object') return null;
   const hasAny = Object.values(reading).some((v) => v !== null && v !== undefined && v !== '');
   if (!hasAny) return null;
+
+  const membrane = evaluateMembraneEfficiency(reading.membraneInputTds, reading.membraneOutputTds);
+  if (membrane.status === 'invalid') {
+    throw new ResultValidationError(membraneEfficiencyIssueMessage(membrane.issue));
+  }
 
   const cols = ['installed_device_id', 'open_task_id', 'contract_id', 'task_type_snapshot', 'phase', 'recorded_by'];
   const vals: unknown[] = [args.installedDeviceId, args.openTaskId, args.contractId, args.taskTypeSnapshot, args.phase, args.recordedBy];
@@ -2179,6 +2244,11 @@ export async function applyGoldenWarrantyCardDeliveryResult(
       }
     }
 
+    const deliveryIssue = getGoldenWarrantyDeliveryResultIssue(decision, deliveredCount);
+    if (deliveryIssue) {
+      throw new ResultValidationError(deliveryIssue);
+    }
+
     const newVtStatus = decision === 'cancelled' ? 'cancelled' : 'completed';
     await db.query(`UPDATE visit_tasks SET status = $1, updated_at = NOW() WHERE id = $2`, [newVtStatus, visitTaskId]);
 
@@ -2581,7 +2651,7 @@ export async function applyDeviceInstallationResult(
          FROM visit_tasks vt
          JOIN field_visits fv ON fv.id = vt.field_visit_id
          JOIN open_tasks ot ON ot.id = vt.source_open_task_id
-         JOIN installed_devices idev ON idev.id = ot.device_id
+         LEFT JOIN installed_devices idev ON idev.id = ot.device_id
         WHERE vt.id = $1
         LIMIT 1`,
       [visitTaskId],
@@ -2894,7 +2964,7 @@ export async function applyDeviceActivationResult(
          FROM visit_tasks vt
          JOIN field_visits fv ON fv.id = vt.field_visit_id
          JOIN open_tasks ot ON ot.id = vt.source_open_task_id
-         JOIN installed_devices idev ON idev.id = ot.device_id
+         LEFT JOIN installed_devices idev ON idev.id = ot.device_id
         WHERE vt.id = $1
         LIMIT 1`,
       [visitTaskId],
@@ -3097,7 +3167,7 @@ export async function applyDeviceDisconnectionResult(
          FROM visit_tasks vt
          JOIN field_visits fv ON fv.id = vt.field_visit_id
          JOIN open_tasks ot ON ot.id = vt.source_open_task_id
-         JOIN installed_devices idev ON idev.id = ot.device_id
+         LEFT JOIN installed_devices idev ON idev.id = ot.device_id
         WHERE vt.id = $1
         LIMIT 1`,
       [visitTaskId],
@@ -3337,11 +3407,11 @@ export async function applyDeviceRetrievalResult(
          FROM visit_tasks vt
          JOIN field_visits fv ON fv.id = vt.field_visit_id
          JOIN open_tasks ot ON ot.id = vt.source_open_task_id
-         JOIN installed_devices idev ON idev.id = ot.device_id
+         LEFT JOIN installed_devices idev ON idev.id = ot.device_id
          JOIN branches br ON br.id = ot.service_branch_id
         WHERE vt.id = $1
         LIMIT 1
-        FOR UPDATE OF vt, ot, idev`,
+        FOR UPDATE OF vt, ot`,
       [visitTaskId],
     );
     if (vtRows.length === 0) throw new ResultValidationError('visit_task غير مرتبط بمهمة سحب جهاز');
@@ -3630,10 +3700,10 @@ export async function applyDeviceCheckupResult(
          FROM visit_tasks vt
          JOIN field_visits fv ON fv.id = vt.field_visit_id
          JOIN open_tasks ot ON ot.id = vt.source_open_task_id
-         JOIN installed_devices idev ON idev.id = ot.device_id
+         LEFT JOIN installed_devices idev ON idev.id = ot.device_id
         WHERE vt.id = $1
         LIMIT 1
-        FOR UPDATE OF vt, ot, idev`,
+        FOR UPDATE OF vt, ot`,
       [visitTaskId],
     );
     if (vtRows.length === 0) throw new ResultValidationError('visit_task غير مرتبط بمهمة تشييك جهاز');
@@ -3864,7 +3934,7 @@ export async function applyDeviceReturnResult(
          FROM visit_tasks vt
          JOIN field_visits fv ON fv.id = vt.field_visit_id
          JOIN open_tasks ot ON ot.id = vt.source_open_task_id
-         JOIN installed_devices idev ON idev.id = ot.device_id
+         LEFT JOIN installed_devices idev ON idev.id = ot.device_id
          LEFT JOIN LATERAL (
            SELECT otret.id AS retrieval_task_id,
                   otret.pre_retrieval_branch_id,
@@ -3885,7 +3955,7 @@ export async function applyDeviceReturnResult(
          ) retr ON TRUE
         WHERE vt.id = $1
         LIMIT 1
-        FOR UPDATE OF vt, ot, idev`,
+        FOR UPDATE OF vt, ot`,
       [visitTaskId],
     );
     if (vtRows.length === 0) throw new ResultValidationError('visit_task غير مرتبط بمهمة إرجاع جهاز');
@@ -4141,12 +4211,12 @@ export async function applyDeviceTransferResult(
          FROM visit_tasks vt
          JOIN field_visits fv ON fv.id = vt.field_visit_id
          JOIN open_tasks ot ON ot.id = vt.source_open_task_id
-         JOIN installed_devices idev ON idev.id = ot.device_id
+         LEFT JOIN installed_devices idev ON idev.id = ot.device_id
          LEFT JOIN geo_units gu ON gu.id = ot.planned_transfer_geo_unit_id
          LEFT JOIN clients target ON target.id = ot.target_client_id
         WHERE vt.id = $1
         LIMIT 1
-        FOR UPDATE OF vt, ot, idev`,
+        FOR UPDATE OF vt, ot`,
       [visitTaskId],
     );
     if (vtRows.length === 0) throw new ResultValidationError('visit_task غير مرتبط بمهمة نقل جهاز');
@@ -4465,10 +4535,10 @@ export async function applyInstallmentCollectionResult(
          FROM visit_tasks vt
          JOIN field_visits fv ON fv.id = vt.field_visit_id
          JOIN open_tasks ot ON ot.id = vt.source_open_task_id
-         JOIN contract_installments i ON i.id = ot.installment_id
+         LEFT JOIN contract_installments i ON i.id = ot.installment_id
         WHERE vt.id = $1
         LIMIT 1
-        FOR UPDATE OF vt, ot, i`,
+        FOR UPDATE OF vt, ot`,
       [visitTaskId],
     );
     if (vtRows.length === 0) throw new ResultValidationError('visit_task غير مرتبط بمهمة تسديد ذمة');
@@ -4476,6 +4546,9 @@ export async function applyInstallmentCollectionResult(
     const vt = vtRows[0];
     if (vt.task_type !== 'installment_collection') {
       throw new ResultValidationError(`نوع المهمة "${vt.task_type}" - هذا المسار خاص بتسديد الذمم فقط`);
+    }
+    if (!isPositiveInteger(vt.installment_id)) {
+      throw new ResultValidationError('مهمة تسديد الذمة يجب أن ترتبط بقسط');
     }
     if (!['in_progress', 'ended', 'completed'].includes(vt.visit_status)) {
       throw new ResultValidationError(`لا يمكن تسجيل النتيجة - الزيارة في حالة "${vt.visit_status}"`);
@@ -4499,6 +4572,8 @@ export async function applyInstallmentCollectionResult(
     const nextPriority = normalizePriority(body.next_priority);
     const parts = Array.isArray(body.payment_parts) ? body.payment_parts : [];
     const usingParts = parts.length > 0;
+    let normalizedParts: ReturnType<typeof normalizeCollectionPaymentPart>[] = [];
+    let singlePaymentMethod: ContractCollectionPaymentMethod | null = null;
     let paidAmount = optionalNumber(body.paid_amount_syp);
     let partialReasonId: number | null = null;
     let rescheduleReasonId: number | null = null;
@@ -4506,28 +4581,32 @@ export async function applyInstallmentCollectionResult(
 
     if (decision === 'paid_full' || decision === 'paid_partial') {
       if (usingParts) {
+        normalizedParts = parts.map(normalizeCollectionPaymentPart);
         // كل جزء دفع يجب أن يكون مكتملاً قبل قبول الدفعة.
-        for (const p of parts) {
-          if (!['hand', 'transfer', 'barter'].includes(p.method)) {
-            throw new ResultValidationError('نوع جزء الدفع غير صالح');
-          }
+        for (const p of normalizedParts) {
           if (!(Number(p.amountValue) > 0)) {
             throw new ResultValidationError('قيمة كل جزء دفع مطلوبة');
           }
-          if (p.method === 'barter' && !optionalText(p.barterDescription)) {
+          if (p.paymentCategory === 'barter' && !optionalText(p.barterDescription)) {
             throw new ResultValidationError('وصف المقايضة مطلوب');
           }
-          if (p.method !== 'barter' && p.currency === 'usd' && !(Number(p.exchangeRate) > 0)) {
+          if (p.paymentCategory !== 'barter' && p.currency === 'usd' && !(Number(p.exchangeRate) > 0)) {
             throw new ResultValidationError('سعر الصرف مطلوب للدفع بالدولار');
           }
         }
-        paidAmount = parts.reduce((sum, p) => sum + collectionPartSyp(p), 0);
+        paidAmount = normalizedParts.reduce((sum, p) => sum + collectionPartSyp(p), 0);
       }
       if (!paidAmount || paidAmount <= 0) {
         throw new ResultValidationError('قيمة الدفعة مطلوبة');
       }
       if (!usingParts && !optionalText(body.payment_method)) {
         throw new ResultValidationError('طريقة الدفع مطلوبة');
+      }
+      if (!usingParts) {
+        singlePaymentMethod = normalizeCollectionPaymentPart({
+          method: optionalText(body.payment_method) as CollectionPaymentPart['method'],
+          amountValue: paidAmount ?? 0,
+        }).method;
       }
       if (decision === 'paid_full' && paidAmount + 0.5 < amountBefore) {
         throw new ResultValidationError('الدفع الكامل يجب أن يغطي كامل الرصيد المتبقي');
@@ -4599,7 +4678,7 @@ export async function applyInstallmentCollectionResult(
     if (paidAmount != null) {
       if (usingParts) {
         // صف دفعة لكل جزء (يد/حوالة/مقايضة، بالليرة أو الدولار)، الكل مرتبط بالقسط.
-        for (const p of parts) {
+        for (const p of normalizedParts) {
           const partSyp = collectionPartSyp(p);
           const { rows: pr } = await db.query(
             `INSERT INTO contract_payment_entries (
@@ -4611,15 +4690,15 @@ export async function applyInstallmentCollectionResult(
             [
               paymentContractId,
               p.method,
-              p.method === 'barter' ? 'SYP' : (p.currency === 'usd' ? 'USD' : 'SYP'),
+              p.paymentCategory === 'barter' ? 'SYP' : (p.currency === 'usd' ? 'USD' : 'SYP'),
               Number(p.amountValue),
-              p.method !== 'barter' && p.currency === 'usd' ? Number(p.exchangeRate) : null,
+              p.paymentCategory !== 'barter' && p.currency === 'usd' ? Number(p.exchangeRate) : null,
               partSyp,
-              p.method === 'transfer' && p.transferCompanyId != null
-                ? String(p.transferCompanyId)
+              p.paymentCategory === 'transfer'
+                ? optionalText(p.referenceNumber) ?? optionalText(body.payment_reference)
                 : optionalText(body.payment_reference),
-              p.method === 'barter' ? optionalText(p.barterDescription) : null,
-              p.method === 'barter' ? partSyp : null,
+              p.paymentCategory === 'barter' ? optionalText(p.barterDescription) : null,
+              p.paymentCategory === 'barter' ? partSyp : null,
               receivedByEmployeeId,
               notes,
               Number(vt.installment_id),
@@ -4631,7 +4710,7 @@ export async function applyInstallmentCollectionResult(
         }
         await db.query('SELECT recompute_installment_balance($1)', [Number(vt.installment_id)]);
       } else {
-        const method = optionalText(body.payment_method)!;
+        const method = singlePaymentMethod!;
         const { rows: paymentRows } = await db.query(
           `INSERT INTO contract_payment_entries (
              contract_id, method, currency, amount_value, amount_syp,
@@ -4785,8 +4864,10 @@ export async function applyInstallmentCollectionResult(
         paidAmount,
         remainingAfter,
         paymentEntryId,
-        usingParts ? (parts.length > 1 ? 'mixed' : parts[0].method) : optionalText(body.payment_method),
-        optionalText(body.payment_reference),
+        usingParts ? (normalizedParts.length > 1 ? 'mixed' : normalizedParts[0].method) : singlePaymentMethod,
+        usingParts && normalizedParts.length === 1
+          ? optionalText(normalizedParts[0].referenceNumber) ?? optionalText(body.payment_reference)
+          : optionalText(body.payment_reference),
         isPositiveInteger(body.received_by_employee_id) ? Number(body.received_by_employee_id) : (paidAmount != null ? performedByUserId : null),
         partialReasonId,
         rescheduleReasonId,

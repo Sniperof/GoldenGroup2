@@ -2,12 +2,11 @@
 // We surface only the legal/commercial header — the deep contract view
 // remains accessible via the "صفحة العقد" link.
 
-import { useState } from 'react';
-import { ExternalLink, FileText, Loader2 } from 'lucide-react';
+import { ExternalLink, FileText } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { api } from '../../../lib/api';
 import { SectionShell } from './SectionShell';
 import Button from '../../../components/ui/Button';
+import { useContractPrintable } from '../../../hooks/useContractPrintable';
 
 interface Props {
   contract: any | null;
@@ -33,31 +32,7 @@ function fmt(d?: string | null) {
 }
 
 export function LinkedContractSection({ contract }: Props) {
-  const [printLoading, setPrintLoading] = useState(false);
-
-  const openPrintable = async () => {
-    if (!contract) return;
-    setPrintLoading(true);
-    let url: string | null = null;
-    try {
-      const html = await api.contracts.getPrintableHtml(contract.id);
-      const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-      url = URL.createObjectURL(blob);
-      const win = window.open(url, '_blank', 'noopener,noreferrer');
-      // Revoke the URL after the new tab has had a chance to load it.
-      // 30s is generous; the browser holds a reference once the document loads.
-      if (win) setTimeout(() => url && URL.revokeObjectURL(url), 30_000);
-      else {
-        URL.revokeObjectURL(url);
-        alert('تعذر فتح نافذة جديدة. تأكد من السماح للنوافذ المنبثقة.');
-      }
-    } catch (err: any) {
-      if (url) URL.revokeObjectURL(url);
-      alert(err?.message ?? 'تعذر تحميل النسخة القانونية');
-    } finally {
-      setPrintLoading(false);
-    }
-  };
+  const { openPrintable, printLoading } = useContractPrintable(contract?.id);
 
   if (!contract) {
     return (

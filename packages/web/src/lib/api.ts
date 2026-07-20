@@ -6,6 +6,7 @@ import type {
   ZoneStudyResponse,
 } from '@golden-crm/shared';
 import { shouldAttachBranchContextHeader } from './branchContext';
+import { authFetch } from './authFetch';
 
 export const API_BASE = '/api';
 
@@ -457,10 +458,7 @@ export const api = {
     // attached. Returns the raw HTML; callers turn it into a Blob URL so
     // it can be opened in a new tab without exposing the JWT.
     getPrintableHtml: async (contractId: number): Promise<string> => {
-      const token = getToken();
-      const res = await fetch(`${API_BASE}/contracts/${contractId}/printable`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
+      const res = await authFetch(`${API_BASE}/contracts/${contractId}/printable`);
       if (!res.ok) {
         const text = await res.text().catch(() => '');
         throw new Error(`فشل تحميل النسخة القانونية (${res.status}): ${text}`);

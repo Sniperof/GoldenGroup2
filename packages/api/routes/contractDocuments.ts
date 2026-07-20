@@ -19,9 +19,18 @@ import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
 import { renderContract } from '../services/contractRenderer.js';
 import type { PoolClient } from 'pg';
+import { canFreezeContractDocument, canViewContractDocument } from '../policies/contractDocumentPolicy.js';
 
 const router = Router();
 router.use(requireAuth);
+
+async function loadContractDocumentSubject(contractId: number) {
+  const { rows } = await pool.query(
+    `SELECT branch_id AS "branchId" FROM contracts WHERE id = $1 LIMIT 1`,
+    [contractId],
+  );
+  return rows[0] ?? null;
+}
 
 function parseJsonArray<T = any>(value: unknown): T[] {
   if (Array.isArray(value)) return value as T[];
@@ -246,6 +255,12 @@ router.get(
       return res.status(400).json({ error: 'id غير صالح' });
     }
 
+    const subject = await loadContractDocumentSubject(contractId);
+    if (!subject) return res.status(404).json({ error: 'العقد غير موجود' });
+    if (!canViewContractDocument(req.authContext!, subject).allowed) {
+      return res.status(403).json({ error: 'غير مسموح بعرض النسخة القانونية لهذا العقد' });
+    }
+
     const bundle = await loadContractForRender(pool, contractId);
     if (!bundle) return res.status(404).json({ error: 'العقد غير موجود' });
     const status = bundle.contract.status;
@@ -322,6 +337,11 @@ router.post(
     const contractId = Number(req.params.id);
     if (!Number.isInteger(contractId) || contractId <= 0) {
       return res.status(400).json({ error: 'id غير صالح' });
+    }
+    const subject = await loadContractDocumentSubject(contractId);
+    if (!subject) return res.status(404).json({ error: 'العقد غير موجود' });
+    if (!canFreezeContractDocument(req.authContext!, subject).allowed) {
+      return res.status(403).json({ error: 'غير مسموح بتجميد النسخة القانونية لهذا العقد' });
     }
     const client = await pool.connect();
     try {

@@ -9,6 +9,7 @@
 // ============================================================
 import { useEffect, useMemo, useState } from 'react';
 import { Activity, Loader2, LineChart, ListOrdered, ChevronLeft } from 'lucide-react';
+import { evaluateMembraneEfficiency } from '@golden-crm/shared';
 import Modal from '../../../components/ui/Modal';
 import SmartTable, { type ColumnDef } from '../../../components/SmartTable';
 import { api } from '../../../lib/api';
@@ -108,6 +109,24 @@ function taskLabel(r: any) {
   return t ? (TASK_TYPE_LABELS[t] ?? t) : null;
 }
 
+function MembraneEfficiencyValue({ reading, current = false }: { reading: any; current?: boolean }) {
+  const evaluation = evaluateMembraneEfficiency(reading.membraneInputTds, reading.membraneOutputTds);
+  if (evaluation.status === 'incomplete') return null;
+  if (evaluation.status === 'invalid') {
+    return <span className="text-xs font-bold text-red-600">قراءة الميمبرين غير صالحة</span>;
+  }
+  if (evaluation.status === 'undefined') {
+    return <span className="text-xs font-bold text-amber-600">الكفاءة غير قابلة للحساب</span>;
+  }
+  if (!current) return <span className="text-xs font-bold text-slate-700">كفاءة {evaluation.percentage}%</span>;
+  return (
+    <div className="rounded-xl border border-slate-100 px-4 py-3">
+      <div className="mb-0.5 text-xs font-bold text-slate-400">كفاءة الميمبرين الحالية</div>
+      <div className="text-2xl font-black leading-none text-sky-600">{evaluation.percentage}<span className="text-sm">%</span></div>
+    </div>
+  );
+}
+
 function PhaseBadge({ phase }: { phase: string }) {
   const meta = PHASE_META[phase] ?? { label: phase, cls: 'bg-slate-50 text-slate-600 border-slate-200' };
   return <span className={`text-xs font-bold rounded-full border px-2 py-0.5 ${meta.cls}`}>{meta.label}</span>;
@@ -136,6 +155,7 @@ function Sparkline({ points }: { points: number[] }) {
 
 /* ── Full reading card (used inside the dialog) — grouped by form headings ── */
 function ReadingCard({ r }: { r: any }) {
+  const membrane = evaluateMembraneEfficiency(r.membraneInputTds, r.membraneOutputTds);
   const groups = SECTIONS
     .map(s => ({ title: s.title, measured: s.fields.map(f => ({ f, v: renderValue(f, r[f.key]) })).filter(x => x.v != null) }))
     .filter(g => g.measured.length > 0);
@@ -151,6 +171,11 @@ function ReadingCard({ r }: { r: any }) {
         </div>
         {r.recordedByName && <span className="text-xs text-slate-400">سجّلها: {r.recordedByName}</span>}
       </div>
+      {membrane.status === 'invalid' && (
+        <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700">
+          قراءة الميمبرين غير صالحة: الخرج أكبر من الدخل أو القيم المدخلة غير صحيحة. القيم الخام معروضة للمراجعة.
+        </div>
+      )}
       {groups.length > 0 ? (
         <div className="space-y-4">
           {groups.map(g => (
@@ -285,7 +310,7 @@ function HealthDialog({ rows, ascending, initialReading, onClose }: { rows: any[
                     {taskLabel(r) && <span className="text-xs font-bold rounded-full border border-sky-200 bg-sky-50 text-sky-700 px-2 py-0.5">{taskLabel(r)}</span>}
                     <span className="text-xs text-slate-500">{formatDate(r.createdAt)}</span>
                   </div>
-                  {r.membraneEfficiency != null && <span className="text-xs font-bold text-slate-700">كفاءة {r.membraneEfficiency}%</span>}
+                  <MembraneEfficiencyValue reading={r} />
                 </button>
               ))}
             </div>
@@ -342,12 +367,7 @@ export function TechnicalHealthSection({ deviceId }: { deviceId: number }) {
           <div className="space-y-4">
             {/* Current health summary */}
             <div className="flex items-center gap-4 flex-wrap">
-              {latest?.membraneEfficiency != null && (
-                <div className="rounded-2xl border border-slate-100 px-4 py-3">
-                  <div className="text-xs text-slate-400 font-bold mb-0.5">كفاءة الميمبرين الحالية</div>
-                  <div className="text-2xl font-black text-sky-600 leading-none">{latest.membraneEfficiency}<span className="text-sm">%</span></div>
-                </div>
-              )}
+              <MembraneEfficiencyValue reading={latest} current />
               <div className="text-xs text-slate-500 space-y-1">
                 <div className="flex items-center gap-2">
                   <span className="text-slate-400">آخر قراءة:</span>
@@ -369,7 +389,7 @@ export function TechnicalHealthSection({ deviceId }: { deviceId: number }) {
                     <span className="text-xs text-slate-400">{formatDay(r.createdAt)}</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    {r.membraneEfficiency != null && <span className="text-xs font-bold text-slate-700">كفاءة {r.membraneEfficiency}%</span>}
+                    <MembraneEfficiencyValue reading={r} />
                     <span className="text-xs text-sky-600 font-bold">تفاصيل</span>
                   </div>
                 </button>

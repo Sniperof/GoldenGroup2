@@ -4,7 +4,7 @@ import {
     Headset, Phone, FileText, CheckCircle2, History, CreditCard,
     AlertTriangle, Calendar, Send, Zap, User, Clock, CheckCircle,
     MapPin, PlusCircle, MessageSquare, ThumbsUp, Wrench, Activity, Briefcase,
-    Search, ChevronLeft, ChevronRight, Layers, Eye, Edit3, X, Cpu, Gift,
+    Search, ChevronLeft, ChevronRight, Layers, Eye, Edit3, X, Cpu, Gift, Loader2, RefreshCw,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { getOpenTaskDetailPath } from '../lib/taskRoutes';
@@ -101,6 +101,13 @@ interface CrossTeamTarget {
     taskCount: number;
     latestTelemarketingOutcome: string | null;
     latestCallAt: string | null;
+}
+
+interface SelectedClientDetailRequest {
+    clientId: number;
+    client: Client | null;
+    loading: boolean;
+    error: string | null;
 }
 
 function groupByCustomer(items: TaskListItem[]): CustomerGroup[] {
@@ -624,8 +631,64 @@ export default function TelemarketerWorkspace() {
     const [messageReplyContactId, setMessageReplyContactId] = useState<string>('');
     const [crossTeamTargetsByClient, setCrossTeamTargetsByClient] = useState<Record<number, CrossTeamTarget[]>>({});
     const [crossTeamLoading, setCrossTeamLoading] = useState(false);
+    const [selectedClientDetailRequest, setSelectedClientDetailRequest] = useState<SelectedClientDetailRequest | null>(null);
+    const [selectedClientDetailReloadKey, setSelectedClientDetailReloadKey] = useState(0);
 
     const selectedCustomer = useMemo(() => filteredGroups.find(cg => cg.key === selectedCustomerKey) || null, [filteredGroups, selectedCustomerKey]);
+    const listedSelectedClient = useMemo(() => {
+        if (!selectedCustomer || selectedCustomer.entityType !== 'client') return null;
+        return clients.find(client => client.id === selectedCustomer.entityId) || null;
+    }, [selectedCustomer, clients]);
+
+    useEffect(() => {
+        if (!selectedCustomer || selectedCustomer.entityType !== 'client' || listedSelectedClient) {
+            setSelectedClientDetailRequest(null);
+            return;
+        }
+
+        const clientId = selectedCustomer.entityId;
+        let cancelled = false;
+        setSelectedClientDetailRequest({ clientId, client: null, loading: true, error: null });
+
+        api.clients.get(clientId)
+            .then((client: Client) => {
+                if (!cancelled) {
+                    setSelectedClientDetailRequest({ clientId, client, loading: false, error: null });
+                }
+            })
+            .catch(() => {
+                if (!cancelled) {
+                    setSelectedClientDetailRequest({
+                        clientId,
+                        client: null,
+                        loading: false,
+                        error: 'تعذر تحميل تفاصيل الزبون. تحقق من الصلاحية أو الاتصال ثم أعد المحاولة.',
+                    });
+                }
+            });
+
+        return () => { cancelled = true; };
+    }, [selectedCustomer, listedSelectedClient, selectedClientDetailReloadKey]);
+
+    const updateWorkspaceClient = useCallback(async (id: number, updates: Partial<Client>) => {
+        const listedClient = clients.find(client => client.id === id);
+        if (listedClient) {
+            await updateClient(id, updates);
+            return;
+        }
+
+        const fallbackClient = selectedClientDetailRequest?.clientId === id
+            ? selectedClientDetailRequest.client
+            : null;
+        if (!fallbackClient) {
+            throw new Error('Client details are not loaded');
+        }
+
+        const updatedClient = await api.clients.update(id, { ...fallbackClient, ...updates });
+        setSelectedClientDetailRequest(current => current?.clientId === id
+            ? { clientId: id, client: updatedClient, loading: false, error: null }
+            : current);
+    }, [clients, selectedClientDetailRequest, updateClient]);
 
     // Replaces the legacy bulk `api.visits.list()` load. The new field_visits
     // endpoint requires a clientId (or date) filter — so we fetch visits per
@@ -720,8 +783,20 @@ export default function TelemarketerWorkspace() {
     const entityDetails = useMemo(() => {
         if (!selectedCustomer) return null;
         if (selectedCustomer.entityType === 'candidate') return candidates.find(c => c.id === selectedCustomer.entityId);
-        return clients.find(c => c.id === selectedCustomer.entityId);
-    }, [selectedCustomer, candidates, clients]);
+        if (listedSelectedClient) return listedSelectedClient;
+        return selectedClientDetailRequest?.clientId === selectedCustomer.entityId
+            ? selectedClientDetailRequest.client
+            : null;
+    }, [selectedCustomer, candidates, listedSelectedClient, selectedClientDetailRequest]);
+
+    const entityDetailsLoading = !!selectedCustomer &&
+        selectedCustomer.entityType === 'client' &&
+        !listedSelectedClient &&
+        (selectedClientDetailRequest?.clientId !== selectedCustomer.entityId || selectedClientDetailRequest.loading);
+    const entityDetailsError = selectedCustomer?.entityType === 'client' &&
+        selectedClientDetailRequest?.clientId === selectedCustomer.entityId
+        ? selectedClientDetailRequest.error
+        : null;
 
     const selectedContacts = useMemo(() => {
         if (!entityDetails) return [];
@@ -879,7 +954,7 @@ export default function TelemarketerWorkspace() {
                 const updatedContacts = (entityDetails.contacts as ContactEntry[]).map(c =>
                     c.id === selectedContact.id ? { ...c, status: newContactStatus } : c
                 );
-                await updateClient(selectedCustomer.entityId, { contacts: updatedContacts }).catch(() => {});
+                await updateWorkspaceClient(selectedCustomer.entityId, { contacts: updatedContacts }).catch(() => {});
             }
         }
 
@@ -949,7 +1024,7 @@ export default function TelemarketerWorkspace() {
                 }, selectedTaskEntries.length > 0 ? selectedTaskEntries : undefined);
 
                 if (selectedCustomer.entityType === 'client' && extras.waterSource) {
-                    await updateClient(selectedCustomer.entityId, { waterSource: extras.waterSource });
+                    await updateWorkspaceClient(selectedCustomer.entityId, { waterSource: extras.waterSource });
                 }
                 // Mark as booked AFTER appointment is confirmed
                 await Promise.all(selectedCustomer.allItems.map(item =>
@@ -1036,7 +1111,7 @@ export default function TelemarketerWorkspace() {
         }
 
         if (selectedCustomer.entityType === 'client' && data.waterSource) {
-            await updateClient(selectedCustomer.entityId, { waterSource: data.waterSource });
+            await updateWorkspaceClient(selectedCustomer.entityId, { waterSource: data.waterSource });
         }
 
         // Update ALL items for this customer as booked in the store.
@@ -1114,7 +1189,7 @@ export default function TelemarketerWorkspace() {
         }
 
         if (selectedCustomer.entityType === 'client') {
-            const client = clients.find(c => c.id === selectedCustomer.entityId);
+            const client = entityDetails as Client | null;
             if (client) {
                 events.push({ id: 'client_' + client.id, date: client.createdAt, type: 'suggestion', icon: User, color: 'text-amber-600', bg: 'bg-amber-100',
                     content: <><p className="text-sm font-bold text-slate-800">تم تسجيل الزبون في النظام</p>{client.referrerName && <p className="text-xs text-slate-600 mt-1">الوسيط: {client.referrerName}</p>}</> });
@@ -1197,7 +1272,7 @@ export default function TelemarketerWorkspace() {
         });
 
         return events.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    }, [selectedCustomer, candidates, clients, contracts, visits, maintenanceRequests, callLogs]);
+    }, [selectedCustomer, entityDetails, candidates, contracts, visits, maintenanceRequests, callLogs]);
 
     const openTaskRows = useMemo(() => {
         if (!selectedCustomer) return [];
@@ -1734,6 +1809,26 @@ export default function TelemarketerWorkspace() {
                                         </div>
                             </Modal>
                         </>
+                    ) : selectedCustomer && entityDetailsLoading ? (
+                        <div className="flex-1 flex items-center justify-center flex-col text-slate-500 bg-slate-50">
+                            <Loader2 className="w-8 h-8 mb-3 animate-spin text-violet-500" />
+                            <p className="font-bold text-sm">جارٍ تحميل تفاصيل الزبون</p>
+                        </div>
+                    ) : selectedCustomer && entityDetailsError ? (
+                        <div className="flex-1 flex items-center justify-center flex-col text-center text-slate-500 bg-slate-50 px-8">
+                            <AlertTriangle className="w-10 h-10 mb-3 text-red-400" />
+                            <p className="font-bold text-sm text-slate-700">{entityDetailsError}</p>
+                            <Button
+                                type="button"
+                                variant="secondary"
+                                size="sm"
+                                icon={RefreshCw}
+                                onClick={() => setSelectedClientDetailReloadKey(key => key + 1)}
+                                className="mt-4"
+                            >
+                                إعادة المحاولة
+                            </Button>
+                        </div>
                     ) : (
                         <div className="flex-1 flex items-center justify-center flex-col text-slate-400 bg-slate-50 relative overflow-hidden">
                             <Headset className="w-20 h-20 mb-4 text-violet-100" />
@@ -1966,7 +2061,7 @@ export default function TelemarketerWorkspace() {
                     isOpen={isClientEditModalOpen}
                     onClose={() => setIsClientEditModalOpen(false)}
                     onSave={(updatedClient: Client) => {
-                        updateClient(updatedClient.id, updatedClient).catch(() => {});
+                        updateWorkspaceClient(updatedClient.id, updatedClient).catch(() => {});
                         setIsClientEditModalOpen(false);
                         loadClients();
                     }}

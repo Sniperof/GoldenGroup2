@@ -24,7 +24,7 @@ function partSyp(e: PaymentEntry): number {
 function partComplete(e: PaymentEntry): boolean {
   if (!e.method) return false;
   if (!(Number(e.amountValue) > 0)) return false;
-  if (e.method === 'transfer' && !e.transferCompanyId) return false;
+  if (e.method === 'transfer' && !e.paymentInstrument) return false;
   if (e.method !== 'barter' && e.currency === 'usd' && !(Number(e.exchangeRate) > 0)) return false;
   if (e.method === 'barter' && !e.barterDescription.trim()) return false;
   return true;
@@ -49,7 +49,13 @@ export default function InstallmentCollectionResultModal({ visitId, taskId, task
 
   // المطلوب = الذمة (الرصيد المتبقي على القسط).
   const expectedAmount = useMemo(() => {
-    return num(task?.expectedAmountSyp ?? task?.expected_amount_syp ?? task?.remainingBalance ?? task?.remaining_balance);
+    return num(
+      task?.expectedAmountSyp
+      ?? task?.expected_amount_syp
+      ?? task?.expectedAmount
+      ?? task?.remainingBalance
+      ?? task?.remaining_balance,
+    );
   }, [task]);
 
   const isPayment = mode === 'paid_full' || mode === 'paid_partial';
@@ -101,11 +107,12 @@ export default function InstallmentCollectionResultModal({ visitId, taskId, task
         return;
       }
       body.payment_parts = entries.map(e => ({
-        method: e.method,
+        paymentCategory: e.method,
+        method: e.paymentInstrument,
         amountValue: Number(e.amountValue),
         currency: e.currency,
         exchangeRate: e.exchangeRate ? Number(e.exchangeRate) : null,
-        transferCompanyId: e.transferCompanyId || null,
+        referenceNumber: e.referenceNumber.trim() || null,
         barterDescription: e.barterDescription || null,
       }));
     }
@@ -184,6 +191,7 @@ export default function InstallmentCollectionResultModal({ visitId, taskId, task
                 entries={entries}
                 onChange={setEntries}
                 grandTotal={expectedAmount ?? undefined}
+                capturePaymentInstrument
                 label="دفعات الزبون (يد / حوالة / مقايضة — ل.س أو $)"
               />
 

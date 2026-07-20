@@ -60,6 +60,18 @@ class BookingError extends Error {
   }
 }
 
+export const FIELD_VISIT_SLOT_OCCUPIED_SQL = `fv.status <> 'cancelled'`;
+export const FIELD_VISIT_SLOT_CONSTRAINT = 'uq_field_visits_team_slot';
+const SLOT_CONFLICT_MESSAGE = 'هذا الموعد محجوز مسبقاً للفريق في نفس الوقت.';
+
+export function mapVisitSlotConflict(error: unknown): unknown {
+  const pgError = error as { code?: string; constraint?: string } | null;
+  if (pgError?.code === '23505' && pgError.constraint === FIELD_VISIT_SLOT_CONSTRAINT) {
+    return new BookingError(409, SLOT_CONFLICT_MESSAGE);
+  }
+  return error;
+}
+
 // ─── D18 triple guard ──────────────────────────────────────────────────────
 
 /**
@@ -233,7 +245,7 @@ async function loadTeamSnapshot(
   return { teamSnapshot: null, responsibleEmployeeId: null };
 }
 
-async function assertTeamSlotAvailable(
+export async function assertTeamSlotAvailable(
   db: PoolClient,
   params: { branchId: number; scheduledDate: string; scheduledTime: string; teamKey: string },
 ): Promise<void> {
@@ -245,7 +257,7 @@ async function assertTeamSlotAvailable(
         AND fv.scheduled_date = $2
         AND COALESCE(fv.team_snapshot->>'teamKey', ct.team_key) = $3
         AND substring(COALESCE(fv.scheduled_time, '') from 1 for 5) = substring($4 from 1 for 5)
-        AND fv.status IN ('scheduled', 'in_progress', 'ended', 'completed')
+        AND ${FIELD_VISIT_SLOT_OCCUPIED_SQL}
       LIMIT 1`,
     [params.branchId, params.scheduledDate, params.teamKey, params.scheduledTime],
   );
@@ -253,7 +265,7 @@ async function assertTeamSlotAvailable(
   if (rows.length > 0) {
     throw new BookingError(
       409,
-      'هذا الموعد محجوز مسبقاً للفريق في نفس الوقت.',
+      SLOT_CONFLICT_MESSAGE,
     );
   }
 }
@@ -406,7 +418,7 @@ export async function bookVisit(input: BookVisitInput): Promise<BookVisitResult>
     return { fieldVisitId, visitTaskIds };
   } catch (err) {
     await db.query('ROLLBACK');
-    throw err;
+    throw mapVisitSlotConflict(err);
   } finally {
     db.release();
   }
@@ -544,7 +556,15 @@ export async function createInstantVisit(input: CreateInstantVisitInput): Promis
       throw new BookingError(400, 'GPS غير متاح — يجب اختيار سبب (locationMissingReasonId).');
     }
 
-    // 9. Create the field_visit, already in_progress.
+    // 9. Reserve the current minute and create the field_visit already in_progress.
+    const timeSlot = now.toTimeString().slice(0, 5);
+    await assertTeamSlotAvailable(db, {
+      branchId,
+      scheduledDate: today,
+      scheduledTime: timeSlot,
+      teamKey,
+    });
+
     const customerSnapshot = {
       name: client.name,
       address: client.detailed_address,
@@ -553,7 +573,6 @@ export async function createInstantVisit(input: CreateInstantVisitInput): Promis
       waterSource: client.water_source,
       fieldInitiated: true,
     };
-    const timeSlot = now.toTimeString().slice(0, 5);
     const { rows: visitRows } = await db.query(
       `INSERT INTO field_visits (
          visit_type, visit_family, branch_id, client_id, status,
@@ -635,7 +654,7 @@ export async function createInstantVisit(input: CreateInstantVisitInput): Promis
     return { fieldVisitId };
   } catch (err) {
     await db.query('ROLLBACK');
-    throw err;
+    throw mapVisitSlotConflict(err);
   } finally {
     db.release();
   }

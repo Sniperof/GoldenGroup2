@@ -1,11 +1,12 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
-import { Phone, Loader2, PhoneMissed, Clock, Filter, MessageSquare, Edit3, Layers } from 'lucide-react';
+import { Phone, Loader2, PhoneMissed, Clock, Filter, MessageSquare, Edit3, Layers, AlertTriangle, RefreshCw } from 'lucide-react';
 import { api } from '../../lib/api';
 import { getOutcomeMeta, TelemarketingOutcomeCode } from '@golden-crm/shared';
 import type { CustomerCallLog as CallLogEntry } from '@golden-crm/shared';
 import MessageReplyOutcomeModal from './MessageReplyOutcomeModal';
 import Select from '../ui/Select';
 import Card from '../ui/Card';
+import Button from '../ui/Button';
 
 interface Props {
     customerId: number;
@@ -144,6 +145,7 @@ function FilterSelect<T extends string>({
 export default function CustomerCallLog({ customerId, refreshKey, canEdit = true }: Props) {
     const [logs, setLogs] = useState<CallLogEntry[]>([]);
     const [loading, setLoading] = useState(false);
+    const [loadError, setLoadError] = useState<string | null>(null);
     const [editLog, setEditLog] = useState<CallLogEntry | null>(null);
 
     // Filters
@@ -162,11 +164,13 @@ export default function CustomerCallLog({ customerId, refreshKey, canEdit = true
 
     const fetchLogs = useCallback(async () => {
         setLoading(true);
+        setLoadError(null);
         try {
             const data = await api.customerCalls.list(customerId);
             setLogs(data);
         } catch {
             setLogs([]);
+            setLoadError('تعذر تحميل سجل الاتصالات. تحقق من الصلاحية أو الاتصال ثم أعد المحاولة.');
         } finally {
             setLoading(false);
         }
@@ -280,7 +284,23 @@ export default function CustomerCallLog({ customerId, refreshKey, canEdit = true
             </Card>
 
             {/* Timeline */}
-            {!loading && grouped.length === 0 && (
+            {!loading && loadError && (
+                <div className="text-center py-12 text-slate-500">
+                    <AlertTriangle className="w-10 h-10 mx-auto mb-3 text-red-400" />
+                    <p className="font-bold text-sm text-slate-700">{loadError}</p>
+                    <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        icon={RefreshCw}
+                        onClick={fetchLogs}
+                        className="mt-4"
+                    >
+                        إعادة المحاولة
+                    </Button>
+                </div>
+            )}
+            {!loading && !loadError && grouped.length === 0 && (
                 <div className="text-center py-12 text-slate-400">
                     <Phone className="w-10 h-10 mx-auto mb-3 opacity-30" />
                     <p className="font-bold text-sm">لا توجد سجلات مطابقة</p>

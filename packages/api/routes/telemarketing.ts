@@ -16,7 +16,6 @@ import {
 } from '../services/telemarketingScope.js';
 import {
   CLOSES_TARGET_OUTCOMES,
-  HIDDEN_OPERATIONAL_TASK_TYPES,
   normaliseOutcomeCode,
   TelemarketingOutcomeCode,
 } from '@golden-crm/shared';
@@ -26,7 +25,7 @@ import {
   mapCustomerOwnership,
 } from '../services/customerOwnership.js';
 import { getSystemSettingNumber } from '../services/systemSettings.js';
-import { bookVisit, BookingError } from '../services/visitBooking.js';
+import { bookVisit, BookingError, FIELD_VISIT_SLOT_OCCUPIED_SQL } from '../services/visitBooking.js';
 import { refreshVisitType } from '../services/visitClassification.js';
 import {
   claimContactTarget,
@@ -34,6 +33,11 @@ import {
   markContactTargetFirstContact,
 } from '../services/contactTargetLocks.js';
 import { authorize } from '../services/authorizationService.js';
+import {
+  isTelemarketingServiceRequestTaskType,
+  TELEMARKETING_SERVICE_REQUEST_TASK_TYPES,
+} from '../services/openTaskLinkagePolicy.js';
+import { canCreateTelemarketingServiceTask } from '../policies/telemarketingServiceTaskPolicy.js';
 
 // ── Task-type-scoped contact visibility (migration 333) ─────────────────────
 // A role may hold `telemarketing.lists.view` (all contacts) or only
@@ -915,6 +919,7 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view', 'telemarke
         ${appointmentTeamKeySql} AS "teamKey",
         fv.scheduled_date::text AS date,
         substring(COALESCE(fv.scheduled_time, '') from 1 for 5) AS "timeSlot",
+        fv.status,
         COALESCE(fv.customer_snapshot->>'occupation', '') AS occupation,
         COALESCE(fv.customer_snapshot->>'waterSource', '') AS "waterSource",
         COALESCE(fv.telemarketer_notes, fv.field_notes, '') AS notes,
@@ -949,7 +954,7 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view', 'telemarke
       ${fieldVisitWhere}
         ${fieldVisitWhere ? 'AND' : 'WHERE'} fv.origin_type = 'telemarketing'
         AND fv.visit_type = 'marketing'
-        AND fv.status IN ('scheduled','in_progress','ended','completed')
+        AND ${FIELD_VISIT_SLOT_OCCUPIED_SQL}
       GROUP BY fv.id, c.id, ct.id, tl_origin.id, tl.id
       ORDER BY fv.created_at DESC
     `,
@@ -2424,11 +2429,11 @@ router.get('/task-type-options', requirePermission('telemarketing.calls.create')
   try {
     const { rows } = await pool.query(
       `SELECT task_type AS "taskType", arabic_label AS "arabicLabel", task_family AS "taskFamily"
-         FROM task_type_config
+        FROM task_type_config
         WHERE is_active = TRUE
-          AND task_type <> ALL($1::text[])
+          AND task_type = ANY($1::text[])
         ORDER BY display_order ASC, task_type ASC`,
-      [Array.from(HIDDEN_OPERATIONAL_TASK_TYPES)],
+      [Array.from(TELEMARKETING_SERVICE_REQUEST_TASK_TYPES)],
     );
     return res.json(rows);
   } catch (err: any) {
@@ -2488,6 +2493,40 @@ router.post('/service-tasks', requirePermission('telemarketing.calls.create'), a
     }
     if (!taskType || typeof taskType !== 'string') {
       return res.status(400).json({ error: 'taskType is required' });
+    }
+    if (!isTelemarketingServiceRequestTaskType(taskType)) {
+      return res.status(409).json({
+        error: 'نوع المهمة المحدد يحتاج بيانات ارتباط لا يوفرها طلب الخدمة الهاتفي. أنشئ المهمة من مسارها التشغيلي المخصص.',
+      });
+    }
+
+    const { rows: clientRows } = await pool.query(
+      `SELECT c.id, c.branch_id,
+              EXISTS (
+                SELECT 1 FROM client_assignments ca
+                 WHERE ca.client_id = c.id AND ca.hr_user_id = $2
+              ) AS is_assigned
+         FROM clients c
+        WHERE c.id = $1 AND c.deleted_at IS NULL AND c.is_active = TRUE
+        LIMIT 1`,
+      [Number(clientId), createdBy],
+    );
+    if (!clientRows[0]) {
+      return res.status(404).json({ error: 'الزبون غير موجود أو غير فعال' });
+    }
+    const clientSubject = clientRows[0];
+    if (Number(clientSubject.branch_id) !== branchId) {
+      return res.status(409).json({ error: 'فرع الزبون لا يطابق فرع العمل الحالي' });
+    }
+    const access = canCreateTelemarketingServiceTask(req.authContext!, {
+      branchId: Number(clientSubject.branch_id),
+      assignedUserIds: clientSubject.is_assigned && createdBy ? [createdBy] : [],
+    });
+    if (!access.allowed) {
+      return res.status(403).json({ error: 'غير مسموح بإنشاء طلب خدمة لهذا الزبون ضمن نطاق صلاحيتك' });
+    }
+    if (getTelemarketingTaskTypeScope(req.authContext) === 'device_demo' && !(await clientHasDeviceDemoTask(Number(clientId)))) {
+      return res.status(403).json({ error: 'غير مسموح: هذه الجهة خارج نطاق صلاحيتك (عرض جهاز فقط)' });
     }
 
     // Resolve task_family from task_type_config

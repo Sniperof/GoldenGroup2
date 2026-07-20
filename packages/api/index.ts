@@ -10,6 +10,7 @@ import { NODE_ENV, PORT, CORS_ORIGINS } from './config/env.js';
 import { UPLOADS_DIR } from './storage/uploader.js';
 import { requireAuth } from './middleware/auth.js';
 import { requireNotHQOnly } from './middleware/permission.js';
+import { apiErrorHandler } from './middleware/apiErrorHandler.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -204,6 +205,10 @@ if (NODE_ENV !== 'development') {
     res.sendFile(path.join(distPath, 'index.html'));
   });
 }
+
+// Keep every unhandled REST failure JSON-shaped; domain services should still
+// translate expected failures (such as conflicts) before they reach this guard.
+app.use(apiErrorHandler);
 
 export async function start() {
   return new Promise<void>((resolve) => {

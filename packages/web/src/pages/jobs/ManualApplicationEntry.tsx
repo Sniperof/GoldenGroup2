@@ -241,13 +241,27 @@ export default function ManualApplicationEntry() {
     return () => { active = false; };
   }, []);
 
+  const clearFieldErrors = (...keys: string[]) => {
+    setFieldErrors(previous => {
+      const next = { ...previous };
+      let changed = false;
+      for (const key of keys) {
+        if (key in next) {
+          delete next[key];
+          changed = true;
+        }
+      }
+      return changed ? next : previous;
+    });
+  };
+
   const setA = (key: keyof ApplicantForm, val: any) => {
     setApplicant(p => ({ ...p, [key]: val }));
-    if (fieldErrors[key]) setFieldErrors(p => { const n = { ...p }; delete n[key]; return n; });
+    clearFieldErrors(key);
   };
   const setR = (key: keyof ReferrerForm, val: any) => {
     setReferrer(p => ({ ...p, [key]: val }));
-    if (fieldErrors[`referrer_${key}`]) setFieldErrors(p => { const n = { ...p }; delete n[`referrer_${key}`]; return n; });
+    clearFieldErrors(`referrer_${key}`);
   };
 
   const handleNameInput = (val: string, key: 'firstName' | 'lastName') => {
@@ -278,13 +292,6 @@ export default function ManualApplicationEntry() {
     setClientSearch('');
     setClientSuggestions([]);
     setEmployeeFound(null);
-    delete fieldErrors.referrer_type;
-    delete fieldErrors.referrer_employeeId;
-    delete fieldErrors.referrer_fullName;
-    delete fieldErrors.referrer_lastName;
-    delete fieldErrors.referrer_geoSelection;
-    delete fieldErrors.referrer_detailedAddress;
-    delete fieldErrors.referrer_referrerWork;
   };
 
   const handleEmployeeLookup = async () => {
@@ -298,9 +305,8 @@ export default function ManualApplicationEntry() {
       setSelectedClientId(null);
       setClientSearch('');
       setClientSuggestions([]);
-      delete fieldErrors.referrer_employeeId;
-      delete fieldErrors.referrer_fullName;
-        return;
+      clearFieldErrors('referrer_employeeId', 'referrer_fullName');
+      return;
     }
     setEmployeeFound(null);
     setFieldErrors(prev => ({ ...prev, referrer_employeeId: 'لم يتم العثور على الموظف' }));
@@ -382,6 +388,7 @@ export default function ManualApplicationEntry() {
       }
     }
 
+    setFieldErrors(e);
     if (Object.keys(e).length > 0) { window.scrollTo({ top: 0, behavior: 'smooth' }); return false; }
     return true;
   };
@@ -400,7 +407,7 @@ export default function ManualApplicationEntry() {
       let finalCvUrl = applicant.cvUrl;
       if (applicant.photoFile) finalPhotoUrl = await uploadFile(applicant.photoFile);
       if (applicant.cvFile) finalCvUrl = await uploadFile(applicant.cvFile);
-      // photoUrl stays null if not provided (validation catches missing photo above)
+      // The personal photo is optional for manual HR entry.
 
       const payload: any = {
         jobVacancyId: selectedVacancyId || null,
@@ -530,7 +537,10 @@ export default function ManualApplicationEntry() {
             <Field label="الشاغر الوظيفي المرتبط" required error={fieldErrors.vacancy}>
               <Select
                 value={selectedVacancyId === '' ? '' : String(selectedVacancyId)}
-                onChange={v => setSelectedVacancyId(v === '' ? '' : Number(v))}
+                onChange={v => {
+                  setSelectedVacancyId(v === '' ? '' : Number(v));
+                  clearFieldErrors('vacancy');
+                }}
                 placeholder="غير مرتبط بشاغر (يُربط لاحقاً)"
                 ariaLabel="الشاغر الوظيفي"
                 className="w-full"
@@ -552,7 +562,7 @@ export default function ManualApplicationEntry() {
             <Field label="مصدر الطلب" required error={fieldErrors.applicationSource}>
               <Select
                 value={applicationSource}
-                onChange={v => { setApplicationSource(v); delete fieldErrors.applicationSource; }}
+                onChange={v => { setApplicationSource(v); clearFieldErrors('applicationSource'); }}
                 placeholder="-- اختر المصدر --"
                 ariaLabel="مصدر الطلب"
                 className="w-full"
@@ -630,7 +640,7 @@ export default function ManualApplicationEntry() {
             <GeoSmartSearch
               label="التسلسل الهرمي للمنطقة"
               geoUnits={geoUnits} value={applicant.geoSelection}
-              onChange={v => { setA('geoSelection', v); delete fieldErrors.geoSelection; }}
+              onChange={v => setA('geoSelection', v)}
               placeholder="المحافظة > المنطقة > الناحية > الحي"
             />
             <p className="mt-2 text-xs text-slate-500">يمكن الحفظ بمحافظة + عنوان تفصيلي فقط، أما المنطقة والناحية والحي فهي اختيارية.</p>
@@ -758,7 +768,7 @@ export default function ManualApplicationEntry() {
         {/* ─── SECTION 5: Attachments ─── */}
         <SectionCard num={5} title="المرفقات" subtitle="صورة شخصية وسيرة ذاتية" icon={Paperclip} colorKey={5} delay={0.14}>
           <div>
-            <Field label="صورة شخصية" required error={fieldErrors.photoFile}>
+            <Field label="صورة شخصية" hint="اختياري" error={fieldErrors.photoFile}>
               <input type="file" id="photo-upload" accept=".png,.jpg,.jpeg" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) setA('photoFile', f); }} />
               <label htmlFor="photo-upload" className={`mt-1 flex flex-col items-center justify-center gap-2 p-6 rounded-xl border-2 border-dashed cursor-pointer transition-all ${applicant.photoFile ? 'border-emerald-400 bg-emerald-50' : fieldErrors.photoFile ? 'border-red-300 bg-red-50' : 'border-slate-200 bg-white hover:border-sky-300 hover:bg-sky-50'}`}>
                 {applicant.photoFile
