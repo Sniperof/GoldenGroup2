@@ -399,12 +399,15 @@ cooldown يحجب الزبون من كل contact_targets بغض النظر عن 
 | `POST /task-lists/generate-from-plan`| `telemarketing.lists.generate`| BRANCH / GLOBAL | توليد بنود الكشوف بناء على الخطط |
 | `POST /api/telemarketing/call-logs`| `telemarketing.calls.create` | BRANCH / GLOBAL | تسجيل مكالمة هاتفية وتحديث المحصلة |
 | `POST /api/telemarketing/appointments`| `telemarketing.appointments.book`| BRANCH / GLOBAL | حجز موعد وتأكيد الزيارات الميدانية |
-| `POST /api/telemarketing/service-tasks`| `telemarketing.calls.create` | BRANCH / GLOBAL | تحويل العميل وتوليد مهمة لا تحتاج رابطاً تشغيلياً، بعد تفويض سجل العميل وفرعه |
+| `GET /api/telemarketing/service-task-devices`| `telemarketing.calls.create` | ASSIGNED / BRANCH / GLOBAL | lookup تشغيلي محدود يعرض أجهزة الزبون في الفرع وأهلية كل جهاز لنوع المهمة المطلوب |
+| `POST /api/telemarketing/service-tasks`| `telemarketing.calls.create` | ASSIGNED / BRANCH / GLOBAL | تحويل طلب العميل إلى مهمة بعد تفويض سجل العميل وفرعه والتحقق من رابط الجهاز عند الحاجة |
 
-> **قيد سلامة DEF-004:** مسار طلب الخدمة الهاتفي لا يملك مدخلات جهاز أو عقد أو قسط، لذلك يسمح فقط بالأنواع
-> `device_demo`, `golden_warranty_offer`, `emergency_maintenance`, و`periodic_maintenance`.
-> المهام التي تحتاج `device_id` أو `installment_id` أو سجلات هدية/كفالة تنشأ من مسارها التشغيلي المخصص، ولا يجوز
-> تجاوز ذلك بإرسال نوع مخفي مباشرة إلى API. كما يجب رفض سحب أي مهمة قائمة تفتقد ارتباطها الإلزامي.
+> **قيد سلامة DEF-004:** يسمح طلب الخدمة الهاتفي بالأنواع
+> `device_demo`, `golden_warranty_offer`, `emergency_maintenance`, و`periodic_maintenance` فقط.
+> `device_demo` لا يحتاج جهازاً مركباً. أما الأنواع الثلاثة الأخرى فتتطلب اختيار `installedDeviceId` من أجهزة الزبون
+> المصرح بها في الفرع. يعيد الخادم التحقق من ملكية الجهاز وحالته وأساس الخدمة ومنع المهمة النشطة المكررة قبل الحفظ،
+> ثم يخزن الرابط في `open_tasks.device_id`. عرض الكفالة يسجل الرابط أيضاً في `open_task_installed_devices`.
+> لا يجوز اعتبار تحقق الواجهة حماية، ولا إنشاء مهمة جهاز بقيمة `device_id` فارغة، ولا سحب مهمة قائمة تفتقد رابطها الإلزامي.
 
 ---
 
@@ -441,8 +444,9 @@ cooldown يحجب الزبون من كل contact_targets بغض النظر عن 
 | **TC-03** | تسجيل مكالمة فاشلة بسبب رفض صريح | POST `/api/telemarketing/call-logs` | نتيجة `rejected` مع تبرير رفض `telemarketing_rejection_reason`. | ترميز `200` وتحديث حالة البند لـ `called` وإغلاق الهدف نهائياً. | يوثق رغبات العملاء بالانسحاب ويمنع إزعاجهم. |
 | **TC-04** | استرجاع لقطة الكشف اليومي لفرقة الاتصال | GET `/api/telemarketing/snapshot` | الباراميترات النصية للفريق واليوم الجاري. | ترميز `200` مع كائن الكشف التفصيلي والبنود المعلقة ومعدلات الإنجاز. | يعكس واجهة المتابعة الفورية لموظفي التسويق. |
 | **TC-05** | توليد كشف اتصال ديناميكي من الخطة | POST `/task-lists/generate-from-plan` | معرف خطة التحضير المبرمة والتواريخ. | ترميز `200` واستيراد العملاء لجدول البنود التابع للكشف أوتوماتيكياً. | يختصر جهد إدخال وتكرار العملاء المستهدفين يدوياً. |
-| **TC-06** | تحويل تواصل هاتف لصيانة وفتح مهمة | POST `/api/telemarketing/service-tasks` | معرف المكالمة ونوع الصيانة المطلوبة `periodic_maintenance`. | ترميز `201` وإنشاء مهمة خدمة مفتوحة `open_tasks` وتخصيصها للفرع الجاري. | يسهل خدمة العملاء وحفظ متطلباتهم المحاسبية هاتفياً. |
-| **TC-06A** | منع إنشاء مهمة تحتاج رابطاً من طلب الخدمة الهاتفي | POST `/api/telemarketing/service-tasks` | `device_installation` أو `installment_collection` دون رابط تشغيلي. | ترميز `409` ولا ينشأ أي سجل في `open_tasks`. | حماية deny-by-default من المهام اليتيمة (DEF-004). |
+| **TC-06** | تحويل تواصل هاتف لصيانة وفتح مهمة | POST `/api/telemarketing/service-tasks` | زبون ونوع `periodic_maintenance` و`installedDeviceId` لجهاز فعال يملك عقداً أو اتفاق خدمة. | ترميز `201` وإنشاء `open_tasks` مع حفظ الجهاز في `device_id`. | يمنع انفصال طلب الصيانة عن موضوعه التشغيلي. |
+| **TC-06A** | منع إنشاء مهمة جهاز بلا جهاز | POST `/api/telemarketing/service-tasks` | `emergency_maintenance` أو `periodic_maintenance` دون `installedDeviceId`. | ترميز `409` مع `DEVICE_REQUIRED` ولا ينشأ أي سجل. | حماية deny-by-default من المهام اليتيمة. |
+| **TC-06B** | منع جهاز غير تابع أو غير مؤهل | POST `/api/telemarketing/service-tasks` | جهاز لزبون/فرع آخر، أو جهاز لا تسمح حالته بنوع المهمة، أو له مهمة نشطة مماثلة. | ترميز `403` للملكية الخاطئة أو `409` لعدم الأهلية، دون إنشاء سجل. | تحقق subject وحالة الجهاز يتمان على الخادم. |
 | **TC-07** | محاولة حجز موعد لعميل بفرع مغاير | POST `/api/telemarketing/appointments` | إرسال طلب حجز الزيارة لزبون من فرع مغاير. | ترميز `200` ونجاح التوثيق والالتزام بالربط الجغرافي المعزول للطلب. | يعكس مرونة النظام في إدارة المبيعات المتقاطعة للفروع. |
 
 ---

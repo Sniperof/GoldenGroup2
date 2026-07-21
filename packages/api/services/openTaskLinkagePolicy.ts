@@ -1,3 +1,5 @@
+import { taskRequiresInstalledDevice } from '@golden-crm/shared';
+
 export const TELEMARKETING_SERVICE_REQUEST_TASK_TYPES = [
   'device_demo',
   'golden_warranty_offer',
@@ -8,17 +10,6 @@ export const TELEMARKETING_SERVICE_REQUEST_TASK_TYPES = [
 const TELEMARKETING_SERVICE_REQUEST_TASK_TYPE_SET = new Set<string>(
   TELEMARKETING_SERVICE_REQUEST_TASK_TYPES,
 );
-
-const DEVICE_LINK_REQUIRED_TASK_TYPES = new Set([
-  'device_delivery',
-  'device_installation',
-  'device_activation',
-  'device_disconnection',
-  'device_retrieval',
-  'device_checkup',
-  'device_return',
-  'device_transfer',
-]);
 
 export interface OpenTaskLinkageSnapshot {
   taskType: string;
@@ -38,7 +29,14 @@ export function isTelemarketingServiceRequestTaskType(taskType: string): boolean
 }
 
 export function getOpenTaskLinkageIssue(task: OpenTaskLinkageSnapshot): OpenTaskLinkageIssue | null {
-  if (DEVICE_LINK_REQUIRED_TASK_TYPES.has(task.taskType) && !task.deviceId) {
+  if (task.taskType === 'golden_warranty_card_delivery' && task.hasGoldenWarrantyLink !== true) {
+    return {
+      code: 'GOLDEN_WARRANTY_REQUIRED',
+      message: 'لا يمكن سحب مهمة تسليم بطاقة الضمان لعدم وجود كفالة ذهبية نشطة مرتبطة بها',
+    };
+  }
+
+  if (taskRequiresInstalledDevice(task.taskType) && !task.deviceId) {
     return {
       code: 'DEVICE_REQUIRED',
       message: 'لا يمكن سحب المهمة لأنها غير مرتبطة بجهاز مثبت',
@@ -56,13 +54,6 @@ export function getOpenTaskLinkageIssue(task: OpenTaskLinkageSnapshot): OpenTask
     return {
       code: 'GIFT_RECORD_REQUIRED',
       message: 'لا يمكن سحب مهمة تسليم الهدية لعدم وجود سجلات هدايا نشطة مرتبطة بها',
-    };
-  }
-
-  if (task.taskType === 'golden_warranty_card_delivery' && task.hasGoldenWarrantyLink !== true) {
-    return {
-      code: 'GOLDEN_WARRANTY_REQUIRED',
-      message: 'لا يمكن سحب مهمة تسليم بطاقة الضمان لعدم وجود كفالة ذهبية نشطة مرتبطة بها',
     };
   }
 

@@ -92,23 +92,28 @@ export async function listAccountRequests(filters: ListFilters) {
 
 export async function getAccountRequestDetails(id: number) {
   const { rows } = await pool.query(
-    `SELECT id, public_ref_number, status, request_type, channel, submitter_tier,
-            submitted_payload, requester_external, service_address,
-            duplicate_flag, review_required_flag,
-            escalated_at, escalated_by_user_id, escalation_reason,
-            beneficiary_client_id, rejected_by_user_id, rejection_reason,
-            created_at, closed_at
-       FROM service_requests
-      WHERE id = $1 AND request_type = 'account_creation'`,
+    `SELECT sr.id, sr.public_ref_number, sr.status, sr.request_type, sr.channel, sr.submitter_tier,
+            sr.submitted_payload, sr.requester_external, sr.service_address,
+            sr.duplicate_flag, sr.review_required_flag, sr.duplicate_of_request_id,
+            sr.escalated_at, sr.escalated_by_user_id, sr.escalation_reason,
+            sr.beneficiary_client_id, sr.rejected_by_user_id, sr.rejection_reason,
+            sr.reviewed_by_user_id, sr.claimed_at, sr.triage_outcome, sr.reopen_count,
+            sr.created_at, sr.closed_at,
+            reviewer.name AS reviewed_by_name
+       FROM service_requests sr
+       LEFT JOIN hr_users reviewer ON reviewer.id = sr.reviewed_by_user_id
+      WHERE sr.id = $1 AND sr.request_type = 'account_creation'`,
     [id],
   );
   if (rows.length === 0) throw httpError(404, 'الطلب غير موجود');
 
   const { rows: audit } = await pool.query(
-    `SELECT event_type, event_payload, actor_user_id, actor_role, note, created_at
-       FROM service_request_audit_log
-      WHERE service_request_id = $1
-      ORDER BY id ASC`,
+    `SELECT a.id, a.event_type, a.event_payload, a.actor_user_id, a.actor_role, a.note, a.created_at,
+            actor.name AS actor_name
+       FROM service_request_audit_log a
+       LEFT JOIN hr_users actor ON actor.id = a.actor_user_id
+      WHERE a.service_request_id = $1
+      ORDER BY a.id ASC`,
     [id],
   );
   return { request: rows[0], audit };

@@ -6,7 +6,7 @@ import {
   isTelemarketingServiceRequestTaskType,
 } from './openTaskLinkagePolicy.js';
 
-test('telemarketing service requests only expose task types that do not need a direct link', () => {
+test('telemarketing service requests expose only types supported by their specialized creation flow', () => {
   assert.equal(isTelemarketingServiceRequestTaskType('periodic_maintenance'), true);
   assert.equal(isTelemarketingServiceRequestTaskType('device_demo'), true);
   assert.equal(isTelemarketingServiceRequestTaskType('device_installation'), false);
@@ -40,9 +40,11 @@ test('rejects installment, gift and warranty delivery tasks without their domain
   );
 });
 
-test('allows task types that have no mandatory operational link', () => {
-  assert.equal(getOpenTaskLinkageIssue({ taskType: 'periodic_maintenance' }), null);
-  assert.equal(getOpenTaskLinkageIssue({ taskType: 'emergency_maintenance' }), null);
+test('requires a device link for maintenance task types', () => {
+  assert.equal(getOpenTaskLinkageIssue({ taskType: 'periodic_maintenance' })?.code, 'DEVICE_REQUIRED');
+  assert.equal(getOpenTaskLinkageIssue({ taskType: 'emergency_maintenance' })?.code, 'DEVICE_REQUIRED');
+  assert.equal(getOpenTaskLinkageIssue({ taskType: 'periodic_maintenance', deviceId: 7 }), null);
+  assert.equal(getOpenTaskLinkageIssue({ taskType: 'emergency_maintenance', deviceId: 7 }), null);
 });
 
 test('prevents a false successful golden warranty card delivery', () => {

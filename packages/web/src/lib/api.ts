@@ -1072,7 +1072,20 @@ export const api = {
       { method: 'POST', body: JSON.stringify(data) },
     ),
     taskTypeOptions: () => request<{ taskType: string; arabicLabel: string; taskFamily: string }[]>('/telemarketing/task-type-options'),
-    createServiceTask: (data: { clientId: number; taskType: string; notes?: string; priority?: string }) =>
+    serviceTaskDevices: (clientId: number, taskType: string) => {
+      const qs = new URLSearchParams({ clientId: String(clientId), taskType });
+      return request<Array<{
+        id: number;
+        status: string;
+        contractId: number | null;
+        serialNumber: string | null;
+        deviceModelName: string;
+        eligible: boolean;
+        eligibilityCode: string;
+        eligibilityReason: string;
+      }>>(`/telemarketing/service-task-devices?${qs}`);
+    },
+    createServiceTask: (data: { clientId: number; taskType: string; installedDeviceId?: number; notes?: string; priority?: string }) =>
       request<any>('/telemarketing/service-tasks', { method: 'POST', body: JSON.stringify(data) }),
   },
   systemLists: {
@@ -1142,6 +1155,30 @@ export const api = {
       request<{ request: any; audit: any[] }>(`/admin/account-requests/${id}`),
     suggestions: (id: number) =>
       request<{ suggestions: any[] }>(`/admin/account-requests/${id}/suggestions`),
+    claim: (id: number) =>
+      request<any>(`/admin/account-requests/${id}/claim`, { method: 'POST' }),
+    takeOver: (id: number, transferReason?: string) =>
+      request<any>(`/admin/account-requests/${id}/take-over`, {
+        method: 'POST',
+        body: JSON.stringify({ transferReason: transferReason ?? null }),
+      }),
+    requestInfo: (id: number, note?: string) =>
+      request<any>(`/admin/account-requests/${id}/request-info`, {
+        method: 'POST',
+        body: JSON.stringify({ note: note ?? null }),
+      }),
+    resumeReview: (id: number) =>
+      request<any>(`/admin/account-requests/${id}/resume-review`, { method: 'POST' }),
+    reopen: (id: number, reopenReason: string) =>
+      request<any>(`/admin/account-requests/${id}/reopen`, {
+        method: 'POST',
+        body: JSON.stringify({ reopenReason }),
+      }),
+    addNote: (id: number, note: string) =>
+      request<any>(`/admin/account-requests/${id}/notes`, {
+        method: 'POST',
+        body: JSON.stringify({ note }),
+      }),
     link: (id: number, clientId: number) =>
       request<any>(`/admin/account-requests/${id}/link`, {
         method: 'POST',

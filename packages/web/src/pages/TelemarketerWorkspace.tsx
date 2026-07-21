@@ -12,7 +12,7 @@ import IconButton from '../components/ui/IconButton';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import { useCandidateStore } from '../hooks/useCandidateStore';
 import { useClientStore } from '../hooks/useClientStore';
-import { OPEN_TASK_TYPE_LABELS, OPEN_TASK_REASON_LABELS, isHiddenOperationalTaskType } from '@golden-crm/shared';
+import { OPEN_TASK_TYPE_LABELS, OPEN_TASK_REASON_LABELS, isHiddenOperationalTaskType, taskRequiresInstalledDevice } from '@golden-crm/shared';
 import type { OpenTask, OpenTaskType, OpenTaskReason } from '@golden-crm/shared';
 import { useTelemarketingStore } from '../hooks/useTelemarketingStore';
 import TeamAgendaPanel from '../components/telemarketing/TeamAgendaPanel';
@@ -622,6 +622,17 @@ export default function TelemarketerWorkspace() {
     const [serviceTaskNotes, setServiceTaskNotes] = useState('');
     const [serviceTaskPriority, setServiceTaskPriority] = useState('');
     const [serviceTaskSaving, setServiceTaskSaving] = useState(false);
+    const [serviceTaskDevices, setServiceTaskDevices] = useState<Array<{
+        id: number;
+        status: string;
+        serialNumber: string | null;
+        deviceModelName: string;
+        eligible: boolean;
+        eligibilityReason: string;
+    }>>([]);
+    const [serviceTaskDeviceId, setServiceTaskDeviceId] = useState('');
+    const [serviceTaskDevicesLoading, setServiceTaskDevicesLoading] = useState(false);
+    const [serviceTaskDeviceError, setServiceTaskDeviceError] = useState('');
     // Pre-selected contact — set when user picks a number in the contact picker
     const [preselectedContactId, setPreselectedContactId] = useState<string>('');
     // Contact picker modal (step 1 before outcome modal)
@@ -635,6 +646,44 @@ export default function TelemarketerWorkspace() {
     const [selectedClientDetailReloadKey, setSelectedClientDetailReloadKey] = useState(0);
 
     const selectedCustomer = useMemo(() => filteredGroups.find(cg => cg.key === selectedCustomerKey) || null, [filteredGroups, selectedCustomerKey]);
+
+    useEffect(() => {
+        if (!isServiceTaskOpen || !selectedCustomer || !taskRequiresInstalledDevice(serviceTaskType)) {
+            setServiceTaskDevices([]);
+            setServiceTaskDeviceId('');
+            setServiceTaskDevicesLoading(false);
+            setServiceTaskDeviceError('');
+            return;
+        }
+        if (selectedCustomer.entityType !== 'client') {
+            setServiceTaskDevices([]);
+            setServiceTaskDeviceId('');
+            setServiceTaskDeviceError('هذه المهمة تحتاج زبونا مسجلا وجهازا مركبا');
+            return;
+        }
+
+        let cancelled = false;
+        setServiceTaskDevicesLoading(true);
+        setServiceTaskDeviceError('');
+        setServiceTaskDeviceId('');
+        api.telemarketing.serviceTaskDevices(selectedCustomer.entityId, serviceTaskType)
+            .then((rows) => {
+                if (cancelled) return;
+                setServiceTaskDevices(rows);
+                const eligible = rows.filter(device => device.eligible);
+                if (eligible.length === 1) setServiceTaskDeviceId(String(eligible[0].id));
+                if (rows.length === 0) setServiceTaskDeviceError('لا يوجد جهاز مرتبط بهذا الزبون ضمن الفرع الحالي');
+                else if (eligible.length === 0) setServiceTaskDeviceError('لا يوجد جهاز مؤهل لإنشاء هذه المهمة حاليا');
+            })
+            .catch((error: any) => {
+                if (!cancelled) {
+                    setServiceTaskDevices([]);
+                    setServiceTaskDeviceError(error?.message || 'تعذر تحميل أجهزة الزبون');
+                }
+            })
+            .finally(() => { if (!cancelled) setServiceTaskDevicesLoading(false); });
+        return () => { cancelled = true; };
+    }, [isServiceTaskOpen, selectedCustomer, serviceTaskType]);
     const listedSelectedClient = useMemo(() => {
         if (!selectedCustomer || selectedCustomer.entityType !== 'client') return null;
         return clients.find(client => client.id === selectedCustomer.entityId) || null;
@@ -1055,6 +1104,8 @@ export default function TelemarketerWorkspace() {
             setServiceTaskTypeLabel(foundLabel ?? extras.serviceTaskType);
             setServiceTaskNotes('');
             setServiceTaskPriority('');
+            setServiceTaskDeviceId('');
+            setServiceTaskDeviceError('');
             setIsServiceTaskOpen(true);
         } else if (meta.opensAppointment) {
             // Fallback: legacy path if inline data is missing
@@ -1126,15 +1177,22 @@ export default function TelemarketerWorkspace() {
 
     const handleCreateServiceTask = async () => {
         if (!selectedCustomer || !serviceTaskType) return;
+        if (taskRequiresInstalledDevice(serviceTaskType) && !serviceTaskDeviceId) {
+            setServiceTaskDeviceError('يجب اختيار جهاز مؤهل قبل إنشاء المهمة');
+            return;
+        }
         setServiceTaskSaving(true);
         try {
             await api.telemarketing.createServiceTask({
                 clientId: selectedCustomer.entityId,
                 taskType: serviceTaskType,
+                installedDeviceId: serviceTaskDeviceId ? Number(serviceTaskDeviceId) : undefined,
                 notes: serviceTaskNotes || undefined,
                 priority: serviceTaskPriority || undefined,
             });
             setIsServiceTaskOpen(false);
+            setServiceTaskDeviceId('');
+            setServiceTaskDevices([]);
             setServiceTaskType('');
             setServiceTaskTypeLabel('');
             setServiceTaskNotes('');
@@ -1976,7 +2034,7 @@ export default function TelemarketerWorkspace() {
             <Modal
                 isOpen={isServiceTaskOpen && !!selectedCustomer}
                 onClose={() => setIsServiceTaskOpen(false)}
-                size="sm"
+                size="md"
                 title="إنشاء مهمة خدمة"
                 subtitle={selectedCustomer?.name}
                 footer={
@@ -1984,7 +2042,12 @@ export default function TelemarketerWorkspace() {
                         <Button variant="secondary" onClick={() => setIsServiceTaskOpen(false)} className="flex-1">
                             تخطي
                         </Button>
-                        <Button loading={serviceTaskSaving} onClick={handleCreateServiceTask} className="flex-1 bg-indigo-600 hover:bg-indigo-500">
+                        <Button
+                            loading={serviceTaskSaving}
+                            disabled={serviceTaskDevicesLoading || (taskRequiresInstalledDevice(serviceTaskType) && !serviceTaskDeviceId)}
+                            onClick={handleCreateServiceTask}
+                            className="flex-1 bg-indigo-600 hover:bg-indigo-500"
+                        >
                             إنشاء المهمة
                         </Button>
                     </div>
@@ -1998,6 +2061,32 @@ export default function TelemarketerWorkspace() {
                                     {serviceTaskTypeLabel || serviceTaskType}
                                 </div>
                             </div>
+                            {taskRequiresInstalledDevice(serviceTaskType) && (
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-600 mb-1">جهاز الزبون *</label>
+                                    <Select<string>
+                                        value={serviceTaskDeviceId}
+                                        onChange={(value) => {
+                                            setServiceTaskDeviceId(String(value));
+                                            setServiceTaskDeviceError('');
+                                        }}
+                                        disabled={serviceTaskDevicesLoading}
+                                        placeholder={serviceTaskDevicesLoading ? 'جاري تحميل الأجهزة...' : 'اختر الجهاز'}
+                                        ariaLabel="جهاز الزبون"
+                                        className="w-full"
+                                        options={serviceTaskDevices.map(device => ({
+                                            value: String(device.id),
+                                            label: `${device.deviceModelName} — ${device.serialNumber || `#${device.id}`}${device.eligible ? '' : ` — ${device.eligibilityReason}`}`,
+                                            disabled: !device.eligible,
+                                        }))}
+                                    />
+                                    {serviceTaskDeviceError && (
+                                        <div className="mt-2 rounded border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700">
+                                            {serviceTaskDeviceError}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                             {/* Notes */}
                             <div>
                                 <label className="block text-xs font-bold text-slate-600 mb-1">ملاحظات (اختياري)</label>

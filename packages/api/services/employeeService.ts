@@ -8,6 +8,7 @@ import {
   EMPLOYEE_USERNAME_CONFLICT_MESSAGE,
   isEmployeeUsernameConflict,
 } from './employeeSystemAccountErrors.js';
+import { projectEmployeeLookupRow } from './employeeLookupProjection.js';
 import { deriveEmployeeRoleFromVacancyTitle, getEmployeeAvatar } from '../utils/recruitmentPolicy.js';
 import { sanitizeText } from '../utils/sanitize.js';
 import {
@@ -625,15 +626,7 @@ export async function getEmployeeLookup(scope?: {
     ? await listEmployees({ branchId: scope.branchId })
     : await listEmployees();
 
-  return rows.map((employee: any) => ({
-    id: employee.id,
-    name: employee.name,
-    mobile: employee.mobile,
-    jobTitle: employee.jobTitle,
-    branchId: employee.branchId,
-    departmentId: employee.departmentId,
-    status: employee.status,
-  }));
+  return rows.map(projectEmployeeLookupRow);
 }
 
 export async function getEmployeeById(employeeId: number | string) {

@@ -11,16 +11,18 @@ import Select from '../../components/ui/Select';
 import PageHeader from '../../components/ui/PageHeader';
 
 const STATUS_LABELS: Record<string, string> = {
-  received: 'قيد المراجعة',
-  in_review: 'قيد المعالجة',
-  completed: 'مُعتمَد',
+  received: 'مُستلَم',
+  in_review: 'قيد المراجعة',
+  awaiting_customer_info: 'بانتظار الزبون',
+  completed: 'مُعتمَد ومُفعَّل',
   rejected: 'مرفوض',
   cancelled: 'مُلغى',
 };
 
 const STATUS_COLORS: Record<string, string> = {
-  received: 'bg-amber-100 text-amber-700',
+  received: 'bg-slate-100 text-slate-700',
   in_review: 'bg-blue-100 text-blue-700',
+  awaiting_customer_info: 'bg-yellow-100 text-yellow-700',
   completed: 'bg-green-100 text-green-700',
   rejected: 'bg-red-100 text-red-700',
   cancelled: 'bg-slate-100 text-slate-500',
