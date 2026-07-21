@@ -20,6 +20,11 @@ const router = Router();
  *       Generates an OTP (valid 120s), stores only its hash, and "sends" it via
  *       the configured provider. In dev/simulated mode the code is returned as
  *       `devCode`. A new code is blocked for 60s after the previous one.
+ *
+ *       The purpose must match the number's real situation, so no SMS is spent
+ *       on a journey that cannot succeed: `login`/`account_deletion` require an
+ *       active account, `request_status` requires a pending request. Route by
+ *       `GET /api/app/account/status` first and pick the purpose from it.
  *     requestBody:
  *       required: true
  *       content:
@@ -34,7 +39,7 @@ const router = Router();
  *                 example: "0912345678"
  *               purpose:
  *                 type: string
- *                 enum: [account_creation, login, account_deletion]
+ *                 enum: [account_creation, login, account_deletion, request_status]
  *     responses:
  *       200:
  *         description: OTP sent
@@ -51,6 +56,8 @@ const router = Router();
  *                   description: Present ONLY in dev/simulated mode. Never in production.
  *                   example: "482913"
  *       400: { description: Invalid phone number or purpose }
+ *       403: { description: "Account suspended (details.code = suspended)" }
+ *       404: { description: "Purpose precondition failed (details.code = no_active_account | no_pending_request)" }
  *       429: { description: Resend window has not elapsed (see details.retryAfterSeconds) }
  */
 router.post('/send', async (req, res) => {
@@ -89,7 +96,7 @@ router.post('/send', async (req, res) => {
  *               code: { type: string, example: "482913" }
  *               purpose:
  *                 type: string
- *                 enum: [account_creation, login, account_deletion]
+ *                 enum: [account_creation, login, account_deletion, request_status]
  *     responses:
  *       200:
  *         description: Verified

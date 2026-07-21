@@ -22,9 +22,10 @@ import {
   OTP_EXPOSE_CODE,
 } from '../../config/env.js';
 import { getOtpSender } from './otpSender.js';
+import { SR_ACTIVE_STATUSES } from '../serviceRequests/_shared.js';
 
-export type OtpPurpose = 'account_creation' | 'login' | 'account_deletion';
-const PURPOSES: OtpPurpose[] = ['account_creation', 'login', 'account_deletion'];
+export type OtpPurpose = 'account_creation' | 'login' | 'account_deletion' | 'request_status';
+const PURPOSES: OtpPurpose[] = ['account_creation', 'login', 'account_deletion', 'request_status'];
 
 export interface SendOtpInput {
   phone: string;
@@ -65,6 +66,49 @@ function assertValid(phone: string, purpose: string): { phone: string; purpose: 
   return { phone: normalized, purpose: purpose as OtpPurpose };
 }
 
+/**
+ * Purpose preconditions, checked BEFORE a code is generated and sent.
+ *
+ * The app is expected to route by GET /api/app/account/status first, so a
+ * mismatch here means a mis-implemented (or abusive) client. Without this the
+ * whole journey succeeds and only the last call fails — after an SMS was
+ * already paid for. Leaks nothing: `account/status` exposes the same facts
+ * publicly by design (DEC-013 §3).
+ */
+async function assertPurposePrecondition(phone: string, purpose: OtpPurpose): Promise<void> {
+  if (purpose === 'login' || purpose === 'account_deletion') {
+    const { rows } = await pool.query<{ status: string }>(
+      `SELECT status FROM app_accounts
+        WHERE primary_mobile = $1 AND deleted_at IS NULL AND status IN ('active', 'suspended')
+        ORDER BY (status = 'active') DESC
+        LIMIT 1`,
+      [phone],
+    );
+    if (rows.length === 0) {
+      throw httpError(404, 'لا يوجد حساب مفعّل لهذا الرقم', { code: 'no_active_account' });
+    }
+    if (rows[0].status !== 'active') {
+      throw httpError(403, 'الحساب موقوف', { code: 'suspended' });
+    }
+    return;
+  }
+
+  if (purpose === 'request_status') {
+    const { rows } = await pool.query(
+      `SELECT 1 FROM service_requests
+        WHERE request_type = 'account_creation'
+          AND requester_external->>'primary_phone' = $1
+          AND status = ANY($2)
+          AND archived_at IS NULL
+        LIMIT 1`,
+      [phone, SR_ACTIVE_STATUSES],
+    );
+    if (rows.length === 0) {
+      throw httpError(404, 'لا يوجد طلب قيد المراجعة لهذا الرقم', { code: 'no_pending_request' });
+    }
+  }
+}
+
 function generateCode(length: number): string {
   let code = '';
   for (let i = 0; i < length; i += 1) code += crypto.randomInt(0, 10).toString();
@@ -73,6 +117,7 @@ function generateCode(length: number): string {
 
 export async function sendOtp(input: SendOtpInput): Promise<SendOtpResult> {
   const { phone, purpose } = assertValid(input.phone, input.purpose);
+  await assertPurposePrecondition(phone, purpose);
 
   // Resend window: block a new code within OTP_RESEND_SECONDS of the last one.
   const { rows: recent } = await pool.query<{ last_sent_at: string }>(

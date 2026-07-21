@@ -130,7 +130,7 @@ export async function exchangeLoginHandle(handle: string, deviceLabel?: string |
 
     await commitTx(tx);
     const claims: AppAccountClaims = {
-      appAccountId: acc.id, clientId: acc.linked_client_record_id, phone: acc.primary_mobile,
+      appAccountId: Number(acc.id), clientId: acc.linked_client_record_id, phone: acc.primary_mobile,
     };
     return { accessToken: signAccessToken(claims), refreshToken: refresh.raw, tokenType: 'Bearer', expiresIn: accessSeconds(), account: claims };
   } catch (err) {
@@ -202,7 +202,7 @@ export async function refreshTokens(refreshToken: string): Promise<IssuedTokens>
 
     await commitTx(tx);
     const claims: AppAccountClaims = {
-      appAccountId: account.id, clientId: account.linked_client_record_id, phone: account.primary_mobile,
+      appAccountId: Number(account.id), clientId: account.linked_client_record_id, phone: account.primary_mobile,
     };
     return { accessToken: signAccessToken(claims), refreshToken: next.raw, tokenType: 'Bearer', expiresIn: accessSeconds(), account: claims };
   } catch (err) {
@@ -252,5 +252,8 @@ export async function verifyAccessToken(token: string): Promise<AppAccountClaims
   if (rows.length === 0) throw httpError(401, 'الحساب غير موجود');
   const acc = rows[0];
   if (acc.status !== 'active') throw httpError(403, 'الحساب موقوف', { code: 'suspended' });
-  return { appAccountId: acc.id, clientId: acc.linked_client_record_id, phone: acc.primary_mobile };
+  // `app_accounts.id` is BIGINT — node-pg returns it as a string, which would
+  // reach the mobile client as a JSON string next to a numeric `clientId`.
+  // Coerce at the boundary so the contract stays `integer` everywhere.
+  return { appAccountId: Number(acc.id), clientId: acc.linked_client_record_id, phone: acc.primary_mobile };
 }

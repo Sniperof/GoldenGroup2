@@ -81,7 +81,8 @@ export async function deleteAccountByVerifiedHandle(input: {
     );
 
     await commitTx(tx);
-    return { deleted: true, appAccountId };
+    // BIGINT id → node-pg string; the documented contract is `integer`.
+    return { deleted: true, appAccountId: Number(appAccountId) };
   } catch (err) {
     await rollbackTx(tx);
     throw err;
