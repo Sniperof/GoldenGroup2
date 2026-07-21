@@ -8,6 +8,9 @@ import {
   linkAccountRequest,
   rejectAccountRequest,
   escalateAccountRequest,
+  claimAccountRequest,
+  transitionAccountRequest,
+  addAccountRequestNote,
 } from '../services/appAccounts/adminAccountRequestService.js';
 
 const router = Router();
@@ -199,6 +202,178 @@ router.post('/:id/reject', requirePermission('account_requests.reject'), async (
     }));
   } catch (err) {
     handle(res, err, 'Reject account request');
+  }
+});
+
+// ------------------------------------------------------------
+// Shared-lifecycle endpoints (parity with water_check), guarded by the
+// independent account_requests.* keys. Operator workflow actions use
+// account_requests.link (the operator's progress capability).
+// ------------------------------------------------------------
+
+/**
+ * @swagger
+ * /api/admin/account-requests/{id}/claim:
+ *   post:
+ *     tags: [Admin - Account Requests]
+ *     summary: Claim the request (received → in_review) — required before linking
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: integer } }
+ *     responses:
+ *       200: { description: Claimed }
+ */
+router.post('/:id/claim', requirePermission('account_requests.link'), async (req, res) => {
+  try {
+    res.json(await claimAccountRequest({
+      requestId: parseInt(String(req.params.id)),
+      operatorUserId: actor(req).userId,
+      actorRole: 'operator',
+    }));
+  } catch (err) {
+    handle(res, err, 'Claim account request');
+  }
+});
+
+/**
+ * @swagger
+ * /api/admin/account-requests/{id}/take-over:
+ *   post:
+ *     tags: [Admin - Account Requests]
+ *     summary: Take over ownership from another operator
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: integer } }
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema: { type: object, properties: { transferReason: { type: string } } }
+ *     responses:
+ *       200: { description: Ownership transferred }
+ */
+router.post('/:id/take-over', requirePermission('account_requests.link'), async (req, res) => {
+  try {
+    res.json(await claimAccountRequest({
+      requestId: parseInt(String(req.params.id)),
+      operatorUserId: actor(req).userId,
+      actorRole: 'operator',
+      transferReason: req.body?.transferReason ?? null,
+    }));
+  } catch (err) {
+    handle(res, err, 'Take over account request');
+  }
+});
+
+/**
+ * @swagger
+ * /api/admin/account-requests/{id}/request-info:
+ *   post:
+ *     tags: [Admin - Account Requests]
+ *     summary: Ask the customer for more info (in_review → awaiting_customer_info)
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: integer } }
+ *     responses:
+ *       200: { description: Moved to awaiting_customer_info }
+ */
+router.post('/:id/request-info', requirePermission('account_requests.link'), async (req, res) => {
+  try {
+    res.json(await transitionAccountRequest({
+      requestId: parseInt(String(req.params.id)),
+      toStatus: 'awaiting_customer_info',
+      actorUserId: actor(req).userId,
+      actorRole: 'operator',
+      note: req.body?.note ?? null,
+    }));
+  } catch (err) {
+    handle(res, err, 'Request info');
+  }
+});
+
+/**
+ * @swagger
+ * /api/admin/account-requests/{id}/resume-review:
+ *   post:
+ *     tags: [Admin - Account Requests]
+ *     summary: Resume review (awaiting_customer_info → in_review)
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: integer } }
+ *     responses:
+ *       200: { description: Back to in_review }
+ */
+router.post('/:id/resume-review', requirePermission('account_requests.link'), async (req, res) => {
+  try {
+    res.json(await transitionAccountRequest({
+      requestId: parseInt(String(req.params.id)),
+      toStatus: 'in_review',
+      actorUserId: actor(req).userId,
+      actorRole: 'operator',
+    }));
+  } catch (err) {
+    handle(res, err, 'Resume review');
+  }
+});
+
+/**
+ * @swagger
+ * /api/admin/account-requests/{id}/reopen:
+ *   post:
+ *     tags: [Admin - Account Requests]
+ *     summary: Reopen a terminal request (→ in_review). Requires a structured reason.
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: integer } }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema: { type: object, required: [reopenReason], properties: { reopenReason: { type: string } } }
+ *     responses:
+ *       200: { description: Reopened }
+ */
+router.post('/:id/reopen', requirePermission('account_requests.link'), async (req, res) => {
+  try {
+    res.json(await transitionAccountRequest({
+      requestId: parseInt(String(req.params.id)),
+      toStatus: 'in_review',
+      actorUserId: actor(req).userId,
+      actorRole: 'operator',
+      reopenReason: req.body?.reopenReason ?? null,
+    }));
+  } catch (err) {
+    handle(res, err, 'Reopen account request');
+  }
+});
+
+/**
+ * @swagger
+ * /api/admin/account-requests/{id}/notes:
+ *   post:
+ *     tags: [Admin - Account Requests]
+ *     summary: Add an internal note (audit only)
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: integer } }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema: { type: object, required: [note], properties: { note: { type: string } } }
+ *     responses:
+ *       201: { description: Note added }
+ */
+router.post('/:id/notes', requirePermission('account_requests.link'), async (req, res) => {
+  try {
+    await addAccountRequestNote({
+      requestId: parseInt(String(req.params.id)),
+      note: req.body?.note,
+      actorUserId: actor(req).userId,
+      actorRole: 'operator',
+    });
+    res.status(201).json({ ok: true });
+  } catch (err) {
+    handle(res, err, 'Add account request note');
   }
 });
 

@@ -9,8 +9,11 @@
 //   rejectAccountRequest / escalateAccountRequest
 //
 // Uses the existing fuzzyMatching.suggestRecords (sources:'clients' — link
-// target is clients only, DEC-013 §9.1). Decisions update service_requests
-// directly (account_creation is not on the generic emergency state machine).
+// target is clients only, DEC-013 §9.1). Lifecycle decisions route through the
+// SHARED state machine (transitionStatus): link → completed (with the app_account
+// side-effect atomic in the same tx), reject → rejected. This gives account
+// requests parity with water_check (claim-gate, managed outcomes, reopen, audit)
+// while keeping the independent account_requests.* permission boundary.
 // ============================================================
 
 import pool from '../../db.js';
@@ -22,6 +25,9 @@ import {
   type ActorRole,
 } from '../serviceRequests/_shared.js';
 import { suggestRecords } from '../serviceRequests/fuzzyMatching.js';
+import { transitionStatus } from '../serviceRequests/stateMachine.js';
+import { claimOrTakeOver } from '../serviceRequests/claimService.js';
+import type { ServiceRequestStatus } from '../serviceRequests/_shared.js';
 
 const ACTIVE_STATUSES = ['received', 'in_review', 'awaiting_customer_info'];
 
@@ -143,8 +149,11 @@ export async function linkAccountRequest(input: LinkInput) {
     );
     if (reqRows.length === 0) throw httpError(404, 'الطلب غير موجود');
     const request = reqRows[0];
-    if (!ACTIVE_STATUSES.includes(request.status)) {
-      throw httpError(409, 'تمّت معالجة الطلب مسبقاً', { status: request.status });
+    // Parity with water_check: a terminal decision requires the request to be
+    // claimed first (in_review with a reviewer). The state machine re-enforces
+    // this, but we fail fast with a clear message here.
+    if (request.status !== 'in_review') {
+      throw httpError(409, 'استلم الطلب أولاً (claim) قبل الربط', { status: request.status });
     }
     const phone = request.primary_phone;
     if (!phone) throw httpError(400, 'الطلب لا يحمل رقماً صالحاً');
@@ -168,7 +177,7 @@ export async function linkAccountRequest(input: LinkInput) {
       throw httpError(409, 'الرقم مرتبط بحساب مفعّل آخر', { code: 'mobile_in_use' });
     }
 
-    // Side-effect: create + activate the app account.
+    // Side-effect: create + activate the app account (atomic with the transition).
     const { rows: acc } = await tx.client.query<{ id: number }>(
       `INSERT INTO app_accounts
          (primary_mobile, status, linked_client_record_id, created_source, created_by_role, created_by_user_id)
@@ -179,12 +188,9 @@ export async function linkAccountRequest(input: LinkInput) {
     const appAccountId = acc[0].id;
 
     await tx.client.query(
-      `UPDATE service_requests
-          SET status = 'completed', beneficiary_client_id = $2, closed_at = NOW()
-        WHERE id = $1`,
+      `UPDATE service_requests SET beneficiary_client_id = $2 WHERE id = $1`,
       [input.requestId, input.clientId],
     );
-
     await appendAudit(tx.client, {
       serviceRequestId: input.requestId,
       eventType: 'party_linked',
@@ -197,16 +203,24 @@ export async function linkAccountRequest(input: LinkInput) {
         created_source: 'account_creation',
       },
     });
-    await appendAudit(tx.client, {
-      serviceRequestId: input.requestId,
-      eventType: 'status_changed',
-      actorUserId: input.actorUserId,
-      actorRole: input.actorRole,
-      payload: { from: request.status, to: 'completed' },
-    });
+
+    // Terminal transition through the SHARED state machine (joins this tx).
+    const outcome = `linked_to_${segment}`;
+    const t = await transitionStatus(
+      {
+        serviceRequestId: input.requestId,
+        toStatus: 'completed',
+        actorUserId: input.actorUserId,
+        actorRole: input.actorRole,
+        triageOutcome: outcome,
+        payloadExtra: { app_account_id: appAccountId, client_id: input.clientId },
+      },
+      tx.client,
+    );
+    throwOnFail(t);
 
     await commitTx(tx);
-    return { appAccountId, status: 'completed' as const, outcome: `linked_to_${segment}` };
+    return { appAccountId, status: 'completed' as const, outcome };
   } catch (err) {
     await rollbackTx(tx);
     throw err;
@@ -228,37 +242,28 @@ export async function rejectAccountRequest(input: RejectInput) {
 
   const tx = await acquireTx();
   try {
+    // Guard the type (transitionStatus is type-agnostic) and lock the row.
     const { rows } = await tx.client.query<{ status: string }>(
       `SELECT status FROM service_requests
         WHERE id = $1 AND request_type = 'account_creation' FOR UPDATE`,
       [input.requestId],
     );
     if (rows.length === 0) throw httpError(404, 'الطلب غير موجود');
-    if (!ACTIVE_STATUSES.includes(rows[0].status)) {
-      throw httpError(409, 'تمّت معالجة الطلب مسبقاً', { status: rows[0].status });
-    }
 
-    await tx.client.query(
-      `UPDATE service_requests
-          SET status = 'rejected', rejected_by_user_id = $2, rejection_reason = $3,
-              closed_at = NOW(), escalated_at = NULL
-        WHERE id = $1`,
-      [input.requestId, input.actorUserId, reason],
+    // Reject through the shared machine: validates the transition, requires the
+    // reason to be an allowed outcome, and enforces SR-AUTH-01 (escalated or
+    // review_required before reject). Writes rejected_decision + status_changed.
+    const t = await transitionStatus(
+      {
+        serviceRequestId: input.requestId,
+        toStatus: 'rejected',
+        actorUserId: input.actorUserId,
+        actorRole: input.actorRole,
+        triageOutcome: reason,
+      },
+      tx.client,
     );
-    await appendAudit(tx.client, {
-      serviceRequestId: input.requestId,
-      eventType: 'rejected_decision',
-      actorUserId: input.actorUserId,
-      actorRole: input.actorRole,
-      payload: { reason },
-    });
-    await appendAudit(tx.client, {
-      serviceRequestId: input.requestId,
-      eventType: 'status_changed',
-      actorUserId: input.actorUserId,
-      actorRole: input.actorRole,
-      payload: { from: rows[0].status, to: 'rejected' },
-    });
+    throwOnFail(t);
 
     await commitTx(tx);
     return { status: 'rejected' as const };
@@ -318,6 +323,132 @@ export async function escalateAccountRequest(input: EscalateInput) {
 
     await commitTx(tx);
     return { escalated: true as const };
+  } catch (err) {
+    await rollbackTx(tx);
+    throw err;
+  } finally {
+    tx.release();
+  }
+}
+
+// ------------------------------------------------------------
+// Shared-lifecycle wrappers (parity with water_check). Each guards the type
+// (transitionStatus/claim are type-agnostic) and delegates to the shared
+// service inside one transaction, keeping the account_requests.* boundary.
+// ------------------------------------------------------------
+
+/** Verify the id is an account_creation request and lock it. Throws 404 otherwise. */
+async function lockAccountRequest(client: any, id: number): Promise<void> {
+  const { rows } = await client.query(
+    `SELECT 1 FROM service_requests WHERE id = $1 AND request_type = 'account_creation' FOR UPDATE`,
+    [id],
+  );
+  if (rows.length === 0) throw httpError(404, 'الطلب غير موجود');
+}
+
+function throwOnFail(t: { ok: boolean; code?: string; message?: string; details?: unknown }): void {
+  if (t.ok) return;
+  throw httpError(t.code === 'not_found' ? 404 : 409, t.message ?? 'تعذّر تنفيذ الإجراء', {
+    code: t.code,
+    ...(t.details ? { details: t.details } : {}),
+  });
+}
+
+export interface ClaimAccountInput {
+  requestId: number;
+  operatorUserId: number;
+  actorRole: ActorRole;
+  transferReason?: string | null;
+}
+
+/** SR-CLAIM: claim or take over ownership (received → in_review on first claim). */
+export async function claimAccountRequest(input: ClaimAccountInput) {
+  const tx = await acquireTx();
+  try {
+    await lockAccountRequest(tx.client, input.requestId);
+    const r = await claimOrTakeOver(
+      {
+        serviceRequestId: input.requestId,
+        operatorUserId: input.operatorUserId,
+        actorRole: input.actorRole,
+        transferReason: input.transferReason ?? null,
+      },
+      tx.client,
+    );
+    throwOnFail(r);
+    await commitTx(tx);
+    return r.ok ? r.data : null;
+  } catch (err) {
+    await rollbackTx(tx);
+    throw err;
+  } finally {
+    tx.release();
+  }
+}
+
+export interface TransitionAccountInput {
+  requestId: number;
+  toStatus: ServiceRequestStatus;
+  actorUserId: number;
+  actorRole: ActorRole;
+  triageOutcome?: string | null;
+  triageNotes?: string | null;
+  reopenReason?: string | null;
+  note?: string | null;
+}
+
+/** Non-terminal / reopen transitions (request-info, resume-review, reopen, cancel). */
+export async function transitionAccountRequest(input: TransitionAccountInput) {
+  const tx = await acquireTx();
+  try {
+    await lockAccountRequest(tx.client, input.requestId);
+    const t = await transitionStatus(
+      {
+        serviceRequestId: input.requestId,
+        toStatus: input.toStatus,
+        actorUserId: input.actorUserId,
+        actorRole: input.actorRole,
+        triageOutcome: input.triageOutcome ?? null,
+        triageNotes: input.triageNotes ?? null,
+        reopenReason: input.reopenReason ?? null,
+        note: input.note ?? null,
+      },
+      tx.client,
+    );
+    throwOnFail(t);
+    await commitTx(tx);
+    return t.ok ? t.data : null;
+  } catch (err) {
+    await rollbackTx(tx);
+    throw err;
+  } finally {
+    tx.release();
+  }
+}
+
+export interface AddNoteInput {
+  requestId: number;
+  note: string;
+  actorUserId: number;
+  actorRole: ActorRole;
+}
+
+/** Internal note → audit only (SR §11 internal_note_added). */
+export async function addAccountRequestNote(input: AddNoteInput) {
+  const note = String(input.note ?? '').trim();
+  if (!note) throw httpError(400, 'الملاحظة مطلوبة');
+  const tx = await acquireTx();
+  try {
+    await lockAccountRequest(tx.client, input.requestId);
+    await appendAudit(tx.client, {
+      serviceRequestId: input.requestId,
+      eventType: 'internal_note_added',
+      actorUserId: input.actorUserId,
+      actorRole: input.actorRole,
+      note,
+    });
+    await commitTx(tx);
+    return { ok: true as const };
   } catch (err) {
     await rollbackTx(tx);
     throw err;

@@ -24,6 +24,7 @@ export const SR_STATUSES = [
   'resolved_at_intake',
   'rejected',
   'promoted',
+  'completed',
   'cancelled',
 ] as const;
 export type ServiceRequestStatus = (typeof SR_STATUSES)[number];
@@ -32,6 +33,10 @@ export const SR_TERMINAL_STATUSES: ServiceRequestStatus[] = [
   'resolved_at_intake',
   'rejected',
   'promoted',
+  // General self-completion terminal (DEC-013): a request that finishes itself
+  // with a side-effect (e.g. account_creation activates an app_account) rather
+  // than spawning a downstream task. Distinct from resolved_at_intake/promoted.
+  'completed',
   'cancelled',
 ];
 
@@ -74,6 +79,7 @@ export const SR_AUDIT_EVENT_TYPES = [
   'escalation_resolved',
   'rejected_decision',
   'promoted_to_task',
+  'request_completed',
   'merged_into_existing_task',
   'cancelled_by_admin',
   'customer_info_requested',
