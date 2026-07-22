@@ -330,12 +330,6 @@ export default function VacancyDetail() {
                     </button>
                   </>
                 )}
-                {detail.status === 'Archived' && (
-                  <button onClick={() => handleStatusChange('Open')} disabled={actionLoading}
-                    className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-sm font-bold border border-emerald-200 text-emerald-600 hover:bg-emerald-50 transition-all disabled:opacity-50">
-                    <RotateCcw className="w-4 h-4" /> إعادة فتح (مدير HR)
-                  </button>
-                )}
               </PermissionGate>
             </div>
           </div>

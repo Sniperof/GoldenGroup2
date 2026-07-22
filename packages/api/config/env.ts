@@ -45,3 +45,20 @@ export const CORS_ORIGINS: string[] = process.env.CORS_ORIGINS
 // Writable directory for uploaded files. Defaults to <repo-root>/uploads.
 // Override with UPLOADS_DIR=/var/lib/golden-crm/uploads in production.env.
 export const UPLOADS_DIR = process.env.UPLOADS_DIR || path.resolve(root, 'uploads');
+
+// ── Customer app OTP (DEC-013 §6) ───────────────────────────────────────────
+// Provider is pluggable (Port/Adapter). 'simulated' logs the code and never
+// calls an external service; swap to 'sms' later without changing any contract.
+export const OTP_PROVIDER = (process.env.OTP_PROVIDER || 'simulated').toLowerCase();
+export const OTP_TTL_SECONDS = parseInt(process.env.OTP_TTL_SECONDS || '120');
+export const OTP_RESEND_SECONDS = parseInt(process.env.OTP_RESEND_SECONDS || '60');
+export const OTP_MAX_ATTEMPTS = parseInt(process.env.OTP_MAX_ATTEMPTS || '5');
+export const OTP_CODE_LENGTH = parseInt(process.env.OTP_CODE_LENGTH || '6');
+// Expose the OTP code in API responses for local testing ONLY. Hard-gated to
+// non-production + simulated provider so a real deployment can never leak it.
+export const OTP_EXPOSE_CODE = NODE_ENV !== 'production' && OTP_PROVIDER === 'simulated';
+
+// ── Customer app tokens (DEC-013 §6) ────────────────────────────────────────
+// Short access token + long rotating refresh token (separate from staff auth).
+export const APP_ACCESS_TTL = process.env.APP_ACCESS_TTL || '60m';
+export const APP_REFRESH_TTL_DAYS = parseInt(process.env.APP_REFRESH_TTL_DAYS || '60');

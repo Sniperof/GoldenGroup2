@@ -259,6 +259,7 @@ export default function SuggestedMatchesPanel({
   canCreateFromRequest = false,
   createBusy = false,
   onCreateFromRequest,
+  fetchSuggestions,
 }: {
   serviceRequestId: number;
   request?: any;
@@ -268,6 +269,10 @@ export default function SuggestedMatchesPanel({
   canCreateFromRequest?: boolean;
   createBusy?: boolean;
   onCreateFromRequest?: () => Promise<void>;
+  /** Optional fetcher so other request families (e.g. account_creation, which
+   *  is guarded by its own permission keys) can feed this panel from their own
+   *  endpoint. Defaults to the generic service-requests suggested-matches call. */
+  fetchSuggestions?: () => Promise<{ clients: any[]; candidates?: any[] }>;
 }) {
   const [loading, setLoading] = useState(true);
   const [clients, setClients] = useState<SuggestedMatch[]>([]);
@@ -341,19 +346,21 @@ export default function SuggestedMatchesPanel({
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    api.serviceRequests
-      .suggestedMatches(serviceRequestId, party === 'referrer' ? 'referrer' : undefined)
-      .then((res) => {
+    const load = fetchSuggestions
+      ? fetchSuggestions()
+      : api.serviceRequests.suggestedMatches(serviceRequestId, party === 'referrer' ? 'referrer' : undefined);
+    load
+      .then((res: { clients: any[]; candidates?: any[] }) => {
         if (cancelled) return;
         setClients((res.clients as SuggestedMatch[]).slice(0, 10));
-        setCandidates(sources === 'clients' ? [] : (res.candidates as SuggestedMatch[]));
+        setCandidates(sources === 'clients' ? [] : ((res.candidates ?? []) as SuggestedMatch[]));
         setSelected(null);
       })
       .finally(() => !cancelled && setLoading(false));
     return () => {
       cancelled = true;
     };
-  }, [serviceRequestId, sources, party]);
+  }, [serviceRequestId, sources, party, fetchSuggestions]);
 
   const records = useMemo(
     () => [...clients, ...candidates].sort((a, b) => b.score - a.score).slice(0, 10),

@@ -4,6 +4,11 @@ import pool from '../db.js';
 import { clearPermissionCache } from '../middleware/permission.js';
 import { TEMPLATE_ROLE_ASSIGNMENT_ERROR, validateTemplateRoleAssignment } from './roleAssignmentGuard.js';
 import { upsertUserBranchAssignment } from './userBranchAssignmentService.js';
+import {
+  EMPLOYEE_USERNAME_CONFLICT_MESSAGE,
+  isEmployeeUsernameConflict,
+} from './employeeSystemAccountErrors.js';
+import { projectEmployeeLookupRow } from './employeeLookupProjection.js';
 import { deriveEmployeeRoleFromVacancyTitle, getEmployeeAvatar } from '../utils/recruitmentPolicy.js';
 import { sanitizeText } from '../utils/sanitize.js';
 import {
@@ -621,15 +626,7 @@ export async function getEmployeeLookup(scope?: {
     ? await listEmployees({ branchId: scope.branchId })
     : await listEmployees();
 
-  return rows.map((employee: any) => ({
-    id: employee.id,
-    name: employee.name,
-    mobile: employee.mobile,
-    jobTitle: employee.jobTitle,
-    branchId: employee.branchId,
-    departmentId: employee.departmentId,
-    status: employee.status,
-  }));
+  return rows.map(projectEmployeeLookupRow);
 }
 
 export async function getEmployeeById(employeeId: number | string) {
@@ -805,40 +802,47 @@ export async function saveEmployeeSystemAccount(
   const account = await findEmployeeSystemAccount(employeeId);
   let savedRow;
 
-  if (!account) {
-    if (!normalizedUsername) {
-      throw createServiceError(400, { error: 'اسم الدخول مطلوب لإنشاء حساب الموظف' });
-    }
-    if (!password?.trim?.()) {
-      throw createServiceError(400, { error: 'كلمة المرور مطلوبة لإنشاء حساب الموظف' });
-    }
+  try {
+    if (!account) {
+      if (!normalizedUsername) {
+        throw createServiceError(400, { error: 'اسم الدخول مطلوب لإنشاء حساب الموظف' });
+      }
+      if (!password?.trim?.()) {
+        throw createServiceError(400, { error: 'كلمة المرور مطلوبة لإنشاء حساب الموظف' });
+      }
 
-    const passwordHash = await bcrypt.hash(password.trim(), 10);
-    savedRow = await insertEmployeeSystemAccount({
-      employeeName: employee.name,
-      username: normalizedUsername,
-      passwordHash,
-      roleName: role.name,
-      roleId: role.id,
-      employeeId,
-      isActive: isActive ?? true,
-    });
-  } else {
-    let passwordHash: string | undefined;
-    if (password?.trim?.()) {
-      passwordHash = await bcrypt.hash(password.trim(), 10);
-    }
+      const passwordHash = await bcrypt.hash(password.trim(), 10);
+      savedRow = await insertEmployeeSystemAccount({
+        employeeName: employee.name,
+        username: normalizedUsername,
+        passwordHash,
+        roleName: role.name,
+        roleId: role.id,
+        employeeId,
+        isActive: isActive ?? true,
+      });
+    } else {
+      let passwordHash: string | undefined;
+      if (password?.trim?.()) {
+        passwordHash = await bcrypt.hash(password.trim(), 10);
+      }
 
-    savedRow = await updateEmployeeSystemAccount({
-      accountId: account.id,
-      username: normalizedUsername,
-      passwordHash,
-      roleId: role.id,
-      roleName: role.name,
-      employeeName: employee.name,
-      isActive: typeof isActive === 'boolean' ? isActive : undefined,
-    });
-    clearPermissionCache(account.id);
+      savedRow = await updateEmployeeSystemAccount({
+        accountId: account.id,
+        username: normalizedUsername,
+        passwordHash,
+        roleId: role.id,
+        roleName: role.name,
+        employeeName: employee.name,
+        isActive: typeof isActive === 'boolean' ? isActive : undefined,
+      });
+      clearPermissionCache(account.id);
+    }
+  } catch (error) {
+    if (isEmployeeUsernameConflict(error)) {
+      throw createServiceError(409, { error: EMPLOYEE_USERNAME_CONFLICT_MESSAGE });
+    }
+    throw error;
   }
 
   // Auto-assign employee's branch to the hr_user account (best-effort).

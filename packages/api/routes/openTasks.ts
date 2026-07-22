@@ -1,6 +1,13 @@
 import { Router } from 'express';
 import pool from '../db.js';
-import { HIDDEN_OPERATIONAL_TASK_TYPES, getTaskPhase, isHiddenOperationalTaskType, type OpenTaskStatus, type AuthContext } from '@golden-crm/shared';
+import {
+  HIDDEN_OPERATIONAL_TASK_TYPES,
+  evaluateDeviceTaskEligibility,
+  getTaskPhase,
+  isHiddenOperationalTaskType,
+  type OpenTaskStatus,
+  type AuthContext,
+} from '@golden-crm/shared';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission, getOrBuildAuthContext } from '../middleware/permission.js';
 import { authorize, resolveListAccessScope } from '../services/authorizationService.js';
@@ -1062,6 +1069,7 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
   const taskFamily = typeof req.body?.taskFamily === 'string' ? req.body.taskFamily.trim() : 'marketing';
   let contractId = Number(req.body?.contractId) || null;
   const installedDeviceId = Number(req.body?.installedDeviceId ?? req.body?.deviceId) || null;
+  const deviceEligibilityTaskTypes = new Set(['emergency_maintenance', 'periodic_maintenance', 'golden_warranty_offer']);
   const requestedInstallmentId = Number(req.body?.installmentId) || null;
   // Golden-warranty tasks (offer / card delivery) can target multiple physical
   // installed devices on one task — stored in open_task_installed_devices.
@@ -1122,6 +1130,12 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
   if (!VALID_TASK_FAMILIES.has(taskFamily)) {
     return res.status(400).json({ error: `عائلة المهمة "${taskFamily}" غير مدعومة — المسموح: marketing, service, maintenance, emergency, delivery, sales, collection, warranty` });
   }
+  if (deviceEligibilityTaskTypes.has(taskType) && !installedDeviceId) {
+    return res.status(400).json({
+      code: 'DEVICE_REQUIRED',
+      error: 'يجب اختيار جهاز مركب محدد قبل إنشاء هذه المهمة',
+    });
+  }
 
   const { rows: taskTypeRows } = await pool.query(
     `SELECT
@@ -1168,11 +1182,28 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
   let deviceLatFromCurrentDevice: number | null = null;
   let deviceLngFromCurrentDevice: number | null = null;
   let deviceStatusFromCurrentDevice: string | null = null;
+  let deviceContractIdFromCurrentDevice: number | null = null;
+  let deviceHasActiveServiceAgreement = false;
+  let deviceHasActiveGoldenWarranty = false;
   if (installedDeviceId) {
     const { rows: devRows } = await pool.query(
       `SELECT id, branch_id AS "branchId", customer_id, contract_id,
               status, installation_geo_unit_id, installation_address_text,
-              installation_lat, installation_lng
+              installation_lat, installation_lng,
+              EXISTS (
+                SELECT 1 FROM service_agreements sa
+                 WHERE sa.installed_device_id = installed_devices.id
+                   AND sa.status = 'active'
+                   AND (sa.start_date IS NULL OR sa.start_date <= CURRENT_DATE)
+                   AND (sa.end_date IS NULL OR sa.end_date >= CURRENT_DATE)
+              ) AS "hasActiveServiceAgreement",
+              EXISTS (
+                SELECT 1 FROM device_warranties dw
+                 WHERE dw.device_id = installed_devices.id
+                   AND dw.warranty_type = 'golden'
+                   AND dw.status = 'active'
+                   AND (dw.end_date IS NULL OR dw.end_date >= CURRENT_DATE)
+              ) AS "hasActiveGoldenWarranty"
          FROM installed_devices
         WHERE id = $1
         LIMIT 1`,
@@ -1195,6 +1226,9 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
     deviceLatFromCurrentDevice = dev.installation_lat == null ? null : Number(dev.installation_lat);
     deviceLngFromCurrentDevice = dev.installation_lng == null ? null : Number(dev.installation_lng);
     deviceStatusFromCurrentDevice = dev.status ?? null;
+    deviceContractIdFromCurrentDevice = dev.contract_id == null ? null : Number(dev.contract_id);
+    deviceHasActiveServiceAgreement = dev.hasActiveServiceAgreement === true;
+    deviceHasActiveGoldenWarranty = dev.hasActiveGoldenWarranty === true;
   } else if (contractId) {
     const { rows: devRows } = await pool.query(
       'SELECT id, branch_id AS "branchId", status, installation_geo_unit_id, installation_address_text, installation_lat, installation_lng FROM installed_devices WHERE contract_id = $1 LIMIT 1',
@@ -1207,6 +1241,30 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
     deviceLatFromCurrentDevice = devRows[0]?.installation_lat == null ? null : Number(devRows[0].installation_lat);
     deviceLngFromCurrentDevice = devRows[0]?.installation_lng == null ? null : Number(devRows[0].installation_lng);
     deviceStatusFromCurrentDevice = devRows[0]?.status ?? null;
+    deviceContractIdFromCurrentDevice = contractId;
+  }
+
+  if (deviceEligibilityTaskTypes.has(taskType) && deviceIdFromContract) {
+    const { rows: activeTaskRows } = await pool.query(
+      `SELECT id
+         FROM open_tasks
+        WHERE device_id = $1
+          AND task_type = $2
+          AND status NOT IN ('completed', 'closed', 'cancelled')
+        LIMIT 1`,
+      [deviceIdFromContract, taskType],
+    );
+    const eligibility = evaluateDeviceTaskEligibility({
+      taskType,
+      deviceStatus: deviceStatusFromCurrentDevice,
+      hasContract: contractId != null || deviceContractIdFromCurrentDevice != null,
+      hasActiveServiceAgreement: deviceHasActiveServiceAgreement,
+      hasActiveTask: activeTaskRows.length > 0,
+      hasActiveGoldenWarranty: deviceHasActiveGoldenWarranty,
+    });
+    if (!eligibility.allowed) {
+      return res.status(409).json({ code: eligibility.code, error: eligibility.reason });
+    }
   }
 
   if (taskType === 'device_delivery') {

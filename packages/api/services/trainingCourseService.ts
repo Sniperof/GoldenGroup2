@@ -1,5 +1,11 @@
 ﻿import pool from '../db.js';
+import type { AuthContext } from '@golden-crm/shared';
 import { insertAuditLog } from '../utils/auditLog.js';
+import {
+  canAccessTrainingCourse,
+  getTrainingCourseListAccessPlan,
+  type TrainingCoursePermission,
+} from '../policies/trainingCoursePolicy.js';
 import {
   addTrainingCourseTraineeRecord,
   countRetrainingResultsByApplication,
@@ -48,6 +54,7 @@ function mapCourse(row: any) {
     trainingName: row.training_name,
     jobVacancyId: row.job_vacancy_id,
     branch: row.branch,
+    branchId: row.branch_id == null ? null : Number(row.branch_id),
     deviceName: row.device_name,
     trainer: row.trainer,
     startDate: row.start_date,
@@ -58,6 +65,21 @@ function mapCourse(row: any) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+function assertTrainingCourseAccess(
+  context: AuthContext,
+  permission: TrainingCoursePermission,
+  row: { branch_id?: unknown; branchId?: unknown },
+) {
+  const rawBranchId = row.branch_id ?? row.branchId;
+  const branchId = rawBranchId == null ? null : Number(rawBranchId);
+  const decision = canAccessTrainingCourse(context, permission, {
+    branchId: Number.isInteger(branchId) && Number(branchId) > 0 ? branchId : null,
+  });
+  if (!decision.allowed) {
+    throw createServiceError(403, { error: 'غير مسموح بالوصول إلى دورة تدريبية خارج نطاق صلاحيتك' });
+  }
 }
 
 function normalizeDateOnly(dateStr: string) {
@@ -76,17 +98,19 @@ async function validateTrainingApplicationEligibility(applicationId: number, job
   if (activeRows.length > 0) throw createServiceError(400, { error: `الطلب رقم ${applicationId} مسجل بالفعل في دورة نشطة` });
 }
 
-export async function getEligibleTrainingTrainees(jobVacancyId: string) {
+export async function getEligibleTrainingTrainees(jobVacancyId: string, context: AuthContext) {
+  const vacancy = await findTrainingVacancyById(Number(jobVacancyId));
+  if (!vacancy) throw createServiceError(404, { error: 'الشاغر الوظيفي غير موجود' });
+  assertTrainingCourseAccess(context, 'jobs.training.view_eligible', vacancy);
   return getEligibleTrainingApplications(jobVacancyId);
 }
 
-export async function createTrainingCourse(body: any, user: TrainingActor) {
+export async function createTrainingCourse(body: any, user: TrainingActor, context: AuthContext) {
   const client = await pool.connect();
   try {
-    const { training_name, job_vacancy_id, branch, device_name, trainer, start_date, end_date, notes, trainee_application_ids } = body;
+    const { training_name, job_vacancy_id, device_name, trainer, start_date, end_date, notes, trainee_application_ids } = body;
     if (!training_name?.trim()) throw createServiceError(400, { error: 'اسم الدورة مطلوب' });
     if (!job_vacancy_id) throw createServiceError(400, { error: 'معرّف الشاغر الوظيفي مطلوب' });
-    if (!branch?.trim()) throw createServiceError(400, { error: 'الفرع مطلوب' });
     if (!trainer?.trim()) throw createServiceError(400, { error: 'اسم المدرب مطلوب' });
     if (!start_date || !end_date) throw createServiceError(400, { error: 'تواريخ الدورة مطلوبة' });
     if (new Date(start_date) > new Date(end_date)) throw createServiceError(400, { error: 'تاريخ البدء يجب أن يكون قبل أو يساوي تاريخ الانتهاء' });
@@ -97,10 +121,25 @@ export async function createTrainingCourse(body: any, user: TrainingActor) {
     if (uniqueIds.size !== trainee_application_ids.length) throw createServiceError(400, { error: 'يوجد تكرار في قائمة المتدربين' });
     const vacancy = await findTrainingVacancyById(job_vacancy_id);
     if (!vacancy) throw createServiceError(404, { error: 'الشاغر الوظيفي غير موجود' });
+    if (!vacancy.branchId || !vacancy.branch?.trim()) {
+      throw createServiceError(409, { error: 'الشاغر الوظيفي غير مرتبط بفرع صالح' });
+    }
+    assertTrainingCourseAccess(context, 'jobs.training.create', vacancy);
     for (const appId of trainee_application_ids) await validateTrainingApplicationEligibility(Number(appId), Number(job_vacancy_id));
 
     await client.query('BEGIN');
-    const course = await createTrainingCourseRecord(client, { training_name, job_vacancy_id, branch, device_name, trainer, start_date, end_date, notes, created_by_user_id: user.id });
+    const course = await createTrainingCourseRecord(client, {
+      training_name,
+      job_vacancy_id,
+      branch: vacancy.branch,
+      branch_id: Number(vacancy.branchId),
+      device_name,
+      trainer,
+      start_date,
+      end_date,
+      notes,
+      created_by_user_id: user.id,
+    });
     for (const appId of trainee_application_ids) {
       const oldStatus = await findApplicationStatusById(client, Number(appId));
       await addTrainingCourseTraineeRecord(client, course.id, Number(appId));
@@ -118,11 +157,23 @@ export async function createTrainingCourse(body: any, user: TrainingActor) {
   }
 }
 
-export async function listTrainingCoursesFlow(query: Record<string, string>) {
+export async function listTrainingCoursesFlow(query: Record<string, string>, context: AuthContext) {
   const { branch, start_date, end_date, trainer, device_name, training_status, job_vacancy_id, search, page = '1', per_page = '25' } = query;
   const conditions: string[] = [];
   const params: any[] = [];
   let idx = 1;
+  const accessPlan = getTrainingCourseListAccessPlan(context);
+  if (accessPlan.scope === 'NONE') {
+    throw createServiceError(403, { error: 'غير مسموح بعرض الدورات التدريبية ضمن هذا النطاق' });
+  }
+  if (accessPlan.scope === 'BRANCH') {
+    if (accessPlan.allowedBranchIds.length === 0) {
+      conditions.push('FALSE');
+    } else {
+      conditions.push(`tc.branch_id = ANY($${idx++}::int[])`);
+      params.push(accessPlan.allowedBranchIds);
+    }
+  }
   if (branch) { conditions.push(`tc.branch ILIKE $${idx++}`); params.push(`%${branch}%`); }
   if (start_date) { conditions.push(`tc.start_date >= $${idx++}`); params.push(start_date); }
   if (end_date) { conditions.push(`tc.end_date <= $${idx++}`); params.push(end_date); }
@@ -143,16 +194,17 @@ export async function listTrainingCoursesFlow(query: Record<string, string>) {
   };
 }
 
-export async function getTrainingCourseDetail(courseId: string) {
+export async function getTrainingCourseDetail(courseId: string, context: AuthContext) {
   const course = await getTrainingCourseById(courseId);
   if (!course) throw createServiceError(404, { error: 'الدورة التدريبية غير موجودة' });
+  assertTrainingCourseAccess(context, 'jobs.training.view_detail', course);
   const vacancy = course.job_vacancy_id ? await getTrainingVacancySummary(course.job_vacancy_id) : null;
   const trainees = await getTrainingCourseTraineesDetail(courseId);
   const attendance = await getTrainingCourseAttendance(courseId);
   return { ...mapCourse(course), vacancy, trainees, attendance };
 }
 
-export async function updateTrainingCourseEndDateFlow(courseId: string, body: any, user: TrainingActor) {
+export async function updateTrainingCourseEndDateFlow(courseId: string, body: any, user: TrainingActor, context: AuthContext) {
   const client = await pool.connect();
   try {
     const endDate = typeof body?.endDate === 'string' ? body.endDate.trim() : '';
@@ -160,6 +212,7 @@ export async function updateTrainingCourseEndDateFlow(courseId: string, body: an
 
     const course = await getTrainingCourseById(courseId);
     if (!course) throw createServiceError(404, { error: 'الدورة التدريبية غير موجودة' });
+    assertTrainingCourseAccess(context, 'jobs.training.create', course);
 
     const attendanceRows = await getTrainingCourseAttendance(courseId);
     const latestAttendanceDate = attendanceRows.length > 0
@@ -194,7 +247,7 @@ export async function updateTrainingCourseEndDateFlow(courseId: string, body: an
     await client.query('COMMIT');
 
     if (!updated) throw createServiceError(500, { error: 'تعذر تحديث تاريخ نهاية الدورة' });
-    return getTrainingCourseDetail(courseId);
+    return getTrainingCourseDetail(courseId, context);
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     throw err;
@@ -203,11 +256,12 @@ export async function updateTrainingCourseEndDateFlow(courseId: string, body: an
   }
 }
 
-export async function startTrainingCourse(courseId: string, user: TrainingActor) {
+export async function startTrainingCourse(courseId: string, user: TrainingActor, context: AuthContext) {
   const client = await pool.connect();
   try {
     const course = await getTrainingCourseById(courseId, client);
     if (!course) throw createServiceError(404, { error: 'الدورة التدريبية غير موجودة' });
+    assertTrainingCourseAccess(context, 'jobs.training.start', course);
     if (course.training_status !== 'Training Scheduled') throw createServiceError(400, { error: 'يمكن بدء الدورة فقط إذا كانت في حالة "مجدولة"' });
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const startDate = new Date(course.start_date); startDate.setHours(0, 0, 0, 0);
@@ -231,12 +285,13 @@ export async function startTrainingCourse(courseId: string, user: TrainingActor)
   }
 }
 
-export async function recordTrainingAttendance(courseId: string, body: any, user: TrainingActor) {
+export async function recordTrainingAttendance(courseId: string, body: any, user: TrainingActor, context: AuthContext) {
   const client = await pool.connect();
   try {
     const { attendance, attendance_date } = body;
     const course = await getTrainingCourseById(courseId, client);
     if (!course) throw createServiceError(404, { error: 'الدورة التدريبية غير موجودة' });
+    assertTrainingCourseAccess(context, 'jobs.training.record_attendance', course);
     if (course.training_status !== 'Training Started') throw createServiceError(400, { error: 'يمكن تسجيل الحضور فقط للدورات النشطة' });
     if (!attendance_date) throw createServiceError(400, { error: 'تاريخ الحضور مطلوب' });
     const attDate = new Date(attendance_date); attDate.setHours(0, 0, 0, 0);
@@ -270,11 +325,12 @@ export async function recordTrainingAttendance(courseId: string, body: any, user
   }
 }
 
-export async function completeTrainingCourse(courseId: string, user: TrainingActor) {
+export async function completeTrainingCourse(courseId: string, user: TrainingActor, context: AuthContext) {
   const client = await pool.connect();
   try {
     const course = await getTrainingCourseById(courseId, client);
     if (!course) throw createServiceError(404, { error: 'الدورة التدريبية غير موجودة' });
+    assertTrainingCourseAccess(context, 'jobs.training.complete', course);
     if (course.training_status !== 'Training Started') throw createServiceError(400, { error: 'يمكن إكمال الدورة فقط إذا كانت في حالة "جارية"' });
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const endDate = new Date(course.end_date); endDate.setHours(0, 0, 0, 0);
@@ -308,13 +364,14 @@ export async function completeTrainingCourse(courseId: string, user: TrainingAct
   }
 }
 
-export async function recordTrainingResult(courseId: string, applicationId: number, body: any, user: TrainingActor) {
+export async function recordTrainingResult(courseId: string, applicationId: number, body: any, user: TrainingActor, context: AuthContext) {
   const client = await pool.connect();
   try {
     const { result } = body;
     if (!['Passed', 'Retraining', 'Rejected', 'Retreated'].includes(result)) throw createServiceError(400, { error: 'نتيجة غير صالحة' });
     const course = await getTrainingCourseById(courseId, client);
     if (!course) throw createServiceError(404, { error: 'الدورة التدريبية غير موجودة' });
+    assertTrainingCourseAccess(context, 'jobs.training.record_result', course);
     if (course.training_status !== 'Training Completed') throw createServiceError(400, { error: 'يمكن تسجيل النتيجة فقط بعد إكمال الدورة' });
     const trainee = await getTrainingCourseTraineeWithVacancy(client, courseId, applicationId);
     if (!trainee) throw createServiceError(404, { error: 'المتدرب غير موجود في هذه الدورة' });
@@ -343,12 +400,13 @@ export async function recordTrainingResult(courseId: string, applicationId: numb
   }
 }
 
-export async function addTrainingCourseTrainees(courseId: string, body: any, user: TrainingActor) {
+export async function addTrainingCourseTrainees(courseId: string, body: any, user: TrainingActor, context: AuthContext) {
   const client = await pool.connect();
   try {
     const { application_ids } = body;
     const course = await getTrainingCourseById(courseId, client);
     if (!course) throw createServiceError(404, { error: 'الدورة التدريبية غير موجودة' });
+    assertTrainingCourseAccess(context, 'jobs.training.add_trainees', course);
     if (course.training_status !== 'Training Scheduled') throw createServiceError(400, { error: 'يمكن إضافة متدربين فقط للدورات المجدولة' });
     if (!Array.isArray(application_ids) || application_ids.length === 0) throw createServiceError(400, { error: 'يجب تحديد متدرب واحد على الأقل' });
     const uniqueIds = new Set(application_ids);

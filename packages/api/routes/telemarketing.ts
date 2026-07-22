@@ -16,8 +16,9 @@ import {
 } from '../services/telemarketingScope.js';
 import {
   CLOSES_TARGET_OUTCOMES,
-  HIDDEN_OPERATIONAL_TASK_TYPES,
+  evaluateDeviceTaskEligibility,
   normaliseOutcomeCode,
+  taskRequiresInstalledDevice,
   TelemarketingOutcomeCode,
 } from '@golden-crm/shared';
 import {
@@ -26,7 +27,7 @@ import {
   mapCustomerOwnership,
 } from '../services/customerOwnership.js';
 import { getSystemSettingNumber } from '../services/systemSettings.js';
-import { bookVisit, BookingError } from '../services/visitBooking.js';
+import { bookVisit, BookingError, FIELD_VISIT_SLOT_OCCUPIED_SQL } from '../services/visitBooking.js';
 import { refreshVisitType } from '../services/visitClassification.js';
 import {
   claimContactTarget,
@@ -34,6 +35,11 @@ import {
   markContactTargetFirstContact,
 } from '../services/contactTargetLocks.js';
 import { authorize } from '../services/authorizationService.js';
+import {
+  isTelemarketingServiceRequestTaskType,
+  TELEMARKETING_SERVICE_REQUEST_TASK_TYPES,
+} from '../services/openTaskLinkagePolicy.js';
+import { canCreateTelemarketingServiceTask } from '../policies/telemarketingServiceTaskPolicy.js';
 
 // ── Task-type-scoped contact visibility (migration 333) ─────────────────────
 // A role may hold `telemarketing.lists.view` (all contacts) or only
@@ -915,6 +921,7 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view', 'telemarke
         ${appointmentTeamKeySql} AS "teamKey",
         fv.scheduled_date::text AS date,
         substring(COALESCE(fv.scheduled_time, '') from 1 for 5) AS "timeSlot",
+        fv.status,
         COALESCE(fv.customer_snapshot->>'occupation', '') AS occupation,
         COALESCE(fv.customer_snapshot->>'waterSource', '') AS "waterSource",
         COALESCE(fv.telemarketer_notes, fv.field_notes, '') AS notes,
@@ -949,7 +956,7 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view', 'telemarke
       ${fieldVisitWhere}
         ${fieldVisitWhere ? 'AND' : 'WHERE'} fv.origin_type = 'telemarketing'
         AND fv.visit_type = 'marketing'
-        AND fv.status IN ('scheduled','in_progress','ended','completed')
+        AND ${FIELD_VISIT_SLOT_OCCUPIED_SQL}
       GROUP BY fv.id, c.id, ct.id, tl_origin.id, tl.id
       ORDER BY fv.created_at DESC
     `,
@@ -2424,15 +2431,111 @@ router.get('/task-type-options', requirePermission('telemarketing.calls.create')
   try {
     const { rows } = await pool.query(
       `SELECT task_type AS "taskType", arabic_label AS "arabicLabel", task_family AS "taskFamily"
-         FROM task_type_config
+        FROM task_type_config
         WHERE is_active = TRUE
-          AND task_type <> ALL($1::text[])
+          AND task_type = ANY($1::text[])
         ORDER BY display_order ASC, task_type ASC`,
-      [Array.from(HIDDEN_OPERATIONAL_TASK_TYPES)],
+      [Array.from(TELEMARKETING_SERVICE_REQUEST_TASK_TYPES)],
     );
     return res.json(rows);
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/service-task-devices', requirePermission('telemarketing.calls.create'), async (req, res) => {
+  try {
+    const branchId = getBranchId(req);
+    const createdBy = getCallerId(req);
+    const clientId = Number(req.query.clientId);
+    const taskType = String(req.query.taskType ?? '').trim();
+
+    if (!branchId) return res.status(400).json({ error: 'Branch context required' });
+    if (!Number.isInteger(clientId) || clientId <= 0) {
+      return res.status(400).json({ error: 'clientId is required' });
+    }
+    if (!isTelemarketingServiceRequestTaskType(taskType)) {
+      return res.status(400).json({ error: 'taskType is not supported by telemarketing service requests' });
+    }
+    if (!taskRequiresInstalledDevice(taskType)) return res.json([]);
+
+    const { rows: clientRows } = await pool.query(
+      `SELECT c.id, c.branch_id,
+              EXISTS (
+                SELECT 1 FROM client_assignments ca
+                 WHERE ca.client_id = c.id AND ca.hr_user_id = $2
+              ) AS is_assigned
+         FROM clients c
+        WHERE c.id = $1 AND c.deleted_at IS NULL AND c.is_active = TRUE
+        LIMIT 1`,
+      [clientId, createdBy],
+    );
+    const clientSubject = clientRows[0];
+    if (!clientSubject) return res.status(404).json({ error: 'الزبون غير موجود أو غير فعال' });
+    if (Number(clientSubject.branch_id) !== branchId) {
+      return res.status(409).json({ error: 'فرع الزبون لا يطابق فرع العمل الحالي' });
+    }
+    const access = canCreateTelemarketingServiceTask(req.authContext!, {
+      branchId: Number(clientSubject.branch_id),
+      assignedUserIds: clientSubject.is_assigned && createdBy ? [createdBy] : [],
+    });
+    if (!access.allowed) {
+      return res.status(403).json({ error: 'غير مسموح بعرض أجهزة هذا الزبون ضمن نطاق صلاحيتك' });
+    }
+    if (getTelemarketingTaskTypeScope(req.authContext) === 'device_demo' && !(await clientHasDeviceDemoTask(clientId))) {
+      return res.status(403).json({ error: 'غير مسموح: هذه الجهة خارج نطاق صلاحيتك (عرض جهاز فقط)' });
+    }
+
+    const { rows } = await pool.query(
+      `SELECT d.id,
+              d.status,
+              d.contract_id AS "contractId",
+              d.serial_number AS "serialNumber",
+              COALESCE(
+                (SELECT COALESCE(dm.name_ar, dm.name_en) FROM device_models dm WHERE dm.id = d.device_model_id),
+                'جهاز'
+              ) AS "deviceModelName",
+              EXISTS (
+                SELECT 1 FROM service_agreements sa
+                 WHERE sa.installed_device_id = d.id
+                   AND sa.status = 'active'
+                   AND (sa.start_date IS NULL OR sa.start_date <= CURRENT_DATE)
+                   AND (sa.end_date IS NULL OR sa.end_date >= CURRENT_DATE)
+              ) AS "hasActiveServiceAgreement",
+              EXISTS (
+                SELECT 1 FROM device_warranties dw
+                 WHERE dw.device_id = d.id
+                   AND dw.warranty_type = 'golden'
+                   AND dw.status = 'active'
+                   AND (dw.end_date IS NULL OR dw.end_date >= CURRENT_DATE)
+              ) AS "hasActiveGoldenWarranty",
+              EXISTS (
+                SELECT 1 FROM open_tasks ot
+                 WHERE ot.device_id = d.id
+                   AND ot.task_type = $2
+                   AND ot.status NOT IN ('completed', 'closed', 'cancelled')
+              ) AS "hasActiveTask"
+         FROM installed_devices d
+        WHERE d.customer_id = $1
+          AND d.branch_id = $3
+        ORDER BY d.created_at DESC, d.id DESC`,
+      [clientId, taskType, branchId],
+    );
+
+    return res.json(rows.map((device: any) => {
+      const eligibility = evaluateDeviceTaskEligibility({
+        taskType,
+        deviceStatus: device.status,
+        hasContract: device.contractId != null,
+        hasActiveServiceAgreement: device.hasActiveServiceAgreement === true,
+        hasActiveTask: device.hasActiveTask === true,
+        hasActiveGoldenWarranty: device.hasActiveGoldenWarranty === true,
+      });
+      return { ...device, eligible: eligibility.allowed, eligibilityCode: eligibility.code, eligibilityReason: eligibility.reason };
+    }));
+  } catch (err: any) {
+    console.error('[telemarketing] service task device lookup error:', err);
+    return res.status(500).json({ error: err.message || 'فشل تحميل أجهزة الزبون' });
   }
 });
 
@@ -2462,6 +2565,9 @@ router.get('/task-type-options', requirePermission('telemarketing.calls.create')
  *                 type: integer
  *               taskType:
  *                 type: string
+ *               installedDeviceId:
+ *                 type: integer
+ *                 description: Required for every task type whose subject is an installed device
  *               notes:
  *                 type: string
  *               priority:
@@ -2481,6 +2587,7 @@ router.post('/service-tasks', requirePermission('telemarketing.calls.create'), a
     const branchId = getBranchId(req);
     const createdBy = getCallerId(req);
     const { clientId, taskType, notes, priority } = req.body ?? {};
+    const installedDeviceId = Number(req.body?.installedDeviceId) || null;
 
     if (!branchId) return res.status(400).json({ error: 'Branch context required' });
     if (!clientId || !Number.isInteger(Number(clientId))) {
@@ -2488,6 +2595,46 @@ router.post('/service-tasks', requirePermission('telemarketing.calls.create'), a
     }
     if (!taskType || typeof taskType !== 'string') {
       return res.status(400).json({ error: 'taskType is required' });
+    }
+    if (!isTelemarketingServiceRequestTaskType(taskType)) {
+      return res.status(409).json({
+        error: 'نوع المهمة المحدد يحتاج بيانات ارتباط لا يوفرها طلب الخدمة الهاتفي. أنشئ المهمة من مسارها التشغيلي المخصص.',
+      });
+    }
+    if (taskRequiresInstalledDevice(taskType) && !installedDeviceId) {
+      return res.status(409).json({
+        code: 'DEVICE_REQUIRED',
+        error: 'يجب اختيار جهاز محدد للزبون قبل إنشاء هذه المهمة',
+      });
+    }
+
+    const { rows: clientRows } = await pool.query(
+      `SELECT c.id, c.branch_id,
+              EXISTS (
+                SELECT 1 FROM client_assignments ca
+                 WHERE ca.client_id = c.id AND ca.hr_user_id = $2
+              ) AS is_assigned
+         FROM clients c
+        WHERE c.id = $1 AND c.deleted_at IS NULL AND c.is_active = TRUE
+        LIMIT 1`,
+      [Number(clientId), createdBy],
+    );
+    if (!clientRows[0]) {
+      return res.status(404).json({ error: 'الزبون غير موجود أو غير فعال' });
+    }
+    const clientSubject = clientRows[0];
+    if (Number(clientSubject.branch_id) !== branchId) {
+      return res.status(409).json({ error: 'فرع الزبون لا يطابق فرع العمل الحالي' });
+    }
+    const access = canCreateTelemarketingServiceTask(req.authContext!, {
+      branchId: Number(clientSubject.branch_id),
+      assignedUserIds: clientSubject.is_assigned && createdBy ? [createdBy] : [],
+    });
+    if (!access.allowed) {
+      return res.status(403).json({ error: 'غير مسموح بإنشاء طلب خدمة لهذا الزبون ضمن نطاق صلاحيتك' });
+    }
+    if (getTelemarketingTaskTypeScope(req.authContext) === 'device_demo' && !(await clientHasDeviceDemoTask(Number(clientId)))) {
+      return res.status(403).json({ error: 'غير مسموح: هذه الجهة خارج نطاق صلاحيتك (عرض جهاز فقط)' });
     }
 
     // Resolve task_family from task_type_config
@@ -2500,25 +2647,98 @@ router.post('/service-tasks', requirePermission('telemarketing.calls.create'), a
     }
     const taskFamily = ttcRows[0].task_family;
 
-    const { rows } = await pool.query(
-      `INSERT INTO open_tasks
-         (client_id, branch_id, task_type, task_family, reason, status,
-          priority, source, notes, created_by, origin)
-       VALUES ($1, $2, $3, $4, 'service_request', 'open',
-               $5, 'telemarketing', $6, $7, 'telemarketing_call')
-       RETURNING id, task_type AS "taskType", status, created_at AS "createdAt"`,
-      [
-        Number(clientId),
-        branchId,
-        taskType,
-        taskFamily,
-        ['high', 'medium', 'low'].includes(priority) ? priority : null,
-        notes || null,
-        createdBy,
-      ],
-    );
+    const dbClient = await pool.connect();
+    try {
+      await dbClient.query('BEGIN');
+      if (installedDeviceId) {
+        const { rows: deviceRows } = await dbClient.query(
+          `SELECT d.id,
+                  d.customer_id AS "customerId",
+                  d.branch_id AS "branchId",
+                  d.status,
+                  d.contract_id AS "contractId",
+                  EXISTS (
+                    SELECT 1 FROM service_agreements sa
+                     WHERE sa.installed_device_id = d.id
+                       AND sa.status = 'active'
+                       AND (sa.start_date IS NULL OR sa.start_date <= CURRENT_DATE)
+                       AND (sa.end_date IS NULL OR sa.end_date >= CURRENT_DATE)
+                  ) AS "hasActiveServiceAgreement",
+                  EXISTS (
+                    SELECT 1 FROM device_warranties dw
+                     WHERE dw.device_id = d.id
+                       AND dw.warranty_type = 'golden'
+                       AND dw.status = 'active'
+                       AND (dw.end_date IS NULL OR dw.end_date >= CURRENT_DATE)
+                  ) AS "hasActiveGoldenWarranty",
+                  EXISTS (
+                    SELECT 1 FROM open_tasks ot
+                     WHERE ot.device_id = d.id
+                       AND ot.task_type = $2
+                       AND ot.status NOT IN ('completed', 'closed', 'cancelled')
+                  ) AS "hasActiveTask"
+             FROM installed_devices d
+            WHERE d.id = $1
+            FOR UPDATE`,
+          [installedDeviceId, taskType],
+        );
+        const device = deviceRows[0];
+        if (!device) {
+          await dbClient.query('ROLLBACK');
+          return res.status(404).json({ error: 'الجهاز المحدد غير موجود' });
+        }
+        if (Number(device.customerId) !== Number(clientId) || Number(device.branchId) !== branchId) {
+          await dbClient.query('ROLLBACK');
+          return res.status(403).json({ error: 'الجهاز المحدد لا يتبع هذا الزبون ضمن فرع العمل الحالي' });
+        }
+        const eligibility = evaluateDeviceTaskEligibility({
+          taskType,
+          deviceStatus: device.status,
+          hasContract: device.contractId != null,
+          hasActiveServiceAgreement: device.hasActiveServiceAgreement === true,
+          hasActiveTask: device.hasActiveTask === true,
+          hasActiveGoldenWarranty: device.hasActiveGoldenWarranty === true,
+        });
+        if (!eligibility.allowed) {
+          await dbClient.query('ROLLBACK');
+          return res.status(409).json({ code: eligibility.code, error: eligibility.reason });
+        }
+      }
 
-    return res.status(201).json(rows[0]);
+      const { rows } = await dbClient.query(
+        `INSERT INTO open_tasks
+           (client_id, branch_id, task_type, task_family, reason, status,
+            priority, source, notes, created_by, origin, device_id)
+         VALUES ($1, $2, $3, $4, 'service_request', 'open',
+                 $5, 'telemarketing', $6, $7, 'telemarketing_call', $8)
+         RETURNING id, task_type AS "taskType", status, device_id AS "deviceId", created_at AS "createdAt"`,
+        [
+          Number(clientId),
+          branchId,
+          taskType,
+          taskFamily,
+          ['high', 'medium', 'low'].includes(priority) ? priority : null,
+          notes || null,
+          createdBy,
+          installedDeviceId,
+        ],
+      );
+      if (taskType === 'golden_warranty_offer' && installedDeviceId) {
+        await dbClient.query(
+          `INSERT INTO open_task_installed_devices (task_id, installed_device_id)
+           VALUES ($1, $2)
+           ON CONFLICT (task_id, installed_device_id) DO NOTHING`,
+          [rows[0].id, installedDeviceId],
+        );
+      }
+      await dbClient.query('COMMIT');
+      return res.status(201).json(rows[0]);
+    } catch (error) {
+      await dbClient.query('ROLLBACK');
+      throw error;
+    } finally {
+      dbClient.release();
+    }
   } catch (err: any) {
     console.error('[telemarketing] service task create error:', err);
     return res.status(500).json({ error: err.message || 'فشل إنشاء المهمة' });

@@ -6,6 +6,7 @@ import type {
   ZoneStudyResponse,
 } from '@golden-crm/shared';
 import { shouldAttachBranchContextHeader } from './branchContext';
+import { authFetch } from './authFetch';
 
 export const API_BASE = '/api';
 
@@ -457,10 +458,7 @@ export const api = {
     // attached. Returns the raw HTML; callers turn it into a Blob URL so
     // it can be opened in a new tab without exposing the JWT.
     getPrintableHtml: async (contractId: number): Promise<string> => {
-      const token = getToken();
-      const res = await fetch(`${API_BASE}/contracts/${contractId}/printable`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
+      const res = await authFetch(`${API_BASE}/contracts/${contractId}/printable`);
       if (!res.ok) {
         const text = await res.text().catch(() => '');
         throw new Error(`فشل تحميل النسخة القانونية (${res.status}): ${text}`);
@@ -1074,7 +1072,20 @@ export const api = {
       { method: 'POST', body: JSON.stringify(data) },
     ),
     taskTypeOptions: () => request<{ taskType: string; arabicLabel: string; taskFamily: string }[]>('/telemarketing/task-type-options'),
-    createServiceTask: (data: { clientId: number; taskType: string; notes?: string; priority?: string }) =>
+    serviceTaskDevices: (clientId: number, taskType: string) => {
+      const qs = new URLSearchParams({ clientId: String(clientId), taskType });
+      return request<Array<{
+        id: number;
+        status: string;
+        contractId: number | null;
+        serialNumber: string | null;
+        deviceModelName: string;
+        eligible: boolean;
+        eligibilityCode: string;
+        eligibilityReason: string;
+      }>>(`/telemarketing/service-task-devices?${qs}`);
+    },
+    createServiceTask: (data: { clientId: number; taskType: string; installedDeviceId?: number; notes?: string; priority?: string }) =>
       request<any>('/telemarketing/service-tasks', { method: 'POST', body: JSON.stringify(data) }),
   },
   systemLists: {
@@ -1118,6 +1129,72 @@ export const api = {
   // ─────────────────────────────────────────────────────────────────
   // Service Requests (Phase 3) — intake layer for emergency_maintenance
   // ─────────────────────────────────────────────────────────────────
+  appAccounts: {
+    forClient: (clientId: number) =>
+      request<{ account: any | null }>(`/admin/clients/${clientId}/app-account`),
+    createDirect: (clientId: number) =>
+      request<any>(`/admin/clients/${clientId}/app-account`, { method: 'POST', body: '{}' }),
+    bulkActivate: (body: { mode: 'filter' | 'ids'; filter?: any; clientIds?: number[] }) =>
+      request<any>(`/admin/app-accounts/bulk-activate`, { method: 'POST', body: JSON.stringify(body) }),
+    suspend: (id: number, reason: string) =>
+      request<any>(`/admin/app-accounts/${id}/suspend`, { method: 'POST', body: JSON.stringify({ reason }) }),
+    reactivate: (id: number) =>
+      request<any>(`/admin/app-accounts/${id}/reactivate`, { method: 'POST', body: '{}' }),
+  },
+  accountRequests: {
+    list: (params: Record<string, string | number | boolean | undefined> = {}) => {
+      const qs = Object.entries(params)
+        .filter(([, v]) => v !== undefined && v !== '' && v !== null)
+        .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
+        .join('&');
+      return request<{ items: any[]; limit: number; offset: number }>(
+        `/admin/account-requests${qs ? `?${qs}` : ''}`,
+      );
+    },
+    get: (id: number) =>
+      request<{ request: any; audit: any[] }>(`/admin/account-requests/${id}`),
+    suggestions: (id: number) =>
+      request<{ suggestions: any[] }>(`/admin/account-requests/${id}/suggestions`),
+    claim: (id: number) =>
+      request<any>(`/admin/account-requests/${id}/claim`, { method: 'POST' }),
+    takeOver: (id: number, transferReason?: string) =>
+      request<any>(`/admin/account-requests/${id}/take-over`, {
+        method: 'POST',
+        body: JSON.stringify({ transferReason: transferReason ?? null }),
+      }),
+    requestInfo: (id: number, note?: string) =>
+      request<any>(`/admin/account-requests/${id}/request-info`, {
+        method: 'POST',
+        body: JSON.stringify({ note: note ?? null }),
+      }),
+    resumeReview: (id: number) =>
+      request<any>(`/admin/account-requests/${id}/resume-review`, { method: 'POST' }),
+    reopen: (id: number, reopenReason: string) =>
+      request<any>(`/admin/account-requests/${id}/reopen`, {
+        method: 'POST',
+        body: JSON.stringify({ reopenReason }),
+      }),
+    addNote: (id: number, note: string) =>
+      request<any>(`/admin/account-requests/${id}/notes`, {
+        method: 'POST',
+        body: JSON.stringify({ note }),
+      }),
+    link: (id: number, clientId: number) =>
+      request<any>(`/admin/account-requests/${id}/link`, {
+        method: 'POST',
+        body: JSON.stringify({ clientId }),
+      }),
+    escalate: (id: number, reason: string) =>
+      request<any>(`/admin/account-requests/${id}/escalate`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      }),
+    reject: (id: number, reasonCode: string) =>
+      request<any>(`/admin/account-requests/${id}/reject`, {
+        method: 'POST',
+        body: JSON.stringify({ reasonCode }),
+      }),
+  },
   serviceRequests: {
     create: (data: any) =>
       request<any>('/service-requests', { method: 'POST', body: JSON.stringify(data) }),

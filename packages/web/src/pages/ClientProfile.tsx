@@ -34,6 +34,7 @@ import PhoneCallLog from '../components/customers/PhoneCallLog';
 import DeviceOfferModal from '../components/clients/DeviceOfferModal';
 import NewServiceRequestModal from '../components/service-requests/NewServiceRequestModal';
 import { usePermissions } from '../hooks/usePermissions';
+import ClientAppAccountCard from '../components/appAccounts/ClientAppAccountCard';
 
 type ClientProfileTabId =
     | 'overview'
@@ -696,7 +697,10 @@ export default function ClientProfile() {
             <div className="flex-1 overflow-y-auto custom-scroll">
                 <div className="mx-auto max-w-[1600px] px-4 py-5 sm:px-6 lg:px-8">
                     <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[280px_minmax(0,1fr)]">
-                        <ProfileSidebar client={client} geoUnits={allGeoUnits} />
+                        <div className="space-y-5">
+                            <ProfileSidebar client={client} geoUnits={allGeoUnits} />
+                            <ClientAppAccountCard clientId={client.id} />
+                        </div>
 
                         <main className="min-w-0">
                             <div className="sticky top-0 z-20 mb-4 border-b border-slate-200 bg-slate-50/95 backdrop-blur">

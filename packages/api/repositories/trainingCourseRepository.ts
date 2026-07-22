@@ -25,7 +25,10 @@ export async function getEligibleTrainingApplications(jobVacancyId: string) {
 }
 
 export async function findTrainingVacancyById(jobVacancyId: number) {
-  const { rows } = await pool.query(`SELECT id FROM job_vacancies WHERE id = $1`, [jobVacancyId]);
+  const { rows } = await pool.query(
+    `SELECT id, branch, branch_id AS "branchId" FROM job_vacancies WHERE id = $1`,
+    [jobVacancyId],
+  );
   return rows[0] ?? null;
 }
 
@@ -59,6 +62,7 @@ export async function createTrainingCourseRecord(client: PoolClient, input: {
   training_name: string;
   job_vacancy_id: number;
   branch: string;
+  branch_id: number;
   device_name?: string | null;
   trainer: string;
   start_date: string;
@@ -68,13 +72,14 @@ export async function createTrainingCourseRecord(client: PoolClient, input: {
 }) {
   const { rows } = await client.query(
     `INSERT INTO training_courses
-      (training_name, job_vacancy_id, branch, device_name, trainer, start_date, end_date, notes, created_by_user_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+      (training_name, job_vacancy_id, branch, branch_id, device_name, trainer, start_date, end_date, notes, created_by_user_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
      RETURNING *`,
     [
       sanitizeText(input.training_name.trim()),
       input.job_vacancy_id,
       sanitizeText(input.branch.trim()),
+      input.branch_id,
       input.device_name ? sanitizeText(input.device_name) : null,
       sanitizeText(input.trainer.trim()),
       input.start_date,
@@ -142,7 +147,10 @@ export async function getTrainingCourseById(courseId: string, client?: PoolClien
 }
 
 export async function getTrainingVacancySummary(vacancyId: number) {
-  const { rows } = await pool.query(`SELECT id, title, branch FROM job_vacancies WHERE id = $1`, [vacancyId]);
+  const { rows } = await pool.query(
+    `SELECT id, title, branch, branch_id AS "branchId" FROM job_vacancies WHERE id = $1`,
+    [vacancyId],
+  );
   return rows[0] ?? null;
 }
 

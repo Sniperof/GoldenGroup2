@@ -29,6 +29,7 @@ const EVENT_LABELS: Record<string, string> = {
   escalated_to_audit_admin: 'تَصعيد للمدقّق',
   rejected_decision: 'قرار رفض',
   promoted_to_task: 'ترقية لمهمة',
+  request_completed: 'إكمال الطلب',
   merged_into_existing_task: 'دمج مع مهمة قائمة',
   cancelled_by_admin: 'إلغاء إداري',
   customer_info_requested: 'طلب معلومة من الزبون',

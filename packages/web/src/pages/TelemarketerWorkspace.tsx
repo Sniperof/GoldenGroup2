@@ -4,7 +4,7 @@ import {
     Headset, Phone, FileText, CheckCircle2, History, CreditCard,
     AlertTriangle, Calendar, Send, Zap, User, Clock, CheckCircle,
     MapPin, PlusCircle, MessageSquare, ThumbsUp, Wrench, Activity, Briefcase,
-    Search, ChevronLeft, ChevronRight, Layers, Eye, Edit3, X, Cpu, Gift,
+    Search, ChevronLeft, ChevronRight, Layers, Eye, Edit3, X, Cpu, Gift, Loader2, RefreshCw,
 } from '../components/ui/icons';
 import { api } from '../lib/api';
 import { getOpenTaskDetailPath } from '../lib/taskRoutes';
@@ -12,7 +12,7 @@ import IconButton from '../components/ui/IconButton';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import { useCandidateStore } from '../hooks/useCandidateStore';
 import { useClientStore } from '../hooks/useClientStore';
-import { OPEN_TASK_TYPE_LABELS, OPEN_TASK_REASON_LABELS, isHiddenOperationalTaskType } from '@golden-crm/shared';
+import { OPEN_TASK_TYPE_LABELS, OPEN_TASK_REASON_LABELS, isHiddenOperationalTaskType, taskRequiresInstalledDevice } from '@golden-crm/shared';
 import type { OpenTask, OpenTaskType, OpenTaskReason } from '@golden-crm/shared';
 import { useTelemarketingStore } from '../hooks/useTelemarketingStore';
 import TeamAgendaPanel from '../components/telemarketing/TeamAgendaPanel';
@@ -104,6 +104,13 @@ interface CrossTeamTarget {
     taskCount: number;
     latestTelemarketingOutcome: string | null;
     latestCallAt: string | null;
+}
+
+interface SelectedClientDetailRequest {
+    clientId: number;
+    client: Client | null;
+    loading: boolean;
+    error: string | null;
 }
 
 function groupByCustomer(items: TaskListItem[]): CustomerGroup[] {
@@ -621,6 +628,17 @@ export default function TelemarketerWorkspace() {
     const [serviceTaskNotes, setServiceTaskNotes] = useState('');
     const [serviceTaskPriority, setServiceTaskPriority] = useState('');
     const [serviceTaskSaving, setServiceTaskSaving] = useState(false);
+    const [serviceTaskDevices, setServiceTaskDevices] = useState<Array<{
+        id: number;
+        status: string;
+        serialNumber: string | null;
+        deviceModelName: string;
+        eligible: boolean;
+        eligibilityReason: string;
+    }>>([]);
+    const [serviceTaskDeviceId, setServiceTaskDeviceId] = useState('');
+    const [serviceTaskDevicesLoading, setServiceTaskDevicesLoading] = useState(false);
+    const [serviceTaskDeviceError, setServiceTaskDeviceError] = useState('');
     // Pre-selected contact — set when user picks a number in the contact picker
     const [preselectedContactId, setPreselectedContactId] = useState<string>('');
     // Contact picker modal (step 1 before outcome modal)
@@ -630,8 +648,102 @@ export default function TelemarketerWorkspace() {
     const [messageReplyContactId, setMessageReplyContactId] = useState<string>('');
     const [crossTeamTargetsByClient, setCrossTeamTargetsByClient] = useState<Record<number, CrossTeamTarget[]>>({});
     const [crossTeamLoading, setCrossTeamLoading] = useState(false);
+    const [selectedClientDetailRequest, setSelectedClientDetailRequest] = useState<SelectedClientDetailRequest | null>(null);
+    const [selectedClientDetailReloadKey, setSelectedClientDetailReloadKey] = useState(0);
 
     const selectedCustomer = useMemo(() => filteredGroups.find(cg => cg.key === selectedCustomerKey) || null, [filteredGroups, selectedCustomerKey]);
+
+    useEffect(() => {
+        if (!isServiceTaskOpen || !selectedCustomer || !taskRequiresInstalledDevice(serviceTaskType)) {
+            setServiceTaskDevices([]);
+            setServiceTaskDeviceId('');
+            setServiceTaskDevicesLoading(false);
+            setServiceTaskDeviceError('');
+            return;
+        }
+        if (selectedCustomer.entityType !== 'client') {
+            setServiceTaskDevices([]);
+            setServiceTaskDeviceId('');
+            setServiceTaskDeviceError('هذه المهمة تحتاج زبونا مسجلا وجهازا مركبا');
+            return;
+        }
+
+        let cancelled = false;
+        setServiceTaskDevicesLoading(true);
+        setServiceTaskDeviceError('');
+        setServiceTaskDeviceId('');
+        api.telemarketing.serviceTaskDevices(selectedCustomer.entityId, serviceTaskType)
+            .then((rows) => {
+                if (cancelled) return;
+                setServiceTaskDevices(rows);
+                const eligible = rows.filter(device => device.eligible);
+                if (eligible.length === 1) setServiceTaskDeviceId(String(eligible[0].id));
+                if (rows.length === 0) setServiceTaskDeviceError('لا يوجد جهاز مرتبط بهذا الزبون ضمن الفرع الحالي');
+                else if (eligible.length === 0) setServiceTaskDeviceError('لا يوجد جهاز مؤهل لإنشاء هذه المهمة حاليا');
+            })
+            .catch((error: any) => {
+                if (!cancelled) {
+                    setServiceTaskDevices([]);
+                    setServiceTaskDeviceError(error?.message || 'تعذر تحميل أجهزة الزبون');
+                }
+            })
+            .finally(() => { if (!cancelled) setServiceTaskDevicesLoading(false); });
+        return () => { cancelled = true; };
+    }, [isServiceTaskOpen, selectedCustomer, serviceTaskType]);
+    const listedSelectedClient = useMemo(() => {
+        if (!selectedCustomer || selectedCustomer.entityType !== 'client') return null;
+        return clients.find(client => client.id === selectedCustomer.entityId) || null;
+    }, [selectedCustomer, clients]);
+
+    useEffect(() => {
+        if (!selectedCustomer || selectedCustomer.entityType !== 'client' || listedSelectedClient) {
+            setSelectedClientDetailRequest(null);
+            return;
+        }
+
+        const clientId = selectedCustomer.entityId;
+        let cancelled = false;
+        setSelectedClientDetailRequest({ clientId, client: null, loading: true, error: null });
+
+        api.clients.get(clientId)
+            .then((client: Client) => {
+                if (!cancelled) {
+                    setSelectedClientDetailRequest({ clientId, client, loading: false, error: null });
+                }
+            })
+            .catch(() => {
+                if (!cancelled) {
+                    setSelectedClientDetailRequest({
+                        clientId,
+                        client: null,
+                        loading: false,
+                        error: 'تعذر تحميل تفاصيل الزبون. تحقق من الصلاحية أو الاتصال ثم أعد المحاولة.',
+                    });
+                }
+            });
+
+        return () => { cancelled = true; };
+    }, [selectedCustomer, listedSelectedClient, selectedClientDetailReloadKey]);
+
+    const updateWorkspaceClient = useCallback(async (id: number, updates: Partial<Client>) => {
+        const listedClient = clients.find(client => client.id === id);
+        if (listedClient) {
+            await updateClient(id, updates);
+            return;
+        }
+
+        const fallbackClient = selectedClientDetailRequest?.clientId === id
+            ? selectedClientDetailRequest.client
+            : null;
+        if (!fallbackClient) {
+            throw new Error('Client details are not loaded');
+        }
+
+        const updatedClient = await api.clients.update(id, { ...fallbackClient, ...updates });
+        setSelectedClientDetailRequest(current => current?.clientId === id
+            ? { clientId: id, client: updatedClient, loading: false, error: null }
+            : current);
+    }, [clients, selectedClientDetailRequest, updateClient]);
 
     // Replaces the legacy bulk `api.visits.list()` load. The new field_visits
     // endpoint requires a clientId (or date) filter — so we fetch visits per
@@ -726,8 +838,20 @@ export default function TelemarketerWorkspace() {
     const entityDetails = useMemo(() => {
         if (!selectedCustomer) return null;
         if (selectedCustomer.entityType === 'candidate') return candidates.find(c => c.id === selectedCustomer.entityId);
-        return clients.find(c => c.id === selectedCustomer.entityId);
-    }, [selectedCustomer, candidates, clients]);
+        if (listedSelectedClient) return listedSelectedClient;
+        return selectedClientDetailRequest?.clientId === selectedCustomer.entityId
+            ? selectedClientDetailRequest.client
+            : null;
+    }, [selectedCustomer, candidates, listedSelectedClient, selectedClientDetailRequest]);
+
+    const entityDetailsLoading = !!selectedCustomer &&
+        selectedCustomer.entityType === 'client' &&
+        !listedSelectedClient &&
+        (selectedClientDetailRequest?.clientId !== selectedCustomer.entityId || selectedClientDetailRequest.loading);
+    const entityDetailsError = selectedCustomer?.entityType === 'client' &&
+        selectedClientDetailRequest?.clientId === selectedCustomer.entityId
+        ? selectedClientDetailRequest.error
+        : null;
 
     const selectedContacts = useMemo(() => {
         if (!entityDetails) return [];
@@ -885,7 +1009,7 @@ export default function TelemarketerWorkspace() {
                 const updatedContacts = (entityDetails.contacts as ContactEntry[]).map(c =>
                     c.id === selectedContact.id ? { ...c, status: newContactStatus } : c
                 );
-                await updateClient(selectedCustomer.entityId, { contacts: updatedContacts }).catch(() => {});
+                await updateWorkspaceClient(selectedCustomer.entityId, { contacts: updatedContacts }).catch(() => {});
             }
         }
 
@@ -955,7 +1079,7 @@ export default function TelemarketerWorkspace() {
                 }, selectedTaskEntries.length > 0 ? selectedTaskEntries : undefined);
 
                 if (selectedCustomer.entityType === 'client' && extras.waterSource) {
-                    await updateClient(selectedCustomer.entityId, { waterSource: extras.waterSource });
+                    await updateWorkspaceClient(selectedCustomer.entityId, { waterSource: extras.waterSource });
                 }
                 // Mark as booked AFTER appointment is confirmed
                 await Promise.all(selectedCustomer.allItems.map(item =>
@@ -986,6 +1110,8 @@ export default function TelemarketerWorkspace() {
             setServiceTaskTypeLabel(foundLabel ?? extras.serviceTaskType);
             setServiceTaskNotes('');
             setServiceTaskPriority('');
+            setServiceTaskDeviceId('');
+            setServiceTaskDeviceError('');
             setIsServiceTaskOpen(true);
         } else if (meta.opensAppointment) {
             // Fallback: legacy path if inline data is missing
@@ -1042,7 +1168,7 @@ export default function TelemarketerWorkspace() {
         }
 
         if (selectedCustomer.entityType === 'client' && data.waterSource) {
-            await updateClient(selectedCustomer.entityId, { waterSource: data.waterSource });
+            await updateWorkspaceClient(selectedCustomer.entityId, { waterSource: data.waterSource });
         }
 
         // Update ALL items for this customer as booked in the store.
@@ -1057,15 +1183,22 @@ export default function TelemarketerWorkspace() {
 
     const handleCreateServiceTask = async () => {
         if (!selectedCustomer || !serviceTaskType) return;
+        if (taskRequiresInstalledDevice(serviceTaskType) && !serviceTaskDeviceId) {
+            setServiceTaskDeviceError('يجب اختيار جهاز مؤهل قبل إنشاء المهمة');
+            return;
+        }
         setServiceTaskSaving(true);
         try {
             await api.telemarketing.createServiceTask({
                 clientId: selectedCustomer.entityId,
                 taskType: serviceTaskType,
+                installedDeviceId: serviceTaskDeviceId ? Number(serviceTaskDeviceId) : undefined,
                 notes: serviceTaskNotes || undefined,
                 priority: serviceTaskPriority || undefined,
             });
             setIsServiceTaskOpen(false);
+            setServiceTaskDeviceId('');
+            setServiceTaskDevices([]);
             setServiceTaskType('');
             setServiceTaskTypeLabel('');
             setServiceTaskNotes('');
@@ -1120,7 +1253,7 @@ export default function TelemarketerWorkspace() {
         }
 
         if (selectedCustomer.entityType === 'client') {
-            const client = clients.find(c => c.id === selectedCustomer.entityId);
+            const client = entityDetails as Client | null;
             if (client) {
                 events.push({ id: 'client_' + client.id, date: client.createdAt, type: 'suggestion', icon: User, color: 'text-amber-600', bg: 'bg-amber-100',
                     content: <><p className="text-sm font-bold text-slate-800">تم تسجيل الزبون في النظام</p>{client.referrerName && <p className="text-xs text-slate-600 mt-1">الوسيط: {client.referrerName}</p>}</> });
@@ -1203,7 +1336,7 @@ export default function TelemarketerWorkspace() {
         });
 
         return events.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    }, [selectedCustomer, candidates, clients, contracts, visits, maintenanceRequests, callLogs]);
+    }, [selectedCustomer, entityDetails, candidates, contracts, visits, maintenanceRequests, callLogs]);
 
     const openTaskRows = useMemo(() => {
         if (!selectedCustomer) return [];
@@ -1813,6 +1946,26 @@ export default function TelemarketerWorkspace() {
                                         </div>
                             </Modal>
                         </>
+                    ) : selectedCustomer && entityDetailsLoading ? (
+                        <div className="flex-1 flex items-center justify-center flex-col text-slate-500 bg-slate-50">
+                            <Loader2 className="w-8 h-8 mb-3 animate-spin text-violet-500" />
+                            <p className="font-bold text-sm">جارٍ تحميل تفاصيل الزبون</p>
+                        </div>
+                    ) : selectedCustomer && entityDetailsError ? (
+                        <div className="flex-1 flex items-center justify-center flex-col text-center text-slate-500 bg-slate-50 px-8">
+                            <AlertTriangle className="w-10 h-10 mb-3 text-red-400" />
+                            <p className="font-bold text-sm text-slate-700">{entityDetailsError}</p>
+                            <Button
+                                type="button"
+                                variant="secondary"
+                                size="sm"
+                                icon={RefreshCw}
+                                onClick={() => setSelectedClientDetailReloadKey(key => key + 1)}
+                                className="mt-4"
+                            >
+                                إعادة المحاولة
+                            </Button>
+                        </div>
                     ) : (
                         <div className="flex-1 flex flex-col overflow-hidden bg-slate-50">
                             <div className="flex flex-col items-center justify-center text-slate-400 p-8 shrink-0">
@@ -1895,7 +2048,7 @@ export default function TelemarketerWorkspace() {
             <Modal
                 isOpen={isServiceTaskOpen && !!selectedCustomer}
                 onClose={() => setIsServiceTaskOpen(false)}
-                size="sm"
+                size="md"
                 title="إنشاء مهمة خدمة"
                 subtitle={selectedCustomer?.name}
                 footer={
@@ -1903,7 +2056,12 @@ export default function TelemarketerWorkspace() {
                         <Button variant="secondary" onClick={() => setIsServiceTaskOpen(false)} className="flex-1">
                             تخطي
                         </Button>
-                        <Button loading={serviceTaskSaving} onClick={handleCreateServiceTask} className="flex-1 bg-indigo-600 hover:bg-indigo-500">
+                        <Button
+                            loading={serviceTaskSaving}
+                            disabled={serviceTaskDevicesLoading || (taskRequiresInstalledDevice(serviceTaskType) && !serviceTaskDeviceId)}
+                            onClick={handleCreateServiceTask}
+                            className="flex-1 bg-indigo-600 hover:bg-indigo-500"
+                        >
                             إنشاء المهمة
                         </Button>
                     </div>
@@ -1917,6 +2075,32 @@ export default function TelemarketerWorkspace() {
                                     {serviceTaskTypeLabel || serviceTaskType}
                                 </div>
                             </div>
+                            {taskRequiresInstalledDevice(serviceTaskType) && (
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-600 mb-1">جهاز الزبون *</label>
+                                    <Select<string>
+                                        value={serviceTaskDeviceId}
+                                        onChange={(value) => {
+                                            setServiceTaskDeviceId(String(value));
+                                            setServiceTaskDeviceError('');
+                                        }}
+                                        disabled={serviceTaskDevicesLoading}
+                                        placeholder={serviceTaskDevicesLoading ? 'جاري تحميل الأجهزة...' : 'اختر الجهاز'}
+                                        ariaLabel="جهاز الزبون"
+                                        className="w-full"
+                                        options={serviceTaskDevices.map(device => ({
+                                            value: String(device.id),
+                                            label: `${device.deviceModelName} — ${device.serialNumber || `#${device.id}`}${device.eligible ? '' : ` — ${device.eligibilityReason}`}`,
+                                            disabled: !device.eligible,
+                                        }))}
+                                    />
+                                    {serviceTaskDeviceError && (
+                                        <div className="mt-2 rounded border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700">
+                                            {serviceTaskDeviceError}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                             {/* Notes */}
                             <div>
                                 <label className="block text-xs font-bold text-slate-600 mb-1">ملاحظات (اختياري)</label>
@@ -1980,7 +2164,7 @@ export default function TelemarketerWorkspace() {
                     isOpen={isClientEditModalOpen}
                     onClose={() => setIsClientEditModalOpen(false)}
                     onSave={(updatedClient: Client) => {
-                        updateClient(updatedClient.id, updatedClient).catch(() => {});
+                        updateWorkspaceClient(updatedClient.id, updatedClient).catch(() => {});
                         setIsClientEditModalOpen(false);
                         loadClients();
                     }}

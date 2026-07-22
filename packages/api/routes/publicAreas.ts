@@ -35,6 +35,12 @@ const LEVEL_TYPE: Record<number, string> = {
  *           type: integer
  *         required: false
  *       - in: query
+ *         name: activeOnly
+ *         schema:
+ *           type: boolean
+ *         required: false
+ *         description: When true, returns only active units (recommended for the customer-facing picker).
+ *       - in: query
  *         name: search
  *         schema:
  *           type: string
@@ -55,14 +61,16 @@ const LEVEL_TYPE: Record<number, string> = {
  */
 router.get('/', async (req, res) => {
   try {
-    const { parent_id } = req.query;
+    const { parent_id, activeOnly } = req.query;
+    const onlyActive = activeOnly === 'true' || activeOnly === '1';
+    const activeClause = onlyActive ? `AND status = 'active'` : '';
 
     let rows: any[];
     if (parent_id) {
       const result = await pool.query(
         `SELECT id, name, level, parent_id AS "parentId"
          FROM geo_units
-         WHERE parent_id = $1
+         WHERE parent_id = $1 ${activeClause}
          ORDER BY name`,
         [parent_id]
       );
@@ -71,7 +79,7 @@ router.get('/', async (req, res) => {
       const result = await pool.query(
         `SELECT id, name, level, parent_id AS "parentId"
          FROM geo_units
-         WHERE level = 1
+         WHERE level = 1 ${activeClause}
          ORDER BY name`
       );
       rows = result.rows;

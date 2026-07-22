@@ -10,6 +10,12 @@ interface TeamAgendaPanelProps {
 
 const normalizeTimeSlot = (value: string | null | undefined) => String(value || '').slice(0, 5);
 
+const TERMINAL_STATUS_META: Partial<Record<Appointment['status'] & string, { label: string; className: string }>> = {
+    closed: { label: 'مغلقة', className: 'border-slate-200 bg-slate-50 text-slate-600' },
+    completed: { label: 'مكتملة', className: 'border-emerald-200 bg-emerald-50 text-emerald-700' },
+    not_completed: { label: 'لم تكتمل', className: 'border-amber-200 bg-amber-50 text-amber-700' },
+};
+
 export default function TeamAgendaPanel({ appointments, date }: TeamAgendaPanelProps) {
     // Flexible booking means appointments can land on any minute, so the agenda
     // is now a real chronological list of the actual bookings rather than a
@@ -50,6 +56,7 @@ export default function TeamAgendaPanel({ appointments, date }: TeamAgendaPanelP
                         <AnimatePresence>
                             {sortedAppointments.map(app => {
                                 const time = normalizeTimeSlot(app.timeSlot);
+                                const terminalMeta = app.status ? TERMINAL_STATUS_META[app.status] : undefined;
                                 return (
                                     <motion.div
                                         key={app.id}
@@ -69,7 +76,12 @@ export default function TeamAgendaPanel({ appointments, date }: TeamAgendaPanelP
                                             <div className="absolute top-0 right-0 w-1 h-full bg-emerald-400" />
                                             <div className="flex items-center gap-1.5 mb-1.5">
                                                 <User className="w-3 h-3 text-emerald-600 shrink-0" />
-                                                <p className="text-xs font-bold text-slate-800 truncate">{app.customerName}</p>
+                                                <p className="min-w-0 flex-1 text-xs font-bold text-slate-800 truncate">{app.customerName}</p>
+                                                {terminalMeta && (
+                                                    <span className={`shrink-0 rounded border px-1.5 py-0.5 text-xs font-bold ${terminalMeta.className}`}>
+                                                        {terminalMeta.label}
+                                                    </span>
+                                                )}
                                             </div>
                                             <div className="flex items-start gap-1.5 text-xs text-slate-600">
                                                 <MapPin className="w-3 h-3 text-slate-400 shrink-0 mt-0.5" />

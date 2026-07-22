@@ -459,7 +459,8 @@ export type FieldVisitStatus =
     | 'postponed_by_company'
     | 'postponed_by_customer'
     | 'cancelled'
-    | 'needs_reschedule';
+    | 'needs_reschedule'
+    | 'closed';
 
 export type MarketingVisitTaskType =
   | 'device_demo' | 'device_purchase' | 'device_delivery' | 'device_installation'
@@ -1162,6 +1163,7 @@ export interface Appointment {
     teamKey: string;
     date: string;
     timeSlot: string;
+    status?: FieldVisitStatus;
     occupation: string;
     waterSource: string;
     notes: string;

@@ -8,6 +8,8 @@
 // reused (e.g. showing a linked beneficiary inside a service request).
 // ============================================================
 
+import { deriveClientClassification } from './clientClassification.js';
+
 type Queryable = {
   query: (text: string, params?: any[]) => Promise<{ rows: any[]; rowCount?: number | null }>;
 };
@@ -97,8 +99,8 @@ export async function buildClientSnapshot(
     referrersArr = [{ type: c.referrer_type ?? null, name: c.referrer_name ?? null }];
   }
 
-  const candStatus = String(c.candidate_status ?? '').toUpperCase();
-  const classification = ['OP', 'FOP'].includes(candStatus) ? candStatus : 'LEAD';
+  // Shared rule; clientSnapshot keeps its upper-case 'LEAD' output contract.
+  const classification = deriveClientClassification(c.candidate_status).toUpperCase();
 
   return {
     gender: c.gender ?? null,

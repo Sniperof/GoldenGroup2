@@ -17,6 +17,8 @@ import { useCandidateStore } from '../hooks/useCandidateStore';
 import { useAuthStore } from '../hooks/useAuthStore';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import BranchScopeIndicator from '../components/BranchScopeIndicator';
+import BulkActivateModal from '../components/appAccounts/BulkActivateModal';
+import { usePermissions } from '../hooks/usePermissions';
 
 function extractApiPayload(error: unknown): any | null {
     if (!(error instanceof Error)) {
@@ -88,6 +90,9 @@ export default function Clients() {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingClient, setEditingClient] = useState<Client | null>(null);
     const [isPreAddModalOpen, setIsPreAddModalOpen] = useState(false);
+    const [isBulkActivateOpen, setIsBulkActivateOpen] = useState(false);
+    const { hasPermission } = usePermissions();
+    const canBulkActivate = hasPermission('app_accounts.bulk_activate');
     const [activeCandidateForSearch, setActiveCandidateForSearch] = useState<any>(null);
     const [verifiedPhone, setVerifiedPhone] = useState('');
     const [isAddCandidateModalOpen, setIsAddCandidateModalOpen] = useState(false);
@@ -510,6 +515,17 @@ export default function Clients() {
                         >
                             تفريغ الفلاتر
                         </button>
+
+                        {canBulkActivate && mainList.length > 0 && (
+                            <button
+                                onClick={() => setIsBulkActivateOpen(true)}
+                                title="تفعيل حساب تطبيق للزبائن المطابقين للفلاتر الحالية"
+                                className="text-xs font-bold text-emerald-600 hover:text-emerald-700 border border-emerald-200 hover:border-emerald-300 rounded-lg px-2.5 py-1 inline-flex items-center gap-1 transition-colors"
+                            >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                تفعيل حسابات ({mainList.length})
+                            </button>
+                        )}
                     </div>
                 </div>
             </div >
@@ -539,6 +555,12 @@ export default function Clients() {
                 )}
                 emptyIcon={Users}
                 emptyMessage="لا يوجد سجلات زبائن حالياً"
+            />
+
+            <BulkActivateModal
+                open={isBulkActivateOpen}
+                onClose={() => setIsBulkActivateOpen(false)}
+                clientIds={mainList.map((c) => c.id)}
             />
 
             <ClientModal

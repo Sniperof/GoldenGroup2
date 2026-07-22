@@ -10,6 +10,7 @@
  */
 
 import { Router } from 'express';
+import { evaluateMembraneEfficiency, membraneEfficiencyIssueMessage } from '@golden-crm/shared';
 import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
@@ -282,6 +283,7 @@ export const TECH_STATE_FIELDS = `
 
 function mapNum(v: any) { return v != null ? Number(v) : null; }
 export function mapTechState(r: any) {
+  const membrane = evaluateMembraneEfficiency(r.membraneInputTds, r.membraneOutputTds);
   return {
     ...r,
     waterSourceTds:    mapNum(r.waterSourceTds),
@@ -291,11 +293,14 @@ export function mapTechState(r: any) {
     membraneInputTds:  mapNum(r.membraneInputTds),
     highPressureTds:   mapNum(r.highPressureTds),
     tankTds:           mapNum(r.tankTds),
-    // computed
-    membraneEfficiency: (r.membraneOutputTds != null && r.membraneInputTds != null && Number(r.membraneInputTds) > 0)
-      ? Math.round((1 - Number(r.membraneOutputTds) / Number(r.membraneInputTds)) * 100)
-      : null,
+    membraneEfficiency: membrane.percentage,
+    membraneEfficiencyStatus: membrane.status,
   };
+}
+
+function membraneReadingError(body: any): string | null {
+  const evaluation = evaluateMembraneEfficiency(body?.membraneInputTds, body?.membraneOutputTds);
+  return evaluation.status === 'invalid' ? membraneEfficiencyIssueMessage(evaluation.issue) : null;
 }
 
 async function getTaskMeta(taskId: number) {
@@ -551,6 +556,8 @@ router.put('/:taskId/pre-state', requirePermission('marketing_visits.update_resu
     if (!meta) return res.status(404).json({ error: 'المهمة غير موجودة' });
 
     const b = req.body ?? {};
+    const membraneError = membraneReadingError(b);
+    if (membraneError) return res.status(400).json({ error: membraneError });
     const recordedBy = (req.authContext as any)?.userId ?? null;
 
     const fields = [
@@ -661,6 +668,8 @@ router.put('/:taskId/post-state', requirePermission('marketing_visits.update_res
     if (!meta) return res.status(404).json({ error: 'المهمة غير موجودة' });
 
     const b = req.body ?? {};
+    const membraneError = membraneReadingError(b);
+    if (membraneError) return res.status(400).json({ error: membraneError });
     const recordedBy = (req.authContext as any)?.userId ?? null;
 
     const fields = [

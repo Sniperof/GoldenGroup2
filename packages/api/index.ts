@@ -10,6 +10,7 @@ import { NODE_ENV, PORT, CORS_ORIGINS } from './config/env.js';
 import { UPLOADS_DIR } from './storage/uploader.js';
 import { requireAuth } from './middleware/auth.js';
 import { requireNotHQOnly } from './middleware/permission.js';
+import { apiErrorHandler } from './middleware/apiErrorHandler.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -49,6 +50,12 @@ import interviewsRouter from './routes/interviews.js';
 import trainingCoursesRouter from './routes/trainingCourses.js';
 import publicAreasRouter from './routes/publicAreas.js';
 import authRouter from './routes/auth.js';
+import appOtpRouter from './routes/appOtp.js';
+import appAccountRouter from './routes/appAccount.js';
+import appAuthRouter from './routes/appAuth.js';
+import publicAccountDeletionRouter from './routes/publicAccountDeletion.js';
+import adminAccountRequestsRouter from './routes/adminAccountRequests.js';
+import adminAppAccountsRouter from './routes/adminAppAccounts.js';
 import systemListsRouter from './routes/systemLists.js';
 import uploadRouter from './routes/upload.js';
 import rolesRouter from './routes/roles.js';
@@ -101,6 +108,18 @@ app.get('/api/health', (_req, res) => {
 app.use('/trpc', createExpressMiddleware({ router: appRouter, createContext }));
 
 app.use('/api/auth', authRouter);
+// Customer mobile-app OTP — public (no staff auth). DEC-013 §6.
+app.use('/api/app/otp', appOtpRouter);
+// Customer mobile-app account status + creation request — public. DEC-013 §2.4.
+app.use('/api/app', appAccountRouter);
+// Customer session: login / refresh / logout / session bootstrap. DEC-013 §6.
+app.use('/api/app', appAuthRouter);
+// Public account-deletion web page (Google Play). DEC-013 §8.
+app.use('/account-deletion', publicAccountDeletionRouter);
+// Web-portal admin review of account-creation requests. DEC-013 §2.5.
+app.use('/api/admin/account-requests', adminAccountRequestsRouter);
+// Admin direct + bulk app-account activation. DEC-013 §2.5.10.
+app.use('/api/admin', adminAppAccountsRouter);
 app.use('/api/system-settings', requireAuth, systemSettingsRouter);
 app.use('/api/geo-units', geoUnitsRouter);
 app.use('/api/branches', branchesRouter);
@@ -186,6 +205,10 @@ if (NODE_ENV !== 'development') {
     res.sendFile(path.join(distPath, 'index.html'));
   });
 }
+
+// Keep every unhandled REST failure JSON-shaped; domain services should still
+// translate expected failures (such as conflicts) before they reach this guard.
+app.use(apiErrorHandler);
 
 export async function start() {
   return new Promise<void>((resolve) => {

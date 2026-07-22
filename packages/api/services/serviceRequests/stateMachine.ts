@@ -47,6 +47,7 @@ const ALLOWED: Record<ServiceRequestStatus, ServiceRequestStatus[]> = {
     'resolved_at_intake',
     'rejected',
     'promoted',
+    'completed',
     'cancelled',
   ],
   awaiting_customer_info: ['in_review', 'cancelled'],
@@ -54,6 +55,7 @@ const ALLOWED: Record<ServiceRequestStatus, ServiceRequestStatus[]> = {
   rejected: ['in_review'], // SR-REOPEN-01
   cancelled: ['in_review'], // SR-REOPEN-01
   promoted: [], // SR-R011 — no transitions out
+  completed: [], // side-effect already applied — no reopen (like promoted)
 };
 
 const TRIAGE_OUTCOMES_BY_TERMINAL: Record<string, string[]> = {
@@ -79,19 +81,38 @@ const RESOLVE_AT_INTAKE_LIST_BY_REQUEST_TYPE: Record<string, string> = {
   water_check: 'service_request_resolve_at_intake_water_check',
 };
 
+// Terminals whose outcome list is admin-managed per request type (system_lists),
+// instead of the hard-coded TRIAGE_OUTCOMES_BY_TERMINAL map. `completed` is
+// per-type because each self-completing type has its own outcome vocabulary
+// (account_creation → linked_to_op/fop/lead/confirmed_duplicate).
+const COMPLETED_LIST_BY_REQUEST_TYPE: Record<string, string> = {
+  account_creation: 'service_request_completed_account_creation',
+};
+
 function resolveAtIntakeListCode(requestType: string | null | undefined): string {
   return RESOLVE_AT_INTAKE_LIST_BY_REQUEST_TYPE[requestType || '']
     ?? RESOLVE_AT_INTAKE_LIST_BY_REQUEST_TYPE.emergency_maintenance;
 }
 
-async function loadResolveAtIntakeOutcomes(client: PoolClient, requestType: string | null | undefined): Promise<string[]> {
+/** The system_lists category for a list-driven terminal, or null if the
+ * terminal uses the hard-coded TRIAGE_OUTCOMES_BY_TERMINAL map. */
+function listCategoryForTerminal(
+  toStatus: ServiceRequestStatus,
+  requestType: string | null | undefined,
+): string | null {
+  if (toStatus === 'resolved_at_intake') return resolveAtIntakeListCode(requestType);
+  if (toStatus === 'completed') return COMPLETED_LIST_BY_REQUEST_TYPE[requestType || ''] ?? null;
+  return null;
+}
+
+async function loadListOutcomes(client: PoolClient, category: string): Promise<string[]> {
   const { rows } = await client.query<{ value: string }>(
     `SELECT value
        FROM system_lists
       WHERE category = $1
         AND is_active = TRUE
       ORDER BY display_order ASC, id ASC`,
-    [resolveAtIntakeListCode(requestType)],
+    [category],
   );
   return rows.map(row => String(row.value).trim()).filter(Boolean);
 }
@@ -185,19 +206,21 @@ export async function transitionStatus(
     }
 
     // 4. Per-target validation.
-    if (input.toStatus === 'resolved_at_intake') {
-      // SR-R005: request must be claimed (a human triager is present) +
-      // triage_notes non-empty. Presence is proven by reviewed_by_user_id
-      // being set — this holds for any channel once an operator claims,
-      // so mobile_app/website/whatsapp intakes are no longer blocked.
+    // SR-R005: a human-triage terminal decision requires the request to be
+    // claimed first (reviewed_by_user_id set — true for any channel once an
+    // operator claims). Applies to resolved_at_intake AND completed (the
+    // link-and-activate decision in account_creation).
+    if (input.toStatus === 'resolved_at_intake' || input.toStatus === 'completed') {
       if (row.reviewed_by_user_id == null) {
         await rollbackTx(tx);
         return {
           ok: false,
-          code: 'resolved_at_intake_requires_claim',
-          message: 'SR-R005: claim the request (assign a reviewer) before resolving at intake',
+          code: `${input.toStatus}_requires_claim`,
+          message: 'SR-R005: claim the request (assign a reviewer) before this decision',
         };
       }
+    }
+    if (input.toStatus === 'resolved_at_intake') {
       if (!input.triageNotes || input.triageNotes.trim().length === 0) {
         await rollbackTx(tx);
         return { ok: false, code: 'triage_notes_required' };
@@ -206,8 +229,9 @@ export async function transitionStatus(
 
     if (isTerminal(input.toStatus)) {
       // SR-R006: every terminal needs a triage_outcome from the per-terminal list.
-      const allowedOutcomes = input.toStatus === 'resolved_at_intake'
-        ? await loadResolveAtIntakeOutcomes(tx.client, row.request_type)
+      const listCategory = listCategoryForTerminal(input.toStatus, row.request_type);
+      const allowedOutcomes = listCategory
+        ? await loadListOutcomes(tx.client, listCategory)
         : (TRIAGE_OUTCOMES_BY_TERMINAL[input.toStatus] ?? []);
       if (!input.triageOutcome || !allowedOutcomes.includes(input.triageOutcome)) {
         await rollbackTx(tx);
@@ -217,9 +241,7 @@ export async function transitionStatus(
           details: {
             allowed: allowedOutcomes,
             got: input.triageOutcome ?? null,
-            listCode: input.toStatus === 'resolved_at_intake'
-              ? resolveAtIntakeListCode(row.request_type)
-              : null,
+            listCode: listCategory,
           },
         };
       }
@@ -355,6 +377,7 @@ function specializedEventFor(
   if (to === 'awaiting_customer_info') return 'customer_info_requested';
   if (from === 'awaiting_customer_info' && to === 'in_review') return 'customer_info_received';
   if (to === 'rejected') return 'rejected_decision';
+  if (to === 'completed') return 'request_completed';
   if (to === 'cancelled') return 'cancelled_by_admin';
   if (from === 'received' && to === 'in_review') return 'claimed_by_operator';
   // promoted_to_task is emitted by promoteService (carries linked_open_task_id),

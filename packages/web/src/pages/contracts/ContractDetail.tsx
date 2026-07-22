@@ -8,6 +8,8 @@ import Modal from '../../components/ui/Modal';
 import { usePermissions } from '../../hooks/usePermissions';
 import ContractGiftsPanel from './ContractGiftsPanel';
 import { getOpenTaskDetailPath } from '../../lib/taskRoutes';
+import { ArrowRight, FileText } from 'lucide-react';
+import { useContractPrintable } from '../../hooks/useContractPrintable';
 
 // ── Lookup maps ───────────────────────────────────────────────────────────────
 
@@ -178,6 +180,7 @@ export default function ContractDetail() {
     issues: string[];
     detail?: string;
   } | null>(null);
+  const { openPrintable, printLoading } = useContractPrintable(data?.id ?? Number(id));
 
   useEffect(() => {
     if (data && activateFinalPrice === 0) setActivateFinalPrice(Number(data.finalPrice) || 0);
@@ -402,22 +405,48 @@ export default function ContractDetail() {
 
       {/* ── Sticky Navbar ────────────────────────────────────────────────────── */}
       <div className="sticky top-0 z-50 bg-gradient-to-r from-sky-600 to-sky-500 shadow-md">
-        <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
-          <button onClick={() => navigate('/contracts')}
-            className="text-white/80 hover:text-white text-sm transition-colors">
-            ← رجوع
-          </button>
-          <h1 className="text-white font-bold text-lg">تفاصيل العقد</h1>
-          {data.status === 'draft' ? (
-            <button onClick={() => navigate(`/contracts/${id}/edit`)}
-              className="text-white/80 hover:text-white text-sm border border-white/30 rounded-lg px-3 py-1 transition-colors">
-              تعديل
+        <div className="max-w-5xl mx-auto px-4 py-3 grid grid-cols-1 sm:grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3">
+          <div className="grid grid-cols-1 items-center gap-3 sm:contents">
+            <button
+              onClick={() => navigate('/contracts')}
+              aria-label="العودة إلى العقود"
+              title="العودة إلى العقود"
+              className="hidden sm:inline-flex w-8 h-8 items-center justify-center text-white/80 hover:text-white border border-white/20 rounded-lg transition-colors shrink-0"
+            >
+              <ArrowRight className="w-4 h-4" aria-hidden="true" />
             </button>
-          ) : (
-            <span className="text-white/70 text-xs border border-white/20 rounded-lg px-3 py-1">
-              غير قابل للتعديل
-            </span>
-          )}
+            <h1 className="text-white font-bold text-lg text-center">تفاصيل العقد</h1>
+          </div>
+          <div className="w-full sm:w-auto flex items-center justify-center sm:justify-end gap-2">
+            <button
+              onClick={() => navigate('/contracts')}
+              aria-label="العودة إلى العقود"
+              title="العودة إلى العقود"
+              className="sm:hidden w-8 h-8 inline-flex items-center justify-center text-white/80 hover:text-white border border-white/20 rounded-lg transition-colors shrink-0"
+            >
+              <ArrowRight className="w-4 h-4" aria-hidden="true" />
+            </button>
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={FileText}
+              onClick={openPrintable}
+              loading={printLoading}
+              className="rounded-lg"
+            >
+              النسخة القانونية
+            </Button>
+            {data.status === 'draft' ? (
+              <button onClick={() => navigate(`/contracts/${id}/edit`)}
+                className="text-white/80 hover:text-white text-sm border border-white/30 rounded-lg px-3 py-1 transition-colors">
+                تعديل
+              </button>
+            ) : (
+              <span className="hidden sm:inline text-white/70 text-xs border border-white/20 rounded-lg px-3 py-1">
+                غير قابل للتعديل
+              </span>
+            )}
+          </div>
         </div>
       </div>
 

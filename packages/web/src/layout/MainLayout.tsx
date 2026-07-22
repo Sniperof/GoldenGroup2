@@ -71,6 +71,7 @@ const operationsChildren = [
 
 // Requests — intake parent section (currently only maintenance; will grow).
 const requestsChildren = [
+    { path: '/account-requests',                label: 'طلبات إنشاء الحساب',     icon: UserPlus, permission: 'account_requests.view' },
     { path: '/service-requests/water-check',    label: 'طلبات فحص المياه',                  icon: Beaker },
     { path: '/service-requests/water-check/simulator', label: 'محاكاة فحص المياه',           icon: FilePlus2 },
     { path: '/service-requests',                label: 'طلبات الصيانة',          icon: Wrench },
@@ -127,6 +128,9 @@ export default function MainLayout() {
 
     // Each operations table is shown only if its own view permission is granted.
     const visibleOperationsChildren = operationsChildren.filter(child => can(child.permission));
+
+    // Requests children: gate only those that declare a permission (e.g. account requests).
+    const visibleRequestsChildren = requestsChildren.filter(child => !(child as any).permission || can((child as any).permission));
 
     // Standalone "مهامي" / "زياراتي" surfaces — OUTSIDE Operations & Tasks. Each gated
     // by its dedicated ASSIGNED-only permission (migrations 301/302): only a
@@ -529,7 +533,7 @@ export default function MainLayout() {
                                     exit={{ height: 0, opacity: 0 }}
                                     className="overflow-hidden flex flex-col gap-0.5 mt-0.5"
                                 >
-                                    {requestsChildren.map(child => (
+                                    {visibleRequestsChildren.map(child => (
                                         <NavLink
                                             key={child.path}
                                             to={child.path}

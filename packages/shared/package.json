@@ -10,7 +10,9 @@
     "./types/auth.js": "./types/auth.ts",
     "./types/authorization.js": "./types/authorization.ts",
     "./contracts/roles.js": "./contracts/roles.ts",
-    "./telemarketingOutcomes.js": "./telemarketingOutcomes.ts"
+    "./telemarketingOutcomes.js": "./telemarketingOutcomes.ts",
+    "./membraneEfficiency.js": "./membraneEfficiency.ts",
+    "./deviceTaskEligibility.js": "./deviceTaskEligibility.ts"
   },
   "dependencies": {
     "zod": "^4.3.6"

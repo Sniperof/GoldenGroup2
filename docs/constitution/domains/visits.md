@@ -189,6 +189,9 @@ scheduled ──→ in_progress ──→ ended ──→ completed   (تلقا�
 
 النظام يفرض الفحص الثلاثي عند `POST /telemarketing/book-visit` و `POST /field-visits` و `POST /open-tasks/:id/schedule-from-expected`. لا late-binding، لا تخمين فريق المستقبل.
 
+### `V-R009A` — حيّز موعد الفريق لا يتحرر إلا بالإلغاء
+مفتاح حيّز الموعد هو: `branch_id + teamKey + scheduled_date + أول خمس خانات من scheduled_time`. كل زيارة حالتها **ليست** `cancelled` تبقى حاجزة لهذا الحيّز، بما فيها `completed` و`closed` و`not_completed`؛ فالإقفال الإداري أو عدم اكتمال التنفيذ لا يمحوان الموعد التاريخي. الحارس التطبيقي يعيد `409` برسالة واضحة، وحارس قاعدة البيانات الذري يمنع السباق وأي مسار كتابة يتجاوز التطبيق. الزيارة الفورية تخضع للحارس نفسه على دقيقة إنشائها.
+
 ### `V-R010` — `completed` محسوب لا يدوي (D16 + DEC-007 §2 المبدأ الرابع)
 الزيارة تنتقل `completed` تلقائياً عند تحقق الشروط الثلاثة (§4.1). لا زر "إكمال الزيارة" يدوي. الانتقال يُنفَّذ في طبقة التطبيق عبر helper `checkAndCompleteVisit(visitId)` يُستدعى بعد كل `save` لـ task_result أو survey أو survey skip (DEC-007 P-DEC007-04). `not_completed` على الزيارة استثناء صريح يدوي.
 

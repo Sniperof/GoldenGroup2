@@ -27,6 +27,7 @@ import Select from '../../../components/ui/Select';
 import DateField from '../../../components/ui/DateField';
 import { usePermissions } from '../../../hooks/usePermissions';
 import GeoSmartSearch, { type GeoSelection } from '../../../components/GeoSmartSearch';
+import { evaluateDeviceTaskEligibility } from '@golden-crm/shared';
 
 interface Props {
   tasks: any[];
@@ -227,7 +228,16 @@ function hasSuccessfulMaintenanceRetrieval(tasks: any[], deviceId: number) {
 
 function taskAvailability(taskType: string, device: any, deviceTasks: any[]) {
   const duplicate = activeTaskOf(deviceTasks, taskType, Number(device?.id));
-  if (duplicate) return { allowed: false, reason: `توجد مهمة ${TASK_LABELS[taskType] ?? taskType} نشطة بالفعل #${duplicate.id}` };
+  const sharedEligibility = evaluateDeviceTaskEligibility({
+    taskType,
+    deviceStatus: device?.status,
+    hasContract: device?.contractId != null && Number(device.contractId) > 0,
+    hasActiveServiceAgreement: device?.activeServiceAgreementId != null && Number(device.activeServiceAgreementId) > 0,
+    hasActiveTask: Boolean(duplicate),
+    hasSuccessfulDisconnection: hasSuccessfulDisconnection(deviceTasks, Number(device?.id)),
+    hasSuccessfulMaintenanceRetrieval: hasSuccessfulMaintenanceRetrieval(deviceTasks, Number(device?.id)),
+  });
+  if (!sharedEligibility.allowed) return { allowed: false, reason: sharedEligibility.reason };
 
   switch (taskType) {
     case 'device_delivery':
