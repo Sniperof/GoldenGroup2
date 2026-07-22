@@ -6,6 +6,11 @@ import { authorize } from '../services/authorizationService.js';
 import { assertGeoUnitInScope } from '../services/geoScopeService.js';
 import { assertDeviceModelInScope } from '../services/deviceScopeService.js';
 import { createManualPeriodicMaintenanceTask } from '../services/periodicMaintenanceTasks.js';
+import {
+  assertDeviceSerialAvailable,
+  deviceSerialConflictPayload,
+  normalizeDeviceSerialNumber,
+} from '../services/deviceSerialIntegrity.js';
 import { TECH_STATE_FIELDS, mapTechState } from './emergencyResult.js';
 
 const router = Router();
@@ -127,7 +132,9 @@ router.post('/external', requirePermission('installed_devices.create_external'),
     const authContext = req.authContext!;
     const customerId = Number(req.body.customerId ?? req.body.customer_id);
     const deviceModelId = Number(req.body.deviceModelId ?? req.body.device_model_id);
-    const serialNumber = String(req.body.serialNumber ?? req.body.externalDeviceSerial ?? '').trim();
+    const serialNumber = normalizeDeviceSerialNumber(
+      req.body.serialNumber ?? req.body.externalDeviceSerial,
+    );
     const requestedStatus = String(req.body.status ?? req.body.deviceStatus ?? '').trim();
     const externalDeviceNotes = String(req.body.externalDeviceNotes ?? '').trim() || null;
     const installationAddressText = String(req.body.installationAddressText ?? '').trim() || null;
@@ -244,6 +251,8 @@ router.post('/external', requirePermission('installed_devices.create_external'),
     try {
       await db.query('BEGIN');
 
+      await assertDeviceSerialAvailable(db, serialNumber);
+
       const { rows } = await db.query(
         `INSERT INTO installed_devices (
            contract_id, customer_id, branch_id, device_source,
@@ -337,6 +346,8 @@ router.post('/external', requirePermission('installed_devices.create_external'),
       db.release();
     }
   } catch (err) {
+    const conflict = deviceSerialConflictPayload(err);
+    if (conflict) return res.status(409).json(conflict);
     next(err);
   }
 });
@@ -575,7 +586,21 @@ router.patch('/:id', requirePermission('contracts.edit'), async (req, res) => {
 
   for (const [camel, col] of Object.entries(fieldMap)) {
     if (req.body[camel] !== undefined) {
-      params.push(req.body[camel]);
+      let value = req.body[camel];
+      if (col === 'serial_number') {
+        try {
+          value = await assertDeviceSerialAvailable(
+            pool,
+            value,
+            { deviceId: Number(req.params.id) },
+          );
+        } catch (err) {
+          const conflict = deviceSerialConflictPayload(err);
+          if (conflict) return res.status(409).json(conflict);
+          throw err;
+        }
+      }
+      params.push(value);
       sets.push(`${col} = $${params.length}`);
     }
   }
@@ -583,12 +608,19 @@ router.patch('/:id', requirePermission('contracts.edit'), async (req, res) => {
   if (sets.length === 0) return res.status(400).json({ error: 'لا يوجد حقول للتحديث' });
 
   params.push(req.params.id);
-  const { rows } = await pool.query(
-    `UPDATE installed_devices SET ${sets.join(', ')}
-     WHERE id = $${params.length}
-     RETURNING id`,
-    params
-  );
+  let rows: Array<{ id: number }>;
+  try {
+    ({ rows } = await pool.query(
+      `UPDATE installed_devices SET ${sets.join(', ')}
+       WHERE id = $${params.length}
+       RETURNING id`,
+      params,
+    ));
+  } catch (err) {
+    const conflict = deviceSerialConflictPayload(err);
+    if (conflict) return res.status(409).json(conflict);
+    throw err;
+  }
   if (!rows[0]) return res.status(404).json({ error: 'الجهاز غير موجود' });
   res.json({ ok: true, id: rows[0].id });
 });

@@ -2,15 +2,6 @@ import type { PoolClient } from 'pg';
 import { checkDuplicate } from '../utils/applicationHelpers.js';
 import { sanitizeText } from '../utils/sanitize.js';
 
-export async function findVacancyById(client: PoolClient, vacancyId: number) {
-  const { rows } = await client.query(
-    `SELECT id, status, branch_id AS "branchId" FROM job_vacancies WHERE id = $1`,
-    [vacancyId]
-  );
-
-  return rows[0] ?? null;
-}
-
 export async function checkPublicApplicationDuplicate(
   client: PoolClient,
   mobileNumber: string,

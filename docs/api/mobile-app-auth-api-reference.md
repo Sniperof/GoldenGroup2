@@ -34,7 +34,7 @@
 
 | الاسم | القيم |
 |---|---|
-| `Purpose` | `account_creation` · `login` · `account_deletion` · `request_status` |
+| `Purpose` | `account_creation` · `login` · `account_deletion` · `request_status` · `service_request` |
 | `MobileStatus` | `visitor` · `pending` · `active` · `suspended` |
 | `TokenType` | `Bearer` |
 
@@ -73,9 +73,9 @@
 | البارامتر | النوع | إلزامي | الوصف / القيود |
 |---|---|:--:|---|
 | `phone` | `string` | ✅ | رقم موبايل سوري. يُطبَّع في الخادم (يقبل `09XXXXXXXX`، `9639…`، `009639…`). الصيغة الصالحة نهائياً `^09\d{8}$`. |
-| `purpose` | `enum(Purpose)` | ✅ | غرض الرمز. **يُشتقّ من `GET /api/app/account/status` لا من نيّة المستخدم** (القسم 5). |
+| `purpose` | `enum(Purpose)` | ✅ | غرض الرمز. أغراض الحساب تُشتقّ من `GET /api/app/account/status` (القسم 5)؛ أما إرسال طلب خدمة كزائر فيستخدم `service_request`. |
 
-**شروط الغرض:** يُفحص الشرط **قبل** توليد الرمز وإرساله، فلا تُستهلك رسالة على رحلة لا يمكن أن تنجح. `login` و`account_deletion` يشترطان حساباً مفعّلاً؛ و`request_status` يشترط طلباً معلّقاً؛ و`account_creation` بلا شرط.
+**شروط الغرض:** يُفحص الشرط **قبل** توليد الرمز وإرساله، فلا تُستهلك رسالة على رحلة لا يمكن أن تنجح. `login` و`account_deletion` يشترطان حساباً مفعّلاً؛ و`request_status` يشترط طلباً معلّقاً؛ و`account_creation` يرفض وجود حساب مفعّل أو موقوف (الموقوف يُعاد تفعيله إدارياً ولا يُستبدل)؛ و`service_request` متاح للزائر ولا يشترط حساباً.
 
 **استجابة `200`:**
 
@@ -94,6 +94,7 @@
 | `403` | `{ code: "suspended" }` | الحساب موقوف (`login` / `account_deletion`). |
 | `404` | `{ code: "no_active_account" }` | لا حساب مفعّل للرقم (`login` / `account_deletion`). |
 | `404` | `{ code: "no_pending_request" }` | لا طلب معلّق للرقم (`request_status`). |
+| `409` | `{ code: "active_account_exists" \| "suspended", status: string }` | `account_creation` لرقمٍ له حساب حيّ (مفعّل أو موقوف). |
 | `429` | `{ retryAfterSeconds: integer }` | لم تنقضِ نافذة إعادة الإرسال. |
 
 ---
@@ -260,6 +261,25 @@
 **الأخطاء:** `400` (handle غير معروف / غير مُتحقَّق / منتهٍ / الرقم لا يطابق)، `404` مع `code = "no_pending_request"`، `409` (handle مُستهلَك).
 
 > **مصدر البيانات:** لقطة `submitted_payload` غير القابلة للتعديل — أي ما كتبه المستخدم، لا سجل الزبون. بعد اعتماد الأدمن تنتقل الشاشة إلى `GET /api/app/me` وقد **تختلف القيم** لأن مصدرها حينئذٍ سجل `clients`. ابنِ الشاشة بحقل مصدر (`request` / `account`).
+
+---
+
+### 3.2.3 `POST /api/app/service-requests` — إرسال طلب خدمة
+
+نقطة الدخول الموحدة لطلبات تطبيق الموبايل. لا تكفي إضافة صف في `service_request_type_config`: يقبل الخادم النوع فقط عند اجتماع تعريف Registry فعّال يسمح بالموبايل وهوية المرسل ونمط الإرسال، ومعالج كود مثبت، وتطابق `formVersion` بينهما. يدعم التنفيذ الأول `requestType = "water_check"`، وتُضاف الأنواع الأخرى دون إنشاء مسار مصادقة جديد.
+
+- **الزائر:** لا يرسل Bearer، ويتحقق أولاً بـ OTP ذي الغرض `service_request` ثم يرسل `handle` لمرة واحدة داخل الجسم. في `for_self` يجب أن يطابق رقم المستفيد الرقم المتحقق منه؛ وفي `for_another` يمثل الرقم المتحقق منه مقدم الطلب بينما تبقى بيانات المستفيد مستقلة.
+- **الزبون المسجّل:** يرسل `Authorization: Bearer ...`، ولا يحتاج `handle`. الخادم يشتق `app_account` و`client` والرقم من التوكن وقاعدة البيانات، ولا يقبل حقول الجسم كمصدر لهوية المرسل.
+- إذا وُجدت ترويسة Authorization غير صالحة أو منتهية أو لحساب موقوف يُرفض الطلب؛ لا يحدث سقوط صامت إلى مسار الزائر.
+- لا يُخزَّن `handle` ضمن `submitted_payload`. تُحفظ بيانات النموذج كلقطة، وتُحفظ هوية المرسل في روابط مستقلة.
+
+الحد الأدنى للجسم: `requestType`, `submissionMode`, `firstName`, `lastName`, `phoneNumber`, `governorateId`, `detailedAddress`، إضافةً إلى `handle` للزائر فقط. الاستجابة `201` تعيد `id`, `publicRefNumber`, `status`, `requesterAuth`, ونتيجة حل الفرع.
+
+الأخطاء المغلقة المهمة: `unknown_request_type`، `request_type_inactive`، `request_type_not_implemented`، `request_type_not_available_on_mobile`، `request_type_not_available_for_requester`، `unsupported_submission_mode`، `unsupported_form_version`، و`request_type_configuration_mismatch`.
+
+### 3.2.4 `GET /api/app/service-requests/types`
+
+يعيد الأنواع القابلة للإرسال فعليًا من الموبايل، أي تقاطع Registry الحي مع المعالجات المثبتة والمتوافقة. لا يعيد نوعًا لمجرد أن صفه `is_active = true`. يحتوي كل عنصر: `requestType`, `labelAr`, `descriptionAr`, `formVersion`, `formSource`, `submitterTiers`, و`submissionModes`.
 
 ---
 

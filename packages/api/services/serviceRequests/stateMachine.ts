@@ -174,6 +174,11 @@ export async function transitionStatus(
     }
     const row = rows[0];
 
+    if (row.escalated_at != null && input.toStatus !== 'rejected') {
+      await rollbackTx(tx);
+      return { ok: false, code: 'request_is_escalated_actions_blocked' };
+    }
+
     // 2. Validate transition is in the allowed map.
     const allowed = ALLOWED[row.status] ?? [];
     if (!allowed.includes(input.toStatus)) {

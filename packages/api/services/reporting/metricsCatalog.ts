@@ -11,6 +11,7 @@
 // ============================================================
 
 import pool from '../../db.js';
+import { appendCandidateScope, appendClientScope } from './reportingScope.js';
 
 export type MetricUnit = 'count' | 'percent';
 export type ScopeMode = 'GLOBAL' | 'BRANCH' | 'ASSIGNED';
@@ -43,34 +44,6 @@ export interface MetricDefinition {
   compute: (ctx: MetricComputeContext) => Promise<MetricResult>;
 }
 
-// ── أدوات بناء شرط الفرع/الإسناد (تُعيد جزء WHERE + المعاملات) ───────────────────
-function clientScope(ctx: MetricComputeContext, params: unknown[]): string {
-  let sql = '';
-  if (ctx.branchIds.length > 0) {
-    params.push(ctx.branchIds);
-    sql += ` AND c.branch_id = ANY($${params.length})`;
-  }
-  if (ctx.scope === 'ASSIGNED') {
-    params.push(ctx.userId);
-    sql += ` AND EXISTS (SELECT 1 FROM client_assignments ca
-                          WHERE ca.client_id = c.id AND ca.hr_user_id = $${params.length})`;
-  }
-  return sql;
-}
-
-function candidateScope(ctx: MetricComputeContext, params: unknown[]): string {
-  let sql = '';
-  if (ctx.branchIds.length > 0) {
-    params.push(ctx.branchIds);
-    sql += ` AND c.branch_id = ANY($${params.length})`;
-  }
-  if (ctx.scope === 'ASSIGNED') {
-    params.push(ctx.userId);
-    sql += ` AND c.owner_user_id = $${params.length}`;
-  }
-  return sql;
-}
-
 async function scalar(sql: string, params: unknown[]): Promise<number> {
   const { rows } = await pool.query(sql, params);
   const v = rows[0]?.v;
@@ -91,10 +64,48 @@ const clientsNewCount: MetricDefinition = {
       const sql =
         `SELECT COUNT(*)::int AS v FROM clients c
           WHERE c.deleted_at IS NULL
-            AND c.created_at >= $1 AND c.created_at < $2` + clientScope(ctx, params);
+            AND c.created_at >= $1 AND c.created_at < $2` + appendClientScope(ctx, params);
       return scalar(sql, params);
     };
     return { value: await count(ctx.from, ctx.to), previous: await count(ctx.prevFrom, ctx.prevTo) };
+  },
+};
+
+const clientsActiveTotal: MetricDefinition = {
+  key: 'clients.active_total',
+  permission: 'clients.view_list',
+  titleAr: 'إجمالي المحفظة الفعّالة',
+  unit: 'count',
+  purpose: 'قرار: قياس الحجم الحالي لمحفظة الزبائن ضمن النطاق لتخطيط القدرة التشغيلية.',
+  async compute(ctx) {
+    // لقطة حالية تراكمية؛ لا تُقارن بفترة سابقة.
+    const params: unknown[] = [];
+    const sql =
+      `SELECT COUNT(*)::int AS v FROM clients c
+        WHERE c.deleted_at IS NULL
+          AND c.is_active IS NOT FALSE` + appendClientScope(ctx, params);
+    return { value: await scalar(sql, params), previous: null };
+  },
+};
+
+const clientsUnownedCount: MetricDefinition = {
+  key: 'clients.unowned_count',
+  permission: 'clients.view_list',
+  titleAr: 'زبائن بحاجة إلى إسناد',
+  unit: 'count',
+  purpose: 'سير عمل: كشف سجلات Lead التي لا تملك مسؤولًا فرديًا لإغلاق فجوة الإسناد.',
+  async compute(ctx) {
+    // OP/FOP ملكيتهما فرعية وفق BR-4، لذلك لا يُعدّان «بلا مالك».
+    const params: unknown[] = [];
+    const sql =
+      `SELECT COUNT(*)::int AS v FROM clients c
+        WHERE c.deleted_at IS NULL
+          AND c.is_active IS NOT FALSE
+          AND c.candidate_status IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM client_assignments ca WHERE ca.client_id = c.id
+          )` + appendClientScope(ctx, params);
+    return { value: await scalar(sql, params), previous: null };
   },
 };
 
@@ -112,7 +123,7 @@ const candidateConversionRate: MetricDefinition = {
             COUNT(*) FILTER (WHERE c.converted_to_lead_id IS NOT NULL)::numeric AS conv,
             COUNT(*)::numeric AS total
            FROM candidates c
-          WHERE c.created_at >= $1 AND c.created_at < $2` + candidateScope(ctx, params);
+          WHERE c.created_at >= $1 AND c.created_at < $2` + appendCandidateScope(ctx, params);
       const { rows } = await pool.query(sql, params);
       const total = Number(rows[0]?.total ?? 0);
       const conv = Number(rows[0]?.conv ?? 0);
@@ -133,7 +144,7 @@ const candidatesQualifiedUnconverted: MetricDefinition = {
     const params: unknown[] = [];
     const sql =
       `SELECT COUNT(*)::int AS v FROM candidates c
-        WHERE c.status = 'Qualified' AND c.converted_to_lead_id IS NULL` + candidateScope(ctx, params);
+        WHERE c.status = 'Qualified' AND c.converted_to_lead_id IS NULL` + appendCandidateScope(ctx, params);
     return { value: await scalar(sql, params), previous: null };
   },
 };
@@ -152,7 +163,7 @@ const clientsCommittedRatio: MetricDefinition = {
           COUNT(*) FILTER (WHERE c.rating = 'Committed')::numeric AS committed,
           COUNT(*) FILTER (WHERE c.rating IN ('Committed','NotCommitted'))::numeric AS rated
          FROM clients c
-        WHERE c.deleted_at IS NULL` + clientScope(ctx, params);
+        WHERE c.deleted_at IS NULL` + appendClientScope(ctx, params);
     const { rows } = await pool.query(sql, params);
     const rated = Number(rows[0]?.rated ?? 0);
     const committed = Number(rows[0]?.committed ?? 0);
@@ -171,7 +182,7 @@ const candidatesNewCount: MetricDefinition = {
       const params: unknown[] = [from, to];
       const sql =
         `SELECT COUNT(*)::int AS v FROM candidates c
-          WHERE c.created_at >= $1 AND c.created_at < $2` + candidateScope(ctx, params);
+          WHERE c.created_at >= $1 AND c.created_at < $2` + appendCandidateScope(ctx, params);
       return scalar(sql, params);
     };
     return { value: await count(ctx.from, ctx.to), previous: await count(ctx.prevFrom, ctx.prevTo) };
@@ -192,7 +203,7 @@ const candidatesJunkRate: MetricDefinition = {
             COUNT(*) FILTER (WHERE c.status = 'Junk')::numeric AS junk,
             COUNT(*)::numeric AS total
            FROM candidates c
-          WHERE c.created_at >= $1 AND c.created_at < $2` + candidateScope(ctx, params);
+          WHERE c.created_at >= $1 AND c.created_at < $2` + appendCandidateScope(ctx, params);
       const { rows } = await pool.query(sql, params);
       const total = Number(rows[0]?.total ?? 0);
       const junk = Number(rows[0]?.junk ?? 0);
@@ -204,6 +215,8 @@ const candidatesJunkRate: MetricDefinition = {
 
 export const METRIC_CATALOG: MetricDefinition[] = [
   clientsNewCount,
+  clientsActiveTotal,
+  clientsUnownedCount,
   candidatesNewCount,
   candidateConversionRate,
   candidatesJunkRate,

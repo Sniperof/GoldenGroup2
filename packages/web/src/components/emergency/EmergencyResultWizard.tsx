@@ -204,6 +204,8 @@ export default function EmergencyResultWizard({ taskId, contractId, maintenanceK
           sourceServiceRequestId={problemServiceRequestId}
           derivedOutcome={result?.derivedOutcome ?? null}
           periodicAttachmentCandidate={result?.periodicAttachmentCandidate ?? null}
+          installedDeviceId={result?.taskMeta?.installedDeviceId ?? null}
+          directWorkshopRetrieval={result?.directWorkshopRetrieval ?? null}
         />
       )}
     </div>

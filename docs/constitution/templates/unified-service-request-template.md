@@ -46,7 +46,7 @@ type UnifiedServiceRequest = {
   applicationSource: string | null;
   entryPoint: string | null;
 
-  submitterTier: 'visitor' | 'lead' | 'fop' | 'op' | 'staff';
+  submitterTier: 'visitor' | 'customer' | 'lead' | 'fop' | 'op' | 'staff';
   submissionMode: 'for_self' | 'for_another' | 'nomination' | 'self_only';
 
   status: RequestStatus;
@@ -84,7 +84,7 @@ type RequestTypeDefinition = {
   labelAr: string;
   labelEn: string;
   enabledChannels: RequestChannel[];
-  supportedSubmitterTiers: Array<'visitor' | 'lead' | 'fop' | 'op' | 'staff'>;
+  supportedSubmitterTiers: Array<'visitor' | 'customer' | 'lead' | 'fop' | 'op' | 'staff'>;
   submissionModes: Array<'for_self' | 'for_another' | 'nomination' | 'self_only'>;
 
   formSchemaCode: string;
@@ -593,6 +593,26 @@ The first step is ready when:
 6. Registry-driven forms can be versioned.
 7. Authorization requirements are declared but enforced by backend policy.
 8. No runtime code path depends on a hard-coded frontend-only request type enum.
+
+### 17.9 Runtime Generalization Status (2026-07-22)
+
+The mobile intake surface now uses a database-backed readonly registry loader
+plus a code-installed handler registry. Runtime enablement is fail-closed and
+requires all of the following:
+
+1. The database definition exists and is active.
+2. `mobile_app` is an enabled channel.
+3. The requester tier and submission mode are declared.
+4. A backend handler is installed for the request type.
+5. The registry and handler form versions match exactly.
+6. A submitted form version, when present, matches the active version.
+
+`GET /api/app/service-requests/types` exposes only this executable intersection.
+At this stage `water_check` is the only installed mobile handler.
+`emergency_maintenance` and `account_creation` registry rows do not silently
+become generic mobile handlers: maintenance still needs its mobile form and
+party/device contract, while account creation keeps its independent endpoint,
+OTP purpose, permissions, and lifecycle.
 
 ## 18. Acceptance Criteria
 

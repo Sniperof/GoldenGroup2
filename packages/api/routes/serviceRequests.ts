@@ -80,6 +80,7 @@ function statusFromCode(code: string): number {
     case 'merge_or_split_required':
     case 'periodic_attachment_candidate_not_available':
     case 'active_device_demo_exists':
+    case 'device_serial_conflict':
       return 409;
     case 'request_is_escalated_actions_blocked':
       return 423; // Locked — restricted mode (SR-ESC-01)
@@ -182,6 +183,8 @@ const SR_SELECT = `
   sr.application_source AS "applicationSource",
   sr.submitted_payload AS "submittedPayload",
   sr.requester_user_id AS "requesterUserId",
+  sr.requester_app_account_id AS "requesterAppAccountId",
+  sr.requester_client_id AS "requesterClientId",
   sr.requester_external AS "requesterExternal",
   sr.beneficiary_client_id AS "beneficiaryClientId",
   COALESCE(

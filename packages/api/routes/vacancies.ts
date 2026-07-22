@@ -2,6 +2,7 @@ import { Router } from 'express';
 import pool from '../db.js';
 import { insertAuditLog } from '../utils/auditLog.js';
 import { requirePermission, resolveTargetBranchId } from '../middleware/permission.js';
+import { vacancyApplicabilitySql } from '../services/vacancyApplicability.js';
 
 const router = Router();
 
@@ -163,6 +164,12 @@ async function fetchVacancyById(client: any, vacancyId: string | number) {
  *           type: string
  *         required: false
  *       - in: query
+ *         name: applicable
+ *         schema:
+ *           type: boolean
+ *         required: false
+ *         description: Return only vacancies currently eligible for a new application
+ *       - in: query
  *         name: branch
  *         schema:
  *           type: string
@@ -185,7 +192,7 @@ async function fetchVacancyById(client: any, vacancyId: string | number) {
 router.get('/', requirePermission('jobs.vacancies.view_list'), async (req, res) => {
   try {
     const authContext = req.authContext!;
-    const { status, branch, search } = req.query;
+    const { status, branch, search, applicable } = req.query;
     const conditions: string[] = [];
     const params: any[] = [];
     let idx = 1;
@@ -202,6 +209,7 @@ router.get('/', requirePermission('jobs.vacancies.view_list'), async (req, res) 
     }
 
     if (status) { conditions.push(`jv.status = $${idx++}`); params.push(status); }
+    if (applicable === 'true') { conditions.push(vacancyApplicabilitySql('jv')); }
     if (branch) { conditions.push(`jv.branch = $${idx++}`); params.push(branch); }
     if (search) {
       conditions.push(`(CAST(jv.id AS TEXT) LIKE $${idx} OR jv.title ILIKE $${idx})`);

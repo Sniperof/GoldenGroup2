@@ -100,9 +100,11 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
         ? ((canUseBranchContext ? contextBranchId : null) ?? (isCreateBranchLocked ? userBranchId : null))
         : null;
     const hasFixedBranchContext = fixedOperationalBranchId != null;
+    // Branch is only selectable at creation; edits never move a client between
+    // branches (transfer will be a dedicated operation — constitution BR-5).
     const canSelectOperationalBranch =
-        authUser?.isSuperAdmin === true ||
-        (!isEditMode && createClientScope === 'GLOBAL');
+        !isEditMode &&
+        (authUser?.isSuperAdmin === true || createClientScope === 'GLOBAL');
     const canChooseBranch = canSelectOperationalBranch && !hasFixedBranchContext;
     const canChooseAssignedOwner =
         authUser?.isSuperAdmin === true ||
@@ -777,8 +779,21 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                             {/* ============ IDENTITY TAB ============ */}
                             {activeTab === 'identity' && (
                                 <div className="space-y-4">
-                                    {(canChooseBranch || canChooseAssignedOwner) && (
+                                    {(canChooseBranch || canChooseAssignedOwner || (isEditMode && initialData?.branchId != null)) && (
                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                                            {isEditMode && initialData?.branchId != null && (
+                                                <div className="space-y-1">
+                                                    <label className="text-xs font-semibold text-slate-500">
+                                                        الفرع التشغيلي
+                                                    </label>
+                                                    <div className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm bg-slate-100 text-slate-600">
+                                                        {initialData.branchName ?? `الفرع #${initialData.branchId}`}
+                                                    </div>
+                                                    <p className="text-xs text-slate-400">
+                                                        لا يمكن تغيير الفرع من نموذج التعديل؛ النقل بين الفروع يتطلب عملية نقل مخصصة.
+                                                    </p>
+                                                </div>
+                                            )}
                                             {canChooseBranch && (
                                                 <div className="space-y-1">
                                                     <label className="text-xs font-semibold text-slate-500">

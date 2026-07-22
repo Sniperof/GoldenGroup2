@@ -172,14 +172,18 @@ export async function linkAccountRequest(input: LinkInput) {
     const segment = deriveSegment(clientRows[0].candidate_status);
 
     // Uniqueness: no active account for this number (DEC-013 §9.2).
-    const { rows: active } = await tx.client.query(
-      `SELECT 1 FROM app_accounts
-        WHERE primary_mobile = $1 AND status = 'active' AND deleted_at IS NULL
+    const { rows: active } = await tx.client.query<{ status: string }>(
+      `SELECT status FROM app_accounts
+        WHERE primary_mobile = $1 AND status IN ('active', 'suspended') AND deleted_at IS NULL
+        ORDER BY (status = 'active') DESC
         LIMIT 1`,
       [phone],
     );
     if (active.length > 0) {
-      throw httpError(409, 'الرقم مرتبط بحساب مفعّل آخر', { code: 'mobile_in_use' });
+      throw httpError(409, 'الرقم مرتبط بحساب قائم', {
+        code: active[0].status === 'suspended' ? 'suspended_account_exists' : 'mobile_in_use',
+        status: active[0].status,
+      });
     }
 
     // Side-effect: create + activate the app account (atomic with the transition).
@@ -353,10 +357,96 @@ async function lockAccountRequest(client: any, id: number): Promise<void> {
 
 function throwOnFail(t: { ok: boolean; code?: string; message?: string; details?: unknown }): void {
   if (t.ok) return;
-  throw httpError(t.code === 'not_found' ? 404 : 409, t.message ?? 'تعذّر تنفيذ الإجراء', {
+  const status = t.code === 'not_found' ? 404 : t.code === 'request_is_escalated_actions_blocked' ? 423 : 409;
+  throw httpError(status, t.message ?? 'تعذّر تنفيذ الإجراء', {
     code: t.code,
     ...(t.details ? { details: t.details } : {}),
   });
+}
+
+export async function resolveAccountRequestEscalation(input: {
+  requestId: number;
+  actorUserId: number;
+  actorRole: ActorRole;
+  note?: string | null;
+}) {
+  const tx = await acquireTx();
+  try {
+    const { rows } = await tx.client.query<{ escalated_at: string | null }>(
+      `SELECT escalated_at FROM service_requests
+        WHERE id = $1 AND request_type = 'account_creation' FOR UPDATE`,
+      [input.requestId],
+    );
+    if (rows.length === 0) throw httpError(404, 'الطلب غير موجود');
+    if (rows[0].escalated_at == null) throw httpError(409, 'الطلب غير مصعّد');
+    await tx.client.query(
+      `UPDATE service_requests
+          SET escalated_at = NULL, escalated_by_user_id = NULL, escalation_reason = NULL
+        WHERE id = $1`,
+      [input.requestId],
+    );
+    await appendAudit(tx.client, {
+      serviceRequestId: input.requestId,
+      eventType: 'escalation_resolved',
+      actorUserId: input.actorUserId,
+      actorRole: input.actorRole,
+      note: input.note ?? null,
+    });
+    await commitTx(tx);
+    return { escalated: false as const };
+  } catch (error) {
+    await rollbackTx(tx);
+    throw error;
+  } finally {
+    tx.release();
+  }
+}
+
+export async function setAccountRequestArchived(input: {
+  requestId: number;
+  archived: boolean;
+  actorUserId: number;
+  actorRole: ActorRole;
+}) {
+  const tx = await acquireTx();
+  try {
+    const { rows } = await tx.client.query<{ status: string; archived_at: string | null }>(
+      `SELECT status, archived_at FROM service_requests
+        WHERE id = $1 AND request_type = 'account_creation' FOR UPDATE`,
+      [input.requestId],
+    );
+    if (rows.length === 0) throw httpError(404, 'الطلب غير موجود');
+    const row = rows[0];
+    if (input.archived) {
+      if (!['completed', 'rejected', 'cancelled', 'resolved_at_intake', 'promoted'].includes(row.status)) {
+        throw httpError(409, 'لا يمكن أرشفة طلب غير نهائي');
+      }
+      if (row.archived_at != null) throw httpError(409, 'الطلب مؤرشف مسبقاً');
+      await tx.client.query(
+        `UPDATE service_requests SET archived_at = NOW(), archived_by_user_id = $2 WHERE id = $1`,
+        [input.requestId, input.actorUserId],
+      );
+    } else {
+      if (row.archived_at == null) throw httpError(409, 'الطلب غير مؤرشف');
+      await tx.client.query(
+        `UPDATE service_requests SET archived_at = NULL, archived_by_user_id = NULL WHERE id = $1`,
+        [input.requestId],
+      );
+    }
+    await appendAudit(tx.client, {
+      serviceRequestId: input.requestId,
+      eventType: input.archived ? 'archived' : 'unarchived',
+      actorUserId: input.actorUserId,
+      actorRole: input.actorRole,
+    });
+    await commitTx(tx);
+    return { archived: input.archived };
+  } catch (error) {
+    await rollbackTx(tx);
+    throw error;
+  } finally {
+    tx.release();
+  }
 }
 
 export interface ClaimAccountInput {

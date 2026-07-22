@@ -217,7 +217,7 @@ export default function ManualApplicationEntry() {
 
   useEffect(() => {
     fetchLists();
-    authFetch('/api/admin/vacancies?status=Open')
+    authFetch('/api/admin/vacancies?status=Open&applicable=true')
       .then(res => res.json())
       .then(data => { if (Array.isArray(data)) setVacancies(data); })
       .catch(console.error);

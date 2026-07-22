@@ -8,8 +8,9 @@
 
 import pool from '../../db.js';
 import type { MetricComputeContext } from './metricsCatalog.js';
+import { appendCandidateScope, appendClientScope, appendReferralSheetScope } from './reportingScope.js';
 
-export type BreakdownKind = 'funnel' | 'ranked-bar' | 'donut';
+export type BreakdownKind = 'funnel' | 'ranked-bar' | 'donut' | 'timeline';
 
 export interface BreakdownGroup {
   key: string;
@@ -33,52 +34,6 @@ export interface BreakdownDefinition {
   compute: (ctx: MetricComputeContext) => Promise<BreakdownGroup[]>;
 }
 
-// نفس نمط candidateScope في metricsCatalog (يُبقي التقييد بالنطاق موحّدًا؛
-// ASSIGNED عبر owner_user_id كبقيّة مؤشرات المرشّحين).
-function candidateScope(ctx: MetricComputeContext, params: unknown[]): string {
-  let sql = '';
-  if (ctx.branchIds.length > 0) {
-    params.push(ctx.branchIds);
-    sql += ` AND c.branch_id = ANY($${params.length})`;
-  }
-  if (ctx.scope === 'ASSIGNED') {
-    params.push(ctx.userId);
-    sql += ` AND c.owner_user_id = $${params.length}`;
-  }
-  return sql;
-}
-
-// تقييد لوائح الأسماء (referral_sheets مُسمّاة s) — نفس المبدأ؛ ASSIGNED عبر
-// owner_user_id (الجامع الفعلي)، فتنهار المجموعة تلقائيًا لصفّه (reporting §3.8).
-function sheetScope(ctx: MetricComputeContext, params: unknown[]): string {
-  let sql = '';
-  if (ctx.branchIds.length > 0) {
-    params.push(ctx.branchIds);
-    sql += ` AND s.branch_id = ANY($${params.length})`;
-  }
-  if (ctx.scope === 'ASSIGNED') {
-    params.push(ctx.userId);
-    sql += ` AND s.owner_user_id = $${params.length}`;
-  }
-  return sql;
-}
-
-// تقييد الزبائن (مُسمّاة c) — نفس مبدأ metricsCatalog.clientScope؛ ASSIGNED عبر
-// جدول client_assignments (إسناد M2M) فتنهار المجموعة تلقائيًا لسجلّات المستخدم.
-function clientScope(ctx: MetricComputeContext, params: unknown[]): string {
-  let sql = '';
-  if (ctx.branchIds.length > 0) {
-    params.push(ctx.branchIds);
-    sql += ` AND c.branch_id = ANY($${params.length})`;
-  }
-  if (ctx.scope === 'ASSIGNED') {
-    params.push(ctx.userId);
-    sql += ` AND EXISTS (SELECT 1 FROM client_assignments ca
-                          WHERE ca.client_id = c.id AND ca.hr_user_id = $${params.length})`;
-  }
-  return sql;
-}
-
 // تسميات عربية لنوع الإحالة (القيم المعروفة في الكود)؛ أي قيمة أخرى تُعرض كما هي.
 const REFERRAL_TYPE_LABELS: Record<string, string> = {
   Personal: 'شخصي',
@@ -91,6 +46,7 @@ const ORIGIN_CHANNEL_LABELS: Record<string, string> = {
   PhoneCall: 'مكالمة هاتفية',
   SocialMedia: 'وسائل التواصل',
   Acquaintance: 'معرفة شخصية',
+  mobile_app: 'تطبيق الموبايل',
 };
 
 // مراحل مسار المرشّح الفعلية بالترتيب (Suggested→FollowUp→Qualified): المرشّح يُنشأ
@@ -114,7 +70,7 @@ const candidatesStageFunnel: BreakdownDefinition = {
     const sql =
       `SELECT c.status AS status, COUNT(*)::int AS v
          FROM candidates c
-        WHERE c.created_at >= $1 AND c.created_at < $2` + candidateScope(ctx, params) +
+        WHERE c.created_at >= $1 AND c.created_at < $2` + appendCandidateScope(ctx, params) +
       ` GROUP BY c.status`;
     const { rows } = await pool.query(sql, params);
     const counts = new Map<string, number>();
@@ -151,7 +107,7 @@ const referralSheetsTeamQuality: BreakdownDefinition = {
          FROM referral_sheets s
          LEFT JOIN hr_users hu ON hu.id = s.owner_user_id
         WHERE s.created_at >= $1 AND s.created_at < $2
-          AND s.owner_user_id IS NOT NULL` + sheetScope(ctx, params) +
+          AND s.owner_user_id IS NOT NULL` + appendReferralSheetScope(ctx, params) +
       ` GROUP BY s.owner_user_id, hu.name
         ORDER BY quality DESC NULLS LAST
         LIMIT 10`;
@@ -177,16 +133,23 @@ const candidatesOwnershipBreakdown: BreakdownDefinition = {
   purpose: 'إنجاز فريق: حجم محفظة كل موظف من المرشّحين ومعدّل تحويله فعليًا (لا مجرّد الجمع).',
   async compute(ctx) {
     const params: unknown[] = [ctx.from, ctx.to];
+    const scopeSql = appendCandidateScope(ctx, params);
+    let assigneeSql = '';
+    if (ctx.scope === 'ASSIGNED') {
+      params.push(ctx.userId);
+      assigneeSql = ` AND ca.hr_user_id = $${params.length}`;
+    }
     const sql =
-      `SELECT c.owner_user_id AS uid,
+      `SELECT ca.hr_user_id AS uid,
               COALESCE(hu.name, 'غير محدد') AS name,
               COUNT(*)::int AS cnt,
               COUNT(*) FILTER (WHERE c.converted_to_lead_id IS NOT NULL)::int AS converted
          FROM candidates c
-         LEFT JOIN hr_users hu ON hu.id = c.owner_user_id
+         JOIN candidate_assignments ca ON ca.candidate_id = c.id
+         LEFT JOIN hr_users hu ON hu.id = ca.hr_user_id
         WHERE c.created_at >= $1 AND c.created_at < $2
-          AND c.owner_user_id IS NOT NULL` + candidateScope(ctx, params) +
-      ` GROUP BY c.owner_user_id, hu.name
+          AND ca.hr_user_id IS NOT NULL` + scopeSql + assigneeSql +
+      ` GROUP BY ca.hr_user_id, hu.name
         ORDER BY cnt DESC
         LIMIT 10`;
     const { rows } = await pool.query(sql, params);
@@ -218,7 +181,7 @@ const candidatesReferralTypeDistribution: BreakdownDefinition = {
     const sql =
       `SELECT COALESCE(NULLIF(TRIM(c.referral_type), ''), 'غير محدد') AS k, COUNT(*)::int AS v
          FROM candidates c
-        WHERE c.created_at >= $1 AND c.created_at < $2` + candidateScope(ctx, params) +
+        WHERE c.created_at >= $1 AND c.created_at < $2` + appendCandidateScope(ctx, params) +
       ` GROUP BY 1
         ORDER BY v DESC`;
     const { rows } = await pool.query(sql, params);
@@ -243,7 +206,7 @@ const candidatesAcquisitionByChannel: BreakdownDefinition = {
       `SELECT COALESCE(NULLIF(TRIM(c.referral_origin_channel), ''), 'غير محدد') AS k,
               COUNT(*)::int AS v
          FROM candidates c
-        WHERE c.created_at >= $1 AND c.created_at < $2` + candidateScope(ctx, params) +
+        WHERE c.created_at >= $1 AND c.created_at < $2` + appendCandidateScope(ctx, params) +
       ` GROUP BY 1
         ORDER BY v DESC
         LIMIT 8`;
@@ -270,12 +233,140 @@ const clientsWaterSourceDistribution: BreakdownDefinition = {
       `SELECT COALESCE(NULLIF(TRIM(c.water_source), ''), 'غير محدد') AS k,
               COUNT(*)::int AS v
          FROM clients c
-        WHERE c.deleted_at IS NULL` + clientScope(ctx, params) +
+        WHERE c.deleted_at IS NULL` + appendClientScope(ctx, params) +
       ` GROUP BY 1
         ORDER BY v DESC
         LIMIT 8`;
     const { rows } = await pool.query(sql, params);
     return rows.map(r => ({ key: String(r.k), label: String(r.k), value: Number(r.v ?? 0) }));
+  },
+};
+
+const clientsClassificationDistribution: BreakdownDefinition = {
+  key: 'clients.classification_distribution',
+  permission: 'clients.view_list',
+  titleAr: 'توزيع دورة حياة الزبائن',
+  kind: 'donut',
+  valueUnit: 'count',
+  purpose: 'قرار: قراءة تركيب المحفظة الحالية حسب Lead وFOP وOP.',
+  async compute(ctx) {
+    const params: unknown[] = [];
+    const sql =
+      `SELECT CASE
+                WHEN c.candidate_status = 'OP' THEN 'OP'
+                WHEN c.candidate_status = 'FOP' THEN 'FOP'
+                ELSE 'Lead'
+              END AS k,
+              COUNT(*)::int AS v
+         FROM clients c
+        WHERE c.deleted_at IS NULL
+          AND c.is_active IS NOT FALSE` + appendClientScope(ctx, params) +
+      ` GROUP BY 1
+        ORDER BY CASE
+          WHEN CASE WHEN c.candidate_status = 'OP' THEN 'OP' WHEN c.candidate_status = 'FOP' THEN 'FOP' ELSE 'Lead' END = 'Lead' THEN 1
+          WHEN CASE WHEN c.candidate_status = 'OP' THEN 'OP' WHEN c.candidate_status = 'FOP' THEN 'FOP' ELSE 'Lead' END = 'FOP' THEN 2
+          ELSE 3
+        END`;
+    const { rows } = await pool.query(sql, params);
+    const labels: Record<string, string> = { Lead: 'Lead · اسم مرشّح', FOP: 'FOP · زبون محتمل', OP: 'OP · زبون فعلي' };
+    return rows.map(r => ({ key: String(r.k), label: labels[String(r.k)] ?? String(r.k), value: Number(r.v ?? 0) }));
+  },
+};
+
+const clientsAcquisitionByChannel: BreakdownDefinition = {
+  key: 'clients.acquisition_by_channel',
+  permission: 'clients.view_list',
+  titleAr: 'اكتساب الزبائن حسب القناة',
+  kind: 'ranked-bar',
+  valueUnit: 'count',
+  purpose: 'قرار تسويقي: تحديد القنوات الأكثر جلبًا لسجلات الزبائن خلال الفترة.',
+  async compute(ctx) {
+    const params: unknown[] = [ctx.from, ctx.to];
+    const sql =
+      `SELECT COALESCE(NULLIF(TRIM(c.source_channel), ''), 'غير محدد') AS k,
+              COUNT(*)::int AS v
+         FROM clients c
+        WHERE c.deleted_at IS NULL
+          AND c.created_at >= $1 AND c.created_at < $2` + appendClientScope(ctx, params) +
+      ` GROUP BY 1
+        ORDER BY v DESC
+        LIMIT 8`;
+    const { rows } = await pool.query(sql, params);
+    return rows.map(r => {
+      const key = String(r.k);
+      return { key, label: ORIGIN_CHANNEL_LABELS[key] ?? key, value: Number(r.v ?? 0) };
+    });
+  },
+};
+
+const clientsDataQualityDistribution: BreakdownDefinition = {
+  key: 'clients.data_quality_distribution',
+  permission: 'clients.view_list',
+  titleAr: 'جودة بيانات الزبائن',
+  kind: 'donut',
+  valueUnit: 'count',
+  purpose: 'سير عمل: قياس قابلية استخدام سجلات الزبائن وتحديد حجم البيانات التي تحتاج استكمالًا.',
+  async compute(ctx) {
+    const params: unknown[] = [];
+    const sql =
+      `SELECT COALESCE(NULLIF(TRIM(c.data_quality), ''), 'Undefined') AS k,
+              COUNT(*)::int AS v
+         FROM clients c
+        WHERE c.deleted_at IS NULL
+          AND c.is_active IS NOT FALSE` + appendClientScope(ctx, params) +
+      ` GROUP BY 1
+        ORDER BY v DESC`;
+    const { rows } = await pool.query(sql, params);
+    const labels: Record<string, string> = {
+      Complete: 'مكتملة', Partial: 'جزئية', Minimal: 'حد أدنى', Undefined: 'غير محددة',
+      correct: 'صحيحة', incorrect: 'تحتاج تصحيحًا',
+    };
+    return rows.map(r => ({ key: String(r.k), label: labels[String(r.k)] ?? String(r.k), value: Number(r.v ?? 0) }));
+  },
+};
+
+function acquisitionBucket(from: Date, to: Date): { trunc: 'hour' | 'day' | 'week' | 'month'; interval: string } {
+  const days = Math.max(1, (to.getTime() - from.getTime()) / 86_400_000);
+  if (days <= 2) return { trunc: 'hour', interval: '1 hour' };
+  if (days <= 45) return { trunc: 'day', interval: '1 day' };
+  if (days <= 210) return { trunc: 'week', interval: '1 week' };
+  return { trunc: 'month', interval: '1 month' };
+}
+
+const clientsAcquisitionTrend: BreakdownDefinition = {
+  key: 'clients.acquisition_trend',
+  permission: 'clients.view_list',
+  titleAr: 'تطور اكتساب الزبائن',
+  kind: 'timeline',
+  valueUnit: 'count',
+  purpose: 'قرار: إظهار اتجاه اكتساب الزبائن عبر الزمن ضمن الفترة والنطاق المختار.',
+  async compute(ctx) {
+    const bucket = acquisitionBucket(ctx.from, ctx.to);
+    const params: unknown[] = [ctx.from, ctx.to];
+    // trunc/interval محصوران في القيم الثابتة أعلاه، وليسا مدخل مستخدم.
+    const sql =
+      `WITH buckets AS (
+         SELECT generate_series(
+           date_trunc('${bucket.trunc}', $1::timestamptz),
+           date_trunc('${bucket.trunc}', $2::timestamptz - interval '1 millisecond'),
+           interval '${bucket.interval}'
+         ) AS bucket
+       ), counts AS (
+         SELECT date_trunc('${bucket.trunc}', c.created_at) AS bucket, COUNT(*)::int AS v
+           FROM clients c
+          WHERE c.deleted_at IS NULL
+            AND c.created_at >= $1 AND c.created_at < $2` + appendClientScope(ctx, params) +
+      ` GROUP BY 1
+       )
+       SELECT b.bucket, COALESCE(ct.v, 0)::int AS v
+         FROM buckets b
+         LEFT JOIN counts ct ON ct.bucket = b.bucket
+        ORDER BY b.bucket`;
+    const { rows } = await pool.query(sql, params);
+    return rows.map(r => {
+      const iso = new Date(r.bucket).toISOString();
+      return { key: iso, label: iso, value: Number(r.v ?? 0) };
+    });
   },
 };
 
@@ -293,7 +384,9 @@ const candidatesQualifiedOutcome: BreakdownDefinition = {
     const sql =
       `SELECT c.duplicate_flag AS dup, COUNT(*)::int AS v
          FROM candidates c
-        WHERE c.status = 'Qualified' AND c.created_at >= $1 AND c.created_at < $2` + candidateScope(ctx, params) +
+        WHERE c.status = 'Qualified'
+          AND c.converted_to_lead_id IS NOT NULL
+          AND c.created_at >= $1 AND c.created_at < $2` + appendCandidateScope(ctx, params) +
       ` GROUP BY c.duplicate_flag`;
     const { rows } = await pool.query(sql, params);
     return rows.map(r => ({
@@ -311,6 +404,10 @@ export const BREAKDOWN_CATALOG: BreakdownDefinition[] = [
   candidatesReferralTypeDistribution,
   candidatesAcquisitionByChannel,
   candidatesQualifiedOutcome,
+  clientsAcquisitionTrend,
+  clientsClassificationDistribution,
+  clientsAcquisitionByChannel,
+  clientsDataQualityDistribution,
   clientsWaterSourceDistribution,
 ];
 

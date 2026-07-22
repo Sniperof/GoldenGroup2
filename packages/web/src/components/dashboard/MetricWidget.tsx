@@ -54,6 +54,9 @@ export default function MetricWidget({ def, scope }: Props) {
   return (
     <KpiCard
       title={def.titleAr}
+      description={def.description}
+      accent={def.accent}
+      trendDirection={def.trendDirection}
       unit={def.unit}
       data={data}
       loading={loading}
