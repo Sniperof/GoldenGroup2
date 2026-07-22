@@ -31,31 +31,37 @@ export default function ScopeFilterBar({ value, onChange, canPickBranch, branche
   ];
 
   return (
-    <div className="flex flex-wrap items-center gap-3 bg-white border border-slate-200 rounded-xl p-3 shadow-sm mb-6">
-      <div className="flex items-center gap-2 text-slate-500">
-        <Clock className="w-4 h-4 text-sky-500" />
-        <span className="text-xs font-medium">الفترة</span>
-      </div>
-      <Select<TimePreset>
-        value={value.preset}
-        onChange={preset => onChange({ ...value, preset })}
-        options={TIME_PRESET_OPTIONS}
-        variant="filled"
-      />
-
-      {canPickBranch && (
-        <>
-          <div className="flex items-center gap-2 text-slate-500 mr-2">
-            <Building2 className="w-4 h-4 text-sky-500" />
-            <span className="text-xs font-medium">النطاق</span>
-          </div>
-          <Select<number>
-            value={value.branchId ?? ALL_BRANCHES}
-            onChange={branchId => onChange({ ...value, branchId: branchId === ALL_BRANCHES ? null : branchId })}
-            options={branchOptions}
+    <div className="mb-8 grid grid-cols-1 gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4 md:flex md:flex-wrap md:items-center">
+      <div className="flex min-w-0 items-center gap-2 text-slate-600">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sky-50 text-sky-600">
+          <Clock className="h-4 w-4" />
+        </span>
+        <span className="shrink-0 text-xs font-bold">الفترة</span>
+        <div className="min-w-0 flex-1 md:flex-none">
+          <Select<TimePreset>
+            value={value.preset}
+            onChange={preset => onChange({ ...value, preset })}
+            options={TIME_PRESET_OPTIONS}
             variant="filled"
           />
-        </>
+        </div>
+      </div>
+
+      {canPickBranch && (
+        <div className="flex min-w-0 items-center gap-2 text-slate-600 md:mr-2">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
+              <Building2 className="h-4 w-4" />
+            </span>
+            <span className="shrink-0 text-xs font-bold">النطاق</span>
+            <div className="min-w-0 flex-1 md:flex-none">
+              <Select<number>
+                value={value.branchId ?? ALL_BRANCHES}
+                onChange={branchId => onChange({ ...value, branchId: branchId === ALL_BRANCHES ? null : branchId })}
+                options={branchOptions}
+                variant="filled"
+              />
+            </div>
+          </div>
       )}
     </div>
   );

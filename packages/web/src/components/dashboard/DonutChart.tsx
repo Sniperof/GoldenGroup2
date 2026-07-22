@@ -7,6 +7,7 @@
 // ============================================================
 
 import type { BreakdownResponse } from '../../lib/api';
+import { breakdownLabel } from './breakdownLabels';
 
 // لوحة فئوية متمايزة (تُطابق درجات Tailwind الأساسية) — لا دلالة ترتيبية.
 const DONUT_TONES = ['#0ea5e9', '#6366f1', '#f59e0b', '#10b981', '#f43f5e', '#8b5cf6', '#14b8a6', '#94a3b8'];
@@ -55,13 +56,14 @@ export default function DonutChart({ data }: { data: BreakdownResponse }) {
       <div className="flex flex-1 min-w-0 flex-col gap-1.5">
         {groups.map((g, i) => {
           const pct = total > 0 ? Math.round((g.value / total) * 100) : 0;
+          const label = breakdownLabel(g.key, g.label);
           return (
             <div key={g.key} className="flex items-center gap-2 text-xs">
               <span
                 className="w-2.5 h-2.5 shrink-0 rounded-sm"
                 style={{ background: DONUT_TONES[i % DONUT_TONES.length] }}
               />
-              <span className="flex-1 truncate font-bold text-slate-600" title={g.label}>{g.label}</span>
+              <span className="flex-1 truncate font-bold text-slate-600" title={label}>{label}</span>
               <span className="shrink-0 tabular-nums font-black text-slate-700">{fmt(g.value)}</span>
               <span className="w-9 shrink-0 text-left tabular-nums text-slate-400">{pct}%</span>
             </div>

@@ -22,9 +22,12 @@ const router = Router();
  *       `devCode`. A new code is blocked for 60s after the previous one.
  *
  *       The purpose must match the number's real situation, so no SMS is spent
- *       on a journey that cannot succeed: `login`/`account_deletion` require an
- *       active account, `request_status` requires a pending request. Route by
- *       `GET /api/app/account/status` first and pick the purpose from it.
+ *       on a journey that cannot succeed: `account_creation` requires no live
+ *       account (active or suspended — a suspended account is reactivated,
+ *       never replaced), `login`/`account_deletion` require an active account,
+ *       `request_status` requires a pending request, `service_request` is open
+ *       to visitors. Route by `GET /api/app/account/status` first and pick the
+ *       purpose from it.
  *     requestBody:
  *       required: true
  *       content:
@@ -39,7 +42,7 @@ const router = Router();
  *                 example: "0912345678"
  *               purpose:
  *                 type: string
- *                 enum: [account_creation, login, account_deletion, request_status]
+ *                 enum: [account_creation, login, account_deletion, request_status, service_request]
  *     responses:
  *       200:
  *         description: OTP sent
@@ -58,6 +61,7 @@ const router = Router();
  *       400: { description: Invalid phone number or purpose }
  *       403: { description: "Account suspended (details.code = suspended)" }
  *       404: { description: "Purpose precondition failed (details.code = no_active_account | no_pending_request)" }
+ *       409: { description: "account_creation for a number with a live account (details.code = active_account_exists | suspended, details.status)" }
  *       429: { description: Resend window has not elapsed (see details.retryAfterSeconds) }
  */
 router.post('/send', async (req, res) => {
@@ -96,7 +100,7 @@ router.post('/send', async (req, res) => {
  *               code: { type: string, example: "482913" }
  *               purpose:
  *                 type: string
- *                 enum: [account_creation, login, account_deletion, request_status]
+ *                 enum: [account_creation, login, account_deletion, request_status, service_request]
  *     responses:
  *       200:
  *         description: Verified

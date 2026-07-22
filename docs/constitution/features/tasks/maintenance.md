@@ -380,7 +380,7 @@ service_requests
 ├── submission_type        VARCHAR(20)        -- CHECK: 'apply' | 'refer_a_candidate'
 │
 │   -- شريحة المستخدم وقت الإرسال (snapshot — لا تتغيّر مع لاحق ترقية العميل)
-├── submitter_tier         VARCHAR(20)        -- CHECK: 'visitor' | 'lead' | 'fop' | 'op' | 'staff'
+├── submitter_tier         VARCHAR(20)        -- CHECK: 'visitor' | 'customer' | 'lead' | 'fop' | 'op' | 'staff'
 │
 │   -- بيانات العقد والجهاز
 ├── contract_id            INTEGER FK → contracts(id)         -- nullable: يُملأ أثناء الفرز
@@ -1315,6 +1315,8 @@ derived_outcome = function(لائحة الأعطال على open_task):
 | `partially_resolved`/`resolved` + `emergency_installments` بُذرت | `open_task` جديدة بـ `task_type='collection'` للقسط الأول، `required_date` من جدول الأقساط |
 | `unresolved` + قرار "يحتاج ورشة" | ملاحظة على `emergency_tickets` + open_task جديدة (نوع لاحق `workshop_repair` إن أُدخل) |
 
+**السحب المباشر ضمن زيارة الطوارئ:** عندما تكون النتيجة `unresolved` ويؤكد الفني أنه فك الجهاز وأخذه فعلياً إلى ورشة الفرع، لا يجوز الاكتفاء بتحديث `installed_devices.status`. يجب، داخل معاملة واحدة، إنشاء وإكمال `device_disconnection` ثم `device_retrieval` (`retrieval_purpose='maintenance'`) مرتبطتين بالزيارة نفسها، مع توثيق إجراء فك واحد على الأقل وإقرار الزبون وحفظ موقع الجهاز السابق. عند نجاح السلسلة فقط تصبح الحالة `in_workshop` وتُتاح `device_return`. إعادة حفظ النتيجة idempotent ولا تنشئ سلسلة ثانية.
+
 #### 13.ب — توليد المهام بعد إكمال الدورية
 
 | المُطلِق | الـ artifact المولَّد |
@@ -1446,7 +1448,7 @@ Body بـ discriminator على `task_type`. خدمة موحَّدة (`visitTaskR
 - [ ] CHECK على `channel` يشمل القنوات السبع من ٠.٦ — **immutable بعد الإنشاء** (DB trigger يمنع UPDATE).
 - [ ] CHECK على `triage_outcome` يشمل القيم الـ 14 من ٠.٥.
 - [ ] CHECK على `submission_type ∈ ('apply', 'refer_a_candidate')`.
-- [ ] CHECK على `submitter_tier ∈ ('visitor', 'lead', 'fop', 'op', 'staff')`.
+- [ ] CHECK على `submitter_tier ∈ ('visitor', 'customer', 'lead', 'fop', 'op', 'staff')`.
 - [ ] CHECK على `device_source ∈ ('company_device', 'external_device')`.
 - [ ] CHECK مركَّب: `(device_source='external_device' AND installed_device_id IS NULL AND external_device_name IS NOT NULL) OR (device_source='company_device' AND external_device_name IS NULL)`.
 - [ ] CHECK مركَّب: `(submission_type='apply' AND beneficiary_client_id = requester_user_id::client_id) OR (submission_type='refer_a_candidate')`.

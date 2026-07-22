@@ -41,7 +41,6 @@ import planningRouter from './routes/planning.js';
 import zoneStudyRouter from './routes/zoneStudy.js';
 import contactTargetsRouter from './routes/contactTargets.js';
 import telemarketingRouter from './routes/telemarketing.js';
-import dashboardRouter from './routes/dashboard.js';
 import vacanciesRouter from './routes/vacancies.js';
 import publicVacanciesRouter from './routes/publicVacancies.js';
 import publicApplicationsRouter from './routes/publicApplications.js';
@@ -53,6 +52,7 @@ import authRouter from './routes/auth.js';
 import appOtpRouter from './routes/appOtp.js';
 import appAccountRouter from './routes/appAccount.js';
 import appAuthRouter from './routes/appAuth.js';
+import appServiceRequestsRouter from './routes/appServiceRequests.js';
 import publicAccountDeletionRouter from './routes/publicAccountDeletion.js';
 import adminAccountRequestsRouter from './routes/adminAccountRequests.js';
 import adminAppAccountsRouter from './routes/adminAppAccounts.js';
@@ -114,6 +114,8 @@ app.use('/api/app/otp', appOtpRouter);
 app.use('/api/app', appAccountRouter);
 // Customer session: login / refresh / logout / session bootstrap. DEC-013 §6.
 app.use('/api/app', appAuthRouter);
+// Mobile service-request intake: visitor OTP or authenticated customer identity.
+app.use('/api/app/service-requests', appServiceRequestsRouter);
 // Public account-deletion web page (Google Play). DEC-013 §8.
 app.use('/account-deletion', publicAccountDeletionRouter);
 // Web-portal admin review of account-creation requests. DEC-013 §2.5.
@@ -170,7 +172,6 @@ app.use('/api/device-warranties', deviceWarrantiesRouter);
 app.use('/api/devices', devicePossessionRouter); // DEC-CT-09
 app.use('/api/device-parts', devicePartsRouter);
 app.use('/api/spare-parts', sparePartsRouter);
-app.use('/api/dashboard', dashboardRouter);
 // reporting-analytics §1.3 — unified metrics surface + per-user dashboard layout.
 // Scope is enforced inside metricsService via each metric's own permission.
 app.use('/api/reports', requireAuth, reportsRouter);
@@ -225,6 +226,9 @@ export async function start() {
       // listener is up so a failing job never blocks the server from booting.
       void import('./services/contactTargetsCleanupJob.js').then((mod) =>
         mod.startContactTargetsCleanupJob(),
+      );
+      void import('./services/vacancyExpiryJob.js').then((mod) =>
+        mod.startVacancyExpiryJob(),
       );
       // DEC-006 D38: three-tier escalation for undocumented visits.
       void import('./services/visitEscalationJob.js').then((mod) =>

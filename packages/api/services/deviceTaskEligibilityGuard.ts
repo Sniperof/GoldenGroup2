@@ -142,7 +142,7 @@ export async function assertCanRecordSuccessfulDeviceTaskResult(
       assertStatus(input.taskType, status, ['delivered', 'installed', 'active'], 'لا يمكن تسجيل تشييك ناجح إلا لجهاز موجود عند الزبون');
       return;
     case 'device_disconnection':
-      assertStatus(input.taskType, status, ['active', 'out_of_service'], 'لا يمكن تسجيل فك ناجح إلا لجهاز فعال أو مفكوك سابقاً');
+      assertStatus(input.taskType, status, ['active', 'installed', 'faulty', 'out_of_service'], 'لا يمكن تسجيل فك ناجح إلا لجهاز موجود لدى الزبون');
       return;
     case 'device_retrieval':
       assertStatus(input.taskType, status, ['out_of_service'], 'لا يمكن تسجيل سحب ناجح إلا لجهاز مفكوك حالته خارج الخدمة');

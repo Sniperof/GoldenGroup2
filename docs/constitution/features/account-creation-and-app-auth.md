@@ -1,6 +1,6 @@
 # توصيف: إنشاء الحساب ومصادقة تطبيق الزبائن
 
-> **الحالة:** مسودة توصيف — فرع `Authenticate` · **backend الـ auth مكتمل** · **واجهة الأدمن مكتملة**: قسم الطلبات (قائمة/تفاصيل/قرارات) + إدارة الحسابات (بطاقة الحساب في تفاصيل الزبون: تفعيل مباشر/إيقاف/تفعيل + تفعيل جماعي من جدول الزبائن) · **سياسة التكرار مكتملة** (§5.3) · متبقٍّ: مزوّد SMS حقيقي
+> **الحالة:** مسودة توصيف — فرع `Authenticate` · **backend الـ auth مكتمل** · **واجهة الأدمن مكتملة**: قسم الطلبات (قائمة/تفاصيل/قرارات) + إدارة الحسابات (بطاقة الحساب في تفاصيل الزبون: تفعيل مباشر/إيقاف/تفعيل + تفعيل جماعي من جدول الزبائن) · **سياسة التكرار مكتملة** (§5.3) · **التقارب مع منصّة الطلبات مكتمل** (§5.5: آلة الحالة المشتركة + الاستلام + قوائم النتائج + واجهة تفاصيل مشتركة) · متبقٍّ: مزوّد SMS حقيقي
 > **القرار الحاكم:** `DEC-013-account-creation-and-app-auth`
 > **المرجع الثانوي:** وثيقة «Account Creation Epic» + Swagger القديم (ABP)
 > **الجمهور:** فريق الـ Backend + **مطوّر تطبيق الموبايل** (كتالوج الـ API القسم 5)
@@ -16,7 +16,7 @@
 | الدور | الوصف |
 |---|---|
 | Visitor | مستخدم تطبيق بلا حساب مفعّل ولا ارتباط. يستطيع إرسال أي طلب بعد تحقّق OTP. |
-| زبون مفعّل | `app_account` مرتبط بـ `clients`، تصنيفه (Lead/FOP/OP) مشتقّ من السجل. |
+| زبون مفعّل | `app_account` مرتبط بـ `clients`. هوية الإرسال تُسجّل كـ`customer`، ويبقى تصنيف الأعمال (Lead/FOP/OP) مشتقاً مستقلاً من سجل الزبون ولا يُستنتج من وجود الحساب. |
 | Admin Operator | مراجعة، مقارنة، اعتماد ربط، تصعيد يدوي. |
 | Account Audit Admin | رفض، إيقاف، إعادة تفعيل، إنشاء مباشر. |
 
@@ -65,7 +65,7 @@
 | `deleted_at`, `deletion_source`, `deletion_reason` | — | حذف منطقي (سياسة غوغل) — لا يمسّ `clients` |
 | `created_at`, `updated_at` | TIMESTAMPTZ | — |
 
-قيد التفرّد: فهرس فريد جزئي على `primary_mobile` حيث `status = 'active'`.
+قيد التفرّد: فهرس فريد جزئي على `primary_mobile` للحساب الحي حيث `status IN ('active','suspended')` و`deleted_at IS NULL`. الحساب الموقوف يُعاد تفعيله ولا يُستبدل بحساب جديد.
 
 **تمييز مصدر الحساب**: `created_source` هو المصدر الوحيد للحقيقة للتفريق بين الحساب المُنشأ **بطلب الزبون** والمُنشأ **عبر الأدمن** — لا يُضاف حقلٌ ثنائي مكرّر. القاعدة المشتقّة: أدمن إذا كانت القيمة `admin`/`admin_bulk`، وإلا فبطلب الزبون. يُعرض شارةً في لوحة التحكم، ولا يُعدَّل يدوياً إطلاقاً.
 
@@ -76,7 +76,7 @@
 | `id` | BIGSERIAL | — |
 | `handle` | UUID | المُعرّف المبهم الذي يُعاد للعميل |
 | `phone` | VARCHAR | مطبَّع |
-| `purpose` | VARCHAR | `account_creation` / `login` |
+| `purpose` | VARCHAR | `account_creation` / `login` / `account_deletion` / `request_status` / `service_request` |
 | `code_hash` | VARCHAR | بصمة الرمز لا الرمز |
 | `expires_at` | TIMESTAMPTZ | +120 ثانية |
 | `attempts` | INT | حد 5 |
@@ -100,7 +100,7 @@
 
 ### 3.4 توسعة `service_requests`
 
-`request_type='account_creation'`، حالة نهائية `completed`، ونتائج `linked_to_{op|lead|fop}` في `system_lists`. بيانات النموذج تُخزَّن في `submittedPayload`، وبيانات المُرسِل غير المرتبط في `requester_external`.
+`request_type='account_creation'`، حالة نهائية `completed`، ونتائج `linked_to_{op|lead|fop}` في `system_lists`. بيانات النموذج تُخزَّن في `submittedPayload`، وبيانات المُرسِل غير المرتبط في `requester_external`. في طلبات الخدمة من التطبيق تُحفظ هوية الزبون المسجّل صراحةً في `requester_app_account_id` و`requester_client_id`؛ ولا تُكتب في `requester_user_id` المخصص لموظفي النظام. الزائر يثبت رقمه بـOTP ذي الغرض `service_request` وتُحفظ علامة التحقق في لقطة المرسل.
 
 ## 4. دورة الحياة (مرجع DEC-013 §3)
 
@@ -124,7 +124,8 @@
 | قوائم العنوان | `GET /api/public/areas` | عام | إعادة استخدام المسار العام لشجرة `geo_units`؛ قوائم متتالية عبر `parent_id` (+`activeOnly`). يُغذّي منتقي المحافظة/المنطقة/الناحية/الحي. |
 | إنشاء طلب حساب | `POST /api/app/account-requests` | Visitor | `{ form, verificationHandle }` → يحفظ الطلب `Pending` ويستهلك المُعرّف. العنوان **بمعرّفات `geo_units` القانونية** (لا نص حر) مع تحقّق المستوى وسلسلة الآباء + لقطة أسماء للمقارنة. **يعيد اللقطة المخزَّنة كاملةً** (§5.4). |
 | استعادة طلب معلّق | `POST /api/app/account-requests/mine` | Visitor بطلب معلّق | `{ phone, handle }` بغرض `request_status` → يعيد اللقطة نفسها بعد فقدان النسخة المحلية (إعادة تنزيل). بيانات شخصية، فلا تُعاد بمفتاح الرقم وحده (§5.4). |
-| إرسال أي طلب خدمة | `POST /api/app/service-requests` | Visitor/زبون | أي نوع طلب؛ يتطلب تحقّق OTP لا حساباً. |
+| أنواع طلبات الموبايل | `GET /api/app/service-requests/types` | عام | يعيد تقاطع الأنواع الفعالة في Registry مع المعالجات المثبتة ونسخ النماذج المتطابقة؛ صف قاعدة البيانات وحده لا يفعّل intake. |
+| إرسال طلب خدمة | `POST /api/app/service-requests` | Visitor/زبون | بوابة موحدة حسب `requestType` (المطبق أولاً: `water_check`). الزائر يرسل `handle` بغرض `service_request`؛ الزبون يرسل Bearer وتُشتق هويته وربطه بسجل `clients` من الخادم بلا OTP إضافي. وجود Bearer غير صالح لا يسقط إلى زائر. القناة/الفئة/نمط الإرسال/نسخة النموذج تُفحص من Registry قبل استدعاء معالج النوع. |
 | تجديد التوكن | `POST /api/app/auth/refresh` | زبون | `{ refreshToken }` → access جديد + **refresh جديد (دوران)** ويُبطل القديم. يفحص الحالة (`suspended` → رفض). |
 | تسجيل الخروج | `POST /api/app/auth/logout` | زبون | يُبطل الـ refresh الحالي (والعائلة). الموبايل يمسح التوكنين. |
 | حذف الحساب (داخل التطبيق) | `POST /api/app/account/delete` | زبون | تحقّق OTP → soft-delete فوري + تسجيل خروج. راجع §8. |
@@ -138,9 +139,13 @@
 | قائمة الطلبات | `GET /api/admin/account-requests` | Operator+ | إعادة استخدام قائمة `service_requests` مفلترة بالنوع. |
 | تفاصيل الطلب | `GET /api/admin/account-requests/:id` | Operator+ | بيانات الطلب + التدقيق. |
 | السجلات المقترحة | `GET /api/admin/account-requests/:id/suggestions` | Operator+ | إعادة استخدام `fuzzyMatching` (`sources:'clients'`). |
-| اعتماد الربط | `POST /api/admin/account-requests/:id/link` | Operator+ | `completed` + تفعيل الحساب (§7 من القرار). |
+| استلام / نقل | `POST /api/admin/account-requests/:id/{claim,take-over}` | Operator | مِلكية ناعمة عبر `claimService` المشترك؛ الاستلام إلزاميّ قبل الربط. |
+| طلب بيانات / استئناف | `POST /api/admin/account-requests/:id/{request-info,resume-review}` | Operator | `in_review ⇄ awaiting_customer_info`. |
+| ملاحظة داخلية | `POST /api/admin/account-requests/:id/notes` | Operator | تُسجَّل في سجل التدقيق. |
+| إعادة فتح | `POST /api/admin/account-requests/:id/reopen` | Operator | من الحالة النهائية → `in_review` بسبب موثّق. |
+| اعتماد الربط | `POST /api/admin/account-requests/:id/link` | Operator+ | عبر `transitionStatus` → `completed` (بعد الاستلام) + تفعيل الحساب ذرّياً (§7). |
 | تصعيد يدوي | `POST /api/admin/account-requests/:id/escalate` | Operator | قفل تصعيد. |
-| رفض | `POST /api/admin/account-requests/:id/reject` | Audit Admin | `{ reasonCode }` → `rejected`. |
+| رفض | `POST /api/admin/account-requests/:id/reject` | Audit Admin | عبر `transitionStatus` → `rejected` (يتطلّب تصعيداً أو علم مراجعة، SR-AUTH-01). |
 | أرشفة | `POST /api/admin/account-requests/:id/archive` | Operator+ | إعادة استخدام. |
 | إنشاء مباشر | `POST /api/admin/clients/:id/app-account` | Audit Admin | حساب `Active` بلا طلب (فحص تفرّد). `created_source='admin'`. |
 | تفعيل جماعي | `POST /api/admin/app-accounts/bulk-activate` | Audit Admin | `{ mode:'filter'\|'ids', filter?, clientIds? }` → نجاح جزئي + تقرير (أُنشئ/تعارض/رقم غير صالح). `created_source='admin_bulk'`. دفعات كبيرة في الخلفية. |
@@ -166,6 +171,14 @@
 **مصدر بيانات شاشة `pending`**: المسار الطبيعي محلي بالكامل — ردّ الإنشاء هو اللقطة كاملةً (الاسم، الرقمان **مطبَّعين**، أسماء العنوان الأربعة، العنوان التفصيلي، الملاحظات، `submittedAt`، رقم المرجع) فيُخزَّن كما هو وتُرسم الشاشة بلا نداء ولا تتبّع لأسماء المنتقي. وعند فقدان النسخة المحلية وحدها: تحقّق OTP واحد بغرض `request_status` ثم `…/mine` يعيد **الشكل ذاته حرفياً**، فراسمٌ واحد في التطبيق يكفي للحالتين. ويُعاد فحص `status` عند كل فتح: `active` تعني الموافقة، و`visitor` تعني الرفض أو الأرشفة (تُمسح النسخة المحلية، ورسالة محايدة — لا يُفصح عن السبب).
 
 **مصدر البيانات يتبدّل بعد الموافقة**: نفس الحقول تُقرأ حينئذٍ من `GET /api/app/me` أي من سجل `clients` بعد الربط، وقد **تختلف القيم** عمّا كتبه المستخدم. تُبنى الشاشة بحقل مصدر (`request` / `account`).
+
+### 5.5 التقارب مع منصّة طلبات الخدمة (سلوكياً كـ`water_check`)
+
+مراجعة طلب الحساب تُدار عبر **نفس آلة الحالة المشتركة** وواجهة التفاصيل التي يستخدمها `water_check`، مع بقاء الصلاحيات المستقلة (`account_requests.*`) وإكمال‑بالأثر (تفعيل الحساب):
+
+دورة الحياة تمرّ عبر `transitionStatus` لا تحديثاً مباشراً؛ أُضيفت نهاية `completed` (من `in_review`، بلا إعادة فتح)، ونتائجها من قائمة `system_lists` مُدارة (`service_request_completed_account_creation`: `linked_to_op/fop/lead/client`، تُدار من شاشة «القوائم» ضمن مجموعة «قوائم الطلبات»). الاستلام (claim) إلزاميّ قبل أي قرار نهائي (SR-R005)، والرفض يمرّ ببوّابة SR-AUTH-01. الأثر (تفعيل `app_account`) ذرّيٌّ مع انتقال `completed` في معاملة واحدة.
+
+الواجهة تُبنى من نفس المكوّنات المشتركة: شريط المطالبة، تبويبا «نظرة عامة/سجل تدقيق» (`AuditLogTimeline`)، ولوحة الاقتراحات والمقارنة (`SuggestedMatchesPanel` بمُهايئ يجلب اقتراحات الحساب من مساره المحكوم بـ`account_requests.*`)، مع لوحة نوعية تعرض بيانات طلب الحساب وأسماء العنوان المحلولة ولافتة التكرار.
 
 ## 6. قواعد الـ OTP والمحاكاة
 

@@ -1992,23 +1992,26 @@ router.put('/:id', requirePermission('clients.edit', 'clients.contacts.edit'), a
       });
     }
 
-    // Guard: block branch change if client has in-progress or scheduled visits
-    const newBranchId = req.body?.branchId ?? existing?.branch_id;
-    if (newBranchId && existing?.branch_id && Number(newBranchId) !== Number(existing.branch_id)) {
-      const { rows: activeVisits } = await pool.query(
-        `SELECT 1 FROM field_visits WHERE client_id = $1 AND status IN ('in_progress', 'scheduled') LIMIT 1`,
-        [clientId],
-      );
-      if (activeVisits.length > 0) {
-        return res.status(400).json({
-          error: 'لا يمكن تغيير الفرع: الزبون لديه زيارة نشطة أو مجدولة',
-        });
-      }
+    // Branch is immutable via the edit form. The historic UPDATE below never
+    // wrote branch_id, so silently accepting a different branchId (and audit-
+    // logging a change that never happened) was misleading. Reject explicitly;
+    // cross-branch transfer will be a dedicated operation (constitution BR-5).
+    const requestedNewBranchId = req.body?.branchId;
+    if (
+      requestedNewBranchId != null &&
+      requestedNewBranchId !== '' &&
+      existing?.branch_id != null &&
+      Number(requestedNewBranchId) !== Number(existing.branch_id)
+    ) {
+      return res.status(400).json({
+        error: 'لا يمكن تغيير فرع الزبون من نموذج التعديل؛ النقل بين الفروع يتطلب عملية نقل مخصصة',
+        code: 'BRANCH_CHANGE_NOT_ALLOWED',
+      });
     }
 
     // Resolve assignment changes only if the caller explicitly provided a new list
     let newAssigneeIds: number[] | null = null;
-    const assignmentBranchId = newBranchId == null || newBranchId === '' ? null : Number(newBranchId);
+    const assignmentBranchId = existing?.branch_id == null ? null : Number(existing.branch_id);
     const assignmentAccess = canManageClientAssignments(
       authContext,
       Number.isInteger(assignmentBranchId) ? assignmentBranchId : null,
@@ -2078,9 +2081,6 @@ router.put('/:id', requirePermission('clients.edit', 'clients.contacts.edit'), a
     if (existing) {
       if (c.candidateStatus !== undefined && String(c.candidateStatus ?? '') !== String(existing.candidate_status ?? '')) {
         auditFields.push({ field: 'candidate_status', oldVal: existing.candidate_status, newVal: c.candidateStatus ?? null });
-      }
-      if (newBranchId && existing.branch_id && Number(newBranchId) !== Number(existing.branch_id)) {
-        auditFields.push({ field: 'branch_id', oldVal: String(existing.branch_id), newVal: String(newBranchId) });
       }
     }
     for (const af of auditFields) {

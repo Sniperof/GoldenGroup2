@@ -11,6 +11,8 @@ import {
   claimAccountRequest,
   transitionAccountRequest,
   addAccountRequestNote,
+  resolveAccountRequestEscalation,
+  setAccountRequestArchived,
 } from '../services/appAccounts/adminAccountRequestService.js';
 
 const router = Router();
@@ -171,6 +173,19 @@ router.post('/:id/escalate', requirePermission('account_requests.escalate'), asy
     }));
   } catch (err) {
     handle(res, err, 'Escalate account request');
+  }
+});
+
+router.post('/:id/resolve-escalation', requirePermission('account_requests.resolve_escalation'), async (req, res) => {
+  try {
+    res.json(await resolveAccountRequestEscalation({
+      requestId: parseInt(String(req.params.id)),
+      actorUserId: actor(req).userId,
+      actorRole: 'audit_admin',
+      note: req.body?.note ?? null,
+    }));
+  } catch (err) {
+    handle(res, err, 'Resolve account request escalation');
   }
 });
 
@@ -374,6 +389,32 @@ router.post('/:id/notes', requirePermission('account_requests.link'), async (req
     res.status(201).json({ ok: true });
   } catch (err) {
     handle(res, err, 'Add account request note');
+  }
+});
+
+router.post('/:id/archive', requirePermission('account_requests.archive'), async (req, res) => {
+  try {
+    res.json(await setAccountRequestArchived({
+      requestId: parseInt(String(req.params.id)),
+      archived: true,
+      actorUserId: actor(req).userId,
+      actorRole: 'audit_admin',
+    }));
+  } catch (err) {
+    handle(res, err, 'Archive account request');
+  }
+});
+
+router.post('/:id/unarchive', requirePermission('account_requests.archive'), async (req, res) => {
+  try {
+    res.json(await setAccountRequestArchived({
+      requestId: parseInt(String(req.params.id)),
+      archived: false,
+      actorUserId: actor(req).userId,
+      actorRole: 'audit_admin',
+    }));
+  } catch (err) {
+    handle(res, err, 'Unarchive account request');
   }
 });
 

@@ -34,3 +34,26 @@ export async function requireAppAuth(req: Request, res: Response, next: NextFunc
     return res.status(500).json({ error: 'خطأ في التحقق من الجلسة' });
   }
 }
+
+/**
+ * Authenticates a customer-app bearer token when one is supplied. Absence of
+ * Authorization is allowed for visitor endpoints; an invalid token is never
+ * silently downgraded to a visitor identity.
+ */
+export async function optionalAppAuth(req: Request, res: Response, next: NextFunction) {
+  const header = req.headers.authorization;
+  if (!header) return next();
+  if (!header.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'invalid_authorization_header' });
+  }
+  try {
+    req.appAccount = await verifyAccessToken(header.slice(7));
+    next();
+  } catch (err: any) {
+    if (err?.status) {
+      return res.status(err.status).json({ error: err.message, ...(err.details ? { details: err.details } : {}) });
+    }
+    console.error('Optional app auth error:', err);
+    return res.status(500).json({ error: 'app_auth_verification_failed' });
+  }
+}

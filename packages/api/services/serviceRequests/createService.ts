@@ -38,14 +38,17 @@ export interface CreateServiceRequestInput {
 
   // Three parties (٠.١٢)
   requesterUserId?: number | null;
+  requesterAppAccountId?: number | null;
+  requesterClientId?: number | null;
   requesterExternal?: Record<string, unknown> | null;
   beneficiaryClientId?: number | null;
   beneficiaryCandidateId?: number | null;
   beneficiaryExternal?: Record<string, unknown> | null;
   referrerUserId?: number | null;
+  referrerClientId?: number | null;
   referrerExternal?: Record<string, unknown> | null;
   submissionType?: 'apply' | 'refer_a_candidate';
-  submitterTier?: 'visitor' | 'lead' | 'fop' | 'op' | 'staff';
+  submitterTier?: 'visitor' | 'customer' | 'lead' | 'fop' | 'op' | 'staff';
 
   // Device
   contractId?: number | null;
@@ -103,12 +106,15 @@ function validateMandatory(
 
   const isWalkIn =
     input.requesterUserId == null &&
+    input.requesterAppAccountId == null &&
+    input.requesterClientId == null &&
     input.beneficiaryClientId == null &&
     input.beneficiaryCandidateId == null;
 
   if (isWalkIn) {
     const ext = input.requesterExternal ?? {};
-    if (!ext['name'] || !ext['primary_phone']) {
+    const isOtpVerifiedVisitor = ext['identity_verification'] === 'otp';
+    if (!ext['primary_phone'] || (!ext['name'] && !isOtpVerifiedVisitor)) {
       return {
         ok: false,
         code: 'walkin_requester_external_required',
@@ -165,9 +171,9 @@ export async function createServiceRequest(
         const { rows } = await tx.client.query<{ id: number }>(
           `INSERT INTO service_requests (
              public_ref_number, request_type, channel, application_source, submitted_payload,
-             requester_user_id, requester_external,
+             requester_user_id, requester_app_account_id, requester_client_id, requester_external,
              beneficiary_client_id, beneficiary_candidate_id, beneficiary_external,
-             referrer_user_id, referrer_external,
+             referrer_user_id, referrer_client_id, referrer_external,
              submission_type, submitter_tier,
              contract_id, device_source, installed_device_id,
              external_device_name, external_device_serial,
@@ -179,18 +185,18 @@ export async function createServiceRequest(
              branch_resolution_geo_unit_id
            ) VALUES (
              $1, $2, $3, $4, $5::jsonb,
-             $6, $7::jsonb,
-             $8, $9, $10::jsonb,
-             $11, $12::jsonb,
-             $13, $14,
-             $15, $16, $17,
-             $18, $19,
-             $20, $21, $22::jsonb,
-             $23::jsonb,
-             $24, $25,
-             $26, ${claimedAt},
-             $27, $28, $29,
-             $30
+             $6, $7, $8, $9::jsonb,
+             $10, $11, $12::jsonb,
+             $13, $14, $15::jsonb,
+             $16, $17,
+             $18, $19, $20,
+             $21, $22,
+             $23, $24, $25::jsonb,
+             $26::jsonb,
+             $27, $28,
+             $29, ${claimedAt},
+             $30, $31, $32,
+             $33
            )
            RETURNING id`,
           [
@@ -200,11 +206,14 @@ export async function createServiceRequest(
             input.applicationSource ?? null,
             JSON.stringify(input.submittedPayload ?? null),
             input.requesterUserId ?? null,
+            input.requesterAppAccountId ?? null,
+            input.requesterClientId ?? null,
             JSON.stringify(input.requesterExternal ?? null),
             input.beneficiaryClientId ?? null,
             input.beneficiaryCandidateId ?? null,
             JSON.stringify(input.beneficiaryExternal ?? null),
             input.referrerUserId ?? null,
+            input.referrerClientId ?? null,
             JSON.stringify(input.referrerExternal ?? null),
             input.submissionType ?? 'apply',
             input.submitterTier ?? 'staff',

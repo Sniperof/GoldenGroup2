@@ -2,11 +2,15 @@
 import { insertAuditLog } from '../utils/auditLog.js';
 import {
   checkPublicApplicationDuplicate,
-  findVacancyById,
   insertApplicant,
   insertJobApplication,
   insertReferrer,
 } from '../repositories/applicationRepository.js';
+import {
+  VACANCY_NOT_APPLICABLE_CODE,
+  VACANCY_NOT_APPLICABLE_MESSAGE,
+  findApplicableVacancyById,
+} from './vacancyApplicability.js';
 
 type PublicApplicationResult = {
   id: number;
@@ -66,14 +70,17 @@ export async function createPublicApplication(body: any): Promise<PublicApplicat
 
     await client.query('BEGIN');
 
-    const vacancy = await findVacancyById(client, body.jobVacancyId);
+    const vacancy = await findApplicableVacancyById(
+      client,
+      body.jobVacancyId,
+      { forUpdate: true },
+    );
     if (!vacancy) {
       await client.query('ROLLBACK');
-      throw createServiceError(404, { error: 'الشاغر الوظيفي غير موجود' });
-    }
-    if (vacancy.status !== 'Open') {
-      await client.query('ROLLBACK');
-      throw createServiceError(400, { error: 'الشاغر الوظيفي غير مفتوح للتقديم' });
+      throw createServiceError(409, {
+        error: VACANCY_NOT_APPLICABLE_MESSAGE,
+        code: VACANCY_NOT_APPLICABLE_CODE,
+      });
     }
 
     if (!vacancy.branchId) {

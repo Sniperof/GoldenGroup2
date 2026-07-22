@@ -24,8 +24,8 @@ import {
 import { getOtpSender } from './otpSender.js';
 import { SR_ACTIVE_STATUSES } from '../serviceRequests/_shared.js';
 
-export type OtpPurpose = 'account_creation' | 'login' | 'account_deletion' | 'request_status';
-const PURPOSES: OtpPurpose[] = ['account_creation', 'login', 'account_deletion', 'request_status'];
+export type OtpPurpose = 'account_creation' | 'login' | 'account_deletion' | 'request_status' | 'service_request';
+const PURPOSES: OtpPurpose[] = ['account_creation', 'login', 'account_deletion', 'request_status', 'service_request'];
 
 export interface SendOtpInput {
   phone: string;
@@ -73,7 +73,11 @@ function assertValid(phone: string, purpose: string): { phone: string; purpose: 
  * mismatch here means a mis-implemented (or abusive) client. Without this the
  * whole journey succeeds and only the last call fails — after an SMS was
  * already paid for. Leaks nothing: `account/status` exposes the same facts
- * publicly by design (DEC-013 §3).
+ * publicly by design (DEC-013 §3). Every purpose is covered: account_creation
+ * requires no live account (active OR suspended — a suspended account is
+ * reactivated by the admin, never replaced), login/account_deletion require an
+ * active one, request_status requires a pending request, service_request is
+ * open to visitors.
  */
 async function assertPurposePrecondition(phone: string, purpose: OtpPurpose): Promise<void> {
   if (purpose === 'login' || purpose === 'account_deletion') {
@@ -89,6 +93,24 @@ async function assertPurposePrecondition(phone: string, purpose: OtpPurpose): Pr
     }
     if (rows[0].status !== 'active') {
       throw httpError(403, 'الحساب موقوف', { code: 'suspended' });
+    }
+    return;
+  }
+
+  if (purpose === 'account_creation') {
+    const { rows } = await pool.query<{ status: string }>(
+      `SELECT status FROM app_accounts
+        WHERE primary_mobile = $1 AND deleted_at IS NULL
+          AND status IN ('active', 'suspended')
+        ORDER BY (status = 'active') DESC
+        LIMIT 1`,
+      [phone],
+    );
+    if (rows.length > 0) {
+      throw httpError(409, 'لا يمكن إنشاء حساب جديد لهذا الرقم', {
+        code: rows[0].status === 'suspended' ? 'suspended' : 'active_account_exists',
+        status: rows[0].status,
+      });
     }
     return;
   }

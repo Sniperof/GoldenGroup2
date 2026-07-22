@@ -3181,8 +3181,8 @@ export async function applyDeviceDisconnectionResult(
     if (!isPositiveInteger(vt.device_id)) {
       throw new ResultValidationError('مهمة فك الجهاز يجب أن ترتبط بجهاز مثبت');
     }
-    if (!['active', 'out_of_service'].includes(String(vt.device_status))) {
-      throw new ResultValidationError('لا يمكن تسجيل فك إلا لجهاز كان فعالاً عند إنشاء المهمة');
+    if (!['active', 'installed', 'faulty', 'out_of_service'].includes(String(vt.device_status))) {
+      throw new ResultValidationError('لا يمكن تسجيل فك إلا لجهاز موجود لدى الزبون');
     }
     if (!['in_progress', 'ended', 'completed'].includes(vt.visit_status)) {
       throw new ResultValidationError(`لا يمكن تسجيل النتيجة - الزيارة في حالة "${vt.visit_status}"`);

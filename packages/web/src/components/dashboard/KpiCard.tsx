@@ -10,6 +10,9 @@ import type { MetricResponse } from '../../lib/api';
 
 interface Props {
   title: string;
+  description: string;
+  accent: 'sky' | 'indigo' | 'emerald' | 'amber' | 'rose' | 'violet';
+  trendDirection?: 'higher-is-better' | 'lower-is-better' | 'neutral';
   unit: 'count' | 'percent';
   data: MetricResponse | null;
   loading: boolean;
@@ -17,6 +20,15 @@ interface Props {
   refreshing: boolean;
   onRefresh: () => void;
 }
+
+const ACCENTS = {
+  sky: { line: 'bg-sky-500', wash: 'from-sky-50', value: 'text-sky-700' },
+  indigo: { line: 'bg-indigo-500', wash: 'from-indigo-50', value: 'text-indigo-700' },
+  emerald: { line: 'bg-emerald-500', wash: 'from-emerald-50', value: 'text-emerald-700' },
+  amber: { line: 'bg-amber-500', wash: 'from-amber-50', value: 'text-amber-700' },
+  rose: { line: 'bg-rose-500', wash: 'from-rose-50', value: 'text-rose-700' },
+  violet: { line: 'bg-violet-500', wash: 'from-violet-50', value: 'text-violet-700' },
+} as const;
 
 function formatValue(value: number, unit: 'count' | 'percent'): string {
   if (unit === 'percent') return `${value}%`;
@@ -31,14 +43,33 @@ function formatUpdatedAt(iso: string): string {
   }
 }
 
-export default function KpiCard({ title, unit, data, loading, error, refreshing, onRefresh }: Props) {
+export default function KpiCard({
+  title,
+  description,
+  accent,
+  trendDirection = 'neutral',
+  unit,
+  data,
+  loading,
+  error,
+  refreshing,
+  onRefresh,
+}: Props) {
   const delta = data?.deltaPct ?? null;
   const deltaUp = delta != null && delta >= 0;
+  const deltaIsGood = delta == null || delta === 0 || trendDirection === 'neutral'
+    ? null
+    : trendDirection === 'higher-is-better' ? deltaUp : !deltaUp;
+  const tone = ACCENTS[accent];
 
   return (
-    <div className="bg-white shadow-sm border border-slate-200 rounded-xl p-5 hover:shadow-md transition-all">
+    <div className={`relative h-full overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br ${tone.wash} via-white to-white p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md`}>
+      <div className={`absolute inset-x-0 top-0 h-1 ${tone.line}`} />
       <div className="flex items-start justify-between mb-3">
-        <p className="text-xs text-slate-500 font-medium">{title}</p>
+        <div className="min-w-0 pl-2">
+          <p className="text-sm font-black text-slate-800">{title}</p>
+          <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-500">{description}</p>
+        </div>
         <button
           onClick={onRefresh}
           disabled={refreshing || loading}
@@ -56,11 +87,13 @@ export default function KpiCard({ title, unit, data, loading, error, refreshing,
         <p className="text-sm text-rose-500">{error}</p>
       ) : (
         <div className="flex items-end justify-between gap-2">
-          <p className="text-2xl font-bold text-slate-800">{data ? formatValue(data.value, unit) : '—'}</p>
+          <p className={`text-3xl font-black tracking-tight ${tone.value}`}>{data ? formatValue(data.value, unit) : '—'}</p>
           {delta != null && (
             <span
               className={`flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full border ${
-                deltaUp
+                deltaIsGood === null
+                  ? 'border-slate-200 bg-slate-50 text-slate-600'
+                  : deltaIsGood
                   ? 'text-emerald-600 bg-emerald-50 border-emerald-100'
                   : 'text-rose-600 bg-rose-50 border-rose-100'
               }`}
@@ -73,7 +106,7 @@ export default function KpiCard({ title, unit, data, loading, error, refreshing,
       )}
 
       {data && !loading && !error && (
-        <p className="text-[10px] text-slate-400 mt-3">
+        <p className="mt-4 border-t border-slate-100 pt-3 text-[10px] text-slate-400">
           آخر تحديث: {formatUpdatedAt(data.computedAt)}
           {data.fromCache ? ' · مخزّن' : ''}
         </p>

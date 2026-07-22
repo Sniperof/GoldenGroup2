@@ -63,6 +63,15 @@ interface Props {
     daysUntilDue: number;
     attachWindowDays: number;
   } | null;
+  installedDeviceId?: number | null;
+  directWorkshopRetrieval?: {
+    disconnectionTaskId: number;
+    retrievalTaskId: number;
+    waterDisconnected?: boolean;
+    electricityDisconnected?: boolean;
+    accessoriesRemoved?: boolean;
+    customerAcknowledged?: boolean;
+  } | null;
 }
 
 /** Maps the §٠.١٩.ح derived outcome to one of the 4 legacy
@@ -112,6 +121,8 @@ export default function CostsForm({
   sourceServiceRequestId = null,
   derivedOutcome = null,
   periodicAttachmentCandidate = null,
+  installedDeviceId = null,
+  directWorkshopRetrieval = null,
 }: Props) {
   const isNewPath = sourceServiceRequestId != null;
   const isPeriodic = maintenanceKind === 'periodic';
@@ -124,6 +135,12 @@ export default function CostsForm({
   const [followUpExpectedDate, setFollowUpExpectedDate] = useState(initialData?.followUpExpectedDate ?? '');
   const [closingNotes, setClosingNotes]         = useState(initialData?.closingNotes ?? '');
   const [coverPeriodic, setCoverPeriodic]       = useState(false);
+  const directRetrievalRecorded = directWorkshopRetrieval != null;
+  const [retrieveToWorkshop, setRetrieveToWorkshop] = useState(directRetrievalRecorded);
+  const [waterDisconnected, setWaterDisconnected] = useState(directWorkshopRetrieval?.waterDisconnected === true);
+  const [electricityDisconnected, setElectricityDisconnected] = useState(directWorkshopRetrieval?.electricityDisconnected === true);
+  const [accessoriesRemoved, setAccessoriesRemoved] = useState(directWorkshopRetrieval?.accessoriesRemoved === true);
+  const [retrievalCustomerAcknowledged, setRetrievalCustomerAcknowledged] = useState(directWorkshopRetrieval?.customerAcknowledged === true);
 
   // ── Costs breakdown ────────────────────────────────────────────────────────
   const [transportFee, setTransportFee]         = useState(String(initialData?.transportFee ?? ''));
@@ -206,6 +223,16 @@ export default function CostsForm({
     }
   }, [isNewPath, isPeriodic, derivedOutcome?.outcome]);
 
+  useEffect(() => {
+    if (finalDecision !== 'unresolved' && !directRetrievalRecorded) {
+      setRetrieveToWorkshop(false);
+      setWaterDisconnected(false);
+      setElectricityDisconnected(false);
+      setAccessoriesRemoved(false);
+      setRetrievalCustomerAcknowledged(false);
+    }
+  }, [finalDecision, directRetrievalRecorded]);
+
   // ── Calculations ───────────────────────────────────────────────────────────
   const transport  = Number(transportFee) || 0;
   const assembly   = Number(assemblyFee)  || 0;
@@ -246,6 +273,13 @@ export default function CostsForm({
       coveredPeriodicTaskId: !isPeriodic && coverPeriodic && periodicAttachmentCandidate
         ? periodicAttachmentCandidate.taskId
         : null,
+      directWorkshopRetrieval: !isPeriodic && retrieveToWorkshop ? {
+        requested: true,
+        waterDisconnected,
+        electricityDisconnected,
+        accessoriesRemoved,
+        customerAcknowledged: retrievalCustomerAcknowledged,
+      } : null,
     });
     const validEntries = paymentEntries.filter(e => e.method && Number(e.amountValue) > 0);
     if (validEntries.length) await api.emergencyResult.savePaymentEntries(taskId, validEntries);
@@ -255,6 +289,12 @@ export default function CostsForm({
   const handleSave = async () => {
     if (!finalDecision) { setError('يجب تحديد القرار النهائي'); return; }
     if (requiresDecisionReason && !decisionReasonId) { setError('يجب تحديد سبب القرار'); return; }
+    if (retrieveToWorkshop && !waterDisconnected && !electricityDisconnected && !accessoriesRemoved) {
+      setError('يجب توثيق إجراء فك واحد على الأقل قبل سحب الجهاز إلى الورشة'); return;
+    }
+    if (retrieveToWorkshop && !retrievalCustomerAcknowledged) {
+      setError('تأكيد الزبون مطلوب عند سحب الجهاز إلى الورشة'); return;
+    }
     setSaving(true); setError('');
     try {
       await saveCostsAndEntries();
@@ -392,6 +432,65 @@ export default function CostsForm({
         )}
 
         {/* ══ needs_followup — hidden on new path (no cascade per V-R007) ══ */}
+        {!isPeriodic && installedDeviceId && finalDecision === 'unresolved' && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 space-y-3">
+            <label className={`flex items-start gap-3 ${directRetrievalRecorded || readOnly ? '' : 'cursor-pointer'}`}>
+              <input
+                type="checkbox"
+                checked={retrieveToWorkshop}
+                disabled={readOnly || directRetrievalRecorded}
+                onChange={(e) => setRetrieveToWorkshop(e.target.checked)}
+                className="mt-1 h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
+              />
+              <span className="text-sm text-amber-950">
+                <span className="block font-black">تم فك الجهاز وسحبه مباشرة إلى ورشة الفرع</span>
+                <span className="mt-1 block text-xs text-amber-800">
+                  ينشئ النظام نتيجتي فك وسحب نظاميتين، وينقل الجهاز إلى حالة in_workshop لتصبح مهمة الإرجاع متاحة.
+                </span>
+              </span>
+            </label>
+
+            {retrieveToWorkshop && (
+              <div className="border-t border-amber-200 pt-3 space-y-2">
+                <p className="text-xs font-bold text-amber-900">إجراءات الفك المنفذة <span className="text-red-500">*</span></p>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  {[
+                    { label: 'فصل المياه', checked: waterDisconnected, set: setWaterDisconnected },
+                    { label: 'فصل الكهرباء', checked: electricityDisconnected, set: setElectricityDisconnected },
+                    { label: 'إزالة الملحقات', checked: accessoriesRemoved, set: setAccessoriesRemoved },
+                  ].map(item => (
+                    <label key={item.label} className="flex items-center gap-2 text-xs font-bold text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={item.checked}
+                        disabled={readOnly || directRetrievalRecorded}
+                        onChange={(e) => item.set(e.target.checked)}
+                        className="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500"
+                      />
+                      {item.label}
+                    </label>
+                  ))}
+                </div>
+                <label className="flex items-center gap-2 pt-1 text-xs font-bold text-slate-800">
+                  <input
+                    type="checkbox"
+                    checked={retrievalCustomerAcknowledged}
+                    disabled={readOnly || directRetrievalRecorded}
+                    onChange={(e) => setRetrievalCustomerAcknowledged(e.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500"
+                  />
+                  أقر الزبون بفك الجهاز وسحبه إلى الورشة <span className="text-red-500">*</span>
+                </label>
+                {directRetrievalRecorded && (
+                  <p className="text-xs font-bold text-emerald-700">
+                    تم تسجيل الفك #{directWorkshopRetrieval.disconnectionTaskId} والسحب #{directWorkshopRetrieval.retrievalTaskId}.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {finalDecision === 'needs_followup' && !isNewPath && (
           <div className="rounded-2xl border-2 border-violet-200 bg-violet-50/30 p-4 space-y-3">
             <div className="flex items-center gap-2 text-xs font-bold text-violet-700">

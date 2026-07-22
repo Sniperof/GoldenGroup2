@@ -16,6 +16,10 @@ import {
   findUnavailableDeviceModelsForNewCommercialUse,
   findUnavailableSparePartsForNewCommercialUse,
 } from '../services/catalogActiveStateService.js';
+import {
+  assertDeviceSerialAvailable,
+  deviceSerialConflictPayload,
+} from '../services/deviceSerialIntegrity.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -1063,6 +1067,8 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
     res.json({ ...mapContract(contract), dues: duesResult });
   } catch (err) {
     await client.query('ROLLBACK');
+    const conflict = deviceSerialConflictPayload(err);
+    if (conflict) return res.status(409).json(conflict);
     throw err;
   } finally {
     client.release();
@@ -1345,6 +1351,8 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
     await pgClient.query('COMMIT');
   } catch (err) {
     await pgClient.query('ROLLBACK');
+    const conflict = deviceSerialConflictPayload(err);
+    if (conflict) return res.status(409).json(conflict);
     throw err;
   } finally {
     pgClient.release();
@@ -1863,6 +1871,12 @@ function hasDevicePayloadValue(payload: any): boolean {
 async function applyDevicePayloadToInstalledDevice(dbClient: any, contractId: number | string, payload: any) {
   if (!hasDevicePayloadValue(payload)) return;
 
+  const serialNumber = await assertDeviceSerialAvailable(
+    dbClient,
+    payload.serialNumber,
+    { contractId },
+  );
+
   const result = await dbClient.query(
     `UPDATE installed_devices SET
        serial_number              = $1,
@@ -1879,7 +1893,7 @@ async function applyDevicePayloadToInstalledDevice(dbClient: any, contractId: nu
      WHERE contract_id = $12
      RETURNING id`,
     [
-      payload.serialNumber || null,
+      serialNumber,
       payload.deviceStatus || 'pending_delivery',
       payload.deliveryDate || null,
       payload.installationDate || null,
@@ -2152,6 +2166,8 @@ router.post('/:id/approve', async (req, res) => {
     res.json({ success: true, contractId, status: 'active', closingEmployeeId: closerId });
   } catch (err: any) {
     await pgClient.query('ROLLBACK');
+    const conflict = deviceSerialConflictPayload(err);
+    if (conflict) return res.status(409).json(conflict);
     console.error('[contracts] approve failed:', err);
     res.status(500).json({ error: 'فشل اعتماد العقد', detail: err?.message });
   } finally {

@@ -245,11 +245,6 @@ export default function Clients() {
     const handleSaveClient = async (clientData: Client) => {
         try {
             if (editingClient) {
-                // Warn about branch change implications
-                if (editingClient.branchId && clientData.branchId && editingClient.branchId !== clientData.branchId) {
-                    const ok = confirm('تغيير الفرع سيؤثر على تعيينات المهام. تأكيد؟');
-                    if (!ok) return;
-                }
                 // Warn about OP/FOP transition
                 const wasOpFop = ['OP', 'FOP'].includes(editingClient.candidateStatus ?? '');
                 const nowOpFop = ['OP', 'FOP'].includes(clientData.candidateStatus ?? '');

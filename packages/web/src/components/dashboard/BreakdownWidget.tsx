@@ -11,7 +11,17 @@ import { api, type BreakdownResponse } from '../../lib/api';
 import FunnelChart from './FunnelChart';
 import RankedBarChart from './RankedBarChart';
 import DonutChart from './DonutChart';
+import TimelineChart from './TimelineChart';
 import type { ScopeState, WidgetDef } from './widgetRegistry';
+
+const ACCENT_LINES = {
+  sky: 'bg-sky-500',
+  indigo: 'bg-indigo-500',
+  emerald: 'bg-emerald-500',
+  amber: 'bg-amber-500',
+  rose: 'bg-rose-500',
+  violet: 'bg-violet-500',
+} as const;
 
 interface Props {
   def: WidgetDef;
@@ -62,9 +72,13 @@ export default function BreakdownWidget({ def, scope }: Props) {
   }, [load]);
 
   return (
-    <div className="bg-white shadow-sm border border-slate-200 rounded-xl p-5 hover:shadow-md transition-all h-full">
+    <div className="relative h-full overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-all hover:shadow-md sm:p-6">
+      <div className={`absolute inset-y-0 right-0 w-1 ${ACCENT_LINES[def.accent]}`} />
       <div className="flex items-start justify-between mb-4">
-        <p className="text-xs text-slate-500 font-medium">{def.titleAr}</p>
+        <div className="pr-2">
+          <p className="text-sm font-black text-slate-800">{def.titleAr}</p>
+          <p className="mt-1 text-[11px] leading-4 text-slate-500">{def.description}</p>
+        </div>
         <button
           onClick={() => void load(true)}
           disabled={refreshing || loading}
@@ -87,6 +101,7 @@ export default function BreakdownWidget({ def, scope }: Props) {
       ) : data ? (
         data.kind === 'ranked-bar' ? <RankedBarChart data={data} />
           : data.kind === 'donut' ? <DonutChart data={data} />
+          : data.kind === 'timeline' ? <TimelineChart data={data} />
           : <FunnelChart groups={data.groups} />
       ) : null}
 

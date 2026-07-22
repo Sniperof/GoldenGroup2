@@ -200,6 +200,15 @@ const CATEGORIES: CategoryMeta[] = [
       { label: 'طلبات فحص المياه ← حُلَّ في الاستلام', route: 'الطلبات ← فحص المياه ← تفاصيل الطلب', icon: <ClipboardList className="w-3 h-3" /> },
     ],
   },
+  {
+    id: 'service_request_completed_account_creation',
+    label: 'نتائج إكمال طلب إنشاء الحساب',
+    description: 'النتائج المعتمدة عند اعتماد ربط طلب إنشاء الحساب وتفعيل حساب التطبيق. القيمة تُشتقّ تلقائياً من تصنيف الزبون المرتبط (OP/FOP/Lead/زبون قائم) وتُثبَّت على الطلب المكتمل.',
+    impact: 'high',
+    usedIn: [
+      { label: 'طلبات إنشاء الحساب ← اعتماد الربط', route: 'الطلبات ← إنشاء الحساب ← تفاصيل الطلب', icon: <ClipboardList className="w-3 h-3" /> },
+    ],
+  },
 
   {
     id: 'device_demo_creation_reasons',
@@ -977,6 +986,7 @@ const CATEGORY_GROUP: Record<string, string> = {
 
   service_request_resolve_at_intake_emergency_maintenance: 'service_requests',
   service_request_resolve_at_intake_water_check: 'service_requests',
+  service_request_completed_account_creation: 'service_requests',
 
   diagnosis_problem_types: 'emergency', emergency_resolved_reason: 'emergency',
   emergency_unresolved_reason: 'emergency', emergency_followup_reason: 'emergency',
@@ -1100,7 +1110,8 @@ export default function SystemLists() {
 
   const activeMeta = sidebarCategories.find(c => c.id === activeCategory);
   const isCertificateView = activeCategory === 'certificate';
-  const isServiceRequestResolveList = activeCategory.startsWith('service_request_resolve_at_intake_');
+  const isServiceRequestResolveList = activeCategory.startsWith('service_request_resolve_at_intake_')
+    || activeCategory === 'service_request_completed_account_creation';
 
   const filteredItems = useMemo(() => {
     const cat = (isCertificateView && activeCertificate)
@@ -1144,7 +1155,8 @@ export default function SystemLists() {
         ? `${MAJOR_PREFIX}${activeCertificate}` : activeCategory;
       const isJobTitle = saveCategory === 'job_title';
       const isDeptType = saveCategory === 'department_type';
-      const isSrResolveList = saveCategory.startsWith('service_request_resolve_at_intake_');
+      const isSrResolveList = saveCategory.startsWith('service_request_resolve_at_intake_')
+        || saveCategory === 'service_request_completed_account_creation';
 
       const extraFields: Record<string, unknown> = {};
       if (isJobTitle) extraFields.linkedRoleId = formLinkedRoleId;

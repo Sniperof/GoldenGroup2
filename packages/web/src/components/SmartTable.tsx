@@ -269,7 +269,7 @@ export default function SmartTable<T>({
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 text-xs font-medium transition-colors whitespace-nowrap"
             >
                 <Download className="w-3 h-3" />
-                تصدير CSV
+                توليد تقرير
             </button>
             {headerActions}
         </>

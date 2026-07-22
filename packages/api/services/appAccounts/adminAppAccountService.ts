@@ -71,7 +71,7 @@ async function tryActivate(
   try {
     const active = await tx.client.query(
       `SELECT 1 FROM app_accounts
-        WHERE primary_mobile = $1 AND status = 'active' AND deleted_at IS NULL
+        WHERE primary_mobile = $1 AND status IN ('active', 'suspended') AND deleted_at IS NULL
         LIMIT 1`,
       [mobile],
     );

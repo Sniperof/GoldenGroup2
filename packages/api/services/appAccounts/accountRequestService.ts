@@ -280,14 +280,15 @@ export async function createAccountRequest(
     if (otp.phone !== phone) throw httpError(400, 'الرقم لا يطابق الرقم الذي تم التحقق منه');
 
     // 2. Uniqueness: no ACTIVE account for this number (DEC-013 §9.2).
-    const { rows: active } = await tx.client.query(
-      `SELECT 1 FROM app_accounts
-        WHERE primary_mobile = $1 AND status = 'active' AND deleted_at IS NULL
+    const { rows: active } = await tx.client.query<{ status: string }>(
+      `SELECT status FROM app_accounts
+        WHERE primary_mobile = $1 AND status IN ('active', 'suspended') AND deleted_at IS NULL
+        ORDER BY (status = 'active') DESC
         LIMIT 1`,
       [phone],
     );
     if (active.length > 0) {
-      throw httpError(409, 'يوجد حساب مفعّل لهذا الرقم', { status: 'active' });
+      throw httpError(409, 'يوجد حساب قائم لهذا الرقم', { status: active[0].status });
     }
 
     // 3. Pending-request rule: one active account_creation request per number.

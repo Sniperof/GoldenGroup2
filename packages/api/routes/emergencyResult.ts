@@ -32,6 +32,11 @@ import {
   DeviceTaskEligibilityError,
   type DeviceTaskType,
 } from '../services/deviceTaskEligibilityGuard.js';
+import {
+  getEmergencyDirectWorkshopRetrieval,
+  recordEmergencyDirectWorkshopRetrieval,
+} from '../services/emergencyDirectWorkshopRetrieval.js';
+import { ResultValidationError } from '../services/visitTaskResultReflection.js';
 
 const router = Router();
 
@@ -373,7 +378,7 @@ router.get('/:taskId', requirePermission('marketing_visits.view'), async (req, r
     const meta = await getTaskMeta(taskId);
     if (!meta) return res.status(404).json({ error: 'المهمة غير موجودة' });
 
-    const [preRow, postRow, actionRow, costsRow, periodicAttachmentCandidate] = await Promise.all([
+    const [preRow, postRow, actionRow, costsRow, periodicAttachmentCandidate, directWorkshopRetrieval] = await Promise.all([
       meta.preStateId
         ? pool.query(`SELECT ${TECH_STATE_FIELDS} FROM device_technical_states WHERE id = $1`, [meta.preStateId]).then(r => r.rows[0])
         : null,
@@ -414,6 +419,9 @@ router.get('/:taskId', requirePermission('marketing_visits.view'), async (req, r
         : null,
       meta.taskType === 'emergency_maintenance'
         ? findPeriodicAttachmentCandidate(pool, meta.installedDeviceId ?? null)
+        : null,
+      meta.taskType === 'emergency_maintenance'
+        ? getEmergencyDirectWorkshopRetrieval(pool, taskId)
         : null,
     ]);
 
@@ -471,6 +479,7 @@ router.get('/:taskId', requirePermission('marketing_visits.view'), async (req, r
             ?? null,
       },
       periodicAttachmentCandidate,
+      directWorkshopRetrieval,
       problems,
       derivedOutcome,
       phases: {
@@ -1020,6 +1029,7 @@ router.put('/:taskId/costs', requirePermission('marketing_visits.update_result')
       closingNote,
       closingEmployeeId,
       coveredPeriodicTaskId,
+      directWorkshopRetrieval,
     } = req.body ?? {};
 
     if (!finalDecision) return res.status(400).json({ error: 'finalDecision مطلوب' });
@@ -1190,7 +1200,7 @@ router.put('/:taskId/costs', requirePermission('marketing_visits.update_result')
       // page sees "النتيجة مسجلة" and checkAndCompleteVisit's guard passes.
       // (Reflection service doesn't cover emergency_maintenance yet.)
       const { rows: vtRows } = await db.query<{ id: number }>(
-        `SELECT id FROM visit_tasks WHERE source_open_task_id = $1 LIMIT 1`,
+        `SELECT id FROM visit_tasks WHERE source_open_task_id = $1 ORDER BY id DESC LIMIT 1`,
         [taskId],
       );
       const visitTaskId = vtRows[0]?.id ?? null;
@@ -1206,6 +1216,28 @@ router.put('/:taskId/costs', requirePermission('marketing_visits.update_result')
                   closed_by      = EXCLUDED.closed_by,
                   updated_at     = NOW()`,
           [visitTaskId, finalDecision, closingNotes ?? null, recordedBy],
+        );
+      }
+
+      let directWorkshopRetrievalResult = null;
+      if (directWorkshopRetrieval?.requested === true) {
+        if (!visitTaskId || !Number.isInteger(Number(recordedBy))) {
+          throw new ResultValidationError('تعذر تحديد الزيارة أو المستخدم لتسجيل سحب الجهاز إلى الورشة');
+        }
+        directWorkshopRetrievalResult = await recordEmergencyDirectWorkshopRetrieval(
+          db,
+          taskId,
+          visitTaskId,
+          Number(recordedBy),
+          {
+            requested: true,
+            finalDecision,
+            waterDisconnected: directWorkshopRetrieval.waterDisconnected === true,
+            electricityDisconnected: directWorkshopRetrieval.electricityDisconnected === true,
+            accessoriesRemoved: directWorkshopRetrieval.accessoriesRemoved === true,
+            customerAcknowledged: directWorkshopRetrieval.customerAcknowledged === true,
+            notes: closingNotes ?? null,
+          },
         );
       }
 
@@ -1305,6 +1337,7 @@ router.put('/:taskId/costs', requirePermission('marketing_visits.update_result')
         followUpTaskId,
         taskStatus: newTaskStatus,
         visitCompletion,
+        directWorkshopRetrieval: directWorkshopRetrievalResult,
       };
       if (nextPeriodicTask) {
         result.nextPeriodicTask = nextPeriodicTask;
@@ -1326,7 +1359,7 @@ router.put('/:taskId/costs', requirePermission('marketing_visits.update_result')
       db.release();
     }
   } catch (err: any) {
-    if (err instanceof DeviceTaskEligibilityError) {
+    if (err instanceof DeviceTaskEligibilityError || err instanceof ResultValidationError) {
       return res.status(err.status).json({ error: err.message });
     }
     console.error('[emergency-result] costs error:', err);

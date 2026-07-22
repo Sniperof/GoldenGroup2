@@ -63,8 +63,9 @@ export async function claimOrTakeOver(
       id: number;
       status: string;
       reviewed_by_user_id: number | null;
+      escalated_at: string | null;
     }>(
-      `SELECT id, status, reviewed_by_user_id
+      `SELECT id, status, reviewed_by_user_id, escalated_at
          FROM service_requests
         WHERE id = $1
         FOR UPDATE`,
@@ -75,6 +76,11 @@ export async function claimOrTakeOver(
       return { ok: false, code: 'not_found' };
     }
     const row = rows[0];
+
+    if (row.escalated_at != null) {
+      await rollbackTx(tx);
+      return { ok: false, code: 'request_is_escalated_actions_blocked' };
+    }
 
     // Claim only meaningful in non-terminal states. Terminal claim retention
     // (SR-CLAIM-07) is enforced by simply leaving the column untouched there.

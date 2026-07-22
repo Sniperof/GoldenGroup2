@@ -60,7 +60,7 @@ export interface BreakdownGroup {
 export interface BreakdownResponse {
   metricKey: string;
   title: string;
-  kind: 'funnel' | 'ranked-bar' | 'donut';
+  kind: 'funnel' | 'ranked-bar' | 'donut' | 'timeline';
   valueUnit: 'count' | 'percent';
   secondaryLabel: string | null;
   groups: BreakdownGroup[];
@@ -169,9 +169,6 @@ function toQueryString(qs: URLSearchParams) {
 }
 
 export const api = {
-  dashboard: {
-    get: () => request<any>('/dashboard'),
-  },
   reports: {
     metric: (key: string, params?: Record<string, string | number | null | undefined>) => {
       const query = new URLSearchParams();
