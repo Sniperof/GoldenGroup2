@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { AlertCircle, CheckCircle2, Clock, Gauge, Loader2, MonitorCheck, XCircle } from '../../components/ui/icons';
 import Modal from '../../components/ui/Modal';
 import DateField from '../../components/ui/DateField';
+import Checkbox from '../../components/ui/Checkbox';
 import { api } from '../../lib/api';
 import {
   TechnicalStateFields,
@@ -183,10 +184,9 @@ export default function DeviceActivationResultModal({
 
           {isActivated && (
             <div className="space-y-3 rounded-lg border border-emerald-200 bg-emerald-50/50 p-4">
-              <label className="flex items-center gap-2 text-sm font-bold text-emerald-800">
-                <input type="checkbox" checked={customerTrained} onChange={(e) => setCustomerTrained(e.target.checked)} className="h-4 w-4 rounded border-emerald-300" />
+              <Checkbox checked={customerTrained} onCheckedChange={setCustomerTrained} className="text-sm font-bold text-emerald-800">
                 تم تدريب الزبون على استخدام الجهاز
-              </label>
+              </Checkbox>
               <label className="block space-y-1.5">
                 <span className="text-xs font-bold text-slate-500">ملاحظات التدريب</span>
                 <textarea value={trainingNotes} onChange={(e) => setTrainingNotes(e.target.value)} rows={2} className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />

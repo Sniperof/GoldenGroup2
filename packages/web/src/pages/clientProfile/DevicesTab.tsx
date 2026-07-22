@@ -17,6 +17,7 @@ import { PossessionHolderChip } from '../../components/devices/PossessionHolderC
 import GeoSmartSearch, { type GeoSelection } from '../../components/GeoSmartSearch';
 import MapPicker from '../../components/MapPicker';
 import Select from '../../components/ui/Select';
+import Checkbox from '../../components/ui/Checkbox';
 import { usePermissions } from '../../hooks/usePermissions';
 import ServiceAgreementForm, {
   emptyServiceAgreementDraft,
@@ -210,16 +211,14 @@ function ExternalDeviceModalV2({
 
           {canCreateServiceAgreement && (
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <label className="flex items-center gap-2 text-sm font-bold text-slate-700">
-                <input
-                  type="checkbox"
-                  checked={createServiceAgreement}
-                  disabled={saving || loadingOptions}
-                  onChange={(event) => onCreateServiceAgreementChange(event.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
-                />
+              <Checkbox
+                checked={createServiceAgreement}
+                disabled={saving || loadingOptions}
+                onCheckedChange={onCreateServiceAgreementChange}
+                className="text-sm font-bold text-slate-700"
+              >
                 <span>إنشاء اتفاق خدمة لهذا الجهاز</span>
-              </label>
+              </Checkbox>
               {createServiceAgreement && (
                 <div className="mt-4">
                   <ServiceAgreementForm

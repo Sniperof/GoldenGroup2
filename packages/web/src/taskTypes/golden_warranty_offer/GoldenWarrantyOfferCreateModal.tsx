@@ -9,6 +9,7 @@ import { Award, Loader2 } from '../../components/ui/icons';
 import { api } from '../../lib/api';
 import Select from '../../components/ui/Select';
 import DateField from '../../components/ui/DateField';
+import Checkbox from '../../components/ui/Checkbox';
 import Modal from '../../components/ui/Modal';
 
 interface DevicePick { id: number; label: string; hasActiveGolden: boolean; selected: boolean; }
@@ -99,11 +100,10 @@ export default function GoldenWarrantyOfferCreateModal({
             <div className="rounded-lg border border-slate-200 p-2">
               {devices.length === 0 && <p className="text-sm text-slate-400 px-1 py-2">لا أجهزة لهذا الزبون.</p>}
               {devices.map((d) => (
-                <label key={d.id} className={`flex items-center gap-2 px-1 py-1.5 text-sm ${d.hasActiveGolden ? 'opacity-60' : ''}`}>
-                  <input type="checkbox" checked={d.selected} disabled={d.hasActiveGolden} onChange={() => toggle(d.id)} />
+                <Checkbox key={d.id} checked={d.selected} disabled={d.hasActiveGolden} onCheckedChange={() => toggle(d.id)} className={`px-1 py-1.5 text-sm ${d.hasActiveGolden ? 'opacity-60' : ''}`}>
                   <span>{d.label}</span>
                   {d.hasActiveGolden && <span className="text-xs text-amber-700">كفالة ذهبية فعّالة</span>}
-                </label>
+                </Checkbox>
               ))}
             </div>
           </div>

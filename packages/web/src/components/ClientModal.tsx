@@ -9,6 +9,7 @@ import GeoSmartSearch from './GeoSmartSearch';
 import type { GeoSelection } from './GeoSmartSearch';
 import Select from './ui/Select';
 import Modal from './ui/Modal';
+import Checkbox from './ui/Checkbox';
 import DateField from './ui/DateField';
 import { useCandidateStore } from '../hooks/useCandidateStore';
 import { api } from '../lib/api';
@@ -831,17 +832,16 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                                     const checked = assignmentUserIds.includes(user.id);
                                                                     return (
                                                                         <label key={user.id} className="flex items-center gap-2.5 px-3 py-2.5 cursor-pointer hover:bg-slate-50 transition-colors select-none">
-                                                                            <input
-                                                                                type="checkbox"
+                                                                            <Checkbox
+                                                                                bare
                                                                                 checked={checked}
-                                                                                onChange={e => {
-                                                                                    if (e.target.checked) {
+                                                                                onCheckedChange={isChecked => {
+                                                                                    if (isChecked) {
                                                                                         setAssignmentUserIds(prev => [...prev, user.id]);
                                                                                     } else {
                                                                                         setAssignmentUserIds(prev => prev.filter(id => id !== user.id));
                                                                                     }
                                                                                 }}
-                                                                                className="w-4 h-4 rounded accent-sky-500 shrink-0"
                                                                             />
                                                                             <div>
                                                                                 <div className="text-sm text-slate-700 font-medium">{user.name}</div>

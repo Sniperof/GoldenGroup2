@@ -3,6 +3,7 @@ import { AlertCircle, CheckCircle2, Clock, Loader2, PackageCheck, X, XCircle } f
 import { api } from '../../lib/api';
 import Select from '../../components/ui/Select';
 import DateField from '../../components/ui/DateField';
+import Checkbox from '../../components/ui/Checkbox';
 
 type RetrievalDecision =
   | 'retrieved_successfully'
@@ -198,10 +199,9 @@ export default function DeviceRetrievalResultModal({
           )}
 
           {decision === 'retrieved_successfully' && (
-            <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50/60 p-4 text-sm font-bold text-slate-700">
-              <input type="checkbox" checked={customerAcknowledged} onChange={(e) => setCustomerAcknowledged(e.target.checked)} className="h-4 w-4 rounded border-slate-300" />
+            <Checkbox checked={customerAcknowledged} onCheckedChange={setCustomerAcknowledged} className="rounded-lg border border-slate-200 bg-slate-50/60 p-4 text-sm font-bold text-slate-700">
               تم تأكيد الزبون على سحب الجهاز
-            </label>
+            </Checkbox>
           )}
 
           <label className="block space-y-1.5">

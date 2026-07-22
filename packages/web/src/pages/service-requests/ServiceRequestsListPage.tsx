@@ -8,6 +8,7 @@ import { ClipboardList, Filter, Hash, Loader2, Plus, RefreshCw, User } from '../
 import { api } from '../../lib/api';
 import SmartTable, { type ColumnDef } from '../../components/SmartTable';
 import Select from '../../components/ui/Select';
+import Checkbox from '../../components/ui/Checkbox';
 import PageHeader from '../../components/ui/PageHeader';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -220,38 +221,34 @@ export default function ServiceRequestsListPage() {
             ...Object.entries(CHANNEL_LABELS).map(([k, v]) => ({ value: k, label: v })),
           ]}
         />
-        <label className="text-sm flex items-center gap-1">
-          <input
-            type="checkbox"
-            checked={!!filters.mine}
-            onChange={(e) => setFilters((f) => ({ ...f, mine: e.target.checked }))}
-          />
+        <Checkbox
+          checked={!!filters.mine}
+          onCheckedChange={(v) => setFilters((f) => ({ ...f, mine: v }))}
+          className="text-sm"
+        >
           طلباتي
-        </label>
-        <label className="text-sm flex items-center gap-1">
-          <input
-            type="checkbox"
-            checked={!!filters.reviewRequired}
-            onChange={(e) => setFilters((f) => ({ ...f, reviewRequired: e.target.checked }))}
-          />
+        </Checkbox>
+        <Checkbox
+          checked={!!filters.reviewRequired}
+          onCheckedChange={(v) => setFilters((f) => ({ ...f, reviewRequired: v }))}
+          className="text-sm"
+        >
           يَحتاج مراجعة مدقّق
-        </label>
-        <label className="text-sm flex items-center gap-1">
-          <input
-            type="checkbox"
-            checked={!!filters.escalatedOnly}
-            onChange={(e) => setFilters((f) => ({ ...f, escalatedOnly: e.target.checked }))}
-          />
+        </Checkbox>
+        <Checkbox
+          checked={!!filters.escalatedOnly}
+          onCheckedChange={(v) => setFilters((f) => ({ ...f, escalatedOnly: v }))}
+          className="text-sm"
+        >
           مُصعَّد فقط
-        </label>
-        <label className="text-sm flex items-center gap-1">
-          <input
-            type="checkbox"
-            checked={!!filters.duplicateOnly}
-            onChange={(e) => setFilters((f) => ({ ...f, duplicateOnly: e.target.checked }))}
-          />
+        </Checkbox>
+        <Checkbox
+          checked={!!filters.duplicateOnly}
+          onCheckedChange={(v) => setFilters((f) => ({ ...f, duplicateOnly: v }))}
+          className="text-sm"
+        >
           مكرَّر فقط
-        </label>
+        </Checkbox>
         <Select<'true' | 'false' | 'all'>
           value={filters.archived ?? 'false'}
           onChange={(v) => setFilters((f) => ({ ...f, archived: v }))}

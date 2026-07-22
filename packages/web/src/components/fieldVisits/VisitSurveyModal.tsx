@@ -12,6 +12,7 @@ import { api } from '../../lib/api';
 import Select from '../ui/Select';
 import Input from '../ui/Input';
 import Modal from '../ui/Modal';
+import Checkbox from '../ui/Checkbox';
 
 interface Props {
   visitId: number;
@@ -198,14 +199,9 @@ export default function VisitSurveyModal({ visitId, open, onClose, onSaved }: Pr
             </div>
           )}
 
-          <label className="flex items-center gap-2 text-xs font-bold text-slate-700">
-            <input
-              type="checkbox"
-              checked={skipMode}
-              onChange={(e) => setSkipMode(e.target.checked)}
-            />
+          <Checkbox checked={skipMode} onCheckedChange={setSkipMode} className="text-xs font-bold text-slate-700">
             تخطي الاستبيان
-          </label>
+          </Checkbox>
 
           {skipMode ? (
             <div>

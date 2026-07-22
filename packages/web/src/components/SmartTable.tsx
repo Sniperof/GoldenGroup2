@@ -4,6 +4,7 @@ import { Search, Download, RotateCcw, ChevronUp, ChevronDown, ChevronsUpDown } f
 import type { LucideIcon } from './ui/icons';
 import Select from './ui/Select';
 import Input from './ui/Input';
+import Checkbox from './ui/Checkbox';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -369,11 +370,11 @@ export default function SmartTable<T>({
                         <tr>
                             {bulkActions && (
                                 <th className="w-11 px-4 py-3">
-                                    <input
-                                        type="checkbox"
+                                    <Checkbox
                                         checked={allSelected}
-                                        onChange={toggleAll}
-                                        className="w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500 cursor-pointer accent-sky-600"
+                                        indeterminate={selected.size > 0 && !allSelected}
+                                        onCheckedChange={toggleAll}
+                                        label="تحديد الكل"
                                     />
                                 </th>
                             )}
@@ -456,11 +457,10 @@ export default function SmartTable<T>({
                                 >
                                     {bulkActions && (
                                         <td className="w-11 px-4" onClick={e => e.stopPropagation()}>
-                                            <input
-                                                type="checkbox"
+                                            <Checkbox
                                                 checked={isSelected}
-                                                onChange={() => toggleOne(id)}
-                                                className="w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500 cursor-pointer accent-sky-600"
+                                                onCheckedChange={() => toggleOne(id)}
+                                                label="تحديد الصف"
                                             />
                                         </td>
                                     )}

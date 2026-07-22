@@ -6,9 +6,10 @@ import { trpc } from '../../lib/trpc';
 import { usePermissions } from '../../hooks/usePermissions';
 import Select from '../../components/ui/Select';
 import Card from '../../components/ui/Card';
+import Checkbox from '../../components/ui/Checkbox';
 import {
   ShieldCheck, ChevronRight, Save, Loader2, AlertTriangle,
-  CheckSquare, Square, Key, Eye, Plus, Pencil, Trash2,
+  Key, Eye, Plus, Pencil, Trash2,
   ToggleRight, Award, Users, BookOpen, ClipboardList,
   Briefcase, GraduationCap, Settings, ListChecks, CheckCheck,
   UserCheck, Calendar, FileText, AlertCircle, BarChart2, ChevronDown
@@ -742,17 +743,13 @@ export default function RolePermissions() {
                                 isOn ? 'bg-sky-50/40 hover:bg-sky-50/70' : 'hover:bg-slate-50/80'
                               }`}
                             >
-                              <button
-                                type="button"
-                                onClick={() => toggle(perm)}
+                              <Checkbox
+                                checked={isOn}
+                                onCheckedChange={() => toggle(perm)}
                                 disabled={!canManageRolePermissions || !!isProtectedRole}
-                                aria-pressed={isOn}
-                                className="mt-0.5 shrink-0 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-300 disabled:cursor-not-allowed"
-                              >
-                                {isOn
-                                  ? <CheckSquare className="w-4 h-4 text-sky-500" />
-                                  : <Square className="w-4 h-4 text-slate-300 group-hover:text-slate-400" />}
-                              </button>
+                                label={getPermLabel(perm)}
+                                className="mt-0.5"
+                              />
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-start justify-between gap-3">
                                   <div className="min-w-0">

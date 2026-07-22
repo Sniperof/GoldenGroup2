@@ -15,6 +15,7 @@ import {
 import Select from '../../components/ui/Select';
 import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
+import Checkbox from '../../components/ui/Checkbox';
 
 // ══════════════════════════════════════════════════════════════════
 // Role Modal
@@ -237,15 +238,13 @@ function RoleJobTasksModal({ role, onClose }: { role: Role; onClose: () => void 
                       rows={2}
                       className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400 resize-none"
                     />
-                    <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-500">
-                      <input
-                        type="checkbox"
-                        checked={task.isActive}
-                        onChange={(e) => updateTask(index, { isActive: e.target.checked })}
-                        className="rounded border-slate-300 text-sky-600"
-                      />
+                    <Checkbox
+                      checked={task.isActive}
+                      onCheckedChange={(v) => updateTask(index, { isActive: v })}
+                      className="text-xs font-semibold text-slate-500"
+                    >
                       مفعلة وتظهر للموظفين
-                    </label>
+                    </Checkbox>
                   </div>
                 ))}
               </div>

@@ -3,6 +3,7 @@ import { AlertCircle, CheckCircle2, Clock, Loader2, MapPin, Plus, Trash2, Wrench
 import Modal from '../../components/ui/Modal';
 import Select from '../../components/ui/Select';
 import DateField from '../../components/ui/DateField';
+import Checkbox from '../../components/ui/Checkbox';
 import { api } from '../../lib/api';
 import GeoSmartSearch, { formatGeoUnitLastLevels, type GeoSelection } from '../../components/GeoSmartSearch';
 import MapPicker from '../../components/MapPicker';
@@ -418,10 +419,9 @@ export default function DeviceInstallationResultModal({
                   </span>
                   <DateField value={activationDueDate} onChange={setActivationDueDate} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
                 </label>
-                <label className="flex items-center gap-2 pt-6 text-sm font-semibold text-slate-700">
-                  <input type="checkbox" checked={customerAcknowledged} onChange={(e) => setCustomerAcknowledged(e.target.checked)} />
+                <Checkbox checked={customerAcknowledged} onCheckedChange={setCustomerAcknowledged} className="pt-6 text-sm font-semibold text-slate-700">
                   إقرار الزبون بإتمام التركيب
-                </label>
+                </Checkbox>
                 <label className="space-y-1.5">
                   <span className="text-xs font-bold text-slate-500">اسم المستلم *</span>
                   <input value={receiverName} onChange={(e) => setReceiverName(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />

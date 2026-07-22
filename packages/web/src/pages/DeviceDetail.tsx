@@ -6,6 +6,7 @@ import {
     Zap, Tag, Plus, Pencil, Trash2, Save, ShieldCheck, Cog,
 } from '../components/ui/icons';
 import Modal from '../components/ui/Modal';
+import Checkbox from '../components/ui/Checkbox';
 import DataTable from '../components/ui/DataTable';
 import DateField from '../components/ui/DateField';
 import { api } from '../lib/api';
@@ -882,15 +883,13 @@ function DiscountModal({ deviceId, editingDiscount, onClose, onSaved }: {
                         </div>
                     </div>
 
-                    <label className="flex items-center gap-3 cursor-pointer px-3 py-2.5 rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors">
-                        <input
-                            type="checkbox"
-                            checked={isActive}
-                            onChange={e => setIsActive(e.target.checked)}
-                            className="w-4 h-4 accent-emerald-600"
-                        />
+                    <Checkbox
+                        checked={isActive}
+                        onCheckedChange={setIsActive}
+                        className="gap-3 px-3 py-2.5 rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors"
+                    >
                         <span className="text-sm font-medium text-slate-700">فعّال</span>
-                    </label>
+                    </Checkbox>
                 </div>
         </Modal>
     );

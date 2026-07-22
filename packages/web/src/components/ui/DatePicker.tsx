@@ -17,7 +17,7 @@
 import { useState, useEffect, useLayoutEffect } from 'react';
 import type { RefObject } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronRight, ChevronLeft, ChevronDown } from './icons';
+import { ChevronRight, ChevronLeft } from './icons';
 
 // Localized labels (Arabic) — derived from Intl so they always match locale.
 const AR_MONTH = new Intl.DateTimeFormat('ar', { month: 'long' });
@@ -33,6 +33,13 @@ const getDaysInMonth = (year: number, month: number) => new Date(year, month + 1
 const getFirstDayOfMonth = (year: number, month: number) => new Date(year, month, 1).getDay();
 
 const POPOVER_WIDTH = 280;
+
+// Always-visible view switcher tabs. RTL renders them يوم (right) → سنة (left).
+const VIEW_TABS: { key: 'days' | 'months' | 'years'; label: string }[] = [
+  { key: 'days', label: 'يوم' },
+  { key: 'months', label: 'شهر' },
+  { key: 'years', label: 'سنة' },
+];
 
 export interface DatePickerProps {
   isOpen: boolean;
@@ -58,7 +65,7 @@ export default function DatePicker({ isOpen, onClose, anchorRef, value, onChange
     m: initial.getMonth(),
     d: initial.getDate(),
   });
-  const [view, setView] = useState<'days' | 'months'>('days');
+  const [view, setView] = useState<'days' | 'months' | 'years'>('days');
   const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   // Gate the entrance animation until we've measured the anchor — otherwise the
   // popover paints once at (0,0) and visibly flies in from the corner on first
@@ -112,6 +119,17 @@ export default function DatePicker({ isOpen, onClose, anchorRef, value, onChange
   const daysInMonth = getDaysInMonth(year, month);
   const firstDayIndex = getFirstDayOfMonth(year, month);
   const today = new Date();
+
+  // Year-grid window: aligned 12-year block containing the current year, so the
+  // navigation arrows step exactly one grid (±12 years) at a time.
+  const decadeStart = year - (year % 12);
+  const decadeEnd = decadeStart + 11;
+  // Year-granularity range bounds — a year is disabled only when it lies wholly
+  // outside [min, max].
+  const minYear = min ? new Date(min).getFullYear() : null;
+  const maxYear = max ? new Date(max).getFullYear() : null;
+  const isYearOutOfRange = (y: number) =>
+    (minYear !== null && y < minYear) || (maxYear !== null && y > maxYear);
 
   const prevMonth = () => {
     if (month === 0) { setMonth(11); setYear((y) => y - 1); }
@@ -179,23 +197,44 @@ export default function DatePicker({ isOpen, onClose, anchorRef, value, onChange
         style={{ position: 'fixed', top: pos.top, left: pos.left, width: POPOVER_WIDTH, transformOrigin: 'top right' }}
         className="z-[61] bg-white rounded-2xl shadow-lg border border-slate-100 p-3 animate-in fade-in zoom-in-95 duration-150"
       >
-        {/* Header — month/year toggle + navigation */}
+        {/* View tabs — always-visible level switcher (day / month / year).
+            Each tab jumps straight to that granularity, so the current level and
+            the way to change it are never ambiguous. */}
+        <div className="flex items-center gap-0.5 mb-2 p-0.5 bg-slate-100 rounded-full">
+          {VIEW_TABS.map((t) => {
+            const active = view === t.key;
+            return (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => setView(t.key)}
+                aria-pressed={active}
+                className={`no-pill flex-1 py-1 rounded-full text-xs font-bold transition-colors focus:outline-none ${
+                  active ? 'bg-white text-sky-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Navigation row — arrows + non-clickable context label */}
         <div className="flex items-center justify-between mb-3">
-          <button
-            type="button"
-            onClick={() => setView((v) => (v === 'days' ? 'months' : 'days'))}
-            className="no-pill flex items-center gap-1 text-base font-semibold text-sky-600 hover:opacity-75 transition-opacity focus:outline-none"
-          >
-            <span>{view === 'days' ? `${MONTH_NAMES[month]} ${year}` : year}</span>
-            <ChevronDown size={15} className={`transition-transform ${view === 'months' ? 'rotate-180' : ''}`} />
-          </button>
+          <span className="text-sm font-semibold text-slate-700 px-1">
+            {view === 'days'
+              ? `${MONTH_NAMES[month]} ${year}`
+              : view === 'months'
+                ? year
+                : `${decadeStart} – ${decadeEnd}`}
+          </span>
 
           <div className="flex items-center gap-0.5">
             {/* RTL: previous = points right, next = points left */}
             <button
               type="button"
               aria-label="السابق"
-              onClick={() => (view === 'days' ? prevMonth() : setYear((y) => y - 1))}
+              onClick={() => (view === 'days' ? prevMonth() : setYear((y) => y - (view === 'years' ? 12 : 1)))}
               className="p-1.5 text-sky-600 hover:bg-slate-100 rounded-full transition-colors focus:outline-none"
             >
               <ChevronRight size={16} />
@@ -203,7 +242,7 @@ export default function DatePicker({ isOpen, onClose, anchorRef, value, onChange
             <button
               type="button"
               aria-label="التالي"
-              onClick={() => (view === 'days' ? nextMonth() : setYear((y) => y + 1))}
+              onClick={() => (view === 'days' ? nextMonth() : setYear((y) => y + (view === 'years' ? 12 : 1)))}
               className="p-1.5 text-sky-600 hover:bg-slate-100 rounded-full transition-colors focus:outline-none"
             >
               <ChevronLeft size={16} />
@@ -226,7 +265,7 @@ export default function DatePicker({ isOpen, onClose, anchorRef, value, onChange
               {renderDays()}
             </div>
           </>
-        ) : (
+        ) : view === 'months' ? (
           /* Month picker */
           <div className="grid grid-cols-3 gap-1.5">
             {MONTH_SHORT.map((m, idx) => {
@@ -241,6 +280,33 @@ export default function DatePicker({ isOpen, onClose, anchorRef, value, onChange
                   }`}
                 >
                   {m}
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          /* Year picker — 12-year block; arrows page by decade */
+          <div className="grid grid-cols-3 gap-1.5">
+            {Array.from({ length: 12 }, (_, i) => decadeStart + i).map((y) => {
+              const isSelected = y === selected.y;
+              const isCurrent = y === today.getFullYear();
+              const disabled = isYearOutOfRange(y);
+              return (
+                <button
+                  key={y}
+                  type="button"
+                  onClick={() => { setYear(y); setView('months'); }}
+                  disabled={disabled}
+                  aria-disabled={disabled}
+                  className={`py-2 rounded-full text-xs font-bold transition-colors ${
+                    disabled
+                      ? 'text-slate-300 cursor-not-allowed line-through decoration-slate-300'
+                      : isSelected
+                        ? 'bg-sky-500 text-white'
+                        : `text-slate-700 hover:bg-slate-100 ${isCurrent ? 'ring-1 ring-sky-300' : ''}`
+                  }`}
+                >
+                  {y}
                 </button>
               );
             })}

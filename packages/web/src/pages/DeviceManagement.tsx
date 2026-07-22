@@ -7,6 +7,7 @@ import {
 } from '../components/ui/icons';
 import IconButton from '../components/ui/IconButton';
 import Modal from '../components/ui/Modal';
+import Checkbox from '../components/ui/Checkbox';
 import DataTable from '../components/ui/DataTable';
 import PageHeader from '../components/ui/PageHeader';
 import { api } from '../lib/api';
@@ -552,11 +553,11 @@ function AddDevicePage({ device, onCancel, onSaved }: { device?: DeviceModel | n
                                 <span className="text-xs text-slate-400">الجهاز مشمول بالكفالة الذهبية</span>
                             </div>
                             <div className="relative">
-                                <input
-                                    type="checkbox"
+                                <Checkbox
+                                    bare
+                                    size="md"
                                     checked={newDevice.isGoldenWarranty || false}
-                                    onChange={(e) => setNewDevice(prev => ({ ...prev, isGoldenWarranty: e.target.checked, goldenWarrantyPeriods: e.target.checked ? prev.goldenWarrantyPeriods : [] }))}
-                                    className="w-5 h-5 accent-sky-600"
+                                    onCheckedChange={(v) => setNewDevice(prev => ({ ...prev, isGoldenWarranty: v, goldenWarrantyPeriods: v ? prev.goldenWarrantyPeriods : [] }))}
                                 />
                             </div>
                         </label>
@@ -587,11 +588,11 @@ function AddDevicePage({ device, onCancel, onSaved }: { device?: DeviceModel | n
                                 <span className="text-sm font-semibold text-slate-700 block">جهاز بارز</span>
                                 <span className="text-xs text-slate-400">يظهر في قائمة الأجهزة المُركّز عليها</span>
                             </div>
-                            <input
-                                type="checkbox"
+                            <Checkbox
+                                bare
+                                size="md"
                                 checked={newDevice.isFeatured || false}
-                                onChange={(e) => setNewDevice(prev => ({ ...prev, isFeatured: e.target.checked }))}
-                                className="w-5 h-5 accent-sky-600"
+                                onCheckedChange={(v) => setNewDevice(prev => ({ ...prev, isFeatured: v }))}
                             />
                         </label>
                     </div>
@@ -1319,7 +1320,7 @@ const DeviceManagement = () => {
                                                             : inactive ? 'bg-amber-50/60 border border-amber-100 hover:bg-amber-50' : 'bg-white border border-slate-100 hover:bg-slate-50'
                                                     }`}
                                                 >
-                                                    <input type="checkbox" checked={isSelected} onChange={() => toggleDeviceCompat(dev.id)} className="accent-sky-600 w-4 h-4" />
+                                                    <Checkbox bare checked={isSelected} onCheckedChange={() => toggleDeviceCompat(dev.id)} />
                                                     <div className="flex-1 min-w-0">
                                                         <span className={`text-sm font-medium block ${inactive ? 'text-amber-800' : 'text-slate-700'}`}>{dev.nameAr || dev.name}</span>
                                                         <div className="mt-0.5 flex flex-wrap items-center gap-2">

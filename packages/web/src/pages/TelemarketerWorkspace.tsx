@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     Headset, Phone, FileText, CheckCircle2, History, CreditCard,
@@ -35,6 +35,7 @@ import Button from '../components/ui/Button';
 import Modal from '../components/ui/Modal';
 import Badge from '../components/ui/Badge';
 import DataTable from '../components/ui/DataTable';
+import DatePicker from '../components/ui/DatePicker';
 import type { DaySchedule, Contract, Visit, TaskListItem, Appointment, CustomerOwnership, ContactEntry, Client } from '../lib/types';
 import type { TelemarketingOutcomeCode, GeoUnit } from '@golden-crm/shared';
 import { OUTCOME_MAP, getOutcomeMeta, normaliseOutcomeCode, PHONE_STATUS_TO_CONTACT_ENTRY } from '@golden-crm/shared';
@@ -273,6 +274,9 @@ export default function TelemarketerWorkspace() {
     // React to the external branch switcher (no full reload — §4).
     const branchId = useBranchContextStore(s => s.branchId);
     const [date, setDate] = useState(getPlanningDate());
+    // Manual date selection — the calendar icon in the header opens this popover.
+    const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
+    const dateAnchorRef = useRef<HTMLButtonElement>(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
     // Six advanced queue filters + sort (DEC: rich queue redesign)
@@ -1259,9 +1263,26 @@ export default function TelemarketerWorkspace() {
                     <button type="button" onClick={goToPlanningDate} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors border ${isPlanningDate ? 'bg-violet-600 text-white border-violet-700' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
                         {formatDateArabic(date)}
                     </button>
+                    <button
+                        ref={dateAnchorRef}
+                        type="button"
+                        onClick={() => setIsDatePickerOpen(o => !o)}
+                        aria-label="اختيار تاريخ محدد"
+                        title="اختيار تاريخ محدد"
+                        className="p-1.5 rounded-lg hover:bg-slate-100 transition-colors border border-slate-200 text-slate-600"
+                    >
+                        <Calendar className="w-4 h-4" />
+                    </button>
                     <button type="button" onClick={() => changeDateBy(1)} className="flex items-center gap-1 p-1.5 rounded-lg hover:bg-slate-100 transition-colors border border-slate-200">
                         <ChevronLeft className="w-4 h-4 text-slate-600" />
                     </button>
+                    <DatePicker
+                        isOpen={isDatePickerOpen}
+                        onClose={() => setIsDatePickerOpen(false)}
+                        anchorRef={dateAnchorRef}
+                        value={parseDateKey(date)}
+                        onChange={(d) => setDate(formatDateKey(d))}
+                    />
                 </div>
             </div>
 

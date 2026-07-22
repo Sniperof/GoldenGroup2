@@ -9,6 +9,7 @@ import { CreditCard, Loader2 } from '../../components/ui/icons';
 import { api } from '../../lib/api';
 import Select from '../../components/ui/Select';
 import DateField from '../../components/ui/DateField';
+import Checkbox from '../../components/ui/Checkbox';
 import Modal from '../../components/ui/Modal';
 
 interface CardPick { id: number; label: string; selected: boolean; }
@@ -97,9 +98,9 @@ export default function GoldenWarrantyCardCreateModal({
             <div className="rounded-lg border border-slate-200 p-2">
               {cards.length === 0 && <p className="text-sm text-slate-400 px-1 py-2">لا كفالات ذهبية فعّالة لهذا الزبون.</p>}
               {cards.map((c) => (
-                <label key={c.id} className="flex items-center gap-2 px-1 py-1.5 text-sm">
-                  <input type="checkbox" checked={c.selected} onChange={() => toggle(c.id)} /><span>{c.label}</span>
-                </label>
+                <Checkbox key={c.id} checked={c.selected} onCheckedChange={() => toggle(c.id)} className="px-1 py-1.5 text-sm">
+                  <span>{c.label}</span>
+                </Checkbox>
               ))}
             </div>
           </div>

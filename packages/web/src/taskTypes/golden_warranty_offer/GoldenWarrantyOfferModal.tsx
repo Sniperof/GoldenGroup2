@@ -18,6 +18,7 @@ import type { TaskResultModalProps } from '../../components/tasks/types';
 import { TechnicalStateFields, buildTechnicalStatePayload, hasAnyTechnicalReading, type TechStateForm } from '../../components/devices/TechnicalStateFields';
 import Select from '../../components/ui/Select';
 import DateField from '../../components/ui/DateField';
+import Checkbox from '../../components/ui/Checkbox';
 import WarrantyPaymentEntries, { warrantyEntrySyp, warrantyPaymentPayload, type WarrantyPaymentRow } from '../../components/warranty/WarrantyPaymentEntries';
 
 type Mode = 'activate' | 'later' | 'reject';
@@ -217,7 +218,7 @@ export default function GoldenWarrantyOfferModal({ visitId, taskId, task, onClos
                 {devices.map((d, i) => (
                   <div key={d.installedDeviceId} className={`border-b border-slate-100 last:border-0 ${d.activeGoldenWarrantyId ? 'opacity-60' : ''}`}>
                     <div className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
-                      <input type="checkbox" checked={d.selected} disabled={!!d.activeGoldenWarrantyId} onChange={(e) => updateDevice(i, { selected: e.target.checked })} />
+                      <Checkbox checked={d.selected} disabled={!!d.activeGoldenWarrantyId} onCheckedChange={(v) => updateDevice(i, { selected: v })} />
                       <span className="font-medium">{d.deviceModelName}</span>
                       <span className="text-slate-400">{d.serialNumber ?? `#${d.installedDeviceId}`}</span>
                       {d.activeGoldenWarrantyId

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, CheckCircle2, Clock, Loader2, Repeat, X, XCircle } from '../../components/ui/icons';
 import { api } from '../../lib/api';
 import DateField from '../../components/ui/DateField';
+import Checkbox from '../../components/ui/Checkbox';
 
 type TransferDecision =
   | 'transferred_successfully'
@@ -195,15 +196,13 @@ export default function DeviceTransferResultModal({
 
           {decision === 'transferred_successfully' && (
             <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50/60 p-4">
-              <label className="flex items-center gap-2 text-sm font-bold text-slate-700">
-                <input type="checkbox" checked={customerAcknowledged} onChange={(e) => setCustomerAcknowledged(e.target.checked)} className="h-4 w-4 rounded border-slate-300" />
+              <Checkbox checked={customerAcknowledged} onCheckedChange={setCustomerAcknowledged} className="text-sm font-bold text-slate-700">
                 تم تأكيد الزبون على نقل الجهاز
-              </label>
+              </Checkbox>
               {transferKind === 'another_customer' && (
-                <label className="flex items-center gap-2 text-sm font-bold text-slate-700">
-                  <input type="checkbox" checked={targetCustomerAcknowledged} onChange={(e) => setTargetCustomerAcknowledged(e.target.checked)} className="h-4 w-4 rounded border-slate-300" />
+                <Checkbox checked={targetCustomerAcknowledged} onCheckedChange={setTargetCustomerAcknowledged} className="text-sm font-bold text-slate-700">
                   تم تأكيد الزبون الجديد على استلام الجهاز
-                </label>
+                </Checkbox>
               )}
             </div>
           )}

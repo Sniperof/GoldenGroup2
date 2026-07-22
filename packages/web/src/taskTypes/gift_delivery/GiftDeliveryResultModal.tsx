@@ -3,6 +3,7 @@ import { CalendarClock, CircleCheck, CircleX, Gift, Loader2, X } from '../../com
 import { api } from '../../lib/api';
 import type { TaskResultModalProps } from '../../components/tasks/types';
 import DateField from '../../components/ui/DateField';
+import Checkbox from '../../components/ui/Checkbox';
 
 type Mode = 'delivered_successfully' | 'refused_gift' | 'rescheduled';
 
@@ -104,10 +105,9 @@ export default function GiftDeliveryResultModal({ visitId, taskId, task, onClose
           </div>
 
           {mode === 'delivered_successfully' && (
-            <label className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-900">
-              <input type="checkbox" checked={acknowledged} onChange={(e) => setAcknowledged(e.target.checked)} className="mt-0.5 h-4 w-4" />
+            <Checkbox checked={acknowledged} onCheckedChange={setAcknowledged} className="items-start rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-900">
               <span>أقر بأن كامل الكمية المعتمدة من الهدية قد تم تسليمها للمستفيد.</span>
-            </label>
+            </Checkbox>
           )}
 
           {(mode === 'refused_gift' || mode === 'rescheduled') && (

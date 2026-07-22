@@ -3,6 +3,7 @@ import { AlertCircle, CalendarClock, CheckCircle2, Clock, Loader2, MapPin, Packa
 import Modal from '../../components/ui/Modal';
 import Select from '../../components/ui/Select';
 import DateField from '../../components/ui/DateField';
+import Checkbox from '../../components/ui/Checkbox';
 import { api } from '../../lib/api';
 import GeoSmartSearch, { formatGeoUnitLastLevels, type GeoSelection } from '../../components/GeoSmartSearch';
 import MapPicker from '../../components/MapPicker';
@@ -369,10 +370,9 @@ export default function DeviceDeliveryResultModal({
                   ]}
                 />
               </label>
-              <label className="flex items-center gap-2 pt-6 text-sm font-semibold text-slate-700">
-                <input type="checkbox" checked={customerAcknowledged} onChange={(e) => setCustomerAcknowledged(e.target.checked)} />
+              <Checkbox checked={customerAcknowledged} onCheckedChange={setCustomerAcknowledged} className="pt-6 text-sm font-semibold text-slate-700">
                 إقرار الزبون بالاستلام
-              </label>
+              </Checkbox>
             </div>
           )}
 
@@ -405,10 +405,9 @@ export default function DeviceDeliveryResultModal({
                     <span className="text-xs font-bold text-slate-500">تاريخ التركيب المطلوب</span>
                     <DateField value={installationRequiredDate} onChange={setInstallationRequiredDate} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
                   </label>
-                  <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-                    <input type="checkbox" checked={installationSameAddress} onChange={(e) => setInstallationSameAddress(e.target.checked)} />
+                  <Checkbox checked={installationSameAddress} onCheckedChange={setInstallationSameAddress} className="text-sm font-semibold text-slate-700">
                     عنوان التركيب هو عنوان التسليم
-                  </label>
+                  </Checkbox>
                   {!installationSameAddress && (
                     <AddressFields
                       title="عنوان التركيب"
@@ -424,10 +423,9 @@ export default function DeviceDeliveryResultModal({
           )}
 
           {canUpdateDeviceAddress && (
-            <label className="flex items-center gap-2 rounded-lg border border-sky-200 bg-sky-50/60 p-4 text-sm font-semibold text-slate-700">
-              <input type="checkbox" checked={updateDeviceMainAddress} onChange={(e) => setUpdateDeviceMainAddress(e.target.checked)} />
+            <Checkbox checked={updateDeviceMainAddress} onCheckedChange={setUpdateDeviceMainAddress} className="rounded-lg border border-sky-200 bg-sky-50/60 p-4 text-sm font-semibold text-slate-700">
               اعتماد عنوان التسليم الحالي كعنوان رئيسي جديد للجهاز
-            </label>
+            </Checkbox>
           )}
 
           <label className="block space-y-1.5">

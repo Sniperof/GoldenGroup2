@@ -32,6 +32,7 @@ import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import EmployeeFormModal, { type EmployeeFormInitialValues } from '../components/employees/EmployeeFormModal';
 import Button from '../components/ui/Button';
 import Select from '../components/ui/Select';
+import Checkbox from '../components/ui/Checkbox';
 import { useSystemListsStore } from '../hooks/useSystemLists';
 import { getUnifiedApplicationState, getUnifiedApplicationStateClasses } from '../lib/applicationState';
 import GiftRecordsTable from '../components/gifts/GiftRecordsTable';
@@ -770,11 +771,10 @@ export default function EmployeeDetail() {
                   <div className="text-sm font-semibold text-slate-800">تفعيل الحساب</div>
                   <div className="text-xs text-slate-500 mt-0.5">إيقاف الوصول بدون حذف الربط</div>
                 </div>
-                <input
-                  type="checkbox"
+                <Checkbox
+                  bare
                   checked={accountForm.isActive}
-                  onChange={(e) => setAccountForm((c) => ({ ...c, isActive: e.target.checked }))}
-                  className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                  onCheckedChange={(v) => setAccountForm((c) => ({ ...c, isActive: v }))}
                 />
               </label>
             </div>
