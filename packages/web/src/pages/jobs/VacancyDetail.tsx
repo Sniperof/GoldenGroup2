@@ -10,6 +10,7 @@ import {
   MessageSquare, Zap,
 } from '../../components/ui/icons';
 import Modal from '../../components/ui/Modal';
+import Checkbox from '../../components/ui/Checkbox';
 import DateField from '../../components/ui/DateField';
 import SmartTable from '../../components/SmartTable';
 import { motion } from 'framer-motion';
@@ -705,10 +706,7 @@ export default function VacancyDetail() {
                     </div>
                   </div>
                   <label className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all ${formData.hasCarRequired ? 'border-sky-400 bg-sky-50' : 'border-slate-200 bg-white hover:border-sky-200'}`}>
-                    <input type="checkbox" checked={formData.hasCarRequired || false} onChange={e => setField('hasCarRequired', e.target.checked)} disabled={isLocked('full')} className="sr-only" />
-                    <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${formData.hasCarRequired ? 'bg-sky-500 border-sky-500' : 'border-slate-300'}`}>
-                      {formData.hasCarRequired && <CheckCircle className="w-3 h-3 text-white" />}
-                    </div>
+                    <Checkbox bare size="md" checked={formData.hasCarRequired || false} disabled={isLocked('full')} onCheckedChange={v => setField('hasCarRequired', v)} />
                     <span className="text-sm font-medium text-slate-700">هل يمتلك المتقدم سيارة</span>
                   </label>
                   <div>
@@ -733,10 +731,7 @@ export default function VacancyDetail() {
                         const isSelected = (formData.contactMethods || []).some(c => c.id === contact.id);
                         return (
                           <label key={contact.id} className={`flex items-center gap-3 p-2.5 rounded-xl border-2 cursor-pointer transition-all ${isSelected ? 'border-sky-400 bg-white' : 'border-transparent bg-white/70 hover:border-slate-200'}`}>
-                            <input type="checkbox" checked={isSelected} disabled={isLocked('partial')} onChange={e => toggleContact(contact, e.target.checked)} className="sr-only" />
-                            <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${isSelected ? 'bg-sky-500 border-sky-500' : 'border-slate-300'}`}>
-                              {isSelected && <CheckCircle className="w-3 h-3 text-white" />}
-                            </div>
+                            <Checkbox bare checked={isSelected} disabled={isLocked('partial')} onCheckedChange={v => toggleContact(contact, v)} />
                             <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-semibold border ${CONTACT_TAG_COLORS[contact.type]}`}>
                               <Icon className="w-3 h-3" /> {CONTACT_LABELS[contact.type]}
                             </span>

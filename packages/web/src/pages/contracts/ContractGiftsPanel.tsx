@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Gift, Info, Plus, Save, X } from '../../components/ui/icons';
 import Modal from '../../components/ui/Modal';
+import Select from '../../components/ui/Select';
 import GiftRecordsTable from '../../components/gifts/GiftRecordsTable';
 import { api } from '../../lib/api';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -282,76 +283,69 @@ export default function ContractGiftsPanel({ contract }: { contract: any }) {
         }
       >
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2" dir="rtl">
-          <label className="text-xs font-bold text-slate-500">
+          <div className="text-xs font-bold text-slate-500">
             تعريف الهدية
-            <select
+            <Select<string>
+              className="mt-1 w-full"
               value={draft.giftDefinitionId}
-              onChange={(event) => setDraft(prev => ({ ...prev, giftDefinitionId: event.target.value }))}
-              className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"
-            >
-              <option value="">— اختر تعريفاً —</option>
-              {definitions.map(definition => (
-                <option key={definition.id} value={String(definition.id)}>{definition.name}</option>
-              ))}
-            </select>
-          </label>
+              onChange={(value) => setDraft(prev => ({ ...prev, giftDefinitionId: value }))}
+              placeholder="— اختر تعريفاً —"
+              ariaLabel="تعريف الهدية"
+              options={definitions.map(definition => ({ value: String(definition.id), label: definition.name }))}
+            />
+          </div>
 
-          <label className="text-xs font-bold text-slate-500">
+          <div className="text-xs font-bold text-slate-500">
             المستفيد
-            <select
+            <Select<string>
+              className="mt-1 w-full"
               value={draft.beneficiaryKind}
-              onChange={(event) => setDraft(prev => ({
-                ...prev,
-                beneficiaryKind: event.target.value as DraftBeneficiaryKind,
-              }))}
-              className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"
-            >
-              <option value="contract_customer">زبون العقد: {contractCustomerName(contract)}</option>
-              <option value="customer_referrer" disabled={referrers.length === 0}>وسيط بيعة من نوع زبون</option>
-            </select>
-          </label>
+              onChange={(value) => setDraft(prev => ({ ...prev, beneficiaryKind: value as DraftBeneficiaryKind }))}
+              ariaLabel="المستفيد"
+              options={[
+                { value: 'contract_customer', label: `زبون العقد: ${contractCustomerName(contract)}` },
+                { value: 'customer_referrer', label: 'وسيط بيعة من نوع زبون', disabled: referrers.length === 0 },
+              ]}
+            />
+          </div>
 
           {draft.beneficiaryKind === 'customer_referrer' && (
-            <label className="text-xs font-bold text-slate-500 md:col-span-2">
+            <div className="text-xs font-bold text-slate-500 md:col-span-2">
               وسيط البيع الزبون
-              <select
+              <Select<string>
+                className="mt-1 w-full"
                 value={draft.referrerKey}
-                onChange={(event) => setDraft(prev => ({ ...prev, referrerKey: event.target.value }))}
-                className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"
-              >
-                {referrers.map(referrer => (
-                  <option key={referrer.key} value={referrer.key}>{referrer.name}</option>
-                ))}
-              </select>
-            </label>
+                onChange={(value) => setDraft(prev => ({ ...prev, referrerKey: value }))}
+                ariaLabel="وسيط البيع الزبون"
+                options={referrers.map(referrer => ({ value: referrer.key, label: referrer.name }))}
+              />
+            </div>
           )}
 
-          <label className="text-xs font-bold text-slate-500">
+          <div className="text-xs font-bold text-slate-500">
             شرط/سبب الوعد
-            <select
+            <Select<string>
+              className="mt-1 w-full"
               value={draft.conditionId}
-              onChange={(event) => setDraft(prev => ({ ...prev, conditionId: event.target.value }))}
-              className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"
-            >
-              <option value="">— بدون شرط محدد —</option>
-              {conditions.map(condition => (
-                <option key={condition.id} value={String(condition.id)}>{condition.label}</option>
-              ))}
-            </select>
-          </label>
+              onChange={(value) => setDraft(prev => ({ ...prev, conditionId: value }))}
+              ariaLabel="شرط/سبب الوعد"
+              options={[
+                { value: '', label: '— بدون شرط محدد —' },
+                ...conditions.map(condition => ({ value: String(condition.id), label: condition.label })),
+              ]}
+            />
+          </div>
 
-          <label className="text-xs font-bold text-slate-500">
+          <div className="text-xs font-bold text-slate-500">
             حالة تحقق الشرط
-            <select
+            <Select<string>
+              className="mt-1 w-full"
               value={draft.conditionStatus}
-              onChange={(event) => setDraft(prev => ({ ...prev, conditionStatus: event.target.value as GiftConditionStatus }))}
-              className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"
-            >
-              {Object.entries(giftConditionStatusLabels).map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
-          </label>
+              onChange={(value) => setDraft(prev => ({ ...prev, conditionStatus: value as GiftConditionStatus }))}
+              ariaLabel="حالة تحقق الشرط"
+              options={Object.entries(giftConditionStatusLabels).map(([value, label]) => ({ value, label }))}
+            />
+          </div>
 
           <label className="text-xs font-bold text-slate-500">
             العدد
