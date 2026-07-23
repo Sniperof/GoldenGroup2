@@ -24,7 +24,9 @@ const router = Router();
  *       The purpose must match the number's real situation, so no SMS is spent
  *       on a journey that cannot succeed: `account_creation` requires no live
  *       account (active or suspended — a suspended account is reactivated,
- *       never replaced), `login`/`account_deletion` require an active account,
+ *       never replaced) AND no pending request (a reinstalling user with a
+ *       pending request must use `request_status` instead),
+ *       `login`/`account_deletion` require an active account,
  *       `request_status` requires a pending request, `service_request` is open
  *       to visitors. Route by `GET /api/app/account/status` first and pick the
  *       purpose from it.
@@ -61,7 +63,7 @@ const router = Router();
  *       400: { description: Invalid phone number or purpose }
  *       403: { description: "Account suspended (details.code = suspended)" }
  *       404: { description: "Purpose precondition failed (details.code = no_active_account | no_pending_request)" }
- *       409: { description: "account_creation for a number with a live account (details.code = active_account_exists | suspended, details.status)" }
+ *       409: { description: "account_creation blocked (details.code = active_account_exists | suspended | pending_request_exists, details.status)" }
  *       429: { description: Resend window has not elapsed (see details.retryAfterSeconds) }
  */
 router.post('/send', async (req, res) => {

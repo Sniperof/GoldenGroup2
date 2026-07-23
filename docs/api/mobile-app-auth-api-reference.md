@@ -75,7 +75,7 @@
 | `phone` | `string` | ✅ | رقم موبايل سوري. يُطبَّع في الخادم (يقبل `09XXXXXXXX`، `9639…`، `009639…`). الصيغة الصالحة نهائياً `^09\d{8}$`. |
 | `purpose` | `enum(Purpose)` | ✅ | غرض الرمز. أغراض الحساب تُشتقّ من `GET /api/app/account/status` (القسم 5)؛ أما إرسال طلب خدمة كزائر فيستخدم `service_request`. |
 
-**شروط الغرض:** يُفحص الشرط **قبل** توليد الرمز وإرساله، فلا تُستهلك رسالة على رحلة لا يمكن أن تنجح. `login` و`account_deletion` يشترطان حساباً مفعّلاً؛ و`request_status` يشترط طلباً معلّقاً؛ و`account_creation` يرفض وجود حساب مفعّل أو موقوف (الموقوف يُعاد تفعيله إدارياً ولا يُستبدل)؛ و`service_request` متاح للزائر ولا يشترط حساباً.
+**شروط الغرض:** يُفحص الشرط **قبل** توليد الرمز وإرساله، فلا تُستهلك رسالة على رحلة لا يمكن أن تنجح. `login` و`account_deletion` يشترطان حساباً مفعّلاً؛ و`request_status` يشترط طلباً معلّقاً؛ و`account_creation` يرفض وجود حساب مفعّل أو موقوف (الموقوف يُعاد تفعيله إدارياً ولا يُستبدل) **ويرفض وجود طلب معلّق** (صاحب الطلب المعلّق بعد إعادة التنزيل غرضه الصحيح `request_status`)؛ و`service_request` متاح للزائر ولا يشترط حساباً.
 
 **استجابة `200`:**
 
@@ -94,7 +94,7 @@
 | `403` | `{ code: "suspended" }` | الحساب موقوف (`login` / `account_deletion`). |
 | `404` | `{ code: "no_active_account" }` | لا حساب مفعّل للرقم (`login` / `account_deletion`). |
 | `404` | `{ code: "no_pending_request" }` | لا طلب معلّق للرقم (`request_status`). |
-| `409` | `{ code: "active_account_exists" \| "suspended", status: string }` | `account_creation` لرقمٍ له حساب حيّ (مفعّل أو موقوف). |
+| `409` | `{ code: "active_account_exists" \| "suspended" \| "pending_request_exists", status: string }` | `account_creation` لرقمٍ له حساب حيّ (مفعّل أو موقوف) أو طلب قيد المراجعة. |
 | `429` | `{ retryAfterSeconds: integer }` | لم تنقضِ نافذة إعادة الإرسال. |
 
 ---

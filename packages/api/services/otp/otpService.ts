@@ -112,6 +112,26 @@ async function assertPurposePrecondition(phone: string, purpose: OtpPurpose): Pr
         status: rows[0].status,
       });
     }
+    // Mirror the create endpoint's one-pending-per-number rule. Without this,
+    // a reinstalling user whose request is still pending gets an
+    // account_creation handle that /mine rejects and /account-requests 409s —
+    // a dead-end journey paid for with an SMS. The right purpose for this
+    // number is `request_status`.
+    const { rows: pending } = await pool.query(
+      `SELECT 1 FROM service_requests
+        WHERE request_type = 'account_creation'
+          AND requester_external->>'primary_phone' = $1
+          AND status = ANY($2)
+          AND archived_at IS NULL
+        LIMIT 1`,
+      [phone, SR_ACTIVE_STATUSES],
+    );
+    if (pending.length > 0) {
+      throw httpError(409, 'يوجد طلب قيد المراجعة لهذا الرقم', {
+        code: 'pending_request_exists',
+        status: 'pending',
+      });
+    }
     return;
   }
 
