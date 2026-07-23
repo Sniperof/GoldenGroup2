@@ -2860,48 +2860,47 @@ export default function ContractForm() {
                 }
             >
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2" dir="rtl">
-                    <label className="text-xs font-bold text-slate-500">
+                    <div className="text-xs font-bold text-slate-500">
                         تعريف الهدية
-                        <select
+                        <Select<string>
+                            className="mt-1 w-full"
                             value={giftPromiseDraft.giftDefinitionId}
-                            onChange={e => setGiftPromiseDraft(prev => ({ ...prev, giftDefinitionId: e.target.value }))}
-                            className={inputClass}
-                        >
-                            {activeGiftDefinitions.map(definition => (
-                                <option key={definition.id} value={String(definition.id)}>{definition.name}</option>
-                            ))}
-                        </select>
-                    </label>
+                            onChange={value => setGiftPromiseDraft(prev => ({ ...prev, giftDefinitionId: value }))}
+                            placeholder="— اختر تعريفاً —"
+                            ariaLabel="تعريف الهدية"
+                            options={activeGiftDefinitions.map(definition => ({ value: String(definition.id), label: definition.name }))}
+                        />
+                    </div>
 
-                    <label className="text-xs font-bold text-slate-500">
+                    <div className="text-xs font-bold text-slate-500">
                         المستفيد
-                        <select
+                        <Select<string>
+                            className="mt-1 w-full"
                             value={giftPromiseDraft.beneficiaryKind}
-                            onChange={e => setGiftPromiseDraft(prev => ({
+                            onChange={value => setGiftPromiseDraft(prev => ({
                                 ...prev,
-                                beneficiaryKind: e.target.value as ContractGiftPromiseDraft['beneficiaryKind'],
-                                conditionLabel: e.target.value === 'customer_referrer' ? 'وسيط بيعة من نوع زبون' : prev.conditionLabel,
+                                beneficiaryKind: value as ContractGiftPromiseDraft['beneficiaryKind'],
+                                conditionLabel: value === 'customer_referrer' ? 'وسيط بيعة من نوع زبون' : prev.conditionLabel,
                             }))}
-                            className={inputClass}
-                        >
-                            <option value="contract_customer">زبون العقد: {selectedCustomer?.name ?? 'الزبون'}</option>
-                            <option value="customer_referrer" disabled={contractGiftEligibleReferrers.length === 0}>وسيط بيعة من نوع زبون</option>
-                        </select>
-                    </label>
+                            ariaLabel="المستفيد"
+                            options={[
+                                { value: 'contract_customer', label: `زبون العقد: ${selectedCustomer?.name ?? 'الزبون'}` },
+                                { value: 'customer_referrer', label: 'وسيط بيعة من نوع زبون', disabled: contractGiftEligibleReferrers.length === 0 },
+                            ]}
+                        />
+                    </div>
 
                     {giftPromiseDraft.beneficiaryKind === 'customer_referrer' && (
-                        <label className="text-xs font-bold text-slate-500 md:col-span-2">
+                        <div className="text-xs font-bold text-slate-500 md:col-span-2">
                             وسيط البيع الزبون
-                            <select
+                            <Select<string>
+                                className="mt-1 w-full"
                                 value={giftPromiseDraft.referrerId}
-                                onChange={e => setGiftPromiseDraft(prev => ({ ...prev, referrerId: e.target.value }))}
-                                className={inputClass}
-                            >
-                                {contractGiftEligibleReferrers.map(referrer => (
-                                    <option key={referrer.id} value={String(referrer.id)}>{referrer.referrerName}</option>
-                                ))}
-                            </select>
-                        </label>
+                                onChange={value => setGiftPromiseDraft(prev => ({ ...prev, referrerId: value }))}
+                                ariaLabel="وسيط البيع الزبون"
+                                options={contractGiftEligibleReferrers.map(referrer => ({ value: String(referrer.id), label: referrer.referrerName }))}
+                            />
+                        </div>
                     )}
 
                     {selectedReferralPromiseSourceReferrers.length > 0 && (
@@ -2910,31 +2909,27 @@ export default function ContractForm() {
                         </div>
                     )}
 
-                    <label className="text-xs font-bold text-slate-500">
+                    <div className="text-xs font-bold text-slate-500">
                         شرط/سبب الوعد
-                        <select
+                        <Select<string>
+                            className="mt-1 w-full"
                             value={giftPromiseDraft.conditionLabel}
-                            onChange={e => setGiftPromiseDraft(prev => ({ ...prev, conditionLabel: e.target.value }))}
-                            className={inputClass}
-                        >
-                            {['توقيع عقد نقدي', 'استحقاق بعد الدفعة الثانية', 'شراء أكثر من عقد', 'وسيط بيعة من نوع زبون', 'قرار إداري', 'عقد هدية معتمد'].map(option => (
-                                <option key={option} value={option}>{option}</option>
-                            ))}
-                        </select>
-                    </label>
+                            onChange={value => setGiftPromiseDraft(prev => ({ ...prev, conditionLabel: value }))}
+                            ariaLabel="شرط/سبب الوعد"
+                            options={['توقيع عقد نقدي', 'استحقاق بعد الدفعة الثانية', 'شراء أكثر من عقد', 'وسيط بيعة من نوع زبون', 'قرار إداري', 'عقد هدية معتمد'].map(option => ({ value: option, label: option }))}
+                        />
+                    </div>
 
-                    <label className="text-xs font-bold text-slate-500">
+                    <div className="text-xs font-bold text-slate-500">
                         حالة تحقق الشرط
-                        <select
+                        <Select<string>
+                            className="mt-1 w-full"
                             value={giftPromiseDraft.conditionStatus}
-                            onChange={e => setGiftPromiseDraft(prev => ({ ...prev, conditionStatus: e.target.value as GiftConditionStatus }))}
-                            className={inputClass}
-                        >
-                            {Object.entries(giftConditionStatusLabels).map(([value, label]) => (
-                                <option key={value} value={value}>{label}</option>
-                            ))}
-                        </select>
-                    </label>
+                            onChange={value => setGiftPromiseDraft(prev => ({ ...prev, conditionStatus: value as GiftConditionStatus }))}
+                            ariaLabel="حالة تحقق الشرط"
+                            options={Object.entries(giftConditionStatusLabels).map(([value, label]) => ({ value, label }))}
+                        />
+                    </div>
 
                     <label className="text-xs font-bold text-slate-500">
                         العدد

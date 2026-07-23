@@ -200,7 +200,7 @@ function ProfileSidebar({ client, geoUnits }: { client: Client; geoUnits: GeoUni
         : '';
 
     return (
-        <aside className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:sticky lg:top-4">
+        <aside className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex flex-col items-center gap-3 text-center">
                 <ClientAvatar gender={client.gender} dataQuality={client.dataQuality} size="lg" className="border-4 border-white shadow-lg" />
                 <div className="min-w-0">
@@ -606,6 +606,20 @@ export default function ClientProfile() {
     const [client, setClient] = useState<Client | null>(null);
     const [allGeoUnits, setAllGeoUnits] = useState<GeoUnit[]>([]);
     const [loading, setLoading] = useState(true);
+    // The tab bar is sticky at the top of the scroll area. Tables inside a tab
+    // (SmartTable) also have a sticky header — measure the bar so those headers
+    // can stick just below it instead of colliding at top:0.
+    const tabsBarRef = useRef<HTMLDivElement>(null);
+    const [tabsBarH, setTabsBarH] = useState(0);
+    useEffect(() => {
+        const el = tabsBarRef.current;
+        if (!el) return;
+        const update = () => setTabsBarH(el.getBoundingClientRect().height);
+        update();
+        const ro = new ResizeObserver(update);
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, [client]);
 
     useEffect(() => {
         const clientId = Number(id);
@@ -697,13 +711,13 @@ export default function ClientProfile() {
             <div className="flex-1 overflow-y-auto custom-scroll">
                 <div className="mx-auto max-w-[1600px] px-4 py-5 sm:px-6 lg:px-8">
                     <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[280px_minmax(0,1fr)]">
-                        <div className="space-y-5">
+                        <div className="space-y-5 lg:sticky lg:top-5 lg:max-h-[calc(100vh-2.5rem)] lg:overflow-y-auto lg:pb-1 custom-scroll">
                             <ProfileSidebar client={client} geoUnits={allGeoUnits} />
                             <ClientAppAccountCard clientId={client.id} />
                         </div>
 
                         <main className="min-w-0">
-                            <div className="sticky top-0 z-20 mb-4 border-b border-slate-200 bg-slate-50/95 backdrop-blur">
+                            <div ref={tabsBarRef} className="sticky top-0 z-30 mb-4 border-b border-slate-200 bg-slate-50/95 backdrop-blur">
                                 <ProfileTabsBar
                                     tabs={[
                                         { id: 'overview', label: 'نظرة عامة', icon: LayoutDashboard },
@@ -724,7 +738,7 @@ export default function ClientProfile() {
                                 />
                             </div>
 
-                            <div className="pt-1">
+                            <div className="pt-1" style={{ ['--st-sticky-top' as any]: `${tabsBarH}px` }}>
                         <AnimatePresence mode="wait">
                             <motion.div
                                 key={safeActiveTab}

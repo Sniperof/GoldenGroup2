@@ -14,7 +14,7 @@
 // Prefer the <DateField> wrapper for day-to-day use; reach for <DatePicker>
 // directly only when you need a custom trigger.
 // ────────────────────────────────────────────────────────────────────────────
-import { useState, useEffect, useLayoutEffect } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import type { RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronRight, ChevronLeft } from './icons';
@@ -57,7 +57,10 @@ export interface DatePickerProps {
 }
 
 export default function DatePicker({ isOpen, onClose, anchorRef, value, onChange, min, max }: DatePickerProps) {
-  const initial = value ?? new Date();
+  // Guard against an invalid `value` (e.g. a field with no date yet parsed to an
+  // Invalid Date) — otherwise year/month become NaN and the grid renders "NaN".
+  const rawInitial = value ?? new Date();
+  const initial = isNaN(rawInitial.getTime()) ? new Date() : rawInitial;
   const [year, setYear] = useState(initial.getFullYear());
   const [month, setMonth] = useState(initial.getMonth());
   const [selected, setSelected] = useState({
@@ -67,15 +70,17 @@ export default function DatePicker({ isOpen, onClose, anchorRef, value, onChange
   });
   const [view, setView] = useState<'days' | 'months' | 'years'>('days');
   const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
-  // Gate the entrance animation until we've measured the anchor — otherwise the
-  // popover paints once at (0,0) and visibly flies in from the corner on first
-  // open (state persists across opens, so only the first one flashes).
+  // Keep the popover hidden until we've measured the anchor — otherwise it would
+  // paint once at (0,0) before the layout effect moves it into place, which reads
+  // as a flicker/slide from the screen corner on first open.
   const [positioned, setPositioned] = useState(false);
+  const popRef = useRef<HTMLDivElement>(null);
 
   // Re-sync when (re)opened with a (possibly) new value.
   useEffect(() => {
     if (!isOpen) return;
-    const v = value ?? new Date();
+    const raw = value ?? new Date();
+    const v = isNaN(raw.getTime()) ? new Date() : raw;
     setYear(v.getFullYear());
     setMonth(v.getMonth());
     setSelected({ y: v.getFullYear(), m: v.getMonth(), d: v.getDate() });
@@ -91,17 +96,28 @@ export default function DatePicker({ isOpen, onClose, anchorRef, value, onChange
     return () => document.removeEventListener('keydown', onKey);
   }, [isOpen, onClose]);
 
-  // Position under the anchor; reposition on scroll (capture: catches scrolls
-  // inside a modal body too) and resize.
+  // Position relative to the anchor; reposition on scroll (capture: catches
+  // scrolls inside a modal body too) and resize. Flip above the trigger when
+  // there isn't room below, and clamp within the viewport so the popover is
+  // never hidden behind a modal footer or pushed off-screen. `view` is a dep
+  // because switching day/month/year changes the popover height.
   useLayoutEffect(() => {
     if (!isOpen || !anchorRef.current) return;
     const update = () => {
       const el = anchorRef.current;
       if (!el) return;
       const r = el.getBoundingClientRect();
+      const GAP = 6, EDGE = 8;
+      const popH = popRef.current?.offsetHeight || 348; // measured; fallback ≈ days view
       // RTL: align the popover's right edge with the trigger's right edge.
-      const left = Math.max(8, Math.min(r.right - POPOVER_WIDTH, window.innerWidth - POPOVER_WIDTH - 8));
-      setPos({ top: r.bottom + 6, left });
+      const left = Math.max(EDGE, Math.min(r.right - POPOVER_WIDTH, window.innerWidth - POPOVER_WIDTH - EDGE));
+      const spaceBelow = window.innerHeight - r.bottom - GAP - EDGE;
+      const spaceAbove = r.top - GAP - EDGE;
+      // Open downward if it fits (or below is the roomier side); else flip up.
+      let top = (spaceBelow >= popH || spaceBelow >= spaceAbove) ? r.bottom + GAP : r.top - GAP - popH;
+      // Clamp fully inside the viewport regardless of direction.
+      top = Math.max(EDGE, Math.min(top, window.innerHeight - popH - EDGE));
+      setPos({ top, left });
       setPositioned(true);
     };
     update();
@@ -112,7 +128,7 @@ export default function DatePicker({ isOpen, onClose, anchorRef, value, onChange
       window.removeEventListener('resize', update);
       setPositioned(false);
     };
-  }, [isOpen, anchorRef]);
+  }, [isOpen, anchorRef, view]);
 
   if (!isOpen) return null;
 
@@ -192,10 +208,10 @@ export default function DatePicker({ isOpen, onClose, anchorRef, value, onChange
       {/* Transparent outside-click catcher — no dim, no blur. Above modals (z-50). */}
       <div className="fixed inset-0 z-[60]" onClick={onClose} aria-hidden />
 
-      {positioned && (
       <div
-        style={{ position: 'fixed', top: pos.top, left: pos.left, width: POPOVER_WIDTH, transformOrigin: 'top right' }}
-        className="z-[61] bg-white rounded-2xl shadow-lg border border-slate-100 p-3 animate-in fade-in zoom-in-95 duration-150"
+        ref={popRef}
+        style={{ position: 'fixed', top: pos.top, left: pos.left, width: POPOVER_WIDTH, visibility: positioned ? 'visible' : 'hidden' }}
+        className="z-[61] bg-white rounded-2xl shadow-lg border border-slate-100 p-3"
       >
         {/* View tabs — always-visible level switcher (day / month / year).
             Each tab jumps straight to that granularity, so the current level and
@@ -313,7 +329,6 @@ export default function DatePicker({ isOpen, onClose, anchorRef, value, onChange
           </div>
         )}
       </div>
-      )}
     </>,
     document.body,
   );
