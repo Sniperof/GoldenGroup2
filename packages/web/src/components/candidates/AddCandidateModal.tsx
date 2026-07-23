@@ -12,7 +12,7 @@ import { api } from '../../lib/api';
 import type { GeoUnit } from '../../lib/types';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { useBranchContextStore } from '../../hooks/useBranchContextStore';
-import { findEmployeeByNumber, formatEmployeeMediatorLabel, MediatorEmployee, toMediatorEmployee } from '../../lib/employeeMediatorLookup';
+import { findEmployeeByNumber, formatEmployeeMediatorLabel, MediatorEmployee, resolveEmployeeMediatorReference, toMediatorEmployee } from '../../lib/employeeMediatorLookup';
 import {
     CONTACT_STATUS_CONFIG,
     CONTACT_TYPE_CONFIG,
@@ -265,6 +265,43 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
     }, [isOpen, initialData, initialDirectMode, authUser?.branchId, authUser?.id, contextBranchId]);
 
     useEffect(() => {
+        if (
+            !isOpen
+            || initialData?.referralSheetId !== null
+            || initialData?.referralType !== 'Employee'
+            || initialData.referralEntityId == null
+        ) {
+            return;
+        }
+
+        let cancelled = false;
+        void api.employees.get(Number(initialData.referralEntityId))
+            .then((employee) => {
+                if (cancelled || !employee) return;
+                const mediator = toMediatorEmployee(employee);
+                setEmployeeFound(mediator);
+                setEmployeeIdInput(String(mediator.employeeNumber ?? ''));
+                setEmployeeSearchError('');
+                setReferralNameSnapshot(mediator.name);
+            })
+            .catch(() => {
+                if (!cancelled) {
+                    setEmployeeFound(null);
+                    setEmployeeSearchError('تعذر استرجاع بيانات الوسيط من سجل الموظف');
+                }
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [
+        initialData?.referralEntityId,
+        initialData?.referralSheetId,
+        initialData?.referralType,
+        isOpen,
+    ]);
+
+    useEffect(() => {
         if (!isOpen || isInitialSync.current || !isDirectMode) return;
 
         if (referralType === 'Personal') {
@@ -410,6 +447,14 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
             setError('الرجاء تعبئة جميع الحقول الإلزامية الخاصة بالاستقطاب المباشر.');
             return false;
         }
+        if (
+            isDirectMode
+            && referralType === 'Employee'
+            && !resolveEmployeeMediatorReference(employeeIdInput, employeeFound)
+        ) {
+            setError('الرجاء اختيار موظف صالح كوسيط.');
+            return false;
+        }
         if (!candidateData.firstName.trim() && !candidateData.nickname.trim()) {
             setError('يجب إدخال الاسم الأول أو اللقب للاسم المقترح على الأقل.');
             return false;
@@ -437,6 +482,9 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
 
     const handleSave = async (addAnother: boolean) => {
         if (!validateForm()) return;
+        const employeeReference = referralType === 'Employee'
+            ? resolveEmployeeMediatorReference(employeeIdInput, employeeFound)
+            : null;
 
         const candidateUnitId = candidateData.locationSelection.neighborhoodId || candidateData.locationSelection.subId || candidateData.locationSelection.regionId || candidateData.locationSelection.govId;
         const candidateAddressText = geoUnits.find(u => u.id === Number(candidateUnitId))?.name || 'غير محدد';
@@ -464,8 +512,9 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                 resolvedOriginChannel = selectedSheet.referralOriginChannel;
                 resolvedReferralNameSnapshot = selectedSheet.referralNameSnapshot;
                 entityId = selectedSheet.referralEntityId ?? null;
-            } else if (referralType === 'Employee' && employeeFound) {
-                entityId = employeeFound.id;
+            } else if (referralType === 'Employee' && employeeReference) {
+                entityId = employeeReference.referralEntityId;
+                resolvedReferralNameSnapshot = employeeReference.fullName;
             } else if (referralType === 'Client' && selectedClientId) {
                 entityId = selectedClientId;
             }
@@ -760,7 +809,12 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                                                 <input
                                                     type="text"
                                                     value={employeeIdInput}
-                                                    onChange={(e) => setEmployeeIdInput(e.target.value)}
+                                                    onChange={(e) => {
+                                                        setEmployeeIdInput(e.target.value);
+                                                        setEmployeeFound(null);
+                                                        setEmployeeSearchError('');
+                                                        setReferralNameSnapshot('');
+                                                    }}
                                                     onBlur={handleEmployeeBlur}
                                                     placeholder="أدخل رقم الموظف..."
                                                     className="w-1/2 p-2.5 rounded-xl border border-indigo-200 bg-white text-sm"

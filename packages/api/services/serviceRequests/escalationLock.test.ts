@@ -27,7 +27,7 @@ test('an escalated request cannot be claimed through a service wrapper', async (
 test('an escalated request cannot transition except through the reject exit', async () => {
   const result = await transitionStatus({
     serviceRequestId: 10,
-    toStatus: 'awaiting_customer_info',
+    toStatus: 'cancelled',
     actorUserId: 5,
     actorRole: 'operator',
   }, fakeDb({

@@ -6,12 +6,9 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
-  ArrowRight,
   ArrowUpCircle,
   CalendarClock,
   ClipboardCheck,
-  Clock,
-  Hash,
   Loader2,
   UserCheck,
   X,
@@ -32,29 +29,8 @@ import ClientSnapshot from '../../components/ClientSnapshot';
 import MergeOrSplitModal from '../../components/service-requests/MergeOrSplitModal';
 import TerminalTransitionModal, { type ModalMode } from '../../components/service-requests/TerminalTransitionModal';
 import WaterCheckRequestDetailPanel from '../../components/service-requests/WaterCheckRequestDetailPanel';
+import RequestDetailLayout from '../../components/requests/RequestDetailLayout';
 import type { Client, GeoUnit } from '../../lib/types';
-
-const STATUS_LABELS: Record<string, string> = {
-  received: 'مُستلَم',
-  in_review: 'قيد المراجعة',
-  awaiting_customer_info: 'بانتظار الزبون',
-  resolved_at_intake: 'محلول في الاستلام',
-  rejected: 'مرفوض',
-  promoted: 'مُرَقّى',
-  cancelled: 'مُلغى',
-};
-
-const STATUS_COLORS: Record<string, string> = {
-  received: 'bg-slate-100 text-slate-700',
-  in_review: 'bg-blue-100 text-blue-700',
-  awaiting_customer_info: 'bg-yellow-100 text-yellow-700',
-  resolved_at_intake: 'bg-green-100 text-green-700',
-  rejected: 'bg-red-100 text-red-700',
-  promoted: 'bg-purple-100 text-purple-700',
-  cancelled: 'bg-slate-100 text-slate-500',
-};
-
-type Tab = 'overview' | 'problems' | 'audit' | 'linkage';
 
 type PeriodicAttachmentCandidate = {
   taskId: number;
@@ -81,8 +57,9 @@ export default function ServiceRequestDetailPage() {
   const { hasPermission } = usePermissions();
   const user = useAuthStore((s) => s.user);
 
-  const [tab, setTab] = useState<Tab>('overview');
   const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState('overview');
+  const [internalNote, setInternalNote] = useState('');
   const [data, setData] = useState<{ request: any; auditLog: any[]; problems: any[] } | null>(null);
   const [periodicCandidate, setPeriodicCandidate] = useState<PeriodicAttachmentCandidate | null>(null);
   const [collision, setCollision] = useState<{ existingOpenTaskId: number; installedDeviceId: number } | null>(null);
@@ -191,15 +168,13 @@ export default function ServiceRequestDetailPage() {
 
   const req = data.request;
   const isWaterCheck = req.requestType === 'water_check';
-  const visibleTabs = (isWaterCheck
-    ? ['overview', 'linkage', 'audit']
-    : ['overview', 'problems', 'linkage', 'audit']) as Tab[];
   const isOwner = req.reviewedByUserId === user?.id;
-  const canReview = hasPermission('service_requests.review');
-  const canReject = hasPermission('service_requests.reject');
-  const canResolveEscalation = hasPermission('service_requests.resolve_escalation');
-  const canPromote = hasPermission('service_requests.promote');
-  const canArchive = hasPermission('service_requests.archive');
+  // Permission family per request type (request-section-contract.md §5).
+  const permFamily = isWaterCheck ? 'water_check' : 'service_requests';
+  const canReview = hasPermission(`${permFamily}.review`);
+  const canDecide = hasPermission(`${permFamily}.decide`);
+  const canResolveEscalation = hasPermission(`${permFamily}.resolve_escalation`);
+  const canArchive = hasPermission(`${permFamily}.archive`);
   const isActive = ['received', 'in_review', 'awaiting_customer_info'].includes(req.status);
   const isTerminal = !isActive;
   // SR-ESC-01 — restricted mode: while escalated, only reject + de-escalate are allowed.
@@ -243,7 +218,7 @@ export default function ServiceRequestDetailPage() {
     if (!req.branchId) waterCheckHandoffMissing.push('تحديد الفرع المرتبط بالطلب');
     if (req.branchResolutionStatus !== 'resolved') waterCheckHandoffMissing.push('حسم ربط الفرع من التغطية الجغرافية');
   }
-  const canWaterCheckHandoffByPermission = canPromote && hasPermission('open_tasks.edit');
+  const canWaterCheckHandoffByPermission = canDecide && hasPermission('open_tasks.edit');
   const canDoWaterCheckHandoff =
     isWaterCheck
     && !req.linkedOpenTaskId
@@ -271,10 +246,6 @@ export default function ServiceRequestDetailPage() {
   async function handleModalConfirm(payload: any) {
     if (!actionModal) return;
     switch (actionModal) {
-      case 'requestInfo':
-        await api.serviceRequests.requestInfo(requestId, payload);
-        showToast('✓ تَمَّ نَقل الطلب إلى "بانتظار الزبون"', 'success');
-        break;
       case 'resolveAtIntake':
         await api.serviceRequests.resolveAtIntake(requestId, payload);
         showToast('✓ تَمَّ إغلاق الطلب بـ "حُلَّ في الاستلام"', 'success');
@@ -649,99 +620,34 @@ export default function ServiceRequestDetailPage() {
   const modalInputClass = 'w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-100 disabled:bg-slate-50';
   const modalLabelClass = 'space-y-1 text-sm font-semibold text-slate-700';
 
+  const backPath = isWaterCheck ? '/service-requests/water-check' : '/service-requests';
+
   return (
-    <div className="max-w-6xl mx-auto p-6" dir="rtl">
-      {/* Top bar */}
-      <div className="mb-4">
-        <Button variant="ghost" size="sm" icon={ArrowRight} onClick={() => navigate(-1)}>
-          عودة
-        </Button>
-      </div>
-
-      {/* Hero */}
-      <div className="mb-4 overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 bg-gradient-to-l from-sky-50/70 to-white px-5 py-4">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-sky-100 text-sky-600">
-              <Hash className="h-5 w-5" />
-            </div>
-            <div className="min-w-0">
-              <h1 className="flex flex-wrap items-center gap-2 text-xl font-black text-slate-800">
-                <span dir="ltr" className="font-mono">{req.publicRefNumber}</span>
-                <span className="rounded-full bg-sky-100 px-2.5 py-0.5 text-xs font-bold text-sky-700">
-                  {req.requestTypeLabel ?? req.requestType}
-                </span>
-              </h1>
-              <div className="mt-1 text-xs text-slate-400">
-                أُنشئ {new Date(req.createdAt).toLocaleString('ar-SY')}
-              </div>
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${STATUS_COLORS[req.status]}`}>
-              {req.statusLabel ?? STATUS_LABELS[req.status] ?? req.status}
-            </span>
-            {req.duplicateFlag && (
-              <span className="rounded-full bg-orange-100 px-2.5 py-1 text-xs font-semibold text-orange-700">مُكَرَّر</span>
-            )}
-            {req.reviewRequiredFlag && (
-              <span className="rounded-full bg-yellow-100 px-2.5 py-1 text-xs font-semibold text-yellow-700">يحتاج مراجعة</span>
-            )}
-            {req.archivedAt && (
-              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">مُؤرشَف</span>
-            )}
-            {isEscalated && (
-              <span className="rounded-full bg-red-600 px-2.5 py-1 text-xs font-bold text-white">مُصعَّد</span>
-            )}
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-px bg-slate-100 md:grid-cols-4">
-          {[
-            { label: 'القناة', value: req.channelLabel ?? req.channel },
-            { label: 'الأولوية', value: req.priority ?? '—' },
-            { label: 'المُستلِم', value: req.reviewedByUserName ?? 'لم يتول أحد' },
-            { label: 'الفرع', value: req.branchName ?? 'غير محدد' },
-          ].map((tile) => (
-            <div key={tile.label} className="bg-white px-5 py-3">
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{tile.label}</div>
-              <div className="mt-0.5 text-sm font-bold text-slate-700">{tile.value}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* SR-ESC-01 — escalation (restricted mode) banner */}
-      {isEscalated && (
-        <div className="bg-red-50 border border-red-300 rounded p-3 mb-4">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div className="text-sm text-red-900">
-              <div className="font-bold">الطلب مُصعَّد إلى المدقّق — وضع مقيَّد</div>
-              <div className="mt-1 text-red-800">
-                كل الإجراءات محجوبة حتى <span className="font-semibold">فكّ التصعيد</span> أو <span className="font-semibold">الرفض</span>.
-                {req.escalatedByUserName && <> صعّده: {req.escalatedByUserName}.</>}
-                {req.escalationReason && <> السبب: {req.escalationReason}.</>}
-              </div>
-            </div>
-            {canResolveEscalation && (
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={busy}
-                onClick={() => safeRun(
-                  () => api.serviceRequests.resolveEscalation(requestId, prompt('سبب فكّ التصعيد (اختياري):') ?? null),
-                  '✓ تَمَّ فكّ التصعيد — عادت الإجراءات',
-                )}
-              >
-                فكّ التصعيد
-              </Button>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Action bar */}
-      {isActive && (
-        <div className="mb-4 flex flex-wrap gap-2 rounded-2xl border border-sky-100 bg-sky-50/60 p-3.5 shadow-sm">
+    <RequestDetailLayout
+      backPath={backPath}
+      activeTab={tab}
+      onTabChange={setTab}
+      refNumber={req.publicRefNumber}
+      typeLabel={req.requestTypeLabel ?? req.requestType}
+      createdAt={req.createdAt}
+      status={req.status}
+      requestType={req.requestType}
+      flags={{
+        duplicate: !!req.duplicateFlag,
+        reviewRequired: !!req.reviewRequiredFlag,
+        escalated: isEscalated,
+        archived: !!req.archivedAt,
+      }}
+      infoTiles={[
+        { label: 'القناة', value: req.channelLabel ?? req.channel },
+        { label: 'الأولوية', value: req.priority ?? '—' },
+        { label: 'الفرع', value: req.branchName ?? 'غير محدد' },
+        { label: 'المهمة المرتبطة', value: req.linkedOpenTaskId ? `#${req.linkedOpenTaskId}` : '—' },
+      ]}
+      reviewerId={req.reviewedByUserId ?? null}
+      reviewerName={req.reviewedByUserName ?? null}
+      ownershipActions={
+        <>
           {req.status === 'received' && canReview && !isEscalated && (
             <Button
               size="sm"
@@ -757,14 +663,95 @@ export default function ServiceRequestDetailPage() {
               disabled={busy}
               onClick={() => safeRun(() => api.serviceRequests.takeOver(requestId))}
             >
-              نَقل الـ Ownership إليّ
+              نقل التولّي إليّ
             </Button>
           )}
           {req.status === 'in_review' && canReview && !isEscalated && (
+            <Button
+              variant="danger"
+              size="sm"
+              disabled={busy}
+              onClick={() => setActionModal('escalate')}
+            >
+              تَصعيد للمدقّق
+            </Button>
+          )}
+        </>
+      }
+      banners={
+        <>
+          {/* SR-ESC-01 — escalation (restricted mode) banner */}
+          {isEscalated && (
+            <div className="bg-red-50 border border-red-300 rounded p-3 mb-4">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <div className="text-sm text-red-900">
+                  <div className="font-bold">الطلب مُصعَّد إلى المدقّق — وضع مقيَّد</div>
+                  <div className="mt-1 text-red-800">
+                    كل الإجراءات محجوبة حتى <span className="font-semibold">فكّ التصعيد</span> أو <span className="font-semibold">الرفض</span>.
+                    {req.escalatedByUserName && <> صعّده: {req.escalatedByUserName}.</>}
+                    {req.escalationReason && <> السبب: {req.escalationReason}.</>}
+                  </div>
+                </div>
+                {canResolveEscalation && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => safeRun(
+                      () => api.serviceRequests.resolveEscalation(requestId, prompt('سبب فكّ التصعيد (اختياري):') ?? null),
+                      '✓ تَمَّ فكّ التصعيد — عادت الإجراءات',
+                    )}
+                  >
+                    فكّ التصعيد
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+          {!isWaterCheck && req.status === 'in_review' && canDecide && periodicCandidate && (
+            <div className="bg-emerald-50 border border-emerald-200 rounded p-3 mb-4">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <div className="text-sm text-emerald-900">
+                  <div className="font-bold flex items-center gap-2">
+                    <CalendarClock className="h-4 w-4" />
+                    توجد صيانة دورية قريبة لهذا الجهاز
+                  </div>
+                  <div className="mt-1 text-emerald-800">
+                    المهمة #{periodicCandidate.taskId}، تاريخها {periodicCandidate.dueDate}،
+                    الفارق {periodicCandidate.daysUntilDue} يوم ضمن نافذة {periodicCandidate.attachWindowDays} يوم.
+                  </div>
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  <Button
+                    size="sm"
+                    disabled={busy}
+                    onClick={attachToPeriodicCandidate}
+                  >
+                    الاكتفاء بالدورية وربط البلاغ
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={busy || !canDoPromote}
+                    onClick={doPromote}
+                  >
+                    إنشاء طارئة مستقلة
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      }
+      decision={
+        <div className="flex flex-wrap items-center gap-2">
+          {/* SR-R005 + state machine: decisions exist only while in_review. */}
+          {req.status === 'received' && (
+            <p className="text-sm text-slate-500">لا حسم قبل تولّي الطلب.</p>
+          )}
+          {req.status === 'in_review' && !isEscalated && canDecide && (
             <>
-              {/* V1.0: "طلب معلومة من الزبون" مُؤجَّل (awaiting_customer_info خارج V1.0).
-                  الكود يَبقى في الـ stateMachine للـ V2. */}
-              {!isWaterCheck && canPromote && (
+              {!isWaterCheck && (
                 <Button
                   size="sm"
                   icon={ArrowUpCircle}
@@ -779,7 +766,7 @@ export default function ServiceRequestDetailPage() {
                   ترقية إلى مهمة{!canDoPromote && ` (${promoteMissing.length} ينقص)`}
                 </Button>
               )}
-              {isWaterCheck && canPromote && (
+              {isWaterCheck && (
                 <Button
                   size="sm"
                   icon={ArrowUpCircle}
@@ -804,28 +791,9 @@ export default function ServiceRequestDetailPage() {
               >
                 حُلَّ في الاستلام
               </Button>
-              <Button
-                variant="danger"
-                size="sm"
-                disabled={busy}
-                onClick={() => setActionModal('escalate')}
-              >
-                تَصعيد للمدقّق
-              </Button>
             </>
           )}
-          {/* V1.0: awaiting_customer_info خارج النطاق — زر "العَودة للمراجعة" مَخفي.
-              لو وُجد سجل قديم بهذه الحالة، يَبقى الزر للأمان. */}
-          {req.status === 'awaiting_customer_info' && canReview && !isEscalated && (
-            <Button
-              size="sm"
-              disabled={busy}
-              onClick={() => safeRun(() => api.serviceRequests.resumeReview(requestId))}
-            >
-              العَودة للمراجعة (سجل قديم)
-            </Button>
-          )}
-          {(req.reviewRequiredFlag || isEscalated) && canReject && (
+          {(req.reviewRequiredFlag || isEscalated) && canDecide && (
             <Button
               variant="danger"
               size="sm"
@@ -836,7 +804,7 @@ export default function ServiceRequestDetailPage() {
               رَفض (مدقّق)
             </Button>
           )}
-          {canReview && req.status !== 'received' && !isEscalated && (
+          {isActive && canDecide && req.status !== 'received' && !isEscalated && (
             <Button
               variant="secondary"
               size="sm"
@@ -846,77 +814,32 @@ export default function ServiceRequestDetailPage() {
               إلغاء إداري
             </Button>
           )}
-        </div>
-      )}
-      {!isWaterCheck && req.status === 'in_review' && canPromote && periodicCandidate && (
-        <div className="bg-emerald-50 border border-emerald-200 rounded p-3 mb-4">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div className="text-sm text-emerald-900">
-              <div className="font-bold flex items-center gap-2">
-                <CalendarClock className="h-4 w-4" />
-                توجد صيانة دورية قريبة لهذا الجهاز
-              </div>
-              <div className="mt-1 text-emerald-800">
-                المهمة #{periodicCandidate.taskId}، تاريخها {periodicCandidate.dueDate}،
-                الفارق {periodicCandidate.daysUntilDue} يوم ضمن نافذة {periodicCandidate.attachWindowDays} يوم.
-              </div>
-            </div>
-            <div className="flex gap-2 flex-wrap">
-              <Button
-                size="sm"
-                disabled={busy}
-                onClick={attachToPeriodicCandidate}
-              >
-                الاكتفاء بالدورية وربط البلاغ
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={busy || !canDoPromote}
-                onClick={doPromote}
-              >
-                إنشاء طارئة مستقلة
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-      {isTerminal && canArchive && !req.archivedAt && (
-        <div className="bg-slate-50 border border-slate-200 rounded p-3 mb-4">
-          <Button
-            variant="secondary"
-            size="sm"
-            disabled={busy}
-            onClick={() => safeRun(() => api.serviceRequests.archive(requestId, prompt('سبب الأرشفة (اختياري):') ?? null))}
-          >
-            أرشفة
-          </Button>
-        </div>
-      )}
-
-      {/* Tabs */}
-      <div className="mb-4">
-        <nav className="inline-flex flex-wrap gap-1 rounded-xl border border-slate-100 bg-slate-50 p-1">
-          {visibleTabs.map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`rounded-lg px-4 py-1.5 text-sm font-semibold transition-colors ${
-                tab === t
-                  ? 'bg-white text-sky-700 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700'
-              }`}
+          {isTerminal && canArchive && !req.archivedAt && (
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={busy}
+              onClick={() => safeRun(() => api.serviceRequests.archive(requestId, prompt('سبب الأرشفة (اختياري):') ?? null))}
             >
-              {t === 'overview' && 'نظرة عامة'}
-              {t === 'problems' && `الأعطال (${data.problems.filter((p) => p.deletedAt == null).length})`}
-              {t === 'audit' && 'سجل الأحداث'}
-              {t === 'linkage' && 'الربط'}
-            </button>
-          ))}
-        </nav>
-      </div>
-
-      {tab === 'overview' && (isWaterCheck ? (
+              أرشفة
+            </Button>
+          )}
+          {isTerminal && canArchive && req.archivedAt && (
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={busy}
+              onClick={() => safeRun(() => api.serviceRequests.unarchive(requestId))}
+            >
+              إلغاء الأرشفة
+            </Button>
+          )}
+          {isActive && !canDecide && (
+            <p className="text-sm text-slate-400">لا تملك صلاحية الحسم على هذا النوع.</p>
+          )}
+        </div>
+      }
+      submittedData={isWaterCheck ? (
         <WaterCheckRequestDetailPanel
           request={req}
           handoff={{
@@ -1014,21 +937,24 @@ export default function ServiceRequestDetailPage() {
             </div>
           )}
         </div>
-      ))}
-
-      {tab === 'problems' && (
-        <ProblemsList
-          serviceRequestId={requestId}
-          installedDeviceId={req.installedDeviceId}
-          problems={data.problems}
-          canEdit={canReview && isActive}
-          onRefresh={reload}
-        />
       )}
-
-      {tab === 'audit' && <AuditLogTimeline events={data.auditLog} />}
-
-      {tab === 'linkage' && isWaterCheck && (
+      extraTabs={!isWaterCheck ? [{
+        id: 'problems',
+        label: `الأعطال (${data.problems.filter((p) => p.deletedAt == null).length})`,
+        content: (
+          <ProblemsList
+            serviceRequestId={requestId}
+            installedDeviceId={req.installedDeviceId}
+            problems={data.problems}
+            canEdit={canReview && isActive}
+            onRefresh={reload}
+          />
+        ),
+      }] : undefined}
+      audit={<AuditLogTimeline events={data.auditLog} />}
+      linkage={
+        <div>
+          {isWaterCheck && (
         <div className="space-y-3">
           {req.beneficiaryClientId ? (
             <div className="rounded border border-green-200 bg-green-50 p-3 text-sm text-green-800">
@@ -1097,9 +1023,8 @@ export default function ServiceRequestDetailPage() {
             </div>
           )}
         </div>
-      )}
-
-      {tab === 'linkage' && !isWaterCheck && (
+          )}
+          {!isWaterCheck && (
         <div className="space-y-3">
           {req.beneficiaryClientId ? (
             <div className="bg-green-50 border border-green-200 rounded p-3 text-sm">
@@ -1132,8 +1057,37 @@ export default function ServiceRequestDetailPage() {
             />
           )}
         </div>
-      )}
-
+          )}
+        </div>
+      }
+      notes={
+        canReview ? (
+          <div className="flex items-end gap-2">
+            <div className="flex-1">
+              <label className="text-[11px] text-slate-500 block mb-1">ملاحظة داخلية</label>
+              <input
+                value={internalNote}
+                onChange={(e) => setInternalNote(e.target.value)}
+                placeholder="تُسجَّل في سجل التدقيق (ومنها توثيق محاولات التواصل مع الزبون)"
+                className="w-full text-sm border border-slate-200 rounded px-2 py-1.5"
+              />
+            </div>
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={busy || !internalNote.trim()}
+              onClick={() => safeRun(async () => {
+                await api.serviceRequests.addNote(requestId, internalNote.trim());
+                setInternalNote('');
+              }, '✓ أُضيفت الملاحظة')}
+            >
+              إضافة
+            </Button>
+          </div>
+        ) : undefined
+      }
+      overlays={
+        <>
       {collision && (
         <MergeOrSplitModal
           serviceRequestId={requestId}
@@ -1280,7 +1234,8 @@ export default function ServiceRequestDetailPage() {
           onConfirm={handleModalConfirm}
         />
       )}
-
-    </div>
+        </>
+      }
+    />
   );
 }

@@ -24,6 +24,7 @@ import ServiceAgreementForm, {
   serviceAgreementPayloadFromDraft,
   type ServiceAgreementDraft,
 } from '../../components/devices/ServiceAgreementForm';
+import type { DevicePossessionEntry } from '@golden-crm/shared';
 
 interface Props {
   client: { id: number; branchId?: number | null; name?: string | null; customerName?: string | null; fullName?: string | null };
@@ -237,7 +238,7 @@ function ExternalDeviceModalV2({
 
 interface DeviceRow {
   device: any;
-  current: any | null;
+  current: DevicePossessionEntry | null;
   warranty: any | null;
 }
 
@@ -245,6 +246,7 @@ export function DevicesTab({ client }: Props) {
   const navigate = useNavigate();
   const { hasPermission } = usePermissions();
   const canCreateServiceAgreement = hasPermission('contracts.edit');
+  const canViewPossession = hasPermission('installed_devices.possession.view');
   const [rows, setRows] = useState<DeviceRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState<string>('all');
@@ -276,7 +278,7 @@ export function DevicesTab({ client }: Props) {
       // is noted as out-of-scope in the plan.
       const enriched = await Promise.all(devices.map(async (d) => {
         const [currentR, warrantiesR] = await Promise.allSettled([
-          api.devicePossession.current(d.id),
+          canViewPossession ? api.devicePossession.current(d.id) : Promise.resolve(null),
           api.deviceWarranties.list(d.id),
         ]);
         const current = currentR.status === 'fulfilled' ? currentR.value : null;
@@ -295,7 +297,7 @@ export function DevicesTab({ client }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [client.id]);
+  }, [canViewPossession, client.id]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -467,7 +469,11 @@ export function DevicesTab({ client }: Props) {
       key: 'warranty', label: 'الكفالة',
       render: ({ warranty }) => <WarrantyStatusBadge status={warranty?.status} cancellationReason={warranty?.cancellationReason} endDate={warranty?.endDate} />,
     },
-    { key: 'holder', label: 'الحائز الحالي', render: ({ current }) => <PossessionHolderChip holderType={current?.holderType} reason={current?.reason} /> },
+    ...(canViewPossession ? [{
+      key: 'holder',
+      label: 'الحائز الحالي',
+      render: ({ current }: DeviceRow) => <PossessionHolderChip holderType={current?.holderType} holderName={current?.holderName} reason={current?.reason} />,
+    } as ColumnDef<DeviceRow>] : []),
     {
       key: 'contract', label: 'رقم العقد',
       render: ({ device }) => (

@@ -40,17 +40,19 @@ import {
 } from './_shared.js';
 
 // Allowed forward + reopen transitions per ٠.٣ + ٠.٤.ب
-const ALLOWED: Record<ServiceRequestStatus, ServiceRequestStatus[]> = {
+// 'awaiting_customer_info' dropped (request-section-contract.md §3): the map
+// keeps a legacy escape hatch FROM it (old rows → back to review/cancel) but
+// no transition INTO it exists anymore.
+const ALLOWED: Record<string, ServiceRequestStatus[]> = {
   received: ['in_review', 'cancelled'],
   in_review: [
-    'awaiting_customer_info',
     'resolved_at_intake',
     'rejected',
     'promoted',
     'completed',
     'cancelled',
   ],
-  awaiting_customer_info: ['in_review', 'cancelled'],
+  awaiting_customer_info: ['in_review', 'cancelled'], // legacy rows only
   resolved_at_intake: ['in_review'], // SR-REOPEN-01
   rejected: ['in_review'], // SR-REOPEN-01
   cancelled: ['in_review'], // SR-REOPEN-01
@@ -374,12 +376,12 @@ export async function transitionStatus(
 }
 
 function specializedEventFor(
-  from: ServiceRequestStatus,
+  from: string,
   to: ServiceRequestStatus,
   reopened: boolean,
 ): import('./_shared.js').ServiceRequestAuditEventType | null {
   if (reopened) return 'request_reopened';
-  if (to === 'awaiting_customer_info') return 'customer_info_requested';
+  // request-info dropped (contract §3) — only the legacy exit event remains.
   if (from === 'awaiting_customer_info' && to === 'in_review') return 'customer_info_received';
   if (to === 'rejected') return 'rejected_decision';
   if (to === 'completed') return 'request_completed';

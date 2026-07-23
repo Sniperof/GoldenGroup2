@@ -15,7 +15,7 @@ import { useCandidateStore } from '../hooks/useCandidateStore';
 import { api } from '../lib/api';
 import { useAuthStore } from '../hooks/useAuthStore';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
-import { findEmployeeByNumber, formatEmployeeMediatorLabel, MediatorEmployee, toMediatorEmployee } from '../lib/employeeMediatorLookup';
+import { findEmployeeByNumber, formatEmployeeMediatorLabel, MediatorEmployee, resolveEmployeeMediatorReference, toMediatorEmployee } from '../lib/employeeMediatorLookup';
 import {
     CONTACT_STATUS_CONFIG,
     CONTACT_TYPE_CONFIG,
@@ -301,6 +301,30 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
             // Already handled in select client
         }
     }, [referralType, employeeFound, selectedClientId, currentUserDisplayName]);
+
+    useEffect(() => {
+        if (
+            !isOpen
+            || initialData?.referrerType !== 'Employee'
+            || initialData.referralEntityId == null
+        ) {
+            return;
+        }
+        const mediator = employees.find(
+            (employee) => employee.id === Number(initialData.referralEntityId),
+        );
+        if (!mediator) return;
+
+        setEmployeeFound(mediator);
+        setEmployeeIdInput(String(mediator.employeeNumber ?? ''));
+        setEmployeeSearchError('');
+        setReferralNameSnapshot(mediator.name);
+    }, [
+        employees,
+        initialData?.referralEntityId,
+        initialData?.referrerType,
+        isOpen,
+    ]);
 
     const handleEmployeeBlur = () => {
         if (!employeeIdInput.trim()) {
@@ -601,6 +625,9 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
 
     // -- Save --
     const handleSave = () => {
+        const employeeReference = referralType === 'Employee'
+            ? resolveEmployeeMediatorReference(employeeIdInput, employeeFound)
+            : null;
         if (canChooseBranch && effectiveBranchId == null) {
             alert('يجب تحديد الفرع قبل حفظ العميل');
             return;
@@ -642,7 +669,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
         }
 
         // Referral validation: skip when fromCandidate (all referral data locked from candidate)
-        if (!fromCandidate && referralType === 'Employee' && !employeeFound) {
+        if (!fromCandidate && referralType === 'Employee' && !employeeReference) {
             alert('يجب تحديد الموظف الوسيط');
             return;
         }
@@ -657,14 +684,14 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
             : referralType === 'Unknown'
                 ? 'مجهول'
                 : referralType === 'Employee'
-                    ? (employeeFound?.name || '')
+                    ? (employeeReference?.fullName || '')
                     : referralType === 'Client'
                         ? (clientSearch.trim() || referralNameSnapshot.trim())
                         : referralNameSnapshot.trim();
         const resolvedReferralEntityId = referralType === 'Client'
             ? selectedClientId || undefined
             : referralType === 'Employee'
-                ? employeeFound?.id || undefined
+                ? employeeReference?.referralEntityId || undefined
                 : undefined;
         const existingReferralDate = initialData?.referrers?.[0]?.referralDate || initialData?.referralDate || '';
         const resolvedReferrers = referralType || resolvedReferrerName || resolvedReferralEntityId
@@ -1309,7 +1336,12 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                             <input
                                                                 type="text"
                                                                 value={employeeIdInput}
-                                                                onChange={(e) => setEmployeeIdInput(e.target.value)}
+                                                                onChange={(e) => {
+                                                                    setEmployeeIdInput(e.target.value);
+                                                                    setEmployeeFound(null);
+                                                                    setEmployeeSearchError('');
+                                                                    setReferralNameSnapshot('');
+                                                                }}
                                                                 onBlur={handleEmployeeBlur}
                                                                 placeholder="أدخل رقم الموظف..."
                                                                 className="w-1/2 p-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:border-sky-500 focus:outline-none"

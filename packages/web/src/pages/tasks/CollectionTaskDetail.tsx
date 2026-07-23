@@ -3,7 +3,6 @@ import { DollarSign } from '../../components/ui/icons';
 import TaskDetailLayout from '../../components/tasks/TaskDetailLayout';
 import { InfoLine, formatDate } from '../../components/tasks/shared';
 import type { TaskDetailData, TaskTypeExtension } from '../../components/tasks/types';
-import InstallmentCollectionResultModal from '../../taskTypes/installment_collection/InstallmentCollectionResultModal';
 
 function money(value: unknown): string {
   const n = Number(value);
@@ -26,8 +25,6 @@ function collectionOverviewCard(data: TaskDetailData) {
 }
 
 const collectionExtension: TaskTypeExtension = {
-  ResultModal: InstallmentCollectionResultModal,
-  canRecordResultFor: (task) => (task?.taskType ?? task?.task_type) === 'installment_collection',
   overviewExtraCards: collectionOverviewCard,
 };
 

@@ -12,7 +12,8 @@
     "./contracts/roles.js": "./contracts/roles.ts",
     "./telemarketingOutcomes.js": "./telemarketingOutcomes.ts",
     "./membraneEfficiency.js": "./membraneEfficiency.ts",
-    "./deviceTaskEligibility.js": "./deviceTaskEligibility.ts"
+    "./deviceTaskEligibility.js": "./deviceTaskEligibility.ts",
+    "./taskResultPolicy.js": "./taskResultPolicy.ts"
   },
   "dependencies": {
     "zod": "^4.3.6"

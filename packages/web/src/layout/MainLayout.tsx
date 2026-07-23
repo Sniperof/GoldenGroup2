@@ -72,9 +72,9 @@ const operationsChildren = [
 // Requests — intake parent section (currently only maintenance; will grow).
 const requestsChildren = [
     { path: '/account-requests',                label: 'طلبات إنشاء الحساب',     icon: UserPlus, permission: 'account_requests.view' },
-    { path: '/service-requests/water-check',    label: 'طلبات فحص المياه',                  icon: Beaker },
-    { path: '/service-requests/water-check/simulator', label: 'محاكاة فحص المياه',           icon: FilePlus2 },
-    { path: '/service-requests',                label: 'طلبات الصيانة',          icon: Wrench },
+    { path: '/service-requests/water-check',    label: 'طلبات فحص المياه',       icon: Beaker,   permission: 'water_check.view' },
+    { path: '/service-requests/water-check/simulator', label: 'محاكاة فحص المياه', icon: FilePlus2, permission: 'water_check.create' },
+    { path: '/service-requests',                label: 'طلبات الصيانة',          icon: Wrench,   permission: 'service_requests.view' },
 ];
 
 const planningChildren = [
@@ -508,8 +508,10 @@ export default function MainLayout() {
                     </div>
                     )}
 
-                    {/* 5b. Requests — parent section for all intake layers */}
-                    {canSeeBranchModules && can('service_requests.view') && (
+                    {/* 5b. Requests — parent section for all intake layers.
+                        Visible with any request-family view key (contract §5). */}
+                    {canSeeBranchModules
+                      && (can('service_requests.view') || can('water_check.view') || can('account_requests.view')) && (
                     <div className={isCollapsed ? 'lg:hidden' : 'block'}>
                         <button
                             onClick={() => setRequestsOpen((o: boolean) => !o)}

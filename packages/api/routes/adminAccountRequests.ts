@@ -58,6 +58,11 @@ router.get('/', requirePermission('account_requests.view'), async (req, res) => 
     const result = await listAccountRequests({
       status: (req.query.status as string) ?? null,
       duplicate: req.query.duplicate === 'true' ? true : null,
+      reviewRequired: req.query.reviewRequired === 'true' ? true : null,
+      escalatedOnly: req.query.escalatedOnly === 'true' ? true : null,
+      staleOnly: req.query.staleOnly === 'true' ? true : null,
+      mineUserId: req.query.mine === 'true' ? req.authContext!.userId : null,
+      archived: (req.query.archived as string) ?? null,
       search: (req.query.search as string) ?? null,
       limit: req.query.limit ? parseInt(String(req.query.limit)) : undefined,
       offset: req.query.offset ? parseInt(String(req.query.offset)) : undefined,
@@ -101,7 +106,7 @@ router.get('/:id', requirePermission('account_requests.view'), async (req, res) 
  *     responses:
  *       200: { description: Ranked client suggestions with confidence }
  */
-router.get('/:id/suggestions', requirePermission('account_requests.view'), async (req, res) => {
+router.get('/:id/suggestions', requirePermission('account_requests.review'), async (req, res) => {
   try {
     res.json(await getSuggestions(parseInt(String(req.params.id))));
   } catch (err) {
@@ -132,7 +137,7 @@ router.get('/:id/suggestions', requirePermission('account_requests.view'), async
  *       200: { description: Linked + activated }
  *       409: { description: Already processed, or number already has an active account }
  */
-router.post('/:id/link', requirePermission('account_requests.link'), async (req, res) => {
+router.post('/:id/link', requirePermission('account_requests.decide'), async (req, res) => {
   try {
     const result = await linkAccountRequest({
       requestId: parseInt(String(req.params.id)),
@@ -163,7 +168,7 @@ router.post('/:id/link', requirePermission('account_requests.link'), async (req,
  *     responses:
  *       200: { description: Escalated }
  */
-router.post('/:id/escalate', requirePermission('account_requests.escalate'), async (req, res) => {
+router.post('/:id/escalate', requirePermission('account_requests.review'), async (req, res) => {
   try {
     res.json(await escalateAccountRequest({
       requestId: parseInt(String(req.params.id)),
@@ -205,9 +210,9 @@ router.post('/:id/resolve-escalation', requirePermission('account_requests.resol
  *           schema: { type: object, required: [reasonCode], properties: { reasonCode: { type: string } } }
  *     responses:
  *       200: { description: Rejected }
- *       403: { description: Missing account_requests.reject }
+ *       403: { description: Missing account_requests.decide }
  */
-router.post('/:id/reject', requirePermission('account_requests.reject'), async (req, res) => {
+router.post('/:id/reject', requirePermission('account_requests.decide'), async (req, res) => {
   try {
     res.json(await rejectAccountRequest({
       requestId: parseInt(String(req.params.id)),
@@ -222,8 +227,9 @@ router.post('/:id/reject', requirePermission('account_requests.reject'), async (
 
 // ------------------------------------------------------------
 // Shared-lifecycle endpoints (parity with water_check), guarded by the
-// independent account_requests.* keys. Operator workflow actions use
-// account_requests.link (the operator's progress capability).
+// independent account_requests.* keys per the standard family semantics
+// (request-section-contract.md §4/§5): workflow actions → .review,
+// terminal decisions (link-approve / reject / reopen) → .decide.
 // ------------------------------------------------------------
 
 /**
@@ -238,7 +244,7 @@ router.post('/:id/reject', requirePermission('account_requests.reject'), async (
  *     responses:
  *       200: { description: Claimed }
  */
-router.post('/:id/claim', requirePermission('account_requests.link'), async (req, res) => {
+router.post('/:id/claim', requirePermission('account_requests.review'), async (req, res) => {
   try {
     res.json(await claimAccountRequest({
       requestId: parseInt(String(req.params.id)),
@@ -266,7 +272,7 @@ router.post('/:id/claim', requirePermission('account_requests.link'), async (req
  *     responses:
  *       200: { description: Ownership transferred }
  */
-router.post('/:id/take-over', requirePermission('account_requests.link'), async (req, res) => {
+router.post('/:id/take-over', requirePermission('account_requests.review'), async (req, res) => {
   try {
     res.json(await claimAccountRequest({
       requestId: parseInt(String(req.params.id)),
@@ -279,56 +285,9 @@ router.post('/:id/take-over', requirePermission('account_requests.link'), async 
   }
 });
 
-/**
- * @swagger
- * /api/admin/account-requests/{id}/request-info:
- *   post:
- *     tags: [Admin - Account Requests]
- *     summary: Ask the customer for more info (in_review → awaiting_customer_info)
- *     security: [{ bearerAuth: [] }]
- *     parameters:
- *       - { in: path, name: id, required: true, schema: { type: integer } }
- *     responses:
- *       200: { description: Moved to awaiting_customer_info }
- */
-router.post('/:id/request-info', requirePermission('account_requests.link'), async (req, res) => {
-  try {
-    res.json(await transitionAccountRequest({
-      requestId: parseInt(String(req.params.id)),
-      toStatus: 'awaiting_customer_info',
-      actorUserId: actor(req).userId,
-      actorRole: 'operator',
-      note: req.body?.note ?? null,
-    }));
-  } catch (err) {
-    handle(res, err, 'Request info');
-  }
-});
-
-/**
- * @swagger
- * /api/admin/account-requests/{id}/resume-review:
- *   post:
- *     tags: [Admin - Account Requests]
- *     summary: Resume review (awaiting_customer_info → in_review)
- *     security: [{ bearerAuth: [] }]
- *     parameters:
- *       - { in: path, name: id, required: true, schema: { type: integer } }
- *     responses:
- *       200: { description: Back to in_review }
- */
-router.post('/:id/resume-review', requirePermission('account_requests.link'), async (req, res) => {
-  try {
-    res.json(await transitionAccountRequest({
-      requestId: parseInt(String(req.params.id)),
-      toStatus: 'in_review',
-      actorUserId: actor(req).userId,
-      actorRole: 'operator',
-    }));
-  } catch (err) {
-    handle(res, err, 'Resume review');
-  }
-});
+// «طلب معلومات من الزبون» dropped (request-section-contract.md §3):
+// request-info / resume-review endpoints removed; the customer is contacted
+// during in_review and the attempts are documented as internal notes.
 
 /**
  * @swagger
@@ -347,7 +306,7 @@ router.post('/:id/resume-review', requirePermission('account_requests.link'), as
  *     responses:
  *       200: { description: Reopened }
  */
-router.post('/:id/reopen', requirePermission('account_requests.link'), async (req, res) => {
+router.post('/:id/reopen', requirePermission('account_requests.decide'), async (req, res) => {
   try {
     res.json(await transitionAccountRequest({
       requestId: parseInt(String(req.params.id)),
@@ -378,7 +337,7 @@ router.post('/:id/reopen', requirePermission('account_requests.link'), async (re
  *     responses:
  *       201: { description: Note added }
  */
-router.post('/:id/notes', requirePermission('account_requests.link'), async (req, res) => {
+router.post('/:id/notes', requirePermission('account_requests.review'), async (req, res) => {
   try {
     await addAccountRequestNote({
       requestId: parseInt(String(req.params.id)),

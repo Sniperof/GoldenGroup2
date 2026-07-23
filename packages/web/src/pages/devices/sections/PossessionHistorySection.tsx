@@ -1,8 +1,9 @@
 import { DevicePossessionTimeline } from '../../../components/devices/DevicePossessionTimeline';
 import { SectionShell } from './SectionShell';
+import type { DevicePossessionEntry } from '@golden-crm/shared';
 
 interface Props {
-  entries: any[];
+  entries: DevicePossessionEntry[];
 }
 
 export function PossessionHistorySection({ entries }: Props) {

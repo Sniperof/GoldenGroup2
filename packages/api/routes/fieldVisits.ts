@@ -4,7 +4,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
 import { authorize } from '../services/authorizationService.js';
 import { HIDDEN_OPERATIONAL_TASK_TYPES } from '@golden-crm/shared';
-import type { AuthContext } from '@golden-crm/shared';
+import type { AuthContext, VisitResultTaskType } from '@golden-crm/shared';
 import { canViewFieldVisit, canEditFieldVisit, getFieldVisitListAccessPlan } from '../policies/fieldVisitPolicy.js';
 import { checkAndCompleteVisit } from '../services/visitCompletion.js';
 import { hasBlockingUndocumentedVisit } from '../services/visitEscalationJob.js';
@@ -24,6 +24,30 @@ const router = Router();
 router.use(requireAuth);
 
 const MY_VISITS_PERMISSION = 'field_visits.my_visits.view';
+
+type VisitTaskResultApplier = (
+  visitTaskId: number,
+  body: any,
+  performedByUserId: number,
+) => Promise<any>;
+
+export const VISIT_TASK_RESULT_APPLIERS = {
+  device_demo: (taskId, body, userId) => applyDeviceDemoResult(taskId, body, userId),
+  device_checkup: (taskId, body, userId) => applyDeviceCheckupResult(taskId, body, userId),
+  device_delivery: (taskId, body, userId) => applyDeviceDeliveryResult(taskId, body, userId),
+  device_installation: (taskId, body, userId) => applyDeviceInstallationResult(taskId, body, userId),
+  device_activation: (taskId, body, userId) => applyDeviceActivationResult(taskId, body, userId),
+  device_disconnection: (taskId, body, userId) => applyDeviceDisconnectionResult(taskId, body, userId),
+  device_retrieval: (taskId, body, userId) => applyDeviceRetrievalResult(taskId, body, userId),
+  device_return: (taskId, body, userId) => applyDeviceReturnResult(taskId, body, userId),
+  device_transfer: (taskId, body, userId) => applyDeviceTransferResult(taskId, body, userId),
+  emergency_maintenance: (taskId, body, userId) => applyEmergencyMaintenanceLifecycleResult(taskId, body, userId),
+  periodic_maintenance: (taskId, body, userId) => applyEmergencyMaintenanceLifecycleResult(taskId, body, userId),
+  golden_warranty_offer: (taskId, body, userId) => applyGoldenWarrantyOfferResult(taskId, body, userId),
+  golden_warranty_card_delivery: (taskId, body, userId) => applyGoldenWarrantyCardDeliveryResult(taskId, body, userId),
+  installment_collection: (taskId, body, userId) => applyInstallmentCollectionResult(taskId, body, userId),
+  gift_delivery: (taskId, body, userId) => applyGiftDeliveryResult(taskId, body, userId),
+} satisfies Record<VisitResultTaskType, VisitTaskResultApplier>;
 
 function getAuthContext(req: any) {
   if (!req.authContext) throw new Error('AuthContext is required');
@@ -1701,6 +1725,10 @@ router.get('/:id', requirePermission('field_visits.view', MY_VISITS_PERMISSION),
                 vtr.id AS result_id, vtr.final_decision, vtr.reason_code,
                 vtr.closing_notes, vtr.closed_at,
                 ot.reason,
+                gift_info.gift_name,
+                gift_info.approved_quantity,
+                gift_info.unit_label,
+                gift_info.gift_beneficiary_name,
                 ${hasDeliveryAddressColumn ? 'ot.delivery_address' : 'idev.installation_address_text'} AS delivery_address,
                 ot.device_id, ot.service_branch_id, ot.retrieval_purpose,
                 ot.installment_id AS "installmentId",
@@ -1721,6 +1749,23 @@ router.get('/:id', requirePermission('field_visits.view', MY_VISITS_PERMISSION),
          LEFT JOIN task_type_config ttc ON ttc.task_type = vt.task_type
          LEFT JOIN visit_task_results vtr ON vtr.visit_task_id = vt.id
          LEFT JOIN open_tasks ot ON ot.id = vt.source_open_task_id
+         LEFT JOIN LATERAL (
+           SELECT
+             STRING_AGG(DISTINCT gd.name, '، ' ORDER BY gd.name) AS gift_name,
+             SUM(gr.approved_quantity)::int AS approved_quantity,
+             STRING_AGG(DISTINCT gd.default_unit_label, '، ' ORDER BY gd.default_unit_label) AS unit_label,
+             STRING_AGG(DISTINCT gr.beneficiary_name_snapshot, '، ' ORDER BY gr.beneficiary_name_snapshot) AS gift_beneficiary_name
+           FROM gift_records gr
+           JOIN gift_definitions gd ON gd.id = gr.gift_definition_id
+           WHERE ot.task_type = 'gift_delivery'
+             AND (
+               gr.delivery_task_id = ot.id
+               OR (
+                 ot.source_context_type = 'gift_records'
+                 AND gr.id = ot.source_context_id
+               )
+             )
+         ) gift_info ON true
          LEFT JOIN branches service_branch ON service_branch.id = ot.service_branch_id
          LEFT JOIN clients target_client ON target_client.id = ot.target_client_id
          LEFT JOIN installed_devices idev ON idev.id = ot.device_id
@@ -3106,11 +3151,9 @@ router.post('/:id/reopen', requirePermission('field_visits.reopen_closed'), asyn
 // POST /field-visits/:visitId/tasks/:taskId/result
 // ============================================================================
 // Unified task-result entrypoint. Routes by visit_tasks.task_type to the
-// matching reflection service (currently: device_demo). The service writes
-// visit_task_results + side table + per-offer rows + reflects onto open_task
-// and calls checkAndCompleteVisit at the end — all in one transaction.
-//
-// Reference: docs/constitution/features/tasks/device-demo.md
+// exhaustive shared registry. Each reflection service writes visit_task_results
+// plus its side tables, reflects onto open_tasks, and invokes the visit
+// completion guard in one transaction.
 router.post('/:visitId/tasks/:taskId/result', requirePermission('tasks.results.record'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
@@ -3135,76 +3178,9 @@ router.post('/:visitId/tasks/:taskId/result', requirePermission('tasks.results.r
 
     const taskType = vtRows[0].task_type;
     const body = req.body ?? {};
-
-    if (taskType === 'device_demo') {
-      const result = await applyDeviceDemoResult(taskId, body, authContext.userId);
-      return res.json({ success: true, ...result });
-    }
-
-    if (taskType === 'device_checkup') {
-      const result = await applyDeviceCheckupResult(taskId, body, authContext.userId);
-      return res.json({ success: true, ...result });
-    }
-
-    if (taskType === 'device_delivery') {
-      const result = await applyDeviceDeliveryResult(taskId, body, authContext.userId);
-      return res.json({ success: true, ...result });
-    }
-
-    if (taskType === 'device_installation') {
-      const result = await applyDeviceInstallationResult(taskId, body, authContext.userId);
-      return res.json({ success: true, ...result });
-    }
-
-    if (taskType === 'device_activation') {
-      const result = await applyDeviceActivationResult(taskId, body, authContext.userId);
-      return res.json({ success: true, ...result });
-    }
-
-    if (taskType === 'device_disconnection') {
-      const result = await applyDeviceDisconnectionResult(taskId, body, authContext.userId);
-      return res.json({ success: true, ...result });
-    }
-
-    if (taskType === 'device_retrieval') {
-      const result = await applyDeviceRetrievalResult(taskId, body, authContext.userId);
-      return res.json({ success: true, ...result });
-    }
-
-    if (taskType === 'device_return') {
-      const result = await applyDeviceReturnResult(taskId, body, authContext.userId);
-      return res.json({ success: true, ...result });
-    }
-
-    if (taskType === 'device_transfer') {
-      const result = await applyDeviceTransferResult(taskId, body, authContext.userId);
-      return res.json({ success: true, ...result });
-    }
-
-    if (taskType === 'emergency_maintenance' || taskType === 'periodic_maintenance') {
-      // Lifecycle-only path (reschedule / cancel). The "apply maintenance"
-      // outcome continues to use the dedicated /api/emergency-result wizard.
-      const result = await applyEmergencyMaintenanceLifecycleResult(taskId, body, authContext.userId);
-      return res.json({ success: true, ...result });
-    }
-
-    if (taskType === 'golden_warranty_offer') {
-      const result = await applyGoldenWarrantyOfferResult(taskId, body, authContext.userId);
-      return res.json({ success: true, ...result });
-    }
-
-    if (taskType === 'golden_warranty_card_delivery') {
-      const result = await applyGoldenWarrantyCardDeliveryResult(taskId, body, authContext.userId);
-      return res.json({ success: true, ...result });
-    }
-
-    if (taskType === 'gift_delivery') {
-      const result = await applyGiftDeliveryResult(taskId, body, authContext.userId);
-      return res.json({ success: true, ...result });
-    }
-
-    if (taskType === 'installment_collection') {
-      const result = await applyInstallmentCollectionResult(taskId, body, authContext.userId);
+    const applyResult = VISIT_TASK_RESULT_APPLIERS[taskType as VisitResultTaskType];
+    if (applyResult) {
+      const result = await applyResult(taskId, body, authContext.userId);
       return res.json({ success: true, ...result });
     }
 

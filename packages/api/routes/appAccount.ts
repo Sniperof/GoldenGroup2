@@ -26,11 +26,22 @@ const router = Router();
  *       Returns the single computed mode the app should render, keyed by the
  *       (normalized) phone: `visitor`, `pending`, `active`, or `suspended`.
  *       The app never sees internal request/account states.
+ *
+ *       Optional `ref` — the request's publicRefNumber the app stored from the
+ *       create response. When it matches the number's rejected non-archived
+ *       request, the response adds `rejection {code, label, rejectedAt}` so the
+ *       fate + reason surface in the SAME boot call, with no OTP round. The ref
+ *       is the capability: phone alone keeps answering a silent `visitor`.
+ *       Reason only — never personal data. Archiving the request ends it.
  *     parameters:
  *       - in: query
  *         name: phone
  *         required: true
  *         schema: { type: string, example: "0912345678" }
+ *       - in: query
+ *         name: ref
+ *         required: false
+ *         schema: { type: string, example: "SR-20260718-0004" }
  *     responses:
  *       200:
  *         description: Derived status
@@ -42,13 +53,21 @@ const router = Router();
  *                 status:
  *                   type: string
  *                   enum: [visitor, pending, active, suspended]
+ *                 rejection:
+ *                   type: object
+ *                   nullable: true
+ *                   description: Only when a valid `ref` matches a rejected request.
+ *                   properties:
+ *                     code: { type: string, example: duplicate }
+ *                     label: { type: string, example: "طلب مكرّر — يوجد طلب أو حساب سابق لهذا الرقم" }
+ *                     rejectedAt: { type: string, format: date-time, nullable: true }
  *       400: { description: Missing or invalid phone }
  */
 router.get('/account/status', async (req, res) => {
   try {
     const phone = String(req.query.phone ?? '');
     if (!phone) return res.status(400).json({ error: 'رقم الموبايل مطلوب' });
-    const result = await checkMobileStatus(phone);
+    const result = await checkMobileStatus(phone, typeof req.query.ref === 'string' ? req.query.ref : undefined);
     res.json(result);
   } catch (err: any) {
     if (err?.status) {

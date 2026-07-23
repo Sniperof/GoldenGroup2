@@ -4,11 +4,11 @@
 //
 // Constitution: maintenance.md §٠.٣, §٠.٤, §٠.٥, §SR-AUTH-01
 //
-// Modes:
-//   - 'requestInfo'      → awaiting_customer_info (non-terminal)
+// Modes ('requestInfo' removed — request-section-contract.md §3):
 //   - 'resolveAtIntake'  → resolved_at_intake (terminal)
 //   - 'escalate'         → sets review_required_flag (non-terminal)
 //   - 'cancel'           → cancelled (terminal)
+//   - 'reject'           → rejected (terminal)
 //
 // All modes:
 //   - Show a contextual warning when terminal.
@@ -21,7 +21,7 @@ import Button, { type ButtonVariant } from '../ui/Button';
 import Modal from '../ui/Modal';
 import { api } from '../../lib/api';
 
-export type ModalMode = 'requestInfo' | 'resolveAtIntake' | 'escalate' | 'cancel' | 'reject';
+export type ModalMode = 'resolveAtIntake' | 'escalate' | 'cancel' | 'reject';
 
 interface Option {
   value: string;
@@ -76,26 +76,10 @@ const MODE_CONFIG: Record<ModalMode, {
   noteLabel: string;
   noteRequired: boolean;
   notePlaceholder: string;
-  showExpectedCallback?: boolean;
   confirmText: string;
   confirmClass: string;
   confirmVariant: ButtonVariant;
 }> = {
-  requestInfo: {
-    title: 'طَلب معلومة من الزبون',
-    badge: 'غير نهائي',
-    badgeClass: 'bg-amber-100 text-amber-700',
-    description: 'سَيَنتقل الطلب إلى "بانتظار الزبون". لو لم يَردّ خلال 7 أيام، يُلغى آلياً.',
-    isTerminal: false,
-    requiresOutcome: false,
-    noteLabel: 'ما الذي تَنتظر من الزبون؟',
-    noteRequired: true,
-    notePlaceholder: 'مثلاً: صورة للشاشة + رقم العقد',
-    showExpectedCallback: true,
-    confirmText: 'إرسال الطلب',
-    confirmClass: 'bg-amber-600 hover:bg-amber-700',
-    confirmVariant: 'gold',
-  },
   resolveAtIntake: {
     title: 'حُلَّ في الاستلام',
     badge: 'نهائي',
@@ -164,7 +148,6 @@ interface Props {
     triageOutcome?: string;
     triageNotes?: string;
     note?: string;
-    expectedCallbackAt?: string | null;
   }) => Promise<void>;
 }
 
@@ -175,7 +158,6 @@ export default function TerminalTransitionModal({ mode, requestType, onClose, on
   const [resolveOutcomesError, setResolveOutcomesError] = useState<string | null>(null);
   const [outcome, setOutcome] = useState('');
   const [note, setNote] = useState('');
-  const [expectedCallback, setExpectedCallback] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmStep, setConfirmStep] = useState(false);
@@ -233,9 +215,6 @@ export default function TerminalTransitionModal({ mode, requestType, onClose, on
       } else {
         payload.triageNotes = note.trim();
         payload.note = note.trim();
-      }
-      if (mode === 'requestInfo' && expectedCallback) {
-        payload.expectedCallbackAt = expectedCallback;
       }
       await onConfirm(payload);
     } catch (e: any) {
@@ -340,20 +319,6 @@ export default function TerminalTransitionModal({ mode, requestType, onClose, on
               className="w-full text-sm border border-slate-300 rounded p-2 focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
             />
           </div>
-
-          {cfg.showExpectedCallback && (
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
-                موعد الردّ المُتَوقَّع <span className="text-xs text-slate-400">(اختياري)</span>
-              </label>
-              <input
-                type="datetime-local"
-                value={expectedCallback}
-                onChange={(e) => setExpectedCallback(e.target.value)}
-                className="w-full text-sm border border-slate-300 rounded p-2"
-              />
-            </div>
-          )}
 
           {confirmStep && cfg.isTerminal && (
             <div className="bg-amber-100 border-2 border-amber-400 rounded p-3 text-sm text-amber-900">

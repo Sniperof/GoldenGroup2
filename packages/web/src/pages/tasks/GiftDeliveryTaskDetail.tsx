@@ -3,7 +3,6 @@ import { Gift } from '../../components/ui/icons';
 import TaskDetailLayout from '../../components/tasks/TaskDetailLayout';
 import { InfoLine } from '../../components/tasks/shared';
 import type { TaskDetailData, TaskTypeExtension } from '../../components/tasks/types';
-import GiftDeliveryResultModal from '../../taskTypes/gift_delivery/GiftDeliveryResultModal';
 
 type DisplayValue = string | number;
 
@@ -60,8 +59,6 @@ function giftOverviewCard(data: TaskDetailData) {
 }
 
 const giftExtension: TaskTypeExtension = {
-  ResultModal: GiftDeliveryResultModal,
-  canRecordResultFor: (task) => (task?.taskType ?? task?.task_type) === 'gift_delivery',
   overviewExtraCards: giftOverviewCard,
 };
 

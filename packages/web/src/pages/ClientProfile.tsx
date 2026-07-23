@@ -1225,6 +1225,9 @@ function ContactsTab({
                             setModalContact(null);
                         } catch (err: any) {
                             console.error('Failed to save call:', err);
+                            throw err instanceof Error
+                                ? err
+                                : new Error('تعذر حفظ نتيجة التواصل. تحقق من البيانات وحاول مجدداً.');
                         }
                     }}
                 />

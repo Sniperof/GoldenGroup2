@@ -21,6 +21,7 @@ import { getEntityContacts } from '../../lib/contactUtils';
 import { CONTACT_STATUS_CONFIG, CONTACT_TYPE_CONFIG } from '../../lib/contactRules';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import VisitTimePicker, { isVisitTimeConflict } from './VisitTimePicker';
+import { getOutcomeSaveErrorMessage } from './outcomeSaveError';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -74,6 +75,7 @@ interface OutcomeRecorderModalProps {
     appointmentDate?: string;
     /** HH:MM times already booked for the same team on this date (conflict guard). */
     bookedTimes?: string[];
+    /** Reject on failure so the modal can keep the form open and show the error in context. */
     onSave: (
         contactId: string,
         outcome: TelemarketingOutcomeCode,
@@ -265,6 +267,7 @@ export default function OutcomeRecorderModal({
     const [followUpPriority, setFollowUpPriority] = useState<'high' | 'medium' | 'low' | ''>('');
     const [rescheduleReason, setRescheduleReason] = useState('');
     const [saving, setSaving] = useState(false);
+    const [saveError, setSaveError] = useState<string | null>(null);
     const currentUser = useAuthStore((state) => state.user);
     const { items: rejectionReasons } = useSystemList('telemarketing_rejection_reason');
     const { items: rescheduleReasons } = useSystemList('telemarketing_reschedule_reason');
@@ -312,6 +315,7 @@ export default function OutcomeRecorderModal({
             setApptWaterSource((entityDetails as any)?.waterSource || '');
             setApptNotes('');
             setEditingCallTime(false);
+            setSaveError(null);
         }
     }, [isOpen, task, preselectedContactId, appointmentDate, entityDetails]);
 
@@ -387,6 +391,7 @@ export default function OutcomeRecorderModal({
 
     const handleSave = async () => {
         if (!canSave || saving) return;
+        setSaveError(null);
         setSaving(true);
 
         const communicationChannel = methodToChannel(method, cellularSubtype, whatsappSubtype);
@@ -420,6 +425,8 @@ export default function OutcomeRecorderModal({
 
         try {
             await onSave(selectedContactId || preselectedContactId || '', finalOutcome, notes, extras);
+        } catch (error) {
+            setSaveError(getOutcomeSaveErrorMessage(error));
         } finally {
             setSaving(false);
         }
@@ -448,19 +455,31 @@ export default function OutcomeRecorderModal({
             }
             subtitle={task?.name || undefined}
             footer={
-                <>
-                    <Button variant="ghost" onClick={onClose}>إلغاء</Button>
-                    <Button
-                        icon={CheckCircle2}
-                        loading={saving}
-                        disabled={!canSave || saving}
-                        onClick={handleSave}
-                    >
-                        {isTextMessage ? 'إرسال الرسالة'
-                            : isBookingOutcome ? 'حجز الموعد وحفظ النتيجة'
-                            : 'حفظ النتيجة'}
-                    </Button>
-                </>
+                <div className="w-full space-y-3">
+                    {saveError && (
+                        <div
+                            role="alert"
+                            aria-live="assertive"
+                            className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-700"
+                        >
+                            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                            <span>{saveError}</span>
+                        </div>
+                    )}
+                    <div className="flex items-center justify-end gap-2">
+                        <Button variant="ghost" onClick={onClose}>إلغاء</Button>
+                        <Button
+                            icon={CheckCircle2}
+                            loading={saving}
+                            disabled={!canSave || saving}
+                            onClick={handleSave}
+                        >
+                            {isTextMessage ? 'إرسال الرسالة'
+                                : isBookingOutcome ? 'حجز الموعد وحفظ النتيجة'
+                                : 'حفظ النتيجة'}
+                        </Button>
+                    </div>
+                </div>
             }
         >
                 {/* Body - two-pane: left = context + channel (sticky), right = outcome + details */}
@@ -760,6 +779,7 @@ export default function OutcomeRecorderModal({
                                     value={visitTime}
                                     onChange={setVisitTime}
                                     bookedTimes={bookedTimes}
+                                    submitting={saving}
                                 />
 
                                 {/* Water source — only for device_demo tasks */}

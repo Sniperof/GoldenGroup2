@@ -8,17 +8,18 @@
 // routes/openTasks.ts (GET /:id/problems, GET /:id/derived-outcome).
 //
 // Conventions:
-//   - requirePermission(...) gates every route per §٠.١٦ matrix.
-//   - actorRole is inferred from the endpoint's permission level:
-//     reject/restore/override → 'audit_admin'; everything else
-//     for non-super-admin callers → 'operator'.
+//   - requireTypedPermission(action) gates per-id routes with the row's
+//     permission family (request-section-contract.md §5):
+//     emergency_maintenance → service_requests.*, water_check → water_check.*.
+//   - actorRole: decide-gated endpoints act as 'audit_admin' (decide absorbed
+//     the former reject key); everything else → 'operator'.
 //   - Service results { ok:false, code } are mapped to HTTP 400
 //     unless the code names a recognized status code (not_found
 //     → 404, wrong_role → 403, merge_or_split_required → 409).
 //   - Tx orchestration lives in the services; routes are thin.
 // ============================================================
 
-import { Router, type Request, type Response } from 'express';
+import { Router, type NextFunction, type Request, type Response } from 'express';
 import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
@@ -51,9 +52,77 @@ import { reopen } from '../services/serviceRequests/reopenService.js';
 import { suggestRecords } from '../services/serviceRequests/fuzzyMatching.js';
 import { findPeriodicAttachmentCandidate } from '../services/periodicMaintenanceTasks.js';
 import { resolveBranchForServiceGeoUnit } from '../services/serviceRequests/branchResolutionService.js';
+import { getSystemSettingNumber } from '../services/systemSettings.js';
 
 const router = Router();
 router.use(requireAuth);
+
+// ------------------------------------------------------------
+// cross-type isolation guard (request-section-contract.md §5)
+// ------------------------------------------------------------
+// account_creation requests live behind /api/admin/account-requests with
+// their own permission family (account_requests.*). They must be invisible
+// to every service_requests.* endpoint — list and per-id alike. This param
+// guard runs before any '/:id' route handler and answers 404 (not 403) so
+// the isolated type's existence is not leaked either. It also resolves the
+// row's request type once, for the typed permission middleware below.
+declare global {
+  namespace Express {
+    interface Request {
+      serviceRequestType?: string;
+    }
+  }
+}
+
+router.param('id', async (req, res, next, value) => {
+  const id = Number(value);
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ error: 'invalid_id' });
+  }
+  try {
+    const { rows } = await pool.query<{ request_type: string }>(
+      `SELECT request_type FROM service_requests WHERE id = $1`,
+      [id],
+    );
+    if (rows.length === 0 || rows[0].request_type === 'account_creation') {
+      return res.status(404).json({ error: 'service_request_not_found' });
+    }
+    req.serviceRequestType = rows[0].request_type;
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ------------------------------------------------------------
+// typed permission families (request-section-contract.md §5)
+// ------------------------------------------------------------
+// One 5-key family per request type; the acting key is chosen from the
+// row's type. Unknown/future types fall back to the maintenance family
+// until they declare their own (fail-closed at the registry layer anyway).
+const PERMISSION_FAMILY_BY_TYPE: Record<string, string> = {
+  emergency_maintenance: 'service_requests',
+  water_check: 'water_check',
+};
+
+type FamilyAction = 'view' | 'review' | 'decide' | 'resolve_escalation' | 'archive';
+
+function familyKeyFor(requestType: string, action: FamilyAction): string {
+  const family = PERMISSION_FAMILY_BY_TYPE[requestType] ?? 'service_requests';
+  return `${family}.${action}`;
+}
+
+/** Per-type requirePermission — resolves the key from the row loaded by the
+ *  '/:id' param guard, so the same route serves every family correctly. */
+function requireTypedPermission(action: FamilyAction) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const requestType = req.serviceRequestType;
+    if (!requestType) {
+      return res.status(500).json({ error: 'request_type_not_resolved' });
+    }
+    return requirePermission(familyKeyFor(requestType, action))(req, res, next);
+  };
+}
 
 // ------------------------------------------------------------
 // helpers
@@ -214,14 +283,17 @@ const SR_SELECT = `
   sr.service_address AS "serviceAddress",
   sr.priority,
   sr.status,
+  -- Aligned with the one frontend lexicon (contract §7). The UI renders from
+  -- REQUEST_STATUS_LABELS; this column exists only for API consumers.
   CASE sr.status
-    WHEN 'received' THEN 'مستلم'
+    WHEN 'received' THEN 'مُستلَم'
     WHEN 'in_review' THEN 'قيد المراجعة'
-    WHEN 'awaiting_customer_info' THEN 'بانتظار الزبون'
-    WHEN 'resolved_at_intake' THEN 'محلول في الاستلام'
+    WHEN 'awaiting_customer_info' THEN 'بانتظار الزبون (قديم)'
+    WHEN 'resolved_at_intake' THEN 'محلول عند الاستلام'
     WHEN 'rejected' THEN 'مرفوض'
-    WHEN 'promoted' THEN 'تم تحويله'
-    WHEN 'cancelled' THEN 'ملغى'
+    WHEN 'promoted' THEN 'مُرقّى إلى مهمة'
+    WHEN 'completed' THEN 'مُكتمَل'
+    WHEN 'cancelled' THEN 'مُلغى'
     ELSE sr.status
   END AS "statusLabel",
   sr.reviewed_by_user_id AS "reviewedByUserId",
@@ -314,7 +386,7 @@ router.post('/internal', requirePermission('service_requests.create'), async (re
 // LIST + DETAIL (٠.١٦ — view is GLOBAL only; SR-08)
 // ------------------------------------------------------------
 
-router.post('/water-check', requirePermission('service_requests.create'), async (req, res) => {
+router.post('/water-check', requirePermission('water_check.create'), async (req, res) => {
   const actor = getActor(req);
   const body = (req.body ?? {}) as Record<string, unknown>;
 
@@ -530,11 +602,35 @@ router.post('/water-check', requirePermission('service_requests.create'), async 
   });
 });
 
-router.get('/', requirePermission('service_requests.view'), async (req, res) => {
+router.get('/', requirePermission('service_requests.view', 'water_check.view'), async (req, res) => {
   const q = req.query;
-  const filters: string[] = ['1=1'];
+  // Cross-type isolation (request-section-contract.md §5): the list only
+  // returns the types whose <family>.view the caller holds. account_creation
+  // is never listed here (it has its own router + family).
+  const ctx = req.authContext!;
+  const viewableTypes = Object.keys(PERMISSION_FAMILY_BY_TYPE).filter(
+    (type) => ctx.isSuperAdmin || authorize(ctx, { permission: familyKeyFor(type, 'view') }).allowed,
+  );
+
+  // Contract §3 stale safety net (advisory only): in_review with no audit
+  // activity for more than the admin-configured threshold. 0 disables.
+  const staleDays = Math.max(0, Math.floor(
+    await getSystemSettingNumber('service_request_stale_after_days', 14),
+  ));
+  const staleCondition = staleDays > 0
+    ? `(sr.status = 'in_review' AND COALESCE(
+         (SELECT MAX(a.created_at) FROM service_request_audit_log a
+           WHERE a.service_request_id = sr.id),
+         sr.created_at
+       ) < NOW() - (${staleDays} * INTERVAL '1 day'))`
+    : 'FALSE';
+
+  const filters: string[] = [];
   const params: unknown[] = [];
   let idx = 1;
+  filters.push(`sr.request_type = ANY($${idx++})`);
+  params.push(viewableTypes);
+  if (q.staleOnly === 'true') filters.push(staleCondition);
 
   if (q.status) {
     filters.push(`sr.status = $${idx++}`);
@@ -551,6 +647,18 @@ router.get('/', requirePermission('service_requests.view'), async (req, res) => 
   if (q.branchResolutionStatus) {
     filters.push(`sr.branch_resolution_status = $${idx++}`);
     params.push(String(q.branchResolutionStatus));
+  }
+  // Unified search (contract §6): name / phone / public ref.
+  if (q.search) {
+    filters.push(
+      `(sr.public_ref_number ILIKE $${idx}
+        OR sr.requester_external->>'name' ILIKE $${idx}
+        OR sr.requester_external->>'primary_phone' ILIKE $${idx}
+        OR sr.beneficiary_external->>'name' ILIKE $${idx}
+        OR sr.beneficiary_external->>'primary_phone' ILIKE $${idx})`,
+    );
+    params.push(`%${String(q.search)}%`);
+    idx += 1;
   }
   if (q.duplicateOnly === 'true') filters.push(`sr.duplicate_flag = TRUE`);
   if (q.reviewRequired === 'true') filters.push(`sr.review_required_flag = TRUE`);
@@ -570,7 +678,7 @@ router.get('/', requirePermission('service_requests.view'), async (req, res) => 
   const offset = Number(q.offset) || 0;
 
   const { rows } = await pool.query(
-    `SELECT ${SR_SELECT}
+    `SELECT ${SR_SELECT}, ${staleCondition} AS "staleFlag"
        FROM service_requests sr
        ${SR_DISPLAY_JOINS}
       WHERE ${filters.join(' AND ')}
@@ -587,7 +695,7 @@ router.get('/', requirePermission('service_requests.view'), async (req, res) => 
   res.json({ items: rows, total: Number(totalRes.rows[0].n), limit, offset });
 });
 
-router.get('/:id', requirePermission('service_requests.view'), async (req, res) => {
+router.get('/:id', requireTypedPermission('view'), async (req, res) => {
   const id = Number(req.params.id);
   const [reqRes, logRes, problemsRes] = await Promise.all([
     pool.query(`SELECT ${SR_SELECT} FROM service_requests sr ${SR_DISPLAY_JOINS} WHERE sr.id = $1`, [id]),
@@ -641,7 +749,7 @@ router.get('/:id', requirePermission('service_requests.view'), async (req, res) 
 // CLAIM / TAKE-OVER (٠.٤.أ)
 // ------------------------------------------------------------
 
-router.post('/:id/claim', requirePermission('service_requests.review'), blockIfEscalated, async (req, res) => {
+router.post('/:id/claim', requireTypedPermission('review'), blockIfEscalated, async (req, res) => {
   const actor = getActor(req);
   const result = await claimOrTakeOver({
     serviceRequestId: Number(req.params.id),
@@ -652,7 +760,7 @@ router.post('/:id/claim', requirePermission('service_requests.review'), blockIfE
   res.json(result.data);
 });
 
-router.post('/:id/take-over', requirePermission('service_requests.review'), blockIfEscalated, async (req, res) => {
+router.post('/:id/take-over', requireTypedPermission('review'), blockIfEscalated, async (req, res) => {
   const actor = getActor(req);
   const result = await claimOrTakeOver({
     serviceRequestId: Number(req.params.id),
@@ -825,7 +933,7 @@ async function linkBeneficiary(input: {
   }
 }
 
-router.post('/:id/link', requirePermission('service_requests.review'), blockIfEscalated, async (req, res) => {
+router.post('/:id/link', requireTypedPermission('review'), blockIfEscalated, async (req, res) => {
   const actor = getActor(req);
   const result = await linkBeneficiary({
     serviceRequestId: Number(req.params.id),
@@ -841,7 +949,7 @@ router.post('/:id/link', requirePermission('service_requests.review'), blockIfEs
   res.json({ ok: true });
 });
 
-router.post('/:id/change-linkage', requirePermission('service_requests.review'), blockIfEscalated, async (req, res) => {
+router.post('/:id/change-linkage', requireTypedPermission('review'), blockIfEscalated, async (req, res) => {
   const actor = getActor(req);
   const result = await linkBeneficiary({
     serviceRequestId: Number(req.params.id),
@@ -858,7 +966,7 @@ router.post('/:id/change-linkage', requirePermission('service_requests.review'),
   res.json({ ok: true });
 });
 
-router.get('/:id/suggested-matches', requirePermission('service_requests.review'), async (req, res) => {
+router.get('/:id/suggested-matches', requireTypedPermission('review'), async (req, res) => {
   // Load name + phone for the requested party and use them as the fuzzy seed.
   // party=referrer searches by the mediator's snapshot; default is the beneficiary.
   const party = req.query.party === 'referrer' ? 'referrer' : 'beneficiary';
@@ -903,7 +1011,7 @@ router.get('/:id/suggested-matches', requirePermission('service_requests.review'
 });
 
 // SR-LINK-01 — link the mediator (referrer) to a client, same guard as beneficiary.
-router.post('/:id/link-referrer', requirePermission('service_requests.review'), blockIfEscalated, async (req, res) => {
+router.post('/:id/link-referrer', requireTypedPermission('review'), blockIfEscalated, async (req, res) => {
   const actor = getActor(req);
   const referrerClientId = Number(req.body.referrerClientId);
   if (!Number.isInteger(referrerClientId) || referrerClientId <= 0) {
@@ -951,7 +1059,7 @@ router.post('/:id/link-referrer', requirePermission('service_requests.review'), 
   }
 });
 
-router.get('/:id/periodic-attachment-candidate', requirePermission('service_requests.review'), async (req, res) => {
+router.get('/:id/periodic-attachment-candidate', requireTypedPermission('review'), async (req, res) => {
   const { rows } = await pool.query<{ installed_device_id: number | null }>(
     `SELECT installed_device_id
        FROM service_requests
@@ -995,31 +1103,22 @@ function transitionEndpoint(
   };
 }
 
-router.post(
-  '/:id/request-info',
-  requirePermission('service_requests.review'),
-  blockIfEscalated,
-  transitionEndpoint('service_requests.review', 'awaiting_customer_info'),
-);
-
-router.post(
-  '/:id/resume-review',
-  requirePermission('service_requests.review'),
-  blockIfEscalated,
-  transitionEndpoint('service_requests.review', 'in_review'),
-);
+// «طلب معلومات من الزبون» dropped (request-section-contract.md §3):
+// request-info / resume-review endpoints removed. Migration 383 returned any
+// parked rows to in_review; contacting the customer is an in_review activity
+// documented via internal notes, and the stale flag is the safety net.
 
 router.post(
   '/:id/resolve-at-intake',
-  requirePermission('service_requests.review'),
+  requireTypedPermission('decide'),
   blockIfEscalated,
-  transitionEndpoint('service_requests.review', 'resolved_at_intake'),
+  transitionEndpoint('<family>.decide', 'resolved_at_intake'),
 );
 
 // SR-ESC-01 — escalate to restricted mode. Sets ONLY the dedicated escalation
 // marker (freezes all actions). It does NOT touch review_required_flag — the two
 // are decoupled (SR-ESC-02); escalation itself opens the reject door (SR-AUTH-01).
-router.post('/:id/escalate', requirePermission('service_requests.review'), async (req, res) => {
+router.post('/:id/escalate', requireTypedPermission('review'), async (req, res) => {
   const actor = getActor(req);
   const client = await pool.connect();
   try {
@@ -1070,7 +1169,7 @@ router.post('/:id/escalate', requirePermission('service_requests.review'), async
 // SR-ESC-02 — resolve escalation (فك التصعيد). Dedicated permission, separate
 // from reject (§4.1: de-escalation reopens the workflow, reject is terminal).
 // Clears the restricted-mode marker so operators can resume normal actions.
-router.post('/:id/resolve-escalation', requirePermission('service_requests.resolve_escalation'), async (req, res) => {
+router.post('/:id/resolve-escalation', requireTypedPermission('resolve_escalation'), async (req, res) => {
   const actor = getActor(req);
   const client = await pool.connect();
   try {
@@ -1115,28 +1214,23 @@ router.post('/:id/resolve-escalation', requirePermission('service_requests.resol
 
 router.post(
   '/:id/reject',
-  requirePermission('service_requests.reject'),
-  transitionEndpoint('service_requests.reject', 'rejected', { actorRoleOverride: 'audit_admin' }),
+  requireTypedPermission('decide'),
+  transitionEndpoint('<family>.decide', 'rejected', { actorRoleOverride: 'audit_admin' }),
 );
 
 router.post(
   '/:id/cancel',
-  requirePermission('service_requests.review'),
+  requireTypedPermission('decide'),
   blockIfEscalated,
-  transitionEndpoint('service_requests.review', 'cancelled'),
+  transitionEndpoint('<family>.decide', 'cancelled'),
 );
 
-router.post('/:id/reopen', async (req, res) => {
-  // role gate is per-terminal — let the service decide which role is required.
+router.post('/:id/reopen', requireTypedPermission('decide'), async (req, res) => {
+  // Contract §4: reopen is a decide-family action. The decide key absorbs the
+  // former reject (audit-admin) power, so its holder passes every per-terminal
+  // role gate in reopenService (audit_admin ≥ operator).
   const actor = getActor(req);
-  const ctx = req.authContext!;
-  // pick role: if user has reject perm → may act as audit_admin
-  const hasReject = ctx.grants.some((g) => g.permission === 'service_requests.reject');
-  const hasReview = ctx.grants.some((g) => g.permission === 'service_requests.review');
-  if (!hasReject && !hasReview && !ctx.isSuperAdmin) {
-    return res.status(403).json({ error: 'missing_permission' });
-  }
-  const actorRole: ActorRole = hasReject ? 'audit_admin' : 'operator';
+  const actorRole: ActorRole = 'audit_admin';
   const result = await reopen({
     serviceRequestId: Number(req.params.id),
     actorUserId: actor.userId,
@@ -1152,7 +1246,7 @@ router.post('/:id/reopen', async (req, res) => {
 // PROMOTE / MERGE
 // ------------------------------------------------------------
 
-router.post('/:id/promote', requirePermission('service_requests.promote'), blockIfEscalated, async (req, res) => {
+router.post('/:id/promote', requireTypedPermission('decide'), blockIfEscalated, async (req, res) => {
   const actor = getActor(req);
   const result = await promote({
     serviceRequestId: Number(req.params.id),
@@ -1175,7 +1269,7 @@ router.post('/:id/promote', requirePermission('service_requests.promote'), block
   res.json(result.data);
 });
 
-router.post('/:id/handoff-water-check', requirePermission('service_requests.promote'), blockIfEscalated, async (req, res) => {
+router.post('/:id/handoff-water-check', requireTypedPermission('decide'), blockIfEscalated, async (req, res) => {
   const serviceRequestId = Number(req.params.id);
   if (!Number.isInteger(serviceRequestId) || serviceRequestId <= 0) {
     return res.status(400).json({ error: 'invalid_service_request_id' });
@@ -1237,7 +1331,7 @@ router.post('/:id/handoff-water-check', requirePermission('service_requests.prom
   res.json(result.data);
 });
 
-router.post('/:id/merge', requirePermission('service_requests.promote'), blockIfEscalated, async (req, res) => {
+router.post('/:id/merge', requireTypedPermission('decide'), blockIfEscalated, async (req, res) => {
   const actor = getActor(req);
   if (!req.body.existingOpenTaskId) {
     return res.status(400).json({ error: 'existingOpenTaskId_required' });
@@ -1252,7 +1346,7 @@ router.post('/:id/merge', requirePermission('service_requests.promote'), blockIf
   res.json(result.data);
 });
 
-router.post('/:id/attach-periodic', requirePermission('service_requests.promote'), blockIfEscalated, async (req, res) => {
+router.post('/:id/attach-periodic', requireTypedPermission('decide'), blockIfEscalated, async (req, res) => {
   const actor = getActor(req);
   if (!req.body.periodicOpenTaskId) {
     return res.status(400).json({ error: 'periodicOpenTaskId_required' });
@@ -1271,11 +1365,14 @@ router.post('/:id/attach-periodic', requirePermission('service_requests.promote'
 // ARCHIVE
 // ------------------------------------------------------------
 
-router.post('/:id/archive', requirePermission('service_requests.archive'), async (req, res) => {
+router.post('/:id/archive', requireTypedPermission('archive'), async (req, res) => {
   const actor = getActor(req);
   const ctx = req.authContext!;
-  const hasReject = ctx.grants.some((g) => g.permission === 'service_requests.reject');
-  const actorRole: ActorRole = hasReject ? 'audit_admin' : 'operator';
+  // decide-key holders act as audit_admin (the decide key absorbed reject).
+  const hasDecide = ctx.isSuperAdmin || ctx.grants.some(
+    (g) => g.permission === familyKeyFor(req.serviceRequestType ?? '', 'decide'),
+  );
+  const actorRole: ActorRole = hasDecide ? 'audit_admin' : 'operator';
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -1317,11 +1414,14 @@ router.post('/:id/archive', requirePermission('service_requests.archive'), async
   }
 });
 
-router.post('/:id/unarchive', requirePermission('service_requests.archive'), async (req, res) => {
+router.post('/:id/unarchive', requireTypedPermission('archive'), async (req, res) => {
   const actor = getActor(req);
   const ctx = req.authContext!;
-  const hasReject = ctx.grants.some((g) => g.permission === 'service_requests.reject');
-  const actorRole: ActorRole = hasReject ? 'audit_admin' : 'operator';
+  // decide-key holders act as audit_admin (the decide key absorbed reject).
+  const hasDecide = ctx.isSuperAdmin || ctx.grants.some(
+    (g) => g.permission === familyKeyFor(req.serviceRequestType ?? '', 'decide'),
+  );
+  const actorRole: ActorRole = hasDecide ? 'audit_admin' : 'operator';
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -1362,7 +1462,7 @@ router.post('/:id/unarchive', requirePermission('service_requests.archive'), asy
 // INTERNAL NOTES
 // ------------------------------------------------------------
 
-router.post('/:id/notes', requirePermission('service_requests.review'), async (req, res) => {
+router.post('/:id/notes', requireTypedPermission('review'), async (req, res) => {
   const actor = getActor(req);
   if (!req.body.note || String(req.body.note).trim().length === 0) {
     return res.status(400).json({ error: 'note_required' });
@@ -1386,7 +1486,7 @@ router.post('/:id/notes', requirePermission('service_requests.review'), async (r
 // PROBLEMS (٠.١٩) — per-phase auth left to caller; we expose actions.
 // ------------------------------------------------------------
 
-router.post('/:id/problems', requirePermission('service_requests.review'), blockIfEscalated, async (req, res) => {
+router.post('/:id/problems', requireTypedPermission('review'), blockIfEscalated, async (req, res) => {
   const actor = getActor(req);
   const result = await addProblem({
     serviceRequestId: Number(req.params.id),
@@ -1415,7 +1515,7 @@ router.post('/:id/problems', requirePermission('service_requests.review'), block
   res.status(201).json(result.data);
 });
 
-router.patch('/:id/problems/:pid', requirePermission('service_requests.review'), blockIfEscalated, async (req, res) => {
+router.patch('/:id/problems/:pid', requireTypedPermission('review'), blockIfEscalated, async (req, res) => {
   const actor = getActor(req);
   const result = await editProblem({
     problemId: Number(req.params.pid),
@@ -1428,7 +1528,7 @@ router.patch('/:id/problems/:pid', requirePermission('service_requests.review'),
   res.json({ ok: true });
 });
 
-router.patch('/:id/problems/:pid/status', requirePermission('service_requests.review'), blockIfEscalated, async (req, res) => {
+router.patch('/:id/problems/:pid/status', requireTypedPermission('review'), blockIfEscalated, async (req, res) => {
   const actor = getActor(req);
   const result = await changeProblemStatus({
     problemId: Number(req.params.pid),
@@ -1449,7 +1549,7 @@ router.patch('/:id/problems/:pid/status', requirePermission('service_requests.re
 
 router.post(
   '/:id/problems/:pid/record-resolution',
-  requirePermission('service_requests.review'),
+  requireTypedPermission('review'),
   blockIfEscalated,
   async (req, res) => {
     // Shortcut: changes status to 'resolved' and fills resolution fields.
@@ -1470,7 +1570,7 @@ router.post(
   },
 );
 
-router.delete('/:id/problems/:pid', requirePermission('service_requests.review'), blockIfEscalated, async (req, res) => {
+router.delete('/:id/problems/:pid', requireTypedPermission('review'), blockIfEscalated, async (req, res) => {
   const actor = getActor(req);
   const result = await softDeleteProblem({
     problemId: Number(req.params.pid),
@@ -1484,7 +1584,7 @@ router.delete('/:id/problems/:pid', requirePermission('service_requests.review')
 
 router.post(
   '/:id/problems/:pid/restore',
-  requirePermission('service_requests.reject'), // audit-admin perm gates restore
+  requireTypedPermission('decide'), // audit-admin perm gates restore
   blockIfEscalated,
   async (req, res) => {
     const actor = getActor(req);
@@ -1500,7 +1600,7 @@ router.post(
 
 router.post(
   '/:id/problems/:pid/override',
-  requirePermission('service_requests.reject'), // audit-admin perm gates override
+  requireTypedPermission('decide'), // audit-admin perm gates override
   blockIfEscalated,
   async (req, res) => {
     const actor = getActor(req);

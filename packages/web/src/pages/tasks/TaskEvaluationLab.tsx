@@ -1,26 +1,9 @@
-import { useMemo, useState, type ComponentType } from 'react';
+import { useMemo, useState } from 'react';
 import { AlertCircle, Beaker, ClipboardCheck, Eye, FilePlus2, X } from '../../components/ui/icons';
 import Button from '../../components/ui/Button';
 import IconButton from '../../components/ui/IconButton';
 import PageHeader from '../../components/ui/PageHeader';
-import DeviceDemoResultModal from '../../taskTypes/device_demo/DeviceDemoResultModal';
-import DeviceDeliveryResultModal from '../../taskTypes/device_delivery/DeviceDeliveryResultModal';
-import DeviceInstallationResultModal from '../../taskTypes/device_delivery/DeviceInstallationResultModal';
-import DeviceActivationResultModal from '../../taskTypes/device_delivery/DeviceActivationResultModal';
-import DeviceCheckupResultModal from '../../taskTypes/device_delivery/DeviceCheckupResultModal';
-import DeviceDisconnectionResultModal from '../../taskTypes/device_delivery/DeviceDisconnectionResultModal';
-import DeviceRetrievalResultModal from '../../taskTypes/device_delivery/DeviceRetrievalResultModal';
-import DeviceReturnResultModal from '../../taskTypes/device_delivery/DeviceReturnResultModal';
-import DeviceTransferResultModal from '../../taskTypes/device_delivery/DeviceTransferResultModal';
-import EmergencyResultModal from '../../taskTypes/emergency_maintenance/EmergencyResultModal';
-import GoldenWarrantyOfferModal from '../../taskTypes/golden_warranty_offer/GoldenWarrantyOfferModal';
-import GoldenWarrantyCardDeliveryModal from '../../taskTypes/golden_warranty_card_delivery/GoldenWarrantyCardDeliveryModal';
-import GiftDeliveryResultModal from '../../taskTypes/gift_delivery/GiftDeliveryResultModal';
-import InstallmentCollectionResultModal from '../../taskTypes/installment_collection/InstallmentCollectionResultModal';
-import type { TaskResultModalProps } from '../../components/tasks/types';
 import { isHiddenOperationalTaskType } from '@golden-crm/shared';
-
-type ResultModal = ComponentType<TaskResultModalProps>;
 
 type TaskLabItem = {
   taskType: string;
@@ -29,8 +12,6 @@ type TaskLabItem = {
   taskFamily: string;
   createModel: 'available' | 'missing' | 'external';
   resultModel: 'available' | 'missing';
-  ResultModal?: ResultModal;
-  resultKind?: 'standard' | 'emergency';
   createFields: string[];
   resultFields: string[];
   notes?: string;
@@ -44,8 +25,6 @@ const TASKS: TaskLabItem[] = [
     taskFamily: 'marketing',
     createModel: 'external',
     resultModel: 'available',
-    ResultModal: DeviceDemoResultModal,
-    resultKind: 'standard',
     createFields: ['زبون', 'فرع', 'موعد متوقع', 'أولوية', 'ملاحظات'],
     resultFields: ['قرار الزيارة', 'العروض المقدمة', 'رد الزبون على كل عرض', 'ملاحظات الإغلاق'],
     notes: 'الإنشاء الفعلي يأتي غالبا من مسار التيلماركتر وحجز الزيارة.',
@@ -57,7 +36,6 @@ const TASKS: TaskLabItem[] = [
     taskFamily: 'emergency',
     createModel: 'external',
     resultModel: 'available',
-    resultKind: 'emergency',
     createFields: ['زبون', 'جهاز مركب', 'مشكلة', 'أولوية', 'مصدر الطلب'],
     resultFields: ['تطبيق الصيانة', 'قطع الصيانة', 'التكلفة', 'الأقساط', 'إعادة جدولة أو إلغاء'],
     notes: 'الإنشاء الطبيعي من طلب صيانة أو بلاغ داخلي.',
@@ -80,8 +58,6 @@ const TASKS: TaskLabItem[] = [
     taskFamily: 'collection',
     createModel: 'available',
     resultModel: 'available',
-    ResultModal: InstallmentCollectionResultModal,
-    resultKind: 'standard',
     createFields: ['زبون', 'قسط', 'المبلغ المتوقع', 'تاريخ الاستحقاق'],
     resultFields: ['مدفوع كامل', 'مدفوع جزئي', 'إعادة جدولة', 'رفض الدفع', 'طريقة الدفع'],
   },
@@ -113,8 +89,6 @@ const TASKS: TaskLabItem[] = [
     taskFamily: 'service',
     createModel: 'available',
     resultModel: 'available',
-    ResultModal: DeviceCheckupResultModal,
-    resultKind: 'standard',
     createFields: ['زبون', 'جهاز عند الزبون', 'تاريخ المهمة', 'أولوية', 'ملاحظات'],
     resultFields: ['تسجيل الحالة الفنية للجهاز فقط'],
     notes: 'تشييك الجهاز لا يغير حالة الجهاز ولا الحيازة، ويكتب قراءة diagnostic في سجل device_technical_states.',
@@ -126,8 +100,6 @@ const TASKS: TaskLabItem[] = [
     taskFamily: 'service',
     createModel: 'available',
     resultModel: 'available',
-    ResultModal: DeviceRetrievalResultModal,
-    resultKind: 'standard',
     createFields: ['زبون', 'جهاز', 'سبب السحب', 'موقع السحب'],
     resultFields: ['تم السحب', 'تعذر السحب', 'حالة الجهاز عند السحب', 'موقع التخزين'],
   },
@@ -138,8 +110,6 @@ const TASKS: TaskLabItem[] = [
     taskFamily: 'service',
     createModel: 'available',
     resultModel: 'available',
-    ResultModal: DeviceReturnResultModal,
-    resultKind: 'standard',
     createFields: ['زبون', 'جهاز', 'سبب الإرجاع', 'العقد المرتبط'],
     resultFields: ['تم الإرجاع', 'تعذر الإرجاع', 'الأثر المالي', 'حالة الجهاز'],
   },
@@ -150,8 +120,6 @@ const TASKS: TaskLabItem[] = [
     taskFamily: 'service',
     createModel: 'available',
     resultModel: 'available',
-    ResultModal: DeviceTransferResultModal,
-    resultKind: 'standard',
     createFields: ['زبون حالي', 'زبون أو موقع جديد', 'جهاز', 'سبب النقل'],
     resultFields: ['تم النقل', 'تعذر النقل', 'موقع جديد', 'ملاحظات التركيب'],
   },
@@ -172,8 +140,6 @@ const TASKS: TaskLabItem[] = [
     taskFamily: 'delivery',
     createModel: 'external',
     resultModel: 'available',
-    ResultModal: GiftDeliveryResultModal,
-    resultKind: 'standard',
     createFields: ['زبون', 'هدية', 'سبب الاستحقاق', 'كمية', 'تاريخ تسليم'],
     resultFields: ['تم التسليم', 'رفض الهدية', 'إعادة جدولة', 'إقرار استلام كامل الكمية'],
     notes: 'الإنشاء الطبيعي من إدارة الهدايا.',
@@ -195,8 +161,6 @@ const TASKS: TaskLabItem[] = [
     taskFamily: 'warranty',
     createModel: 'available',
     resultModel: 'available',
-    ResultModal: GoldenWarrantyOfferModal,
-    resultKind: 'standard',
     createFields: ['زبون', 'جهاز أو عدة أجهزة', 'عرض', 'موعد متابعة'],
     resultFields: ['قبول العرض', 'رفض العرض', 'طلب مهلة', 'دفعات مبدئية'],
   },
@@ -207,8 +171,6 @@ const TASKS: TaskLabItem[] = [
     taskFamily: 'warranty',
     createModel: 'available',
     resultModel: 'available',
-    ResultModal: GoldenWarrantyCardDeliveryModal,
-    resultKind: 'standard',
     createFields: ['زبون', 'كفالة', 'جهاز', 'موعد تسليم'],
     resultFields: ['تم التسليم', 'تعذر التسليم', 'ملاحظات المستلم'],
   },
@@ -239,8 +201,6 @@ const TASKS: TaskLabItem[] = [
     taskFamily: 'delivery',
     createModel: 'available',
     resultModel: 'available',
-    ResultModal: DeviceDeliveryResultModal,
-    resultKind: 'standard',
     createFields: ['زبون', 'عقد', 'جهاز', 'عنوان التسليم'],
     resultFields: ['تم التسليم', 'الزبون غير متوفر', 'عنوان خاطئ', 'رفض التسليم'],
   },
@@ -251,8 +211,6 @@ const TASKS: TaskLabItem[] = [
     taskFamily: 'delivery',
     createModel: 'available',
     resultModel: 'available',
-    ResultModal: DeviceInstallationResultModal,
-    resultKind: 'standard',
     createFields: ['زبون', 'جهاز مسلم', 'موقع التركيب', 'موعد'],
     resultFields: ['تم التركيب', 'لم يكتمل', 'رفض التركيب', 'قطع مستخدمة', 'عنوان نهائي'],
   },
@@ -263,8 +221,6 @@ const TASKS: TaskLabItem[] = [
     taskFamily: 'delivery',
     createModel: 'available',
     resultModel: 'available',
-    ResultModal: DeviceActivationResultModal,
-    resultKind: 'standard',
     createFields: ['زبون', 'جهاز مركب', 'موعد تشغيل', 'أولوية'],
     resultFields: ['تم التشغيل', 'فشل التشغيل', 'مشكلة بالجهاز', 'قراءات فنية'],
   },
@@ -275,8 +231,6 @@ const TASKS: TaskLabItem[] = [
     taskFamily: 'delivery',
     createModel: 'available',
     resultModel: 'available',
-    ResultModal: DeviceDisconnectionResultModal,
-    resultKind: 'standard',
     createFields: ['زبون', 'جهاز مركب', 'سبب الفك', 'موعد'],
     resultFields: ['تم الفك', 'تعذر الفك', 'سبب التعذر', 'حالة الجهاز بعد الفك'],
   },
@@ -308,78 +262,6 @@ for (const item of TASKS) {
 }
 
 const VISIBLE_TASKS = TASKS.filter((item) => !isHiddenOperationalTaskType(item.taskType));
-
-function makeMockTask(item: TaskLabItem) {
-  const taskId = 9000 + VISIBLE_TASKS.findIndex((task) => task.taskType === item.taskType);
-  return {
-    id: taskId,
-    taskType: item.taskType,
-    task_type: item.taskType,
-    taskFamily: item.taskFamily,
-    task_family: item.taskFamily,
-    status: 'in_execution',
-    taskStatus: 'in_execution',
-    clientId: 101,
-    client_id: 101,
-    clientName: 'زبون تجريبي',
-    customerName: 'زبون تجريبي',
-    contractId: 501,
-    contract_id: 501,
-    deviceId: 701,
-    device_id: 701,
-    installedDeviceId: 701,
-    installed_device_id: 701,
-    giftName: 'هدية تجريبية',
-    gift_name: 'هدية تجريبية',
-    giftRecordId: 601,
-    gift_record_id: 601,
-    approvedQuantity: 1,
-    approved_quantity: 1,
-    unitLabel: 'هدية',
-    unit_label: 'هدية',
-    reason: item.taskType === 'gift_delivery' ? 'gift_delivery' : undefined,
-    expectedAmountSyp: 250000,
-    remainingBalance: 250000,
-    activeVisit: {
-      id: 8001,
-      visitTaskId: 8101,
-      status: 'ended',
-      scheduledDate: new Date().toISOString().slice(0, 10),
-      scheduledTime: '10:00',
-    },
-    clientSnapshot: {
-      name: 'زبون تجريبي',
-      mobile: '0999999999',
-      address: {
-        governorate: 'دمشق',
-        district: 'المزة',
-        neighborhood: 'حي تجريبي',
-      },
-    },
-    contractSnapshot: {
-      contractNumber: 'TEST-001',
-      deviceModelName: 'Golden Demo',
-    },
-    offers: [
-      {
-        id: 1,
-        deviceName: 'فلتر تجريبي',
-        cashPrice: 1000000,
-        installmentPrice: 1200000,
-        customerResponse: 'pending',
-      },
-    ],
-    preOffers: [
-      {
-        id: 1,
-        deviceName: 'فلتر تجريبي',
-        cashPrice: 1000000,
-        installmentPrice: 1200000,
-        customerResponse: 'pending',
-      },
-    ],
-  };
-}
 
 function StatusBadge({ value }: { value: 'available' | 'missing' | 'external' }) {
   const meta = {
@@ -433,21 +315,21 @@ function CreatePreviewModal({ item, onClose }: { item: TaskLabItem; onClose: () 
   );
 }
 
-function MissingResultModal({ item, onClose }: { item: TaskLabItem; onClose: () => void }) {
+function ResultPreviewModal({ item, onClose }: { item: TaskLabItem; onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/45 p-4" dir="rtl">
       <div className="w-full max-w-2xl overflow-hidden rounded-lg bg-white shadow-2xl">
         <header className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
           <div>
-            <h2 className="text-lg font-black text-slate-800">مودل نتيجة ناقص: {item.label}</h2>
+            <h2 className="text-lg font-black text-slate-800">حقول نتيجة: {item.label}</h2>
             <p className="mt-1 font-mono text-xs text-slate-400">{item.taskType}</p>
           </div>
           <IconButton icon={X} label="إغلاق" onClick={onClose} />
         </header>
         <div className="space-y-4 p-5">
-          <div className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+          <div className="flex items-start gap-2 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
             <AlertCircle className="mt-0.5 h-4 w-4" />
-            <span>لا يوجد مودل نتيجة موصول لهذا النوع حالياً.</span>
+            <span>هذه معاينة للحقول فقط. تسجيل النتيجة الفعلي متاح حصراً من داخل الزيارة المرتبطة.</span>
           </div>
           <div>
             <h3 className="mb-2 text-sm font-black text-slate-700">الحقول التي غالباً نحتاجها</h3>
@@ -478,14 +360,11 @@ export default function TaskEvaluationLab() {
     }, {});
   }, []);
 
-  const resultTask = resultPreview ? makeMockTask(resultPreview) : null;
-  const ActiveResultModal = resultPreview?.ResultModal;
-
   return (
     <div className="space-y-6 p-6" dir="rtl">
       <PageHeader
         title="مختبر تقييم مودلات المهام"
-        subtitle="صفحة مؤقتة للمعاينة فقط: لا تنشئ بيانات، لا تقرأ من الباك، وتستخدم بيانات وهمية لفتح مودلات النتائج."
+        subtitle="صفحة مؤقتة لمعاينة حقول الإنشاء والنتيجة فقط؛ لا تنشئ بيانات ولا تفتح نماذج الحفظ."
         icon={
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-sky-500 text-white shadow-sm">
             <Beaker className="h-5 w-5" />
@@ -494,7 +373,7 @@ export default function TaskEvaluationLab() {
       />
 
       <div className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
-        زر الإنشاء يعرض الحقول المتوقعة فقط. زر تسجيل النتيجة يفتح المودل الحقيقي إذا كان موجوداً، أو يوضح الحقول الناقصة إذا لم يكن موجوداً.
+        زر الإنشاء يعرض الحقول المتوقعة فقط. زر معاينة النتيجة يعرض حقولها، أما التسجيل الفعلي فيتم حصراً من داخل الزيارة.
       </div>
 
       {Object.entries(grouped).map(([group, items]) => (
@@ -529,7 +408,7 @@ export default function TaskEvaluationLab() {
                       إنشاء
                     </Button>
                     <Button size="sm" variant="secondary" icon={item.resultModel === 'available' ? ClipboardCheck : Eye} onClick={() => setResultPreview(item)}>
-                      تسجيل النتيجة
+                      معاينة النتيجة
                     </Button>
                   </div>
                 </div>
@@ -541,31 +420,7 @@ export default function TaskEvaluationLab() {
 
       {createPreview && <CreatePreviewModal item={createPreview} onClose={() => setCreatePreview(null)} />}
 
-      {resultPreview && resultPreview.resultModel === 'missing' && (
-        <MissingResultModal item={resultPreview} onClose={() => setResultPreview(null)} />
-      )}
-
-      {resultPreview && resultTask && resultPreview.resultKind === 'emergency' && (
-        <EmergencyResultModal
-          taskId={Number(resultTask.id)}
-          visitTaskId={Number(resultTask.activeVisit.visitTaskId)}
-          visitId={Number(resultTask.activeVisit.id)}
-          contractId={resultTask.contractId}
-          onClose={() => setResultPreview(null)}
-          onSaved={() => setResultPreview(null)}
-        />
-      )}
-
-      {resultPreview && resultTask && resultPreview.resultKind === 'standard' && ActiveResultModal && (
-        <ActiveResultModal
-          visitId={Number(resultTask.activeVisit.id)}
-          taskId={Number(resultTask.activeVisit.visitTaskId)}
-          task={resultTask}
-          preOffers={resultTask.preOffers}
-          onClose={() => setResultPreview(null)}
-          onSaved={() => setResultPreview(null)}
-        />
-      )}
+      {resultPreview && <ResultPreviewModal item={resultPreview} onClose={() => setResultPreview(null)} />}
     </div>
   );
 }

@@ -69,8 +69,21 @@ function requireText(value: unknown, label: string): string {
 /**
  * Derived mobile view. Priority: active/suspended account (by number) wins over
  * a pending request; a deleted account falls back to visitor (may re-register).
+ *
+ * `ref` (optional) — the request's publicRefNumber, which only the submitter
+ * holds (echoed once by the create response and stored locally). When it
+ * matches the number's latest rejected non-archived request, the response
+ * carries that request's fate + reason so the app can show WHY without an OTP
+ * round. Phone alone still answers a bare `visitor` — the ref acts as the
+ * capability; reason-only, never PII. Archiving the request closes this.
  */
-export async function checkMobileStatus(rawPhone: string): Promise<{ status: MobileStatus }> {
+export async function checkMobileStatus(
+  rawPhone: string,
+  ref?: string,
+): Promise<{
+  status: MobileStatus;
+  rejection?: { code: string; label: string; rejectedAt: string | null };
+}> {
   const phone = normalizePhone(rawPhone);
   if (!isValidSyrianMobile(phone)) throw httpError(400, 'رقم الموبايل غير صالح');
 
@@ -95,6 +108,39 @@ export async function checkMobileStatus(rawPhone: string): Promise<{ status: Mob
     [phone, SR_ACTIVE_STATUSES],
   );
   if (pending.length > 0) return { status: 'pending' };
+
+  // Fate disclosure without an OTP round: only with the matching ref in hand
+  // (proof of being the submitter), and only while the rejected request is not
+  // archived. No ref / no match → a silent plain `visitor`, as ever.
+  const cleanRef = typeof ref === 'string' ? ref.trim() : '';
+  if (cleanRef) {
+    const { rows: rejected } = await pool.query<{
+      rejection_reason: string | null;
+      closed_at: string | null;
+    }>(
+      `SELECT rejection_reason, closed_at
+         FROM service_requests
+        WHERE request_type = 'account_creation'
+          AND requester_external->>'primary_phone' = $1
+          AND public_ref_number = $2
+          AND status = 'rejected'
+          AND archived_at IS NULL
+        ORDER BY created_at DESC
+        LIMIT 1`,
+      [phone, cleanRef],
+    );
+    if (rejected.length > 0) {
+      const r = rejected[0];
+      return {
+        status: 'visitor',
+        rejection: {
+          code: r.rejection_reason ?? 'unspecified',
+          label: REJECTION_REASON_LABELS[r.rejection_reason ?? ''] ?? 'لم يُستكمل الطلب',
+          rejectedAt: r.closed_at,
+        },
+      };
+    }
+  }
 
   return { status: 'visitor' };
 }

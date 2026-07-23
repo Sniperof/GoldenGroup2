@@ -909,6 +909,8 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view', 'telemarke
     ? `WHERE ${fieldVisitAppointmentWhere.join(' AND ')}`
     : '';
 
+  // Agenda membership follows the booking source. visit_type only classifies
+  // the selected work, so telemarketing-booked service/mixed visits belong here.
   const fieldVisitAppointmentsRes = await pool.query(
     `
       SELECT
@@ -955,7 +957,6 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view', 'telemarke
       ) tl ON TRUE
       ${fieldVisitWhere}
         ${fieldVisitWhere ? 'AND' : 'WHERE'} fv.origin_type = 'telemarketing'
-        AND fv.visit_type = 'marketing'
         AND ${FIELD_VISIT_SLOT_OCCUPIED_SQL}
       GROUP BY fv.id, c.id, ct.id, tl_origin.id, tl.id
       ORDER BY fv.created_at DESC

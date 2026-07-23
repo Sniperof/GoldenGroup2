@@ -1,6 +1,7 @@
 import type {
   MarketingVisitCancelRequest,
   MarketingVisitRescheduleRequest,
+  DevicePossessionEntry,
   TaskTypeConfig,
   ZoneStudyMode,
   ZoneStudyResponse,
@@ -75,6 +76,19 @@ export interface DashboardWidget {
   key: string;
   size: 'sm' | 'md' | 'lg';
   scope: { branchId?: number } | null;
+}
+
+export interface EmergencyResultContext {
+  visitId: number;
+  visitTaskId: number;
+}
+
+function withEmergencyResultContext(path: string, context: EmergencyResultContext): string {
+  const query = new URLSearchParams({
+    visitId: String(context.visitId),
+    visitTaskId: String(context.visitTaskId),
+  });
+  return `${path}?${query.toString()}`;
 }
 
 // Read token from localStorage at call time (not at import time)
@@ -509,10 +523,10 @@ export const api = {
   // DEC-CT-09: device possession ledger.
   // Backend route is mounted at /api/devices/:deviceId/possession.
   devicePossession: {
-    list:     (deviceId: number) => request<any[]>(`/devices/${deviceId}/possession`),
-    current:  (deviceId: number) => request<any | null>(`/devices/${deviceId}/possession/current`),
+    list:     (deviceId: number) => request<DevicePossessionEntry[]>(`/devices/${deviceId}/possession`),
+    current:  (deviceId: number) => request<DevicePossessionEntry | null>(`/devices/${deviceId}/possession/current`),
     transfer: (deviceId: number, data: { holderType: string; holderId?: number | null; reason: string; notes?: string; transferAt?: string }) =>
-      request<any>(`/devices/${deviceId}/possession`, { method: 'POST', body: JSON.stringify(data) }),
+      request<DevicePossessionEntry>(`/devices/${deviceId}/possession`, { method: 'POST', body: JSON.stringify(data) }),
   },
   deviceModels: {
     list: (params?: number | DeviceModelListOptions) => {
@@ -553,18 +567,18 @@ export const api = {
   },
   emergencyResult: {
     get:          (taskId: number)            => request<any>(`/emergency-result/${taskId}`),
-    savePreState: (taskId: number, data: any) => request<any>(`/emergency-result/${taskId}/pre-state`,  { method: 'PUT', body: JSON.stringify(data) }),
-    saveActions:  (taskId: number, data: any) => request<any>(`/emergency-result/${taskId}/actions`,    { method: 'PUT', body: JSON.stringify(data) }),
-    savePostState:(taskId: number, data: any) => request<any>(`/emergency-result/${taskId}/post-state`, { method: 'PUT', body: JSON.stringify(data) }),
-    saveCosts:    (taskId: number, data: any) => request<any>(`/emergency-result/${taskId}/costs`,      { method: 'PUT', body: JSON.stringify(data) }),
-    saveParts:          (taskId: number, parts: any[]) => request<any[]>(`/emergency-result/${taskId}/parts`, { method: 'PUT', body: JSON.stringify({ parts }) }),
+    savePreState: (taskId: number, data: any, context: EmergencyResultContext) => request<any>(withEmergencyResultContext(`/emergency-result/${taskId}/pre-state`, context),  { method: 'PUT', body: JSON.stringify(data) }),
+    saveActions:  (taskId: number, data: any, context: EmergencyResultContext) => request<any>(withEmergencyResultContext(`/emergency-result/${taskId}/actions`, context),    { method: 'PUT', body: JSON.stringify(data) }),
+    savePostState:(taskId: number, data: any, context: EmergencyResultContext) => request<any>(withEmergencyResultContext(`/emergency-result/${taskId}/post-state`, context), { method: 'PUT', body: JSON.stringify(data) }),
+    saveCosts:    (taskId: number, data: any, context: EmergencyResultContext) => request<any>(withEmergencyResultContext(`/emergency-result/${taskId}/costs`, context),      { method: 'PUT', body: JSON.stringify(data) }),
+    saveParts:          (taskId: number, parts: any[], context: EmergencyResultContext) => request<any[]>(withEmergencyResultContext(`/emergency-result/${taskId}/parts`, context), { method: 'PUT', body: JSON.stringify({ parts }) }),
     getParts:           (taskId: number)              => request<any[]>(`/emergency-result/${taskId}/parts`),
     deviceHistory:      (contractId: number)          => request<any[]>(`/emergency-result/device/${contractId}/history`),
     getPaymentEntries:  (taskId: number)              => request<any[]>(`/emergency-result/${taskId}/payment-entries`),
-    savePaymentEntries: (taskId: number, entries: any[]) => request<any>(`/emergency-result/${taskId}/payment-entries`, { method: 'PUT', body: JSON.stringify({ entries }) }),
+    savePaymentEntries: (taskId: number, entries: any[], context: EmergencyResultContext) => request<any>(withEmergencyResultContext(`/emergency-result/${taskId}/payment-entries`, context), { method: 'PUT', body: JSON.stringify({ entries }) }),
     getInstallments:    (taskId: number)              => request<any>(`/emergency-result/${taskId}/installments`),
-    saveInstallments:   (taskId: number, data: any)   => request<any>(`/emergency-result/${taskId}/installments`, { method: 'PUT', body: JSON.stringify(data) }),
-    confirmInstallments:(taskId: number)              => request<any>(`/emergency-result/${taskId}/installments/confirm`, { method: 'POST' }),
+    saveInstallments:   (taskId: number, data: any, context: EmergencyResultContext) => request<any>(withEmergencyResultContext(`/emergency-result/${taskId}/installments`, context), { method: 'PUT', body: JSON.stringify(data) }),
+    confirmInstallments:(taskId: number, context: EmergencyResultContext) => request<any>(withEmergencyResultContext(`/emergency-result/${taskId}/installments/confirm`, context), { method: 'POST' }),
   },
   emergencyTickets: {
     list: (params?: { openTaskId?: number }) => {
@@ -580,6 +594,11 @@ export const api = {
     collectableInstallments: (clientId: number) => request<any[]>(`/open-tasks/client/${clientId}/collectable-installments`),
     get: (id: number) => request<any>(`/open-tasks/${id}`),
     update: (id: number, data: any) => request<any>(`/open-tasks/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    cancel: (id: number, reasonId: number) =>
+      request<{ task: any; cancellationReason: { id: number; category: string; value: string; label: string } }>(
+        `/open-tasks/${id}/cancel`,
+        { method: 'POST', body: JSON.stringify({ reasonId }) },
+      ),
     assignTeam: (id: number, data: { supervisorId?: number; technicianId?: number; traineeId?: number }) =>
       request<any>(`/open-tasks/${id}/assign-team`, { method: 'POST', body: JSON.stringify(data) }),
     /** DEC-004 D22: book a field_visit from a needs_follow_up task using its expected_date. */
@@ -618,8 +637,6 @@ export const api = {
       }>;
     }>('/open-tasks/attempt-alerts'),
     getEmergencyResult: (id: number) => request<any>(`/open-tasks/${id}/emergency-result`),
-    submitEmergencyResult: (id: number, data: any) =>
-      request<any>(`/open-tasks/${id}/emergency-result`, { method: 'POST', body: JSON.stringify(data) }),
     listDeviceDemo: (params: { branchId?: number; status?: string; visitStatus?: string; scheduledDate?: string; scheduled?: 'yes' | 'no'; hideSnoozed?: 'true'; hideFutureTasks?: 'true' }) => {
       const q = new URLSearchParams();
       if (params.branchId) q.set('branchId', String(params.branchId));
@@ -1159,13 +1176,6 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ transferReason: transferReason ?? null }),
       }),
-    requestInfo: (id: number, note?: string) =>
-      request<any>(`/admin/account-requests/${id}/request-info`, {
-        method: 'POST',
-        body: JSON.stringify({ note: note ?? null }),
-      }),
-    resumeReview: (id: number) =>
-      request<any>(`/admin/account-requests/${id}/resume-review`, { method: 'POST' }),
     reopen: (id: number, reopenReason: string) =>
       request<any>(`/admin/account-requests/${id}/reopen`, {
         method: 'POST',
@@ -1191,6 +1201,18 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ reasonCode }),
       }),
+    resolveEscalation: (id: number, note?: string | null) =>
+      request<any>(`/admin/account-requests/${id}/resolve-escalation`, {
+        method: 'POST',
+        body: JSON.stringify({ note: note ?? null }),
+      }),
+    archive: (id: number, reason?: string | null) =>
+      request<any>(`/admin/account-requests/${id}/archive`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: reason ?? null }),
+      }),
+    unarchive: (id: number) =>
+      request<any>(`/admin/account-requests/${id}/unarchive`, { method: 'POST' }),
   },
   serviceRequests: {
     create: (data: any) =>
@@ -1234,16 +1256,6 @@ export const api = {
       request<any>(`/service-requests/${id}/link-referrer`, {
         method: 'POST',
         body: JSON.stringify({ referrerClientId }),
-      }),
-    requestInfo: (id: number, body: any = {}) =>
-      request<any>(`/service-requests/${id}/request-info`, {
-        method: 'POST',
-        body: JSON.stringify(body),
-      }),
-    resumeReview: (id: number, body: any = {}) =>
-      request<any>(`/service-requests/${id}/resume-review`, {
-        method: 'POST',
-        body: JSON.stringify(body),
       }),
     resolveAtIntake: (id: number, body: any) =>
       request<any>(`/service-requests/${id}/resolve-at-intake`, {

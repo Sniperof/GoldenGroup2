@@ -4,6 +4,7 @@ import { requirePermission } from '../middleware/permission.js';
 import { getPlanningMarketingTargets } from '../services/planningMarketingTargets.js';
 import { syncAssignedTasks } from '../services/assignedTasks.js';
 import { buildClientLifecycleStatusSql } from '../services/customerOwnership.js';
+import { buildExcludedTaskTeamPredicate } from '../services/planningContactTargetScope.js';
 
 const router = Router();
 
@@ -47,8 +48,7 @@ async function reconcileContactTargetWorkspace(
                AND (ot.excluded_for_date IS NULL OR ot.excluded_for_date <> $2::date)
              )
              OR (
-               ot.excluded_for_date = $2::date
-               AND ot.status IN ('open', 'needs_follow_up', 'assigned')
+               ${buildExcludedTaskTeamPredicate('ot', '$1', '$2')}
              )
            )
        )
@@ -883,9 +883,8 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
 
            SELECT ot.client_id
              FROM open_tasks ot
-           WHERE ot.excluded_for_date = $4::date
-              AND ot.branch_id = $3
-              AND ot.status IN ('open', 'needs_follow_up', 'assigned')
+           WHERE ot.branch_id = $3
+             AND ${buildExcludedTaskTeamPredicate('ot', '$1', '$4')}
 
            UNION
 
@@ -1022,8 +1021,7 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
              AND ot.assigned_for_date = $4::date
            )
            OR (
-             ot.excluded_for_date = $4::date
-             AND ot.status IN ('open', 'needs_follow_up', 'assigned')
+             ${buildExcludedTaskTeamPredicate('ot', '$3', '$4')}
            )
          )
          AND COALESCE(

@@ -1,7 +1,8 @@
 // DEC-CT-09 + plan §2: standalone, reusable device profile page.
 //
 // Reachable from the customer-profile devices tab AND directly via
-// /installed-devices/:id (any user with contracts.view_list).
+// /installed-devices/:id. Possession sections are backed by their dedicated
+// installed_devices.possession.view permission and device-branch policy.
 //
 // Layout: a sticky top ProfileTabsBar switches between the sections, in the
 // order mandated by the constitution (§01-what-is-a-device.md and
@@ -17,11 +18,13 @@ import {
 
 import ProfileTabsBar from '../../components/ui/ProfileTabsBar';
 import ProfileBreadcrumbBar from '../../components/ui/ProfileBreadcrumbBar';
+import { usePermissions } from '../../hooks/usePermissions';
 
 import { api, API_BASE } from '../../lib/api';
 import { DeviceStatusBadge } from '../../components/devices/DeviceStatusBadge';
 import { WarrantyStatusBadge } from '../../components/devices/WarrantyStatusBadge';
 import { PossessionHolderChip } from '../../components/devices/PossessionHolderChip';
+import type { DevicePossessionEntry } from '@golden-crm/shared';
 
 import { IdentitySection } from './sections/IdentitySection';
 import { OperationalStatusSection } from './sections/OperationalStatusSection';
@@ -69,15 +72,23 @@ function missingItems(device: any): string[] {
 export default function DeviceProfilePage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { hasPermission } = usePermissions();
   const deviceId = Number(id);
+  const canViewPossession = hasPermission('installed_devices.possession.view');
+  const visibleSections = useMemo(
+    () => canViewPossession
+      ? SECTIONS
+      : SECTIONS.filter(section => section.id !== 'current-holder' && section.id !== 'possession-history'),
+    [canViewPossession],
+  );
 
   const [loading, setLoading] = useState(true);
   const [device, setDevice] = useState<any | null>(null);
   const [contract, setContract] = useState<any | null>(null);
   const [warranties, setWarranties] = useState<any[]>([]);
   const [parts, setParts] = useState<any[]>([]);
-  const [possessionLog, setPossessionLog] = useState<any[]>([]);
-  const [currentPossession, setCurrentPossession] = useState<any | null>(null);
+  const [possessionLog, setPossessionLog] = useState<DevicePossessionEntry[]>([]);
+  const [currentPossession, setCurrentPossession] = useState<DevicePossessionEntry | null>(null);
   const [tasks, setTasks] = useState<any[]>([]);
 
   const fetchAll = useCallback(async () => {
@@ -91,8 +102,8 @@ export default function DeviceProfilePage() {
       const [warrantiesR, partsR, possessionR, currentR, contractR, tasksR] = await Promise.allSettled([
         api.deviceWarranties.list(deviceId),
         api.deviceParts.list(deviceId),
-        api.devicePossession.list(deviceId),
-        api.devicePossession.current(deviceId),
+        canViewPossession ? api.devicePossession.list(deviceId) : Promise.resolve([]),
+        canViewPossession ? api.devicePossession.current(deviceId) : Promise.resolve(null),
         dev?.contractId ? api.contracts.get(dev.contractId) : Promise.resolve(null),
         dev?.customerId ? api.openTasks.listByClient(dev.customerId) : Promise.resolve([]),
       ]);
@@ -108,7 +119,7 @@ export default function DeviceProfilePage() {
     } finally {
       setLoading(false);
     }
-  }, [deviceId]);
+  }, [canViewPossession, deviceId]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
@@ -137,8 +148,8 @@ export default function DeviceProfilePage() {
     // tabs. A scroll listener is used because it fires reliably on user scroll.
     const MARKER = 175;
     const onScroll = () => {
-      let current = SECTIONS[0].id;
-      for (const s of SECTIONS) {
+      let current = visibleSections[0].id;
+      for (const s of visibleSections) {
         const el = document.getElementById(s.id);
         if (!el) continue;
         if (el.getBoundingClientRect().top - MARKER <= 0) current = s.id;
@@ -155,7 +166,7 @@ export default function DeviceProfilePage() {
     };
     // `loading` is included so the effect re-runs once the scroll container is
     // actually mounted (device is set a render before loading flips false).
-  }, [device, loading]);
+  }, [device, loading, visibleSections]);
 
   const handleJump = useCallback((id: string) => {
     setActiveSection(id);
@@ -230,6 +241,7 @@ export default function DeviceProfilePage() {
             {currentPossession && (
               <PossessionHolderChip
                 holderType={currentPossession.holderType}
+                holderName={currentPossession.holderName}
                 reason={currentPossession.reason}
               />
             )}
@@ -253,14 +265,18 @@ export default function DeviceProfilePage() {
 
       {/* Sticky section tabs — rise on scroll and stop just under the breadcrumb bar */}
       <div className="sticky top-0 z-30 -mx-4 border-b border-slate-200 bg-white px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
-        <ProfileTabsBar tabs={SECTIONS} activeId={activeSection} onChange={handleJump} />
+        <ProfileTabsBar tabs={visibleSections} activeId={activeSection} onChange={handleJump} />
       </div>
 
       {/* All sections stacked; the tabs jump / scroll-spy through them */}
       <IdentitySection device={device} />
       <OperationalStatusSection device={device} tasks={tasks} onTaskCreated={fetchAll} />
-      <CurrentHolderSection device={device} currentPossession={currentPossession} />
-      <PossessionHistorySection entries={possessionLog} />
+      {canViewPossession && (
+        <>
+          <CurrentHolderSection device={device} currentPossession={currentPossession} />
+          <PossessionHistorySection entries={possessionLog} />
+        </>
+      )}
       <WarrantiesSection
         warranties={warranties}
         device={{ id: device.id, customerId: device.customerId, contractId: device.contractId, branchId: device.branchId, status: device.status }}

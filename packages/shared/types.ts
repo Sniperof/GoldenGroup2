@@ -838,13 +838,15 @@ export interface ServiceAgreement {
 // DEC-CT-09: device possession ledger.
 export type PossessionHolderType = 'warehouse' | 'technician' | 'customer' | 'workshop' | 'supplier';
 export type PossessionReason     = 'sale_delivery' | 'repair_pickup' | 'temporary_swap'
-                                  | 'retrieval' | 'cancellation' | 'transfer';
+                                  | 'retrieval' | 'cancellation' | 'transfer'
+                                  | 'external_registration';
 
 export interface DevicePossessionEntry {
   id: number;
   deviceId: number;
   holderType: PossessionHolderType;
   holderId: number | null;
+  holderName: string | null;
   startAt: string;
   endAt: string | null;
   reason: PossessionReason;

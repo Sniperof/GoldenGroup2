@@ -80,6 +80,7 @@ export function clearSystemSettingsCache(key?: string): void {
 // ── Constitution-defined defaults (kept here for single source of truth) ────
 
 export const SYSTEM_SETTING_DEFAULTS = {
+  service_request_stale_after_days: 14,        // request-section-contract §3 (advisory stale flag; 0 disables)
   default_cooldown_days: 7,                    // DEC-005 D29
   contact_target_cleanup_time: '22:00',        // DEC-005 D26
   attempt_alert_threshold: 5,                  // DEC-006 D37

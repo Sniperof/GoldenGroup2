@@ -43,7 +43,16 @@ test('shared referrer writer stores null when mobileNumber is omitted', async ()
 test('shared referrer writer preserves entity links and an optional supplied phone', async () => {
   const writes: unknown[][] = [];
   const client = {
-    async query(_query: string, values?: unknown[]) {
+    async query(query: string, values?: unknown[]) {
+      if (/FROM employees/i.test(query)) {
+        return {
+          rows: [{
+            id: 12,
+            name: 'الاسم القانوني للموظف',
+            employeeNumber: 102,
+          }],
+        };
+      }
       writes.push(values ?? []);
       return { rows: [{ id: writes.length }] };
     },
@@ -63,11 +72,64 @@ test('shared referrer writer preserves entity links and an optional supplied pho
   });
 
   assert.deepEqual(writes[0].slice(0, 6), [
-    'Employee', 12, 12, 'موظف وسيط', null, '0999999999',
+    'Employee', 12, 12, 'الاسم القانوني للموظف', null, '0999999999',
   ]);
   assert.deepEqual(writes[1].slice(0, 6), [
     'Client', null, 34, 'عميل وسيط', null, null,
   ]);
+});
+
+test('shared referrer writer rejects a display employee number used as the foreign key', async () => {
+  let insertAttempted = false;
+  const client = {
+    async query(query: string) {
+      if (/FROM employees/i.test(query)) {
+        return { rows: [{ id: 21, name: 'موظف وسيط', employeeNumber: 102 }] };
+      }
+      insertAttempted = true;
+      return { rows: [{ id: 1 }] };
+    },
+  };
+
+  await assert.rejects(
+    insertReferrer(client as any, {
+      type: 'Employee',
+      employeeId: 21,
+      referralEntityId: 102,
+      fullName: 'اسم قادم من العميل',
+    }),
+    (error: any) => {
+      assert.equal(error.status, 400);
+      assert.equal(error.payload?.code, 'INVALID_EMPLOYEE_REFERRER');
+      return true;
+    },
+  );
+  assert.equal(insertAttempted, false);
+});
+
+test('shared referrer writer rejects an employee id that does not exist', async () => {
+  let insertAttempted = false;
+  const client = {
+    async query(query: string) {
+      if (/FROM employees/i.test(query)) return { rows: [] };
+      insertAttempted = true;
+      return { rows: [{ id: 1 }] };
+    },
+  };
+
+  await assert.rejects(
+    insertReferrer(client as any, {
+      type: 'Employee',
+      employeeId: 9999,
+      referralEntityId: 9999,
+    }),
+    (error: any) => {
+      assert.equal(error.status, 400);
+      assert.equal(error.payload?.code, 'INVALID_EMPLOYEE_REFERRER');
+      return true;
+    },
+  );
+  assert.equal(insertAttempted, false);
 });
 
 test('application submission errors preserve known validation and hide database details', () => {

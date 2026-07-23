@@ -1,6 +1,7 @@
 import type { PoolClient } from 'pg';
 import { checkDuplicate } from '../utils/applicationHelpers.js';
 import { sanitizeText } from '../utils/sanitize.js';
+import { canonicalizeEmployeeReferrer } from '../services/employeeMediatorReference.js';
 
 export async function checkPublicApplicationDuplicate(
   client: PoolClient,
@@ -40,6 +41,7 @@ export async function insertApplicant(client: PoolClient, applicant: any) {
 }
 
 export async function insertReferrer(client: PoolClient, referrer: any) {
+  const canonicalReferrer = await canonicalizeEmployeeReferrer(client, referrer);
   const { rows } = await client.query(
     `INSERT INTO referrers (
       type, employee_id, referral_entity_id, full_name, last_name, mobile_number,
@@ -48,15 +50,15 @@ export async function insertReferrer(client: PoolClient, referrer: any) {
     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
     RETURNING id`,
     [
-      (referrer.type === 'Customer' ? 'Client' : referrer.type) || 'Client',
-      (referrer.type === 'Employee' ? (referrer.employeeId ?? null) : null),
-      referrer.referralEntityId ?? (referrer.type === 'Employee' ? (referrer.employeeId ?? null) : null) ?? null,
-      sanitizeText(referrer.fullName), referrer.lastName ? sanitizeText(referrer.lastName) : null, referrer.mobileNumber || null,
-      referrer.governorate ? sanitizeText(referrer.governorate) : null, referrer.cityOrArea ? sanitizeText(referrer.cityOrArea) : null,
-      referrer.subArea ? sanitizeText(referrer.subArea) : null, referrer.neighborhood ? sanitizeText(referrer.neighborhood) : null,
-      referrer.detailedAddress ? sanitizeText(referrer.detailedAddress) : null,
-      referrer.referrerWork ? sanitizeText(referrer.referrerWork) : null,
-      referrer.referrerNotes ? sanitizeText(referrer.referrerNotes) : null,
+      (canonicalReferrer.type === 'Customer' ? 'Client' : canonicalReferrer.type) || 'Client',
+      (canonicalReferrer.type === 'Employee' ? (canonicalReferrer.employeeId ?? null) : null),
+      canonicalReferrer.referralEntityId ?? (canonicalReferrer.type === 'Employee' ? (canonicalReferrer.employeeId ?? null) : null) ?? null,
+      sanitizeText(canonicalReferrer.fullName), canonicalReferrer.lastName ? sanitizeText(canonicalReferrer.lastName) : null, canonicalReferrer.mobileNumber || null,
+      canonicalReferrer.governorate ? sanitizeText(canonicalReferrer.governorate) : null, canonicalReferrer.cityOrArea ? sanitizeText(canonicalReferrer.cityOrArea) : null,
+      canonicalReferrer.subArea ? sanitizeText(canonicalReferrer.subArea) : null, canonicalReferrer.neighborhood ? sanitizeText(canonicalReferrer.neighborhood) : null,
+      canonicalReferrer.detailedAddress ? sanitizeText(canonicalReferrer.detailedAddress) : null,
+      canonicalReferrer.referrerWork ? sanitizeText(canonicalReferrer.referrerWork) : null,
+      canonicalReferrer.referrerNotes ? sanitizeText(canonicalReferrer.referrerNotes) : null,
     ]
   );
 

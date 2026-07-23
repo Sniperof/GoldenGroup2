@@ -942,7 +942,9 @@ export default function TelemarketerWorkspace() {
     // ── Call outcome handler ──────────────────────────────────────────────────
 
     const handleSaveOutcome = async (contactId: string, outcome: TelemarketingOutcomeCode, notes: string, extras?: SaveExtras) => {
-        if (!selectedCustomer || !activeTaskList) return;
+        if (!selectedCustomer || !activeTaskList) {
+            throw new Error('تعذر حفظ النتيجة لأن سياق جهة الاتصال لم يعد متاحاً. أعد فتح النافذة وحاول مجدداً.');
+        }
 
         const meta = OUTCOME_MAP[outcome] ?? OUTCOME_MAP['no_answer'];
         const entityContacts = getEntityContacts(entityDetails as any);
@@ -971,8 +973,7 @@ export default function TelemarketerWorkspace() {
                 communicationMethod,
             });
         } catch {
-            setCallLogSaveError('فشل حفظ سجل الاتصال — تحقق من الاتصال وحاول مجدداً');
-            return;
+            throw new Error('فشل حفظ سجل الاتصال — تحقق من الاتصال وحاول مجدداً');
         }
 
         // Also save to customer_call_logs for client entities.
@@ -1023,6 +1024,7 @@ export default function TelemarketerWorkspace() {
                     .filter(ot => ot.openTaskId != null)
                     .map(ot => api.openTasks.update(ot.openTaskId!, {
                         status: 'cancelled',
+                        cancellationReason: reasonNote,
                         notes: reasonNote,
                     }).catch(() => {}))
             );
@@ -1077,18 +1079,29 @@ export default function TelemarketerWorkspace() {
                     requestedDeviceModelId: null,
                     requestedDeviceName: '',
                 }, selectedTaskEntries.length > 0 ? selectedTaskEntries : undefined);
-
-                if (selectedCustomer.entityType === 'client' && extras.waterSource) {
-                    await updateWorkspaceClient(selectedCustomer.entityId, { waterSource: extras.waterSource });
-                }
-                // Mark as booked AFTER appointment is confirmed
-                await Promise.all(selectedCustomer.allItems.map(item =>
-                    updateTaskListItemStatus(activeTaskList.id, item.id, 'booked', outcome)
-                ));
-                setIsOutcomeModalOpen(false);
-                await loadData(date, appointmentDate);
             } catch (err: any) {
-                setCallLogSaveError(err.message || 'فشل حجز الموعد — تحقق من التفاصيل وحاول مجدداً');
+                throw new Error(err?.message || 'فشل حجز الموعد — تحقق من التفاصيل وحاول مجدداً');
+            }
+
+            // The visit is committed. Leave the editable validation state before
+            // secondary synchronization can publish the new slot back to the modal.
+            setIsOutcomeModalOpen(false);
+
+            let clientSyncFailed = false;
+            if (selectedCustomer.entityType === 'client' && extras.waterSource) {
+                try {
+                    await updateWorkspaceClient(selectedCustomer.entityId, { waterSource: extras.waterSource });
+                } catch {
+                    clientSyncFailed = true;
+                }
+            }
+            // Mark as booked AFTER appointment is confirmed.
+            await Promise.all(selectedCustomer.allItems.map(item =>
+                updateTaskListItemStatus(activeTaskList.id, item.id, 'booked', outcome)
+            ));
+            await loadData(date, appointmentDate);
+            if (clientSyncFailed) {
+                setCallLogSaveError('تم حجز الموعد بنجاح، لكن تعذر تحديث مصدر المياه في بيانات الزبون.');
             }
             return;
         }
@@ -1167,8 +1180,18 @@ export default function TelemarketerWorkspace() {
             await addAppointment(appointmentPayload, data.selectedTaskEntries);
         }
 
+        // Booking succeeded; close immediately before live appointments update
+        // can make the submitted slot collide with itself in the open modal.
+        setIsAppointmentModalOpen(false);
+        setAppointmentMode('call_result');
+
+        let clientSyncFailed = false;
         if (selectedCustomer.entityType === 'client' && data.waterSource) {
-            await updateWorkspaceClient(selectedCustomer.entityId, { waterSource: data.waterSource });
+            try {
+                await updateWorkspaceClient(selectedCustomer.entityId, { waterSource: data.waterSource });
+            } catch {
+                clientSyncFailed = true;
+            }
         }
 
         // Update ALL items for this customer as booked in the store.
@@ -1177,6 +1200,9 @@ export default function TelemarketerWorkspace() {
         ));
 
         await loadData(date, appointmentDate);
+        if (clientSyncFailed) {
+            setCallLogSaveError('تم حجز الموعد بنجاح، لكن تعذر تحديث مصدر المياه في بيانات الزبون.');
+        }
     };
 
     // ── Manual close handler ─────────────────────────────────────────────────

@@ -1,11 +1,9 @@
-import { useState, type ComponentType } from 'react';
+import type { ComponentType } from 'react';
 import { Link } from 'react-router-dom';
-import { CalendarClock, CheckCircle2, ChevronLeft, Clock, Footprints, Plus } from '../../ui/icons';
+import { CalendarClock, CheckCircle2, ChevronLeft, Clock, Footprints } from '../../ui/icons';
 import { OPEN_TASK_STATUS_LABELS, type OpenTaskStatus } from '@golden-crm/shared';
 import { Card, InfoLine, TabAlert, formatDate, formatDateTime } from '../shared';
-import type { TaskResultModalProps, TaskResultRendererProps } from '../types';
-import DeviceDemoResultModal from '../../../taskTypes/device_demo/DeviceDemoResultModal';
-import Button from '../../ui/Button';
+import type { TaskResultRendererProps } from '../types';
 
 const TERMINAL_STATUSES = new Set(['completed', 'closed', 'cancelled']);
 
@@ -122,17 +120,12 @@ export interface TaskResultTabProps {
   attempts?: any[];
   /** Custom result renderer provided by the task type (e.g. device demo pre-offers table). */
   ResultRenderer?: ComponentType<TaskResultRendererProps>;
-  /** Custom modal used to record the task result. */
-  ResultModal?: ComponentType<TaskResultModalProps>;
-  /** Explicit gate for task types backed by a custom modal. */
-  canRecordResultFor?: (task: any) => boolean;
   /** Extra data forwarded to the custom renderer */
   rendererProps?: Partial<TaskResultRendererProps>;
 }
 
-export default function TaskResultTab({ task, hasResult, attempts = [], ResultRenderer, ResultModal, canRecordResultFor, rendererProps }: TaskResultTabProps) {
+export default function TaskResultTab({ task, hasResult, attempts = [], ResultRenderer, rendererProps }: TaskResultTabProps) {
   const statusLabel = OPEN_TASK_STATUS_LABELS[task.status as OpenTaskStatus] ?? task.status;
-  const [showResultModal, setShowResultModal] = useState(false);
 
   // The open_task has a final result only in terminal states. While the
   // story is alive, the result of an individual past attempt does NOT count
@@ -140,7 +133,6 @@ export default function TaskResultTab({ task, hasResult, attempts = [], ResultRe
   // around.
   const isTerminal = TERMINAL_STATUSES.has(task.status);
   const periodicSupersession = task.periodicSupersession ?? null;
-  const effectiveHasResult = hasResult || Boolean(periodicSupersession);
   const lastAttempt = task.lastAttempt ?? null;
   const lastAttemptDetail = task.lastAttemptDetail ?? null;
   // Task-level decision: only the last attempt's decision counts as the task's
@@ -150,26 +142,23 @@ export default function TaskResultTab({ task, hasResult, attempts = [], ResultRe
   const attemptFinalDecision: string | null = lastAttempt?.finalDecision ?? null;
 
   const shouldShowResultDetails = attemptFinalDecision === 'offer_presented';
-
-  // canRecordResult relies on activeVisit (a live booking with no result yet).
-  // If activeVisit is null, there's nothing to record a result against.
   const activeVisit = task.activeVisit ?? null;
-  const hasSupportedCustomResult = ResultModal != null && (canRecordResultFor ? canRecordResultFor(task) : true);
-  const canRecordResult =
-    (task.taskType === 'device_demo' || hasSupportedCustomResult) &&
-    activeVisit != null &&
-    (activeVisit.status === 'in_progress' || activeVisit.status === 'ended') &&
-    !isTerminal;
+  const wasCancelledBeforeScheduling = task.status === 'cancelled' && !attemptFinalDecision;
+  const effectiveHasResult = hasResult || Boolean(periodicSupersession) || wasCancelledBeforeScheduling;
 
   return (
     <>
       <TabAlert title="ملاحظات على النتيجة" items={effectiveHasResult ? [] : ['لا توجد نتيجة مسجلة بعد']} />
 
-      {canRecordResult && (
-        <div className="flex justify-end">
-          <Button icon={Plus} onClick={() => setShowResultModal(true)}>
-            تسجيل نتيجة الزيارة
-          </Button>
+      {activeVisit && !isTerminal && (
+        <div className="flex flex-wrap items-center justify-between gap-3 border-y border-sky-100 bg-sky-50 px-4 py-3 text-sm text-sky-800">
+          <span className="font-semibold">تُسجّل نتيجة التنفيذ من داخل الزيارة المرتبطة فقط.</span>
+          <Link
+            to={`/field-visits/${activeVisit.id}`}
+            className="inline-flex items-center gap-1 font-bold text-sky-700 hover:text-sky-900 hover:underline"
+          >
+            فتح الزيارة <ChevronLeft className="h-4 w-4" />
+          </Link>
         </div>
       )}
 
@@ -179,6 +168,8 @@ export default function TaskResultTab({ task, hasResult, attempts = [], ResultRe
             label="نتيجة المهمة"
             value={periodicSupersession
               ? renderPeriodicSupersession(periodicSupersession)
+              : wasCancelledBeforeScheduling
+              ? <span className="inline-flex items-center rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-0.5 text-xs font-bold text-rose-700">ألغيت قبل الجدولة</span>
               : isTerminal
               ? renderFinalDecision(taskFinalDecision)
               : <span className="inline-flex items-center px-2.5 py-0.5 rounded-lg text-xs font-bold border bg-slate-50 text-slate-600 border-slate-200">قيد المتابعة</span>}
@@ -187,6 +178,8 @@ export default function TaskResultTab({ task, hasResult, attempts = [], ResultRe
             label="المحصلة"
             value={periodicSupersession
               ? renderPeriodicSupersession(periodicSupersession)
+              : wasCancelledBeforeScheduling
+              ? (task.cancellationReason ?? 'ملغاة')
               : renderDerivedOutcome(taskFinalDecision, task, rendererProps?.preOffers ?? [])}
           />
           <InfoLine label="الحالة" value={statusLabel} />
@@ -194,8 +187,16 @@ export default function TaskResultTab({ task, hasResult, attempts = [], ResultRe
             label="تاريخ الإتمام"
             value={periodicSupersession?.at
               ? formatDateTime(periodicSupersession.at)
+              : wasCancelledBeforeScheduling && task.updatedAt
+              ? formatDateTime(task.updatedAt)
               : isTerminal && lastAttempt?.closedAt ? formatDateTime(lastAttempt.closedAt) : '—'}
           />
+          {wasCancelledBeforeScheduling && (
+            <InfoLine
+              label="سبب الإلغاء"
+              value={<span className="font-semibold text-rose-700">{task.cancellationReason ?? '—'}</span>}
+            />
+          )}
           {periodicSupersession?.byOpenTaskId && (
             <InfoLine
               label="مهمة التغطية"
@@ -297,36 +298,6 @@ export default function TaskResultTab({ task, hasResult, attempts = [], ResultRe
       </Card>
 
       {ResultRenderer && shouldShowResultDetails && <ResultRenderer task={task} {...rendererProps} />}
-
-      {showResultModal && canRecordResult && activeVisit && (
-        ResultModal ? (
-          <ResultModal
-            visitId={Number(activeVisit.id)}
-            taskId={Number(activeVisit.visitTaskId)}
-            task={task}
-            preOffers={rendererProps?.preOffers ?? []}
-            onClose={() => setShowResultModal(false)}
-            onSaved={() => {
-              setShowResultModal(false);
-              window.location.reload();
-            }}
-          />
-        ) : (
-          <DeviceDemoResultModal
-            visitId={Number(activeVisit.id)}
-            taskId={Number(activeVisit.visitTaskId)}
-            task={task}
-            preOffers={rendererProps?.preOffers ?? []}
-            onClose={() => setShowResultModal(false)}
-            onSaved={() => {
-              setShowResultModal(false);
-              // Trigger reload by reloading the page — simplest and most reliable
-              // until we add a refresh callback through TaskDetailLayout.
-              window.location.reload();
-            }}
-          />
-        )
-      )}
     </>
   );
 }

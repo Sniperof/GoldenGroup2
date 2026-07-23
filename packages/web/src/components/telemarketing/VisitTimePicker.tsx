@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef } from 'react';
 import { Clock, CheckCircle2, AlertTriangle } from '../ui/icons';
 
 // ─── Time helpers ────────────────────────────────────────────────────────────
@@ -21,6 +21,13 @@ export const isVisitTimeConflict = (
     return bookedTimes.some(t => normalizeVisitTime(t) === v);
 };
 
+export const selectVisitTimeValidationTimes = (
+    liveBookedTimes: Array<string | null | undefined>,
+    editingBookedTimes: Array<string | null | undefined>,
+    submitting: boolean,
+): Array<string | null | undefined> =>
+    submitting ? editingBookedTimes : liveBookedTimes;
+
 interface VisitTimePickerProps {
     value: string;
     onChange: (value: string) => void;
@@ -33,6 +40,8 @@ interface VisitTimePickerProps {
     accent?: 'emerald';
     label?: string;
     required?: boolean;
+    /** Freeze conflict validation at its pre-submit snapshot while saving. */
+    submitting?: boolean;
 }
 
 /**
@@ -51,15 +60,25 @@ export default function VisitTimePicker({
     maxTime,
     label = 'وقت الزيارة',
     required = true,
+    submitting = false,
 }: VisitTimePickerProps) {
+    const editingBookedTimesRef = useRef(bookedTimes);
+    if (!submitting) {
+        editingBookedTimesRef.current = bookedTimes;
+    }
+    const validationBookedTimes = selectVisitTimeValidationTimes(
+        bookedTimes,
+        editingBookedTimesRef.current,
+        submitting,
+    );
     const normalizedBooked = useMemo(() => {
         const set = new Set<string>();
-        bookedTimes.forEach(t => {
+        validationBookedTimes.forEach(t => {
             const n = normalizeVisitTime(t);
             if (n) set.add(n);
         });
         return Array.from(set).sort();
-    }, [bookedTimes]);
+    }, [validationBookedTimes]);
 
     const current = normalizeVisitTime(value);
     const hasConflict = !!current && normalizedBooked.includes(current);

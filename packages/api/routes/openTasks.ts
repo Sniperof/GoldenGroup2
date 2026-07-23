@@ -2,6 +2,7 @@ import { Router } from 'express';
 import pool from '../db.js';
 import {
   HIDDEN_OPERATIONAL_TASK_TYPES,
+  canCancelOpenTaskBeforeScheduling,
   evaluateDeviceTaskEligibility,
   getTaskPhase,
   isHiddenOperationalTaskType,
@@ -26,6 +27,11 @@ import {
   catalogUnavailablePayload,
   findUnavailableDeviceModelsForNewCommercialUse,
 } from '../services/catalogActiveStateService.js';
+import {
+  OpenTaskCancellationError,
+  cancelLockedOpenTaskBeforeScheduling,
+  loadOpenTaskCancellationSubject,
+} from '../services/openTaskCancellation.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -388,6 +394,7 @@ function mapOpenTaskRow(row: any) {
     giftBeneficiaryName: row.giftBeneficiaryName ?? null,
     dispatchOriginType: row.dispatch_origin_type ?? null,
     dispatchOriginLabel: row.dispatch_origin_label ?? null,
+    cancellationReasonId: row.cancellation_reason_id ?? null,
     cancellationReason: row.cancellation_reason ?? null,
     sourceServiceRequestId: row.source_service_request_id ?? null,
     createdBy: row.created_by,
@@ -3249,6 +3256,58 @@ router.get('/:id', requirePermission('open_tasks.view'), async (req, res) => {
  *       500:
  *         description: Internal Server Error
  */
+router.post('/:id/cancel', requirePermission('open_tasks.edit'), async (req, res) => {
+  const db = await pool.connect();
+  let transactionStarted = false;
+  try {
+    const authContext = getAuthContext(req);
+    const id = Number(req.params.id);
+    const reasonId = Number(req.body?.reasonId);
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: 'معرف المهمة غير صالح' });
+    }
+    if (!Number.isInteger(reasonId) || reasonId <= 0) {
+      return res.status(400).json({ error: 'سبب الإلغاء مطلوب' });
+    }
+
+    await db.query('BEGIN');
+    transactionStarted = true;
+    const subject = await loadOpenTaskCancellationSubject(db, id);
+    if (!subject) {
+      await db.query('ROLLBACK');
+      transactionStarted = false;
+      return res.status(404).json({ error: 'المهمة غير موجودة' });
+    }
+    if (!canEditOpenTask(authContext, subject.branchId).allowed) {
+      await db.query('ROLLBACK');
+      transactionStarted = false;
+      return res.status(403).json({ error: 'ليس لديك صلاحية الوصول لهذه المهمة' });
+    }
+
+    const reason = await cancelLockedOpenTaskBeforeScheduling(
+      db,
+      subject,
+      reasonId,
+      authContext.userId,
+      (req as any).user?.role ?? null,
+    );
+    await db.query('COMMIT');
+    transactionStarted = false;
+
+    const task = await loadOpenTaskById(pool, id);
+    return res.json({ task, cancellationReason: reason });
+  } catch (err: any) {
+    if (transactionStarted) await db.query('ROLLBACK');
+    if (err instanceof OpenTaskCancellationError) {
+      return res.status(err.status).json({ error: err.message });
+    }
+    console.error('[open-tasks] POST /:id/cancel error:', err);
+    return res.status(500).json({ error: 'فشل في إلغاء المهمة' });
+  } finally {
+    db.release();
+  }
+});
+
 router.patch('/:id', requirePermission('open_tasks.edit'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
@@ -3259,6 +3318,11 @@ router.patch('/:id', requirePermission('open_tasks.edit'), async (req, res) => {
 
     if (req.body.status !== undefined && !(VALID_TASK_STATUSES as readonly string[]).includes(req.body.status)) {
       return res.status(400).json({ error: 'حالة المهمة غير صالحة' });
+    }
+    if (req.body.status === 'completed' || req.body.status === 'closed') {
+      return res.status(409).json({
+        error: 'لا يمكن إغلاق المهمة مباشرة؛ يجب تسجيل نتيجة محاولة التنفيذ من داخل الزيارة',
+      });
     }
 
     if (req.body.dueDate !== undefined && req.body.dueDate !== null) {
@@ -3286,6 +3350,34 @@ router.patch('/:id', requirePermission('open_tasks.edit'), async (req, res) => {
       return res.status(403).json({ error: 'ليس لديك صلاحية الوصول لهذه المهمة' });
     }
     const oldStatus = existing[0].status;
+    if (req.body.status === 'cancelled' && req.body.status !== oldStatus) {
+      const { rows: activeVisitRows } = await pool.query(
+        `SELECT EXISTS (
+           SELECT 1
+             FROM visit_tasks vt
+             JOIN field_visits fv ON fv.id = vt.field_visit_id
+             LEFT JOIN visit_task_results vtr ON vtr.visit_task_id = vt.id
+            WHERE vt.source_open_task_id = $1
+              AND fv.status IN ('scheduled', 'in_progress', 'ended')
+              AND vtr.final_decision IS NULL
+         ) AS "hasActiveVisit"`,
+        [id],
+      );
+      if (!canCancelOpenTaskBeforeScheduling(oldStatus, activeVisitRows[0]?.hasActiveVisit === true)) {
+        return res.status(409).json({
+          error: 'لا يمكن إلغاء المهمة بعد دخولها في الجدولة؛ تُسجّل نتيجتها من داخل الزيارة',
+        });
+      }
+      const cancellationReason = typeof req.body.cancellationReason === 'string'
+        ? req.body.cancellationReason.trim()
+        : typeof req.body.notes === 'string'
+          ? req.body.notes.trim()
+          : '';
+      if (!cancellationReason) {
+        return res.status(400).json({ error: 'سبب الإلغاء مطلوب' });
+      }
+      req.body.cancellationReason = cancellationReason;
+    }
     if (
       existing[0].task_type === 'device_delivery'
       && req.body.status === 'completed'
@@ -3303,8 +3395,9 @@ router.patch('/:id', requirePermission('open_tasks.edit'), async (req, res) => {
       priority: 'priority',
       waitingReasonId: 'waiting_reason_id',
       waitingReasonText: 'waiting_reason_text',
+      cancellationReason: 'cancellation_reason',
     };
-    const allowedFields = ['status', 'notes', 'dueDate', 'expectedDate', 'deliveryAddress', 'priority', 'waitingReasonId', 'waitingReasonText'];
+    const allowedFields = ['status', 'notes', 'dueDate', 'expectedDate', 'deliveryAddress', 'priority', 'waitingReasonId', 'waitingReasonText', 'cancellationReason'];
 
     const WAITING_STATES = ['open', 'needs_follow_up'];
 
@@ -3362,9 +3455,16 @@ router.patch('/:id', requirePermission('open_tasks.edit'), async (req, res) => {
 
     if (req.body.status !== undefined && req.body.status !== oldStatus) {
       activityPromises.push(pool.query(
-        `INSERT INTO task_activity_log (task_id, event_type, performed_by, role, old_value, new_value)
-         VALUES ($1, 'status_change', $2, $3, $4, $5)`,
-        [id, performedBy, userRole, oldStatus, req.body.status],
+        `INSERT INTO task_activity_log (task_id, event_type, performed_by, role, old_value, new_value, reason)
+         VALUES ($1, 'status_change', $2, $3, $4, $5, $6)`,
+        [
+          id,
+          performedBy,
+          userRole,
+          oldStatus,
+          req.body.status,
+          req.body.status === 'cancelled' ? req.body.cancellationReason ?? null : null,
+        ],
       ));
     }
 
@@ -3719,10 +3819,16 @@ router.get('/:id/emergency-result', requirePermission('open_tasks.view'), async 
  */
 router.post('/:id/emergency-result', requirePermission('tasks.results.record'), async (req, res) => {
   try {
-    const authContext = getAuthContext(req);
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'معرف المهمة غير صالح' });
+    // Legacy direct-result entry is intentionally closed. Emergency results use
+    // the phased wizard opened by VisitDetailPage so a concrete visit_task owns
+    // the result and the visit completion guard remains authoritative.
+    return res.status(409).json({
+      error: 'تُسجّل نتيجة الصيانة من داخل الزيارة المرتبطة فقط',
+    });
 
+    const authContext = getAuthContext(req);
     const VALID_DECISIONS = ['resolved', 'partially_resolved', 'unresolved', 'needs_followup', 'cancelled'] as const;
     const finalDecision: string = req.body?.finalDecision;
     if (!finalDecision || !(VALID_DECISIONS as readonly string[]).includes(finalDecision)) {

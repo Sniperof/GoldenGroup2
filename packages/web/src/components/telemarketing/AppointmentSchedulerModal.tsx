@@ -175,6 +175,7 @@ export default function AppointmentSchedulerModal({
                         value={visitTime}
                         onChange={setVisitTime}
                         bookedTimes={bookedTimes}
+                        submitting={saving}
                     />
 
                     <div className="space-y-2">

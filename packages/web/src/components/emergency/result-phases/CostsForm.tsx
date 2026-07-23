@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   AlertCircle, ArrowRight, CheckCircle2, Loader2, Plus, Save,
 } from '../../ui/icons';
-import { api } from '../../../lib/api';
+import { api, type EmergencyResultContext } from '../../../lib/api';
 import DateField from '../../ui/DateField';
 import { useSystemListItems } from '../../../hooks/useSystemListItems';
 import PaymentEntriesList, { type PaymentEntry, newEntry } from '../PaymentEntriesList';
@@ -47,6 +47,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 interface Props {
   taskId: number;
+  resultContext: EmergencyResultContext | null;
   initialData?: any;
   readOnly?: boolean;
   onSaved: () => void;
@@ -113,6 +114,7 @@ const DERIVED_COLORS: Record<string, string> = {
 
 export default function CostsForm({
   taskId,
+  resultContext,
   initialData,
   readOnly = false,
   onSaved,
@@ -255,6 +257,9 @@ export default function CostsForm({
 
   // ── Shared save logic (quiet = no onSaved trigger) ────────────────────────
   const saveCostsAndEntries = async () => {
+    if (!resultContext) {
+      throw new Error('يجب فتح نتيجة الصيانة من داخل الزيارة المرتبطة');
+    }
     await api.emergencyResult.saveCosts(taskId, {
       finalDecision,
       closingNotes:        closingNotes.trim() || null,
@@ -280,9 +285,9 @@ export default function CostsForm({
         accessoriesRemoved,
         customerAcknowledged: retrievalCustomerAcknowledged,
       } : null,
-    });
+    }, resultContext);
     const validEntries = paymentEntries.filter(e => e.method && Number(e.amountValue) > 0);
-    if (validEntries.length) await api.emergencyResult.savePaymentEntries(taskId, validEntries);
+    if (validEntries.length) await api.emergencyResult.savePaymentEntries(taskId, validEntries, resultContext);
   };
 
   // ── Save (with onSaved trigger) ───────────────────────────────────────────
@@ -305,24 +310,26 @@ export default function CostsForm({
   };
 
   const handleSaveInstallments = async (rows: Installment[], count: number) => {
+    if (!resultContext) throw new Error('يجب فتح نتيجة الصيانة من داخل الزيارة المرتبطة');
     // Auto-save costs first if not yet saved
     if (!initialData && finalDecision) await saveCostsAndEntries().catch(() => {});
     await api.emergencyResult.saveInstallments(taskId, {
       installments: rows, hasFirstPayment, installmentsCount: count,
-    });
+    }, resultContext);
     setInstallments(rows);
   };
 
   const handleConfirmInstallments = async (rows: Installment[]) => {
+    if (!resultContext) throw new Error('يجب فتح نتيجة الصيانة من داخل الزيارة المرتبطة');
     if (!finalDecision) throw new Error('يجب تحديد القرار النهائي أولاً');
     // 1. حفظ التكاليف (يضمن وجود costsId)
     await saveCostsAndEntries();
     // 2. حفظ الأقساط بالصفوف الحالية من المكوّن مباشرة
     await api.emergencyResult.saveInstallments(taskId, {
       installments: rows, hasFirstPayment, installmentsCount: rows.length,
-    });
+    }, resultContext);
     // 3. اعتماد الجدول
-    await api.emergencyResult.confirmInstallments(taskId);
+    await api.emergencyResult.confirmInstallments(taskId, resultContext);
     setInstallmentsConfirmed(true);
     setInstallments(rows);
     setSaved(true);
