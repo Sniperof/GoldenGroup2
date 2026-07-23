@@ -5,7 +5,7 @@ import { usePermissions } from '../hooks/usePermissions';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import { isGlobalOnlyPath } from '../lib/branchContext';
 import { motion, AnimatePresence } from 'framer-motion';
-import FloatingActionButton from '../components/FloatingActionButton';
+import EdgeQuickAdd from '../components/EdgeQuickAdd';
 import logoMark from '../assets/logo-mark.png';
 import AddCandidateModal from '../components/candidates/AddCandidateModal';
 import NewServiceRequestModal from '../components/service-requests/NewServiceRequestModal';
@@ -879,8 +879,8 @@ export default function MainLayout() {
                 <Outlet />
             </main>
 
-            {/* Global FAB */}
-            <FloatingActionButton
+            {/* Global quick-add — docked to the left screen edge (trial) */}
+            <EdgeQuickAdd
                 onAddSuggested={() => {
                     setCandidateInitialMode(false);
                     setShowCandidateModal(true);

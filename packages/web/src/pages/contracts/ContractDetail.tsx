@@ -225,33 +225,34 @@ export default function ContractDetail() {
   // DEC-CT-01 follow-up:
   // Approving a draft fires the materialization triggers DB-side (211)
   // and then refreshes the contract so the UI reflects the new active state.
-  // Parses thrown Error messages of the form "API Error 400: {…json…}" into
-  // a structured payload the dialog can render. Two distinct shapes from the
-  // backend:
-  //   • 400 with `issues[]` → field-level validation failures
-  //   • 500 with `detail`   → unexpected runtime/server error
+  // The API client (lib/api) throws an Error whose `.message` is the server's
+  // human `error` string and whose `.payload` holds the full parsed body. Read
+  // the structured payload — never string-scan the message. Backend shapes:
+  //   • 400 with `issues[]`  → field-level validation failures (list them)
+  //   • 409 `{error,code}`   → a clean business rule message (e.g. serial in use)
+  //   • 500 with `detail`    → unexpected runtime error (technical, shown mono)
   const parseApprovalError = (err: any, title: string): NonNullable<typeof approvalError> => {
-    const raw = String(err?.message || err || '');
-    const jsonStart = raw.indexOf('{');
-    if (jsonStart >= 0) {
-      try {
-        const parsed = JSON.parse(raw.slice(jsonStart));
-        if (Array.isArray(parsed.issues) && parsed.issues.length > 0) {
-          return {
-            title,
-            intro: parsed.error || 'لا يمكن اعتماد العقد — البيانات المطلوبة غير مكتملة',
-            issues: parsed.issues,
-          };
-        }
+    const payload = err && typeof err.payload === 'object' && err.payload ? err.payload as any : null;
+    const message = String(err?.message || err || '') || title;
+    if (payload) {
+      if (Array.isArray(payload.issues) && payload.issues.length > 0) {
         return {
           title,
-          intro: parsed.error || title,
-          issues: [],
-          detail: parsed.detail,
+          intro: payload.error || 'لا يمكن اعتماد العقد — البيانات المطلوبة غير مكتملة',
+          issues: payload.issues,
         };
-      } catch { /* fall through */ }
+      }
+      // `intro` (app font) carries the human reason; `detail` (mono) is reserved
+      // for a genuine technical string, only present on unexpected 500s.
+      return {
+        title,
+        intro: payload.error || message,
+        issues: [],
+        detail: payload.detail,
+      };
     }
-    return { title, intro: title, issues: [], detail: raw };
+    // No structured payload → the thrown message is the human reason.
+    return { title, intro: message, issues: [] };
   };
 
   const handleApprove = async () => {
@@ -265,6 +266,9 @@ export default function ContractDetail() {
         setData(fresh);
         setShowApprovalModal(false);
       } catch (err: any) {
+        // Close the approval modal first so the error dialog isn't stacked on
+        // top of another modal (two dimmed backdrops).
+        setShowApprovalModal(false);
         setApprovalError(parseApprovalError(err, 'فشل اعتماد العقد'));
       } finally {
         setApprovalLoading(null);
@@ -286,6 +290,9 @@ export default function ContractDetail() {
       setData(fresh);
       setShowApprovalModal(false);
     } catch (err: any) {
+      // Close the approval modal first so the error dialog isn't stacked on
+      // top of another modal (two dimmed backdrops).
+      setShowApprovalModal(false);
       setApprovalError(parseApprovalError(err, 'فشل اعتماد العقد'));
     } finally {
       setApprovalLoading(null);
