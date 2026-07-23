@@ -136,11 +136,14 @@ async function assertPurposePrecondition(phone: string, purpose: OtpPurpose): Pr
   }
 
   if (purpose === 'request_status') {
+    // Pending OR rejected (non-archived): the proven owner may also recover
+    // their request's fate + rejection reason through /mine. Archiving closes
+    // that window.
     const { rows } = await pool.query(
       `SELECT 1 FROM service_requests
         WHERE request_type = 'account_creation'
           AND requester_external->>'primary_phone' = $1
-          AND status = ANY($2)
+          AND (status = ANY($2) OR status = 'rejected')
           AND archived_at IS NULL
         LIMIT 1`,
       [phone, SR_ACTIVE_STATUSES],

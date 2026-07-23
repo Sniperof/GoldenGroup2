@@ -99,12 +99,29 @@ export async function checkMobileStatus(rawPhone: string): Promise<{ status: Mob
   return { status: 'visitor' };
 }
 
+/**
+ * Customer-facing labels for the shared reject reason codes (stateMachine
+ * TRIAGE_OUTCOMES_BY_TERMINAL.rejected). Disclosed only through the
+ * handle-gated recovery path — the proven owner of the number may know their
+ * own request's fate; the public status route keeps answering `visitor`.
+ */
+const REJECTION_REASON_LABELS: Record<string, string> = {
+  duplicate: 'طلب مكرّر — يوجد طلب أو حساب سابق لهذا الرقم',
+  invalid_request: 'بيانات الطلب غير مكتملة أو غير صالحة',
+  spam: 'طلب غير جدّي',
+  out_of_scope: 'خارج نطاق الخدمة',
+  unverified_caller: 'تعذّر التحقق من مقدّم الطلب',
+  device_not_company: 'الجهاز ليس من أجهزة الشركة',
+};
+
 /** The pending-screen payload, built from the immutable submitted snapshot. */
 export interface PendingRequestSnapshot {
-  status: 'pending';
+  status: 'pending' | 'rejected';
   requestId: number;
   publicRefNumber: string;
   submittedAt: string;
+  /** Present only when status = 'rejected'. */
+  rejection?: { code: string; label: string; rejectedAt: string | null } | null;
   firstName: string | null;
   lastName: string | null;
   primaryMobile: string;
@@ -132,11 +149,14 @@ function buildSnapshot(
   submittedAt: string,
   payload: Record<string, any> | null,
   fallbackPhone: string,
+  status: 'pending' | 'rejected' = 'pending',
+  rejection: PendingRequestSnapshot['rejection'] = null,
 ): PendingRequestSnapshot {
   const p = payload ?? {};
   const labels = (p.address_labels ?? {}) as Record<string, string | null>;
   return {
-    status: 'pending',
+    status,
+    ...(status === 'rejected' ? { rejection } : {}),
     // BIGINT id → node-pg string; the documented contract is `integer`.
     requestId: Number(requestId),
     publicRefNumber,
@@ -197,19 +217,27 @@ export async function getPendingRequestByVerifiedHandle(input: {
     }
     if (otp.phone !== phone) throw httpError(400, 'الرقم لا يطابق الرقم الذي تم التحقق منه');
 
+    // Prefer the live pending request; otherwise fall back to the latest
+    // rejected one so the proven owner learns their request's fate and reason
+    // (the public status route keeps saying `visitor` — this disclosure is
+    // handle-gated only). Archiving the rejected request closes this window.
     const { rows: reqs } = await tx.client.query<{
       id: number;
       public_ref_number: string;
       created_at: string;
       submitted_payload: Record<string, any> | null;
+      status: string;
+      rejection_reason: string | null;
+      closed_at: string | null;
     }>(
-      `SELECT id, public_ref_number, created_at, submitted_payload
+      `SELECT id, public_ref_number, created_at, submitted_payload,
+              status, rejection_reason, closed_at
          FROM service_requests
         WHERE request_type = 'account_creation'
           AND requester_external->>'primary_phone' = $1
-          AND status = ANY($2)
+          AND (status = ANY($2) OR status = 'rejected')
           AND archived_at IS NULL
-        ORDER BY created_at DESC
+        ORDER BY (status = ANY($2)) DESC, created_at DESC
         LIMIT 1`,
       [phone, SR_ACTIVE_STATUSES],
     );
@@ -223,7 +251,23 @@ export async function getPendingRequestByVerifiedHandle(input: {
     await tx.client.query(`UPDATE otp_verifications SET consumed_at = NOW() WHERE id = $1`, [otp.id]);
     await commitTx(tx);
 
-    return buildSnapshot(row.id, row.public_ref_number, row.created_at, row.submitted_payload, phone);
+    const rejected = row.status === 'rejected';
+    return buildSnapshot(
+      row.id,
+      row.public_ref_number,
+      row.created_at,
+      row.submitted_payload,
+      phone,
+      rejected ? 'rejected' : 'pending',
+      rejected
+        ? {
+            code: row.rejection_reason ?? 'unspecified',
+            label:
+              REJECTION_REASON_LABELS[row.rejection_reason ?? ''] ?? 'لم يُستكمل الطلب',
+            rejectedAt: row.closed_at,
+          }
+        : null,
+    );
   } catch (err) {
     await rollbackTx(tx);
     throw err;

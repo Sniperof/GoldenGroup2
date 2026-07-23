@@ -241,6 +241,12 @@ router.post('/account/deletion-request', async (req, res) => {
  *       OTP handle of purpose `request_status`, which is consumed here.
  *       After the admin links and activates, this data comes from
  *       `GET /api/app/me` instead (source: client record, values may differ).
+ *
+ *       If the latest non-archived request was REJECTED, returns the same
+ *       snapshot with `status: "rejected"` plus `rejection {code, label,
+ *       rejectedAt}` — disclosed only to the proven owner; the public status
+ *       route keeps answering `visitor`. Archiving the request closes this
+ *       window. A live pending request always wins over an older rejected one.
  *     requestBody:
  *       required: true
  *       content:
@@ -259,7 +265,15 @@ router.post('/account/deletion-request', async (req, res) => {
  *             schema:
  *               type: object
  *               properties:
- *                 status: { type: string, example: pending }
+ *                 status: { type: string, enum: [pending, rejected] }
+ *                 rejection:
+ *                   type: object
+ *                   nullable: true
+ *                   description: Present only when status = rejected.
+ *                   properties:
+ *                     code: { type: string, example: duplicate }
+ *                     label: { type: string, example: "طلب مكرّر — يوجد طلب أو حساب سابق لهذا الرقم" }
+ *                     rejectedAt: { type: string, format: date-time, nullable: true }
  *                 requestId: { type: integer }
  *                 publicRefNumber: { type: string, example: SR-20260721-0007 }
  *                 submittedAt: { type: string, format: date-time }
