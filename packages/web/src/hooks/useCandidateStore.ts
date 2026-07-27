@@ -14,7 +14,12 @@ interface CandidateState {
     addReferralSheet: (sheet: Omit<ReferralSheet, 'id' | 'createdAt' | 'stats' | 'ownerUserId' | 'createdBy'> & { ownerUserId?: number; createdBy?: number }) => Promise<number>;
     closeReferralSheet: (sheetId: number) => Promise<void>;
 
-    addCandidate: (candidate: Omit<Candidate, 'id' | 'createdAt' | 'duplicateFlag' | 'duplicateType' | 'duplicateReferenceId' | 'status' | 'referralConfirmationStatus' | 'convertedToLeadId' | 'referralSheetId'> & { referralSheetId: number | null; assignmentUserIds?: number[] }) => Promise<Candidate>;
+    addCandidate: (candidate: Omit<Candidate, 'id' | 'createdAt' | 'duplicateFlag' | 'duplicateType' | 'duplicateReferenceId' | 'status' | 'referralConfirmationStatus' | 'convertedToLeadId' | 'referralSheetId' | 'ownershipType'> & {
+        referralSheetId: number | null;
+        ownershipType?: 'PERSONAL' | 'BRANCH';
+        responsibleUserId?: number | null;
+        assignmentUserIds?: number[];
+    }) => Promise<Candidate>;
     qualifyCandidate: (candidateId: number, clientData?: any) => Promise<void>;
     linkCandidateToClient: (candidateId: number, clientId: number) => Promise<void>;
     markJunk: (candidateId: number) => Promise<void>;
@@ -174,16 +179,13 @@ export const useCandidateStore = create<CandidateState>((set, get) => ({
 
         const clients = await api.clients.list();
 
-        let savedClient: any;
         if (clientData) {
-            savedClient = await api.clients.create({
-                ...clientData,
+            const conversionClientData = { ...clientData };
+            delete conversionClientData.assignmentUserIds;
+            await api.clients.create({
+                ...conversionClientData,
                 branchId: clientData.branchId ?? candidate.branchId ?? undefined,
-                // Only pass assignees the modal explicitly chose (privileged user).
-                // Otherwise the server self-assigns the creator — a supervisor
-                // converting her own proposed name should not need
-                // clients.assignment.manage.
-                assignmentUserIds: clientData.assignmentUserIds ?? undefined,
+                sourceCandidateId: candidate.id,
                 isCandidate: false,
                 candidateStatus: 'Suggested'
             });
@@ -192,7 +194,7 @@ export const useCandidateStore = create<CandidateState>((set, get) => ({
                 throw new Error('الرقم موجود بالفعل في قائمة الزبائن. يرجى المراجعة.');
             }
 
-            savedClient = await api.clients.create({
+            await api.clients.create({
                 firstName: candidate.firstName || '',
                 fatherName: '',
                 lastName: candidate.lastName || '',
@@ -225,18 +227,15 @@ export const useCandidateStore = create<CandidateState>((set, get) => ({
                 referralSheetId: candidate.referralSheetId,
                 referralAddressText: candidate.addressText,
                 branchId: candidate.branchId ?? undefined,
-                // No explicit assignees — server self-assigns the converter, so a
-                // supervisor doesn't need clients.assignment.manage to convert.
+                sourceCandidateId: candidate.id,
                 isCandidate: false,
                 candidateStatus: 'Suggested'
             });
         }
 
-        await api.candidates.update(candidateId, {
-            ...candidate,
-            status: 'Qualified',
-            convertedToLeadId: savedClient.id
-        });
+        // clients.create receives sourceCandidateId; the server creates the
+        // client, transfers ownership and marks the candidate Qualified in one
+        // transaction. No second candidate update is allowed here.
 
         await get().fetchData();
 

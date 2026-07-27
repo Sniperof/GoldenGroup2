@@ -1126,12 +1126,10 @@ export default function ContractForm() {
             .slice(0, 25);
     }, [customerSearch, customers, showCustomerDropdown]);
 
-    // Plan 2026-06-10 §1 — mirror backend deriveContractStatus:
-    // a contract with no closing employee is saved as a draft, which DEC-CT-01
-    // declares to have zero side effects. Drafts therefore need only the minimal
-    // fields required to identify the deal; full validation kicks in only for
-    // active contracts.
-    const isDraftMode = !closingEmployeeId;
+    // ContractForm only creates/edits drafts. Selecting a closer records the
+    // proposed closer but does not activate the contract; full activation
+    // validation runs in the explicit approval flow.
+    const isDraftMode = true;
 
     // Plan 2026-06-10 §3 — legal info constraint is governed by payment type:
     //   • cash (active)    → documentary only, all 9 optional
@@ -1270,8 +1268,6 @@ export default function ContractForm() {
             const isTemporarySale = saleSubtype === 'temporary';
             const isNoFinancialObligations = isFreeSale;
             const isNoInitialPayments = isFreeSale || isTemporarySale;
-            const nextContractStatus = closingEmployeeId ? 'active' : 'draft';
-
             const finalBasePrice = isNoFinancialObligations ? 0 : (selectedDevice?.basePrice || 0);
             const finalPriceVal = isNoFinancialObligations ? 0 : grandTotal;
             const finalPaymentType = isNoInitialPayments ? 'cash' : paymentType;
@@ -1316,10 +1312,10 @@ export default function ContractForm() {
                 invoiceNotes: invoiceNotes.trim() || null,
                 contractType,
                 saleSubtype,
-                // DEC-CT-01: `temporary` is no longer a status; it's a saleSubtype.
-                // Status follows draft→active rule: active iff a closing_employee_id
-                // is assigned at creation, otherwise draft.
-                status: nextContractStatus,
+                // Saving from ContractForm is always a draft write. A selected
+                // closer is only a proposal; activation is exclusively the
+                // explicit approve endpoint after server-side re-validation.
+                status: 'draft',
                 sourceOpenTaskId: sourceOpenTaskId || null,
                 sourceTaskOfferId: sourceTaskOfferId || null,
                 saleReferenceNumber: saleReferenceNumber || null,

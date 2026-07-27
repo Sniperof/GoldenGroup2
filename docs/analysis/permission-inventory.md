@@ -7,14 +7,14 @@
 
 | Metric | Count |
 |---|---:|
-| Permissions defined in migrations | 215 |
-| Permission keys used in code | 182 |
+| Permissions defined in migrations | 216 |
+| Permission keys used in code | 183 |
 | Used keys with no visible definition | 2 |
 | Defined keys with no visible usage | 35 |
 | Keys defined more than once | 6 |
 | Frontend-only permission checks | 5 |
 | Backend-only permission checks | 44 |
-| Endpoints accepting alternative permissions | 48 |
+| Endpoints accepting alternative permissions | 47 |
 
 ## Used But Not Defined
 
@@ -83,12 +83,12 @@
 > These can be valid for internal actions or UIs that rely on a 403 response.
 
 - `branches.lookup` - `packages/api/routes/branches.ts:110`, `packages/api/routes/branches.ts:171`
-- `candidates.delete` - `packages/api/routes/candidates.ts:1045`
+- `candidates.delete` - `packages/api/routes/candidates.ts:1073`
 - `clients.device_warranties.view` - `packages/api/routes/deviceWarranties.ts:91`, `packages/api/routes/deviceWarranties.ts:330`, `packages/api/routes/deviceWarranties.ts:103`, `packages/api/routes/deviceWarranties.ts:336`
-- `clients.edit` - `packages/api/routes/clients.ts:1929`
-- `clients.view` - `packages/api/routes/clients.ts:1347`, `packages/api/routes/clients.ts:1357`
+- `clients.edit` - `packages/api/routes/clients.ts:2288`
+- `clients.view` - `packages/api/routes/clients.ts:1623`, `packages/api/routes/clients.ts:1633`
 - `contract_gifts.view` - `packages/api/routes/gifts.ts:296`, `packages/api/routes/gifts.ts:444`
-- `contracts.delete` - `packages/api/routes/contracts.ts:1693`, `packages/api/routes/contracts.ts:1697`
+- `contracts.delete` - `packages/api/routes/contracts.ts:1637`, `packages/api/routes/contracts.ts:1641`
 - `departments.lookup` - `packages/api/routes/departments.ts:176`, `packages/api/routes/departments.ts:281`
 - `device_models.lookup` - `packages/api/routes/deviceModels.ts:280`, `packages/api/routes/deviceModels.ts:381`
 - `device_models.task_lookup` - `packages/api/routes/deviceModels.ts:280`, `packages/api/routes/deviceModels.ts:381`
@@ -132,7 +132,7 @@
 - `GET /` - `branches.view` or `branches.lookup` or `reference_data.lookup` - `packages/api/routes/branches.ts:110`
 - `GET /:id` - `branches.view` or `branches.lookup` or `reference_data.lookup` - `packages/api/routes/branches.ts:171`
 - `PUT /:id` - `branches.edit` or `branches.manage` - `packages/api/routes/branches.ts:353`
-- `PUT /:id` - `clients.edit` or `clients.contacts.edit` - `packages/api/routes/clients.ts:1929`
+- `PUT /:id` - `clients.edit` or `clients.contacts.edit` - `packages/api/routes/clients.ts:2288`
 - `POST /:customerId/calls` - `clients.call_log.create` or `telemarketing.calls.create` - `packages/api/routes/customerCalls.ts:395`
 - `PATCH /calls/:callId` - `clients.call_log.edit` or `telemarketing.calls.create` - `packages/api/routes/customerCalls.ts:661`
 - `GET /:id/pre-offers` - `clients.pre_offers.view` or `contracts.view_list` - `packages/api/routes/customerPreOffers.ts:49`
@@ -166,7 +166,6 @@
 - `GET /:id/technical-states` - `installed_devices.view` or `clients.devices.view` or `contracts.view_list` - `packages/api/routes/installedDevices.ts:485`
 - `GET /interviewers` - `jobs.interviews.schedule` or `jobs.interviews.edit` - `packages/api/routes/interviews.ts:77`
 - `GET /client/:clientId` - `clients.visits.view` or `open_tasks.view` - `packages/api/routes/openTasks.ts:2210`
-- `GET /hr-users/candidate-assignable` - `candidates.edit` or `candidates.create` - `packages/api/routes/roles.ts:912`
 - `GET /` - `service_requests.view` or `water_check.view` - `packages/api/routes/serviceRequests.ts:605`
 - `GET /` - `spare_parts.lookup` or `spare_parts.task_lookup` or `reference_data.lookup` or `catalog.manage` - `packages/api/routes/spareParts.ts:181`
 - `POST /` - `spare_parts.manage` or `catalog.manage` - `packages/api/routes/spareParts.ts:257`

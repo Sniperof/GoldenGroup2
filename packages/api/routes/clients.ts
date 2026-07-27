@@ -15,6 +15,7 @@ import {
   canViewClientRating,
   getClientListAccessPlan,
 } from '../policies/clientPolicy.js';
+import { canEditCandidate } from '../policies/candidatePolicy.js';
 import {
   getCanonicalContactNumber,
   normalizeContactsForWrite,
@@ -816,13 +817,14 @@ async function insertClientAssignments(
   clientId: number,
   userIds: number[],
   assignedBy: number,
+  db: { query: (text: string, params?: any[]) => Promise<any> } = pool,
 ): Promise<void> {
   if (userIds.length === 0) return;
   const values = userIds
     .map((_, i) => `($${i * 3 + 1}, $${i * 3 + 2}, $${i * 3 + 3})`)
     .join(', ');
   const params = userIds.flatMap(uid => [clientId, uid, assignedBy]);
-  await pool.query(
+  await db.query(
     `INSERT INTO client_assignments (client_id, hr_user_id, assigned_by)
      VALUES ${values}
      ON CONFLICT (client_id, hr_user_id) DO NOTHING`,
@@ -1129,10 +1131,89 @@ router.get('/paged', requirePermission('clients.view_list'), async (req, res) =>
       conditions.push(`c.referrer_type = $${params.length}`);
     }
 
-    const filterArea = typeof req.query.filterArea === 'string' ? req.query.filterArea.trim() : '';
-    if (filterArea) {
-      params.push(filterArea);
-      conditions.push(`c.governorate::text = $${params.length}`);
+    // ── Enriched filter catalog (docs/analysis/clients-records-performance-and-filters.md §7) ──
+    // Geo cascade: the frontend sends the subtree of the deepest selected level
+    // (محافظة→منطقة→ناحية→حي) as `geoIds`; a client matches when any of its geo
+    // columns falls inside that subtree ("match everything under the selection").
+    const geoIds = typeof req.query.geoIds === 'string'
+      ? req.query.geoIds.split(',').map(s => s.trim()).filter(s => /^\d+$/.test(s))
+      : [];
+    if (geoIds.length > 0) {
+      params.push(geoIds);
+      const ref = `$${params.length}::text[]`;
+      conditions.push(`(c.governorate::text = ANY(${ref}) OR c.district::text = ANY(${ref}) OR c.neighborhood::text = ANY(${ref}))`);
+    }
+
+    // Owner/responsible: clients personally owned by a specific eligible user.
+    const owner = toPositiveInt(req.query.owner as any);
+    if (owner != null) {
+      params.push(owner);
+      conditions.push(personalOwnershipPredicate('c.id', `$${params.length}`));
+    }
+
+    // Commitment rating.
+    const rating = typeof req.query.rating === 'string' ? req.query.rating.trim() : '';
+    if (['Committed', 'NotCommitted', 'Undefined'].includes(rating)) {
+      params.push(rating);
+      conditions.push(`COALESCE(c.rating, 'Undefined') = $${params.length}`);
+    }
+
+    // Registration date range.
+    const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+    const createdFrom = typeof req.query.createdFrom === 'string' && dateRe.test(req.query.createdFrom) ? req.query.createdFrom : '';
+    if (createdFrom) {
+      params.push(createdFrom);
+      conditions.push(`c.created_at >= $${params.length}::date`);
+    }
+    const createdTo = typeof req.query.createdTo === 'string' && dateRe.test(req.query.createdTo) ? req.query.createdTo : '';
+    if (createdTo) {
+      params.push(createdTo);
+      conditions.push(`c.created_at < ($${params.length}::date + INTERVAL '1 day')`);
+    }
+
+    // Device serial lookup (cross-entity → installed_devices).
+    const serial = typeof req.query.serial === 'string' ? req.query.serial.trim() : '';
+    if (serial) {
+      params.push(`%${serial}%`);
+      conditions.push(`EXISTS (SELECT 1 FROM installed_devices d WHERE d.customer_id = c.id AND d.serial_number ILIKE $${params.length})`);
+    }
+
+    // Has an installed device? (boolean)
+    const hasDevice = req.query.hasDevice;
+    if (hasDevice === 'yes' || hasDevice === 'no') {
+      const op = hasDevice === 'yes' ? 'EXISTS' : 'NOT EXISTS';
+      conditions.push(`${op} (SELECT 1 FROM installed_devices d WHERE d.customer_id = c.id)`);
+    }
+
+    // Has an active task of a given type (cross-entity → open_tasks). "Active" =
+    // any stage that isn't closed/cancelled/completed (confirmed with user).
+    const taskType = typeof req.query.taskType === 'string' ? req.query.taskType.trim() : '';
+    if (taskType) {
+      params.push(taskType);
+      conditions.push(`EXISTS (SELECT 1 FROM open_tasks ot WHERE ot.client_id = c.id AND ot.task_type = $${params.length} AND ot.status NOT IN ('closed', 'cancelled', 'completed'))`);
+    }
+
+    // Route line: clients whose address falls inside the route's covered areas.
+    // The frontend expands the route's points to their geo subtree (like geoIds).
+    const routeGeoIds = typeof req.query.routeGeoIds === 'string'
+      ? req.query.routeGeoIds.split(',').map(s => s.trim()).filter(s => /^\d+$/.test(s))
+      : [];
+    if (routeGeoIds.length > 0) {
+      params.push(routeGeoIds);
+      const ref = `$${params.length}::text[]`;
+      conditions.push(`(c.governorate::text = ANY(${ref}) OR c.district::text = ANY(${ref}) OR c.neighborhood::text = ANY(${ref}))`);
+    }
+
+    // Water source (admin list value) and data quality (fixed enum).
+    const waterSource = typeof req.query.waterSource === 'string' ? req.query.waterSource.trim() : '';
+    if (waterSource) {
+      params.push(waterSource);
+      conditions.push(`c.water_source = $${params.length}`);
+    }
+    const dataQuality = typeof req.query.dataQuality === 'string' ? req.query.dataQuality.trim() : '';
+    if (['correct', 'incorrect', 'needs_edit'].includes(dataQuality)) {
+      params.push(dataQuality);
+      conditions.push(`c.data_quality = $${params.length}`);
     }
 
     const where = ` WHERE ${conditions.join(' AND ')}`;
@@ -1943,6 +2024,7 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
  *         description: Server error
  */
 router.post('/', requirePermission('clients.create'), async (req, res) => {
+  const db = await pool.connect();
   try {
     const authContext = getRequiredAuthContext(req);
     const targetBranchId = resolveClientTargetBranch(req, req.body?.branchId);
@@ -1950,7 +2032,7 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
       return res.status(400).json({ error: 'يجب تحديد الفرع المستهدف لهذه العملية' });
     }
 
-    const { rows: branchStatus } = await pool.query(
+    const { rows: branchStatus } = await db.query(
       'SELECT status FROM branches WHERE id = $1',
       [targetBranchId],
     );
@@ -1960,13 +2042,61 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
 
     // Resolve the list of users this client will be assigned to. An explicit
     // assignment list is authoritative; the actor is never added implicitly.
+    const sourceCandidateId = Number(req.body?.sourceCandidateId);
+    const hasSourceCandidate = Number.isInteger(sourceCandidateId) && sourceCandidateId > 0;
+    let sourceCandidateAssignees: number[] | null = null;
+    if (hasSourceCandidate) {
+      if (Array.isArray(req.body?.assignmentUserIds)) {
+        return res.status(400).json({
+          error: 'ملكية الزبون الناتج تُشتق من الاسم المقترح ولا تقبل إسناداً موازياً',
+          code: 'candidate_conversion_assignment_conflict',
+        });
+      }
+      const { rows: sourceRows } = await db.query(
+        `SELECT c.branch_id AS "branchId",
+                COALESCE(
+                  (SELECT array_agg(ca.hr_user_id ORDER BY ca.assigned_at, ca.id)
+                     FROM candidate_assignments ca
+                    WHERE ca.candidate_id = c.id),
+                  '{}'::int[]
+                ) AS "assignedUserIds"
+           FROM candidates c
+          WHERE c.id = $1
+            AND c.status NOT IN ('Qualified', 'Junk')
+            AND c.converted_to_lead_id IS NULL`,
+        [sourceCandidateId],
+      );
+      const sourceCandidate = sourceRows[0];
+      if (!sourceCandidate) {
+        return res.status(409).json({
+          error: 'الاسم المقترح غير متاح للتحويل',
+          code: 'candidate_conversion_source_unavailable',
+        });
+      }
+      const candidateAccess = canEditCandidate(authContext, sourceCandidate);
+      if (!candidateAccess.allowed) {
+        return forbidClientAccess(res, candidateAccess.reason);
+      }
+      if (Number(sourceCandidate.branchId) !== targetBranchId) {
+        return res.status(400).json({
+          error: 'يجب إنشاء الزبون الناتج ضمن فرع الاسم المقترح نفسه',
+          code: 'candidate_conversion_branch_mismatch',
+        });
+      }
+      sourceCandidateAssignees = await getEligiblePersonalOwnerIds(
+        (sourceCandidate.assignedUserIds as any[]).map(Number),
+      );
+    }
+
     const assignmentAccess = canManageClientAssignments(authContext, targetBranchId);
     const canManageAssignments = assignmentAccess.allowed;
     const hasExplicitAssignments = Array.isArray(req.body?.assignmentUserIds);
-    if (hasExplicitAssignments && !canManageAssignments) {
+    if (!hasSourceCandidate && hasExplicitAssignments && !canManageAssignments) {
       return forbidClientAccess(res, assignmentAccess.reason);
     }
-    const resolvedAssignees = hasExplicitAssignments
+    const resolvedAssignees = hasSourceCandidate
+      ? sourceCandidateAssignees!
+      : hasExplicitAssignments
       ? await resolveAssignmentUserIds(req.body.assignmentUserIds)
       : ((await isEligiblePersonalOwner(authContext.userId)) ? [authContext.userId] : []);
     if ('error' in resolvedAssignees) {
@@ -2011,7 +2141,26 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
       }
     }
 
-    const { rows: [inserted] } = await pool.query(
+    await db.query('BEGIN');
+    if (hasSourceCandidate) {
+      const { rows: lockedSourceRows } = await db.query(
+        `SELECT id
+           FROM candidates
+          WHERE id = $1
+            AND status NOT IN ('Qualified', 'Junk')
+            AND converted_to_lead_id IS NULL
+          FOR UPDATE`,
+        [sourceCandidateId],
+      );
+      if (!lockedSourceRows[0]) {
+        throw Object.assign(new Error('الاسم المقترح لم يعد متاحاً للتحويل'), {
+          status: 409,
+          code: 'candidate_conversion_source_unavailable',
+        });
+      }
+    }
+
+    const { rows: [inserted] } = await db.query(
       `INSERT INTO clients (
         first_name, father_name, last_name, nickname,
         name, mobile, contacts, governorate, district, neighborhood,
@@ -2049,17 +2198,32 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
       ],
     );
 
-    await insertClientAssignments(inserted.id, resolvedAssignees, authContext.userId);
-    await pool.query(
+    await insertClientAssignments(inserted.id, resolvedAssignees, authContext.userId, db);
+    await db.query(
       `INSERT INTO client_rating_history (client_id, old_rating, new_rating, notes, changed_by, changed_at)
        VALUES ($1, NULL, 'Undefined', $2, $3, NOW())`,
       [inserted.id, 'التقييم الابتدائي عند إنشاء الزبون', authContext.userId],
     );
 
-    const { rows } = await pool.query(`${CLIENT_SELECT} WHERE c.id = $1`, [inserted.id]);
+    if (hasSourceCandidate) {
+      await db.query(
+        `UPDATE candidates
+            SET status = 'Qualified',
+                converted_to_lead_id = $2,
+                duplicate_flag = TRUE
+          WHERE id = $1`,
+        [sourceCandidateId, inserted.id],
+      );
+    }
+
+    const { rows } = await db.query(`${CLIENT_SELECT} WHERE c.id = $1`, [inserted.id]);
+    await db.query('COMMIT');
     res.json(mapClientRow(rows[0]));
   } catch (err: any) {
-    res.status(err.status || 500).json({ error: err.message });
+    await db.query('ROLLBACK').catch(() => undefined);
+    res.status(err.status || 500).json({ error: err.message, code: err.code });
+  } finally {
+    db.release();
   }
 });
 

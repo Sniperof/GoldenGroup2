@@ -63,6 +63,7 @@ export interface ReferralSheet {
 export type CandidateStatus = 'Prospect' | 'Suggested' | 'FollowUp' | 'Contacted' | 'Qualified' | 'Junk';
 export type ReferralConfirmationStatus = 'Pending' | 'Confirmed' | 'Rejected';
 export type DuplicateType = 'Candidate' | 'Client' | 'Both';
+export type CandidateOwnershipType = 'PERSONAL' | 'BRANCH';
 
 export interface Candidate {
     id: number;
@@ -74,7 +75,11 @@ export interface Candidate {
     contacts?: ContactEntry[];
     addressText: string;
     geoUnitId: number | null;
-    ownerUserId: number;
+    /** Legacy mirror. New ownership decisions use ownershipType + candidate_assignments. */
+    ownerUserId?: number | null;
+    ownershipType: CandidateOwnershipType;
+    responsibleUserId?: number | null;
+    ownershipLabel?: string | null;
     status: CandidateStatus;
     referralSheetId: number | null;
     referralDate: string;

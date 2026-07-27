@@ -20,12 +20,15 @@ import {
   assertDeviceSerialAvailable,
   deviceSerialConflictPayload,
 } from '../services/deviceSerialIntegrity.js';
+import { deriveContractWriteStatus } from '../services/contractLifecycle.js';
 
 const router = Router();
 router.use(requireAuth);
 
 // Phase 2C: physical device fields are read AND written via installed_devices only.
 // Financial / legal fields remain on contracts.
+// Draft planning values are projected separately through the contract query,
+// but installedDeviceId/hasInstalledDevice remains the operational truth.
 // All queries using contractSelect must add:
 //   LEFT JOIN installed_devices d ON d.contract_id = c.id
 const contractSelect = `
@@ -60,13 +63,21 @@ const contractSelect = `
   c.receipt_number AS "receiptNumber",
   c.code AS "code",
   c.installed_device_id AS "installedDeviceId",
+  (d.id IS NOT NULL) AS "hasInstalledDevice",
+  CASE
+    WHEN d.id IS NOT NULL THEN 'installed'
+    WHEN c.draft_device_payload IS NOT NULL THEN 'draft_plan'
+    ELSE 'none'
+  END AS "deviceRecordState",
   c.created_by AS "createdById",
   c.sale_owner_id AS "saleOwnerId",
   c.offer_team_snapshot AS "offerTeamSnapshot",
   c.contract_referrers AS "contractReferrers",
   c.draft_device_payload AS "draftDevicePayload",
   c.draft_gift_promises AS "draftGiftPromises",
-  -- Physical device fields (source: installed_devices)
+  -- Presentation fields may fall back to the draft plan so ContractForm can
+  -- restore a draft. Consumers must use hasInstalledDevice/deviceRecordState
+  -- rather than treating these values as proof of an operational device row.
   COALESCE(d.serial_number, c.draft_device_payload->>'serialNumber') AS "serialNumber",
   COALESCE(d.status, c.draft_device_payload->>'deviceStatus') AS "deviceStatus",
   COALESCE(d.delivery_date, NULLIF(c.draft_device_payload->>'deliveryDate', '')::date) AS "deliveryDate",
@@ -113,23 +124,6 @@ async function loadDraftContractForEdit(db: any, contractId: number | string, lo
     [contractId],
   );
   return rows[0] ?? null;
-}
-
-function deriveContractStatus(
-  status: unknown,
-  _closingEmployeeId: unknown,
-): 'draft' | 'active' | 'cancelled' | 'completed' | 'discarded' {
-  if (status === 'cancelled' || status === 'completed' || status === 'discarded') {
-    return status;
-  }
-  // SECURITY: create/edit must NEVER flip a contract to 'active'. Activation
-  // (التسكير) is exclusively the POST /:id/approve path, which enforces
-  // contracts.close, takes a pessimistic lock, and re-runs
-  // collectApprovalIssues. Previously `closingEmployeeId ? 'active' : 'draft'`
-  // let anyone with only contracts.edit activate a contract by passing a closer,
-  // bypassing the close capability and the approval re-validation. The closer is
-  // still stored as a *proposed* closer; it no longer changes status here.
-  return 'draft';
 }
 
 // Plan 2026-06-10 §C — buyer national ID must be exactly 11 digits when present.
@@ -372,6 +366,14 @@ async function fetchProjectedDuesByContractIds(dbClient: any, contractIds: numbe
  *           type: string
  *         serialNumber:
  *           type: string
+ *         installedDeviceId:
+ *           type: integer
+ *           nullable: true
+ *         hasInstalledDevice:
+ *           type: boolean
+ *         deviceRecordState:
+ *           type: string
+ *           enum: [none, draft_plan, installed]
  *         maintenancePlan:
  *           type: string
  *         basePrice:
@@ -790,7 +792,7 @@ router.get('/:id', requirePermission('contracts.view_list'), async (req, res) =>
  */
 router.post('/', requirePermission('contracts.create'), async (req, res) => {
   const c = req.body;
-  const derivedStatus = deriveContractStatus(c.status, c.closingEmployeeId);
+  const derivedStatus = deriveContractWriteStatus(c.status);
   const targetBranchId = resolveTargetBranchId(req, res, c.branchId);
   if (targetBranchId == null) return;
 
@@ -971,22 +973,6 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
     );
     const contractId = rows[0].id;
 
-    if ((c.contractType || 'sale_contract') === 'sale_contract' && derivedStatus === 'active') {
-      await applyDevicePayloadToInstalledDevice(client, contractId, draftDevicePayload);
-    }
-
-    // Contract warranty becomes effective only after the device actually enters
-    // service. We keep the legal entitlement at contract time, but the snapshot
-    // dates/status are derived from installed_devices.activated_at.
-    if ((c.contractType || 'sale_contract') === 'sale_contract' && derivedStatus === 'active') {
-      await syncContractWarrantySnapshot(
-        client,
-        contractId,
-        draftDevicePayload.warrantyMonths,
-        draftDevicePayload.warrantyVisits,
-      );
-    }
-
     // Re-fetch with JOIN so installed_devices fields are included in the response
     const { rows: fetchRows } = await client.query(
       `SELECT ${contractSelect} FROM contracts c LEFT JOIN installed_devices d ON d.contract_id = c.id WHERE c.id = $1`,
@@ -994,14 +980,12 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
     );
     const contract = fetchRows[0];
 
-    // Automatically create a device delivery task for sale contracts (Phase 3: include device_id).
-    //
-    // Constitution rule (DEC-CT-01 follow-up — see migration 211): a draft
-    // contract has NO side effects. The delivery task is deferred until the
-    // contract is approved via POST /api/contracts/:id/approve, which calls
-    // createDeliveryTaskForContract() below.
-    if (contract.contractType === 'sale_contract' && contract.status === 'active') {
-      await createDeliveryTaskForContract(client, contract);
+    // A normal create is a draft write and must have no operational device.
+    // Keep this runtime assertion in addition to the DB trigger so unexpected
+    // trigger/schema drift aborts the whole transaction instead of leaking a
+    // partially materialized customer device.
+    if (derivedStatus === 'draft' && (contract.status !== 'draft' || contract.hasInstalledDevice)) {
+      throw new Error(`draft_contract_device_invariant_failed:${contractId}`);
     }
 
     if (Array.isArray(c.lineItems) && c.lineItems.length > 0) {
@@ -1149,7 +1133,7 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
     });
   }
   const c = req.body;
-  const derivedStatus = deriveContractStatus(c.status, c.closingEmployeeId);
+  const derivedStatus = deriveContractWriteStatus(c.status);
   const draftDevicePayload = buildDraftDevicePayload(c);
 
   // Plan §3 — NID length guard (always, when provided).
@@ -1219,29 +1203,10 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
     }
   }
 
-  const isClosingDraft = prevStatus === 'draft' && derivedStatus === 'active';
-  if ((c.contractType || 'sale_contract') === 'sale_contract' && deviceModelForCheck && (deviceModelChanged || isClosingDraft)) {
+  if ((c.contractType || 'sale_contract') === 'sale_contract' && deviceModelForCheck && deviceModelChanged) {
     const unavailableDeviceModels = await findUnavailableDeviceModelsForNewCommercialUse(pool, [deviceModelForCheck]);
     if (unavailableDeviceModels.length > 0) {
       return res.status(400).json(catalogUnavailablePayload('device_model', unavailableDeviceModels));
-    }
-  }
-
-  if ((c.contractType || 'sale_contract') === 'sale_contract' && isClosingDraft) {
-    let sparePartIds = collectContractSparePartIds(c.lineItems);
-    if (sparePartIds.length === 0) {
-      const { rows: lineItemRows } = await pool.query(
-        `SELECT spare_part_id AS "sparePartId"
-           FROM contract_line_items
-          WHERE contract_id = $1
-            AND spare_part_id IS NOT NULL`,
-        [req.params.id],
-      );
-      sparePartIds = collectContractSparePartIds(lineItemRows);
-    }
-    const unavailableSpareParts = await findUnavailableSparePartsForNewCommercialUse(pool, sparePartIds);
-    if (unavailableSpareParts.length > 0) {
-      return res.status(400).json(catalogUnavailablePayload('spare_part', unavailableSpareParts));
     }
   }
 
@@ -1313,38 +1278,17 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
       );
     }
 
-    if ((c.contractType || 'sale_contract') === 'sale_contract' && derivedStatus === 'active') {
-      await applyDevicePayloadToInstalledDevice(pgClient, Number(req.params.id), draftDevicePayload);
-    }
-
-    // Respect DB-side activation/cancellation triggers and only synchronize the
-    // warranty snapshot from the device's effective activation state.
-    if ((c.contractType || 'sale_contract') === 'sale_contract' && derivedStatus === 'active') {
-      await syncContractWarrantySnapshot(
-        pgClient,
-        Number(req.params.id),
-        draftDevicePayload.warrantyMonths,
-        draftDevicePayload.warrantyVisits,
+    if (derivedStatus === 'draft') {
+      const { rows: invariantRows } = await pgClient.query(
+        `SELECT c.status, EXISTS (
+           SELECT 1 FROM installed_devices d WHERE d.contract_id = c.id
+         ) AS "hasInstalledDevice"
+           FROM contracts c
+          WHERE c.id = $1`,
+        [req.params.id],
       );
-    }
-
-    // DEC-CT-15: auto-freeze the legal copy at the draft→active transition.
-    // freezeContractDocument() is idempotent — if a copy already exists,
-    // nothing is written, so a redundant transition is safe.
-    const newStatus = derivedStatus;
-    if (prevStatus === 'draft' && newStatus === 'active') {
-      // SAVEPOINT so a freeze failure rolls back in isolation instead of
-      // aborting (and silently rolling back) the whole update transaction.
-      // frozen_by FK → employees.id, so pass employeeId (not the hr_users.id).
-      await pgClient.query('SAVEPOINT freeze_doc');
-      try {
-        await freezeContractDocument(pgClient, Number(req.params.id), (req as any).user?.employeeId ?? null);
-        await pgClient.query('RELEASE SAVEPOINT freeze_doc');
-      } catch (freezeErr: any) {
-        // Don't abort the contract update if freezing fails (e.g. missing template
-        // for a sale_subtype we haven't implemented yet). Log and continue.
-        await pgClient.query('ROLLBACK TO SAVEPOINT freeze_doc');
-        console.warn('[contracts] auto-freeze skipped for contract', req.params.id, ':', freezeErr?.message);
+      if (invariantRows[0]?.status !== 'draft' || invariantRows[0]?.hasInstalledDevice) {
+        throw new Error(`draft_contract_device_invariant_failed:${req.params.id}`);
       }
     }
 

@@ -189,6 +189,7 @@ const PERM_LABELS: Record<string, string> = {
   'clients.delete':                 'حذف الزبون',
   'clients.can_be_assigned':        'قابل للتعيين على زبائن',
   'candidates.view_list':           'عرض الأسماء المقترحة',
+  'candidates.assignment.manage':   'إدارة مسؤولي الأسماء المقترحة',
   'candidates.create':              'إضافة اسم مقترح',
   'candidates.edit':                'تعديل الاسم المقترح',
   'candidates.name_lists.view_list': 'عرض لوائح الأسماء',

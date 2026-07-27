@@ -210,7 +210,12 @@ export default function CandidatesEntry() {
 
     // Derived: unique supervisors and branches for filter dropdowns
     const candidateSupervisors = useMemo(() =>
-        [...new Set(candidates.flatMap(c => (c.assignments || []).map(a => a.userName)))].sort(),
+        [...new Set(candidates.flatMap(c => {
+            if (c.ownershipType === 'BRANCH') {
+                return [c.ownershipLabel || `ملكية فرع ${c.branchName || 'غير محدد'}`];
+            }
+            return (c.assignments || []).map(a => a.userName);
+        }))].sort(),
         [candidates]
     );
     const candidateBranches = useMemo(() =>
@@ -272,7 +277,11 @@ export default function CandidatesEntry() {
                 const fullStr = `${c.firstName || ''} ${c.nickname || ''} ${c.lastName || ''} ${c.mobile} ${c.referralNameSnapshot || ''}`.toLowerCase();
                 if (searchQuery && !fullStr.includes(searchQuery.toLowerCase())) return false;
                 if (candidateStatusFilter && c.status !== candidateStatusFilter) return false;
-                if (candidateSupervisorFilter && !(c.assignments || []).some(a => a.userName === candidateSupervisorFilter)) return false;
+                if (
+                    candidateSupervisorFilter &&
+                    c.ownershipLabel !== candidateSupervisorFilter &&
+                    !(c.assignments || []).some(a => a.userName === candidateSupervisorFilter)
+                ) return false;
                 if (candidateBranchFilter && c.branchName !== candidateBranchFilter) return false;
                 if (candidateConvertedFilter === 'converted' && c.convertedToLeadId == null) return false;
                 if (candidateConvertedFilter === 'unconverted' && c.convertedToLeadId != null) return false;
@@ -768,7 +777,14 @@ export default function CandidatesEntry() {
                                                 <td className="px-5 py-2 text-xs">
                                                     {(() => {
                                                         const list = c.assignments || [];
-                                                        if (list.length === 0) return <span className="text-slate-400">--</span>;
+                                                        if (c.ownershipType === 'BRANCH' || list.length === 0) {
+                                                            return (
+                                                                <span className="inline-flex items-center gap-1 font-bold text-indigo-700">
+                                                                    <Building2 className="w-3.5 h-3.5" />
+                                                                    {c.ownershipLabel || `ملكية فرع ${c.branchName || 'غير محدد'}`}
+                                                                </span>
+                                                            );
+                                                        }
                                                         const visible = list.slice(0, 2);
                                                         const extra = list.length - visible.length;
                                                         return (

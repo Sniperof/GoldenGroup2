@@ -907,9 +907,9 @@ router.get('/hr-users/name-list-assignable', requirePermission('candidates.name_
 
 // ── GET /hr-users/candidate-assignable — Users eligible to own a candidate ───
 // Mirrors /hr-users/name-list-assignable for the candidate-names family: gated
-// by candidates.edit/create (assignment rides on edit), returns active users
+// by candidates.assignment.manage, returns active users
 // linked to active employees whose role has candidates.can_be_assigned.
-router.get('/hr-users/candidate-assignable', requirePermission('candidates.edit', 'candidates.create'), async (req, res) => {
+router.get('/hr-users/candidate-assignable', requirePermission('candidates.assignment.manage'), async (req, res) => {
   try {
     const authContext = req.authContext!;
     const conditions: string[] = [
@@ -920,7 +920,7 @@ router.get('/hr-users/candidate-assignable', requirePermission('candidates.edit'
     // Scope to the OPERATION branch (?branchId), not the actor's acting branch,
     // so a GLOBAL deputy sees the staff of the branch they're adding into — same
     // as super-admin. BRANCH actors are confined to their assigned branches.
-    const branchFilter = resolveAssignableBranchFilter(authContext, req, ['candidates.edit', 'candidates.create']);
+    const branchFilter = resolveAssignableBranchFilter(authContext, req, ['candidates.assignment.manage']);
     if (branchFilter === 'DENY') return res.json([]);
     if (branchFilter != null) {
       params.push(branchFilter);

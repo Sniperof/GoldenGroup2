@@ -92,11 +92,11 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
     // existing sheet) the field is HIDDEN and the fixed branch is used silently
     // — so we never render an unresolved "#id" badge.
     const canChooseBranch = authUser?.isSuperAdmin === true || createCandidateScope === 'GLOBAL';
-    const editCandidateScope = getPermissionScope('candidates.edit');
+    const assignmentScope = getPermissionScope('candidates.assignment.manage');
     const canChooseAssignedOwner =
         authUser?.isSuperAdmin === true ||
-        editCandidateScope === 'GLOBAL' ||
-        editCandidateScope === 'BRANCH';
+        assignmentScope === 'GLOBAL' ||
+        assignmentScope === 'BRANCH';
     const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
     const [allClients, setAllClients] = useState<Client[]>([]);
     const [contracts, setContracts] = useState<Array<{ customerId: number }>>([]);
@@ -104,6 +104,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
     const [hrUsers, setHrUsers] = useState<HrUserOption[]>([]);
     const [occupationOptions, setOccupationOptions] = useState<string[]>([]);
     const [selectedBranchId, setSelectedBranchId] = useState<number | ''>('');
+    const [ownershipType, setOwnershipType] = useState<'PERSONAL' | 'BRANCH'>('PERSONAL');
     const [selectedResponsibleUserId, setSelectedResponsibleUserId] = useState<number | ''>('');
     useEffect(() => {
         let active = true;
@@ -238,6 +239,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                     setSelectedSheetId(sheetId);
                 }
                 setSelectedBranchId(initialData.branchId ?? authUser?.branchId ?? contextBranchId ?? '');
+                setOwnershipType(initialData.ownershipType ?? ((initialData.assignments?.length ?? 0) > 0 ? 'PERSONAL' : 'BRANCH'));
                 setSelectedResponsibleUserId(initialData.assignments?.[0]?.userId ?? initialData.ownerUserId ?? authUser?.id ?? '');
             } else {
                 setIsDirectMode(initialDirectMode || false);
@@ -254,6 +256,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                 setGiftPromiseSheet(null);
                 setGiftPromiseDirect(null);
                 setSelectedBranchId(contextBranchId ?? authUser?.branchId ?? '');
+                setOwnershipType('PERSONAL');
                 // Default empty so the responsible is an explicit single choice
                 // (no phantom first-option). Users who can't choose self-assign on save.
                 setSelectedResponsibleUserId('');
@@ -424,7 +427,11 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
             setSelectedBranchId(selectedSheet.branchId);
         }
         if (selectedSheet.assignedHrUserId != null) {
+            setOwnershipType('PERSONAL');
             setSelectedResponsibleUserId(selectedSheet.assignedHrUserId);
+        } else {
+            setOwnershipType('BRANCH');
+            setSelectedResponsibleUserId('');
         }
     }, [isDirectMode, isOpen, selectedSheet]);
 
@@ -467,7 +474,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
             setError('يجب تحديد الفرع لهذا السجل.');
             return false;
         }
-        if (canChooseAssignedOwner && !selectedResponsibleUserId) {
+        if (canChooseAssignedOwner && ownershipType === 'PERSONAL' && !selectedResponsibleUserId) {
             setError('يجب تحديد المسؤول عن هذا السجل.');
             return false;
         }
@@ -519,7 +526,11 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                 entityId = selectedClientId;
             }
 
-            const newC: Omit<Candidate, 'id' | 'createdAt' | 'duplicateFlag' | 'duplicateType' | 'duplicateReferenceId' | 'status' | 'referralConfirmationStatus' | 'convertedToLeadId' | 'referralSheetId'> & { referralSheetId: number | null; assignmentUserIds?: number[] } = {
+            const newC: Omit<Candidate, 'id' | 'createdAt' | 'duplicateFlag' | 'duplicateType' | 'duplicateReferenceId' | 'status' | 'referralConfirmationStatus' | 'convertedToLeadId' | 'referralSheetId' | 'ownershipType'> & {
+                referralSheetId: number | null;
+                ownershipType?: 'PERSONAL' | 'BRANCH';
+                responsibleUserId?: number | null;
+            } = {
                 firstName,
                 lastName,
                 nickname,
@@ -536,14 +547,15 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                 referralReason: isDirectMode ? 'Direct Referral' : 'Part of Sheet',
                 occupation: candidateData.occupation,
                 candidateNotes: candidateData.candidateNotes,
-                ownerUserId: resolvedResponsibleUserId ?? authUser?.id ?? 0,
+                ownerUserId: ownershipType === 'PERSONAL' ? (resolvedResponsibleUserId ?? authUser?.id ?? null) : null,
                 branchId: resolvedBranchId,
-                assignmentUserIds: canChooseAssignedOwner && resolvedResponsibleUserId ? [resolvedResponsibleUserId] : undefined,
+                ownershipType: canChooseAssignedOwner ? ownershipType : undefined,
+                responsibleUserId: canChooseAssignedOwner && ownershipType === 'PERSONAL' ? resolvedResponsibleUserId : undefined,
                 createdBy: authUser?.id ?? 0
             };
             let savedCandidate: Candidate | null = initialData ?? null;
             if (initialData?.id) {
-                await updateCandidate(initialData.id, newC as Partial<Candidate> & { assignmentUserIds?: number[] });
+                await updateCandidate(initialData.id, newC as Partial<Candidate>);
             } else {
                 savedCandidate = await addCandidate(newC as any);
             }
@@ -612,6 +624,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
 
             if (addAnother) {
                 setCandidateData(initialCandidateState);
+                setOwnershipType('PERSONAL');
                 setError('');
             } else {
                 resetAndClose();
@@ -639,6 +652,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
         setGiftPromiseSheet(null);
         setGiftPromiseDirect(null);
         setSelectedBranchId(contextBranchId ?? authUser?.branchId ?? '');
+        setOwnershipType('PERSONAL');
         setSelectedResponsibleUserId(authUser?.id ?? '');
         onClose();
     };
@@ -718,25 +732,47 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                                         </div>
                                     )}
                                     {canChooseAssignedOwner && (
-                                        <div>
+                                        <div className="space-y-2">
                                             <label className="block text-xs font-semibold text-slate-600 mb-1.5 flex items-center gap-1">
                                                 <User className="w-3.5 h-3.5" />
-                                                المسؤول عن السجل <span className="text-red-500">*</span>
+                                                ملكية السجل <span className="text-red-500">*</span>
                                             </label>
                                             {sheetLocked ? (
                                                 <div className="w-full p-2.5 rounded-xl border border-slate-200 bg-slate-100 text-slate-600 text-sm font-bold flex items-center justify-between">
-                                                    <span>{selectedSheet?.assignedHrUserName ?? 'مسؤول اللائحة'}</span>
+                                                    <span>
+                                                        {selectedSheet?.assignedHrUserId != null
+                                                            ? (selectedSheet.assignedHrUserName ?? 'مسؤول اللائحة')
+                                                            : `ملكية فرع ${selectedSheet?.branchName ?? ''}`.trim()}
+                                                    </span>
                                                     <span className="text-xs text-slate-400">مثبّت من اللائحة</span>
                                                 </div>
                                             ) : (
-                                                <Select
-                                                    value={selectedResponsibleUserId === '' ? '' : String(selectedResponsibleUserId)}
-                                                    onChange={(v) => setSelectedResponsibleUserId(v ? Number(v) : '')}
-                                                    placeholder="-- اختر المسؤول --"
-                                                    ariaLabel="المسؤول"
-                                                    className="w-full"
-                                                    options={[{ value: '', label: '-- اختر المسؤول --' }, ...assignableHrUsers.map(user => ({ value: String(user.id), label: `${user.name}${user.roleDisplayName ? ` - ${user.roleDisplayName}` : ''}` }))]}
-                                                />
+                                                <>
+                                                    <Select
+                                                        value={ownershipType}
+                                                        onChange={(value) => {
+                                                            const nextType = value === 'BRANCH' ? 'BRANCH' : 'PERSONAL';
+                                                            setOwnershipType(nextType);
+                                                            if (nextType === 'BRANCH') setSelectedResponsibleUserId('');
+                                                        }}
+                                                        ariaLabel="نوع ملكية الاسم المقترح"
+                                                        className="w-full"
+                                                        options={[
+                                                            { value: 'PERSONAL', label: 'موظف مسؤول' },
+                                                            { value: 'BRANCH', label: `ملكية الفرع${selectedBranchId ? ` — ${branches.find(branch => branch.id === Number(selectedBranchId))?.name ?? ''}` : ''}` },
+                                                        ]}
+                                                    />
+                                                    {ownershipType === 'PERSONAL' && (
+                                                        <Select
+                                                            value={selectedResponsibleUserId === '' ? '' : String(selectedResponsibleUserId)}
+                                                            onChange={(v) => setSelectedResponsibleUserId(v ? Number(v) : '')}
+                                                            placeholder="-- اختر المسؤول --"
+                                                            ariaLabel="المسؤول"
+                                                            className="w-full"
+                                                            options={[{ value: '', label: '-- اختر المسؤول --' }, ...assignableHrUsers.map(user => ({ value: String(user.id), label: `${user.name}${user.roleDisplayName ? ` - ${user.roleDisplayName}` : ''}` }))]}
+                                                        />
+                                                    )}
+                                                </>
                                             )}
                                         </div>
                                     )}

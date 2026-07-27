@@ -121,16 +121,16 @@ const referralSheetsTeamQuality: BreakdownDefinition = {
   },
 };
 
-// أداء الملكية حسب الموظف (reporting-analytics §3.8 #2) — إنجاز فريق.
-// القيمة = عدد المرشّحين المملوكين، الثانوية = معدّل تحويلهم٪.
+// أداء الملكية حسب الموظف/الفرع (reporting-analytics §3.8 #2).
+// Zero candidate_assignments rows is an intentional branch-ownership bucket.
 const candidatesOwnershipBreakdown: BreakdownDefinition = {
   key: 'candidates.ownership_breakdown',
   permission: 'candidates.view_list',
-  titleAr: 'المرشّحون المملوكون لكل موظف',
+  titleAr: 'توزيع ملكية الأسماء المقترحة',
   kind: 'ranked-bar',
   valueUnit: 'count',
   secondaryLabel: 'تحويل',
-  purpose: 'إنجاز فريق: حجم محفظة كل موظف من المرشّحين ومعدّل تحويله فعليًا (لا مجرّد الجمع).',
+  purpose: 'حجم محفظة كل موظف وملكية كل فرع ومعدّل التحويل الفعلي لكل منها.',
   async compute(ctx) {
     const params: unknown[] = [ctx.from, ctx.to];
     const scopeSql = appendCandidateScope(ctx, params);
@@ -140,16 +140,29 @@ const candidatesOwnershipBreakdown: BreakdownDefinition = {
       assigneeSql = ` AND ca.hr_user_id = $${params.length}`;
     }
     const sql =
-      `SELECT ca.hr_user_id AS uid,
-              COALESCE(hu.name, 'غير محدد') AS name,
+      `SELECT CASE
+                WHEN ca.hr_user_id IS NULL THEN 'branch:' || c.branch_id::text
+                ELSE 'user:' || ca.hr_user_id::text
+              END AS ownership_key,
+              CASE
+                WHEN ca.hr_user_id IS NULL THEN 'ملكية فرع ' || COALESCE(b.name, 'غير محدد')
+                ELSE COALESCE(hu.name, 'غير محدد')
+              END AS name,
               COUNT(*)::int AS cnt,
               COUNT(*) FILTER (WHERE c.converted_to_lead_id IS NOT NULL)::int AS converted
          FROM candidates c
-         JOIN candidate_assignments ca ON ca.candidate_id = c.id
+         LEFT JOIN LATERAL (
+           SELECT ca0.hr_user_id
+             FROM candidate_assignments ca0
+            WHERE ca0.candidate_id = c.id
+            ORDER BY ca0.assigned_at, ca0.id
+            LIMIT 1
+         ) ca ON TRUE
          LEFT JOIN hr_users hu ON hu.id = ca.hr_user_id
+         LEFT JOIN branches b ON b.id = c.branch_id
         WHERE c.created_at >= $1 AND c.created_at < $2
-          AND ca.hr_user_id IS NOT NULL` + scopeSql + assigneeSql +
-      ` GROUP BY ca.hr_user_id, hu.name
+          ` + scopeSql + assigneeSql +
+      ` GROUP BY ownership_key, ca.hr_user_id, hu.name, c.branch_id, b.name
         ORDER BY cnt DESC
         LIMIT 10`;
     const { rows } = await pool.query(sql, params);
@@ -157,7 +170,7 @@ const candidatesOwnershipBreakdown: BreakdownDefinition = {
       const cnt = Number(r.cnt ?? 0);
       const conv = Number(r.converted ?? 0);
       return {
-        key: String(r.uid),
+        key: String(r.ownership_key),
         label: String(r.name),
         value: cnt,
         value2: cnt > 0 ? Math.round((conv / cnt) * 1000) / 10 : 0,

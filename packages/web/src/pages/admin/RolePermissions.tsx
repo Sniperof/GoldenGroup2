@@ -148,6 +148,7 @@ const PERM_LABELS: Record<string, { label: string; desc: string }> = {
 
   // Candidates
   'candidates.view_list': { label: 'عرض الأسماء المقترحة',   desc: 'الاطلاع على قائمة الأسماء المقترحة للتوظيف' },
+  'candidates.assignment.manage': { label: 'إدارة مسؤولي الأسماء المقترحة', desc: 'إسناد الاسم لموظف مؤهل أو تحويل ملكيته إلى الفرع' },
   'candidates.create':    { label: 'إضافة اسم مقترح',        desc: 'إدخال اسم مقترح جديد يدوياً أو عبر الاستيراد' },
   'candidates.edit':      { label: 'تعديل الاسم المقترح',    desc: 'تحديث بيانات الاسم المقترح' },
   'candidates.name_lists.view_list': { label: 'عرض لوائح الأسماء',  desc: 'الاطلاع على لوائح الأسماء ضمن سجل الأسماء المقترحة' },

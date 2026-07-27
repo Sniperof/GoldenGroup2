@@ -53,6 +53,7 @@ import appOtpRouter from './routes/appOtp.js';
 import appAccountRouter from './routes/appAccount.js';
 import appAuthRouter from './routes/appAuth.js';
 import appServiceRequestsRouter from './routes/appServiceRequests.js';
+import appDeviceCatalogRouter from './routes/appDeviceCatalog.js';
 import publicAccountDeletionRouter from './routes/publicAccountDeletion.js';
 import adminAccountRequestsRouter from './routes/adminAccountRequests.js';
 import adminAppAccountsRouter from './routes/adminAppAccounts.js';
@@ -116,6 +117,8 @@ app.use('/api/app', appAccountRouter);
 app.use('/api/app', appAuthRouter);
 // Mobile service-request intake: visitor OTP or authenticated customer identity.
 app.use('/api/app/service-requests', appServiceRequestsRouter);
+// Public active company-device catalog for mobile visitors.
+app.use('/api/app/catalog/devices', appDeviceCatalogRouter);
 // Public account-deletion web page (Google Play). DEC-013 §8.
 app.use('/account-deletion', publicAccountDeletionRouter);
 // Web-portal admin review of account-creation requests. DEC-013 §2.5.

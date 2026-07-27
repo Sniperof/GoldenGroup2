@@ -14,6 +14,15 @@ import { canViewClient } from '../policies/clientPolicy.js';
 import { eligibleHrUserWithPermissionCondition } from '../services/assigneeEligibility.js';
 import { buildClientLifecycleStatusSql } from '../services/customerOwnership.js';
 import {
+  assertEligibleCandidateResponsible,
+  CandidateOwnershipError,
+  hasCandidateOwnershipPayload,
+  replaceCandidateOwnership,
+  resolveCandidateOwnershipInput,
+  validateCandidateOwnershipDecision,
+  type CandidateOwnershipDecision,
+} from '../services/candidateOwnershipService.js';
+import {
   getCanonicalContactNumber,
   normalizeContactsForWrite,
   normalizePhone,
@@ -33,22 +42,6 @@ function currentDateKey(): string {
   return `${valueByType.get('year')}-${valueByType.get('month')}-${valueByType.get('day')}`;
 }
 
-const selectFields = `
-  id, first_name AS "firstName", last_name AS "lastName", nickname, mobile,
-  contacts, address_text AS "addressText", geo_unit_id AS "geoUnitId", owner_user_id AS "ownerUserId",
-  status, referral_sheet_id AS "referralSheetId",
-  referral_date AS "referralDate", referral_reason AS "referralReason",
-  referral_type AS "referralType", referral_origin_channel AS "referralOriginChannel",
-  referral_name_snapshot AS "referralNameSnapshot", referral_entity_id AS "referralEntityId",
-  referral_confirmation_status AS "referralConfirmationStatus",
-  occupation, candidate_notes AS "candidateNotes",
-  duplicate_flag AS "duplicateFlag", duplicate_type AS "duplicateType",
-  duplicate_reference_id AS "duplicateReferenceId",
-  converted_to_lead_id AS "convertedToLeadId",
-  created_at AS "createdAt", created_by AS "createdBy",
-  branch_id AS "branchId"
-`;
-
 const selectFieldsList = `
   c.id, c.first_name AS "firstName", c.last_name AS "lastName", c.nickname, c.mobile,
   c.contacts, c.address_text AS "addressText", c.geo_unit_id AS "geoUnitId", c.owner_user_id AS "ownerUserId",
@@ -64,6 +57,26 @@ const selectFieldsList = `
   c.created_at AS "createdAt", c.created_by AS "createdBy",
   c.branch_id AS "branchId",
   b.name AS "branchName",
+  CASE
+    WHEN EXISTS (SELECT 1 FROM candidate_assignments ownership_ca WHERE ownership_ca.candidate_id = c.id)
+      THEN 'PERSONAL'
+    ELSE 'BRANCH'
+  END AS "ownershipType",
+  (SELECT ownership_ca.hr_user_id
+     FROM candidate_assignments ownership_ca
+    WHERE ownership_ca.candidate_id = c.id
+    ORDER BY ownership_ca.assigned_at, ownership_ca.id
+    LIMIT 1) AS "responsibleUserId",
+  CASE
+    WHEN EXISTS (SELECT 1 FROM candidate_assignments ownership_ca WHERE ownership_ca.candidate_id = c.id)
+      THEN (SELECT ownership_u.name
+              FROM candidate_assignments ownership_ca
+              JOIN hr_users ownership_u ON ownership_u.id = ownership_ca.hr_user_id
+             WHERE ownership_ca.candidate_id = c.id
+             ORDER BY ownership_ca.assigned_at, ownership_ca.id
+             LIMIT 1)
+    ELSE CONCAT('ملكية فرع ', COALESCE(b.name, 'غير محدد'))
+  END AS "ownershipLabel",
   c.created_by AS "createdByUserId",
   cb.name AS "createdByUserName",
   COALESCE(r.display_name, cb.role) AS "createdByRoleDisplayName",
@@ -90,6 +103,8 @@ type LinkableCandidate = {
   id: number;
   branchId: number | null;
   createdBy: number | null;
+  status: string | null;
+  convertedToLeadId: number | null;
   mobile: string | null;
   referralType: string | null;
   referralOriginChannel: string | null;
@@ -99,6 +114,7 @@ type LinkableCandidate = {
   referralReason: string | null;
   referralSheetId: number | null;
   addressText: string | null;
+  assignedUserIds: number[];
 };
 
 type LinkableClient = {
@@ -114,73 +130,6 @@ type Queryable = {
 
 function isTerminalCandidateState(status: unknown, convertedToLeadId: unknown): boolean {
   return status === 'Qualified' || status === 'Junk' || convertedToLeadId != null;
-}
-
-function canManageCandidateAssignments(authContext: ReturnType<typeof getRequiredAuthContext>, branchId: number | null): boolean {
-  if (authContext.isSuperAdmin) return true;
-  const grant = authContext.grants.find(item => item.permission === 'candidates.edit');
-  if (grant?.scope === 'GLOBAL') return true;
-  if (grant?.scope === 'BRANCH' && branchId != null) {
-    return authContext.allowedBranchIds.includes(branchId);
-  }
-  return false;
-}
-
-// Only super-admin or a GLOBAL edit grant may assign a candidate to a user
-// outside the operation's branch. Everyone else (incl. BRANCH managers) must
-// keep explicitly-named assignees within the candidate's branch — enforced on
-// the server, not just filtered in the picker (engineering standard §5.1).
-function canAssignCandidatesAcrossBranches(authContext: ReturnType<typeof getRequiredAuthContext>): boolean {
-  if (authContext.isSuperAdmin) return true;
-  const grant = authContext.grants.find(item => item.permission === 'candidates.edit');
-  return grant?.scope === 'GLOBAL';
-}
-
-// Validates a candidate responsible with the same assignee shape as clients:
-// active HR user, linked to an active employee, active employee status, and a
-// role carrying candidates.can_be_assigned. When branchId is set (assigner is
-// not super/GLOBAL), the user must also belong to that branch.
-async function assertCandidateResponsible(
-  userId: number,
-  branchId: number | null,
-): Promise<string | null> {
-  const params: any[] = [userId];
-  let branchClause = '';
-  if (branchId != null) {
-    params.push(branchId);
-    branchClause = `AND u.branch_id = $${params.length}`;
-  }
-  const { rows } = await pool.query(
-    `SELECT u.id
-       FROM hr_users u
-       LEFT JOIN roles r ON r.id = u.role_id
-       LEFT JOIN employees e ON e.id = u.employee_id
-      WHERE u.id = $1
-        AND ${eligibleHrUserWithPermissionCondition('u', 'r', 'e', 'candidates.can_be_assigned')}
-        ${branchClause}`,
-    params,
-  );
-  return rows[0]
-    ? null
-    : 'الموظف المحدد غير مؤهل لإسناد الأسماء إليه أو ليس ضمن فرع العملية';
-}
-
-async function insertCandidateAssignments(
-  candidateId: number,
-  userIds: number[],
-  assignedBy: number,
-): Promise<void> {
-  if (userIds.length === 0) return;
-  const values = userIds
-    .map((_, i) => `($${i * 3 + 1}, $${i * 3 + 2}, $${i * 3 + 3})`)
-    .join(', ');
-  const params = userIds.flatMap(uid => [candidateId, uid, assignedBy]);
-  await pool.query(
-    `INSERT INTO candidate_assignments (candidate_id, hr_user_id, assigned_by)
-     VALUES ${values}
-     ON CONFLICT (candidate_id, hr_user_id) DO NOTHING`,
-    params,
-  );
 }
 
 function normalizeCandidatePayload<T extends Record<string, any>>(payload: T): T & {
@@ -284,6 +233,8 @@ async function loadLinkableCandidate(candidateId: string | number): Promise<Link
        id,
        branch_id AS "branchId",
        created_by AS "createdBy",
+       status,
+       converted_to_lead_id AS "convertedToLeadId",
        mobile,
        referral_type AS "referralType",
        referral_origin_channel AS "referralOriginChannel",
@@ -292,7 +243,13 @@ async function loadLinkableCandidate(candidateId: string | number): Promise<Link
        referral_date AS "referralDate",
        referral_reason AS "referralReason",
        referral_sheet_id AS "referralSheetId",
-       address_text AS "addressText"
+       address_text AS "addressText",
+       COALESCE(
+         (SELECT array_agg(hr_user_id ORDER BY assigned_at, id)
+            FROM candidate_assignments
+           WHERE candidate_id = candidates.id),
+         '{}'::int[]
+       ) AS "assignedUserIds"
      FROM candidates
     WHERE id = $1`,
     [candidateId],
@@ -346,40 +303,18 @@ async function loadLinkableClient(clientId: string | number): Promise<LinkableCl
   return rows[0] ?? null;
 }
 
-async function resolveCandidateSupervisorAssignmentIds(candidateId: number, fallbackUserId: number | null): Promise<number[]> {
-  const { rows: supervisorRows } = await pool.query(
+async function resolveTransferableCandidateAssignmentIds(db: Queryable, candidateId: number): Promise<number[]> {
+  const { rows: assignmentRows } = await db.query(
     `SELECT DISTINCT u.id
        FROM candidate_assignments ca
        JOIN hr_users u ON u.id = ca.hr_user_id
        LEFT JOIN roles r ON r.id = u.role_id
+       LEFT JOIN employees e ON e.id = u.employee_id
       WHERE ca.candidate_id = $1
-        AND u.is_active = TRUE
-        AND (
-          r.team_slot_type = 'SUPERVISOR'
-          OR upper(COALESCE(r.name, u.role, '')) LIKE '%SUPERVISOR%'
-        )`,
+        AND ${eligibleHrUserWithPermissionCondition('u', 'r', 'e', 'clients.can_be_assigned')}`,
     [candidateId],
   );
-
-  const supervisorIds = supervisorRows.map((row: any) => Number(row.id)).filter(Number.isFinite);
-  if (supervisorIds.length > 0) {
-    return supervisorIds;
-  }
-
-  const { rows: assignmentRows } = await pool.query(
-    `SELECT DISTINCT u.id
-       FROM candidate_assignments ca
-       JOIN hr_users u ON u.id = ca.hr_user_id
-      WHERE ca.candidate_id = $1
-        AND u.is_active = TRUE`,
-    [candidateId],
-  );
-  const assignmentIds = assignmentRows.map((row: any) => Number(row.id)).filter(Number.isFinite);
-  if (assignmentIds.length > 0) {
-    return assignmentIds;
-  }
-
-  return fallbackUserId != null ? [fallbackUserId] : [];
+  return assignmentRows.map((row: any) => Number(row.id)).filter(Number.isFinite);
 }
 
 async function insertLinkedClientAssignments(
@@ -430,6 +365,15 @@ async function insertLinkedClientAssignments(
  *           type: integer
  *         ownerUserId:
  *           type: integer
+ *           deprecated: true
+ *         ownershipType:
+ *           type: string
+ *           enum: [PERSONAL, BRANCH]
+ *         responsibleUserId:
+ *           type: integer
+ *           nullable: true
+ *         ownershipLabel:
+ *           type: string
  *         status:
  *           type: string
  *         referralSheetId:
@@ -617,6 +561,13 @@ router.get('/', requirePermission('candidates.view_list'), async (req, res) => {
  *                 type: array
  *                 items:
  *                   type: integer
+ *                 deprecated: true
+ *               ownershipType:
+ *                 type: string
+ *                 enum: [PERSONAL, BRANCH]
+ *               responsibleUserId:
+ *                 type: integer
+ *                 nullable: true
  *     responses:
  *       200:
  *         description: Success
@@ -634,9 +585,39 @@ router.get('/', requirePermission('candidates.view_list'), async (req, res) => {
  *         description: Server error
  */
 router.post('/', requirePermission('candidates.create'), async (req, res) => {
+  const db = await pool.connect();
   try {
     const authContext = getRequiredAuthContext(req);
-    const targetBranchId = resolveCandidateTargetBranch(req, req.body?.branchId, 'candidates.create');
+    const requestedSheetId = Number(req.body?.referralSheetId);
+    const hasRequestedSheet = Number.isInteger(requestedSheetId) && requestedSheetId > 0;
+    let inheritedOwnership: CandidateOwnershipDecision | null = null;
+    let targetBranchId = resolveCandidateTargetBranch(req, req.body?.branchId, 'candidates.create');
+
+    if (hasRequestedSheet) {
+      const { rows: sheetRows } = await db.query(
+        `SELECT branch_id AS "branchId", assigned_hr_user_id AS "assignedHrUserId"
+           FROM referral_sheets
+          WHERE id = $1
+          FOR SHARE`,
+        [requestedSheetId],
+      );
+      const sheet = sheetRows[0];
+      if (!sheet) {
+        return res.status(400).json({ error: 'لائحة الأسماء المحددة غير موجودة' });
+      }
+      const inheritedBranchId = Number(sheet.branchId);
+      if (!Number.isInteger(inheritedBranchId) || inheritedBranchId <= 0) {
+        return res.status(409).json({
+          error: 'لائحة الأسماء المحددة غير مرتبطة بفرع صالح',
+          code: 'candidate_referral_sheet_branch_missing',
+        });
+      }
+      targetBranchId = inheritedBranchId;
+      inheritedOwnership = sheet.assignedHrUserId == null
+        ? { ownershipType: 'BRANCH', responsibleUserId: null }
+        : { ownershipType: 'PERSONAL', responsibleUserId: Number(sheet.assignedHrUserId) };
+    }
+
     if (targetBranchId == null) {
       return res.status(400).json({ error: 'يجب تحديد الفرع المستهدف لهذه العملية' });
     }
@@ -650,15 +631,17 @@ router.post('/', requirePermission('candidates.create'), async (req, res) => {
     }
 
     const c = normalizeCandidatePayload(req.body ?? {});
+    const ownership = inheritedOwnership ?? resolveCandidateOwnershipInput(req.body ?? {}, authContext.userId);
+    if (inheritedOwnership?.ownershipType === 'PERSONAL') {
+      await assertEligibleCandidateResponsible(db, inheritedOwnership.responsibleUserId, targetBranchId);
+    } else if (!inheritedOwnership) {
+      await validateCandidateOwnershipDecision(db, authContext, targetBranchId, ownership, {
+        allowImplicitSelf: true,
+      });
+    }
 
-    // Resolve owner_user_id for the legacy column (single owner still stored)
-    const canManageAssignments = canManageCandidateAssignments(authContext, targetBranchId);
-    const requestedOwnerUserId = Number(req.body?.ownerUserId);
-    const ownerUserId = canManageAssignments && Number.isInteger(requestedOwnerUserId) && requestedOwnerUserId > 0
-      ? requestedOwnerUserId
-      : authContext.userId;
-
-    const { rows } = await pool.query(
+    await db.query('BEGIN');
+    const { rows } = await db.query(
       `INSERT INTO candidates (first_name, last_name, nickname, mobile, contacts, address_text, geo_unit_id,
         owner_user_id, status, referral_sheet_id, referral_date, referral_reason,
         referral_type, referral_origin_channel, referral_name_snapshot, referral_entity_id,
@@ -667,7 +650,7 @@ router.post('/', requirePermission('candidates.create'), async (req, res) => {
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
       RETURNING id`,
       [c.firstName, c.lastName || null, c.nickname, c.mobile, JSON.stringify(c.contacts || []), c.addressText || '', c.geoUnitId || null,
-       ownerUserId, c.status || 'Suggested', c.referralSheetId || null,
+       ownership.responsibleUserId, c.status || 'Suggested', hasRequestedSheet ? requestedSheetId : null,
        c.referralDate || null, c.referralReason || null, c.referralType || null,
        c.referralOriginChannel || null, c.referralNameSnapshot || null,
        c.referralEntityId || null, c.referralConfirmationStatus || 'Pending',
@@ -677,22 +660,10 @@ router.post('/', requirePermission('candidates.create'), async (req, res) => {
     );
 
     const candidateId = rows[0].id;
-
-    // One responsible per candidate (product decision 2026-06-16): the owner is
-    // the sole assignee. The creator is the owner only when no explicit
-    // responsible was chosen — never added on top of a chosen one. An explicit
-    // responsible must be eligible (and in-branch unless super/GLOBAL).
-    const responsibleError = await assertCandidateResponsible(
-      ownerUserId,
-      canAssignCandidatesAcrossBranches(authContext) ? null : targetBranchId,
-    );
-    if (responsibleError) {
-      return res.status(400).json({ error: responsibleError });
-    }
-    await insertCandidateAssignments(candidateId, [ownerUserId], authContext.userId);
+    await replaceCandidateOwnership(db, candidateId, ownership, authContext.userId);
 
     // Return full record with assignments and branch/user enrichment
-    const { rows: full } = await pool.query(
+    const { rows: full } = await db.query(
       `SELECT ${selectFieldsList}
        FROM candidates c
        LEFT JOIN branches b ON b.id = c.branch_id
@@ -701,9 +672,14 @@ router.post('/', requirePermission('candidates.create'), async (req, res) => {
        WHERE c.id = $1`,
       [candidateId],
     );
+    await db.query('COMMIT');
     res.json(full[0]);
   } catch (err: any) {
-    res.status(err.status || 500).json({ error: err.message });
+    await db.query('ROLLBACK').catch(() => undefined);
+    const status = err instanceof CandidateOwnershipError ? err.status : (err.status || 500);
+    res.status(status).json({ error: err.message, code: err.code });
+  } finally {
+    db.release();
   }
 });
 
@@ -735,6 +711,12 @@ router.post('/:id/link-client', requirePermission('candidates.edit'), async (req
     const candidate = await loadLinkableCandidate(candidateId);
     if (!candidate) {
       return res.status(404).json({ message: 'الاسم المقترح غير موجود' });
+    }
+    if (isTerminalCandidateState(candidate.status, candidate.convertedToLeadId)) {
+      return res.status(409).json({
+        error: 'لا يمكن إعادة ربط اسم مقترح منتهٍ',
+        code: 'candidate_terminal_locked',
+      });
     }
 
     const viewClientAccess = canViewClient(authContext, {
@@ -771,11 +753,29 @@ router.post('/:id/link-client', requirePermission('candidates.edit'), async (req
       Number(candidate.branchId) === Number(client.branchId);
     const shouldTransferLeadOwnership = client.lifecycleStage === 'LEAD' && sameBranchLink;
 
-    const supervisorIds = shouldTransferLeadOwnership
-      ? await resolveCandidateSupervisorAssignmentIds(candidateId, candidate.createdBy ?? authContext.userId)
-      : [];
-
     await db.query('BEGIN');
+    const { rows: lockedCandidateRows } = await db.query(
+      `SELECT status, converted_to_lead_id AS "convertedToLeadId"
+         FROM candidates
+        WHERE id = $1
+        FOR UPDATE`,
+      [candidateId],
+    );
+    if (
+      !lockedCandidateRows[0] ||
+      isTerminalCandidateState(
+        lockedCandidateRows[0].status,
+        lockedCandidateRows[0].convertedToLeadId,
+      )
+    ) {
+      throw Object.assign(new Error('لا يمكن إعادة ربط اسم مقترح منتهٍ'), {
+        status: 409,
+        code: 'candidate_terminal_locked',
+      });
+    }
+    const transferableAssignmentIds = shouldTransferLeadOwnership
+      ? await resolveTransferableCandidateAssignmentIds(db, candidateId)
+      : [];
 
     await db.query(
       `WITH next_referrers AS (
@@ -829,7 +829,7 @@ router.post('/:id/link-client', requirePermission('candidates.edit'), async (req
     );
 
     if (shouldTransferLeadOwnership) {
-      await insertLinkedClientAssignments(db, clientId, supervisorIds, authContext.userId);
+      await insertLinkedClientAssignments(db, clientId, transferableAssignmentIds, authContext.userId);
     }
 
     await db.query(
@@ -848,11 +848,11 @@ router.post('/:id/link-client', requirePermission('candidates.edit'), async (req
       clientId,
       candidateId,
       lifecycleStage: client.lifecycleStage,
-      addedAssignmentUserIds: shouldTransferLeadOwnership ? supervisorIds : [],
+      addedAssignmentUserIds: shouldTransferLeadOwnership ? transferableAssignmentIds : [],
     });
   } catch (err: any) {
     await db.query('ROLLBACK').catch(() => undefined);
-    res.status(err.status || 500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message, code: err.code });
   } finally {
     db.release();
   }
@@ -913,6 +913,7 @@ router.post('/:id/link-client', requirePermission('candidates.edit'), async (req
  *         description: Server error
  */
 router.put('/:id', requirePermission('candidates.edit'), async (req, res) => {
+  const db = await pool.connect();
   try {
     const authContext = getRequiredAuthContext(req);
     const candidateId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
@@ -945,21 +946,53 @@ router.put('/:id', requirePermission('candidates.edit'), async (req, res) => {
     if (targetBranchId == null) {
       return res.status(400).json({ error: 'يجب تحديد الفرع المستهدف لهذه العملية' });
     }
-    const canManageAssignments = canManageCandidateAssignments(authContext, targetBranchId);
-    const requestedOwnerUserId = Number(req.body?.ownerUserId);
-    const ownerUserId = canManageAssignments && Number.isInteger(requestedOwnerUserId) && requestedOwnerUserId > 0
-      ? requestedOwnerUserId
-      : null;
-    await pool.query(
+    const ownershipWasRequested = hasCandidateOwnershipPayload(req.body ?? {});
+    const existingOwnership: CandidateOwnershipDecision = existing.assignedUserIds.length === 0
+      ? { ownershipType: 'BRANCH', responsibleUserId: null }
+      : { ownershipType: 'PERSONAL', responsibleUserId: Number(existing.assignedUserIds[0]) };
+    const ownership = ownershipWasRequested
+      ? resolveCandidateOwnershipInput(req.body ?? {}, authContext.userId)
+      : existingOwnership;
+    const ownershipChanged =
+      ownership.ownershipType !== existingOwnership.ownershipType ||
+      ownership.responsibleUserId !== existingOwnership.responsibleUserId;
+
+    if (ownershipWasRequested && ownershipChanged) {
+      await validateCandidateOwnershipDecision(db, authContext, targetBranchId, ownership);
+    } else if (ownership.ownershipType === 'PERSONAL' && targetBranchId !== existing.branchId) {
+      await assertEligibleCandidateResponsible(db, ownership.responsibleUserId, targetBranchId);
+    }
+
+    await db.query('BEGIN');
+    const { rows: lockedCandidateRows } = await db.query(
+      `SELECT status, converted_to_lead_id AS "convertedToLeadId"
+         FROM candidates
+        WHERE id = $1
+        FOR UPDATE`,
+      [candidateId],
+    );
+    if (
+      !lockedCandidateRows[0] ||
+      isTerminalCandidateState(
+        lockedCandidateRows[0].status,
+        lockedCandidateRows[0].convertedToLeadId,
+      )
+    ) {
+      throw Object.assign(
+        new Error('لا يمكن تعديل الاسم المقترح بعد الربط أو الرفض أو التحويل'),
+        { status: 409, code: 'candidate_terminal_locked' },
+      );
+    }
+    await db.query(
       `UPDATE candidates SET first_name=$1, last_name=$2, nickname=$3, mobile=$4,
-        contacts=$5, address_text=$6, geo_unit_id=$7, owner_user_id=COALESCE($8, owner_user_id), status=$9, referral_sheet_id=$10,
-        referral_date=$11, referral_reason=$12, referral_type=$13, referral_origin_channel=$14,
-        referral_name_snapshot=$15, referral_entity_id=$16, referral_confirmation_status=$17,
-        occupation=$18, candidate_notes=$19, duplicate_flag=$20, duplicate_type=$21,
-        duplicate_reference_id=$22, converted_to_lead_id=$23, created_by=$24, branch_id=$25
-      WHERE id=$26`,
+        contacts=$5, address_text=$6, geo_unit_id=$7, status=$8, referral_sheet_id=$9,
+        referral_date=$10, referral_reason=$11, referral_type=$12, referral_origin_channel=$13,
+        referral_name_snapshot=$14, referral_entity_id=$15, referral_confirmation_status=$16,
+        occupation=$17, candidate_notes=$18, duplicate_flag=$19, duplicate_type=$20,
+        duplicate_reference_id=$21, converted_to_lead_id=$22, created_by=$23, branch_id=$24
+      WHERE id=$25`,
       [c.firstName, c.lastName || null, c.nickname, c.mobile, JSON.stringify(c.contacts || []), c.addressText || '', c.geoUnitId || null,
-       ownerUserId, c.status || 'Suggested', c.referralSheetId || null,
+       c.status || 'Suggested', c.referralSheetId || null,
        c.referralDate || null, c.referralReason || null, c.referralType || null,
        c.referralOriginChannel || null, c.referralNameSnapshot || null,
        c.referralEntityId || null, c.referralConfirmationStatus || 'Pending',
@@ -968,26 +1001,16 @@ router.put('/:id', requirePermission('candidates.edit'), async (req, res) => {
        candidateId]
     );
 
-    // Optionally replace assignments if caller provided a new list
-    if (canManageAssignments && Array.isArray(req.body?.assignmentUserIds)) {
-      const rawUserIds: number[] = (req.body.assignmentUserIds as any[])
-        .map(Number)
-        .filter((n: number) => Number.isFinite(n) && n > 0);
-      // One responsible: the chosen user is the sole assignee (no auto-added creator).
-      const responsibleUserId = rawUserIds.length > 0 ? rawUserIds[0] : authContext.userId;
-      const responsibleError = await assertCandidateResponsible(
-        responsibleUserId,
-        canAssignCandidatesAcrossBranches(authContext) ? null : targetBranchId,
+    if (ownershipWasRequested && ownershipChanged) {
+      await replaceCandidateOwnership(db, Number(candidateId), ownership, authContext.userId);
+      await db.query(
+        'UPDATE candidates SET owner_user_id = $2 WHERE id = $1',
+        [candidateId, ownership.responsibleUserId],
       );
-      if (responsibleError) {
-        return res.status(400).json({ error: responsibleError });
-      }
-      await pool.query('DELETE FROM candidate_assignments WHERE candidate_id = $1', [candidateId]);
-      await insertCandidateAssignments(Number(candidateId), [responsibleUserId], authContext.userId);
     }
 
     // Return full record with assignments and branch/user enrichment
-    const { rows: full } = await pool.query(
+    const { rows: full } = await db.query(
       `SELECT ${selectFieldsList}
        FROM candidates c
        LEFT JOIN branches b ON b.id = c.branch_id
@@ -996,9 +1019,14 @@ router.put('/:id', requirePermission('candidates.edit'), async (req, res) => {
        WHERE c.id = $1`,
       [candidateId],
     );
+    await db.query('COMMIT');
     res.json(full[0]);
   } catch (err: any) {
-    res.status(err.status || 500).json({ error: err.message });
+    await db.query('ROLLBACK').catch(() => undefined);
+    const status = err instanceof CandidateOwnershipError ? err.status : (err.status || 500);
+    res.status(status).json({ error: err.message, code: err.code });
+  } finally {
+    db.release();
   }
 });
 

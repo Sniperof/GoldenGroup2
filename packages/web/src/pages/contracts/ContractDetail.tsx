@@ -181,6 +181,8 @@ export default function ContractDetail() {
     detail?: string;
   } | null>(null);
   const { openPrintable, printLoading } = useContractPrintable(data?.id ?? Number(id));
+  const hasInstalledDevice = Boolean(data?.hasInstalledDevice || Number(data?.installedDeviceId) > 0);
+  const isDraftDevicePlan = data?.status === 'draft' && !hasInstalledDevice;
 
   useEffect(() => {
     if (data && activateFinalPrice === 0) setActivateFinalPrice(Number(data.finalPrice) || 0);
@@ -663,8 +665,15 @@ export default function ContractDetail() {
 
           {/* ── Group 3: الجهاز والصيانة ───────────────────────────────────── */}
           <Card>
-            <CardTitle>🖥️ الجهاز والصيانة</CardTitle>
+            <CardTitle>
+              🖥️ {isDraftDevicePlan ? 'بيانات الجهاز المخطط' : 'الجهاز والصيانة'}
+            </CardTitle>
             <div className="space-y-3">
+              {isDraftDevicePlan && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
+                  هذه بيانات مخططة ضمن مسودة العقد فقط. لم يُنشأ جهاز مركب للزبون، وسيتم إنشاء سجل الجهاز عند اعتماد العقد.
+                </div>
+              )}
               {data.deviceModelName && (
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-slate-500">الموديل:</span>
@@ -679,7 +688,9 @@ export default function ContractDetail() {
               )}
               {data.serialNumber && (
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-slate-500">الرقم التسلسلي:</span>
+                  <span className="text-sm text-slate-500">
+                    {isDraftDevicePlan ? 'الرقم التسلسلي المخطط:' : 'الرقم التسلسلي:'}
+                  </span>
                   <span className="text-sm font-mono text-slate-700">{data.serialNumber}</span>
                 </div>
               )}
@@ -695,7 +706,9 @@ export default function ContractDetail() {
                 )}
                 {data.deviceStatus && (
                   <div>
-                    <span className="text-xs text-slate-400 block mb-1">حالة الجهاز</span>
+                    <span className="text-xs text-slate-400 block mb-1">
+                      {isDraftDevicePlan ? 'الحالة المخططة عند الاعتماد' : 'حالة الجهاز'}
+                    </span>
                     <DeviceStatusBadge status={data.deviceStatus} />
                   </div>
                 )}

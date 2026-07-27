@@ -54,7 +54,18 @@ export interface PagedClientsParams {
   search?: string;
   filterClass?: string;          // Lead | FOP | OP
   filterMediator?: string;       // Personal | Employee | Client
-  filterArea?: string;           // governorate id
+  // Enriched catalog (docs/analysis/clients-records-performance-and-filters.md §7)
+  geoIds?: string;               // comma-joined subtree ids of the deepest selected geo level
+  routeGeoIds?: string;          // comma-joined subtree ids of a route's points
+  owner?: string | number;       // assigned hr_user id
+  rating?: string;               // Committed | NotCommitted | Undefined
+  waterSource?: string;          // admin-list value
+  dataQuality?: string;          // correct | incorrect | needs_edit
+  createdFrom?: string;          // YYYY-MM-DD
+  createdTo?: string;            // YYYY-MM-DD
+  serial?: string;               // device serial (partial)
+  hasDevice?: string;            // yes | no
+  taskType?: string;             // open_task task_type (has an ACTIVE task of this type)
   sortKey?: string;
   sortDir?: 'asc' | 'desc';
 }
