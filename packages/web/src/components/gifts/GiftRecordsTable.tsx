@@ -78,7 +78,10 @@ export default function GiftRecordsTable({
                 <DataTable.Td>
                   <div className="font-bold text-slate-800">{record.giftName}</div>
                   <div className="mt-1 text-xs text-slate-500">
-                    {record.approvedQuantity} {record.unitLabel}
+                    الوعد: {record.promisedQuantity} {record.unitLabel}
+                    {record.approvedQuantity != null && (
+                      <span> · المعتمد: {record.approvedQuantity} {record.unitLabel}</span>
+                    )}
                   </div>
                 </DataTable.Td>
                 <DataTable.Td>
@@ -127,7 +130,13 @@ export default function GiftRecordsTable({
                         العقد
                       </Link>
                     )}
-                    {onChanged && <GiftRecordActions record={record} onChanged={onChanged} />}
+                    {onChanged && (
+                      <GiftRecordActions
+                        record={record}
+                        candidateRecords={records}
+                        onChanged={onChanged}
+                      />
+                    )}
                   </div>
                 </DataTable.Td>
               </DataTable.Row>

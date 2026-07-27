@@ -52,7 +52,8 @@ function giftOverviewCard(data: TaskDetailData) {
         <InfoLine label="الهدية" value={giftName} />
         <InfoLine label="المستفيد" value={beneficiaryName} />
         <InfoLine label="الكمية المعتمدة" value={formatApprovedQuantity(task)} />
-        <InfoLine label="سجل الهدية" value={formatGiftRecordId(task)} />
+        <InfoLine label="عدد سجلات الهدية" value={firstPresent(task.giftRecordsCount, task.gift_records_count) ?? 1} />
+        <InfoLine label="أول سجل في المجموعة" value={formatGiftRecordId(task)} />
       </div>
     </div>
   );

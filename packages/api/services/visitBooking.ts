@@ -64,6 +64,46 @@ export const FIELD_VISIT_SLOT_OCCUPIED_SQL = `fv.status <> 'cancelled'`;
 export const FIELD_VISIT_SLOT_CONSTRAINT = 'uq_field_visits_team_slot';
 const SLOT_CONFLICT_MESSAGE = 'هذا الموعد محجوز مسبقاً للفريق في نفس الوقت.';
 
+export const INSTANT_VISIT_INSERT_SQL = `
+  INSERT INTO field_visits (
+    visit_type, visit_family, branch_id, client_id, status,
+    scheduled_date, scheduled_time,
+    origin_type, origin_id,
+    team_snapshot, team_responsible_user_id,
+    customer_snapshot, appointment_booked_at, created_by
+  ) VALUES (
+    'marketing', 'marketing', $1, $2, 'in_progress',
+    $3, $4,
+    'field_initiated', $5,
+    $6::jsonb, $7,
+    $8::jsonb, NOW(), $9
+  )
+  RETURNING id
+`;
+
+export function buildInstantVisitInsertParams(input: {
+  branchId: number;
+  clientId: number;
+  scheduledDate: string;
+  scheduledTime: string;
+  performedByUserId: number;
+  teamSnapshotJson: string | null;
+  responsibleHrUserId: number | null;
+  customerSnapshotJson: string;
+}): unknown[] {
+  return [
+    input.branchId,
+    input.clientId,
+    input.scheduledDate,
+    input.scheduledTime,
+    input.performedByUserId, // origin_id per DEC-011 D-FI8
+    input.teamSnapshotJson,
+    input.responsibleHrUserId,
+    input.customerSnapshotJson,
+    input.performedByUserId, // created_by: same identity, distinct SQL parameter type
+  ];
+}
+
 export function mapVisitSlotConflict(error: unknown): unknown {
   const pgError = error as { code?: string; constraint?: string } | null;
   if (pgError?.code === '23505' && pgError.constraint === FIELD_VISIT_SLOT_CONSTRAINT) {
@@ -574,30 +614,17 @@ export async function createInstantVisit(input: CreateInstantVisitInput): Promis
       fieldInitiated: true,
     };
     const { rows: visitRows } = await db.query(
-      `INSERT INTO field_visits (
-         visit_type, visit_family, branch_id, client_id, status,
-         scheduled_date, scheduled_time,
-         origin_type, origin_id,
-         team_snapshot, team_responsible_user_id,
-         customer_snapshot, appointment_booked_at, created_by
-       ) VALUES (
-         'marketing', 'marketing', $1, $2, 'in_progress',
-         $3, $4,
-         'field_initiated', $5,
-         $6::jsonb, $7,
-         $8::jsonb, NOW(), $5
-       )
-       RETURNING id`,
-      [
+      INSTANT_VISIT_INSERT_SQL,
+      buildInstantVisitInsertParams({
         branchId,
-        input.clientId,
-        today,
-        timeSlot,
-        input.performedByUserId,
-        teamInfo.teamSnapshot ? JSON.stringify(teamInfo.teamSnapshot) : null,
+        clientId: input.clientId,
+        scheduledDate: today,
+        scheduledTime: timeSlot,
+        performedByUserId: input.performedByUserId,
+        teamSnapshotJson: teamInfo.teamSnapshot ? JSON.stringify(teamInfo.teamSnapshot) : null,
         responsibleHrUserId,
-        JSON.stringify(customerSnapshot),
-      ],
+        customerSnapshotJson: JSON.stringify(customerSnapshot),
+      }),
     );
     const fieldVisitId = Number(visitRows[0].id);
 

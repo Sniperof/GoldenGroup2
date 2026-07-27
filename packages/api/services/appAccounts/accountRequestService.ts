@@ -32,7 +32,9 @@ import {
 /** Handle validity window after a successful OTP verify (DEC-013 §6). */
 const HANDLE_TTL_MS = 10 * 60 * 1000;
 
-export type MobileStatus = 'visitor' | 'pending' | 'active' | 'suspended';
+// `rejected` is surfaced ONLY with a matching `ref` (proof of being the
+// submitter); phone alone never yields it — it stays a silent `visitor`.
+export type MobileStatus = 'visitor' | 'pending' | 'active' | 'suspended' | 'rejected';
 
 export interface AccountRequestForm {
   firstName: string;
@@ -381,7 +383,8 @@ export async function createAccountRequest(
       throw httpError(409, 'يوجد حساب قائم لهذا الرقم', { status: active[0].status });
     }
 
-    // 3. Pending-request rule: one active account_creation request per number.
+    // 3. One-pending-per-number rule (a rejected request does NOT block: the
+    // user may freely re-apply after a rejection).
     const { rows: pending } = await tx.client.query(
       `SELECT 1 FROM service_requests
         WHERE request_type = 'account_creation'

@@ -32,6 +32,7 @@ import {
   cancelLockedOpenTaskBeforeScheduling,
   loadOpenTaskCancellationSubject,
 } from '../services/openTaskCancellation.js';
+import { OPEN_TASK_CLIENT_DEVICE_LIFECYCLE_SELECT } from '../services/openTaskClientProjection.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -158,16 +159,11 @@ const GIFT_DELIVERY_INFO_LATERAL = `
       SUM(gr.approved_quantity)::int AS approved_quantity,
       STRING_AGG(DISTINCT gd.default_unit_label, '، ' ORDER BY gd.default_unit_label) AS unit_label,
       STRING_AGG(DISTINCT gr.beneficiary_name_snapshot, '، ' ORDER BY gr.beneficiary_name_snapshot) AS gift_beneficiary_name
-    FROM gift_records gr
+    FROM gift_delivery_task_records gift_link
+    JOIN gift_records gr ON gr.id = gift_link.gift_record_id
     JOIN gift_definitions gd ON gd.id = gr.gift_definition_id
     WHERE ot.task_type = 'gift_delivery'
-      AND (
-        gr.delivery_task_id = ot.id
-        OR (
-          ot.source_context_type = 'gift_records'
-          AND gr.id = ot.source_context_id
-        )
-      )
+      AND gift_link.open_task_id = ot.id
   ) gift_info ON true
 `;
 
@@ -2243,6 +2239,7 @@ router.get('/client/:clientId', requirePermission('clients.visits.view', 'open_t
        ot.status,
        ot.due_date AS "dueDate",
        ot.delivery_address AS "deliveryAddress",
+       ${OPEN_TASK_CLIENT_DEVICE_LIFECYCLE_SELECT}
        ot.notes,
        ot.created_at AS "createdAt",
        ot.updated_at AS "updatedAt",

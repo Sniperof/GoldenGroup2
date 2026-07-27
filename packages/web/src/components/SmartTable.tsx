@@ -219,6 +219,17 @@ export default function SmartTable<T>({
         });
     }, []);
 
+    // External filters can replace `data` while selections are active. Keep only
+    // ids that are still visible so the counter and bulk payload cannot include
+    // stale rows from a previous filter result.
+    useEffect(() => {
+        const visibleIds = new Set(data.map(item => getId(item)));
+        setSelected(prev => {
+            const next = new Set([...prev].filter(id => visibleIds.has(id)));
+            return next.size === prev.size ? prev : next;
+        });
+    }, [data, getId]);
+
     /* ---------- sort handler ---------- */
     const handleSort = useCallback((key: string) => {
         if (sortKey === key) {

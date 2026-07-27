@@ -151,23 +151,35 @@ export interface BulkActivateInput {
   actorUserId: number;
 }
 
+export function normalizeBulkClientIds(clientIds: unknown[] | null | undefined) {
+  const ids = Array.from(new Set(
+    (clientIds ?? []).map(Number).filter((id) => Number.isInteger(id) && id > 0),
+  ));
+  return {
+    ids,
+    cappedIds: ids.slice(0, BULK_CAP),
+    truncated: ids.length > BULK_CAP,
+  };
+}
+
 export async function bulkActivateAppAccounts(input: BulkActivateInput) {
   let clients: ClientRow[] = [];
   let missing: number[] = [];
   let truncated = false;
+  let requestedCount = 0;
 
   if (input.mode === 'ids') {
-    const ids = (input.clientIds ?? []).map(Number).filter(Number.isInteger);
+    const { ids, cappedIds, truncated: idsTruncated } = normalizeBulkClientIds(input.clientIds);
     if (ids.length === 0) throw httpError(400, 'قائمة معرّفات الزبائن مطلوبة');
-    const capped = ids.slice(0, BULK_CAP);
-    truncated = ids.length > BULK_CAP;
+    requestedCount = ids.length;
+    truncated = idsTruncated;
     const { rows } = await pool.query<ClientRow>(
       `SELECT id, mobile FROM clients WHERE id = ANY($1) AND deleted_at IS NULL`,
-      [capped],
+      [cappedIds],
     );
     clients = rows;
     const found = new Set(rows.map((r) => r.id));
-    missing = capped.filter((id) => !found.has(id));
+    missing = cappedIds.filter((id) => !found.has(id));
   } else if (input.mode === 'filter') {
     const where: string[] = [`deleted_at IS NULL`, `mobile IS NOT NULL AND mobile <> ''`];
     const params: unknown[] = [];
@@ -190,6 +202,7 @@ export async function bulkActivateAppAccounts(input: BulkActivateInput) {
     );
     truncated = rows.length > BULK_CAP;
     clients = rows.slice(0, BULK_CAP);
+    requestedCount = clients.length;
   } else {
     throw httpError(400, "mode يجب أن يكون 'filter' أو 'ids'");
   }
@@ -197,25 +210,34 @@ export async function bulkActivateAppAccounts(input: BulkActivateInput) {
   const created: Array<{ clientId: number; appAccountId: number; mobile: string }> = [];
   const skippedConflict: Array<{ clientId: number; mobile: string }> = [];
   const skippedInvalid: Array<{ clientId: number }> = [];
+  const failed: Array<{ clientId: number }> = [];
 
   for (const c of clients) {
-    const r = await tryActivate(c, 'admin_bulk', input.actorUserId);
-    if (r.outcome === 'created') created.push({ clientId: r.clientId, appAccountId: r.appAccountId, mobile: r.mobile });
-    else if (r.outcome === 'skipped_conflict') skippedConflict.push({ clientId: r.clientId, mobile: r.mobile });
-    else skippedInvalid.push({ clientId: r.clientId });
+    try {
+      const r = await tryActivate(c, 'admin_bulk', input.actorUserId);
+      if (r.outcome === 'created') created.push({ clientId: r.clientId, appAccountId: r.appAccountId, mobile: r.mobile });
+      else if (r.outcome === 'skipped_conflict') skippedConflict.push({ clientId: r.clientId, mobile: r.mobile });
+      else skippedInvalid.push({ clientId: r.clientId });
+    } catch (err) {
+      console.error(`[app-accounts] bulk activation failed for client ${c.id}:`, err);
+      failed.push({ clientId: c.id });
+    }
   }
 
   return {
+    requestedCount,
     considered: clients.length,
     createdCount: created.length,
     skippedConflictCount: skippedConflict.length,
     skippedInvalidCount: skippedInvalid.length,
     skippedMissingCount: missing.length,
+    failedCount: failed.length,
     truncated,
     created,
     skippedConflict,
     skippedInvalid,
     skippedMissing: missing,
+    failed,
   };
 }
 

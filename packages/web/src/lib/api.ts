@@ -241,15 +241,36 @@ export const api = {
         const suffix = query.toString() ? `?${query.toString()}` : '';
         return request<any[]>(`/gifts/records${suffix}`);
       },
-      create: (data: any) => request<any>('/gifts/records', { method: 'POST', body: JSON.stringify(data) }),
-      updateCondition: (id: number | string, data: { conditionStatus: string }) =>
+      similar: (data: any) =>
+        request<{ count: number }>('/gifts/records/similar', { method: 'POST', body: JSON.stringify(data) }),
+      create: async (data: any) => {
+        try {
+          return await request<any>('/gifts/records', { method: 'POST', body: JSON.stringify(data) });
+        } catch (error: any) {
+          if (error?.payload?.code !== 'similar_gift_promises') throw error;
+          const count = Number(error.payload?.similarCount) || 0;
+          const proceed = window.confirm(
+            `تنبيه: يوجد ${count} وعد/وعود غير منتهية مشابهة لهذا المستفيد. لا يمنع ذلك إنشاء وعد جديد مستقل. هل تريد المتابعة؟`,
+          );
+          if (!proceed) throw new Error('تم إيقاف الحفظ بعد تنبيه الوعود المشابهة');
+          return request<any>('/gifts/records', {
+            method: 'POST',
+            body: JSON.stringify({ ...data, similarPromiseWarningAcknowledged: true }),
+          });
+        }
+      },
+      updateCondition: (id: number | string, data: { conditionStatus: string; conditionNotes?: string }) =>
         request<any>(`/gifts/records/${id}/condition`, { method: 'PATCH', body: JSON.stringify(data) }),
       approve: (id: number | string, data?: { approvedQuantity?: number; approvalNotes?: string }) =>
         request<any>(`/gifts/records/${id}/approve`, { method: 'POST', body: JSON.stringify(data ?? {}) }),
+      withdrawApproval: (id: number | string, data: { reason: string }) =>
+        request<any>(`/gifts/records/${id}/withdraw-approval`, { method: 'POST', body: JSON.stringify(data) }),
       createDeliveryTask: (id: number | string, data?: { giftRecordIds?: Array<number | string>; dueDate?: string; priority?: 'low' | 'medium' | 'high'; creationReason?: string; notes?: string }) =>
         request<any>(`/gifts/records/${id}/create-delivery-task`, { method: 'POST', body: JSON.stringify(data ?? {}) }),
-      manualDelivery: (id: number | string, data?: { notes?: string }) =>
+      manualDelivery: (id: number | string, data: { methodId: number; branchId: number; acknowledged: true; notes?: string }) =>
         request<any>(`/gifts/records/${id}/manual-delivery`, { method: 'POST', body: JSON.stringify(data ?? {}) }),
+      reopenManualDelivery: (id: number | string, data: { reason: string }) =>
+        request<any>(`/gifts/records/${id}/reopen-manual-delivery`, { method: 'POST', body: JSON.stringify(data) }),
       cancel: (id: number | string, data?: { reason?: string }) =>
         request<any>(`/gifts/records/${id}/cancel`, { method: 'POST', body: JSON.stringify(data ?? {}) }),
     },
@@ -328,6 +349,11 @@ export const api = {
       return request<any[]>(`/employees/manager-candidates?${query.toString()}`);
     },
     upsertSystemAccount: (id: number, data: any) => request<any>(`/employees/${id}/system-account`, { method: 'PUT', body: JSON.stringify(data) }),
+    transferBranch: (id: number, data: { toBranchId: number; note?: string | null }) =>
+      request<{ employeeId: number; fromBranchId: number | null; toBranchId: number; movedAccounts: number }>(
+        `/employees/${id}/transfer-branch`,
+        { method: 'POST', body: JSON.stringify(data) },
+      ),
     delete: (id: number) => request<any>(`/employees/${id}`, { method: 'DELETE' }),
   },
   clients: {
@@ -359,7 +385,6 @@ export const api = {
     create: (data: any) => request<any>('/clients', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/clients/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id: number) => request<any>(`/clients/${id}`, { method: 'DELETE' }),
-    bulkDelete: (ids: number[]) => request<any>('/clients/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) }),
     // DEC-005 D29 + DEC-006 D32: contact-control surface
     setCooldown: (id: number, data: { days: number; reason: string }) =>
       request<any>(`/clients/${id}/cooldown`, { method: 'POST', body: JSON.stringify(data) }),

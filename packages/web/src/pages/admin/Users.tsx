@@ -180,7 +180,7 @@ export default function Users() {
           <UserModal user={editUser} roles={roles} onClose={() => { setShowModal(false); setEditUser(null); }} />
         )}
         {branchUser && (
-          <UserBranchAssignmentsModal user={branchUser} readOnly={!canManageBranchAssignments} onClose={() => setBranchUser(null)} />
+          <UserBranchAssignmentsModal user={branchUser} readOnly={!canManageBranchAssignments || branchUser.employeeId != null} onClose={() => setBranchUser(null)} />
         )}
       </div>
     </div>

@@ -858,6 +858,24 @@ const CATEGORIES: CategoryMeta[] = [
     ],
   },
   {
+    id: 'gift_delivery_task_cancellation_reasons',
+    label: 'أسباب إلغاء مهمة تسليم الهدية',
+    description: 'أسباب إلغاء مهمة تسليم هدية قبل الجدولة. الإلغاء يعيد سجلات الهدية إلى حالة معتمدة للتسليم ولا يسجل رفضاً.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'إلغاء المهمة قبل الجدولة', route: 'المهام ← تسليم هدية ← إلغاء', icon: <Ban className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'gift_manual_delivery_methods',
+    label: 'طرق التسليم اليدوي للهدايا',
+    description: 'الطرق المعتمدة لتوثيق استلام الهدية في الشركة أو بالتسليم المباشر أو ضمن منفعة عقد.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'تأكيد تسليم يدوي', route: 'الهدايا ← تأكيد تسليم يدوي', icon: <ClipboardList className="w-3 h-3" /> },
+    ],
+  },
+  {
     id: 'gift_promise_conditions',
     label: 'شُروط وَعد الهَدية',
     description: 'الشروط المعتمدة التي يجب تحقّقها لاستحقاق الزبون هدية — تُستخدم عند ربط وعد هدية بعقد.',
@@ -1036,6 +1054,8 @@ const CATEGORY_GROUP: Record<string, string> = {
   gift_delivery_creation_reasons: 'gifts',
   gift_delivery_refusal_reasons: 'gifts',
   gift_delivery_reschedule_reasons: 'gifts',
+  gift_delivery_task_cancellation_reasons: 'gifts',
+  gift_manual_delivery_methods: 'gifts',
   gift_promise_conditions: 'gifts',
 
   golden_offer_creation_reasons: 'golden',

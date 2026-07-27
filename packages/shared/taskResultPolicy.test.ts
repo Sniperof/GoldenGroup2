@@ -12,7 +12,7 @@ test('every visit-result task has a cancellation reason category', () => {
     Object.keys(TASK_CANCELLATION_REASON_CATEGORIES).sort(),
     [...VISIT_RESULT_TASK_TYPES].sort(),
   );
-  assert.equal(getTaskCancellationReasonCategory('gift_delivery'), 'gift_delivery_refusal_reasons');
+  assert.equal(getTaskCancellationReasonCategory('gift_delivery'), 'gift_delivery_task_cancellation_reasons');
   assert.equal(getTaskCancellationReasonCategory('device_return'), 'device_return_refusal_reasons');
 });
 

@@ -20,6 +20,7 @@ const FINAL_DECISION_LABELS: Record<string, { label: string; cls: string }> = {
   rejected:        { label: 'مرفوض (قديم)',   cls: 'bg-rose-50 text-rose-700 border-rose-200' },
   needs_followup:  { label: 'متابعة (قديم)',  cls: 'bg-amber-50 text-amber-700 border-amber-200' },
   delivered_successfully: { label: 'تم التسليم', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  refused_gift: { label: 'رفض الهدية', cls: 'bg-rose-50 text-rose-700 border-rose-200' },
   customer_not_available: { label: 'الزبون غير متوفر', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
   wrong_address: { label: 'عنوان خاطئ', cls: 'bg-orange-50 text-orange-700 border-orange-200' },
   refused_delivery: { label: 'رفض التسليم', cls: 'bg-rose-50 text-rose-700 border-rose-200' },
@@ -99,6 +100,12 @@ function renderDerivedOutcome(finalDecision: string | null, task: any, preOffers
   } else if (finalDecision === 'device_sold') {
     label = 'بيع مباشر';
     cls = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+  } else if (finalDecision === 'delivered_successfully') {
+    label = 'تم تسليم كامل الكمية المعتمدة';
+    cls = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+  } else if (finalDecision === 'refused_gift') {
+    label = 'رفض المستفيد كامل مجموعة الهدايا';
+    cls = 'bg-rose-50 text-rose-700 border-rose-200';
   } else if (finalDecision === 'rescheduled') {
     label = 'مؤجلة / تحتاج متابعة';
     cls = 'bg-amber-50 text-amber-700 border-amber-200';

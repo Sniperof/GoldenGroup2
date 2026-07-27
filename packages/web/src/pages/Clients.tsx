@@ -90,9 +90,13 @@ export default function Clients() {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingClient, setEditingClient] = useState<Client | null>(null);
     const [isPreAddModalOpen, setIsPreAddModalOpen] = useState(false);
-    const [isBulkActivateOpen, setIsBulkActivateOpen] = useState(false);
+    const [bulkActivationTarget, setBulkActivationTarget] = useState<{
+        scope: 'filtered' | 'selected';
+        clients: Client[];
+    } | null>(null);
     const { hasPermission } = usePermissions();
     const canBulkActivate = hasPermission('app_accounts.bulk_activate');
+    const canDeleteClients = hasPermission('clients.delete');
     const [activeCandidateForSearch, setActiveCandidateForSearch] = useState<any>(null);
     const [verifiedPhone, setVerifiedPhone] = useState('');
     const [isAddCandidateModalOpen, setIsAddCandidateModalOpen] = useState(false);
@@ -183,16 +187,13 @@ export default function Clients() {
 
         if (filterClass !== 'all') list = list.filter(c => c.lifecycleStage === filterClass);
         if (filterMediator !== 'all') list = list.filter(c => c.referrerType === filterMediator);
-        if (filterArea !== 'all') list = list.filter(c => {
-            const nId = parseInt(c.neighborhood);
-            const n = geoUnits.find(g => g.id === nId);
-            const gov = geoUnits.find(g => g.id === n?.parentId);
-            const district = geoUnits.find(g => g.id === gov?.parentId);
-            return n?.parentId === parseInt(filterArea) || gov?.id === parseInt(filterArea);
-        });
+        if (filterArea !== 'all') {
+            const governorateId = Number(filterArea);
+            list = list.filter(c => Number(c.governorate) === governorateId);
+        }
 
         return list;
-    }, [clients, getLifecycleStage, searchTerm, filterClass, filterMediator, filterArea, geoUnits]);
+    }, [clients, getLifecycleStage, searchTerm, filterClass, filterMediator, filterArea]);
 
 
     // ─── KPI Calculations ───
@@ -226,19 +227,10 @@ export default function Clients() {
             await api.clients.delete(id);
             await fetchClients();
         } catch (err: any) {
-            const msg = err?.response?.data?.error || err?.message || 'تعذر حذف الزبون';
+            const payload = extractApiPayload(err);
+            const msg = payload?.error || err?.response?.data?.error || err?.message || 'تعذر حذف الزبون';
             alert(msg);
             console.error('Failed to delete client:', err);
-        }
-    };
-
-    const bulkDelete = async (items: { id: number }[]) => {
-        const ids = items.map(i => i.id);
-        try {
-            await api.clients.bulkDelete(ids);
-            await fetchClients();
-        } catch (err) {
-            console.error('Failed to bulk delete:', err);
         }
     };
 
@@ -513,12 +505,15 @@ export default function Clients() {
 
                         {canBulkActivate && mainList.length > 0 && (
                             <button
-                                onClick={() => setIsBulkActivateOpen(true)}
+                                onClick={() => setBulkActivationTarget({
+                                    scope: 'filtered',
+                                    clients: mainList,
+                                })}
                                 title="تفعيل حساب تطبيق للزبائن المطابقين للفلاتر الحالية"
                                 className="text-xs font-bold text-emerald-600 hover:text-emerald-700 border border-emerald-200 hover:border-emerald-300 rounded-lg px-2.5 py-1 inline-flex items-center gap-1 transition-colors"
                             >
                                 <CheckCircle2 className="w-3.5 h-3.5" />
-                                تفعيل حسابات ({mainList.length})
+                                تفعيل نتائج الفلاتر ({mainList.length})
                             </button>
                         )}
                     </div>
@@ -538,14 +533,33 @@ export default function Clients() {
                 defaultSortKey="id"
                 defaultSortDir="desc"
                 onRowClick={(c) => navigate(`/clients/${c.id}`)}
-                bulkActions={[
-                    { label: 'حذف', icon: Trash2, variant: 'danger', onClick: (items) => { if (confirm(`حذف ${items.length} عملاء؟`)) bulkDelete(items); } },
-                ]}
+                bulkActions={canBulkActivate ? [
+                    {
+                        label: 'تفعيل حسابات المحددين',
+                        icon: CheckCircle2,
+                        onClick: (items) => setBulkActivationTarget({
+                            scope: 'selected',
+                            clients: items,
+                        }),
+                    },
+                ] : undefined}
                 actions={(c) => (
                     <div className="flex items-center gap-1">
                         <button onClick={(e) => { e.stopPropagation(); openEditModal(c as any); }} className="p-1.5 rounded-lg hover:bg-white hover:shadow-sm text-slate-400 hover:text-sky-500 transition-all border border-transparent hover:border-slate-100" title="تعديل بيانات الزبون">
                             <Pencil className="w-4 h-4" />
                         </button>
+                        {canDeleteClients && (
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    void deleteClient(c.id);
+                                }}
+                                className="p-1.5 rounded-lg hover:bg-white hover:shadow-sm text-slate-400 hover:text-rose-600 transition-all border border-transparent hover:border-rose-100"
+                                title="حذف الزبون"
+                            >
+                                <Trash2 className="w-4 h-4" />
+                            </button>
+                        )}
                     </div>
                 )}
                 emptyIcon={Users}
@@ -553,9 +567,14 @@ export default function Clients() {
             />
 
             <BulkActivateModal
-                open={isBulkActivateOpen}
-                onClose={() => setIsBulkActivateOpen(false)}
-                clientIds={mainList.map((c) => c.id)}
+                open={bulkActivationTarget != null}
+                onClose={() => setBulkActivationTarget(null)}
+                scope={bulkActivationTarget?.scope ?? 'selected'}
+                clients={(bulkActivationTarget?.clients ?? []).map((client) => ({
+                    id: client.id,
+                    name: client.name || [client.firstName, client.fatherName, client.lastName].filter(Boolean).join(' ') || `#${client.id}`,
+                    mobile: client.mobile ?? null,
+                }))}
             />
 
             <ClientModal

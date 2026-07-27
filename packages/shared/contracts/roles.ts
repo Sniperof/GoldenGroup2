@@ -74,6 +74,9 @@ export const HrUserSchema = z.object({
   // Owning branch (for the standalone Users records page — branch column / scope).
   branchId: z.number().nullable().optional(),
   branchName: z.string().nullable().optional(),
+  // Linked employee record (when set, the account's branch is derived from the
+  // employee record and its manual branch assignments are locked / read-only).
+  employeeId: z.number().nullable().optional(),
 });
 
 export const UserBranchAssignmentStatusSchema = z.enum(['active', 'inactive']);

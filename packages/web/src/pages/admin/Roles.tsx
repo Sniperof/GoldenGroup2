@@ -695,7 +695,11 @@ export function UserBranchAssignmentsModal({
               </button>
             </div>
             {readOnly && (
-              <p className="text-xs text-slate-500 mt-3">تملك صلاحية العرض فقط. إدارة الفروع المسموحة تتطلب permission مستقلة عن إدارة الأدوار.</p>
+              <p className="text-xs text-slate-500 mt-3">
+                {user.employeeId != null
+                  ? 'تُدار فروع هذا الحساب من سجل الموظف المرتبط. لنقل الموظف لفرع آخر استخدم إجراء «نقل إلى فرع آخر» في صفحة الموظف.'
+                  : 'تملك صلاحية العرض فقط. إدارة الفروع المسموحة تتطلب permission مستقلة عن إدارة الأدوار.'}
+              </p>
             )}
           </div>
 

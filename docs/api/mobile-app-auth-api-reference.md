@@ -94,8 +94,10 @@
 | `403` | `{ code: "suspended" }` | الحساب موقوف (`login` / `account_deletion`). |
 | `404` | `{ code: "no_active_account" }` | لا حساب مفعّل للرقم (`login` / `account_deletion`). |
 | `404` | `{ code: "no_pending_request" }` | لا طلب معلّق للرقم (`request_status`). |
-| `409` | `{ code: "active_account_exists" \| "suspended" \| "pending_request_exists", status: string }` | `account_creation` لرقمٍ له حساب حيّ (مفعّل أو موقوف) أو طلب قيد المراجعة. |
+| `409` | `{ code: "active_account_exists" \| "suspended" \| "pending_request_exists", status }` | `account_creation` لرقمٍ له حساب حيّ (مفعّل أو موقوف) أو طلب قيد المراجعة. |
 | `429` | `{ retryAfterSeconds: integer }` | لم تنقضِ نافذة إعادة الإرسال. |
+
+> **الطلب المرفوض لا يحجب:** بعد رفض طلب يستطيع المستخدم إرسال `account_creation` جديد بحرية — قاعدة «طلب مفتوح واحد» تخصّ المعلّق فقط. مصير الطلب المرفوض وسببه يُعرَضان بلا حجب لصاحب الرقم عبر `account/status?ref=` (§3.1) أو `…/mine` (§3.2.2).
 
 ---
 

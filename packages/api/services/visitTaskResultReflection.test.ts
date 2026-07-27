@@ -2,8 +2,155 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   applyGoldenWarrantyCardDeliveryResult,
+  normalizeDeviceDemoOfferLinkIds,
   normalizeCollectionPaymentPart,
+  normalizePositiveDbId,
+  persistOpenTaskPreOfferResult,
+  resolveStoredDeviceDemoOfferSourceId,
 } from './visitTaskResultReflection.js';
+
+const openTaskPreOfferValues = [
+  215,
+  1,
+  'cash',
+  1,
+  1_000_000,
+  null,
+  null,
+  'SYP',
+  null,
+  null,
+  7,
+  null,
+  29,
+  'S260723072123CWJZ',
+];
+
+test('device-demo bigint link identifiers accept numeric strings without losing identity', () => {
+  assert.equal(normalizePositiveDbId('80'), 80);
+  assert.equal(normalizePositiveDbId(80), 80);
+  assert.deepEqual(
+    normalizeDeviceDemoOfferLinkIds({
+      open_task_pre_offer_id: '80',
+      source_customer_pre_offer_id: '29',
+    }),
+    {
+      openTaskPreOfferId: 80,
+      sourceCustomerPreOfferId: 29,
+    },
+  );
+});
+
+test('device-demo bigint link identifiers reject malformed or unsafe values', () => {
+  assert.equal(normalizePositiveDbId('80.5'), null);
+  assert.equal(normalizePositiveDbId('1e2'), null);
+  assert.equal(normalizePositiveDbId('9007199254740993'), null);
+  assert.throws(
+    () => normalizeDeviceDemoOfferLinkIds({
+      open_task_pre_offer_id: 'not-an-id',
+      source_customer_pre_offer_id: null,
+    }),
+    /open_task_pre_offer_id غير صالح/,
+  );
+});
+
+test('device-demo task-row identity recovers its bigint source and rejects a mismatched pair', () => {
+  assert.equal(resolveStoredDeviceDemoOfferSourceId('29', null), 29);
+  assert.equal(resolveStoredDeviceDemoOfferSourceId('29', 29), 29);
+  assert.throws(
+    () => resolveStoredDeviceDemoOfferSourceId('29', 30),
+    /لا تطابق رابط عرض الزبون المحفوظ/,
+  );
+  assert.throws(
+    () => resolveStoredDeviceDemoOfferSourceId(null, 29),
+    /لا تطابق رابط عرض الزبون المحفوظ/,
+  );
+});
+
+test('device-demo result updates an existing task pre-offer by its bigint id and never inserts', async () => {
+  const statements: Array<{ sql: string; params: any[] | undefined }> = [];
+  const db = {
+    async query(sql: string, params?: any[]) {
+      statements.push({ sql, params });
+      return { rowCount: 1, rows: [] };
+    },
+  };
+
+  const result = await persistOpenTaskPreOfferResult(db as any, {
+    values: openTaskPreOfferValues,
+    openTaskPreOfferId: normalizePositiveDbId('80'),
+    sourceCustomerPreOfferId: null,
+  });
+
+  assert.equal(result, 'updated_by_id');
+  assert.equal(statements.length, 1);
+  assert.match(statements[0].sql, /UPDATE open_task_pre_offers/);
+  assert.equal(statements[0].params?.[14], 80);
+  assert.doesNotMatch(statements[0].sql, /INSERT INTO open_task_pre_offers/);
+});
+
+test('device-demo result updates a linked pre-offer by source id when no task-row id is supplied', async () => {
+  const statements: Array<{ sql: string; params: any[] | undefined }> = [];
+  const db = {
+    async query(sql: string, params?: any[]) {
+      statements.push({ sql, params });
+      return { rowCount: 1, rows: [] };
+    },
+  };
+
+  const result = await persistOpenTaskPreOfferResult(db as any, {
+    values: openTaskPreOfferValues,
+    openTaskPreOfferId: null,
+    sourceCustomerPreOfferId: normalizePositiveDbId('29'),
+  });
+
+  assert.equal(result, 'updated_by_source');
+  assert.equal(statements.length, 1);
+  assert.match(statements[0].sql, /source_customer_pre_offer_id = \$15/);
+  assert.equal(statements[0].params?.[14], 29);
+});
+
+test('device-demo result fails closed when a supplied pre-offer identity is stale', async () => {
+  const statements: string[] = [];
+  const db = {
+    async query(sql: string) {
+      statements.push(sql);
+      return { rowCount: 0, rows: [] };
+    },
+  };
+
+  await assert.rejects(
+    persistOpenTaskPreOfferResult(db as any, {
+      values: openTaskPreOfferValues,
+      openTaskPreOfferId: 999,
+      sourceCustomerPreOfferId: null,
+    }),
+    /غير موجود ضمن مهمة عرض الجهاز/,
+  );
+
+  assert.equal(statements.length, 1);
+  assert.equal(statements.some(sql => sql.includes('INSERT INTO open_task_pre_offers')), false);
+});
+
+test('device-demo result inserts only when the offer has no prior identity', async () => {
+  const statements: string[] = [];
+  const db = {
+    async query(sql: string) {
+      statements.push(sql);
+      return { rowCount: 1, rows: [] };
+    },
+  };
+
+  const result = await persistOpenTaskPreOfferResult(db as any, {
+    values: openTaskPreOfferValues,
+    openTaskPreOfferId: null,
+    sourceCustomerPreOfferId: null,
+  });
+
+  assert.equal(result, 'inserted');
+  assert.equal(statements.length, 1);
+  assert.match(statements[0], /INSERT INTO open_task_pre_offers/);
+});
 
 test('installment collection maps hand category to the cash instrument', () => {
   const normalized = normalizeCollectionPaymentPart({

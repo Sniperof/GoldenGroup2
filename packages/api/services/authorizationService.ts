@@ -204,7 +204,9 @@ async function loadRolePermissionGrants(roleId: number | null): Promise<Permissi
   }
 
   const { rows } = await pool.query(
-    `SELECT p.key AS permission, rpg.scope_type AS scope
+    `SELECT p.key AS permission,
+            p.allowed_scopes AS "allowedScopes",
+            rpg.scope_type AS scope
        FROM role_permission_grants rpg
        JOIN permissions p ON p.id = rpg.permission_id
       WHERE rpg.role_id = $1`,
@@ -214,7 +216,11 @@ async function loadRolePermissionGrants(roleId: number | null): Promise<Permissi
   return rows
     .map(row => {
       const scope = normalizeScope(row.scope);
-      if (!scope || typeof row.permission !== 'string') {
+      if (
+        !scope
+        || typeof row.permission !== 'string'
+        || !isPermissionGrantScopeAllowed(scope, row.allowedScopes)
+      ) {
         return null;
       }
 
@@ -329,6 +335,14 @@ function authorizeAssignedGrant(
 
 function normalizeScope(value: unknown): ScopeType | null {
   return value === 'GLOBAL' || value === 'BRANCH' || value === 'ASSIGNED' ? value : null;
+}
+
+export function isPermissionGrantScopeAllowed(
+  scope: ScopeType,
+  allowedScopes: unknown,
+): boolean {
+  if (!Array.isArray(allowedScopes)) return false;
+  return allowedScopes.some(item => normalizeScope(item) === scope);
 }
 
 function normalizeBranchIds(branchIds?: Array<number | null | undefined>): number[] {

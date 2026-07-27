@@ -619,9 +619,9 @@ export interface MarketingVisitTaskOfferInput {
     extensionReasonId?: number | null;
     extensionDueDate?: string | null;
     saleReferenceNumber?: string | null;
-    sourceCustomerPreOfferId?: number | null;
+    sourceCustomerPreOfferId?: number | string | null;
     /** Existing open_task_pre_offers.id when this offer was loaded from the task. */
-    openTaskPreOfferId?: number | null;
+    openTaskPreOfferId?: number | string | null;
     contractId?: number | null;
 }
 

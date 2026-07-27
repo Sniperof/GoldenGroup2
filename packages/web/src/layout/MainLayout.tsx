@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../hooks/useAuthStore';
 import { usePermissions } from '../hooks/usePermissions';
+import { canSeeFieldVisitManagementSurface } from '../lib/fieldVisitPermissionPolicy';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import { isGlobalOnlyPath } from '../lib/branchContext';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -138,6 +139,10 @@ export default function MainLayout() {
     // (owned customers / team-assigned visits).
     const canSeeMyCustomers = can('tasks.my_customers.view');
     const canSeeMyVisits = can('field_visits.my_visits.view');
+    const canSeeFieldVisitManagement = canSeeFieldVisitManagementSurface({
+      grants,
+      isSuperAdmin,
+    });
 
     const jobsViewPermMap: Record<string, string> = {
       '/jobs/applications': 'jobs.applications.view_list',
@@ -347,7 +352,7 @@ export default function MainLayout() {
                     )}
 
                     {/* 3. Field Visits (central daily visit hub) */}
-                    {canSeeBranchModules && can('field_visits.view') && (
+                    {canSeeBranchModules && canSeeFieldVisitManagement && (
                     <NavLink
                         to="/field-visits"
                         onClick={() => setIsMobileMenuOpen(false)}

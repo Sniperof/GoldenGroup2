@@ -1,5 +1,8 @@
 import { persistOpenTaskSnapshots } from '../routes/openTasks.js';
-import { getPeriodicMaintenanceSettings } from './systemSettings.js';
+import {
+  getPeriodicMaintenanceSettings,
+  type PeriodicMaintenanceSettings,
+} from './systemSettings.js';
 
 type Queryable = {
   query: (text: string, params?: any[]) => Promise<{ rows: any[] }>;
@@ -10,6 +13,12 @@ export interface PeriodicMaintenanceGenerationResult {
   skippedReason: string | null;
   dueDate: string | null;
   intervalDays: number | null;
+}
+
+export interface FirstPeriodicMaintenanceGenerationOptions {
+  settings?: PeriodicMaintenanceSettings;
+  dryRun?: boolean;
+  activationDateOverride?: string | Date | null;
 }
 
 export interface ManualPeriodicMaintenanceInput {
@@ -179,8 +188,9 @@ export async function generateFirstPeriodicMaintenanceTask(
   db: Queryable,
   installedDeviceId: number,
   createdByUserId: number | null = null,
+  options: FirstPeriodicMaintenanceGenerationOptions = {},
 ): Promise<PeriodicMaintenanceGenerationResult> {
-  const settings = await getPeriodicMaintenanceSettings();
+  const settings = options.settings ?? await getPeriodicMaintenanceSettings();
   if (!settings.autoGenerateEnabled) {
     return { createdTaskId: null, skippedReason: 'auto_generation_disabled', dueDate: null, intervalDays: null };
   }
@@ -219,10 +229,14 @@ export async function generateFirstPeriodicMaintenanceTask(
     return { createdTaskId: null, skippedReason: plan.skippedReason, dueDate: null, intervalDays: null };
   }
   const intervalDays = plan.intervalDays;
+  const activationDate = options.activationDateOverride ?? device.activatedAt ?? null;
+  if (!activationDate) {
+    return { createdTaskId: null, skippedReason: 'missing_activation_timestamp', dueDate: null, intervalDays };
+  }
 
   const { rows: dueRows } = await db.query(
-    `SELECT (COALESCE($1::timestamptz, NOW())::date + $2::int) AS "dueDate"`,
-    [device.activatedAt ?? null, intervalDays],
+    `SELECT ($1::timestamptz::date + $2::int) AS "dueDate"`,
+    [activationDate, intervalDays],
   );
   const dueDate = dueRows[0]?.dueDate;
 
@@ -238,6 +252,9 @@ export async function generateFirstPeriodicMaintenanceTask(
   );
   if (existingRows.length > 0) {
     return { createdTaskId: null, skippedReason: 'active_periodic_exists', dueDate, intervalDays };
+  }
+  if (options.dryRun === true) {
+    return { createdTaskId: null, skippedReason: 'dry_run_would_create', dueDate, intervalDays };
   }
 
   const { rows: taskRows } = await db.query(

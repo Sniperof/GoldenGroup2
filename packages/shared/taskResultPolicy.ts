@@ -33,7 +33,7 @@ export const TASK_CANCELLATION_REASON_CATEGORIES = {
   golden_warranty_offer: 'golden_offer_rejection_reasons',
   golden_warranty_card_delivery: 'golden_card_rejection_reasons',
   installment_collection: 'collection_refusal_reasons',
-  gift_delivery: 'gift_delivery_refusal_reasons',
+  gift_delivery: 'gift_delivery_task_cancellation_reasons',
 } as const satisfies Record<VisitResultTaskType, string>;
 
 export const OPEN_TASK_PRE_SCHEDULE_CANCELLABLE_STATUSES = [

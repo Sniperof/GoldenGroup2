@@ -112,11 +112,11 @@ async function assertPurposePrecondition(phone: string, purpose: OtpPurpose): Pr
         status: rows[0].status,
       });
     }
-    // Mirror the create endpoint's one-pending-per-number rule. Without this,
-    // a reinstalling user whose request is still pending gets an
-    // account_creation handle that /mine rejects and /account-requests 409s —
-    // a dead-end journey paid for with an SMS. The right purpose for this
-    // number is `request_status`.
+    // One-pending-per-number rule (a rejected request does NOT block: the user
+    // may freely re-apply after a rejection). Blocking pending here means the
+    // single "create account" button fails fast at send, before an SMS, when a
+    // request is already in review — the right purpose for that number is
+    // `request_status`.
     const { rows: pending } = await pool.query(
       `SELECT 1 FROM service_requests
         WHERE request_type = 'account_creation'

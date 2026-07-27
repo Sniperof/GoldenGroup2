@@ -5,7 +5,12 @@ import { requirePermission } from '../middleware/permission.js';
 import { authorize } from '../services/authorizationService.js';
 import { HIDDEN_OPERATIONAL_TASK_TYPES } from '@golden-crm/shared';
 import type { AuthContext, VisitResultTaskType } from '@golden-crm/shared';
-import { canViewFieldVisit, canEditFieldVisit, getFieldVisitListAccessPlan } from '../policies/fieldVisitPolicy.js';
+import {
+  canViewFieldVisit,
+  canEditFieldVisit,
+  canViewFieldVisitOrOwn,
+  getFieldVisitListAccessPlan,
+} from '../policies/fieldVisitPolicy.js';
 import { checkAndCompleteVisit } from '../services/visitCompletion.js';
 import { hasBlockingUndocumentedVisit } from '../services/visitEscalationJob.js';
 import { applyDeviceActivationResult, applyDeviceCheckupResult, applyDeviceDeliveryResult, applyDeviceDemoResult, applyDeviceDisconnectionResult, applyDeviceInstallationResult, applyDeviceRetrievalResult, applyDeviceReturnResult, applyDeviceTransferResult, applyEmergencyMaintenanceLifecycleResult, applyGiftDeliveryResult, applyGoldenWarrantyOfferResult, applyGoldenWarrantyCardDeliveryResult, applyInstallmentCollectionResult, ResultValidationError } from '../services/visitTaskResultReflection.js';
@@ -22,8 +27,6 @@ import { getOpenTaskLinkageIssue } from '../services/openTaskLinkagePolicy.js';
 
 const router = Router();
 router.use(requireAuth);
-
-const MY_VISITS_PERMISSION = 'field_visits.my_visits.view';
 
 type VisitTaskResultApplier = (
   visitTaskId: number,
@@ -59,26 +62,7 @@ function toPositiveInteger(value: unknown): number | null {
   return Number.isInteger(numeric) && (numeric as number) > 0 ? (numeric as number) : null;
 }
 
-function readTeamEmployeeId(snapshot: unknown, key: string): number | null {
-  if (!snapshot || typeof snapshot !== 'object') return null;
-  return toPositiveInteger((snapshot as Record<string, unknown>)[key]);
-}
-
-function getVisitTeamEmployeeIds(visit: any): number[] {
-  const ids = [
-    toPositiveInteger(visit.reassigned_supervisor_id) ?? readTeamEmployeeId(visit.team_snapshot, 'supervisorEmployeeId'),
-    toPositiveInteger(visit.reassigned_technician_id) ?? readTeamEmployeeId(visit.team_snapshot, 'technicianEmployeeId'),
-    toPositiveInteger(visit.reassigned_trainee_id) ?? readTeamEmployeeId(visit.team_snapshot, 'traineeEmployeeId'),
-  ].filter((id): id is number => id != null);
-
-  return [...new Set(ids)];
-}
-
-async function canViewOwnFieldVisit(authContext: AuthContext, visit: any): Promise<boolean> {
-  if (!authorize(authContext, { permission: MY_VISITS_PERMISSION, branchId: visit.branch_id }).allowed) {
-    return false;
-  }
-
+async function getActorEmployeeId(authContext: AuthContext): Promise<number | null> {
   const { rows } = await pool.query(
     `SELECT employee_id AS "employeeId"
        FROM hr_users
@@ -87,16 +71,12 @@ async function canViewOwnFieldVisit(authContext: AuthContext, visit: any): Promi
       LIMIT 1`,
     [authContext.userId],
   );
-  const employeeId = toPositiveInteger(rows[0]?.employeeId);
-  return employeeId != null && getVisitTeamEmployeeIds(visit).includes(employeeId);
+  return toPositiveInteger(rows[0]?.employeeId);
 }
 
-async function canViewFieldVisitOrOwn(authContext: AuthContext, visit: any): Promise<boolean> {
-  if (canViewFieldVisit(authContext, visit.branch_id).allowed) {
-    return true;
-  }
-
-  return canViewOwnFieldVisit(authContext, visit);
+async function canReadFieldVisitWorkspace(authContext: AuthContext, visit: any): Promise<boolean> {
+  const actorEmployeeId = await getActorEmployeeId(authContext);
+  return canViewFieldVisitOrOwn(authContext, visit, actorEmployeeId).allowed;
 }
 
 // Haversine distance in metres between two lat/lng points
@@ -432,7 +412,7 @@ router.post('/instant', requirePermission('field_visits.create_instant'), async 
       return res.status(err.statusCode).json({ error: err.message });
     }
     console.error('[field-visits] POST /instant error:', err);
-    return res.status(500).json({ error: err?.message ?? 'فشل إنشاء الزيارة الفورية' });
+    return res.status(500).json({ error: 'فشل إنشاء الزيارة الفورية' });
   }
 });
 
@@ -1657,7 +1637,7 @@ router.get('/task-type-summary', requirePermission('field_visits.view'), async (
   }
 });
 
-router.get('/:id', requirePermission('field_visits.view', MY_VISITS_PERMISSION), async (req, res) => {
+router.get('/:id', requirePermission('field_visits.view', 'field_visits.my_visits.view'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
     const visitId = Number(req.params.id);
@@ -1711,7 +1691,7 @@ router.get('/:id', requirePermission('field_visits.view', MY_VISITS_PERMISSION),
       [visitId],
     );
     if (!fvRows[0]) return res.status(404).json({ error: 'الزيارة غير موجودة' });
-    if (!(await canViewFieldVisitOrOwn(authContext, fvRows[0]))) {
+    if (!(await canReadFieldVisitWorkspace(authContext, fvRows[0]))) {
       return res.status(403).json({ error: 'ليس لديك صلاحية الوصول' });
     }
     const fv = fvRows[0];
@@ -1755,16 +1735,11 @@ router.get('/:id', requirePermission('field_visits.view', MY_VISITS_PERMISSION),
              SUM(gr.approved_quantity)::int AS approved_quantity,
              STRING_AGG(DISTINCT gd.default_unit_label, '، ' ORDER BY gd.default_unit_label) AS unit_label,
              STRING_AGG(DISTINCT gr.beneficiary_name_snapshot, '، ' ORDER BY gr.beneficiary_name_snapshot) AS gift_beneficiary_name
-           FROM gift_records gr
+           FROM gift_delivery_task_records gift_link
+           JOIN gift_records gr ON gr.id = gift_link.gift_record_id
            JOIN gift_definitions gd ON gd.id = gr.gift_definition_id
            WHERE ot.task_type = 'gift_delivery'
-             AND (
-               gr.delivery_task_id = ot.id
-               OR (
-                 ot.source_context_type = 'gift_records'
-                 AND gr.id = ot.source_context_id
-               )
-             )
+             AND gift_link.open_task_id = ot.id
          ) gift_info ON true
          LEFT JOIN branches service_branch ON service_branch.id = ot.service_branch_id
          LEFT JOIN clients target_client ON target_client.id = ot.target_client_id
@@ -2447,8 +2422,11 @@ router.post('/:id/tasks', requirePermission('field_visits.edit'), async (req, re
       `SELECT ot.id, ot.client_id, ot.branch_id, ot.task_type AS "taskType", ot.status,
               ot.device_id AS "deviceId", ot.installment_id AS "installmentId",
               EXISTS (
-                SELECT 1 FROM gift_records gr
-                 WHERE gr.delivery_task_id = ot.id
+                SELECT 1
+                  FROM gift_delivery_task_records gift_link
+                  JOIN gift_records gr ON gr.id = gift_link.gift_record_id
+                 WHERE gift_link.open_task_id = ot.id
+                   AND gift_link.is_active = TRUE
                    AND gr.status = 'delivery_task_created'
               ) AS "hasGiftDeliveryLink",
               EXISTS (
@@ -2566,19 +2544,24 @@ router.post('/:id/tasks', requirePermission('field_visits.edit'), async (req, re
  *   - D-PB5: no N-Window, no eligibility filter.
  *   - D-PB6: oldest-first, information-dense.
  */
-router.get('/:id/pullable-tasks', requirePermission('field_visits.view'), async (req, res) => {
+router.get('/:id/pullable-tasks', requirePermission('field_visits.view', 'field_visits.my_visits.view'), async (req, res) => {
   const fieldVisitId = Number(req.params.id);
   if (!Number.isInteger(fieldVisitId) || fieldVisitId <= 0) {
     return res.status(400).json({ error: 'معرف الزيارة غير صالح' });
   }
   try {
+    const authContext = getAuthContext(req);
     const { rows: visitRows } = await pool.query(
-      `SELECT id, client_id, branch_id FROM field_visits WHERE id = $1 LIMIT 1`,
+      `SELECT id, client_id, branch_id, team_snapshot,
+              reassigned_supervisor_id, reassigned_technician_id, reassigned_trainee_id
+         FROM field_visits
+        WHERE id = $1
+        LIMIT 1`,
       [fieldVisitId],
     );
     if (visitRows.length === 0) return res.status(404).json({ error: 'الزيارة غير موجودة' });
     const visit = visitRows[0];
-    if (!canViewFieldVisit(getAuthContext(req), visit.branch_id).allowed) {
+    if (!(await canReadFieldVisitWorkspace(authContext, visit))) {
       return res.status(403).json({ error: 'غير مسموح بعرض مهام هذه الزيارة ضمن نطاق صلاحيتك' });
     }
 
@@ -2605,8 +2588,11 @@ router.get('/:id/pullable-tasks', requirePermission('field_visits.view'), async 
               ot.expected_amount_syp      AS "expectedAmount",
               ot.receivable_source_label  AS "receivableLabel",
               EXISTS (
-                SELECT 1 FROM gift_records gr
-                 WHERE gr.delivery_task_id = ot.id
+                SELECT 1
+                  FROM gift_delivery_task_records gift_link
+                  JOIN gift_records gr ON gr.id = gift_link.gift_record_id
+                 WHERE gift_link.open_task_id = ot.id
+                   AND gift_link.is_active = TRUE
                    AND gr.status = 'delivery_task_created'
               ) AS "hasGiftDeliveryLink",
               EXISTS (
@@ -2727,10 +2713,23 @@ router.delete('/:id/tasks/:visitTaskId', requirePermission('field_visits.edit'),
  * Returns the referral_sheet bound to this visit (if any). Frontend uses this
  * to decide whether to show "إضافة لائحة جديدة" or "تعديل عدد اللائحة".
  */
-router.get('/:id/referral-sheet', requirePermission('field_visits.view'), async (req, res) => {
+router.get('/:id/referral-sheet', requirePermission('field_visits.view', 'field_visits.my_visits.view'), async (req, res) => {
   try {
+    const authContext = getAuthContext(req);
     const visitId = Number(req.params.id);
     if (!Number.isFinite(visitId)) return res.status(400).json({ error: 'معرف الزيارة غير صالح' });
+    const { rows: visitRows } = await pool.query(
+      `SELECT id, branch_id, team_snapshot,
+              reassigned_supervisor_id, reassigned_technician_id, reassigned_trainee_id
+         FROM field_visits
+        WHERE id = $1
+        LIMIT 1`,
+      [visitId],
+    );
+    if (visitRows.length === 0) return res.status(404).json({ error: 'الزيارة غير موجودة' });
+    if (!(await canReadFieldVisitWorkspace(authContext, visitRows[0]))) {
+      return res.status(403).json({ error: 'ليس لديك صلاحية الوصول' });
+    }
     const { rows } = await pool.query(
       `SELECT id,
               field_visit_id  AS "fieldVisitId",
@@ -2882,10 +2881,23 @@ router.patch('/:id/referral-sheet/target', requirePermission('field_visits.edit'
  * GET /api/field-visits/:id/survey
  * Returns the visit's survey row if it exists.
  */
-router.get('/:id/survey', requirePermission('field_visits.view'), async (req, res) => {
+router.get('/:id/survey', requirePermission('field_visits.view', 'field_visits.my_visits.view'), async (req, res) => {
   try {
+    const authContext = getAuthContext(req);
     const visitId = Number(req.params.id);
     if (!Number.isFinite(visitId)) return res.status(400).json({ error: 'معرف الزيارة غير صالح' });
+    const { rows: visitRows } = await pool.query(
+      `SELECT id, branch_id, team_snapshot,
+              reassigned_supervisor_id, reassigned_technician_id, reassigned_trainee_id
+         FROM field_visits
+        WHERE id = $1
+        LIMIT 1`,
+      [visitId],
+    );
+    if (visitRows.length === 0) return res.status(404).json({ error: 'الزيارة غير موجودة' });
+    if (!(await canReadFieldVisitWorkspace(authContext, visitRows[0]))) {
+      return res.status(403).json({ error: 'ليس لديك صلاحية الوصول' });
+    }
     const { rows } = await pool.query(
       `SELECT id,
               field_visit_id                    AS "fieldVisitId",

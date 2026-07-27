@@ -120,13 +120,47 @@ export async function cancelLockedOpenTaskBeforeScheduling(
   );
   if (subject.taskType === 'gift_delivery') {
     await db.query(
-      `UPDATE gift_records
-          SET status = 'refused',
-              cancellation_reason = $2,
-              updated_by = $3,
-              updated_at = NOW()
-        WHERE delivery_task_id = $1
-          AND status = 'delivery_task_created'`,
+      `WITH linked_records AS (
+         SELECT link.gift_record_id
+           FROM gift_delivery_task_records link
+          WHERE link.open_task_id = $1
+            AND link.is_active = TRUE
+          FOR UPDATE
+       ),
+       restored AS (
+         UPDATE gift_records gr
+            SET status = 'approved_for_delivery',
+                delivery_task_id = NULL,
+                cancellation_reason = NULL,
+                updated_by = $3,
+                updated_at = NOW()
+           FROM linked_records
+          WHERE gr.id = linked_records.gift_record_id
+            AND gr.status = 'delivery_task_created'
+         RETURNING gr.id
+       ),
+       detached AS (
+         UPDATE gift_delivery_task_records link
+            SET is_active = FALSE,
+                detached_by = $3,
+                detached_at = NOW(),
+                detachment_reason = $2
+          WHERE link.open_task_id = $1
+            AND link.is_active = TRUE
+         RETURNING link.gift_record_id
+       )
+       INSERT INTO gift_record_events (
+         gift_record_id, event_type, actor_user_id, previous_status, new_status, reason,
+         metadata
+       )
+       SELECT detached.gift_record_id,
+              'delivery_task_cancelled',
+              $3,
+              'delivery_task_created',
+              'approved_for_delivery',
+              $2,
+              jsonb_build_object('openTaskId', $1)
+         FROM detached`,
       [subject.id, reason.label, performedByUserId],
     );
   }

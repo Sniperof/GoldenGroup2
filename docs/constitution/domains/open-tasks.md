@@ -173,7 +173,7 @@
 - عند رغبة المشرف بفرض فني أو موظف معين، يتم إرسال معرف الموظف وتخزينه في `employee_id` أو `assigned_telemarketer_id` حسب طبيعة عائلة المهمة التشغيلية.
 
 #### BR-4: استقلالية الاستبعاد والإلغاء (Exclusion vs Cancellation)
-1. **الإلغاء (`cancelled`):** حالة نهائية في مرحلة الإغلاق. الإلغاء المباشر متاح فقط قبل الجدولة، في الحالات `open`, `needs_follow_up`, `assigned`, `in_scheduling`، وبشرط عدم وجود زيارة نشطة بلا نتيجة. السبب إلزامي ويُختار من قائمة الرفض الخاصة بنوع المهمة، ويحفظ مرجعياً في `cancellation_reason_id` ونصياً في `cancellation_reason`.
+1. **الإلغاء (`cancelled`):** حالة نهائية في مرحلة الإغلاق. الإلغاء المباشر متاح فقط قبل الجدولة، في الحالات `open`, `needs_follow_up`, `assigned`, `in_scheduling`، وبشرط عدم وجود زيارة نشطة بلا نتيجة. السبب إلزامي وتحل سياسة الإلغاء المشتركة فئته حسب نوع المهمة؛ يجوز أن تطابق فئة رفض النتيجة عندما يتطابق المعنى، أو تكون فئة إلغاء مستقلة عندما يعني الإلغاء وقف محاولة التنفيذ لا رفض المستفيد. يحفظ السبب مرجعياً في `cancellation_reason_id` ونصياً في `cancellation_reason`.
 2. من `scheduled` فصاعداً لا تُلغى المهمة مباشرة ولا تُغلق عبر `PATCH`. تُسجّل نتيجة محاولة التنفيذ أو رفضها من داخل صفحة الزيارة، ثم يعكس result service الحالة على `open_task`.
 3. **الاستبعاد (`excluded`):** خيار تشغيلي ديناميكي مؤقت يقوم بإخفاء المهام المعلقة من كشوف وجداول التحضير اليومية للفروع دون حذفها أو إلغائها لتمكين المشرفين من إرجاء مهام المواسم أو أصحاب العقود الخاصة. ويتم عبر تسجيل `excluded_for_date` و `excluded_reason`.
 
@@ -274,7 +274,7 @@ erDiagram
 | `GET /:id/calls` | `open_tasks.view` | مكالمات المهمة (مع legacy fallback) | — |
 | `POST /` | `open_tasks.edit` | إنشاء مهمة يدوية | `clientId`✱، `branchId`✱، `taskType`، `taskFamily`، `reason`✱، `priority`، `dueDate`، `expectedDate`، `contractId`، `devices[]`، `preOffers[]` |
 | `POST /:id/assign-team` | `open_tasks.edit` | تعيين فريق → يُحوّل الحالة لـ `scheduled` | `supervisorId`، `technicianId`، `traineeId` |
-| `POST /:id/cancel` | `open_tasks.edit` | إلغاء قبل الجدولة فقط؛ السبب من قائمة رفض النوع | `reasonId`✱ |
+| `POST /:id/cancel` | `open_tasks.edit` | إلغاء قبل الجدولة فقط؛ فئة السبب تحلها سياسة الإلغاء المشتركة حسب نوع المهمة | `reasonId`✱ |
 | `PATCH /:id` | `open_tasks.edit` | تحديث حالات غير نهائية / تواريخ / أولوية؛ لا يسجل نتيجة ولا يغلق المهمة | `status`، `dueDate`، `expectedDate`، `priority`، `waitingReasonId`، `waitingReasonText`، `notes` |
 | `POST /:id/emergency-result` | — | مسار legacy مغلق (`409`)؛ نتيجة الصيانة تُسجّل من صفحة الزيارة فقط | — |
 | `POST /:id/assign-scope` | `open_tasks.edit` | تعيين نطاق عمل جغرافي للمهمة | `scopeId` |

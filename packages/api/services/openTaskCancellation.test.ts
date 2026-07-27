@@ -19,14 +19,14 @@ function fakeDb(rowsByQuery: (sql: string) => any[]) {
   };
 }
 
-test('cancellation validates the reason against the task rejection category', async () => {
+test('gift task cancellation uses its own category and restores the linked gift bundle', async () => {
   const { db, statements } = fakeDb((sql) => {
     if (sql.includes('FROM system_lists')) {
       return [{
         id: 41,
-        category: 'gift_delivery_refusal_reasons',
-        value: 'beneficiary_refused',
-        metadata: { label: 'رفض المستفيد الهدية' },
+        category: 'gift_delivery_task_cancellation_reasons',
+        value: 'data_correction',
+        metadata: { label: 'تصحيح بيانات' },
       }];
     }
     return [];
@@ -46,13 +46,15 @@ test('cancellation validates the reason against the task rejection category', as
     'branch_manager',
   );
 
-  assert.equal(reason.category, 'gift_delivery_refusal_reasons');
-  assert.equal(reason.label, 'رفض المستفيد الهدية');
+  assert.equal(reason.category, 'gift_delivery_task_cancellation_reasons');
+  assert.equal(reason.label, 'تصحيح بيانات');
   assert.equal(statements.some(({ sql }) => sql.includes("status = 'cancelled'")), true);
   const giftUpdate = statements.find(({ sql }) => sql.includes('UPDATE gift_records'));
   assert.ok(giftUpdate);
-  assert.match(giftUpdate.sql, /status = 'refused'/);
-  assert.deepEqual(giftUpdate.params, [9, 'رفض المستفيد الهدية', 7]);
+  assert.match(giftUpdate.sql, /status = 'approved_for_delivery'/);
+  assert.match(giftUpdate.sql, /gift_delivery_task_records/);
+  assert.match(giftUpdate.sql, /is_active = FALSE/);
+  assert.deepEqual(giftUpdate.params, [9, 'تصحيح بيانات', 7]);
   assert.equal(statements.some(({ sql }) => sql.includes('task_activity_log')), true);
 });
 

@@ -2247,47 +2247,13 @@ router.delete('/:id', requirePermission('clients.delete'), async (req, res) => {
  *         description: Unauthorized
  *       403:
  *         description: Forbidden
- *       500:
- *         description: Server error
+ *       410:
+ *         description: Bulk deletion is disabled; clients must be soft-deleted individually
  */
-router.post('/bulk-delete', requirePermission('clients.delete'), async (req, res) => {
-  try {
-    const authContext = getRequiredAuthContext(req);
-    const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
-    if (ids.length === 0) {
-      return res.json({ success: true });
-    }
-
-    const { rows } = await pool.query(
-      `SELECT
-         c.id,
-         c.branch_id AS "branchId",
-         COALESCE(
-           (SELECT array_agg(hr_user_id)
-              FROM client_assignments
-             WHERE client_id = c.id),
-           '{}'::int[]
-         ) AS "assignedUserIds"
-       FROM clients c
-      WHERE c.id = ANY($1)`,
-      [ids],
-    );
-
-    for (const row of rows) {
-      const access = canDeleteClient(authContext, {
-        branchId: row.branchId,
-        assignedUserIds: row.assignedUserIds,
-      });
-      if (!access.allowed) {
-        return forbidClientAccess(res, access.reason);
-      }
-    }
-
-    await pool.query('DELETE FROM clients WHERE id = ANY($1)', [ids]);
-    res.json({ success: true });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
+router.post('/bulk-delete', requirePermission('clients.delete'), (_req, res) => {
+  return res.status(410).json({
+    error: 'الحذف الجماعي للزبائن متوقف لحماية السجل. احذف كل زبون على حدة.',
+  });
 });
 
 // ============================================================================

@@ -53,6 +53,8 @@ const ACTION_LABELS: Record<string, string> = {
   book: 'حجز',
   update_result: 'تسجيل نتيجة',
   can_be_assigned: 'قابل للإسناد',
+  direct_manager_eligible: 'مؤهل كمدير قسم',
+  direct_manager_branch_fallback: 'مدير بديل للفرع',
   conduct: 'إجراء',
   be_trainer: 'التدريب كمدرب',
   review: 'مراجعة',
@@ -157,6 +159,14 @@ const PERM_LABELS: Record<string, { label: string; desc: string }> = {
   'employees.nav':        { label: 'إظهار سجلات الموظفين',      desc: 'إظهار صفحة سجلات الموظفين في الدروار' },
   'employees.lookup':     { label: 'قراءة الموظفين داخل الحقول', desc: 'إظهار الموظفين كخيارات داخل النماذج بدون فتح السجل الكامل' },
   'employees.manager_lookup': { label: 'قراءة المديرين المباشرين', desc: 'إظهار المرشحين لحقل المدير المباشر ضمن فرع وقسم الموظف' },
+  'employees.direct_manager_eligible': {
+    label: 'مؤهل كمدير مباشر للقسم',
+    desc: 'يجعل أصحاب الدور خيارات للمدير المباشر داخل قسم الموظف نفسه',
+  },
+  'employees.direct_manager_branch_fallback': {
+    label: 'مدير مباشر بديل على مستوى الفرع',
+    desc: 'يجعل أصحاب الدور خيارات بديلة لجميع أقسام الفرع بعد مديري القسم',
+  },
   'employees.view_list':  { label: 'عرض قائمة الموظفين',     desc: 'الاطلاع على سجلات الموظفين الميدانيين' },
   'employees.create':     { label: 'إضافة موظف جديد',        desc: 'إضافة موظف جديد أو إنشاء سجل موظف من طلب توظيف مقبول' },
   'employees.edit':       { label: 'تعديل بيانات الموظف',    desc: 'تحديث معلومات الموظف' },

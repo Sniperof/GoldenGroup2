@@ -13,6 +13,7 @@ const recordSelect = `
   gd.name AS "giftName",
   gd.kind AS "giftDefinitionKind",
   gd.default_unit_label AS "unitLabel",
+  gr.promised_quantity AS "promisedQuantity",
   gr.approved_quantity AS "approvedQuantity",
   gr.beneficiary_name_snapshot AS "beneficiaryName",
   gr.beneficiary_type AS "beneficiaryType",
@@ -24,7 +25,13 @@ const recordSelect = `
   gr.condition_id AS "conditionId",
   gr.condition_label AS "conditionLabel",
   gr.condition_status AS "conditionStatus",
+  gr.condition_notes AS "conditionNotes",
+  gr.condition_verified_by AS "conditionVerifiedBy",
+  gr.condition_verified_at AS "conditionVerifiedAt",
   gr.status,
+  gr.approved_by AS "approvedBy",
+  gr.approved_at AS "approvedAt",
+  gr.approval_notes AS "approvalNotes",
   gr.source_branch_id AS "sourceBranchId",
   sb.name AS "sourceBranchName",
   gr.responsible_branch_id AS "responsibleBranchId",
@@ -34,6 +41,9 @@ const recordSelect = `
   gr.delivery_task_id AS "deliveryTaskId",
   gr.manual_delivered_at AS "manualDeliveredAt",
   gr.manual_delivered_by AS "manualDeliveredBy",
+  gr.manual_delivery_method_id AS "manualDeliveryMethodId",
+  gr.manual_delivery_acknowledged AS "manualDeliveryAcknowledged",
+  gr.manual_delivery_branch_id AS "manualDeliveryBranchId",
   gr.manual_delivery_notes AS "manualDeliveryNotes",
   gr.cancellation_reason AS "cancellationReason",
   gr.created_by AS "createdBy",
@@ -84,7 +94,8 @@ function normalizePriority(value: unknown): 'low' | 'medium' | 'high' | null {
 function mapRecord(row: any) {
   return {
     ...row,
-    approvedQuantity: Number(row.approvedQuantity ?? 1),
+    promisedQuantity: Number(row.promisedQuantity ?? 1),
+    approvedQuantity: row.approvedQuantity == null ? null : Number(row.approvedQuantity),
     deliveryTaskId: row.deliveryTaskId == null ? null : String(row.deliveryTaskId),
     beneficiaryOwnershipLabel: row.beneficiaryClientId
       ? 'حسب ملكية الزبون المستفيد'
@@ -92,6 +103,62 @@ function mapRecord(row: any) {
         ? 'تسليم يدوي لموظف/وسيط داخلي'
         : 'تسليم يدوي',
   };
+}
+
+type GiftBeneficiaryType =
+  | 'contract_customer'
+  | 'customer_referrer'
+  | 'employee_referrer'
+  | 'personal_referrer';
+
+function isGiftBeneficiaryType(value: string): value is GiftBeneficiaryType {
+  return [
+    'contract_customer',
+    'customer_referrer',
+    'employee_referrer',
+    'personal_referrer',
+  ].includes(value);
+}
+
+async function findSimilarGiftRecords(
+  db: { query: (text: string, params?: any[]) => Promise<any> },
+  input: {
+    giftDefinitionId: number;
+    beneficiaryType: GiftBeneficiaryType;
+    beneficiaryClientId: number | null;
+    beneficiaryEmployeeId: number | null;
+    beneficiaryName: string;
+  },
+) {
+  const { rows } = await db.query(
+    `SELECT gr.id,
+            gr.status,
+            gr.beneficiary_name_snapshot AS "beneficiaryName",
+            gr.promised_quantity AS "promisedQuantity",
+            gr.approved_quantity AS "approvedQuantity",
+            gr.created_at AS "createdAt",
+            gd.name AS "giftName"
+       FROM gift_records gr
+       JOIN gift_definitions gd ON gd.id = gr.gift_definition_id
+      WHERE gr.gift_definition_id = $1
+        AND gr.beneficiary_type = $2
+        AND COALESCE(gr.beneficiary_client_id, 0) = COALESCE($3, 0)
+        AND COALESCE(gr.beneficiary_employee_id, 0) = COALESCE($4, 0)
+        AND (
+          $2 <> 'personal_referrer'
+          OR lower(btrim(gr.beneficiary_name_snapshot)) = lower(btrim($5))
+        )
+        AND gr.status IN ('promised', 'approved_for_delivery', 'delivery_task_created')
+      ORDER BY gr.created_at DESC, gr.id DESC`,
+    [
+      input.giftDefinitionId,
+      input.beneficiaryType,
+      input.beneficiaryClientId,
+      input.beneficiaryEmployeeId,
+      input.beneficiaryName,
+    ],
+  );
+  return rows;
 }
 
 function mapDefinition(row: any) {
@@ -172,6 +239,37 @@ async function loadGiftPromiseCondition(conditionId: number | null) {
   );
   return rows[0] ?? null;
 }
+
+async function loadGiftPromiseConditionByValue(value: string | null) {
+  if (!value) return null;
+  const { rows } = await pool.query(
+    `SELECT id, value
+       FROM system_lists
+      WHERE value = $1
+        AND category = 'gift_promise_conditions'
+        AND is_active = TRUE
+      LIMIT 1`,
+    [value],
+  );
+  return rows[0] ?? null;
+}
+
+const legacyGiftConditionValues: Record<string, string> = {
+  'توقيع عقد نقدي': 'cash_contract',
+  'استحقاق بعد الدفعة الثانية': 'after_second_installment',
+  'شراء أكثر من عقد': 'multiple_contracts',
+  'وسيط بيعة من نوع زبون': 'contract_referrer_gift',
+  'وسيط بيعة من نوع موظف': 'contract_referrer_gift',
+  'وسيط بيعة شخصي': 'contract_referrer_gift',
+  'قرار إداري': 'administrative_commitment',
+  'عقد هدية معتمد': 'gift_contract',
+};
+
+const sourceGiftConditionValues: Record<string, string> = {
+  name_list: 'name_list_referral_sale',
+  direct_referral: 'direct_referral_sale',
+  candidate: 'candidate_referral_sale',
+};
 
 async function resolveGiftDeliveryCreationReason(value: unknown) {
   const creationReason = normalizeText(value);
@@ -308,6 +406,41 @@ router.delete('/definitions/:id', requirePermission('contract_gifts.manage'), as
   res.json({ mode: 'deleted' });
 });
 
+router.post('/records/similar', requirePermission('contract_gifts.manage'), async (req, res) => {
+  const giftDefinitionId = normalizePositiveInt(req.body?.giftDefinitionId);
+  const beneficiaryType = normalizeText(req.body?.beneficiaryType);
+  const beneficiaryClientId = normalizePositiveInt(req.body?.beneficiaryClientId);
+  const beneficiaryEmployeeId = normalizePositiveInt(req.body?.beneficiaryEmployeeId);
+  const beneficiaryName = normalizeText(req.body?.beneficiaryNameSnapshot ?? req.body?.beneficiaryName);
+  const sourceBranchId = normalizePositiveInt(req.body?.sourceBranchId);
+  const responsibleBranchId = normalizePositiveInt(req.body?.responsibleBranchId) ?? sourceBranchId;
+
+  if (!giftDefinitionId || !isGiftBeneficiaryType(beneficiaryType) || !beneficiaryName) {
+    return res.status(400).json({ error: 'بيانات فحص الوعود المشابهة غير مكتملة' });
+  }
+  if (!sourceBranchId || !responsibleBranchId) {
+    return res.status(400).json({ error: 'فرع المصدر وفرع المسؤولية مطلوبان' });
+  }
+
+  const authContext = await getOrBuildAuthContext(req as any);
+  if (!canAccessGift(authContext, 'contract_gifts.manage', {
+    sourceBranchId,
+    responsibleBranchId,
+    assignedUserId: normalizePositiveInt(req.body?.assignedUserId),
+  }, req.user?.employeeId ?? null)) {
+    return res.status(403).json({ error: 'غير مسموح' });
+  }
+
+  const records = await findSimilarGiftRecords(pool, {
+    giftDefinitionId,
+    beneficiaryType,
+    beneficiaryClientId,
+    beneficiaryEmployeeId,
+    beneficiaryName,
+  });
+  res.json({ count: records.length });
+});
+
 router.get('/records', requirePermission('contract_gifts.view'), async (req, res) => {
   const authContext = await getOrBuildAuthContext(req as any);
   const accessPlan = getGiftListAccessPlan(authContext, 'contract_gifts.view');
@@ -396,24 +529,47 @@ router.post('/records', requirePermission('contract_gifts.manage'), async (req, 
   const beneficiaryClientId = normalizePositiveInt(req.body?.beneficiaryClientId);
   const beneficiaryEmployeeId = normalizePositiveInt(req.body?.beneficiaryEmployeeId);
   const beneficiaryName = normalizeText(req.body?.beneficiaryNameSnapshot ?? req.body?.beneficiaryName);
-  const conditionId = normalizePositiveInt(req.body?.conditionId);
-  const conditionListItem = await loadGiftPromiseCondition(conditionId);
-  if (conditionId && !conditionListItem) {
+  const source = req.body?.source ?? {};
+  const sourceType = normalizeText(source.sourceType);
+  let conditionId = normalizePositiveInt(req.body?.conditionId);
+  let conditionListItem = await loadGiftPromiseCondition(conditionId);
+  if (!conditionListItem && !conditionId) {
+    const requestedConditionLabel = normalizeText(req.body?.conditionLabel);
+    conditionListItem = await loadGiftPromiseConditionByValue(
+      legacyGiftConditionValues[requestedConditionLabel]
+      ?? sourceGiftConditionValues[sourceType]
+      ?? null,
+    );
+    conditionId = normalizePositiveInt(conditionListItem?.id);
+  }
+  if (!conditionId || !conditionListItem) {
     return res.status(400).json({ error: 'شرط وعد الهدية غير صالح' });
   }
   const conditionLabel = normalizeText(req.body?.conditionLabel) || normalizeText(conditionListItem?.value);
-  const approvedQuantity = Math.max(1, normalizePositiveInt(req.body?.approvedQuantity ?? req.body?.quantity) ?? 1);
-  const source = req.body?.source ?? {};
-  const sourceType = normalizeText(source.sourceType);
+  const conditionNotes = normalizeText(req.body?.conditionNotes);
+  if (conditionListItem?.value === 'other' && !conditionNotes) {
+    return res.status(400).json({ error: 'ملاحظات الشرط إلزامية عند اختيار شرط آخر' });
+  }
+  const promisedQuantity = Math.max(1, normalizePositiveInt(req.body?.promisedQuantity ?? req.body?.quantity) ?? 1);
 
   if (!giftDefinitionId || !beneficiaryName || !conditionLabel) {
     return res.status(400).json({ error: 'تعريف الهدية والمستفيد والشرط مطلوبة' });
   }
-  if (!['contract_customer', 'customer_referrer', 'employee_or_personal'].includes(beneficiaryType)) {
+  if (!isGiftBeneficiaryType(beneficiaryType)) {
     return res.status(400).json({ error: 'نوع المستفيد غير صالح' });
   }
   if ((beneficiaryType === 'contract_customer' || beneficiaryType === 'customer_referrer') && !beneficiaryClientId) {
     return res.status(400).json({ error: 'المستفيد الزبون يجب أن يرتبط بسجل زبون معروف' });
+  }
+  if (beneficiaryType === 'employee_referrer' && !beneficiaryEmployeeId) {
+    return res.status(400).json({ error: 'المستفيد الموظف يجب أن يرتبط بسجل موظف معروف' });
+  }
+  if (
+    ((beneficiaryType === 'contract_customer' || beneficiaryType === 'customer_referrer') && beneficiaryEmployeeId)
+    || (beneficiaryType === 'employee_referrer' && beneficiaryClientId)
+    || (beneficiaryType === 'personal_referrer' && (beneficiaryClientId || beneficiaryEmployeeId))
+  ) {
+    return res.status(400).json({ error: 'هوية مستفيد الهدية لا تطابق نوعه' });
   }
   if (!['contract', 'name_list', 'direct_referral', 'candidate'].includes(sourceType)) {
     return res.status(400).json({ error: 'مصدر الوعد غير صالح' });
@@ -446,6 +602,22 @@ router.post('/records', requirePermission('contract_gifts.manage'), async (req, 
     return res.status(403).json({ error: 'غير مسموح' });
   }
 
+  const similarRecords = await findSimilarGiftRecords(pool, {
+    giftDefinitionId,
+    beneficiaryType,
+    beneficiaryClientId,
+    beneficiaryEmployeeId,
+    beneficiaryName,
+  });
+  const warningAcknowledged = req.body?.similarPromiseWarningAcknowledged === true;
+  if (similarRecords.length > 0 && !warningAcknowledged) {
+    return res.status(409).json({
+      error: 'توجد وعود هدايا غير منتهية مشابهة لهذا المستفيد. يمكنك المتابعة بعد تأكيد الاطلاع على التنبيه.',
+      code: 'similar_gift_promises',
+      similarCount: similarRecords.length,
+    });
+  }
+
   const db = await pool.connect();
   try {
     await db.query('BEGIN');
@@ -453,11 +625,12 @@ router.post('/records', requirePermission('contract_gifts.manage'), async (req, 
       `INSERT INTO gift_records (
           gift_definition_id, beneficiary_type, beneficiary_client_id,
           beneficiary_employee_id, beneficiary_name_snapshot, customer_id,
-          contract_id, condition_id, condition_label, condition_status, approved_quantity,
+          contract_id, condition_id, condition_label, condition_status, condition_notes,
+          promised_quantity, approved_quantity,
           source_branch_id, responsible_branch_id, assigned_user_id,
           created_by, updated_by
         )
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$15)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',NULLIF($10,''),$11,NULL,$12,$13,$14,$15,$15)
         RETURNING id`,
       [
         giftDefinitionId,
@@ -469,8 +642,8 @@ router.post('/records', requirePermission('contract_gifts.manage'), async (req, 
         normalizePositiveInt(req.body?.contractId),
         conditionId,
         conditionLabel,
-        normalizeConditionStatus(req.body?.conditionStatus),
-        approvedQuantity,
+        conditionNotes,
+        promisedQuantity,
         sourceBranchId,
         responsibleBranchId,
         normalizePositiveInt(req.body?.assignedUserId),
@@ -492,8 +665,21 @@ router.post('/records', requirePermission('contract_gifts.manage'), async (req, 
         normalizePositiveInt(source.directReferralId),
         normalizePositiveInt(source.candidateId),
         normalizeText(source.sourceLabel ?? source.label) || 'مصدر وعد هدية',
-        Math.max(1, normalizePositiveInt(source.quantity) ?? approvedQuantity),
+        Math.max(1, normalizePositiveInt(source.quantity) ?? promisedQuantity),
         normalizeText(source.notes) || null,
+      ],
+    );
+    await db.query(
+      `INSERT INTO gift_record_events (
+         gift_record_id, event_type, actor_user_id, previous_status, new_status, metadata
+       ) VALUES ($1, 'promise_created', $2, NULL, 'promised', $3::jsonb)`,
+      [
+        recordId,
+        req.user?.id ?? null,
+        JSON.stringify({
+          similarGiftRecordIds: similarRecords.map((record: any) => Number(record.id)),
+          similarPromiseWarningAcknowledged: warningAcknowledged,
+        }),
       ],
     );
     await db.query('COMMIT');
@@ -501,9 +687,6 @@ router.post('/records', requirePermission('contract_gifts.manage'), async (req, 
     res.status(201).json(record);
   } catch (error: any) {
     await db.query('ROLLBACK');
-    if (error?.code === '23505' && error?.constraint === 'uq_gift_records_open_promise') {
-      return res.status(409).json({ error: 'يوجد وعد هدية مفتوح لنفس المستفيد ونفس التعريف ونفس الشرط' });
-    }
     console.error('Create gift record failed:', error);
     res.status(500).json({ error: 'فشل إنشاء سجل الهدية' });
   } finally {
@@ -528,6 +711,12 @@ async function createDeliveryTaskForGiftRecords(req: any, res: any, ids: number[
   const { rows } = await pool.query(
     `SELECT gr.id, gr.beneficiary_type, gr.beneficiary_client_id, gr.beneficiary_name_snapshot,
             gr.responsible_branch_id, gr.source_branch_id, gr.status, gr.delivery_task_id,
+            EXISTS (
+              SELECT 1
+                FROM gift_delivery_task_records active_link
+               WHERE active_link.gift_record_id = gr.id
+                 AND active_link.is_active = TRUE
+            ) AS has_active_delivery_link,
             gd.name AS gift_name
        FROM gift_records gr
        JOIN gift_definitions gd ON gd.id = gr.gift_definition_id
@@ -550,7 +739,7 @@ async function createDeliveryTaskForGiftRecords(req: any, res: any, ids: number[
   if (blocked) {
     return res.status(409).json({ error: `سجل الهدية ${blocked.id} في حالة لا تسمح بإنشاء مهمة تسليم` });
   }
-  const alreadyLinked = rows.find((row: any) => row.delivery_task_id != null);
+  const alreadyLinked = rows.find((row: any) => row.delivery_task_id != null || row.has_active_delivery_link === true);
   if (alreadyLinked) {
     return res.status(409).json({ error: `سجل الهدية ${alreadyLinked.id} مرتبط مسبقاً بمهمة تسليم`, deliveryTaskId: alreadyLinked.delivery_task_id });
   }
@@ -602,13 +791,37 @@ async function createDeliveryTaskForGiftRecords(req: any, res: any, ids: number[
     );
     const taskId = Number(taskRows[0].id);
 
-    await db.query(
+    const updatedRecords = await db.query(
       `UPDATE gift_records
           SET status = 'delivery_task_created',
               delivery_task_id = $2,
               updated_by = $3,
               updated_at = NOW()
-        WHERE id = ANY($1::int[])`,
+        WHERE id = ANY($1::int[])
+          AND status = 'approved_for_delivery'
+          AND delivery_task_id IS NULL`,
+      [ids, taskId, authContext.userId ?? null],
+    );
+    if (updatedRecords.rowCount !== ids.length) {
+      throw new Error('gift_delivery_group_changed_during_creation');
+    }
+    await db.query(
+      `INSERT INTO gift_delivery_task_records (
+         open_task_id, gift_record_id, is_active, linked_by
+       )
+       SELECT $2, unnest($1::int[]), TRUE, $3`,
+      [ids, taskId, authContext.userId ?? null],
+    );
+    await db.query(
+      `INSERT INTO gift_record_events (
+         gift_record_id, event_type, actor_user_id, previous_status, new_status, metadata
+       )
+       SELECT unnest($1::int[]),
+              'delivery_task_linked',
+              $3,
+              'approved_for_delivery',
+              'delivery_task_created',
+              jsonb_build_object('openTaskId', $2)`,
       [ids, taskId, authContext.userId ?? null],
     );
     await db.query('COMMIT');
@@ -656,13 +869,46 @@ router.patch('/records/:id/condition', requirePermission('contract_gifts.verify_
   const access = await requireGiftAccess(req, res, id, 'contract_gifts.verify_condition');
   if (!access) return;
 
+  if (!['pending', 'met', 'not_met'].includes(req.body?.conditionStatus)) {
+    return res.status(400).json({ error: 'حالة تحقق الشرط غير صالحة' });
+  }
   const conditionStatus = normalizeConditionStatus(req.body?.conditionStatus);
+  const conditionNotes = normalizeText(req.body?.conditionNotes ?? req.body?.notes);
   const result = await pool.query(
-    `UPDATE gift_records
-        SET condition_status = $2, updated_by = $3, updated_at = NOW()
-      WHERE id = $1
-        AND status IN ('promised', 'approved_for_delivery')`,
-    [id, conditionStatus, req.user?.id ?? null],
+    `WITH current AS (
+       SELECT id, condition_status
+         FROM gift_records
+        WHERE id = $1
+          AND status IN ('promised', 'approved_for_delivery')
+        FOR UPDATE
+     ),
+     updated AS (
+       UPDATE gift_records gr
+          SET condition_status = $2,
+              condition_notes = NULLIF($3, ''),
+              condition_verified_by = $4,
+              condition_verified_at = NOW(),
+              updated_by = $4,
+              updated_at = NOW()
+         FROM current
+        WHERE gr.id = current.id
+       RETURNING gr.id
+     )
+     INSERT INTO gift_record_events (
+       gift_record_id, event_type, actor_user_id, reason, metadata
+     )
+     SELECT updated.id,
+            'condition_verified',
+            $4,
+            NULLIF($3, ''),
+            jsonb_build_object(
+              'previousConditionStatus', current.condition_status,
+              'newConditionStatus', $2
+            )
+       FROM updated
+       JOIN current ON current.id = updated.id
+     RETURNING gift_record_id`,
+    [id, conditionStatus, conditionNotes, req.user?.id ?? null],
   );
   if (result.rowCount === 0) {
     return res.status(409).json({ error: 'لا يمكن تعديل تحقق الشرط بعد إنشاء مهمة أو إغلاق السجل' });
@@ -677,7 +923,7 @@ router.post('/records/:id/approve', requirePermission('contract_gifts.approve_de
   if (!access) return;
 
   const { rows: currentRows } = await pool.query(
-    `SELECT condition_status FROM gift_records WHERE id = $1 LIMIT 1`,
+    `SELECT condition_status, status FROM gift_records WHERE id = $1 LIMIT 1`,
     [id],
   );
   const approvalNotes = normalizeText(req.body?.approvalNotes ?? req.body?.notes);
@@ -685,17 +931,85 @@ router.post('/records/:id/approve', requirePermission('contract_gifts.approve_de
     return res.status(400).json({ error: 'ملاحظات الاعتماد إلزامية عند اعتماد سجل شرطه غير محقق' });
   }
 
-  await pool.query(
-    `UPDATE gift_records
-        SET status = 'approved_for_delivery',
-            approved_quantity = COALESCE($2, approved_quantity),
-            approval_notes = COALESCE(NULLIF($4, ''), approval_notes),
-            updated_by = $3,
-            updated_at = NOW()
-      WHERE id = $1
-        AND status IN ('promised', 'approved_for_delivery')`,
+  const approval = await pool.query(
+    `WITH updated AS (
+       UPDATE gift_records
+          SET status = 'approved_for_delivery',
+              approved_quantity = COALESCE($2, promised_quantity),
+              approval_notes = NULLIF($4, ''),
+              approved_by = $3,
+              approved_at = NOW(),
+              updated_by = $3,
+              updated_at = NOW()
+        WHERE id = $1
+          AND status = 'promised'
+       RETURNING id
+     )
+     INSERT INTO gift_record_events (
+       gift_record_id, event_type, actor_user_id, previous_status, new_status, reason,
+       metadata
+     )
+     SELECT id,
+            'delivery_approved',
+            $3,
+            'promised',
+            'approved_for_delivery',
+            NULLIF($4, ''),
+            jsonb_build_object('approvedQuantity', COALESCE($2, (
+              SELECT promised_quantity FROM gift_records WHERE id = $1
+            )))
+       FROM updated
+     RETURNING gift_record_id`,
     [id, normalizePositiveInt(req.body?.approvedQuantity), req.user?.id ?? null, approvalNotes],
   );
+  if (approval.rowCount === 0) {
+    return res.status(409).json({ error: 'لا يمكن اعتماد الهدية إلا مرة واحدة ومن حالة وعد' });
+  }
+  res.json(await getRecordById(id));
+});
+
+router.post('/records/:id/withdraw-approval', requirePermission('contract_gifts.approve_delivery'), async (req, res) => {
+  const id = normalizePositiveInt(req.params.id);
+  if (!id) return res.status(400).json({ error: 'معرف غير صالح' });
+  const access = await requireGiftAccess(req, res, id, 'contract_gifts.approve_delivery');
+  if (!access) return;
+
+  const reason = normalizeText(req.body?.reason);
+  if (!reason) {
+    return res.status(400).json({ error: 'سبب سحب الاعتماد إلزامي' });
+  }
+  const result = await pool.query(
+    `WITH updated AS (
+       UPDATE gift_records gr
+          SET status = 'promised',
+              approved_quantity = NULL,
+              approved_by = NULL,
+              approved_at = NULL,
+              approval_notes = NULL,
+              updated_by = $3,
+              updated_at = NOW()
+        WHERE gr.id = $1
+          AND gr.status = 'approved_for_delivery'
+          AND gr.delivery_task_id IS NULL
+          AND NOT EXISTS (
+            SELECT 1
+              FROM gift_delivery_task_records link
+             WHERE link.gift_record_id = gr.id
+               AND link.is_active = TRUE
+          )
+       RETURNING gr.id
+     )
+     INSERT INTO gift_record_events (
+       gift_record_id, event_type, actor_user_id, previous_status, new_status, reason
+     )
+     SELECT id, 'approval_withdrawn', $3, 'approved_for_delivery', 'promised', $2
+       FROM updated
+     RETURNING gift_record_id`,
+    [id, reason, req.user?.id ?? null],
+  );
+  if (result.rowCount === 0) {
+    return res.status(409).json({ error: 'لا يمكن سحب الاعتماد بعد إنشاء مهمة تسليم أو إغلاق السجل' });
+  }
   res.json(await getRecordById(id));
 });
 
@@ -705,25 +1019,143 @@ router.post('/records/:id/manual-delivery', requirePermission('contract_gifts.ma
   const access = await requireGiftAccess(req, res, id, 'contract_gifts.manual_delivery');
   if (!access) return;
 
-  const result = await pool.query(
-    `UPDATE gift_records
-        SET status = 'delivered_manually',
-            manual_delivered_at = NOW(),
-            manual_delivered_by = $2,
-            manual_delivery_notes = NULLIF($3, ''),
-            updated_by = $2,
-            updated_at = NOW()
+  const methodId = normalizePositiveInt(req.body?.methodId ?? req.body?.manualDeliveryMethodId);
+  const manualDeliveryBranchId = normalizePositiveInt(req.body?.branchId ?? req.body?.manualDeliveryBranchId);
+  const acknowledged = req.body?.acknowledged === true || req.body?.manualDeliveryAcknowledged === true;
+  const notes = normalizeText(req.body?.notes);
+  if (!methodId || !manualDeliveryBranchId || !acknowledged) {
+    return res.status(400).json({ error: 'طريقة التسليم وفرع التسليم وإقرار الاستلام مطلوبة' });
+  }
+  const { rows: methodRows } = await pool.query(
+    `SELECT id, value, metadata
+       FROM system_lists
       WHERE id = $1
-        AND status = 'approved_for_delivery'
-        AND delivery_task_id IS NULL
-        AND beneficiary_type = 'employee_or_personal'`,
-    [id, req.user?.id ?? null, normalizeText(req.body?.notes)],
+        AND category = 'gift_manual_delivery_methods'
+        AND is_active = TRUE
+      LIMIT 1`,
+    [methodId],
+  );
+  if (!methodRows[0]) {
+    return res.status(400).json({ error: 'طريقة التسليم اليدوي غير صالحة' });
+  }
+  if (methodRows[0].value === 'other' && !notes) {
+    return res.status(400).json({ error: 'ملاحظات التسليم إلزامية عند اختيار طريقة أخرى' });
+  }
+
+  const result = await pool.query(
+    `WITH updated AS (
+       UPDATE gift_records gr
+          SET status = 'delivered_manually',
+              manual_delivered_at = NOW(),
+              manual_delivered_by = $2,
+              manual_delivery_notes = NULLIF($3, ''),
+              manual_delivery_method_id = $4,
+              manual_delivery_acknowledged = TRUE,
+              manual_delivery_branch_id = $5,
+              updated_by = $2,
+              updated_at = NOW()
+        WHERE gr.id = $1
+          AND gr.status = 'approved_for_delivery'
+          AND gr.delivery_task_id IS NULL
+          AND $5 IN (gr.source_branch_id, gr.responsible_branch_id)
+          AND NOT EXISTS (
+            SELECT 1
+              FROM gift_delivery_task_records link
+             WHERE link.gift_record_id = gr.id
+               AND link.is_active = TRUE
+          )
+       RETURNING gr.id
+     )
+     INSERT INTO gift_record_events (
+       gift_record_id, event_type, actor_user_id, previous_status, new_status, reason, metadata
+     )
+     SELECT id,
+            'manual_delivery_recorded',
+            $2,
+            'approved_for_delivery',
+            'delivered_manually',
+            NULLIF($3, ''),
+            jsonb_build_object('methodId', $4, 'branchId', $5, 'acknowledged', TRUE)
+       FROM updated
+     RETURNING gift_record_id`,
+    [id, req.user?.id ?? null, notes, methodId, manualDeliveryBranchId],
   );
   if (result.rowCount === 0) {
-    return res.status(409).json({ error: 'التسليم اليدوي متاح فقط لسجل معتمد بلا مهمة ولوسيط موظف/شخصي' });
+    return res.status(409).json({ error: 'التسليم اليدوي يتطلب سجلاً معتمداً بلا مهمة فعالة وفرع تسليم مطابقاً' });
   }
   res.json(await getRecordById(id));
 });
+
+router.post(
+  '/records/:id/reopen-manual-delivery',
+  requirePermission('contract_gifts.reopen_manual_delivery'),
+  async (req, res) => {
+    const id = normalizePositiveInt(req.params.id);
+    if (!id) return res.status(400).json({ error: 'معرف غير صالح' });
+    const access = await requireGiftAccess(req, res, id, 'contract_gifts.reopen_manual_delivery');
+    if (!access) return;
+
+    const reason = normalizeText(req.body?.reason);
+    if (!reason) {
+      return res.status(400).json({ error: 'سبب إعادة فتح التسليم اليدوي إلزامي' });
+    }
+    const result = await pool.query(
+      `WITH current AS (
+         SELECT id,
+                manual_delivered_at,
+                manual_delivered_by,
+                manual_delivery_notes,
+                manual_delivery_method_id,
+                manual_delivery_branch_id,
+                manual_delivery_acknowledged
+           FROM gift_records
+          WHERE id = $1
+            AND status = 'delivered_manually'
+          FOR UPDATE
+       ),
+       updated AS (
+         UPDATE gift_records gr
+            SET status = 'approved_for_delivery',
+                manual_delivered_at = NULL,
+                manual_delivered_by = NULL,
+                manual_delivery_notes = NULL,
+                manual_delivery_method_id = NULL,
+                manual_delivery_acknowledged = FALSE,
+                manual_delivery_branch_id = NULL,
+                updated_by = $3,
+                updated_at = NOW()
+           FROM current
+          WHERE gr.id = current.id
+         RETURNING gr.id
+       )
+       INSERT INTO gift_record_events (
+         gift_record_id, event_type, actor_user_id, previous_status, new_status, reason, metadata
+       )
+       SELECT updated.id,
+              'manual_delivery_reopened',
+              $3,
+              'delivered_manually',
+              'approved_for_delivery',
+              $2,
+              jsonb_build_object(
+                'manualDeliveredAt', current.manual_delivered_at,
+                'manualDeliveredBy', current.manual_delivered_by,
+                'manualDeliveryNotes', current.manual_delivery_notes,
+                'manualDeliveryMethodId', current.manual_delivery_method_id,
+                'manualDeliveryBranchId', current.manual_delivery_branch_id,
+                'manualDeliveryAcknowledged', current.manual_delivery_acknowledged
+              )
+         FROM updated
+         JOIN current ON current.id = updated.id
+       RETURNING gift_record_id`,
+      [id, reason, req.user?.id ?? null],
+    );
+    if (result.rowCount === 0) {
+      return res.status(409).json({ error: 'السجل ليس في حالة تسليم يدوي قابلة لإعادة الفتح' });
+    }
+    res.json(await getRecordById(id));
+  },
+);
 
 router.post('/records/:id/cancel', requirePermission('contract_gifts.cancel'), async (req, res) => {
   const id = normalizePositiveInt(req.params.id);
@@ -731,15 +1163,43 @@ router.post('/records/:id/cancel', requirePermission('contract_gifts.cancel'), a
   const access = await requireGiftAccess(req, res, id, 'contract_gifts.cancel');
   if (!access) return;
 
+  const reason = normalizeText(req.body?.reason);
+  if (!reason) {
+    return res.status(400).json({ error: 'سبب إلغاء وعد الهدية إلزامي' });
+  }
   const result = await pool.query(
-    `UPDATE gift_records
-        SET status = 'cancelled',
-            cancellation_reason = NULLIF($2, ''),
-            updated_by = $3,
-            updated_at = NOW()
-      WHERE id = $1
-        AND status IN ('promised', 'approved_for_delivery')`,
-    [id, normalizeText(req.body?.reason), req.user?.id ?? null],
+    `WITH current AS (
+       SELECT id, status
+         FROM gift_records
+         WHERE id = $1
+           AND status IN ('promised', 'approved_for_delivery')
+           AND delivery_task_id IS NULL
+           AND NOT EXISTS (
+             SELECT 1
+               FROM gift_delivery_task_records active_link
+              WHERE active_link.gift_record_id = gift_records.id
+                AND active_link.is_active = TRUE
+           )
+         FOR UPDATE
+     ),
+     updated AS (
+       UPDATE gift_records gr
+          SET status = 'cancelled',
+              cancellation_reason = $2,
+              updated_by = $3,
+              updated_at = NOW()
+         FROM current
+        WHERE gr.id = current.id
+       RETURNING gr.id
+     )
+     INSERT INTO gift_record_events (
+       gift_record_id, event_type, actor_user_id, previous_status, new_status, reason
+     )
+     SELECT updated.id, 'promise_cancelled', $3, current.status, 'cancelled', $2
+       FROM updated
+       JOIN current ON current.id = updated.id
+     RETURNING gift_record_id`,
+    [id, reason, req.user?.id ?? null],
   );
   if (result.rowCount === 0) {
     return res.status(409).json({ error: 'لا يمكن إلغاء سجل الهدية بعد إنشاء مهمة أو إغلاق السجل' });
