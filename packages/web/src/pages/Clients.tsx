@@ -2,7 +2,18 @@ import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Users, Trash2, UserPlus, CheckCircle2, AlertCircle, Clock, Search, Lightbulb, Pencil, Loader2, Building2 } from '../components/ui/icons';
 import { api } from '../lib/api';
-import type { Client, CustomerOwnership, GeoUnit, Contract } from '../lib/types';
+import type { Client, CustomerOwnership, GeoUnit } from '../lib/types';
+
+// SmartTable column key → server sort key. Only columns the /paged endpoint can
+// sort are mapped; the others are rendered non-sortable so a header click never
+// silently no-ops.
+const SORT_KEY_MAP: Record<string, string> = {
+    id: 'id',
+    name: 'name',
+    branchName: 'branchName',
+    status: 'lifecycleStage',
+    rating: 'rating',
+};
 import ClientModal from '../components/ClientModal';
 import Button from '../components/ui/Button';
 import Select from '../components/ui/Select';
@@ -81,10 +92,19 @@ export default function Clients() {
     const mustPickBranch = isGlobalClients && branchContextId == null;
     const [branchOptions, setBranchOptions] = useState<{ id: number; name: string }[]>([]);
 
+    // Server-paginated data: `clients` holds ONLY the current page (not the whole
+    // table). Totals/KPIs come from the server. See docs/analysis/clients-records-performance-and-filters.md
     const [clients, setClients] = useState<Client[]>([]);
-    const [contracts, setContracts] = useState<Contract[]>([]);
+    const [total, setTotal] = useState(0);
+    const [kpis, setKpis] = useState({ total: 0, leads: 0, fops: 0, ops: 0 });
     const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
     const [loading, setLoading] = useState(true);
+
+    // Server pagination + sort state (controlled by SmartTable's server mode).
+    const [page, setPage] = useState(1);
+    const [limit, setLimit] = useState(10);
+    const [sortKey, setSortKey] = useState<string>('id');
+    const [sortDir, setSortDir] = useState<'asc' | 'desc' | null>('desc');
 
     const [activeTab, setActiveTab] = useState<'clients' | 'candidates'>('clients');
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -106,24 +126,42 @@ export default function Clients() {
 
     // ─── Filters & Search State ───
     const [searchTerm, setSearchTerm] = useState('');
+    const [debouncedSearch, setDebouncedSearch] = useState('');
     const [filterClass, setFilterClass] = useState('all');
     const [filterArea, setFilterArea] = useState('all');
     const [filterMediator, setFilterMediator] = useState('all');
+
+    // Debounce the free-text search so we don't fire a request per keystroke.
+    useEffect(() => {
+        const t = setTimeout(() => { setDebouncedSearch(searchTerm); setPage(1); }, 300);
+        return () => clearTimeout(t);
+    }, [searchTerm]);
+
+    // Any filter/branch change resets to the first page.
+    useEffect(() => { setPage(1); }, [filterClass, filterMediator, filterArea, branchContextId]);
 
     const fetchClients = useCallback(async () => {
         // Only a GLOBAL viewer may narrow by branch; BRANCH/ASSIGNED are scoped
         // by the server, so we never send a cross-branch header for them.
         const branchParam = isGlobalClients ? branchContextId : null;
-        const data = await api.clients.list(branchParam);
-        setClients(data);
-    }, [isGlobalClients, branchContextId]);
+        const useSort = sortDir != null;
+        const res = await api.clients.listPaged({
+            branchId: branchParam,
+            page,
+            limit,
+            search: debouncedSearch,
+            filterClass,
+            filterMediator,
+            filterArea,
+            sortKey: useSort ? (SORT_KEY_MAP[sortKey] ?? 'id') : undefined,
+            sortDir: useSort ? sortDir : undefined,
+        });
+        setClients(res.items as Client[]);
+        setTotal(res.total);
+        setKpis(res.kpis);
+    }, [isGlobalClients, branchContextId, page, limit, debouncedSearch, filterClass, filterMediator, filterArea, sortKey, sortDir]);
 
-    // Contracts are independent of the branch filter — load once.
-    useEffect(() => {
-        api.contracts.list().then(setContracts).catch(() => { /* permission failure must not blank the page */ });
-    }, []);
-
-    // Clients refetch whenever the management filter changes (GLOBAL only) or on mount.
+    // Refetch whenever any server-side query input changes (page/limit/sort/filters/branch).
     useEffect(() => {
         let active = true;
         setLoading(true);
@@ -132,6 +170,23 @@ export default function Clients() {
             .finally(() => { if (active) setLoading(false); });
         return () => { active = false; };
     }, [fetchClients]);
+
+    // On-demand loader for the "activate filtered results" bulk action — walks the
+    // paged endpoint (100/page) to gather the WHOLE filtered set, since the page
+    // state only holds one page. Explicit admin action, so a larger fetch is fine.
+    const fetchAllFiltered = useCallback(async (): Promise<Client[]> => {
+        const branchParam = isGlobalClients ? branchContextId : null;
+        const acc: Client[] = [];
+        for (let p = 1; p <= 500; p++) {
+            const res = await api.clients.listPaged({
+                branchId: branchParam, page: p, limit: 100,
+                search: debouncedSearch, filterClass, filterMediator, filterArea,
+            });
+            acc.push(...(res.items as Client[]));
+            if (acc.length >= res.total || res.items.length === 0) break;
+        }
+        return acc;
+    }, [isGlobalClients, branchContextId, debouncedSearch, filterClass, filterMediator, filterArea]);
 
     // Branch list for the management filter (shown only when the filter is visible).
     useEffect(() => {
@@ -151,61 +206,12 @@ export default function Clients() {
             .catch(() => setGeoUnits([]));
     }, []);
 
-    const getLifecycleStage = useCallback((client: Client) => {
-        const serverStage = (client as any).lifecycleStage;
-        if (serverStage === 'OP' || serverStage === 'FOP') return serverStage;
-        // Draft/discarded contracts have no operational effect — only a real
-        // (approved) contract promotes the client to OP.
-        if (contracts.some(c => c.customerId === client.id
-            && c.status !== 'draft' && (c.status as string) !== 'discarded')) return 'OP';
-        return 'Lead';
-    }, [contracts]);
-
-    // ─── Computed Lists ───
-    const mainList = useMemo(() => {
-        let list = clients
-            .filter(c => !c.isCandidate)
-            .map(c => ({
-                ...c,
-                lifecycleStage: getLifecycleStage(c)
-            }));
-
-        if (searchTerm) {
-            const q = searchTerm.toLowerCase();
-            list = list.filter(c => {
-                const fullName = `${c.firstName} ${c.fatherName} ${c.lastName} ${c.nickname || ''}`.toLowerCase();
-                const hasPhone = c.contacts?.some(con => con.number.includes(q)) || false;
-                return fullName.includes(q) ||
-                    hasPhone ||
-                    c.id.toString().includes(q) ||
-                    (c.referrerName || '').toLowerCase().includes(q) ||
-                    (c.branchName || '').toLowerCase().includes(q) ||
-                    (c.assignments || []).some(a => a.userName.toLowerCase().includes(q)) ||
-                    (c.ownership?.ownerLabel || '').toLowerCase().includes(q);
-            });
-        }
-
-        if (filterClass !== 'all') list = list.filter(c => c.lifecycleStage === filterClass);
-        if (filterMediator !== 'all') list = list.filter(c => c.referrerType === filterMediator);
-        if (filterArea !== 'all') {
-            const governorateId = Number(filterArea);
-            list = list.filter(c => Number(c.governorate) === governorateId);
-        }
-
-        return list;
-    }, [clients, getLifecycleStage, searchTerm, filterClass, filterMediator, filterArea]);
-
-
-    // ─── KPI Calculations ───
-    const kpis = useMemo(() => {
-        const total = mainList.length;
-
-        const leadsCount = mainList.filter(c => c.lifecycleStage === 'Lead').length;
-        const fopsCount = mainList.filter(c => c.lifecycleStage === 'FOP').length;
-        const opsCount = mainList.filter(c => c.lifecycleStage === 'OP').length;
-
-        return { total, leadsCount, fopsCount, opsCount };
-    }, [mainList]);
+    // The current page as rendered — the server already returns `lifecycleStage`
+    // per row, filtered/sorted/paginated. No client-side re-derivation.
+    const mainList = useMemo(
+        () => clients.map(c => ({ ...c, lifecycleStage: (c as any).lifecycleStage ?? 'Lead' })),
+        [clients],
+    );
 
     const convertToLead = async (id: number) => {
         if (!confirm('هل أنت متأكد من تحويل هذا المرشح إلى عميل محتمل؟')) return;
@@ -301,13 +307,13 @@ export default function Clients() {
             ),
         },
         {
-            key: 'contacts', label: 'رقم الموبايل الرئيسي', sortable: true, render: (c) => {
+            key: 'contacts', label: 'رقم الموبايل الرئيسي', sortable: false, render: (c) => {
                 const primary = c.contacts?.find(con => con.isPrimary)?.number || c.contacts?.[0]?.number || '--';
                 return <span className="text-sm text-slate-600 font-mono tracking-wide">{primary}</span>;
             }
         },
-        { key: 'neighborhood', label: 'العنوان', sortable: true, render: (c) => <span className="text-sm text-slate-600 font-medium">{getNeighborhoodHierarchy(c.neighborhood)}</span> },
-        { key: 'occupation', label: 'العنوان', sortable: true, render: (c) => <span className="text-sm text-slate-600">{getNeighborhoodHierarchy(c.neighborhood)}</span> },
+        { key: 'neighborhood', label: 'العنوان', sortable: false, render: (c) => <span className="text-sm text-slate-600 font-medium">{getNeighborhoodHierarchy(c.neighborhood)}</span> },
+        { key: 'occupation', label: 'العنوان', sortable: false, render: (c) => <span className="text-sm text-slate-600">{getNeighborhoodHierarchy(c.neighborhood)}</span> },
         {
             key: 'status', label: 'التصنيف', sortable: true,
             render: (c) => {
@@ -328,7 +334,7 @@ export default function Clients() {
             }
         },
         {
-            key: 'referrerType', label: 'نوع الوسيط', sortable: true,
+            key: 'referrerType', label: 'نوع الوسيط', sortable: false,
             render: (c) => {
                 const types: Record<string, string> = {
                     'Personal': 'شخصي',
@@ -340,7 +346,7 @@ export default function Clients() {
                 return <span className="text-xs text-slate-600 bg-slate-50 px-2 py-1 rounded border border-slate-200">{types[c.referrerType || ''] || c.referrerType || '--'}</span>;
             }
         },
-        { key: 'referrerName', label: 'اسم الوسيط', sortable: true, render: (c) => <span className="text-sm font-medium text-slate-700">{c.referrerName || '--'}</span> },
+        { key: 'referrerName', label: 'اسم الوسيط', sortable: false, render: (c) => <span className="text-sm font-medium text-slate-700">{c.referrerName || '--'}</span> },
     ];
 
     const visibleClientColumns: ColumnDef<Client & { lifecycleStage: string }>[] = [
@@ -431,9 +437,9 @@ export default function Clients() {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 {[
                     { label: 'إجمالي الزبائن', value: kpis.total, icon: Users, color: 'text-sky-600', bg: 'bg-sky-50' },
-                    { label: 'إجمالي الأسماء المرشحة', value: kpis.leadsCount, icon: AlertCircle, color: 'text-slate-600', bg: 'bg-slate-50' },
-                    { label: 'إجمالي الزبائن المحتملة FOP', value: kpis.fopsCount, icon: Clock, color: 'text-amber-600', bg: 'bg-amber-50' },
-                    { label: 'إجمالي الزبائن OP', value: kpis.opsCount, icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+                    { label: 'إجمالي الأسماء المرشحة', value: kpis.leads, icon: AlertCircle, color: 'text-slate-600', bg: 'bg-slate-50' },
+                    { label: 'إجمالي الزبائن المحتملة FOP', value: kpis.fops, icon: Clock, color: 'text-amber-600', bg: 'bg-amber-50' },
+                    { label: 'إجمالي الزبائن OP', value: kpis.ops, icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-50' },
                 ].map((kpi, idx) => (
                     <div key={idx} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-all group">
                         <div className="flex items-center justify-between mb-2">
@@ -503,17 +509,17 @@ export default function Clients() {
                             تفريغ الفلاتر
                         </button>
 
-                        {canBulkActivate && mainList.length > 0 && (
+                        {canBulkActivate && total > 0 && (
                             <button
-                                onClick={() => setBulkActivationTarget({
-                                    scope: 'filtered',
-                                    clients: mainList,
-                                })}
+                                onClick={async () => {
+                                    const all = await fetchAllFiltered();
+                                    setBulkActivationTarget({ scope: 'filtered', clients: all });
+                                }}
                                 title="تفعيل حساب تطبيق للزبائن المطابقين للفلاتر الحالية"
                                 className="text-xs font-bold text-emerald-600 hover:text-emerald-700 border border-emerald-200 hover:border-emerald-300 rounded-lg px-2.5 py-1 inline-flex items-center gap-1 transition-colors"
                             >
                                 <CheckCircle2 className="w-3.5 h-3.5" />
-                                تفعيل نتائج الفلاتر ({mainList.length})
+                                تفعيل نتائج الفلاتر ({total})
                             </button>
                         )}
                     </div>
@@ -532,6 +538,16 @@ export default function Clients() {
                 getId={(c) => c.id}
                 defaultSortKey="id"
                 defaultSortDir="desc"
+                server={{
+                    totalCount: total,
+                    page,
+                    itemsPerPage: limit,
+                    onPageChange: setPage,
+                    onItemsPerPageChange: (n) => { setLimit(n); setPage(1); },
+                    sortKey,
+                    sortDir,
+                    onSortChange: (key, dir) => { setSortKey(key); setSortDir(dir); setPage(1); },
+                }}
                 onRowClick={(c) => navigate(`/clients/${c.id}`)}
                 bulkActions={canBulkActivate ? [
                     {

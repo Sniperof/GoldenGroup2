@@ -691,6 +691,48 @@ function clientVisibleInBranchesCondition(paramRef: string): string {
   )`;
 }
 
+// Shared client-list scope predicates — the single source of truth for the
+// BRANCH/ASSIGNED/requested-branch WHERE fragments, used by both the legacy
+// GET '/' list and the new paginated GET '/paged'. Pushes bound params onto
+// `params` (mutated) so callers can append their own filter params afterwards
+// with correct $n indices (SH-1: no drift between the two list endpoints).
+function appendClientScopeConditions(
+  authContext: any,
+  requestedBranchId: number | null,
+  scope: string,
+  params: any[],
+): string[] {
+  const conditions: string[] = [];
+
+  if (requestedBranchId != null) {
+    params.push([requestedBranchId]);
+    conditions.push(clientVisibleInBranchesCondition(`$${params.length}`));
+  } else if (scope === 'BRANCH') {
+    params.push(authContext.allowedBranchIds);
+    conditions.push(clientVisibleInBranchesCondition(`$${params.length}`));
+  }
+
+  if (scope === 'ASSIGNED') {
+    params.push(authContext.userId);
+    conditions.push(personalOwnershipPredicate('c.id', `$${params.length}`));
+    params.push(requestedBranchId != null ? [requestedBranchId] : authContext.allowedBranchIds);
+    conditions.push(clientVisibleInBranchesCondition(`$${params.length}`));
+  }
+
+  return conditions;
+}
+
+// Whitelist of sortable columns for GET '/paged' — never interpolate a raw
+// client-supplied key into ORDER BY (SQL-injection guard).
+const CLIENT_SORT_COLUMNS: Record<string, string> = {
+  id: 'c.id',
+  name: 'c.name',
+  createdAt: 'c.created_at',
+  branchName: 'b.name',
+  rating: 'c.rating',
+  lifecycleStage: `(${buildClientLifecycleStatusSql('c')})`,
+};
+
 function hasBranchScopedClientGrant(authContext: any, permission: string): boolean {
   if (authContext.isSuperAdmin) return true;
   const grant = authContext.grants?.find((item: any) => item.permission === permission);
@@ -949,23 +991,8 @@ router.get('/', requirePermission('clients.view_list'), async (req, res) => {
       return forbidClientAccess(res, 'MISSING_PERMISSION');
     }
 
-    const conditions: string[] = [];
     const params: any[] = [];
-
-    if (requestedBranchId != null) {
-      params.push([requestedBranchId]);
-      conditions.push(clientVisibleInBranchesCondition(`$${params.length}`));
-    } else if (listAccess.scope === 'BRANCH') {
-      params.push(authContext.allowedBranchIds);
-      conditions.push(clientVisibleInBranchesCondition(`$${params.length}`));
-    }
-
-    if (listAccess.scope === 'ASSIGNED') {
-      params.push(authContext.userId);
-      conditions.push(personalOwnershipPredicate('c.id', `$${params.length}`));
-      params.push(requestedBranchId != null ? [requestedBranchId] : authContext.allowedBranchIds);
-      conditions.push(clientVisibleInBranchesCondition(`$${params.length}`));
-    }
+    const conditions = appendClientScopeConditions(authContext, requestedBranchId, listAccess.scope, params);
 
     const where = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '';
     const { rows } = await pool.query(`${CLIENT_SELECT}${where} ORDER BY c.id`, params);
@@ -981,6 +1008,174 @@ router.get('/', requirePermission('clients.view_list'), async (req, res) => {
       : rows.map(mapClientRow);
 
     res.json(responseRows);
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+/**
+ * @swagger
+ * /api/clients/paged:
+ *   get:
+ *     tags: [Clients]
+ *     summary: Paginated + server-side searched/filtered client list
+ *     description: >
+ *       Isolated companion to GET /api/clients — does NOT replace it. Returns a
+ *       single page of NON-candidate clients with server-side search, filters,
+ *       sort, and lifecycle KPI counts (all computed within the caller's scope).
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema: { type: integer }
+ *         required: false
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 25, maximum: 100 }
+ *       - in: query
+ *         name: search
+ *         schema: { type: string }
+ *       - in: query
+ *         name: filterClass
+ *         schema: { type: string, enum: [Lead, FOP, OP] }
+ *       - in: query
+ *         name: filterMediator
+ *         schema: { type: string }
+ *       - in: query
+ *         name: filterArea
+ *         schema: { type: string }
+ *       - in: query
+ *         name: sortKey
+ *         schema: { type: string, enum: [id, name, createdAt, branchName, rating, lifecycleStage] }
+ *       - in: query
+ *         name: sortDir
+ *         schema: { type: string, enum: [asc, desc] }
+ *     responses:
+ *       200:
+ *         description: Success
+ *       403:
+ *         description: Forbidden
+ *       500:
+ *         description: Server error
+ */
+router.get('/paged', requirePermission('clients.view_list'), async (req, res) => {
+  try {
+    const authContext = getRequiredAuthContext(req);
+    const requestedBranchId = resolveClientListBranchFilter(req);
+    const listAccess = getClientListAccessPlan(authContext);
+
+    if (!authContext.isSuperAdmin && authContext.allowedBranchIds.length === 0) {
+      return res.status(403).json({ error: 'لا يوجد فرع فعّال متاح لهذه العملية' });
+    }
+    if (requestedBranchId != null && !authContext.isSuperAdmin && !authContext.allowedBranchIds.includes(requestedBranchId)) {
+      return forbidClientAccess(res, 'BRANCH_FORBIDDEN');
+    }
+    if (listAccess.scope === 'NONE') {
+      return forbidClientAccess(res, 'MISSING_PERMISSION');
+    }
+
+    // ── Pagination + sort inputs ──
+    const page = toPositiveInt(req.query.page as any) ?? 1;
+    const limit = Math.min(100, Math.max(1, toPositiveInt(req.query.limit as any) ?? 25));
+    const offset = (page - 1) * limit;
+
+    const sortKey = typeof req.query.sortKey === 'string' && CLIENT_SORT_COLUMNS[req.query.sortKey]
+      ? req.query.sortKey
+      : 'id';
+    const sortDir = req.query.sortDir === 'asc' ? 'ASC' : 'DESC';
+    const orderBy = `${CLIENT_SORT_COLUMNS[sortKey]} ${sortDir}, c.id ${sortDir}`;
+
+    // ── Shared WHERE: scope + always non-candidate + optional filters ──
+    const params: any[] = [];
+    const conditions = appendClientScopeConditions(authContext, requestedBranchId, listAccess.scope, params);
+    conditions.push('c.is_candidate = FALSE');
+
+    const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+    if (search) {
+      params.push(`%${search}%`);
+      const likeRef = `$${params.length}`;
+      const parts = [
+        `c.name ILIKE ${likeRef}`,
+        `c.referrer_name ILIKE ${likeRef}`,
+        `b.name ILIKE ${likeRef}`,
+        `c.id::text LIKE ${likeRef}`,
+      ];
+      const digits = search.replace(/\D/g, '');
+      if (digits) {
+        params.push(`%${digits}%`);
+        const phoneRef = `$${params.length}`;
+        parts.push(`${phoneNormalizationSql('c.mobile')} LIKE ${phoneRef}`);
+        parts.push(
+          `EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(c.contacts, '[]'::jsonb)) AS contact
+             WHERE ${phoneNormalizationSql(`contact->>'number'`)} LIKE ${phoneRef})`,
+        );
+      }
+      conditions.push(`(${parts.join(' OR ')})`);
+    }
+
+    const filterClass = typeof req.query.filterClass === 'string' ? req.query.filterClass.toUpperCase() : '';
+    if (['OP', 'FOP', 'LEAD'].includes(filterClass)) {
+      params.push(filterClass);
+      conditions.push(`(${buildClientLifecycleStatusSql('c')}) = $${params.length}`);
+    }
+
+    const filterMediator = typeof req.query.filterMediator === 'string' ? req.query.filterMediator.trim() : '';
+    if (filterMediator) {
+      params.push(filterMediator);
+      conditions.push(`c.referrer_type = $${params.length}`);
+    }
+
+    const filterArea = typeof req.query.filterArea === 'string' ? req.query.filterArea.trim() : '';
+    if (filterArea) {
+      params.push(filterArea);
+      conditions.push(`c.governorate::text = $${params.length}`);
+    }
+
+    const where = ` WHERE ${conditions.join(' AND ')}`;
+
+    // Page query appends LIMIT/OFFSET after all shared params.
+    const pageParams = [...params];
+    pageParams.push(limit);
+    const limitRef = `$${pageParams.length}`;
+    pageParams.push(offset);
+    const offsetRef = `$${pageParams.length}`;
+
+    const [pageResult, statsResult] = await Promise.all([
+      pool.query(`${CLIENT_SELECT}${where} ORDER BY ${orderBy} LIMIT ${limitRef} OFFSET ${offsetRef}`, pageParams),
+      pool.query(
+        `SELECT (${buildClientLifecycleStatusSql('c')}) AS stage, COUNT(*)::int AS n
+           FROM clients c
+           LEFT JOIN branches b ON b.id = c.branch_id
+           ${where}
+          GROUP BY 1`,
+        params,
+      ),
+    ]);
+
+    // Lifecycle KPI counts (total derived from the grouped counts).
+    const kpis = { total: 0, leads: 0, fops: 0, ops: 0 };
+    for (const row of statsResult.rows) {
+      const n = Number(row.n);
+      kpis.total += n;
+      if (row.stage === 'OP') kpis.ops += n;
+      else if (row.stage === 'FOP') kpis.fops += n;
+      else kpis.leads += n;
+    }
+
+    // Defense-in-depth: ASSIGNED-scope users must not see other assignees' identities.
+    const items = listAccess.scope === 'ASSIGNED'
+      ? pageResult.rows.map((r: any) => {
+          const mapped = mapClientRow({ ...r, assignments: [] });
+          mapped.ownership = redactPersonalAssignments(mapped.ownership);
+          return mapped;
+        })
+      : pageResult.rows.map(mapClientRow);
+
+    res.json({ items, total: kpis.total, page, limit, kpis });
   } catch (err: any) {
     res.status(err.status || 500).json({ error: err.message });
   }

@@ -37,6 +37,28 @@ export interface AccountStatementResponse {
   entries: AccountStatementEntry[];
 }
 
+// GET /clients/paged — server-side pagination companion to clients.list()
+// (isolated: list() is unchanged). See docs/analysis/clients-records-performance-and-filters.md
+export interface PagedClientsResponse {
+  items: any[];
+  total: number;
+  page: number;
+  limit: number;
+  kpis: { total: number; leads: number; fops: number; ops: number };
+}
+
+export interface PagedClientsParams {
+  branchId?: number | null;      // narrows a GLOBAL viewer to one branch (X-Branch-Id)
+  page?: number;
+  limit?: number;
+  search?: string;
+  filterClass?: string;          // Lead | FOP | OP
+  filterMediator?: string;       // Personal | Employee | Client
+  filterArea?: string;           // governorate id
+  sortKey?: string;
+  sortDir?: 'asc' | 'desc';
+}
+
 // ── Reporting & analytics (reporting-analytics §1.3) ─────────────────────────
 export interface MetricResponse {
   metricKey: string;
@@ -363,6 +385,23 @@ export const api = {
       '/clients',
       branchId != null ? { headers: { 'X-Branch-Id': String(branchId) } } : undefined,
     ),
+    // Paginated + server-filtered list — used only by the Clients records page.
+    // list() above stays the full-list source for the ~15 picker/matching callers.
+    // Filter values of 'all'/''/null are dropped so callers can pass UI state as-is.
+    listPaged: (params: PagedClientsParams = {}) => {
+      const { branchId, ...rest } = params;
+      const query = new URLSearchParams();
+      Object.entries(rest).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '' && value !== 'all') {
+          query.set(key, String(value));
+        }
+      });
+      const suffix = query.size > 0 ? `?${query.toString()}` : '';
+      return request<PagedClientsResponse>(
+        `/clients/paged${suffix}`,
+        branchId != null ? { headers: { 'X-Branch-Id': String(branchId) } } : undefined,
+      );
+    },
     get: (id: number) => request<any>(`/clients/${id}`),
     snapshot: (id: number) => request<{ snapshot: any }>(`/clients/${id}/snapshot`),
     getNetwork: (id: number) => request<any>(`/clients/${id}/network`),

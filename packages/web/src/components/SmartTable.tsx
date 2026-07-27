@@ -65,6 +65,23 @@ export interface SmartTableProps<T> {
      * filler rows — for tables whose source showed every row.
      */
     paginated?: boolean;
+    /**
+     * Server-driven mode (controlled). When provided, the table STOPS doing its
+     * own filtering/sorting/pagination: `data` is treated as the current page
+     * exactly as returned by the server, and sort clicks / page changes are
+     * reported back via callbacks. Used by the Clients records page. Omit for the
+     * default fully-client-side behaviour (every other caller is unaffected).
+     */
+    server?: {
+        totalCount: number;
+        page: number;
+        itemsPerPage: number;
+        onPageChange: (page: number) => void;
+        onItemsPerPageChange: (n: number) => void;
+        sortKey: string | null;
+        sortDir: 'asc' | 'desc' | null;
+        onSortChange: (key: string, dir: 'asc' | 'desc' | null) => void;
+    };
 }
 
 /* ------------------------------------------------------------------ */
@@ -128,7 +145,10 @@ export default function SmartTable<T>({
     defaultSortKey,
     defaultSortDir,
     paginated = true,
+    server,
 }: SmartTableProps<T> & { rowClassName?: (item: T) => string }) {
+
+    const isServer = !!server;
 
     /* ---------- state ---------- */
     const [search, setSearch] = useState('');
@@ -161,6 +181,8 @@ export default function SmartTable<T>({
 
     /* ---------- sorting ---------- */
     const sorted = useMemo(() => {
+        // Server mode: `data` is already the sorted, filtered current page.
+        if (isServer) return data;
         if (!sortKey || !sortDir) return filtered;
         const col = columns.find(c => c.key === sortKey);
         if (!col) return filtered;
@@ -177,22 +199,32 @@ export default function SmartTable<T>({
                 : String(bv).localeCompare(String(av), 'ar');
         });
         return arr;
-    }, [filtered, sortKey, sortDir, columns]);
+    }, [filtered, sortKey, sortDir, columns, isServer, data]);
 
     /* ---------- pagination ---------- */
     // When pagination is off, every row renders on a single page.
     const effectivePerPage = paginated ? itemsPerPage : Math.max(1, sorted.length);
     const totalPages = Math.max(1, Math.ceil(sorted.length / effectivePerPage));
 
+    // Footer values: server-controlled when in server mode, else derived locally.
+    const footerPerPage = isServer ? server!.itemsPerPage : effectivePerPage;
+    const footerTotal = isServer ? server!.totalCount : sorted.length;
+    const footerCurrentPage = isServer ? server!.page : currentPage;
+    const footerTotalPages = Math.max(1, Math.ceil(footerTotal / Math.max(1, footerPerPage)));
+    const goToPage = (p: number) => isServer ? server!.onPageChange(p) : setCurrentPage(p);
+    const changePerPage = (n: number) => isServer ? server!.onItemsPerPageChange(n) : setItemsPerPage(n);
+
     const paginatedData = useMemo(() => {
+        // Server mode: `data` IS the current page — render it verbatim.
+        if (isServer) return sorted;
         if (!paginated) return sorted;
         const start = (currentPage - 1) * itemsPerPage;
         return sorted.slice(start, start + itemsPerPage);
-    }, [sorted, currentPage, itemsPerPage, paginated]);
+    }, [sorted, currentPage, itemsPerPage, paginated, isServer]);
 
     // number of empty filler rows to keep the table height fixed (paginated only)
     const fillerRows = paginated && paginatedData.length > 0
-        ? Math.max(0, itemsPerPage - paginatedData.length)
+        ? Math.max(0, footerPerPage - paginatedData.length)
         : 0;
 
     useEffect(() => {
@@ -232,6 +264,14 @@ export default function SmartTable<T>({
 
     /* ---------- sort handler ---------- */
     const handleSort = useCallback((key: string) => {
+        if (isServer) {
+            // Same cycle (asc → desc → none), reported to the host instead of local state.
+            const nextDir: SortDir = server!.sortKey === key
+                ? (server!.sortDir === 'asc' ? 'desc' : server!.sortDir === 'desc' ? null : 'asc')
+                : 'asc';
+            server!.onSortChange(key, nextDir);
+            return;
+        }
         if (sortKey === key) {
             if (sortDir === 'asc') setSortDir('desc');
             else if (sortDir === 'desc') { setSortKey(null); setSortDir(null); }
@@ -239,7 +279,11 @@ export default function SmartTable<T>({
             setSortKey(key);
             setSortDir('asc');
         }
-    }, [sortKey, sortDir]);
+    }, [isServer, server, sortKey, sortDir]);
+
+    // Sort indicators reflect the effective (server or local) sort state.
+    const shownSortKey = isServer ? server!.sortKey : sortKey;
+    const shownSortDir = isServer ? server!.sortDir : sortDir;
 
     /* ---------- reset ---------- */
     const resetFilters = useCallback(() => {
@@ -255,13 +299,15 @@ export default function SmartTable<T>({
     const hasActiveFilters = search.trim() !== '' || Object.values(filterValues).some(v => v !== 'all');
 
     const colSpanTotal = columns.length + (bulkActions ? 1 : 0) + (actions ? 1 : 0);
-    const startRecord = sorted.length === 0 ? 0 : (currentPage - 1) * effectivePerPage + 1;
-    const endRecord   = Math.min(sorted.length, currentPage * effectivePerPage);
+    const startRecord = footerTotal === 0 ? 0 : (footerCurrentPage - 1) * footerPerPage + 1;
+    const endRecord   = Math.min(footerTotal, footerCurrentPage * footerPerPage);
 
     /* Record-count line (used as the default subtitle). */
-    const countNode = hasActiveFilters
-        ? <><span className="text-sky-600 font-semibold">{sorted.length}</span> نتيجة من أصل {data.length}</>
-        : <><span className="font-semibold text-slate-600">{data.length}</span> سجل إجمالاً</>;
+    const countNode = isServer
+        ? <><span className="font-semibold text-slate-600">{footerTotal}</span> سجل إجمالاً</>
+        : hasActiveFilters
+            ? <><span className="text-sky-600 font-semibold">{sorted.length}</span> نتيجة من أصل {data.length}</>
+            : <><span className="font-semibold text-slate-600">{data.length}</span> سجل إجمالاً</>;
 
     /* Header toolbar (reset filters · export · custom header actions). */
     const toolbar = (
@@ -407,8 +453,8 @@ export default function SmartTable<T>({
                                         {col.label}
                                         {col.sortable && (
                                             <span className="flex-shrink-0 text-slate-400">
-                                                {sortKey === col.key && sortDir === 'asc'  ? <ChevronUp   className="w-3.5 h-3.5 text-sky-500" /> :
-                                                 sortKey === col.key && sortDir === 'desc' ? <ChevronDown className="w-3.5 h-3.5 text-sky-500" /> :
+                                                {shownSortKey === col.key && shownSortDir === 'asc'  ? <ChevronUp   className="w-3.5 h-3.5 text-sky-500" /> :
+                                                 shownSortKey === col.key && shownSortDir === 'desc' ? <ChevronDown className="w-3.5 h-3.5 text-sky-500" /> :
                                                                                              <ChevronsUpDown className="w-3 h-3 opacity-40" />}
                                             </span>
                                         )}
@@ -432,7 +478,7 @@ export default function SmartTable<T>({
                                     colSpan={colSpanTotal}
                                     // Paginated tables keep a fixed body height for visual
                                     // consistency; un-paginated ones stay compact (dynamic).
-                                    style={paginated ? { height: `${itemsPerPage * ROW_HEIGHT}px` } : undefined}
+                                    style={paginated ? { height: `${footerPerPage * ROW_HEIGHT}px` } : undefined}
                                     className={`text-center align-middle ${paginated ? '' : 'py-12'}`}
                                 >
                                     {EmptyIcon && <EmptyIcon className="w-10 h-10 mx-auto mb-3 text-slate-200" />}
@@ -521,16 +567,16 @@ export default function SmartTable<T>({
                 {/* Record info + page size selector */}
                 <div className="flex items-center gap-3 text-xs text-slate-500">
                     <span>
-                        {sorted.length === 0
+                        {footerTotal === 0
                             ? 'لا توجد سجلات'
-                            : <>عرض <span className="font-bold text-slate-700">{startRecord}–{endRecord}</span> من <span className="font-bold text-slate-700">{sorted.length}</span> سجل</>}
+                            : <>عرض <span className="font-bold text-slate-700">{startRecord}–{endRecord}</span> من <span className="font-bold text-slate-700">{footerTotal}</span> سجل</>}
                     </span>
                     <span className="h-4 w-px bg-slate-200" />
                     <label className="flex items-center gap-1.5">
                         <span>صفوف الصفحة</span>
                         <Select
-                            value={itemsPerPage}
-                            onChange={n => setItemsPerPage(Number(n))}
+                            value={footerPerPage}
+                            onChange={n => changePerPage(Number(n))}
                             ariaLabel="عدد صفوف الصفحة"
                             options={PAGE_SIZE_OPTIONS.map(n => ({ value: n, label: String(n) }))}
                         />
@@ -538,32 +584,32 @@ export default function SmartTable<T>({
                 </div>
 
                 {/* Page navigation */}
-                {totalPages > 1 && (
+                {footerTotalPages > 1 && (
                     <div className="flex items-center gap-1 bg-white border border-slate-200 p-1 rounded-xl">
                         <button
-                            disabled={currentPage === 1}
-                            onClick={() => setCurrentPage(1)}
+                            disabled={footerCurrentPage === 1}
+                            onClick={() => goToPage(1)}
                             className="px-2 py-1 text-xs font-bold rounded-lg no-pill transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-100 text-slate-600"
                             title="الأولى"
                         >«</button>
                         <button
-                            disabled={currentPage === 1}
-                            onClick={() => setCurrentPage(p => p - 1)}
+                            disabled={footerCurrentPage === 1}
+                            onClick={() => goToPage(footerCurrentPage - 1)}
                             className="px-2.5 py-1 text-xs font-bold rounded-lg no-pill transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-100 text-slate-600"
                         >السابق</button>
 
                         <div className="flex items-center gap-0.5 px-1">
-                            {Array.from({ length: totalPages }, (_, i) => i + 1)
-                                .filter(p => p === 1 || p === totalPages || Math.abs(p - currentPage) <= 1)
+                            {Array.from({ length: footerTotalPages }, (_, i) => i + 1)
+                                .filter(p => p === 1 || p === footerTotalPages || Math.abs(p - footerCurrentPage) <= 1)
                                 .map((p, i, arr) => (
                                     <div key={p} className="flex items-center gap-0.5">
                                         {i > 0 && arr[i - 1] !== p - 1 && (
                                             <span className="text-slate-300 text-xs px-0.5">…</span>
                                         )}
                                         <button
-                                            onClick={() => setCurrentPage(p)}
+                                            onClick={() => goToPage(p)}
                                             className={`w-7 h-7 flex items-center justify-center text-xs font-bold rounded-lg no-pill transition-all ${
-                                                currentPage === p
+                                                footerCurrentPage === p
                                                     ? 'bg-sky-600 text-white shadow-sm'
                                                     : 'text-slate-500 hover:bg-slate-100'
                                             }`}
@@ -573,13 +619,13 @@ export default function SmartTable<T>({
                         </div>
 
                         <button
-                            disabled={currentPage === totalPages}
-                            onClick={() => setCurrentPage(p => p + 1)}
+                            disabled={footerCurrentPage === footerTotalPages}
+                            onClick={() => goToPage(footerCurrentPage + 1)}
                             className="px-2.5 py-1 text-xs font-bold rounded-lg no-pill transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-100 text-slate-600"
                         >التالي</button>
                         <button
-                            disabled={currentPage === totalPages}
-                            onClick={() => setCurrentPage(totalPages)}
+                            disabled={footerCurrentPage === footerTotalPages}
+                            onClick={() => goToPage(footerTotalPages)}
                             className="px-2 py-1 text-xs font-bold rounded-lg no-pill transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-100 text-slate-600"
                             title="الأخيرة"
                         >»</button>
