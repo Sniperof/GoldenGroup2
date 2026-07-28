@@ -34,7 +34,14 @@ import { createInstallmentCollectionTask } from './installmentCollectionTasks.js
 import { findUnavailableDeviceModelsForNewCommercialUse } from './catalogActiveStateService.js';
 import { assertCanRecordSuccessfulDeviceTaskResult } from './deviceTaskEligibilityGuard.js';
 import {
+  assertActiveGoldenWarrantyCardLinks,
+  cancelGoldenWarrantyCardLinks,
+  deliverGoldenWarrantyCardLinks,
+} from './goldenWarrantyCardDelivery.js';
+import {
+  cancelUpcomingPeriodicMaintenanceForTransfer,
   generateFirstPeriodicMaintenanceTask,
+  PeriodicMaintenanceTransferError,
   type PeriodicMaintenanceGenerationResult,
 } from './periodicMaintenanceTasks.js';
 
@@ -393,6 +400,7 @@ export interface DeviceTransferReflectionResult {
   openTaskNewStatus: 'completed' | 'needs_follow_up' | 'cancelled';
   deviceNewStatus: 'delivered' | 'unchanged';
   ownershipTransferred: boolean;
+  cancelledPeriodicTaskIds: number[];
   visitCompleted: boolean;
 }
 
@@ -1838,6 +1846,53 @@ interface GiftDeliveryResultBody {
   closing_notes?: string | null;
 }
 
+export const INSERT_GIFT_DELIVERY_RESULT_EVENTS_SQL = `
+  INSERT INTO gift_record_events (
+    gift_record_id, event_type, actor_user_id, previous_status, new_status, reason,
+    metadata
+  )
+  SELECT record_id,
+         'delivery_result_recorded',
+         $3,
+         previous_status,
+         $4,
+         $5,
+         jsonb_build_object(
+           'visitTaskId', $1::bigint,
+           'visitTaskResultId', $2::bigint,
+           'finalDecision', $6::text
+         )
+    FROM unnest($7::int[], $8::text[]) AS previous(record_id, previous_status)
+`;
+
+export async function insertGiftDeliveryResultEvents(
+  db: Pick<PoolClient, 'query'>,
+  input: {
+    visitTaskId: number;
+    visitTaskResultId: number;
+    performedByUserId: number;
+    newGiftStatus: string;
+    closingNotes: string | null;
+    decision: GiftDeliveryFinalDecision;
+    giftRecordIds: number[];
+    previousGiftStatuses: string[];
+  },
+) {
+  await db.query(
+    INSERT_GIFT_DELIVERY_RESULT_EVENTS_SQL,
+    [
+      input.visitTaskId,
+      input.visitTaskResultId,
+      input.performedByUserId,
+      input.newGiftStatus,
+      input.closingNotes,
+      input.decision,
+      input.giftRecordIds,
+      input.previousGiftStatuses,
+    ],
+  );
+}
+
 export async function applyGiftDeliveryResult(
   visitTaskId: number,
   body: GiftDeliveryResultBody,
@@ -2005,34 +2060,16 @@ export async function applyGiftDeliveryResult(
     }
 
     const newGiftStatus = transition.giftStatus;
-    await db.query(
-      `INSERT INTO gift_record_events (
-         gift_record_id, event_type, actor_user_id, previous_status, new_status, reason,
-         metadata
-       )
-       SELECT record_id,
-              'delivery_result_recorded',
-              $3,
-              previous_status,
-              $4,
-              $5,
-              jsonb_build_object(
-                'visitTaskId', $1,
-                'visitTaskResultId', $2,
-                'finalDecision', $6
-              )
-         FROM unnest($7::int[], $8::text[]) AS previous(record_id, previous_status)`,
-      [
-        visitTaskId,
-        visitTaskResultId,
-        performedByUserId,
-        newGiftStatus,
-        closingNotes,
-        decision,
-        giftRecordIds,
-        previousGiftStatuses,
-      ],
-    );
+    await insertGiftDeliveryResultEvents(db, {
+      visitTaskId,
+      visitTaskResultId,
+      performedByUserId,
+      newGiftStatus,
+      closingNotes,
+      decision,
+      giftRecordIds,
+      previousGiftStatuses,
+    });
 
     await db.query(
       `UPDATE visit_tasks
@@ -2360,25 +2397,13 @@ export async function applyGoldenWarrantyCardDeliveryResult(
 
     let deliveredCount = 0;
     if (decision === 'delivered') {
-      // The task may combine several cards — stamp every linked device's active
-      // golden warranty (fallback to the single open_tasks.device_id).
-      const { rows: devRows } = await db.query(
-        `SELECT installed_device_id FROM open_task_installed_devices WHERE task_id = $1`,
-        [vt.source_open_task_id],
-      );
-      const deviceIds: number[] = devRows.length > 0
-        ? devRows.map((r: any) => Number(r.installed_device_id))
-        : (vt.device_id ? [Number(vt.device_id)] : []);
-      for (const did of deviceIds) {
-        const upd = await db.query(
-          `UPDATE device_warranties SET card_delivery_task_id = $1, updated_at = now()
-            WHERE id = (SELECT id FROM device_warranties
-                         WHERE device_id = $2 AND warranty_type='golden' AND status='active'
-                         ORDER BY end_date DESC LIMIT 1)`,
-          [vt.source_open_task_id, did],
-        );
-        deliveredCount += upd.rowCount ?? 0;
-      }
+      deliveredCount = await deliverGoldenWarrantyCardLinks(db, Number(vt.source_open_task_id));
+    } else if (decision === 'cancelled') {
+      await assertActiveGoldenWarrantyCardLinks(db, Number(vt.source_open_task_id));
+      await cancelGoldenWarrantyCardLinks(db, Number(vt.source_open_task_id));
+    } else {
+      // Rescheduling continues this exact attempt and preserves its links.
+      await assertActiveGoldenWarrantyCardLinks(db, Number(vt.source_open_task_id));
     }
 
     const deliveryIssue = getGoldenWarrantyDeliveryResultIssue(decision, deliveredCount);
@@ -4518,6 +4543,23 @@ export async function applyDeviceTransferResult(
 
     const ownershipTransferred = shape.decision === 'transferred_successfully' && shape.transferKind === 'another_customer';
     const toClientId = shape.transferKind === 'another_customer' ? shape.targetClientId : Number(vt.from_client_id);
+    let cancelledPeriodicTaskIds: number[] = [];
+
+    if (ownershipTransferred) {
+      try {
+        cancelledPeriodicTaskIds = await cancelUpcomingPeriodicMaintenanceForTransfer(db, {
+          installedDeviceId: Number(vt.device_id),
+          fromClientId: Number(vt.from_client_id),
+          toClientId: Number(toClientId),
+          performedByUserId,
+        });
+      } catch (error) {
+        if (error instanceof PeriodicMaintenanceTransferError) {
+          throw new ResultValidationError(error.message);
+        }
+        throw error;
+      }
+    }
 
     const { rows: transferRows } = await db.query(
       `INSERT INTO visit_task_device_transfer_results
@@ -4682,6 +4724,7 @@ export async function applyDeviceTransferResult(
       openTaskNewStatus: shape.openTaskNewStatus,
       deviceNewStatus: shape.deviceNewStatus,
       ownershipTransferred,
+      cancelledPeriodicTaskIds,
       visitCompleted: completion.completed,
     };
   } catch (err) {

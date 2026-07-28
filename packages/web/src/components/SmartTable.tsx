@@ -332,6 +332,38 @@ export default function SmartTable<T>({
         </>
     );
 
+    const activeToolbar = bulkActions && selected.size > 0 ? (
+        <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="flex min-h-8 items-center gap-2 flex-wrap"
+        >
+            <span className="text-xs text-sky-700 font-semibold whitespace-nowrap">
+                تم تحديد {selected.size} عنصر
+            </span>
+            {bulkActions.map((bulkAction, index) => (
+                <button
+                    key={`${bulkAction.label}-${index}`}
+                    onClick={() => bulkAction.onClick(selectedItems)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
+                        bulkAction.variant === 'danger'
+                            ? 'bg-red-600 hover:bg-red-500 text-white'
+                            : 'bg-sky-600 hover:bg-sky-500 text-white'
+                    }`}
+                >
+                    <bulkAction.icon className="w-3.5 h-3.5" />
+                    {bulkAction.label}
+                </button>
+            ))}
+            <button
+                onClick={() => setSelected(new Set())}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium text-sky-600 hover:bg-sky-100 transition-colors whitespace-nowrap"
+            >
+                إلغاء
+            </button>
+        </motion.div>
+    ) : toolbar;
+
     /* ---------------------------------------------------------------- */
     /*  Render                                                           */
     /* ---------------------------------------------------------------- */
@@ -352,7 +384,7 @@ export default function SmartTable<T>({
                         {scopeIndicator}
                     </div>
 
-                    <div className="flex items-center gap-2">{toolbar}</div>
+                    <div className="flex min-h-8 items-center gap-2">{activeToolbar}</div>
                 </div>
             )}
 
@@ -381,39 +413,8 @@ export default function SmartTable<T>({
                         />
                     ))}
                     {/* When the card header is hidden, keep its toolbar (reset · export) here. */}
-                    {hideHeader && <div className="flex items-center gap-2 shrink-0">{toolbar}</div>}
+                    {hideHeader && <div className="flex min-h-8 items-center gap-2 shrink-0">{activeToolbar}</div>}
                 </div>
-            )}
-
-            {/* ── BULK ACTIONS ── */}
-            {bulkActions && selected.size > 0 && (
-                <motion.div
-                    initial={{ opacity: 0, y: -4 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="bg-sky-50 border-b border-sky-100 px-5 py-2.5 flex items-center gap-3"
-                >
-                    <span className="text-xs text-sky-700 font-semibold">تم تحديد {selected.size} عنصر</span>
-                    <div className="mr-auto flex items-center gap-2">
-                        {bulkActions.map((ba, i) => (
-                            <button
-                                key={i}
-                                onClick={() => ba.onClick(selectedItems)}
-                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${ba.variant === 'danger'
-                                    ? 'bg-red-600 hover:bg-red-500 text-white'
-                                    : 'bg-sky-600 hover:bg-sky-500 text-white'}`}
-                            >
-                                <ba.icon className="w-3.5 h-3.5" />
-                                {ba.label}
-                            </button>
-                        ))}
-                        <button
-                            onClick={() => setSelected(new Set())}
-                            className="px-3 py-1.5 rounded-lg text-xs font-medium text-sky-600 hover:bg-sky-100 transition-colors"
-                        >
-                            إلغاء
-                        </button>
-                    </div>
-                </motion.div>
             )}
 
             {/* ── TABLE — horizontal scroll only, vertical scroll is the page ── */}

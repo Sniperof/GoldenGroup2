@@ -79,6 +79,42 @@ test('scheduled or actively booked tasks cannot use direct cancellation', async 
   assert.equal(statements.length, 0);
 });
 
+test('golden warranty card cancellation releases the active warranty links before closing the task', async () => {
+  const { db, statements } = fakeDb((sql) => {
+    if (sql.includes('FROM system_lists')) {
+      return [{
+        id: 52,
+        category: 'golden_card_rejection_reasons',
+        value: 'customer_refused',
+        metadata: { label: 'رفض الاستلام' },
+      }];
+    }
+    return [];
+  });
+
+  await cancelLockedOpenTaskBeforeScheduling(
+    db,
+    {
+      id: 91,
+      branchId: 2,
+      taskType: 'golden_warranty_card_delivery',
+      status: 'open',
+      hasActiveVisit: false,
+    },
+    52,
+    7,
+    'branch_manager',
+  );
+
+  const linkUpdateIndex = statements.findIndex(({ sql }) => sql.includes('UPDATE open_task_golden_warranties'));
+  const taskUpdateIndex = statements.findIndex(({ sql }) => sql.includes('UPDATE open_tasks'));
+  assert.notEqual(linkUpdateIndex, -1);
+  assert.notEqual(taskUpdateIndex, -1);
+  assert.equal(linkUpdateIndex < taskUpdateIndex, true);
+  assert.match(statements[linkUpdateIndex].sql, /link_status = 'cancelled'/);
+  assert.deepEqual(statements[linkUpdateIndex].params, [91]);
+});
+
 test('a reason from another category is rejected', async () => {
   const { db } = fakeDb(() => []);
   await assert.rejects(

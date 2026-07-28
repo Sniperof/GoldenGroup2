@@ -89,6 +89,12 @@ function CardDeliveryButton({ device, onCreated }: { device: DeviceCtx; onCreate
 
 export function WarrantiesSection({ warranties, device, onCreated }: Props) {
   const hasActiveGolden = (warranties ?? []).some(w => w.warrantyType === 'golden' && w.status === 'active');
+  const hasCardDeliveryEligibleGolden = (warranties ?? []).some(
+    w => w.warrantyType === 'golden'
+      && w.status === 'active'
+      && !w.cardDeliveryTaskId
+      && !['active', 'delivered'].includes(w.cardDeliveryStatus),
+  );
   // Entry point shown only for an active device that has no active golden warranty
   // (DEC-CT-16: one active golden at a time; offer is guarded by the prior ending).
   const canOfferGolden = device?.status === 'active' && !hasActiveGolden;
@@ -96,7 +102,7 @@ export function WarrantiesSection({ warranties, device, onCreated }: Props) {
   const action = device ? (
     <div className="flex items-center gap-2">
       {canOfferGolden && <OfferGoldenButton device={device} onCreated={onCreated} />}
-      {hasActiveGolden && <CardDeliveryButton device={device} onCreated={onCreated} />}
+      {hasCardDeliveryEligibleGolden && <CardDeliveryButton device={device} onCreated={onCreated} />}
     </div>
   ) : undefined;
 

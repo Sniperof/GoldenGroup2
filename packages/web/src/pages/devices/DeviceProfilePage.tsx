@@ -105,7 +105,7 @@ export default function DeviceProfilePage() {
         canViewPossession ? api.devicePossession.list(deviceId) : Promise.resolve([]),
         canViewPossession ? api.devicePossession.current(deviceId) : Promise.resolve(null),
         dev?.contractId ? api.contracts.get(dev.contractId) : Promise.resolve(null),
-        dev?.customerId ? api.openTasks.listByClient(dev.customerId) : Promise.resolve([]),
+        api.openTasks.listByDevice(deviceId),
       ]);
 
       setWarranties(warrantiesR.status === 'fulfilled' ? warrantiesR.value : []);

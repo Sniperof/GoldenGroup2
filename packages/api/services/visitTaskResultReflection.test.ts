@@ -204,7 +204,7 @@ test('installment collection maps barter to the barter instrument', () => {
   assert.equal(normalized.method, 'barter');
 });
 
-test('golden warranty delivery does not complete a task when no warranty is updated', async () => {
+test('golden warranty delivery does not complete a task without exact warranty links', async () => {
   const statements: string[] = [];
   const db = {
     async query(sql: string) {
@@ -225,7 +225,7 @@ test('golden warranty delivery does not complete a task when no warranty is upda
       if (sql.includes('INSERT INTO visit_task_results')) {
         return { rows: [{ id: 44 }] };
       }
-      if (sql.includes('SELECT installed_device_id FROM open_task_installed_devices')) {
+      if (sql.includes('FROM open_task_golden_warranties link')) {
         return { rows: [] };
       }
       throw new Error(`Unexpected SQL in test: ${sql}`);
@@ -239,7 +239,7 @@ test('golden warranty delivery does not complete a task when no warranty is upda
       3,
       db as any,
     ),
-    /لم يتم تحديث أي بطاقة ضمان/,
+    /لا ترتبط بأي كفالة محددة/,
   );
 
   assert.equal(statements.some(sql => sql.includes('UPDATE visit_tasks SET status')), false);

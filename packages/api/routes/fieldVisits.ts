@@ -14,6 +14,7 @@ import {
 import { checkAndCompleteVisit } from '../services/visitCompletion.js';
 import { hasBlockingUndocumentedVisit } from '../services/visitEscalationJob.js';
 import { applyDeviceActivationResult, applyDeviceCheckupResult, applyDeviceDeliveryResult, applyDeviceDemoResult, applyDeviceDisconnectionResult, applyDeviceInstallationResult, applyDeviceRetrievalResult, applyDeviceReturnResult, applyDeviceTransferResult, applyEmergencyMaintenanceLifecycleResult, applyGiftDeliveryResult, applyGoldenWarrantyOfferResult, applyGoldenWarrantyCardDeliveryResult, applyInstallmentCollectionResult, ResultValidationError } from '../services/visitTaskResultReflection.js';
+import { GoldenWarrantyCardDeliveryError } from '../services/goldenWarrantyCardDelivery.js';
 import { DeviceTaskEligibilityError } from '../services/deviceTaskEligibilityGuard.js';
 import {
   buildClientLifecycleStatusSql,
@@ -2431,17 +2432,13 @@ router.post('/:id/tasks', requirePermission('field_visits.edit'), async (req, re
               ) AS "hasGiftDeliveryLink",
               EXISTS (
                 SELECT 1
-                  FROM device_warranties dw
-                 WHERE dw.warranty_type = 'golden'
+                  FROM open_task_golden_warranties warranty_link
+                  JOIN device_warranties dw ON dw.id = warranty_link.warranty_id
+                 WHERE warranty_link.task_id = ot.id
+                   AND warranty_link.link_status = 'active'
+                   AND dw.warranty_type = 'golden'
                    AND dw.status = 'active'
-                   AND (
-                     dw.device_id = ot.device_id
-                     OR dw.device_id IN (
-                       SELECT otid.installed_device_id
-                         FROM open_task_installed_devices otid
-                        WHERE otid.task_id = ot.id
-                     )
-                   )
+                   AND dw.card_delivery_task_id IS NULL
               ) AS "hasGoldenWarrantyLink"
          FROM open_tasks ot
         WHERE ot.id = $1
@@ -2597,17 +2594,13 @@ router.get('/:id/pullable-tasks', requirePermission('field_visits.view', 'field_
               ) AS "hasGiftDeliveryLink",
               EXISTS (
                 SELECT 1
-                  FROM device_warranties dw
-                 WHERE dw.warranty_type = 'golden'
+                  FROM open_task_golden_warranties warranty_link
+                  JOIN device_warranties dw ON dw.id = warranty_link.warranty_id
+                 WHERE warranty_link.task_id = ot.id
+                   AND warranty_link.link_status = 'active'
+                   AND dw.warranty_type = 'golden'
                    AND dw.status = 'active'
-                   AND (
-                     dw.device_id = ot.device_id
-                     OR dw.device_id IN (
-                       SELECT otid.installed_device_id
-                         FROM open_task_installed_devices otid
-                        WHERE otid.task_id = ot.id
-                     )
-                   )
+                   AND dw.card_delivery_task_id IS NULL
               ) AS "hasGoldenWarrantyLink",
               idev.installation_address_text AS "taskAddress",
               idev.installation_geo_unit_id  AS "taskGeoUnitId"
@@ -3200,7 +3193,11 @@ router.post('/:visitId/tasks/:taskId/result', requirePermission('tasks.results.r
       error: `تسجيل نتيجة موحَّد غير مدعوم بعد لنوع المهمة "${taskType}"`,
     });
   } catch (err: any) {
-    if (err instanceof ResultValidationError || err instanceof DeviceTaskEligibilityError) {
+    if (
+      err instanceof ResultValidationError
+      || err instanceof DeviceTaskEligibilityError
+      || err instanceof GoldenWarrantyCardDeliveryError
+    ) {
       return res.status(err.status).json({ error: err.message });
     }
     console.error('[field-visits] POST /:visitId/tasks/:taskId/result error:', err);

@@ -49,7 +49,7 @@ const selectFields = `
   d.updated_at                AS "updatedAt",
   c.contract_number           AS "contractNumber",
   c.sale_subtype              AS "saleSubtype",
-  COALESCE(c.customer_name, cl.name) AS "customerName",
+  COALESCE(cl.name, c.customer_name) AS "customerName",
   b.name                      AS "branchName",
   gu.name                     AS "installationGeoUnitName",
   jsonb_strip_nulls(jsonb_build_object(

@@ -561,10 +561,14 @@ export const api = {
   },
   deviceWarranties: {
     list: (deviceId: number) => request<any[]>(`/device-warranties?deviceId=${deviceId}`),
+    eligibleForCardDelivery: (customerId: number, branchId?: number | null) => {
+      const qs = new URLSearchParams({ customerId: String(customerId) });
+      if (branchId) qs.set('branchId', String(branchId));
+      return request<any[]>(`/device-warranties/golden/card-delivery-eligible?${qs}`);
+    },
     update: (id: number, data: any) => request<any>(`/device-warranties/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     // DEC-CT-17 golden-warranty flows
     offerResult: (data: any) => request<any>(`/device-warranties/golden/offer-result`, { method: 'POST', body: JSON.stringify(data) }),
-    cardDelivery: (warrantyId: number, data: any) => request<any>(`/device-warranties/golden/${warrantyId}/card-delivery`, { method: 'POST', body: JSON.stringify(data) }),
     payments: (warrantyId: number) => request<any>(`/device-warranties/${warrantyId}/payments`),
     addPayment: (warrantyId: number, data: any) => request<any>(`/device-warranties/${warrantyId}/payments`, { method: 'POST', body: JSON.stringify(data) }),
   },
@@ -666,6 +670,7 @@ export const api = {
   openTasks: {
     create: (data: any) => request<any>('/open-tasks', { method: 'POST', body: JSON.stringify(data) }),
     listByClient: (clientId: number) => request<any[]>(`/open-tasks/client/${clientId}`),
+    listByDevice: (deviceId: number) => request<any[]>(`/open-tasks/device/${deviceId}`),
     collectableInstallments: (clientId: number) => request<any[]>(`/open-tasks/client/${clientId}/collectable-installments`),
     get: (id: number) => request<any>(`/open-tasks/${id}`),
     update: (id: number, data: any) => request<any>(`/open-tasks/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),

@@ -8,6 +8,10 @@ import Select from '../../components/ui/Select';
 import Card from '../../components/ui/Card';
 import Checkbox from '../../components/ui/Checkbox';
 import {
+  getPermissionModuleLabel,
+  getPermissionSubmoduleLabel,
+} from '../../lib/permissionDisplay';
+import {
   ShieldCheck, ChevronRight, Save, Loader2, AlertTriangle,
   Key, Eye, Plus, Pencil, Trash2,
   ToggleRight, Award, Users, BookOpen, ClipboardList,
@@ -276,7 +280,7 @@ const MODULE_CONFIG: Record<string, { label: string; icon: React.ReactNode; colo
   contracts:    { label: 'العقود',                      icon: <FileText className="w-4 h-4" />,     color: 'text-amber-600 bg-amber-50' },
   devices:      { label: 'الأجهزة وقطع الغيار',         icon: <BarChart2 className="w-4 h-4" />,    color: 'text-cyan-600 bg-cyan-50' },
   tasks:        { label: 'المهام والعمليات',             icon: <ClipboardList className="w-4 h-4" />, color: 'text-orange-600 bg-orange-50' },
-  planning:     { label: 'إدارة عمل الفرع',             icon: <Calendar className="w-4 h-4" />,     color: 'text-teal-600 bg-teal-50' },
+  planning:     { label: 'تخطيط عمل الفرع',             icon: <Calendar className="w-4 h-4" />,     color: 'text-teal-600 bg-teal-50' },
   routes:       { label: 'خطوط السير وتوزيعها',          icon: <Calendar className="w-4 h-4" />,     color: 'text-teal-600 bg-teal-50' },
   catalog:      { label: 'كتالوج الأجهزة والأسعار',      icon: <BarChart2 className="w-4 h-4" />,    color: 'text-cyan-600 bg-cyan-50' },
   sales:        { label: 'المبيعات',                     icon: <FileText className="w-4 h-4" />,     color: 'text-amber-600 bg-amber-50' },
@@ -295,50 +299,17 @@ const MODULE_CONFIG: Record<string, { label: string; icon: React.ReactNode; colo
   reference_data: { label: 'القوائم المرجعية', icon: <ListChecks className="w-4 h-4" />, color: 'text-slate-600 bg-slate-100' },
 };
 
-const SUB_MODULE_LABELS: Record<string, string> = {
-  vacancies:    'الشواغر الوظيفية',
-  applications: 'طلبات التوظيف',
-  interviews:   'المقابلات',
-  training:     'الدورات التدريبية',
-  candidates:    'الأسماء المقترحة',
-  name_lists:    'لوائح الأسماء',
-  roles:        'الأدوار والصلاحيات',
-  roles_users:  'إسناد الأدوار للمستخدمين',
-  system_lists: 'القوائم النظامية',
-  branch_assignments: 'فروع المستخدمين المسموحة',
-  management: 'الإدارة',
-  system: 'النظام',
-  geography: 'المناطق الجغرافية',
-  visits: 'الزيارات',
-  tasks: 'المهام',
-  targets: 'الأهداف',
-  lists: 'قوائم الاتصال',
-  calls: 'المكالمات',
-  appointments: 'المواعيد',
-  schedule: 'جدولة الفرق',
-  routes: 'خطوط السير',
-  assignments: 'توزيع المسارات',
-  service_requests: 'طلبات الخدمة والصيانة',
-  lookups: 'الاستخدام داخل العمليات',
-  navigation: 'ظهور القسم',
-  device_models: 'تعريفات الأجهزة',
-  spare_parts: 'تعريفات قطع الغيار',
-  discounts: 'خصومات الأجهزة',
-  department_availability: 'أجهزة الأقسام',
-  installed_devices: 'الأجهزة المركبة',
-  installed_device_possession: 'حيازة الأجهزة',
-};
-
 function getModuleConfig(module: string) {
-  return MODULE_CONFIG[module] ?? {
-    label: 'إدارة عمل الفرع',
-    icon: <Calendar className="w-4 h-4" />,
-    color: 'text-teal-600 bg-teal-50',
+  const configured = MODULE_CONFIG[module];
+  return {
+    label: getPermissionModuleLabel(module),
+    icon: configured?.icon ?? <Calendar className="w-4 h-4" />,
+    color: configured?.color ?? 'text-slate-600 bg-slate-100',
   };
 }
 
 function getSubModuleLabel(subModule: string): string {
-  return SUB_MODULE_LABELS[subModule] ?? 'مجموعة صلاحيات';
+  return getPermissionSubmoduleLabel(subModule);
 }
 
 function getPermissionGrouping(perm: Permission): { module: string; subModule: string } {
@@ -658,7 +629,10 @@ export default function RolePermissions() {
           const moduleTotal = allModulePerms.length;
           const allModuleSelected = moduleSelected === moduleTotal;
           const isOpen = openModules.has(module);
-          const subModuleNames = Object.keys(subGroups).map(getSubModuleLabel);
+          const subModulePreviews = Object.keys(subGroups).map(subModule => ({
+            key: subModule,
+            label: getSubModuleLabel(subModule),
+          }));
 
           return (
             <div key={module} className={`bg-white rounded-2xl border overflow-hidden transition-all ${isOpen ? 'border-sky-200 shadow-lg shadow-sky-100/60' : 'border-slate-100 shadow-sm hover:shadow-md hover:border-slate-200'}`}>
@@ -672,14 +646,14 @@ export default function RolePermissions() {
                     <h3 className="text-base font-bold text-slate-800">{modCfg.label}</h3>
                     {!isOpen && (
                       <div className="flex flex-wrap gap-1.5 mt-2 mb-1">
-                        {subModuleNames.slice(0, 3).map(name => (
-                          <span key={name} className="inline-flex items-center rounded-full bg-slate-100 text-slate-500 px-2 py-0.5 text-xs font-medium">
-                            {name}
+                        {subModulePreviews.slice(0, 3).map(subModule => (
+                          <span key={subModule.key} className="inline-flex items-center rounded-full bg-slate-100 text-slate-500 px-2 py-0.5 text-xs font-medium">
+                            {subModule.label}
                           </span>
                         ))}
-                        {subModuleNames.length > 3 && (
+                        {subModulePreviews.length > 3 && (
                           <span className="inline-flex items-center rounded-full bg-slate-100 text-slate-400 px-2 py-0.5 text-xs font-medium">
-                            +{subModuleNames.length - 3}
+                            +{subModulePreviews.length - 3}
                           </span>
                         )}
                       </div>

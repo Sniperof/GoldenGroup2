@@ -1,5 +1,4 @@
-// All open_tasks belonging to this device. The list is filtered client-side
-// because /api/open-tasks/client/:clientId returns the client's full task feed.
+// All open_tasks belonging to this physical device across its customer history.
 
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';

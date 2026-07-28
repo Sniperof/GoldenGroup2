@@ -3,6 +3,7 @@ import {
   canCancelOpenTaskBeforeScheduling,
   getTaskCancellationReasonCategory,
 } from '@golden-crm/shared';
+import { cancelGoldenWarrantyCardLinks } from './goldenWarrantyCardDelivery.js';
 
 export class OpenTaskCancellationError extends Error {
   constructor(
@@ -109,6 +110,9 @@ export async function cancelLockedOpenTaskBeforeScheduling(
   }
 
   const reason = await resolveOpenTaskCancellationReason(db, subject.taskType, reasonId);
+  if (subject.taskType === 'golden_warranty_card_delivery') {
+    await cancelGoldenWarrantyCardLinks(db, subject.id);
+  }
   await db.query(
     `UPDATE open_tasks
         SET status = 'cancelled',

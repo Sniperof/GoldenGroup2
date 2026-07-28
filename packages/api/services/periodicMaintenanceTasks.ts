@@ -50,6 +50,118 @@ export interface PeriodicSupersessionResult {
   nextPeriodicTask: PeriodicMaintenanceGenerationResult;
 }
 
+export class PeriodicMaintenanceTransferError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PeriodicMaintenanceTransferError';
+  }
+}
+
+const UPCOMING_PERIODIC_STATUSES = [
+  'open',
+  'needs_follow_up',
+  'assigned',
+  'in_scheduling',
+  'scheduled',
+  'waiting_execution',
+] as const;
+
+export async function cancelUpcomingPeriodicMaintenanceForTransfer(
+  db: Queryable,
+  input: {
+    installedDeviceId: number;
+    fromClientId: number;
+    toClientId: number;
+    performedByUserId: number;
+  },
+): Promise<number[]> {
+  const { rows } = await db.query(
+    `SELECT ot.id,
+            ot.status,
+            EXISTS (
+              SELECT 1
+                FROM visit_tasks vt
+                JOIN field_visits fv ON fv.id = vt.field_visit_id
+                LEFT JOIN visit_task_results vtr ON vtr.visit_task_id = vt.id
+               WHERE vt.source_open_task_id = ot.id
+                 AND vt.status = 'in_progress'
+                 AND fv.status IN ('in_progress', 'ended')
+                 AND vtr.final_decision IS NULL
+            ) AS "hasExecutionAttempt"
+       FROM open_tasks ot
+      WHERE ot.task_type = 'periodic_maintenance'
+        AND ot.device_id = $1
+        AND ot.client_id = $2
+        AND ot.status NOT IN ('completed', 'closed', 'cancelled')
+      ORDER BY ot.id
+      FOR UPDATE OF ot`,
+    [input.installedDeviceId, input.fromClientId],
+  );
+
+  const executingTask = rows.find(row =>
+    row.hasExecutionAttempt === true
+    || row.status === 'in_execution'
+    || row.status === 'ended'
+  );
+  if (executingTask) {
+    throw new PeriodicMaintenanceTransferError(
+      `لا يمكن نقل حيازة الجهاز قبل إنهاء مهمة الصيانة الدورية قيد التنفيذ #${executingTask.id}`,
+    );
+  }
+
+  const cancellableRows = rows.filter(row =>
+    UPCOMING_PERIODIC_STATUSES.includes(row.status as typeof UPCOMING_PERIODIC_STATUSES[number])
+  );
+  if (cancellableRows.length === 0) return [];
+
+  const taskIds = cancellableRows.map(row => Number(row.id));
+  const previousStatuses = cancellableRows.map(row => String(row.status));
+  const cancellationReason = 'نقل حيازة الجهاز إلى زبون آخر';
+  const auditReason = `device_possession_transferred_to_client:${input.toClientId}`;
+
+  const { rows: cancelledRows } = await db.query(
+    `UPDATE open_tasks
+        SET status = 'cancelled',
+            cancellation_reason = $2,
+            updated_at = NOW()
+      WHERE id = ANY($1::int[])
+        AND status = ANY($3::text[])
+      RETURNING id`,
+    [taskIds, cancellationReason, [...UPCOMING_PERIODIC_STATUSES]],
+  );
+  if (cancelledRows.length !== taskIds.length) {
+    throw new PeriodicMaintenanceTransferError(
+      'تغيرت حالة مهمة صيانة دورية أثناء نقل الحيازة؛ أعد المحاولة',
+    );
+  }
+
+  await db.query(
+    `UPDATE visit_tasks
+        SET status = 'cancelled',
+            updated_at = NOW()
+      WHERE source_open_task_id = ANY($1::int[])
+        AND status NOT IN ('completed', 'cancelled')`,
+    [taskIds],
+  );
+
+  await db.query(
+    `INSERT INTO task_activity_log (
+       task_id, event_type, performed_by, role, old_value, new_value, reason
+     )
+     SELECT transition.task_id,
+            'status_change',
+            $3,
+            'system',
+            transition.old_status,
+            'cancelled',
+            $4
+       FROM unnest($1::int[], $2::text[]) AS transition(task_id, old_status)`,
+    [taskIds, previousStatuses, input.performedByUserId, auditReason],
+  );
+
+  return taskIds;
+}
+
 function parseMaintenancePlanDays(plan: string | null | undefined, defaultMonths: number): number {
   const value = String(plan ?? '').trim().toLowerCase();
   if (!value) return defaultMonths * 30;

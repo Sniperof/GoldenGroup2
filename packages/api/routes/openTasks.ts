@@ -33,6 +33,12 @@ import {
   loadOpenTaskCancellationSubject,
 } from '../services/openTaskCancellation.js';
 import { OPEN_TASK_CLIENT_DEVICE_LIFECYCLE_SELECT } from '../services/openTaskClientProjection.js';
+import {
+  GoldenWarrantyCardDeliveryError,
+  linkGoldenWarrantyCardsToTask,
+  lockEligibleGoldenWarrantyCards,
+  parseGoldenWarrantyIds,
+} from '../services/goldenWarrantyCardDelivery.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -1071,14 +1077,38 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
   }
   const taskFamily = typeof req.body?.taskFamily === 'string' ? req.body.taskFamily.trim() : 'marketing';
   let contractId = Number(req.body?.contractId) || null;
-  const installedDeviceId = Number(req.body?.installedDeviceId ?? req.body?.deviceId) || null;
+  let installedDeviceId = Number(req.body?.installedDeviceId ?? req.body?.deviceId) || null;
   const deviceEligibilityTaskTypes = new Set(['emergency_maintenance', 'periodic_maintenance', 'golden_warranty_offer']);
   const requestedInstallmentId = Number(req.body?.installmentId) || null;
   // Golden-warranty tasks (offer / card delivery) can target multiple physical
   // installed devices on one task — stored in open_task_installed_devices.
-  const installedDeviceIds: number[] = Array.isArray(req.body?.installedDeviceIds)
+  let installedDeviceIds: number[] = Array.isArray(req.body?.installedDeviceIds)
     ? req.body.installedDeviceIds.map((x: any) => Number(x)).filter((n: number) => Number.isInteger(n) && n > 0)
     : [];
+  const goldenWarrantyIds = parseGoldenWarrantyIds(req.body?.goldenWarrantyIds);
+  if (taskType === 'golden_warranty_card_delivery') {
+    if (goldenWarrantyIds.length === 0) {
+      return res.status(400).json({
+        code: 'GOLDEN_WARRANTY_REQUIRED',
+        error: 'يجب اختيار كفالة ذهبية واحدة على الأقل',
+      });
+    }
+    const { rows: requestedWarrantyRows } = await pool.query(
+      `SELECT id, device_id AS "installedDeviceId"
+         FROM device_warranties
+        WHERE id = ANY($1::int[])
+          AND warranty_type = 'golden'`,
+      [goldenWarrantyIds],
+    );
+    if (requestedWarrantyRows.length !== goldenWarrantyIds.length) {
+      return res.status(400).json({
+        code: 'GOLDEN_WARRANTY_NOT_FOUND',
+        error: 'إحدى الكفالات الذهبية المحددة غير موجودة',
+      });
+    }
+    installedDeviceIds = [...new Set(requestedWarrantyRows.map((row: any) => Number(row.installedDeviceId)))];
+    installedDeviceId = installedDeviceIds[0] ?? null;
+  }
   const deliveryAddressInput = typeof req.body?.deliveryAddress === 'string' ? req.body.deliveryAddress.trim() : '';
   const plannedInstallationGeoUnitId = Number(req.body?.installationGeoUnitId ?? req.body?.plannedInstallationGeoUnitId) || null;
   const plannedInstallationAddressText = typeof (req.body?.installationAddressText ?? req.body?.plannedInstallationAddressText) === 'string'
@@ -1801,6 +1831,10 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
   try {
     await pgClient.query('BEGIN');
 
+    const lockedGoldenWarrantyCards = taskType === 'golden_warranty_card_delivery'
+      ? await lockEligibleGoldenWarrantyCards(pgClient, goldenWarrantyIds, clientId, branchId)
+      : [];
+
     // Phase 3: resolve device_id from installed_devices when contract_id is known
     const deviceId: number | null = deviceIdFromContract;
     const deliveryAddress = taskType === 'device_delivery' || taskType === 'device_installation' || taskType === 'device_activation' || taskType === 'device_checkup' || taskType === 'device_disconnection' || taskType === 'device_retrieval' || taskType === 'device_return' || taskType === 'device_transfer'
@@ -2015,6 +2049,10 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
       }
     }
 
+    if (lockedGoldenWarrantyCards.length > 0) {
+      await linkGoldenWarrantyCardsToTask(pgClient, Number(openTaskId), lockedGoldenWarrantyCards);
+    }
+
     if (Array.isArray(preOffers) && preOffers.length > 0) {
       for (const offer of preOffers) {
         const closedByEmployeeId = Number.isInteger(Number(offer.closedByEmployeeId)) && Number(offer.closedByEmployeeId) > 0
@@ -2058,6 +2096,18 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
     return res.json({ id: openTaskId, success: true });
   } catch (err: any) {
     await pgClient.query('ROLLBACK');
+    if (err instanceof GoldenWarrantyCardDeliveryError) {
+      return res.status(err.status).json({ code: err.code, error: err.message });
+    }
+    if (
+      err?.code === '23505'
+      && String(err?.constraint ?? '') === 'idx_golden_warranty_one_current_card_delivery'
+    ) {
+      return res.status(409).json({
+        code: 'GOLDEN_WARRANTY_CARD_TASK_ACTIVE',
+        error: 'توجد مهمة تسليم نشطة أو مكتملة لإحدى الكفالات المحددة',
+      });
+    }
     if (err?.code === '23505' && String(err?.constraint ?? '').includes('idx_open_tasks_unique_active')) {
       return res.status(409).json({ error: 'لا يمكن إنشاء مهمة ثانية من نفس النوع لهذا الزبون قبل إغلاق المهمة النشطة' });
     }
@@ -2334,6 +2384,58 @@ router.get('/client/:clientId', requirePermission('clients.visits.view', 'open_t
   );
 
   return res.json(rows);
+});
+
+// Device history is keyed by the physical device, not by its current customer.
+// The device is the route subject; historical tasks remain additionally scoped
+// by their own branch for non-GLOBAL viewers.
+router.get('/device/:deviceId', requirePermission('open_tasks.view'), async (req, res) => {
+  try {
+    const authContext = getAuthContext(req);
+    const deviceId = Number(req.params.deviceId);
+    if (!Number.isInteger(deviceId) || deviceId <= 0) {
+      return res.status(400).json({ error: 'deviceId is invalid' });
+    }
+
+    const { rows: deviceRows } = await pool.query(
+      `SELECT id, branch_id
+         FROM installed_devices
+        WHERE id = $1
+        LIMIT 1`,
+      [deviceId],
+    );
+    const device = deviceRows[0];
+    if (!device) {
+      return res.status(404).json({ error: 'الجهاز غير موجود' });
+    }
+
+    const subjectAccess = canViewOpenTask(authContext, device.branch_id);
+    if (!subjectAccess.allowed) {
+      return res.status(403).json({ error: 'ليس لديك صلاحية عرض مهام هذا الجهاز' });
+    }
+
+    const plan = getOpenTaskListAccessPlan(authContext);
+    const params: any[] = [deviceId];
+    let whereClause = 'WHERE ot.device_id = $1';
+    if (plan.scope !== 'GLOBAL') {
+      if (plan.allowedBranchIds.length === 0) {
+        return res.json([]);
+      }
+      params.push(plan.allowedBranchIds);
+      whereClause += ` AND ot.branch_id = ANY($${params.length}::int[])`;
+    }
+
+    const { rows } = await pool.query(
+      `${OPEN_TASK_SELECT}
+       ${whereClause}
+       ORDER BY ot.created_at DESC`,
+      params,
+    );
+    return res.json(rows.map(mapOpenTaskRow));
+  } catch (err) {
+    console.error('[open-tasks] GET /device/:deviceId error:', err);
+    return res.status(500).json({ error: 'فشل في تحميل تاريخ مهام الجهاز' });
+  }
 });
 
 /**

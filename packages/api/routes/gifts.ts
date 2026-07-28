@@ -3,6 +3,11 @@ import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { getOrBuildAuthContext, requirePermission } from '../middleware/permission.js';
 import { canAccessGift, getGiftListAccessPlan } from '../policies/giftPolicy.js';
+import {
+  GiftDeliveryTaskCreationError,
+  insertGiftDeliveryLinkedEvents,
+  mapGiftDeliveryCreationDatabaseError,
+} from '../services/giftDeliveryTaskCreation.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -708,47 +713,6 @@ async function createDeliveryTaskForGiftRecords(req: any, res: any, ids: number[
     }
   }
 
-  const { rows } = await pool.query(
-    `SELECT gr.id, gr.beneficiary_type, gr.beneficiary_client_id, gr.beneficiary_name_snapshot,
-            gr.responsible_branch_id, gr.source_branch_id, gr.status, gr.delivery_task_id,
-            EXISTS (
-              SELECT 1
-                FROM gift_delivery_task_records active_link
-               WHERE active_link.gift_record_id = gr.id
-                 AND active_link.is_active = TRUE
-            ) AS has_active_delivery_link,
-            gd.name AS gift_name
-       FROM gift_records gr
-       JOIN gift_definitions gd ON gd.id = gr.gift_definition_id
-      WHERE gr.id = ANY($1::int[])
-      ORDER BY gr.id`,
-    [ids],
-  );
-  if (rows.length !== ids.length) {
-    return res.status(404).json({ error: 'بعض سجلات الهدايا غير موجودة' });
-  }
-
-  const beneficiaryClientId = rows[0].beneficiary_client_id ? Number(rows[0].beneficiary_client_id) : null;
-  if (!beneficiaryClientId || rows.some((row: any) => Number(row.beneficiary_client_id) !== beneficiaryClientId)) {
-    return res.status(400).json({ error: 'مهمة تسليم الهدية تتطلب مستفيداً واحداً مرتبطاً بزبون معروف' });
-  }
-  if (rows.some((row: any) => !['contract_customer', 'customer_referrer'].includes(row.beneficiary_type))) {
-    return res.status(400).json({ error: 'الوسطاء الموظفون/الشخصيون يؤكد تسليمهم يدوياً ولا تنشأ لهم مهمة تسليم' });
-  }
-  const blocked = rows.find((row: any) => row.status !== 'approved_for_delivery');
-  if (blocked) {
-    return res.status(409).json({ error: `سجل الهدية ${blocked.id} في حالة لا تسمح بإنشاء مهمة تسليم` });
-  }
-  const alreadyLinked = rows.find((row: any) => row.delivery_task_id != null || row.has_active_delivery_link === true);
-  if (alreadyLinked) {
-    return res.status(409).json({ error: `سجل الهدية ${alreadyLinked.id} مرتبط مسبقاً بمهمة تسليم`, deliveryTaskId: alreadyLinked.delivery_task_id });
-  }
-
-  const branchId = Number(rows[0].responsible_branch_id ?? rows[0].source_branch_id);
-  if (!branchId || rows.some((row: any) => Number(row.responsible_branch_id ?? row.source_branch_id) !== branchId)) {
-    return res.status(400).json({ error: 'كل سجلات مهمة التسليم يجب أن تتبع فرع مسؤولية واحد' });
-  }
-
   const dueDate = normalizeDate(req.body?.dueDate);
   if (!dueDate) {
     return res.status(400).json({ error: 'تاريخ التسليم المطلوب إلزامي' });
@@ -762,30 +726,130 @@ async function createDeliveryTaskForGiftRecords(req: any, res: any, ids: number[
   if (!creationReason) {
     return res.status(400).json({ error: 'سبب إنشاء مهمة تسليم الهدية مطلوب ويجب اختياره من قائمة أسباب إنشاء مهمة تسليم الهدية' });
   }
-  const giftLabel = rows.length === 1
-    ? rows[0].gift_name
-    : `${rows.length} سجلات هدايا`;
-
   const db = await pool.connect();
   try {
     await db.query('BEGIN');
+    const { rows: lockedRows } = await db.query(
+      `SELECT gr.id, gr.beneficiary_type, gr.beneficiary_client_id, gr.beneficiary_name_snapshot,
+              gr.responsible_branch_id, gr.source_branch_id, gr.status, gr.delivery_task_id,
+              gr.responsible_branch_id AS "responsibleBranchId",
+              gr.source_branch_id AS "sourceBranchId",
+              gr.assigned_user_id AS "assignedUserId",
+              gr.beneficiary_employee_id AS "beneficiaryEmployeeId",
+              EXISTS (
+                SELECT 1
+                  FROM client_assignments ca
+                 WHERE ca.client_id = gr.beneficiary_client_id
+                   AND ca.hr_user_id = $2
+              ) AS "beneficiaryAssignedToCurrentUser",
+              EXISTS (
+                SELECT 1
+                  FROM gift_delivery_task_records active_link
+                 WHERE active_link.gift_record_id = gr.id
+                   AND active_link.is_active = TRUE
+              ) AS has_active_delivery_link,
+              gd.name AS gift_name
+         FROM gift_records gr
+         JOIN gift_definitions gd ON gd.id = gr.gift_definition_id
+        WHERE gr.id = ANY($1::int[])
+        ORDER BY gr.id
+        FOR UPDATE OF gr`,
+      [ids, authContext.userId],
+    );
+    if (lockedRows.length !== ids.length) {
+      throw new GiftDeliveryTaskCreationError(
+        'بعض سجلات الهدايا غير موجودة',
+        404,
+        'GIFT_RECORD_NOT_FOUND',
+      );
+    }
+    if (lockedRows.some((subject: any) => !canAccessGift(
+      authContext,
+      'contract_gifts.create_delivery_task',
+      subject,
+      req.user?.employeeId ?? null,
+    ))) {
+      throw new GiftDeliveryTaskCreationError(
+        'غير مسموح إنشاء مهمة تسليم لهذه الهدية',
+        403,
+        'GIFT_DELIVERY_ACCESS_DENIED',
+      );
+    }
+    const changedRecord = lockedRows.find(
+      (row: any) => row.status !== 'approved_for_delivery'
+        || row.delivery_task_id != null
+        || row.has_active_delivery_link === true,
+    );
+    if (changedRecord) {
+      throw new GiftDeliveryTaskCreationError(
+        `سجل الهدية ${changedRecord.id} لم يعد متاحاً لإنشاء مهمة تسليم`,
+        409,
+        'GIFT_DELIVERY_GROUP_CHANGED',
+        {
+          giftRecordId: Number(changedRecord.id),
+          deliveryTaskId: changedRecord.delivery_task_id == null
+            ? null
+            : Number(changedRecord.delivery_task_id),
+        },
+      );
+    }
+    const beneficiaryClientId = lockedRows[0].beneficiary_client_id
+      ? Number(lockedRows[0].beneficiary_client_id)
+      : null;
+    if (!beneficiaryClientId || lockedRows.some(
+      (row: any) => Number(row.beneficiary_client_id) !== beneficiaryClientId,
+    )) {
+      throw new GiftDeliveryTaskCreationError(
+        'مهمة تسليم الهدية تتطلب مستفيداً واحداً مرتبطاً بزبون معروف',
+        400,
+        'GIFT_DELIVERY_BENEFICIARY_REQUIRED',
+      );
+    }
+    if (lockedRows.some(
+      (row: any) => !['contract_customer', 'customer_referrer'].includes(row.beneficiary_type),
+    )) {
+      throw new GiftDeliveryTaskCreationError(
+        'الوسطاء الموظفون أو الشخصيون يؤكد تسليمهم يدوياً ولا تنشأ لهم مهمة تسليم',
+        400,
+        'GIFT_DELIVERY_BENEFICIARY_NOT_ELIGIBLE',
+      );
+    }
+    const branchId = Number(
+      lockedRows[0].responsible_branch_id ?? lockedRows[0].source_branch_id,
+    );
+    if (!branchId || lockedRows.some(
+      (row: any) => Number(row.responsible_branch_id ?? row.source_branch_id) !== branchId,
+    )) {
+      throw new GiftDeliveryTaskCreationError(
+        'كل سجلات مهمة التسليم يجب أن تتبع فرع مسؤولية واحداً',
+        400,
+        'GIFT_DELIVERY_BRANCH_MISMATCH',
+      );
+    }
+    const giftLabel = lockedRows.length === 1
+      ? lockedRows[0].gift_name
+      : `${lockedRows.length} سجلات هدايا`;
+    const sourceContextType = lockedRows.length === 1 ? 'gift_records' : null;
+    const sourceContextId = lockedRows.length === 1 ? Number(lockedRows[0].id) : null;
+
     const { rows: taskRows } = await db.query(
       `INSERT INTO open_tasks (
          client_id, branch_id, task_type, task_family, reason, status,
          due_date, expected_date, priority, source, notes, created_by, origin,
          source_context_type, source_context_id, creation_origin, creation_reason
        ) VALUES ($1, $2, 'gift_delivery', 'delivery', 'gift_delivery', 'open',
-         $3::date, $3::date, $4, 'manual', $5, $6, 'gift_record',
-         'gift_records', $7, 'manual_creation', $8)
+         $3::date, $3::date, $4, 'manual', $5, $6, 'manual_entry',
+         $7, $8, 'manual_creation', $9)
        RETURNING id`,
       [
         beneficiaryClientId,
         branchId,
         dueDate,
         priority,
-        notes || `تسليم ${giftLabel} للمستفيد: ${rows[0].beneficiary_name_snapshot}`,
+        notes || `تسليم ${giftLabel} للمستفيد: ${lockedRows[0].beneficiary_name_snapshot}`,
         authContext.userId ?? null,
-        rows[0].id,
+        sourceContextType,
+        sourceContextId,
         creationReason,
       ],
     );
@@ -803,7 +867,11 @@ async function createDeliveryTaskForGiftRecords(req: any, res: any, ids: number[
       [ids, taskId, authContext.userId ?? null],
     );
     if (updatedRecords.rowCount !== ids.length) {
-      throw new Error('gift_delivery_group_changed_during_creation');
+      throw new GiftDeliveryTaskCreationError(
+        'تغيرت حالة إحدى الهدايا أثناء إنشاء المهمة؛ حدّث الصفحة وحاول مجدداً',
+        409,
+        'GIFT_DELIVERY_GROUP_CHANGED',
+      );
     }
     await db.query(
       `INSERT INTO gift_delivery_task_records (
@@ -812,20 +880,13 @@ async function createDeliveryTaskForGiftRecords(req: any, res: any, ids: number[
        SELECT $2, unnest($1::int[]), TRUE, $3`,
       [ids, taskId, authContext.userId ?? null],
     );
-    await db.query(
-      `INSERT INTO gift_record_events (
-         gift_record_id, event_type, actor_user_id, previous_status, new_status, metadata
-       )
-       SELECT unnest($1::int[]),
-              'delivery_task_linked',
-              $3,
-              'approved_for_delivery',
-              'delivery_task_created',
-              jsonb_build_object('openTaskId', $2)`,
-      [ids, taskId, authContext.userId ?? null],
+    await insertGiftDeliveryLinkedEvents(
+      db,
+      ids,
+      taskId,
+      authContext.userId ?? null,
     );
-    await db.query('COMMIT');
-    const refreshed = await pool.query(
+    const refreshed = await db.query(
       `SELECT ${recordSelect}
          FROM gift_records gr
          JOIN gift_definitions gd ON gd.id = gr.gift_definition_id
@@ -837,9 +898,20 @@ async function createDeliveryTaskForGiftRecords(req: any, res: any, ids: number[
         ORDER BY gr.id`,
       [ids],
     );
+    await db.query('COMMIT');
     return res.status(201).json({ deliveryTaskId: taskId, records: refreshed.rows.map(mapRecord) });
-  } catch (error) {
+  } catch (error: unknown) {
     await db.query('ROLLBACK');
+    const handledError = error instanceof GiftDeliveryTaskCreationError
+      ? error
+      : mapGiftDeliveryCreationDatabaseError(error);
+    if (handledError) {
+      return res.status(handledError.status).json({
+        code: handledError.code,
+        error: handledError.message,
+        ...handledError.details,
+      });
+    }
     console.error('Create gift delivery task failed:', error);
     return res.status(500).json({ error: 'فشل إنشاء مهمة تسليم الهدية' });
   } finally {

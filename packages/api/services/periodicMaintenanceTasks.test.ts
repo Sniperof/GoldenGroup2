@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  cancelUpcomingPeriodicMaintenanceForTransfer,
   generateFirstPeriodicMaintenanceTask,
+  PeriodicMaintenanceTransferError,
   type PeriodicMaintenanceGenerationResult,
 } from './periodicMaintenanceTasks.js';
 import { activateDeviceAndBootstrapPeriodicMaintenance } from './visitTaskResultReflection.js';
@@ -318,4 +320,83 @@ test('first periodic generation creates task, payload, and snapshots from activa
     statements.some(({ sql }) => sql.includes('client_snapshot')),
     true,
   );
+});
+
+test('ownership transfer cancels upcoming periodic tasks for the previous customer and their visit tasks', async () => {
+  const statements: Array<{ sql: string; params: any[] }> = [];
+  const db = {
+    async query(sql: string, params: any[] = []) {
+      statements.push({ sql, params });
+      if (sql.includes('FROM open_tasks ot') && sql.includes('FOR UPDATE OF ot')) {
+        return {
+          rows: [
+            { id: 501, status: 'scheduled', hasExecutionAttempt: false },
+            { id: 502, status: 'open', hasExecutionAttempt: false },
+          ],
+        };
+      }
+      if (sql.includes('UPDATE open_tasks')) {
+        return { rows: [{ id: 501 }, { id: 502 }] };
+      }
+      return { rows: [] };
+    },
+  };
+
+  const cancelledTaskIds = await cancelUpcomingPeriodicMaintenanceForTransfer(db, {
+    installedDeviceId: 38,
+    fromClientId: 4,
+    toClientId: 9,
+    performedByUserId: 12,
+  });
+
+  assert.deepEqual(cancelledTaskIds, [501, 502]);
+  const lock = statements.find(({ sql }) => sql.includes('FOR UPDATE OF ot'));
+  assert.ok(lock);
+  assert.match(lock.sql, /ot\.device_id = \$1/);
+  assert.match(lock.sql, /ot\.client_id = \$2/);
+  assert.deepEqual(lock.params, [38, 4]);
+
+  const taskUpdate = statements.find(({ sql }) => sql.includes('UPDATE open_tasks'));
+  assert.ok(taskUpdate);
+  assert.match(taskUpdate.sql, /status = 'cancelled'/);
+  assert.deepEqual(taskUpdate.params[0], [501, 502]);
+  assert.equal(taskUpdate.params[1], 'نقل حيازة الجهاز إلى زبون آخر');
+
+  const visitTaskUpdate = statements.find(({ sql }) => sql.includes('UPDATE visit_tasks'));
+  assert.ok(visitTaskUpdate);
+  assert.deepEqual(visitTaskUpdate.params, [[501, 502]]);
+
+  const audit = statements.find(({ sql }) => sql.includes('INSERT INTO task_activity_log'));
+  assert.ok(audit);
+  assert.deepEqual(audit.params, [
+    [501, 502],
+    ['scheduled', 'open'],
+    12,
+    'device_possession_transferred_to_client:9',
+  ]);
+});
+
+test('ownership transfer is blocked while periodic maintenance is already executing', async () => {
+  const statements: string[] = [];
+  const db = {
+    async query(sql: string) {
+      statements.push(sql);
+      return {
+        rows: [{ id: 503, status: 'in_execution', hasExecutionAttempt: true }],
+      };
+    },
+  };
+
+  await assert.rejects(
+    cancelUpcomingPeriodicMaintenanceForTransfer(db, {
+      installedDeviceId: 38,
+      fromClientId: 4,
+      toClientId: 9,
+      performedByUserId: 12,
+    }),
+    (error: any) =>
+      error instanceof PeriodicMaintenanceTransferError
+      && /#503/.test(error.message),
+  );
+  assert.equal(statements.length, 1);
 });
