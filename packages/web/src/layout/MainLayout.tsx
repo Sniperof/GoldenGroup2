@@ -261,7 +261,7 @@ export default function MainLayout() {
                 {!isCollapsed && !isGlobalOnlyPage && <BranchSwitcher />}
 
                 {/* Navigation */}
-                <nav className="flex-1 overflow-y-auto custom-scroll py-6 px-3 space-y-1 mt-16 lg:mt-0">
+                <nav className="flex-1 overflow-y-auto custom-scroll py-6 px-3 space-y-1">
                     {navItems.map(item => (
                         <NavLink
                             key={item.path}

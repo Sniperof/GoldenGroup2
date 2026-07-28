@@ -209,7 +209,7 @@ export default function InstalledDevicesList() {
     }
 
     return (
-        <div className="p-8">
+        <div className="p-4 sm:p-6 lg:p-8">
             <SmartTable<InstalledDevice>
                 title="الأجهزة المركّبة"
                 icon={HardDrive}

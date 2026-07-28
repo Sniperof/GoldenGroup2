@@ -503,7 +503,7 @@ export default function CandidatesEntry() {
     if (sheetDateFrom || sheetDateTo) sheetChips.push({ key: 'date', label: 'التاريخ', value: `${sheetDateFrom || '…'} → ${sheetDateTo || '…'}`, onRemove: () => { setSheetDateFrom(''); setSheetDateTo(''); setSheetsPage(1); } });
 
     return (
-        <div className="p-8 space-y-6" dir="rtl">
+        <div className="p-4 sm:p-6 lg:p-8 space-y-6" dir="rtl">
             {/* Error Message Modal */}
             <Modal
                 isOpen={!!errorModal}

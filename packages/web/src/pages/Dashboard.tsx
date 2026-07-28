@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { BarChart3, ClipboardList, LayoutDashboard, LayoutGrid, Sparkles, UsersRound } from '../components/ui/icons';
 import { useSearchParams } from 'react-router-dom';
@@ -84,6 +84,21 @@ export default function Dashboard() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [scope, setScope] = useState<ScopeState>({ preset: 'month', branchId: null });
   const [branches, setBranches] = useState<BranchOption[]>([]);
+  const tabsRef = useRef<HTMLDivElement>(null);
+  // هل يوجد محتوى مخفي على كل طرف؟ (يتحكم بظهور طبقات التلاشي)
+  const [tabFades, setTabFades] = useState({ start: false, end: false });
+
+  // يحسب أي طرف من الشريط فيه تبويبات مخفية، مع مراعاة أن RTL يجعل scrollLeft سالباً.
+  const updateTabFades = useCallback(() => {
+    const el = tabsRef.current;
+    if (!el) return;
+    const max = el.scrollWidth - el.clientWidth;
+    const scrolled = Math.abs(el.scrollLeft);
+    setTabFades({
+      start: scrolled > 1,          // محتوى مخفي نحو اليمين (بداية RTL)
+      end: scrolled < max - 1,      // محتوى مخفي نحو اليسار (نهاية RTL)
+    });
+  }, []);
 
   // §8.1 — لا يدخل أي مؤشر إلى الواجهة قبل اجتياز بوابة صلاحية مصدره.
   const visibleWidgets = useMemo(
@@ -131,6 +146,19 @@ export default function Dashboard() {
     setSearchParams(next, { replace: true });
   }, [activeSection, availableSections.length, requestedSection, searchParams, setSearchParams]);
 
+  // ينزلق الشريط ليُظهر التبويب النشط بالكامل (خاصة الأخير في RTL الذي قد يقع خارج الشاشة)
+  // ثم يعيد حساب طبقات التلاشي بعد استقرار الانزلاق.
+  useEffect(() => {
+    const el = tabsRef.current;
+    if (!el) return;
+    const active = el.querySelector<HTMLButtonElement>('[aria-current="page"]');
+    active?.scrollIntoView({ inline: 'center', block: 'nearest' });
+    updateTabFades();
+    const onResize = () => updateTabFades();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [activeSection, availableSections.length, updateTabFades]);
+
   useEffect(() => {
     if (!canPickBranch && scope.branchId != null) {
       setScope(current => ({ ...current, branchId: null }));
@@ -152,7 +180,7 @@ export default function Dashboard() {
 
   return (
     <div className="custom-scroll h-full overflow-y-auto bg-slate-50/70">
-      <div className="mx-auto w-full max-w-[1600px] p-4 sm:p-6 lg:p-8">
+      <div className="mx-auto w-full max-w-[1600px] p-4 pb-28 sm:p-6 sm:pb-28 lg:p-8 lg:pb-28">
         <section className="relative mb-6 overflow-hidden rounded-3xl border border-sky-100 bg-gradient-to-l from-sky-700 via-sky-600 to-indigo-600 px-6 py-7 text-white shadow-lg shadow-sky-900/10 sm:px-8">
           <div className="absolute -left-16 -top-20 h-56 w-56 rounded-full bg-white/10 blur-2xl" />
           <div className="absolute -bottom-28 right-1/3 h-52 w-52 rounded-full bg-cyan-300/15 blur-3xl" />
@@ -180,7 +208,13 @@ export default function Dashboard() {
         <ScopeFilterBar value={scope} onChange={setScope} canPickBranch={canPickBranch} branches={branches} />
 
         {availableSections.length > 0 && (
-          <nav className="mb-7 mt-4 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm" aria-label="أقسام الداشبورد">
+          <div className="relative mb-7 mt-4">
+          <nav
+            ref={tabsRef}
+            onScroll={updateTabFades}
+            className="custom-scroll overflow-x-auto rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm"
+            aria-label="أقسام الداشبورد"
+          >
             <div className="flex min-w-max gap-1">
               {availableSections.map(section => {
                 const meta = SECTION_META[section];
@@ -203,6 +237,15 @@ export default function Dashboard() {
               })}
             </div>
           </nav>
+          {/* طبقتا تلاشٍ على الطرفين تظهران فقط حين توجد تبويبات مخفية في ذلك الاتجاه،
+              فلا تغطّيان التبويب النشط حين يكون في أقصى طرف. */}
+          <div
+            className={`pointer-events-none absolute inset-y-0 right-0 w-10 rounded-r-2xl bg-gradient-to-l from-white to-transparent transition-opacity duration-200 ${tabFades.start ? 'opacity-100' : 'opacity-0'}`}
+          />
+          <div
+            className={`pointer-events-none absolute inset-y-0 left-0 w-10 rounded-l-2xl bg-gradient-to-r from-white to-transparent transition-opacity duration-200 ${tabFades.end ? 'opacity-100' : 'opacity-0'}`}
+          />
+          </div>
         )}
 
         {visibleWidgets.length === 0 ? (

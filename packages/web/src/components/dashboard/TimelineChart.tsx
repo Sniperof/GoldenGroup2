@@ -1,6 +1,7 @@
+import { useEffect, useRef, useState } from 'react';
 import type { BreakdownResponse } from '../../lib/api';
 
-const WIDTH = 760;
+const DEFAULT_WIDTH = 760;
 const HEIGHT = 230;
 const PAD_X = 34;
 const PAD_TOP = 18;
@@ -18,6 +19,35 @@ function formatDate(value: string, count: number): string {
 }
 
 export default function TimelineChart({ data }: { data: BreakdownResponse }) {
+  // Fewer x-axis labels on narrow screens — the viewBox is stretched to the
+  // container width (preserveAspectRatio="none"), so 7 labels crowd/overlap on
+  // a phone. Drop to 4 below the sm breakpoint.
+  const [narrow, setNarrow] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia('(max-width: 639px)').matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 639px)');
+    const onChange = () => setNarrow(mq.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
+  // Match the viewBox width to the real rendered width so the horizontal scale
+  // stays 1:1 — otherwise preserveAspectRatio="none" squishes the axis labels
+  // on narrow (phone) containers.
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [WIDTH, setWidth] = useState(DEFAULT_WIDTH);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(entries => {
+      const w = Math.round(entries[0].contentRect.width);
+      if (w > 0) setWidth(w);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   const groups = data.groups;
   const max = Math.max(1, ...groups.map(group => group.value));
   const chartHeight = HEIGHT - PAD_TOP - PAD_BOTTOM;
@@ -38,7 +68,7 @@ export default function TimelineChart({ data }: { data: BreakdownResponse }) {
     ? `${linePath} L ${points[points.length - 1].x} ${HEIGHT - PAD_BOTTOM} L ${points[0].x} ${HEIGHT - PAD_BOTTOM} Z`
     : '';
   const labelIndexes = new Set<number>();
-  const labelCount = Math.min(7, groups.length);
+  const labelCount = Math.min(narrow ? 4 : 7, groups.length);
   for (let index = 0; index < labelCount; index += 1) {
     labelIndexes.add(labelCount <= 1 ? 0 : Math.round((index / (labelCount - 1)) * (groups.length - 1)));
   }
@@ -47,7 +77,7 @@ export default function TimelineChart({ data }: { data: BreakdownResponse }) {
   const peak = groups.reduce<typeof groups[number] | null>((best, group) => !best || group.value > best.value ? group : best, null);
 
   return (
-    <div>
+    <div ref={containerRef}>
       <div className="mb-3 grid grid-cols-3 gap-2 rounded-xl bg-slate-50 p-3 text-center">
         <div><p className="text-[10px] text-slate-400">إجمالي الفترة</p><p className="mt-0.5 text-sm font-black text-slate-700">{total.toLocaleString('ar')}</p></div>
         <div className="border-x border-slate-200"><p className="text-[10px] text-slate-400">متوسط الفترة</p><p className="mt-0.5 text-sm font-black text-slate-700">{average.toLocaleString('ar')}</p></div>

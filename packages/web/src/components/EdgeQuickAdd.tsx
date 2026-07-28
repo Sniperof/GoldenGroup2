@@ -8,10 +8,8 @@ interface EdgeQuickAddProps {
     onServiceRequestClick: () => void;
 }
 
-// A handle docked to the LEFT edge of the screen, vertically centred. It only
-// peeks out at rest; hovering (desktop) or tapping (touch) slides it fully into
-// view, and tapping opens the action menu to its right. Living on the vertical
-// edge — not a bottom corner — it can never overlap a page's sticky bottom bar.
+// A circular quick-add FAB fixed to the BOTTOM-LEFT corner on every screen
+// size. Tapping toggles the action menu, which opens upward above the button.
 export default function EdgeQuickAdd({ onAddSuggested, onAddCandidate, onServiceRequestClick }: EdgeQuickAddProps) {
     const [open, setOpen] = useState(false);
     const ref = useRef<HTMLDivElement>(null);
@@ -29,32 +27,18 @@ export default function EdgeQuickAdd({ onAddSuggested, onAddCandidate, onService
         <div
             ref={ref}
             dir="ltr"
-            className="group fixed left-0 top-[60%] -translate-y-1/2 z-[70] flex items-center gap-3"
+            className="fixed bottom-5 left-5 z-[70] flex flex-col items-start gap-3"
         >
-            {/* Circular handle docked to the edge. At rest its left half is tucked
-                off-screen so only a half-circle peeks; hovering slides it fully into
-                view to the right, and clicking opens the options. */}
-            <motion.button
-                onClick={() => setOpen(o => !o)}
-                aria-label="إضافة سريعة"
-                aria-expanded={open}
-                className={`flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-sky-500 to-sky-600 text-white shadow-lg shadow-sky-500/40 transition-all duration-300 ease-out hover:shadow-xl hover:shadow-sky-500/50 active:scale-95 ${open ? 'translate-x-0' : '-translate-x-1/2 group-hover:translate-x-0'}`}
-            >
-                <motion.span animate={{ rotate: open ? 45 : 0 }} transition={{ type: 'spring', stiffness: 300, damping: 20 }}>
-                    <Plus className="h-7 w-7" strokeWidth={2.5} />
-                </motion.span>
-            </motion.button>
-
-            {/* Action menu — opens to the right of the handle, RTL content */}
+            {/* Action menu — opens upward, above the button. RTL content. */}
             <AnimatePresence>
                 {open && (
                     <motion.div
                         dir="rtl"
-                        initial={{ opacity: 0, x: -12, scale: 0.95 }}
-                        animate={{ opacity: 1, x: 0, scale: 1 }}
-                        exit={{ opacity: 0, x: -12, scale: 0.95 }}
+                        initial={{ opacity: 0, y: 12, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 12, scale: 0.95 }}
                         transition={{ type: 'spring', stiffness: 400, damping: 26 }}
-                        className="flex flex-col gap-2"
+                        className="flex flex-col items-start gap-2"
                     >
                         <button
                             onClick={() => { onServiceRequestClick(); setOpen(false); }}
@@ -88,6 +72,18 @@ export default function EdgeQuickAdd({ onAddSuggested, onAddCandidate, onService
                     </motion.div>
                 )}
             </AnimatePresence>
+
+            {/* FAB — fixed at the bottom-left corner on every screen size. */}
+            <motion.button
+                onClick={() => setOpen(o => !o)}
+                aria-label="إضافة سريعة"
+                aria-expanded={open}
+                className="flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-sky-500 to-sky-600 text-white shadow-lg shadow-sky-500/40 transition-all duration-300 ease-out hover:shadow-xl hover:shadow-sky-500/50 active:scale-95"
+            >
+                <motion.span animate={{ rotate: open ? 45 : 0 }} transition={{ type: 'spring', stiffness: 300, damping: 20 }}>
+                    <Plus className="h-7 w-7" strokeWidth={2.5} />
+                </motion.span>
+            </motion.button>
         </div>
     );
 }
