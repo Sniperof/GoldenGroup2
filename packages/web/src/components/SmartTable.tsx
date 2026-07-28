@@ -56,6 +56,12 @@ export interface SmartTableProps<T> {
     /** Hide the in-card title/toolbar header (when the page already has a title
      * block + tabs above). The toolbar (reset · export) moves into the filter bar. */
     hideHeader?: boolean;
+    /**
+     * On narrow screens (< md) render each row as a stacked card (label · value)
+     * instead of a horizontally-scrolling table. Desktop is unchanged. Default on;
+     * set `false` to keep the horizontal-scroll table on mobile too.
+     */
+    mobileCards?: boolean;
     tableMinWidth?: number;
     defaultSortKey?: string;
     defaultSortDir?: 'asc' | 'desc';
@@ -124,6 +130,7 @@ export default function SmartTable<T>({
     rowClassName,
     hideFilterBar = false,
     hideHeader = false,
+    mobileCards = true,
     tableMinWidth = 860,
     defaultSortKey,
     defaultSortDir,
@@ -359,8 +366,67 @@ export default function SmartTable<T>({
                 </motion.div>
             )}
 
+            {/* ── MOBILE CARD LIST (< md) — same data/pagination, stacked as cards ── */}
+            {mobileCards && (
+                <div className="md:hidden divide-y divide-slate-100">
+                    {paginatedData.length === 0 ? (
+                        <div className="text-center px-4 py-12">
+                            {EmptyIcon && <EmptyIcon className="w-10 h-10 mx-auto mb-3 text-slate-200" />}
+                            <p className="text-slate-400 text-sm font-medium">{emptyMessage}</p>
+                            {hasActiveFilters && (
+                                <button onClick={resetFilters} className="mt-2 text-xs text-sky-500 hover:underline">
+                                    مسح الفلاتر لعرض كل السجلات
+                                </button>
+                            )}
+                        </div>
+                    ) : paginatedData.map(item => {
+                        const id = getId(item);
+                        const isSelected = selected.has(id);
+                        const customRowClass = rowClassName ? rowClassName(item) : '';
+                        return (
+                            <div
+                                key={String(id)}
+                                onClick={() => onRowClick?.(item)}
+                                className={[
+                                    'px-4 py-3.5 transition-colors',
+                                    onRowClick ? 'cursor-pointer active:bg-sky-50' : '',
+                                    customRowClass || (isSelected ? 'bg-sky-50/80' : 'bg-white'),
+                                ].join(' ')}
+                            >
+                                {bulkActions && (
+                                    <div className="mb-2.5" onClick={e => e.stopPropagation()}>
+                                        <Checkbox
+                                            checked={isSelected}
+                                            onCheckedChange={() => toggleOne(id)}
+                                            label="تحديد الصف"
+                                        />
+                                    </div>
+                                )}
+                                <dl className="space-y-1.5">
+                                    {columns.map(col => (
+                                        <div key={col.key} className="flex items-start justify-between gap-3">
+                                            <dt className="shrink-0 pt-0.5 text-xs font-medium text-slate-400">{col.label}</dt>
+                                            <dd className="min-w-0 text-left">
+                                                {col.render
+                                                    ? col.render(item)
+                                                    : <span className="text-sm text-slate-700">{String((item as any)[col.key] ?? '')}</span>}
+                                            </dd>
+                                        </div>
+                                    ))}
+                                </dl>
+                                {actions && (
+                                    <div className="mt-3 flex justify-end border-t border-slate-100 pt-3" onClick={e => e.stopPropagation()}>
+                                        {actions(item)}
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+
             {/* ── TABLE — horizontal scroll only, vertical scroll is the page ── */}
-            <div className="overflow-x-auto custom-scroll">
+            <div className={`overflow-x-auto custom-scroll ${mobileCards ? 'hidden md:block' : ''}`}>
                 <table
                     className="w-full border-collapse"
                     style={{ minWidth: `${tableMinWidth}px` }}

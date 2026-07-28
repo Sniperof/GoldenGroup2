@@ -875,7 +875,10 @@ export default function MainLayout() {
             </aside>
 
             {/* Main Content */}
-            <main className="flex-1 overflow-y-auto custom-scroll bg-slate-50 mt-16 lg:mt-0">
+            {/* pb-24 keeps the last row/pagination clear of the fixed bottom-left
+                quick-add FAB (bottom-5 + h-14 ≈ 76px). Pages with their own inner
+                scroll container (e.g. Dashboard) add their own bottom padding. */}
+            <main className="flex-1 overflow-y-auto custom-scroll bg-slate-50 mt-16 lg:mt-0 pb-24">
                 <Outlet />
             </main>
 

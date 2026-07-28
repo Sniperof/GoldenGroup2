@@ -137,6 +137,12 @@ export default function DeviceProfilePage() {
     // tabs. A scroll listener is used because it fires reliably on user scroll.
     const MARKER = 175;
     const onScroll = () => {
+      // At the very bottom the last short/empty sections never reach the marker —
+      // pin the active tab to the last section so it matches where the user is.
+      if (scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 4) {
+        setActiveSection(SECTIONS[SECTIONS.length - 1].id);
+        return;
+      }
       let current = SECTIONS[0].id;
       for (const s of SECTIONS) {
         const el = document.getElementById(s.id);
