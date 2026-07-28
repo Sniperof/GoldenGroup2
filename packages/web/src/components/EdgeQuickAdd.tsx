@@ -8,8 +8,11 @@ interface EdgeQuickAddProps {
     onServiceRequestClick: () => void;
 }
 
-// A circular quick-add FAB fixed to the BOTTOM-LEFT corner on every screen
-// size. Tapping toggles the action menu, which opens upward above the button.
+// A handle docked to the LEFT edge of the screen, vertically centred. Living on
+// the vertical edge — not a bottom corner — it can never overlap a page's sticky
+// bottom bar. On DESKTOP (lg+, hover-capable) it only peeks at rest and slides
+// fully into view on hover; on MOBILE/tablet (touch, no hover) it stays fully
+// visible on the edge so it's always tappable. Tapping opens the menu to its right.
 export default function EdgeQuickAdd({ onAddSuggested, onAddCandidate, onServiceRequestClick }: EdgeQuickAddProps) {
     const [open, setOpen] = useState(false);
     const ref = useRef<HTMLDivElement>(null);
@@ -27,9 +30,28 @@ export default function EdgeQuickAdd({ onAddSuggested, onAddCandidate, onService
         <div
             ref={ref}
             dir="ltr"
-            className="fixed bottom-5 left-5 z-[70] flex flex-col items-start gap-3"
+            // Bottom-left corner on every size, menu opens upward (flex-col-reverse
+            // puts the button at the bottom, menu above it). The only difference by
+            // size is the button itself: mobile/tablet keep it fully visible (left-5),
+            // desktop (lg+) tucks it flush to the edge (left-0) so it can peek/hover.
+            className="group fixed bottom-5 left-5 z-[70] flex flex-col-reverse items-start gap-3 lg:left-0"
         >
-            {/* Action menu — opens upward, above the button. RTL content. */}
+            {/* Circular handle docked to the edge. On lg+ its left half is tucked
+                off-screen so only a half-circle peeks, and hover slides it fully into
+                view. Below lg (touch) it stays fully visible on the edge. Clicking
+                opens the options. */}
+            <motion.button
+                onClick={() => setOpen(o => !o)}
+                aria-label="إضافة سريعة"
+                aria-expanded={open}
+                className={`flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-sky-500 to-sky-600 text-white shadow-lg shadow-sky-500/40 transition-all duration-300 ease-out hover:shadow-xl hover:shadow-sky-500/50 active:scale-95 ${open ? 'translate-x-0' : 'translate-x-0 lg:-translate-x-1/2 lg:group-hover:translate-x-0'}`}
+            >
+                <motion.span animate={{ rotate: open ? 45 : 0 }} transition={{ type: 'spring', stiffness: 300, damping: 20 }}>
+                    <Plus className="h-7 w-7" strokeWidth={2.5} />
+                </motion.span>
+            </motion.button>
+
+            {/* Action menu — opens upward, above the handle. RTL content. */}
             <AnimatePresence>
                 {open && (
                     <motion.div
@@ -38,7 +60,7 @@ export default function EdgeQuickAdd({ onAddSuggested, onAddCandidate, onService
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{ opacity: 0, y: 12, scale: 0.95 }}
                         transition={{ type: 'spring', stiffness: 400, damping: 26 }}
-                        className="flex flex-col items-start gap-2"
+                        className="flex flex-col gap-2"
                     >
                         <button
                             onClick={() => { onServiceRequestClick(); setOpen(false); }}
@@ -72,18 +94,6 @@ export default function EdgeQuickAdd({ onAddSuggested, onAddCandidate, onService
                     </motion.div>
                 )}
             </AnimatePresence>
-
-            {/* FAB — fixed at the bottom-left corner on every screen size. */}
-            <motion.button
-                onClick={() => setOpen(o => !o)}
-                aria-label="إضافة سريعة"
-                aria-expanded={open}
-                className="flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-sky-500 to-sky-600 text-white shadow-lg shadow-sky-500/40 transition-all duration-300 ease-out hover:shadow-xl hover:shadow-sky-500/50 active:scale-95"
-            >
-                <motion.span animate={{ rotate: open ? 45 : 0 }} transition={{ type: 'spring', stiffness: 300, damping: 20 }}>
-                    <Plus className="h-7 w-7" strokeWidth={2.5} />
-                </motion.span>
-            </motion.button>
         </div>
     );
 }

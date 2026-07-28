@@ -180,7 +180,9 @@ export default function Dashboard() {
 
   return (
     <div className="custom-scroll h-full overflow-y-auto bg-slate-50/70">
-      <div className="mx-auto w-full max-w-[1600px] p-4 pb-28 sm:p-6 sm:pb-28 lg:p-8 lg:pb-28">
+      {/* pb-28 clears the bottom-corner quick-add FAB on mobile/tablet (< lg); on
+          lg+ the FAB is on the side edge so web keeps its original bottom padding. */}
+      <div className="mx-auto w-full max-w-[1600px] p-4 pb-28 sm:p-6 sm:pb-28 lg:p-8">
         <section className="relative mb-6 overflow-hidden rounded-3xl border border-sky-100 bg-gradient-to-l from-sky-700 via-sky-600 to-indigo-600 px-6 py-7 text-white shadow-lg shadow-sky-900/10 sm:px-8">
           <div className="absolute -left-16 -top-20 h-56 w-56 rounded-full bg-white/10 blur-2xl" />
           <div className="absolute -bottom-28 right-1/3 h-52 w-52 rounded-full bg-cyan-300/15 blur-3xl" />

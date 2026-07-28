@@ -875,10 +875,10 @@ export default function MainLayout() {
             </aside>
 
             {/* Main Content */}
-            {/* pb-24 keeps the last row/pagination clear of the fixed bottom-left
-                quick-add FAB (bottom-5 + h-14 ≈ 76px). Pages with their own inner
-                scroll container (e.g. Dashboard) add their own bottom padding. */}
-            <main className="flex-1 overflow-y-auto custom-scroll bg-slate-50 mt-16 lg:mt-0 pb-24">
+            {/* pb-24 clears the bottom-left quick-add FAB on mobile/tablet (< lg),
+                where it sits in the bottom corner. On lg+ the FAB moves to the side
+                edge, so no bottom padding is needed (lg:pb-0) and web stays untouched. */}
+            <main className="flex-1 overflow-y-auto custom-scroll bg-slate-50 mt-16 lg:mt-0 pb-24 lg:pb-0">
                 <Outlet />
             </main>
 
