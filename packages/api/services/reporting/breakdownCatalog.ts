@@ -39,6 +39,8 @@ const REFERRAL_TYPE_LABELS: Record<string, string> = {
   Personal: 'شخصي',
   Client: 'زبون',
   Employee: 'موظف',
+  Unknown: 'مجهول',
+  Other: 'أخرى',
 };
 
 // تسميات عربية لقنوات الوصول المعروفة؛ أي قيمة أخرى تُعرض كما هي (fallback خام).
@@ -130,7 +132,7 @@ const candidatesOwnershipBreakdown: BreakdownDefinition = {
   kind: 'ranked-bar',
   valueUnit: 'count',
   secondaryLabel: 'تحويل',
-  purpose: 'حجم محفظة كل موظف وملكية كل فرع ومعدّل التحويل الفعلي لكل منها.',
+  purpose: 'عدد الأسماء المملوكة لكل موظف وملكية كل فرع ومعدّل التحويل الفعلي لكل منها.',
   async compute(ctx) {
     const params: unknown[] = [ctx.from, ctx.to];
     const scopeSql = appendCandidateScope(ctx, params);
@@ -261,7 +263,7 @@ const clientsClassificationDistribution: BreakdownDefinition = {
   titleAr: 'توزيع دورة حياة الزبائن',
   kind: 'donut',
   valueUnit: 'count',
-  purpose: 'قرار: قراءة تركيب المحفظة الحالية حسب Lead وFOP وOP.',
+  purpose: 'قرار: قراءة تركيب قاعدة الزبائن الحالية حسب Lead وFOP وOP.',
   async compute(ctx) {
     const params: unknown[] = [];
     const sql =
@@ -410,6 +412,149 @@ const candidatesQualifiedOutcome: BreakdownDefinition = {
   },
 };
 
+// ── إضافات مشتقّة من فلاتر جدول الزبائن (§3.2 #5/#8 · §3.8 #1) ──────────────────
+// كلها clients.view_list ومقيَّدة بالنطاق عبر appendClientScope: صاحب ASSIGNED
+// يرى محفظته وحدها (لا أرقام مدير)، وBRANCH فرعه، وGLOBAL الكل — دفاع بطبقتين.
+
+// أداء الملكية: عدد الزبائن المملوكين لكل موظف/فرع (§3.8 #1، Tier 1). لصاحب
+// ASSIGNED تنهار المجموعة لصفّه وحده («أدائي الشخصي») — لا تسريب أسماء/أرقام زملاء.
+const clientsOwnershipBreakdown: BreakdownDefinition = {
+  key: 'clients.ownership_breakdown',
+  permission: 'clients.view_list',
+  titleAr: 'توزيع ملكية الزبائن',
+  kind: 'ranked-bar',
+  valueUnit: 'count',
+  purpose: 'إنجاز فريق: عدد الزبائن المسندين لكل موظف (وملكية الفرع) ضمن النطاق.',
+  async compute(ctx) {
+    const params: unknown[] = [];
+    const scopeSql = appendClientScope(ctx, params);
+    let assigneeSql = '';
+    if (ctx.scope === 'ASSIGNED') {
+      params.push(ctx.userId);
+      assigneeSql = ` AND ca.hr_user_id = $${params.length}`;
+    }
+    const sql =
+      `SELECT CASE
+                WHEN ca.hr_user_id IS NULL THEN 'branch:' || c.branch_id::text
+                ELSE 'user:' || ca.hr_user_id::text
+              END AS ownership_key,
+              CASE
+                WHEN ca.hr_user_id IS NULL THEN 'ملكية فرع ' || COALESCE(b.name, 'غير محدد')
+                ELSE COALESCE(hu.name, 'غير محدد')
+              END AS name,
+              COUNT(*)::int AS cnt
+         FROM clients c
+         LEFT JOIN LATERAL (
+           SELECT ca0.hr_user_id
+             FROM client_assignments ca0
+            WHERE ca0.client_id = c.id
+            ORDER BY ca0.assigned_at, ca0.id
+            LIMIT 1
+         ) ca ON TRUE
+         LEFT JOIN hr_users hu ON hu.id = ca.hr_user_id
+         LEFT JOIN branches b ON b.id = c.branch_id
+        WHERE c.deleted_at IS NULL
+          AND c.is_active IS NOT FALSE` + scopeSql + assigneeSql +
+      ` GROUP BY ownership_key, ca.hr_user_id, hu.name, c.branch_id, b.name
+        ORDER BY cnt DESC
+        LIMIT 10`;
+    const { rows } = await pool.query(sql, params);
+    return rows.map(r => ({ key: String(r.ownership_key), label: String(r.name), value: Number(r.cnt ?? 0) }));
+  },
+};
+
+// توزيع اكتساب الزبائن حسب نوع الوسيط (§3.2 #5): مَن أحضر الزبون (شخصي/زبون/موظف).
+const clientsReferrerTypeDistribution: BreakdownDefinition = {
+  key: 'clients.acquisition_by_referrer_type',
+  permission: 'clients.view_list',
+  titleAr: 'اكتساب الزبائن حسب نوع الوسيط',
+  kind: 'donut',
+  valueUnit: 'count',
+  purpose: 'قرار: تقييم برنامج الإحالة مقابل التسويق المباشر — مَن يُحضر الزبائن فعليًا.',
+  async compute(ctx) {
+    const params: unknown[] = [ctx.from, ctx.to];
+    const sql =
+      `SELECT COALESCE(NULLIF(TRIM(c.referrer_type), ''), 'غير محدد') AS k, COUNT(*)::int AS v
+         FROM clients c
+        WHERE c.deleted_at IS NULL
+          AND c.created_at >= $1 AND c.created_at < $2` + appendClientScope(ctx, params) +
+      ` GROUP BY 1 ORDER BY v DESC LIMIT 8`;
+    const { rows } = await pool.query(sql, params);
+    // Fallback to Arabic 'غير محدد' so no raw English enum key can surface as a label.
+    return rows.map(r => { const k = String(r.k); return { key: k, label: REFERRAL_TYPE_LABELS[k] ?? 'غير محدد', value: Number(r.v ?? 0) }; });
+  },
+};
+
+// أعلى المناطق كثافة زبائن (§3.2 #8): تجميع لحظي على مستوى المحافظة ضمن النطاق.
+const clientsTopGeoAreas: BreakdownDefinition = {
+  key: 'clients.top_geo_areas',
+  permission: 'clients.view_list',
+  titleAr: 'أعلى المناطق كثافة زبائن',
+  kind: 'ranked-bar',
+  valueUnit: 'count',
+  purpose: 'قرار: تخطيط التغطية الميدانية — أي المحافظات تحوي أعلى كثافة زبائن ضمن النطاق.',
+  async compute(ctx) {
+    const params: unknown[] = [];
+    const sql =
+      `SELECT COALESCE(g.name, 'غير محدد') AS k, COUNT(*)::int AS v
+         FROM clients c
+         LEFT JOIN geo_units g ON g.id = NULLIF(c.governorate::text, '')::int
+        WHERE c.deleted_at IS NULL
+          AND c.is_active IS NOT FALSE` + appendClientScope(ctx, params) +
+      ` GROUP BY 1 ORDER BY v DESC LIMIT 10`;
+    const { rows } = await pool.query(sql, params);
+    return rows.map(r => ({ key: String(r.k), label: String(r.k), value: Number(r.v ?? 0) }));
+  },
+};
+
+// كثافة الزبائن حسب خط السير (§3.7 #1): مطابقة قانونية عبر نقاط الخط عند المستوى
+// الرابع (الحي) — c.neighborhood = route_points.geo_unit_id حيث level=4.
+const clientsByRoute: BreakdownDefinition = {
+  key: 'clients.by_route',
+  permission: 'clients.view_list',
+  titleAr: 'كثافة الزبائن حسب خط السير',
+  kind: 'ranked-bar',
+  valueUnit: 'count',
+  purpose: 'قرار: أي خطوط السير تغطّي أعلى كثافة زبائن فعليًا — يربط بيانات الزبائن بقرار التخطيط الميداني.',
+  async compute(ctx) {
+    const params: unknown[] = [];
+    const sql =
+      `SELECT r.id AS rid, r.name AS rname, COUNT(DISTINCT c.id)::int AS v
+         FROM clients c
+         JOIN route_points rp ON rp.level = 4 AND rp.geo_unit_id = NULLIF(c.neighborhood::text, '')::int
+         JOIN routes r ON r.id = rp.route_id
+        WHERE c.deleted_at IS NULL
+          AND c.is_active IS NOT FALSE` + appendClientScope(ctx, params) +
+      ` GROUP BY r.id, r.name
+        ORDER BY v DESC
+        LIMIT 10`;
+    const { rows } = await pool.query(sql, params);
+    return rows.map(r => ({ key: String(r.rid), label: String(r.rname), value: Number(r.v ?? 0) }));
+  },
+};
+
+// أكثر الوسطاء إحضارًا للزبائن (§3.2 #13): ترتيب حسب اسم الوسيط خلال الفترة والنطاق.
+const clientsTopReferrers: BreakdownDefinition = {
+  key: 'clients.top_referrers',
+  permission: 'clients.view_list',
+  titleAr: 'أكثر الوسطاء إحضارًا للزبائن',
+  kind: 'ranked-bar',
+  valueUnit: 'count',
+  purpose: 'قرار/إنجاز فريق: مَن يُحضر أكثر الزبائن فعليًا — أساس أي برنامج حوافز إحالة.',
+  async compute(ctx) {
+    const params: unknown[] = [ctx.from, ctx.to];
+    const sql =
+      `SELECT COALESCE(NULLIF(TRIM(c.referrer_name), ''), 'غير محدد') AS k, COUNT(*)::int AS v
+         FROM clients c
+        WHERE c.deleted_at IS NULL
+          AND c.referrer_name IS NOT NULL AND TRIM(c.referrer_name) <> ''
+          AND c.created_at >= $1 AND c.created_at < $2` + appendClientScope(ctx, params) +
+      ` GROUP BY 1 ORDER BY v DESC LIMIT 10`;
+    const { rows } = await pool.query(sql, params);
+    return rows.map(r => ({ key: String(r.k), label: String(r.k), value: Number(r.v ?? 0) }));
+  },
+};
+
 export const BREAKDOWN_CATALOG: BreakdownDefinition[] = [
   candidatesStageFunnel,
   referralSheetsTeamQuality,
@@ -422,6 +567,11 @@ export const BREAKDOWN_CATALOG: BreakdownDefinition[] = [
   clientsAcquisitionByChannel,
   clientsDataQualityDistribution,
   clientsWaterSourceDistribution,
+  clientsOwnershipBreakdown,
+  clientsReferrerTypeDistribution,
+  clientsTopGeoAreas,
+  clientsByRoute,
+  clientsTopReferrers,
 ];
 
 export function findBreakdown(key: string): BreakdownDefinition | undefined {

@@ -74,9 +74,9 @@ const clientsNewCount: MetricDefinition = {
 const clientsActiveTotal: MetricDefinition = {
   key: 'clients.active_total',
   permission: 'clients.view_list',
-  titleAr: 'إجمالي المحفظة الفعّالة',
+  titleAr: 'إجمالي الزبائن الفعّالين',
   unit: 'count',
-  purpose: 'قرار: قياس الحجم الحالي لمحفظة الزبائن ضمن النطاق لتخطيط القدرة التشغيلية.',
+  purpose: 'قرار: قياس الحجم الحالي لقاعدة الزبائن ضمن النطاق لتخطيط القدرة التشغيلية.',
   async compute(ctx) {
     // لقطة حالية تراكمية؛ لا تُقارن بفترة سابقة.
     const params: unknown[] = [];
@@ -154,7 +154,7 @@ const clientsCommittedRatio: MetricDefinition = {
   permission: 'clients.rating.view',
   titleAr: 'نسبة الزبائن الملتزمين',
   unit: 'percent',
-  purpose: 'قرار/إنجاز فريق: جودة محفظة الزبائن (التزام السداد/التعامل).',
+  purpose: 'قرار/إنجاز فريق: جودة قاعدة الزبائن (التزام السداد/التعامل).',
   async compute(ctx) {
     // مؤشر لحظي على التقييم الحالي (clients.rating) ضمن النطاق.
     const params: unknown[] = [];
