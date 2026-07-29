@@ -33,6 +33,7 @@ import {
   redactPersonalAssignments,
 } from '../services/customerOwnership.js';
 import { buildClientSnapshot } from '../lib/clientSnapshot.js';
+import { resolveReferenceValueForWrite } from '../services/referenceValueService.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -2045,6 +2046,7 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
     const sourceCandidateId = Number(req.body?.sourceCandidateId);
     const hasSourceCandidate = Number.isInteger(sourceCandidateId) && sourceCandidateId > 0;
     let sourceCandidateAssignees: number[] | null = null;
+    let sourceCandidateOccupation: string | null = null;
     if (hasSourceCandidate) {
       if (Array.isArray(req.body?.assignmentUserIds)) {
         return res.status(400).json({
@@ -2054,6 +2056,7 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
       }
       const { rows: sourceRows } = await db.query(
         `SELECT c.branch_id AS "branchId",
+                c.occupation,
                 COALESCE(
                   (SELECT array_agg(ca.hr_user_id ORDER BY ca.assigned_at, ca.id)
                      FROM candidate_assignments ca
@@ -2086,6 +2089,7 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
       sourceCandidateAssignees = await getEligiblePersonalOwnerIds(
         (sourceCandidate.assignedUserIds as any[]).map(Number),
       );
+      sourceCandidateOccupation = sourceCandidate.occupation ?? null;
     }
 
     const assignmentAccess = canManageClientAssignments(authContext, targetBranchId);
@@ -2115,6 +2119,9 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
       normalizeClientPayload(req.body ?? {}),
       { id: authContext.userId, name: req.user?.name || '' },
     ), { defaultReferralDate: currentDateKey() });
+    c.occupation = await resolveReferenceValueForWrite(db, 'occupation', c.occupation, {
+      currentValue: sourceCandidateOccupation,
+    });
     if (!c.mobile) {
       return res.status(400).json({ error: 'رقم الموبايل مطلوب' });
     }
@@ -2318,7 +2325,7 @@ router.put('/:id', requirePermission('clients.edit', 'clients.contacts.edit'), a
 
     // Load existing client for comparison / audit
     const { rows: existingRows } = await pool.query(
-      'SELECT branch_id, candidate_status, is_active FROM clients WHERE id = $1',
+      'SELECT branch_id, candidate_status, is_active, occupation FROM clients WHERE id = $1',
       [clientId],
     );
     const existing = existingRows[0];
@@ -2327,6 +2334,9 @@ router.put('/:id', requirePermission('clients.edit', 'clients.contacts.edit'), a
       normalizeClientPayload(req.body ?? {}),
       { id: authContext.userId, name: req.user?.name || '' },
     ));
+    c.occupation = await resolveReferenceValueForWrite(pool, 'occupation', c.occupation, {
+      currentValue: existing?.occupation ?? null,
+    });
     if (!c.mobile) {
       return res.status(400).json({ error: 'رقم الموبايل مطلوب' });
     }

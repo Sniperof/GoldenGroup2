@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { BarChart3, ClipboardList, LayoutDashboard, LayoutGrid, Sparkles, UsersRound } from '../components/ui/icons';
+import { BarChart3, ClipboardList, LayoutDashboard, LayoutGrid, Sparkles, UsersRound, FileText } from '../components/ui/icons';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api';
 import { usePermissions } from '../hooks/usePermissions';
@@ -13,7 +13,7 @@ import { WIDGET_REGISTRY, type ScopeState, type WidgetDef } from '../components/
 const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.06 } } };
 const item = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } };
 
-type DashboardSection = 'summary' | 'clients' | 'candidates' | 'name-lists';
+type DashboardSection = 'summary' | 'clients' | 'candidates' | 'name-lists' | 'contracts';
 
 const SECTION_META: Record<DashboardSection, {
   label: string;
@@ -45,6 +45,12 @@ const SECTION_META: Record<DashboardSection, {
     description: 'قراءة جودة اللوائح والتحويل حسب الفريق',
     icon: ClipboardList,
   },
+  contracts: {
+    label: 'العقود',
+    title: 'تحليلات العقود والمبيعات',
+    description: 'قيمة المبيعات، نوع البيع، أداء البائعين ومعدّل الإلغاء',
+    icon: FileText,
+  },
 };
 
 function isNameListWidget(widget: WidgetDef): boolean {
@@ -56,6 +62,7 @@ function widgetsForSection(section: DashboardSection, widgets: WidgetDef[]): Wid
   if (section === 'summary') return widgets.filter(widget => !widget.kind || widget.kind === 'kpi');
   if (section === 'clients') return widgets.filter(widget => widget.department === 'الزبائن');
   if (section === 'name-lists') return widgets.filter(isNameListWidget);
+  if (section === 'contracts') return widgets.filter(widget => widget.department === 'العقود');
   return widgets.filter(widget => widget.department === 'الأسماء المقترحة' && !isNameListWidget(widget));
 }
 
@@ -97,6 +104,7 @@ export default function Dashboard() {
     if (widgetsForSection('clients', visibleWidgets).length > 0) sections.push('clients');
     if (widgetsForSection('candidates', visibleWidgets).length > 0) sections.push('candidates');
     if (widgetsForSection('name-lists', visibleWidgets).length > 0) sections.push('name-lists');
+    if (widgetsForSection('contracts', visibleWidgets).length > 0) sections.push('contracts');
     return sections;
   }, [visibleWidgets]);
 

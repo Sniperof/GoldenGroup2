@@ -104,6 +104,93 @@ export interface Candidate {
     createdBy: number;
 }
 
+export interface CandidateDetailGeoUnit {
+    id: number;
+    name: string;
+    level: number;
+    active: boolean;
+}
+
+export interface CandidateDetail {
+    id: number;
+    firstName: string | null;
+    lastName: string | null;
+    nickname: string | null;
+    phoneNumbers: Array<{
+        number: string;
+        type: ContactType | null;
+        label: string | null;
+        hasWhatsApp: boolean | null;
+        isPrimary: boolean;
+        status: ContactStatus | null;
+    }>;
+    status: 'New' | 'Suggested' | 'FollowUp' | 'Contacted' | 'Qualified' | 'Junk';
+    branch: { id: number | null; name: string | null };
+    ownership: {
+        type: CandidateOwnershipType;
+        responsibleUserId: number | null;
+        responsibleUserName: string | null;
+        roleDisplayName: string | null;
+        label: string;
+    };
+    createdAt: string | null;
+    address: {
+        geoUnitId: number | null;
+        geoPath: CandidateDetailGeoUnit[];
+        text: string | null;
+    };
+    referral: {
+        entryMode: 'DIRECT' | 'NAME_LIST';
+        type: ReferralType | null;
+        nameSnapshot: string | null;
+        originChannel: ReferralOriginChannel | null;
+        date: string | null;
+        reason: string | null;
+    };
+    occupation: { value: string | null; active: boolean | null };
+    candidateNotes: string | null;
+    duplicate: {
+        flagged: boolean;
+        type: DuplicateType | null;
+        match: null | {
+            visible: boolean;
+            entityType: 'Candidate' | 'Client' | 'Both' | null;
+            id?: number;
+            name?: string;
+            message?: string;
+        };
+    };
+    conversion: null | {
+        mode: 'CREATED_NEW_CLIENT' | 'LINKED_EXISTING_CLIENT' | null;
+        visible: boolean;
+        client?: { id: number; name: string; lifecycleStage: 'LEAD' | 'FOP' | 'OP' };
+        message?: string;
+    };
+    sourceSheet: null | {
+        visible: boolean;
+        message?: string;
+        id?: number;
+        status?: ReferralSheet['status'];
+        referralDate?: string | null;
+        branchName?: string | null;
+        origin?: 'MANUAL' | 'FIELD_VISIT';
+        ownerUserName?: string | null;
+        assignedHrUserName?: string | null;
+        teamResponsibleUserName?: string | null;
+        createdByUserName?: string | null;
+        actualCandidates?: number;
+        targetCandidates?: number;
+        qualityPercentage?: number;
+        conversionPercentage?: number;
+        notes?: string | null;
+    };
+    permissions: {
+        canEdit: boolean;
+        canQualify: boolean;
+        canLinkClient: boolean;
+    };
+}
+
 export type EmployeeRole = 'supervisor' | 'technician' | 'telemarketer' | 'trainee';
 
 export interface Employee {

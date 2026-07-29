@@ -175,11 +175,39 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
 
     const addCandidate = useCandidateStore((state: any) => state.addCandidate);
     const updateCandidate = useCandidateStore((state: any) => state.updateCandidate);
-    const referralSheets = useCandidateStore((state: any) => state.referralSheets);
-
-    const activeSheets = useMemo(() => referralSheets.filter((s: any) => s.status !== 'Archived' && s.status !== 'Completed'), [referralSheets]);
-
     const [isDirectMode, setIsDirectMode] = useState(initialDirectMode || false);
+    const nameListViewScope = getPermissionScope('candidates.name_lists.view_list');
+    const [availableSheets, setAvailableSheets] = useState<any[]>([]);
+    const [sheetsLoading, setSheetsLoading] = useState(false);
+    const [sheetsLoadError, setSheetsLoadError] = useState('');
+    const [sheetsRefreshKey, setSheetsRefreshKey] = useState(0);
+
+    useEffect(() => {
+        if (!isOpen || isDirectMode) return;
+        let active = true;
+        setSheetsLoading(true);
+        setSheetsLoadError('');
+        const branchFilter = nameListViewScope === 'GLOBAL' ? contextBranchId : null;
+        api.referralSheets.list(branchFilter)
+            .then(rows => {
+                if (!active) return;
+                setAvailableSheets(Array.isArray(rows) ? rows : []);
+            })
+            .catch((err: any) => {
+                if (!active) return;
+                setAvailableSheets([]);
+                setSheetsLoadError(err?.message || 'تعذر تحميل لوائح الأسماء ضمن نطاقك.');
+            })
+            .finally(() => {
+                if (active) setSheetsLoading(false);
+            });
+        return () => { active = false; };
+    }, [contextBranchId, isDirectMode, isOpen, nameListViewScope, sheetsRefreshKey]);
+
+    const activeSheets = useMemo(
+        () => availableSheets.filter((sheet: any) => sheet.status === 'New' || sheet.status === 'In-Progress'),
+        [availableSheets],
+    );
 
     const [selectedSheetId, setSelectedSheetId] = useState<number | ''>('');
     const [isCreateSheetOpen, setIsCreateSheetOpen] = useState(false);
@@ -470,11 +498,11 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
             setError('يجب إدخال رقم هاتف واحد أساسي على الأقل.');
             return false;
         }
-        if (canChooseBranch && !selectedBranchId) {
+        if (isDirectMode && canChooseBranch && !selectedBranchId) {
             setError('يجب تحديد الفرع لهذا السجل.');
             return false;
         }
-        if (canChooseAssignedOwner && ownershipType === 'PERSONAL' && !selectedResponsibleUserId) {
+        if (isDirectMode && canChooseAssignedOwner && ownershipType === 'PERSONAL' && !selectedResponsibleUserId) {
             setError('يجب تحديد المسؤول عن هذا السجل.');
             return false;
         }
@@ -549,8 +577,8 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                 candidateNotes: candidateData.candidateNotes,
                 ownerUserId: ownershipType === 'PERSONAL' ? (resolvedResponsibleUserId ?? authUser?.id ?? null) : null,
                 branchId: resolvedBranchId,
-                ownershipType: canChooseAssignedOwner ? ownershipType : undefined,
-                responsibleUserId: canChooseAssignedOwner && ownershipType === 'PERSONAL' ? resolvedResponsibleUserId : undefined,
+                ownershipType: isDirectMode && canChooseAssignedOwner ? ownershipType : undefined,
+                responsibleUserId: isDirectMode && canChooseAssignedOwner && ownershipType === 'PERSONAL' ? resolvedResponsibleUserId : undefined,
                 createdBy: authUser?.id ?? 0
             };
             let savedCandidate: Candidate | null = initialData ?? null;
@@ -713,7 +741,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                         <div className="space-y-4">
                             <div className="mb-2"></div>
 
-                            {(canChooseBranch || canChooseAssignedOwner) && (
+                            {isDirectMode && (canChooseBranch || canChooseAssignedOwner) && (
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 border border-slate-200 rounded-2xl p-4">
                                     {(canChooseBranch && contextBranchId == null && !sheetLocked) && (
                                         <div>
@@ -742,7 +770,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                                                     <span>
                                                         {selectedSheet?.assignedHrUserId != null
                                                             ? (selectedSheet.assignedHrUserName ?? 'مسؤول اللائحة')
-                                                            : `ملكية فرع ${selectedSheet?.branchName ?? ''}`.trim()}
+                                                            : (selectedSheet?.branchName ?? 'فرع غير محدد')}
                                                     </span>
                                                     <span className="text-xs text-slate-400">مثبّت من اللائحة</span>
                                                 </div>
@@ -787,11 +815,36 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                                         <Select
                                             value={selectedSheetId === '' ? '' : String(selectedSheetId)}
                                             onChange={(v) => setSelectedSheetId(v ? Number(v) : '')}
-                                            placeholder="-- اختر لائحة أسماء لإضافة أسماء مقترحة مرتبطة بها --"
+                                            placeholder={
+                                                sheetsLoading
+                                                    ? 'جارٍ تحميل لوائح الأسماء...'
+                                                    : sheetsLoadError
+                                                        ? 'تعذر تحميل لوائح الأسماء'
+                                                        : activeSheets.length === 0
+                                                            ? 'لا توجد لائحة مفتوحة ضمن نطاقك'
+                                                            : '-- اختر لائحة أسماء لإضافة أسماء مقترحة مرتبطة بها --'
+                                            }
                                             ariaLabel="لائحة الأسماء"
                                             className="w-full"
+                                            disabled={sheetsLoading || Boolean(sheetsLoadError) || activeSheets.length === 0}
                                             options={activeSheets.map((sheet: any) => ({ value: String(sheet.id), label: `[#${sheet.id}] ${sheet.referralNameSnapshot} - ${sheet.stats.totalCandidates} أسماء` }))}
                                         />
+                                        {sheetsLoadError ? (
+                                            <div className="mt-2 flex items-center justify-between gap-3 text-xs font-bold text-red-600">
+                                                <span>{sheetsLoadError}</span>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setSheetsRefreshKey(key => key + 1)}
+                                                    className="shrink-0 rounded-lg border border-red-200 bg-white px-2.5 py-1 text-red-700 hover:bg-red-50"
+                                                >
+                                                    إعادة المحاولة
+                                                </button>
+                                            </div>
+                                        ) : !sheetsLoading && activeSheets.length === 0 ? (
+                                            <p className="mt-2 text-xs font-bold text-amber-700">
+                                                لا توجد لائحة جديدة أو قيد الجمع ضمن نطاقك. أنشئ لائحة جديدة أولاً.
+                                            </p>
+                                        ) : null}
                                     </div>
                                     <button
                                         onClick={() => setIsCreateSheetOpen(true)}
@@ -1182,7 +1235,11 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
             <CreateReferralSheetModal
                 isOpen={isCreateSheetOpen}
                 onClose={() => setIsCreateSheetOpen(false)}
-                onSheetCreated={(id) => { setSelectedSheetId(id); setIsDirectMode(false); }}
+                onSheetCreated={(id) => {
+                    setSelectedSheetId(id);
+                    setIsDirectMode(false);
+                    setSheetsRefreshKey(key => key + 1);
+                }}
             />
         </>
     );

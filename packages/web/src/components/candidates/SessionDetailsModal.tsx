@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useCandidateStore } from '../../hooks/useCandidateStore';
 import { Calendar, User, FileText, AlertCircle, Phone, MapPin, ShieldCheck, Gift, Plus, Trash2 } from '../ui/icons';
 import QualificationModal from './QualificationModal';
@@ -308,9 +309,9 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
                                         </DataTable.Td>
                                         {/* الاسم المقترح */}
                                         <DataTable.Td>
-                                            <span className="font-bold text-slate-800 text-sm">
+                                            <Link to={`/candidates/${c.id}`} className="font-bold text-slate-800 text-sm hover:text-sky-700 hover:underline">
                                                 {[c.firstName, c.lastName].filter(Boolean).join(' ') || c.nickname || '--'}
-                                            </span>
+                                            </Link>
                                             {c.nickname && (c.firstName || c.lastName) && (
                                                 <div className="text-xs text-slate-400 mt-0.5">({c.nickname})</div>
                                             )}
@@ -355,13 +356,13 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
                                             }`}>
                                                 {c.status === 'Suggested' ? 'مقترح'
                                                 : c.status === 'FollowUp' ? 'متابعة'
-                                                : c.status === 'Qualified' ? (c.duplicateFlag ? 'تم الربط' : 'تم التحويل')
+                                                : c.status === 'Qualified' ? 'مؤهل'
                                                 : 'مرفوض'}
                                             </span>
                                             {c.duplicateFlag && (
                                                 <div className={`text-xs font-bold mt-1 flex items-center gap-1 ${c.status === 'Qualified' ? 'text-emerald-600' : 'text-amber-500'}`}>
                                                     <AlertCircle className="w-3 h-3" />
-                                                    {c.status === 'Qualified' ? 'زبون حالي' : 'احتمال تكرار'}
+                                                    احتمال تكرار
                                                 </div>
                                             )}
                                         </DataTable.Td>

@@ -59,6 +59,19 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
   { key: 'clients.top_geo_areas', titleAr: 'أعلى المناطق كثافة زبائن', description: 'المحافظات الأعلى كثافة ضمن النطاق', unit: 'count', permission: 'clients.view_list', department: 'الزبائن', defaultSize: 'lg', kind: 'ranked-bar', accent: 'emerald' },
   { key: 'clients.by_route', titleAr: 'كثافة الزبائن حسب خط السير', description: 'خطوط السير الأعلى كثافة بالزبائن', unit: 'count', permission: 'clients.view_list', department: 'الزبائن', defaultSize: 'lg', kind: 'ranked-bar', accent: 'emerald' },
   { key: 'clients.top_referrers', titleAr: 'أكثر الوسطاء إحضارًا للزبائن', description: 'ترتيب مَن يُحضر أكثر الزبائن خلال الفترة', unit: 'count', permission: 'clients.view_list', department: 'الزبائن', defaultSize: 'lg', kind: 'ranked-bar', accent: 'amber' },
+  // ── العقود والمبيعات (§2.هـ) — فرعية فقط عبر contracts.view_list ──
+  { key: 'contracts.count', titleAr: 'عدد العقود', description: 'حجم التعاقد خلال الفترة (يستبعد المسودات)', unit: 'count', permission: 'contracts.view_list', department: 'العقود', defaultSize: 'sm', accent: 'sky', trendDirection: 'higher-is-better' },
+  { key: 'contracts.sales_value', titleAr: 'قيمة المبيعات', description: 'إجمالي المبيعات المحقّقة خلال الفترة', unit: 'count', permission: 'contracts.view_list', department: 'العقود', defaultSize: 'sm', accent: 'emerald', trendDirection: 'higher-is-better' },
+  { key: 'contracts.avg_value', titleAr: 'متوسط قيمة العقد', description: 'متوسط قيمة العقد المحقّق خلال الفترة', unit: 'count', permission: 'contracts.view_list', department: 'العقود', defaultSize: 'sm', accent: 'indigo', trendDirection: 'neutral' },
+  { key: 'contracts.cancellation_rate', titleAr: 'معدّل الإلغاء', description: 'نسبة العقود الملغاة من المُبرمة', unit: 'percent', permission: 'contracts.view_list', department: 'العقود', defaultSize: 'sm', accent: 'rose', trendDirection: 'lower-is-better' },
+  { key: 'contracts.stuck_drafts', titleAr: 'مسودات عالقة', description: 'عقود مسودة لم تُعتمد بعد', unit: 'count', permission: 'contracts.view_list', department: 'العقود', defaultSize: 'sm', accent: 'amber', trendDirection: 'lower-is-better' },
+  { key: 'contracts.sales_by_branch', titleAr: 'المبيعات حسب الفرع', description: 'توزيع قيمة المبيعات على الفروع', unit: 'count', permission: 'contracts.view_list', department: 'العقود', defaultSize: 'lg', kind: 'ranked-bar', accent: 'sky' },
+  { key: 'contracts.sales_by_seller', titleAr: 'المبيعات حسب البائع', description: 'قيمة المبيعات لكل صاحب بيعة', unit: 'count', permission: 'contracts.view_list', department: 'العقود', defaultSize: 'lg', kind: 'ranked-bar', accent: 'emerald' },
+  { key: 'contracts.sales_by_sale_type', titleAr: 'العقود حسب نوع البيع', description: 'مباشر/استبدال/احتفاظ', unit: 'count', permission: 'contracts.view_list', department: 'العقود', defaultSize: 'lg', kind: 'donut', accent: 'violet' },
+  { key: 'contracts.by_payment_type', titleAr: 'العقود حسب نوع الدفع', description: 'نقدي مقابل أقساط', unit: 'count', permission: 'contracts.view_list', department: 'العقود', defaultSize: 'lg', kind: 'donut', accent: 'amber' },
+  { key: 'contracts.by_device_model', titleAr: 'العقود حسب موديل الجهاز', description: 'أكثر الموديلات تعاقدًا', unit: 'count', permission: 'contracts.view_list', department: 'العقود', defaultSize: 'lg', kind: 'ranked-bar', accent: 'indigo' },
+  { key: 'contracts.cancelled_by_reason', titleAr: 'العقود الملغاة حسب السبب', description: 'أبرز أسباب الإلغاء خلال الفترة', unit: 'count', permission: 'contracts.view_list', department: 'العقود', defaultSize: 'lg', kind: 'ranked-bar', accent: 'rose' },
+  { key: 'contracts.sales_trend', titleAr: 'اتجاه قيمة المبيعات', description: 'حركة المبيعات المحقّقة عبر الزمن', unit: 'count', permission: 'contracts.view_list', department: 'العقود', defaultSize: 'lg', kind: 'timeline', accent: 'sky' },
 ];
 
 export const TIME_PRESET_OPTIONS: { value: TimePreset; label: string }[] = [

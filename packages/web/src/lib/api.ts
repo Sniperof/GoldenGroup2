@@ -70,6 +70,39 @@ export interface PagedClientsParams {
   sortDir?: 'asc' | 'desc';
 }
 
+// GET /contracts/paged — server pagination companion to contracts.list()
+// (isolated: list() unchanged). Contracts are branch-only (no ASSIGNED tier).
+export interface PagedContractsResponse {
+  items: any[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface PagedContractsParams {
+  branchId?: number | null;      // narrows a GLOBAL viewer to one branch (X-Branch-Id)
+  customerId?: number;
+  page?: number;
+  limit?: number;
+  search?: string;
+  status?: string;               // draft | active | completed | cancelled
+  paymentType?: string;          // cash | installment
+  // Enriched catalog (docs/analysis/contracts-records-performance-filters-and-stats.md §3)
+  saleType?: string;             // tradein | retention | direct
+  saleSubtype?: string;          // definitive | temporary | free
+  saleOwner?: string | number;   // employee id
+  closingEmployee?: string | number;
+  deviceModel?: string | number;
+  dateFrom?: string;             // YYYY-MM-DD (contract_date)
+  dateTo?: string;
+  priceMin?: string | number;
+  priceMax?: string | number;
+  hasDevice?: string;            // yes | no
+  goldenWarranty?: string;       // yes | no
+  sortKey?: string;
+  sortDir?: 'asc' | 'desc';
+}
+
 // ── Reporting & analytics (reporting-analytics §1.3) ─────────────────────────
 export interface MetricResponse {
   metricKey: string;
@@ -272,7 +305,7 @@ export const api = {
           if (value !== undefined && value !== null && value !== '') query.set(key, String(value));
         });
         const suffix = query.toString() ? `?${query.toString()}` : '';
-        return request<any[]>(`/gifts/records${suffix}`);
+        return request<import('../data/giftsPrototype').GiftRecordPrototype[]>(`/gifts/records${suffix}`);
       },
       similar: (data: any) =>
         request<{ count: number }>('/gifts/records/similar', { method: 'POST', body: JSON.stringify(data) }),
@@ -473,6 +506,7 @@ export const api = {
       '/candidates',
       branchId != null ? { headers: { 'X-Branch-Id': String(branchId) } } : undefined,
     ),
+    get: (id: number) => request<import('@golden-crm/shared').CandidateDetail>(`/candidates/${id}`),
     create: (data: any) => request<any>('/candidates', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/candidates/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     linkToClient: (id: number, clientId: number) =>
@@ -507,6 +541,22 @@ export const api = {
       return request<any[]>(
         `/contracts${qs}`,
         params?.branchId != null ? { headers: { 'X-Branch-Id': String(params.branchId) } } : undefined,
+      );
+    },
+    // Paginated + server-filtered list — used only by the contracts records page.
+    // list() above stays the full-list source for its other callers.
+    listPaged: (params: PagedContractsParams = {}) => {
+      const { branchId, ...rest } = params;
+      const query = new URLSearchParams();
+      Object.entries(rest).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '' && value !== 'all') {
+          query.set(key, String(value));
+        }
+      });
+      const suffix = query.size > 0 ? `?${query.toString()}` : '';
+      return request<PagedContractsResponse>(
+        `/contracts/paged${suffix}`,
+        branchId != null ? { headers: { 'X-Branch-Id': String(branchId) } } : undefined,
       );
     },
     get: (id: number) => request<any>(`/contracts/${id}`),

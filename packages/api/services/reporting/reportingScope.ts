@@ -31,6 +31,16 @@ export function appendCandidateScope(ctx: MetricComputeContext, params: QueryPar
   return sql;
 }
 
+/**
+ * Contracts are branch-only (no ASSIGNED tier — see
+ * docs/analysis/contracts-records-performance-filters-and-stats.md §2): scope is
+ * the branch filter alone. A viewer without BRANCH/GLOBAL contracts.view_list is
+ * denied earlier by resolveListAccessScope (NONE), so no ASSIGNED handling is needed.
+ */
+export function appendContractScope(ctx: MetricComputeContext, params: QueryParams, alias = 'c'): string {
+  return appendBranchScope(ctx, params, alias);
+}
+
 /** Matches GET /api/referral-sheets: ASSIGNED means the reviewer assigned to the sheet. */
 export function appendReferralSheetScope(ctx: MetricComputeContext, params: QueryParams, alias = 's'): string {
   let sql = appendBranchScope(ctx, params, alias);

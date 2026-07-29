@@ -461,6 +461,7 @@ router.get('/records', requirePermission('contract_gifts.view'), async (req, res
   const clientId = normalizePositiveInt(req.query.clientId);
   const employeeId = normalizePositiveInt(req.query.employeeId);
   const contractId = normalizePositiveInt(req.query.contractId);
+  const candidateId = normalizePositiveInt(req.query.candidateId);
 
   if (branchId != null) {
     params.push(branchId);
@@ -485,6 +486,28 @@ router.get('/records', requirePermission('contract_gifts.view'), async (req, res
   if (contractId != null) {
     params.push(contractId);
     conditions.push(`gr.contract_id = $${params.length}`);
+  }
+  if (candidateId != null) {
+    params.push(candidateId);
+    conditions.push(`(
+      EXISTS (
+        SELECT 1
+        FROM gift_record_sources candidate_source
+        WHERE candidate_source.gift_record_id = gr.id
+          AND candidate_source.source_type = 'candidate'
+          AND candidate_source.candidate_id = $${params.length}
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM candidates candidate_context
+        JOIN gift_record_sources list_source
+          ON list_source.referral_sheet_id = candidate_context.referral_sheet_id
+        WHERE candidate_context.id = $${params.length}
+          AND candidate_context.referral_sheet_id IS NOT NULL
+          AND list_source.gift_record_id = gr.id
+          AND list_source.source_type = 'name_list'
+      )
+    )`);
   }
 
   if (accessPlan.scope === 'BRANCH') {

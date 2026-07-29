@@ -41,6 +41,8 @@ export interface GiftRecordSource {
   label: string;
   contractId?: string | number | null;
   contractNumber?: string | null;
+  referralSheetId?: string | number | null;
+  candidateId?: string | number | null;
   quantity?: number;
   notes?: string | null;
 }

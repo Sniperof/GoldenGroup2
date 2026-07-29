@@ -8,7 +8,7 @@
 
 import pool from '../../db.js';
 import type { MetricComputeContext } from './metricsCatalog.js';
-import { appendCandidateScope, appendClientScope, appendReferralSheetScope } from './reportingScope.js';
+import { appendCandidateScope, appendClientScope, appendContractScope, appendReferralSheetScope } from './reportingScope.js';
 
 export type BreakdownKind = 'funnel' | 'ranked-bar' | 'donut' | 'timeline';
 
@@ -607,6 +607,158 @@ const candidatesByGeoArea: BreakdownDefinition = {
   },
 };
 
+// ── العقود والمبيعات (§2.هـ) — فرعية فقط عبر appendContractScope. المبيعات
+// (القيمة/الاتجاه/حسب الفرع/البائع) تستبعد المسودات والملغاة؛ التوزيعات العدَدية
+// تستبعد المسودات فقط. الفترة على contract_date إلا الملغاة (على cancelled_at). ──
+const CONTRACT_SALE_TYPE_LABELS: Record<string, string> = { tradein: 'استبدال', retention: 'احتفاظ', direct: 'بيع مباشر' };
+const CONTRACT_PAYMENT_LABELS: Record<string, string> = { cash: 'نقدي', installment: 'أقساط' };
+
+const contractsSalesByBranch: BreakdownDefinition = {
+  key: 'contracts.sales_by_branch',
+  permission: 'contracts.view_list',
+  titleAr: 'المبيعات حسب الفرع',
+  kind: 'ranked-bar',
+  valueUnit: 'count',
+  purpose: 'قرار: توزيع قيمة المبيعات المحقّقة على الفروع خلال الفترة.',
+  async compute(ctx) {
+    const params: unknown[] = [ctx.from, ctx.to];
+    const sql =
+      `SELECT COALESCE(b.name, 'غير محدد') AS k, COALESCE(SUM(c.final_price), 0)::numeric AS v
+         FROM contracts c LEFT JOIN branches b ON b.id = c.branch_id
+        WHERE c.status IN ('active','completed') AND c.contract_date >= $1 AND c.contract_date < $2` + appendContractScope(ctx, params) +
+      ` GROUP BY 1 ORDER BY v DESC LIMIT 10`;
+    const { rows } = await pool.query(sql, params);
+    return rows.map(r => ({ key: String(r.k), label: String(r.k), value: Number(r.v ?? 0) }));
+  },
+};
+
+const contractsSalesBySeller: BreakdownDefinition = {
+  key: 'contracts.sales_by_seller',
+  permission: 'contracts.view_list',
+  titleAr: 'المبيعات حسب البائع',
+  kind: 'ranked-bar',
+  valueUnit: 'count',
+  purpose: 'إنجاز فريق: قيمة المبيعات المحقّقة لكل صاحب بيعة خلال الفترة.',
+  async compute(ctx) {
+    const params: unknown[] = [ctx.from, ctx.to];
+    const sql =
+      `SELECT COALESCE(e.name, 'غير محدد') AS k, COALESCE(SUM(c.final_price), 0)::numeric AS v
+         FROM contracts c LEFT JOIN employees e ON e.id = c.sale_owner_id
+        WHERE c.status IN ('active','completed') AND c.contract_date >= $1 AND c.contract_date < $2` + appendContractScope(ctx, params) +
+      ` GROUP BY 1 ORDER BY v DESC LIMIT 10`;
+    const { rows } = await pool.query(sql, params);
+    return rows.map(r => ({ key: String(r.k), label: String(r.k), value: Number(r.v ?? 0) }));
+  },
+};
+
+const contractsSalesBySaleType: BreakdownDefinition = {
+  key: 'contracts.sales_by_sale_type',
+  permission: 'contracts.view_list',
+  titleAr: 'العقود حسب نوع البيع',
+  kind: 'donut',
+  valueUnit: 'count',
+  purpose: 'قرار: تركيبة التعاقد حسب نوع البيع (مباشر/استبدال/احتفاظ) خلال الفترة.',
+  async compute(ctx) {
+    const params: unknown[] = [ctx.from, ctx.to];
+    const sql =
+      `SELECT COALESCE(NULLIF(TRIM(c.sale_type), ''), 'غير محدد') AS k, COUNT(*)::int AS v
+         FROM contracts c
+        WHERE c.status <> 'draft' AND c.contract_date >= $1 AND c.contract_date < $2` + appendContractScope(ctx, params) +
+      ` GROUP BY 1 ORDER BY v DESC`;
+    const { rows } = await pool.query(sql, params);
+    return rows.map(r => { const k = String(r.k); return { key: k, label: CONTRACT_SALE_TYPE_LABELS[k] ?? k, value: Number(r.v ?? 0) }; });
+  },
+};
+
+const contractsByPaymentType: BreakdownDefinition = {
+  key: 'contracts.by_payment_type',
+  permission: 'contracts.view_list',
+  titleAr: 'العقود حسب نوع الدفع',
+  kind: 'donut',
+  valueUnit: 'count',
+  purpose: 'قرار: توزيع العقود بين النقدي والأقساط خلال الفترة.',
+  async compute(ctx) {
+    const params: unknown[] = [ctx.from, ctx.to];
+    const sql =
+      `SELECT COALESCE(NULLIF(TRIM(c.payment_type), ''), 'غير محدد') AS k, COUNT(*)::int AS v
+         FROM contracts c
+        WHERE c.status <> 'draft' AND c.contract_date >= $1 AND c.contract_date < $2` + appendContractScope(ctx, params) +
+      ` GROUP BY 1 ORDER BY v DESC`;
+    const { rows } = await pool.query(sql, params);
+    return rows.map(r => { const k = String(r.k); return { key: k, label: CONTRACT_PAYMENT_LABELS[k] ?? k, value: Number(r.v ?? 0) }; });
+  },
+};
+
+const contractsByDeviceModel: BreakdownDefinition = {
+  key: 'contracts.by_device_model',
+  permission: 'contracts.view_list',
+  titleAr: 'العقود حسب موديل الجهاز',
+  kind: 'ranked-bar',
+  valueUnit: 'count',
+  purpose: 'قرار: أكثر موديلات الأجهزة تعاقدًا خلال الفترة (توجيه المخزون والعروض).',
+  async compute(ctx) {
+    const params: unknown[] = [ctx.from, ctx.to];
+    const sql =
+      `SELECT COALESCE(NULLIF(TRIM(c.device_model_name), ''), 'غير محدد') AS k, COUNT(*)::int AS v
+         FROM contracts c
+        WHERE c.status <> 'draft' AND c.contract_date >= $1 AND c.contract_date < $2` + appendContractScope(ctx, params) +
+      ` GROUP BY 1 ORDER BY v DESC LIMIT 10`;
+    const { rows } = await pool.query(sql, params);
+    return rows.map(r => ({ key: String(r.k), label: String(r.k), value: Number(r.v ?? 0) }));
+  },
+};
+
+const contractsCancelledByReason: BreakdownDefinition = {
+  key: 'contracts.cancelled_by_reason',
+  permission: 'contracts.view_list',
+  titleAr: 'العقود الملغاة حسب السبب',
+  kind: 'ranked-bar',
+  valueUnit: 'count',
+  purpose: 'قرار: أبرز أسباب إلغاء العقود خلال الفترة (سبب نصّي حرّ — قيد جودة بيانات).',
+  async compute(ctx) {
+    const params: unknown[] = [ctx.from, ctx.to];
+    const sql =
+      `SELECT COALESCE(NULLIF(TRIM(c.cancellation_reason), ''), 'غير محدد') AS k, COUNT(*)::int AS v
+         FROM contracts c
+        WHERE c.status = 'cancelled' AND c.cancelled_at >= $1 AND c.cancelled_at < $2` + appendContractScope(ctx, params) +
+      ` GROUP BY 1 ORDER BY v DESC LIMIT 10`;
+    const { rows } = await pool.query(sql, params);
+    return rows.map(r => ({ key: String(r.k), label: String(r.k), value: Number(r.v ?? 0) }));
+  },
+};
+
+const contractsSalesTrend: BreakdownDefinition = {
+  key: 'contracts.sales_trend',
+  permission: 'contracts.view_list',
+  titleAr: 'اتجاه قيمة المبيعات',
+  kind: 'timeline',
+  valueUnit: 'count',
+  purpose: 'قرار: حركة قيمة المبيعات المحقّقة عبر الزمن ضمن الفترة والنطاق.',
+  async compute(ctx) {
+    const bucket = acquisitionBucket(ctx.from, ctx.to);
+    const params: unknown[] = [ctx.from, ctx.to];
+    const sql =
+      `WITH buckets AS (
+         SELECT generate_series(
+           date_trunc('${bucket.trunc}', $1::timestamptz),
+           date_trunc('${bucket.trunc}', $2::timestamptz - interval '1 millisecond'),
+           interval '${bucket.interval}'
+         ) AS bucket
+       ), sums AS (
+         SELECT date_trunc('${bucket.trunc}', c.contract_date::timestamptz) AS bucket, COALESCE(SUM(c.final_price), 0)::numeric AS v
+           FROM contracts c
+          WHERE c.status IN ('active','completed')
+            AND c.contract_date >= $1 AND c.contract_date < $2` + appendContractScope(ctx, params) +
+      ` GROUP BY 1
+       )
+       SELECT b.bucket, COALESCE(s.v, 0)::numeric AS v
+         FROM buckets b LEFT JOIN sums s ON s.bucket = b.bucket
+        ORDER BY b.bucket`;
+    const { rows } = await pool.query(sql, params);
+    return rows.map(r => { const iso = new Date(r.bucket).toISOString(); return { key: iso, label: iso, value: Number(r.v ?? 0) }; });
+  },
+};
+
 export const BREAKDOWN_CATALOG: BreakdownDefinition[] = [
   candidatesStageFunnel,
   referralSheetsTeamQuality,
@@ -626,6 +778,13 @@ export const BREAKDOWN_CATALOG: BreakdownDefinition[] = [
   clientsTopReferrers,
   candidatesByRoute,
   candidatesByGeoArea,
+  contractsSalesByBranch,
+  contractsSalesBySeller,
+  contractsSalesBySaleType,
+  contractsByPaymentType,
+  contractsByDeviceModel,
+  contractsCancelledByReason,
+  contractsSalesTrend,
 ];
 
 export function findBreakdown(key: string): BreakdownDefinition | undefined {

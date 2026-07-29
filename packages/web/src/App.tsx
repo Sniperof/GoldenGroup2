@@ -14,6 +14,7 @@ import EmployeeDetail from './pages/EmployeeDetail';
 import Clients from './pages/Clients';
 import ClientProfile from './pages/ClientProfile';
 import CandidatesEntry from './pages/candidates/CandidatesEntry';
+import CandidateDetail from './pages/candidates/CandidateDetail';
 import TeamScheduler from './pages/planning/TeamScheduler';
 import ZoneStudy from './pages/planning/ZoneStudy';
 import RouteAssigner from './pages/planning/RouteAssigner';
@@ -112,6 +113,7 @@ export default function App() {
                         <Route path="/clients" element={<Clients />} />
                         <Route path="/clients/:id" element={<ClientProfile />} />
                         <Route path="/candidates" element={<CandidatesEntry />} />
+                        <Route path="/candidates/:id" element={<CandidateDetail />} />
                         {/* Group 3 — single-branch operational pages: hidden on "all branches" (§6 / Phase 3.2). */}
                         <Route path="/planning/schedule" element={<RequireBranchContext><TeamScheduler /></RequireBranchContext>} />
                         <Route path="/planning/zone-study" element={<RequireBranchContext><ZoneStudy /></RequireBranchContext>} />

@@ -11,7 +11,7 @@
 // ============================================================
 
 import pool from '../../db.js';
-import { appendCandidateScope, appendClientScope, appendReferralSheetScope } from './reportingScope.js';
+import { appendCandidateScope, appendClientScope, appendContractScope, appendReferralSheetScope } from './reportingScope.js';
 
 export type MetricUnit = 'count' | 'percent';
 export type ScopeMode = 'GLOBAL' | 'BRANCH' | 'ASSIGNED';
@@ -282,6 +282,99 @@ const referralSheetsBehindTarget: MetricDefinition = {
   },
 };
 
+// ── العقود والمبيعات (§2.هـ) — فرعية فقط عبر appendContractScope؛ المبيعات تستبعد
+// المسودات (DEC-CT-01)، وقيمة/متوسط المبيعات تستبعد الملغاة أيضاً (إيراد محقّق). ──
+const contractsCount: MetricDefinition = {
+  key: 'contracts.count',
+  permission: 'contracts.view_list',
+  titleAr: 'عدد العقود',
+  unit: 'count',
+  purpose: 'قرار: حجم التعاقد خلال الفترة على مستوى الفرع (يستبعد المسودات).',
+  async compute(ctx) {
+    const count = async (from: Date, to: Date) => {
+      const params: unknown[] = [from, to];
+      const sql =
+        `SELECT COUNT(*)::int AS v FROM contracts c
+          WHERE c.status <> 'draft' AND c.contract_date >= $1 AND c.contract_date < $2` + appendContractScope(ctx, params);
+      return scalar(sql, params);
+    };
+    return { value: await count(ctx.from, ctx.to), previous: await count(ctx.prevFrom, ctx.prevTo) };
+  },
+};
+
+const contractsSalesValue: MetricDefinition = {
+  key: 'contracts.sales_value',
+  permission: 'contracts.view_list',
+  titleAr: 'قيمة المبيعات',
+  unit: 'count',
+  purpose: 'قرار: إجمالي قيمة المبيعات المحقّقة (عقود فعّالة/مكتملة) خلال الفترة — تستبعد المسودات والملغاة.',
+  async compute(ctx) {
+    const sum = async (from: Date, to: Date) => {
+      const params: unknown[] = [from, to];
+      const sql =
+        `SELECT COALESCE(SUM(c.final_price), 0)::numeric AS v FROM contracts c
+          WHERE c.status IN ('active','completed') AND c.contract_date >= $1 AND c.contract_date < $2` + appendContractScope(ctx, params);
+      return scalar(sql, params);
+    };
+    return { value: await sum(ctx.from, ctx.to), previous: await sum(ctx.prevFrom, ctx.prevTo) };
+  },
+};
+
+const contractsAvgValue: MetricDefinition = {
+  key: 'contracts.avg_value',
+  permission: 'contracts.view_list',
+  titleAr: 'متوسط قيمة العقد',
+  unit: 'count',
+  purpose: 'قرار: متوسط قيمة العقد المحقّق (فعّال/مكتمل) خلال الفترة.',
+  async compute(ctx) {
+    const avg = async (from: Date, to: Date) => {
+      const params: unknown[] = [from, to];
+      const sql =
+        `SELECT COALESCE(ROUND(AVG(c.final_price)), 0)::numeric AS v FROM contracts c
+          WHERE c.status IN ('active','completed') AND c.contract_date >= $1 AND c.contract_date < $2` + appendContractScope(ctx, params);
+      return scalar(sql, params);
+    };
+    return { value: await avg(ctx.from, ctx.to), previous: await avg(ctx.prevFrom, ctx.prevTo) };
+  },
+};
+
+const contractsCancellationRate: MetricDefinition = {
+  key: 'contracts.cancellation_rate',
+  permission: 'contracts.view_list',
+  titleAr: 'معدّل الإلغاء',
+  unit: 'percent',
+  purpose: 'قرار: نسبة العقود الملغاة من إجمالي المُبرمة (غير المسودة) خلال الفترة.',
+  async compute(ctx) {
+    const rate = async (from: Date, to: Date): Promise<number> => {
+      const params: unknown[] = [from, to];
+      const sql =
+        `SELECT
+            COUNT(*) FILTER (WHERE c.status = 'cancelled')::numeric AS cancelled,
+            COUNT(*)::numeric AS total
+           FROM contracts c
+          WHERE c.status <> 'draft' AND c.contract_date >= $1 AND c.contract_date < $2` + appendContractScope(ctx, params);
+      const { rows } = await pool.query(sql, params);
+      const total = Number(rows[0]?.total ?? 0);
+      const cancelled = Number(rows[0]?.cancelled ?? 0);
+      return total > 0 ? Math.round((cancelled / total) * 1000) / 10 : 0;
+    };
+    return { value: await rate(ctx.from, ctx.to), previous: await rate(ctx.prevFrom, ctx.prevTo) };
+  },
+};
+
+const contractsStuckDrafts: MetricDefinition = {
+  key: 'contracts.stuck_drafts',
+  permission: 'contracts.view_list',
+  titleAr: 'مسودات عالقة',
+  unit: 'count',
+  purpose: 'سير عمل: عقود مسودة لم تُعتمد بعد — عالقة تحتاج إغلاقًا (لقطة راهنة).',
+  async compute(ctx) {
+    const params: unknown[] = [];
+    const sql = `SELECT COUNT(*)::int AS v FROM contracts c WHERE c.status = 'draft'` + appendContractScope(ctx, params);
+    return { value: await scalar(sql, params), previous: null };
+  },
+};
+
 export const METRIC_CATALOG: MetricDefinition[] = [
   clientsNewCount,
   clientsActiveTotal,
@@ -294,6 +387,11 @@ export const METRIC_CATALOG: MetricDefinition[] = [
   clientsRatingNetChange,
   candidatesDuplicateRate,
   referralSheetsBehindTarget,
+  contractsCount,
+  contractsSalesValue,
+  contractsAvgValue,
+  contractsCancellationRate,
+  contractsStuckDrafts,
 ];
 
 export function findMetric(key: string): MetricDefinition | undefined {

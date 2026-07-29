@@ -10,7 +10,8 @@ import {
   getCandidateListAccessPlan,
   canViewCandidate,
 } from '../policies/candidatePolicy.js';
-import { canViewClient } from '../policies/clientPolicy.js';
+import { canEditClient, canViewClient } from '../policies/clientPolicy.js';
+import { canViewReferralSheet } from '../policies/referralSheetPolicy.js';
 import { eligibleHrUserWithPermissionCondition } from '../services/assigneeEligibility.js';
 import { buildClientLifecycleStatusSql } from '../services/customerOwnership.js';
 import {
@@ -27,6 +28,7 @@ import {
   normalizeContactsForWrite,
   normalizePhone,
 } from '../utils/contactValidation.js';
+import { resolveReferenceValueForWrite } from '../services/referenceValueService.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -75,7 +77,7 @@ const selectFieldsList = `
              WHERE ownership_ca.candidate_id = c.id
              ORDER BY ownership_ca.assigned_at, ownership_ca.id
              LIMIT 1)
-    ELSE CONCAT('ملكية فرع ', COALESCE(b.name, 'غير محدد'))
+    ELSE COALESCE(b.name, 'غير محدد')
   END AS "ownershipLabel",
   c.created_by AS "createdByUserId",
   cb.name AS "createdByUserName",
@@ -132,6 +134,16 @@ function isTerminalCandidateState(status: unknown, convertedToLeadId: unknown): 
   return status === 'Qualified' || status === 'Junk' || convertedToLeadId != null;
 }
 
+function presentCandidateReferralReason(value: unknown): string | null {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  const reason = value.trim();
+  const legacyReasonLabels: Record<string, string> = {
+    'direct referral': 'ترشيح مباشر',
+    'part of sheet': 'ضمن لائحة أسماء',
+  };
+  return legacyReasonLabels[reason.toLowerCase()] ?? reason;
+}
+
 function normalizeCandidatePayload<T extends Record<string, any>>(payload: T): T & {
   mobile: string;
   contacts: any[];
@@ -142,18 +154,6 @@ function normalizeCandidatePayload<T extends Record<string, any>>(payload: T): T
     contacts,
     mobile: contacts.length > 0 ? getCanonicalContactNumber(contacts) : normalizePhone(payload.mobile),
   };
-}
-
-function phoneNormalizationSql(expression: string): string {
-  const digits = `regexp_replace(COALESCE(${expression}, ''), '\\D', '', 'g')`;
-  return `
-    CASE
-      WHEN ${digits} ~ '^009639\\d{8}$' THEN '0' || right(${digits}, 9)
-      WHEN ${digits} ~ '^9639\\d{8}$' THEN '0' || right(${digits}, 9)
-      WHEN ${digits} ~ '^9\\d{8}$' THEN '0' || ${digits}
-      ELSE ${digits}
-    END
-  `;
 }
 
 function getRequiredAuthContext(req: any) {
@@ -256,29 +256,6 @@ async function loadLinkableCandidate(candidateId: string | number): Promise<Link
   );
 
   return rows[0] ?? null;
-}
-
-async function clientHasMatchingPhone(clientId: number, mobile: string | null): Promise<boolean> {
-  const normalizedMobile = normalizePhone(mobile);
-  if (!normalizedMobile) return false;
-
-  const { rows } = await pool.query(
-    `SELECT 1
-      FROM clients c
-     WHERE c.id = $1
-       AND (
-          ${phoneNormalizationSql('c.mobile')} = $2
-          OR EXISTS (
-            SELECT 1
-              FROM jsonb_array_elements(COALESCE(c.contacts, '[]'::jsonb)) AS contact
-             WHERE ${phoneNormalizationSql(`contact->>'number'`)} = $2
-          )
-        )
-      LIMIT 1`,
-    [clientId, normalizedMobile],
-  );
-
-  return rows.length > 0;
 }
 
 async function loadLinkableClient(clientId: string | number): Promise<LinkableClient | null> {
@@ -524,6 +501,348 @@ router.get('/', requirePermission('candidates.view_list'), async (req, res) => {
   }
 });
 
+router.get('/:id', requirePermission('candidates.view_list'), async (req, res) => {
+  try {
+    const authContext = getRequiredAuthContext(req);
+    const candidateId = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
+    if (!Number.isInteger(candidateId) || candidateId <= 0) {
+      return res.status(400).json({ error: 'معرّف الاسم المقترح غير صالح' });
+    }
+
+    const { rows } = await pool.query(
+      `SELECT
+         c.id,
+         c.first_name AS "firstName",
+         c.last_name AS "lastName",
+         c.nickname,
+         c.mobile,
+         c.contacts,
+         c.status,
+         c.branch_id AS "branchId",
+         b.name AS "branchName",
+         c.created_at AS "createdAt",
+         c.address_text AS "addressText",
+         c.geo_unit_id AS "geoUnitId",
+         c.referral_sheet_id AS "referralSheetId",
+         c.referral_date AS "referralDate",
+         c.referral_reason AS "referralReason",
+         c.referral_type AS "referralType",
+         c.referral_origin_channel AS "referralOriginChannel",
+         c.referral_name_snapshot AS "referralNameSnapshot",
+         c.occupation,
+         c.candidate_notes AS "candidateNotes",
+         COALESCE(c.duplicate_flag, FALSE) AS "duplicateFlag",
+         c.duplicate_type AS "duplicateType",
+         c.duplicate_reference_id AS "duplicateReferenceId",
+         c.converted_to_lead_id AS "convertedToLeadId",
+         COALESCE(
+           (SELECT array_agg(ca.hr_user_id ORDER BY ca.assigned_at, ca.id)
+              FROM candidate_assignments ca
+             WHERE ca.candidate_id = c.id),
+           '{}'::int[]
+         ) AS "assignedUserIds",
+         responsible.id AS "responsibleUserId",
+         responsible.name AS "responsibleUserName",
+         COALESCE(responsible_role.display_name, responsible.role) AS "responsibleRoleDisplayName"
+       FROM candidates c
+       LEFT JOIN branches b ON b.id = c.branch_id
+       LEFT JOIN LATERAL (
+         SELECT u.id, u.name, u.role, u.role_id
+           FROM candidate_assignments ca
+           JOIN hr_users u ON u.id = ca.hr_user_id
+          WHERE ca.candidate_id = c.id
+          ORDER BY ca.assigned_at, ca.id
+          LIMIT 1
+       ) responsible ON TRUE
+       LEFT JOIN roles responsible_role ON responsible_role.id = responsible.role_id
+       WHERE c.id = $1`,
+      [candidateId],
+    );
+    const candidate = rows[0];
+    if (!candidate) {
+      return res.status(404).json({ error: 'الاسم المقترح غير موجود' });
+    }
+
+    const viewAccess = canViewCandidate(authContext, {
+      branchId: candidate.branchId,
+      assignedUserIds: candidate.assignedUserIds,
+    });
+    if (!viewAccess.allowed) {
+      return forbidCandidateAccess(res, viewAccess.reason);
+    }
+
+    const geoPath = candidate.geoUnitId == null
+      ? []
+      : (await pool.query(
+        `WITH RECURSIVE chain AS (
+           SELECT id, name, parent_id, level, status
+             FROM geo_units
+            WHERE id = $1
+           UNION ALL
+           SELECT parent.id, parent.name, parent.parent_id, parent.level, parent.status
+             FROM geo_units parent
+             JOIN chain child ON parent.id = child.parent_id
+         )
+         SELECT id, name, level, (status = 'active') AS "active"
+           FROM chain
+          ORDER BY level`,
+        [candidate.geoUnitId],
+      )).rows.map((unit: any) => ({
+        id: Number(unit.id),
+        name: String(unit.name),
+        level: Number(unit.level),
+        active: unit.active !== false,
+      }));
+
+    let occupationActive: boolean | null = null;
+    if (candidate.occupation) {
+      const occupationResult = await pool.query(
+        `SELECT is_active AS "active"
+           FROM system_lists
+          WHERE category = 'occupation'
+            AND value = $1
+          ORDER BY id
+          LIMIT 1`,
+        [candidate.occupation],
+      );
+      occupationActive = occupationResult.rows[0]?.active === true;
+    }
+
+    let sourceSheet: any = null;
+    if (candidate.referralSheetId != null) {
+      const sheetResult = await pool.query(
+        `SELECT
+           rs.id,
+           rs.branch_id AS "branchId",
+           b.name AS "branchName",
+           rs.owner_user_id AS "ownerUserId",
+           rs.assigned_hr_user_id AS "assignedHrUserId",
+           rs.status,
+           rs.referral_date AS "referralDate",
+           rs.field_visit_id AS "fieldVisitId",
+           owner_user.name AS "ownerUserName",
+           assigned_user.name AS "assignedHrUserName",
+           team_user.name AS "teamResponsibleUserName",
+           created_user.name AS "createdByUserName",
+           rs.target_candidates AS "targetCandidates",
+           rs.quality_percentage AS "qualityPercentage",
+           rs.conversion_percentage AS "conversionPercentage",
+           rs.referral_notes AS "notes",
+           (SELECT COUNT(*)::int FROM candidates sheet_candidate WHERE sheet_candidate.referral_sheet_id = rs.id) AS "actualCandidates"
+         FROM referral_sheets rs
+         LEFT JOIN branches b ON b.id = rs.branch_id
+         LEFT JOIN hr_users owner_user ON owner_user.id = rs.owner_user_id
+         LEFT JOIN hr_users assigned_user ON assigned_user.id = rs.assigned_hr_user_id
+         LEFT JOIN hr_users created_user ON created_user.id = rs.created_by
+         LEFT JOIN field_visits fv ON fv.id = rs.field_visit_id
+         LEFT JOIN hr_users team_user ON team_user.id = fv.team_responsible_user_id
+         WHERE rs.id = $1`,
+        [candidate.referralSheetId],
+      );
+      const sheet = sheetResult.rows[0];
+      const sheetAccess = sheet
+        ? canViewReferralSheet(authContext, {
+          branchId: sheet.branchId,
+          ownerUserId: sheet.ownerUserId,
+          assignedHrUserId: sheet.assignedHrUserId,
+        })
+        : { allowed: false };
+      sourceSheet = sheet && sheetAccess.allowed
+        ? {
+          visible: true,
+          id: Number(sheet.id),
+          status: sheet.status,
+          referralDate: sheet.referralDate,
+          branchName: sheet.branchName,
+          origin: sheet.fieldVisitId == null ? 'MANUAL' : 'FIELD_VISIT',
+          ownerUserName: sheet.ownerUserName,
+          assignedHrUserName: sheet.assignedHrUserName,
+          teamResponsibleUserName: sheet.teamResponsibleUserName,
+          createdByUserName: sheet.createdByUserName,
+          actualCandidates: Number(sheet.actualCandidates ?? 0),
+          targetCandidates: Number(sheet.targetCandidates ?? 0),
+          qualityPercentage: Number(sheet.qualityPercentage ?? 0),
+          conversionPercentage: Number(sheet.conversionPercentage ?? 0),
+          notes: sheet.notes,
+        }
+        : {
+          visible: false,
+          message: 'مصدر الإدخال: لائحة أسماء',
+        };
+    }
+
+    let duplicateMatch: any = null;
+    if (candidate.duplicateFlag) {
+      const duplicateType = candidate.duplicateType;
+      const duplicateReferenceId = Number(candidate.duplicateReferenceId);
+      if (
+        Number.isInteger(duplicateReferenceId) &&
+        duplicateReferenceId > 0 &&
+        (duplicateType === 'Client' || duplicateType === 'Candidate')
+      ) {
+        if (duplicateType === 'Client') {
+          const duplicateClient = await loadLinkableClient(duplicateReferenceId);
+          const access = duplicateClient && canViewClient(authContext, duplicateClient);
+          if (duplicateClient && access?.allowed) {
+            const nameResult = await pool.query('SELECT name FROM clients WHERE id = $1', [duplicateReferenceId]);
+            duplicateMatch = {
+              visible: true,
+              entityType: 'Client',
+              id: duplicateReferenceId,
+              name: nameResult.rows[0]?.name ?? `زبون #${duplicateReferenceId}`,
+            };
+          }
+        } else {
+          const subject = await loadCandidateSubject(duplicateReferenceId);
+          const access = subject && canViewCandidate(authContext, subject);
+          if (subject && access?.allowed) {
+            const nameResult = await pool.query(
+              `SELECT COALESCE(
+                 NULLIF(TRIM(CONCAT_WS(' ', first_name, last_name)), ''),
+                 NULLIF(nickname, ''),
+                 CONCAT('اسم مقترح #', id)
+               ) AS name
+               FROM candidates
+               WHERE id = $1`,
+              [duplicateReferenceId],
+            );
+            duplicateMatch = {
+              visible: true,
+              entityType: 'Candidate',
+              id: duplicateReferenceId,
+              name: nameResult.rows[0]?.name ?? `اسم مقترح #${duplicateReferenceId}`,
+            };
+          }
+        }
+      }
+      if (!duplicateMatch) {
+        duplicateMatch = {
+          visible: false,
+          entityType: duplicateType ?? null,
+          message: 'يوجد سجل مطابق خارج نطاق عرضك',
+        };
+      }
+    }
+
+    let conversion: any = null;
+    if (candidate.convertedToLeadId != null) {
+      const linkedClient = await loadLinkableClient(candidate.convertedToLeadId);
+      const access = linkedClient && canViewClient(authContext, linkedClient);
+      if (linkedClient && access?.allowed) {
+        const clientResult = await pool.query('SELECT name FROM clients WHERE id = $1', [candidate.convertedToLeadId]);
+        conversion = {
+          mode: null,
+          visible: true,
+          client: {
+            id: Number(linkedClient.id),
+            name: clientResult.rows[0]?.name ?? `زبون #${linkedClient.id}`,
+            lifecycleStage: linkedClient.lifecycleStage,
+          },
+        };
+      } else {
+        conversion = {
+          mode: null,
+          visible: false,
+          message: 'مرتبط بزبون خارج نطاق عرضك',
+        };
+      }
+    }
+
+    const editAccess = canEditCandidate(authContext, {
+      branchId: candidate.branchId,
+      assignedUserIds: candidate.assignedUserIds,
+    });
+    const terminal = isTerminalCandidateState(candidate.status, candidate.convertedToLeadId);
+    const hasClientCreate = authContext.isSuperAdmin || authContext.grants.some((grant: any) => grant.permission === 'clients.create');
+    const hasClientEdit = authContext.isSuperAdmin || authContext.grants.some((grant: any) => grant.permission === 'clients.edit');
+    const ownershipType = candidate.responsibleUserId == null ? 'BRANCH' : 'PERSONAL';
+    const phoneNumbers = (Array.isArray(candidate.contacts) ? candidate.contacts : [])
+      .map((contact: any) => {
+        const rawNumber = typeof contact?.number === 'string' ? contact.number.trim() : '';
+        const areaCode = typeof contact?.areaCode === 'string' ? contact.areaCode.trim() : '';
+        const type = ['mobile', 'landline', 'other'].includes(contact?.type) ? contact.type : null;
+        const status = ['active', 'preferred', 'out-of-coverage', 'unused', 'invalid'].includes(contact?.status)
+          ? contact.status
+          : null;
+        return {
+          number: type === 'landline' && areaCode && !rawNumber.startsWith(areaCode)
+            ? `${areaCode}${rawNumber}`
+            : rawNumber,
+          type,
+          label: typeof contact?.label === 'string' && contact.label.trim() ? contact.label.trim() : null,
+          hasWhatsApp: typeof contact?.hasWhatsApp === 'boolean' ? contact.hasWhatsApp : null,
+          isPrimary: contact?.isPrimary === true,
+          status,
+        };
+      })
+      .filter((contact: { number: string }) => contact.number.length > 0);
+    if (
+      typeof candidate.mobile === 'string' &&
+      candidate.mobile.trim() &&
+      !phoneNumbers.some((contact: { number: string }) => contact.number === candidate.mobile.trim())
+    ) {
+      phoneNumbers.unshift({
+        number: candidate.mobile.trim(),
+        type: 'mobile',
+        label: null,
+        hasWhatsApp: null,
+        isPrimary: phoneNumbers.length === 0,
+        status: null,
+      });
+    }
+    phoneNumbers.sort((left: { isPrimary: boolean }, right: { isPrimary: boolean }) => Number(right.isPrimary) - Number(left.isPrimary));
+
+    return res.json({
+      id: Number(candidate.id),
+      firstName: candidate.firstName,
+      lastName: candidate.lastName,
+      nickname: candidate.nickname,
+      phoneNumbers,
+      status: candidate.status,
+      branch: { id: candidate.branchId == null ? null : Number(candidate.branchId), name: candidate.branchName },
+      ownership: {
+        type: ownershipType,
+        responsibleUserId: candidate.responsibleUserId == null ? null : Number(candidate.responsibleUserId),
+        responsibleUserName: candidate.responsibleUserName,
+        roleDisplayName: candidate.responsibleRoleDisplayName,
+        label: ownershipType === 'PERSONAL'
+          ? (candidate.responsibleUserName ?? 'مسؤول غير محدد')
+          : (candidate.branchName ?? 'غير محدد'),
+      },
+      createdAt: candidate.createdAt,
+      address: {
+        geoUnitId: candidate.geoUnitId == null ? null : Number(candidate.geoUnitId),
+        geoPath,
+        text: candidate.addressText || null,
+      },
+      referral: {
+        entryMode: candidate.referralSheetId == null ? 'DIRECT' : 'NAME_LIST',
+        type: candidate.referralType,
+        nameSnapshot: candidate.referralNameSnapshot,
+        originChannel: candidate.referralOriginChannel,
+        date: candidate.referralDate,
+        reason: presentCandidateReferralReason(candidate.referralReason),
+      },
+      occupation: { value: candidate.occupation ?? null, active: occupationActive },
+      candidateNotes: candidate.candidateNotes ?? null,
+      duplicate: {
+        flagged: candidate.duplicateFlag === true,
+        type: candidate.duplicateType,
+        match: duplicateMatch,
+      },
+      conversion,
+      sourceSheet,
+      permissions: {
+        canEdit: editAccess.allowed && !terminal,
+        canQualify: editAccess.allowed && !terminal && hasClientCreate,
+        canLinkClient: editAccess.allowed && !terminal && hasClientEdit,
+      },
+    });
+  } catch (err: any) {
+    return res.status(err.status || 500).json({ error: err.message, code: err.code });
+  }
+});
+
 /**
  * @swagger
  * /api/candidates:
@@ -591,11 +910,27 @@ router.post('/', requirePermission('candidates.create'), async (req, res) => {
     const requestedSheetId = Number(req.body?.referralSheetId);
     const hasRequestedSheet = Number.isInteger(requestedSheetId) && requestedSheetId > 0;
     let inheritedOwnership: CandidateOwnershipDecision | null = null;
+    let inheritedReferral: {
+      referralType: string | null;
+      referralEntityId: number | null;
+      referralNameSnapshot: string | null;
+      referralOriginChannel: string | null;
+      referralDate: string | null;
+    } | null = null;
     let targetBranchId = resolveCandidateTargetBranch(req, req.body?.branchId, 'candidates.create');
 
     if (hasRequestedSheet) {
       const { rows: sheetRows } = await db.query(
-        `SELECT branch_id AS "branchId", assigned_hr_user_id AS "assignedHrUserId"
+        `SELECT
+           branch_id AS "branchId",
+           owner_user_id AS "ownerUserId",
+           assigned_hr_user_id AS "assignedHrUserId",
+           status,
+           referral_type AS "referralType",
+           referral_entity_id AS "referralEntityId",
+           referral_name_snapshot AS "referralNameSnapshot",
+           referral_origin_channel AS "referralOriginChannel",
+           referral_date AS "referralDate"
            FROM referral_sheets
           WHERE id = $1
           FOR SHARE`,
@@ -604,6 +939,20 @@ router.post('/', requirePermission('candidates.create'), async (req, res) => {
       const sheet = sheetRows[0];
       if (!sheet) {
         return res.status(400).json({ error: 'لائحة الأسماء المحددة غير موجودة' });
+      }
+      const sheetAccess = canViewReferralSheet(authContext, {
+        branchId: sheet.branchId,
+        ownerUserId: sheet.ownerUserId,
+        assignedHrUserId: sheet.assignedHrUserId,
+      });
+      if (!sheetAccess.allowed) {
+        return res.status(403).json({ error: 'غير مسموح بإضافة أسماء إلى هذه اللائحة' });
+      }
+      if (sheet.status !== 'New' && sheet.status !== 'In-Progress') {
+        return res.status(409).json({
+          error: 'لا يمكن إضافة أسماء إلا إلى لائحة جديدة أو قيد الجمع',
+          code: 'candidate_referral_sheet_closed',
+        });
       }
       const inheritedBranchId = Number(sheet.branchId);
       if (!Number.isInteger(inheritedBranchId) || inheritedBranchId <= 0) {
@@ -616,6 +965,13 @@ router.post('/', requirePermission('candidates.create'), async (req, res) => {
       inheritedOwnership = sheet.assignedHrUserId == null
         ? { ownershipType: 'BRANCH', responsibleUserId: null }
         : { ownershipType: 'PERSONAL', responsibleUserId: Number(sheet.assignedHrUserId) };
+      inheritedReferral = {
+        referralType: sheet.referralType ?? null,
+        referralEntityId: sheet.referralEntityId == null ? null : Number(sheet.referralEntityId),
+        referralNameSnapshot: sheet.referralNameSnapshot ?? null,
+        referralOriginChannel: sheet.referralOriginChannel ?? null,
+        referralDate: sheet.referralDate ?? null,
+      };
     }
 
     if (targetBranchId == null) {
@@ -631,6 +987,15 @@ router.post('/', requirePermission('candidates.create'), async (req, res) => {
     }
 
     const c = normalizeCandidatePayload(req.body ?? {});
+    if (inheritedReferral) {
+      c.referralType = inheritedReferral.referralType;
+      c.referralEntityId = inheritedReferral.referralEntityId;
+      c.referralNameSnapshot = inheritedReferral.referralNameSnapshot;
+      c.referralOriginChannel = inheritedReferral.referralOriginChannel;
+      c.referralDate = inheritedReferral.referralDate;
+      c.referralReason = 'ضمن لائحة أسماء';
+    }
+    c.occupation = await resolveReferenceValueForWrite(db, 'occupation', c.occupation);
     const ownership = inheritedOwnership ?? resolveCandidateOwnershipInput(req.body ?? {}, authContext.userId);
     if (inheritedOwnership?.ownershipType === 'PERSONAL') {
       await assertEligibleCandidateResponsible(db, inheritedOwnership.responsibleUserId, targetBranchId);
@@ -719,15 +1084,15 @@ router.post('/:id/link-client', requirePermission('candidates.edit'), async (req
       });
     }
 
-    const viewClientAccess = canViewClient(authContext, {
+    const editClientAccess = canEditClient(authContext, {
       branchId: client.branchId,
       assignedUserIds: client.assignedUserIds,
     });
-    if (!viewClientAccess.allowed) {
-      const samePhone = await clientHasMatchingPhone(clientId, candidate.mobile);
-      if (!samePhone) {
-        return res.status(403).json({ error: 'غير مسموح بربط هذا الزبون' });
-      }
+    if (!editClientAccess.allowed) {
+      return res.status(403).json({
+        error: 'غير مسموح بتعديل علاقة هذا الزبون',
+        code: editClientAccess.reason,
+      });
     }
 
     const newReferrer = {
@@ -928,7 +1293,7 @@ router.put('/:id', requirePermission('candidates.edit'), async (req, res) => {
     }
 
     const { rows: currentRows } = await pool.query(
-      'SELECT status, converted_to_lead_id AS "convertedToLeadId" FROM candidates WHERE id = $1',
+      'SELECT status, converted_to_lead_id AS "convertedToLeadId", occupation FROM candidates WHERE id = $1',
       [candidateId],
     );
     const currentCandidate = currentRows[0];
@@ -940,6 +1305,9 @@ router.put('/:id', requirePermission('candidates.edit'), async (req, res) => {
     }
 
     const c = normalizeCandidatePayload(req.body ?? {});
+    c.occupation = await resolveReferenceValueForWrite(db, 'occupation', c.occupation, {
+      currentValue: currentCandidate?.occupation ?? null,
+    });
     const targetBranchId = req.body?.branchId !== undefined
       ? resolveCandidateTargetBranch(req, req.body?.branchId, 'candidates.edit')
       : existing.branchId;

@@ -524,17 +524,35 @@ async function fetchProjectedDuesByContractIds(dbClient: any, contractIds: numbe
  *       500:
  *         description: Server error
  */
-router.get('/', requirePermission('contracts.view_list'), async (req, res) => {
-  const authContext = req.authContext!;
-  const params: any[] = [];
+// Shared branch-scope for the contract list endpoints. Contracts are branch-only
+// (no ASSIGNED tier — confirmed): a viewer without BRANCH/GLOBAL contracts.view_list
+// sees nothing. Keeps GET '/' and GET '/paged' in sync (SH-1, no drift).
+function appendContractListScope(authContext: any, req: any, params: any[]): string[] {
   const conditions: string[] = [];
-
   if (!authContext.isSuperAdmin) {
     conditions.push(`c.branch_id = $${params.push(authContext.actingBranchId)}`);
   } else {
     const hb = Number(req.header('x-branch-id'));
     if (Number.isFinite(hb) && hb > 0) conditions.push(`c.branch_id = $${params.push(hb)}`);
   }
+  return conditions;
+}
+
+// Whitelist of sortable columns for GET '/paged' (never interpolate raw input).
+const CONTRACT_SORT_COLUMNS: Record<string, string> = {
+  id: 'c.id',
+  contractNumber: 'c.contract_number',
+  customerName: 'c.customer_name',
+  finalPrice: 'c.final_price',
+  contractDate: 'c.contract_date',
+  status: 'c.status',
+  deviceModelName: 'c.device_model_name',
+};
+
+router.get('/', requirePermission('contracts.view_list'), async (req, res) => {
+  const authContext = req.authContext!;
+  const params: any[] = [];
+  const conditions = appendContractListScope(authContext, req, params);
   // Optional filter by customerId
   const cid = Number(req.query.customerId);
   if (cid > 0) conditions.push(`c.customer_id = $${params.push(cid)}`);
@@ -544,6 +562,118 @@ router.get('/', requirePermission('contracts.view_list'), async (req, res) => {
   const ids = contracts.map((c: any) => c.id);
   const dues = await fetchProjectedDuesByContractIds(pool, ids);
   res.json(contracts.map((c: any) => ({ ...mapContract(c), dues: dues.filter((d: any) => d.contractId === c.id) })));
+});
+
+// Isolated companion to GET '/' — server pagination + search/filter/sort. Does
+// NOT replace the list; ContractList (records page) is its only consumer.
+router.get('/paged', requirePermission('contracts.view_list'), async (req, res) => {
+  try {
+    const authContext = req.authContext!;
+    const params: any[] = [];
+    const conditions = appendContractListScope(authContext, req, params);
+
+    const cid = Number(req.query.customerId);
+    if (cid > 0) conditions.push(`c.customer_id = $${params.push(cid)}`);
+
+    const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+    if (search) {
+      params.push(`%${search}%`);
+      const ref = `$${params.length}`;
+      conditions.push(
+        `(c.contract_number ILIKE ${ref} OR c.customer_name ILIKE ${ref} OR c.device_model_name ILIKE ${ref}`
+        + ` OR COALESCE(d.serial_number, c.draft_device_payload->>'serialNumber') ILIKE ${ref})`,
+      );
+    }
+
+    const status = typeof req.query.status === 'string' ? req.query.status.trim() : '';
+    if (['draft', 'active', 'completed', 'cancelled'].includes(status)) {
+      params.push(status);
+      conditions.push(`c.status = $${params.length}`);
+    }
+
+    const paymentType = typeof req.query.paymentType === 'string' ? req.query.paymentType.trim() : '';
+    if (['cash', 'installment'].includes(paymentType)) {
+      params.push(paymentType);
+      conditions.push(`c.payment_type = $${params.length}`);
+    }
+
+    // ── Enriched filter catalog (docs/analysis/contracts-records-performance-filters-and-stats.md §3) ──
+    const saleType = typeof req.query.saleType === 'string' ? req.query.saleType.trim() : '';
+    if (['tradein', 'retention', 'direct'].includes(saleType)) {
+      params.push(saleType);
+      conditions.push(`c.sale_type = $${params.length}`);
+    }
+    const saleSubtype = typeof req.query.saleSubtype === 'string' ? req.query.saleSubtype.trim() : '';
+    if (['definitive', 'temporary', 'free'].includes(saleSubtype)) {
+      params.push(saleSubtype);
+      conditions.push(`c.sale_subtype = $${params.length}`);
+    }
+
+    const toId = (v: unknown) => { const n = Number(v); return Number.isInteger(n) && n > 0 ? n : null; };
+    const saleOwner = toId(req.query.saleOwner);
+    if (saleOwner != null) { params.push(saleOwner); conditions.push(`c.sale_owner_id = $${params.length}`); }
+    const closingEmployee = toId(req.query.closingEmployee);
+    if (closingEmployee != null) { params.push(closingEmployee); conditions.push(`c.closing_employee_id = $${params.length}`); }
+    const deviceModel = toId(req.query.deviceModel);
+    if (deviceModel != null) { params.push(deviceModel); conditions.push(`c.device_model_id = $${params.length}`); }
+
+    const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+    const dateFrom = typeof req.query.dateFrom === 'string' && dateRe.test(req.query.dateFrom) ? req.query.dateFrom : '';
+    if (dateFrom) { params.push(dateFrom); conditions.push(`c.contract_date >= $${params.length}::date`); }
+    const dateTo = typeof req.query.dateTo === 'string' && dateRe.test(req.query.dateTo) ? req.query.dateTo : '';
+    if (dateTo) { params.push(dateTo); conditions.push(`c.contract_date < ($${params.length}::date + INTERVAL '1 day')`); }
+
+    const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : null; };
+    const priceMin = num(req.query.priceMin);
+    if (priceMin != null) { params.push(priceMin); conditions.push(`c.final_price >= $${params.length}`); }
+    const priceMax = num(req.query.priceMax);
+    if (priceMax != null) { params.push(priceMax); conditions.push(`c.final_price <= $${params.length}`); }
+
+    // Cross-entity boolean flags on the joined installed device (contract → 0/1 device).
+    if (req.query.hasDevice === 'yes') conditions.push(`d.id IS NOT NULL`);
+    else if (req.query.hasDevice === 'no') conditions.push(`d.id IS NULL`);
+    if (req.query.goldenWarranty === 'yes') conditions.push(`d.is_golden_warranty = TRUE`);
+    else if (req.query.goldenWarranty === 'no') conditions.push(`d.is_golden_warranty IS NOT TRUE`);
+
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const pageRaw = Number(req.query.page);
+    const page = Number.isInteger(pageRaw) && pageRaw > 0 ? pageRaw : 1;
+    const limitRaw = Number(req.query.limit);
+    const limit = Math.min(100, Math.max(1, Number.isInteger(limitRaw) && limitRaw > 0 ? limitRaw : 25));
+    const offset = (page - 1) * limit;
+
+    const sortKey = typeof req.query.sortKey === 'string' && CONTRACT_SORT_COLUMNS[req.query.sortKey]
+      ? req.query.sortKey
+      : 'id';
+    const sortDir = req.query.sortDir === 'asc' ? 'ASC' : 'DESC';
+    const orderBy = `${CONTRACT_SORT_COLUMNS[sortKey]} ${sortDir}, c.id ${sortDir}`;
+
+    const pageParams = [...params, limit, offset];
+    const limitRef = `$${params.length + 1}`;
+    const offsetRef = `$${params.length + 2}`;
+
+    const [pageResult, countResult] = await Promise.all([
+      pool.query(
+        `SELECT ${contractSelect} FROM contracts c LEFT JOIN installed_devices d ON d.contract_id = c.id ${where}`
+        + ` ORDER BY ${orderBy} LIMIT ${limitRef} OFFSET ${offsetRef}`,
+        pageParams,
+      ),
+      pool.query(
+        `SELECT COUNT(*)::int AS total FROM contracts c LEFT JOIN installed_devices d ON d.contract_id = c.id ${where}`,
+        params,
+      ),
+    ]);
+
+    const contracts = pageResult.rows;
+    const ids = contracts.map((c: any) => c.id);
+    const dues = await fetchProjectedDuesByContractIds(pool, ids);
+    const items = contracts.map((c: any) => ({ ...mapContract(c), dues: dues.filter((dd: any) => dd.contractId === c.id) }));
+
+    res.json({ items, total: countResult.rows[0]?.total ?? 0, page, limit });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
 });
 
 /**
