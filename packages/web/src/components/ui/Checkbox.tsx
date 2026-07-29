@@ -124,7 +124,7 @@ const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(function Checkbox(
   return (
     <label
       className={[
-        'inline-flex items-center gap-2 select-none',
+        'relative inline-flex items-center gap-2 select-none',
         disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
         className,
       ].filter(Boolean).join(' ')}
