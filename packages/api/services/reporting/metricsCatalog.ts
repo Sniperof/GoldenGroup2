@@ -11,7 +11,7 @@
 // ============================================================
 
 import pool from '../../db.js';
-import { appendCandidateScope, appendClientScope } from './reportingScope.js';
+import { appendCandidateScope, appendClientScope, appendReferralSheetScope } from './reportingScope.js';
 
 export type MetricUnit = 'count' | 'percent';
 export type ScopeMode = 'GLOBAL' | 'BRANCH' | 'ASSIGNED';
@@ -171,6 +171,32 @@ const clientsCommittedRatio: MetricDefinition = {
   },
 };
 
+const clientsRatingNetChange: MetricDefinition = {
+  key: 'clients.rating_net_change',
+  permission: 'clients.rating.view',
+  titleAr: 'صافي تغيّر الالتزام',
+  unit: 'count',
+  // "ترقية" = دخول حالة الالتزام (new=Committed و old≠Committed)؛ "تخفيض" = الخروج
+  // منها. الصافي = (الترقيات − التخفيضات) خلال الفترة — مكسب/خسارة الزبائن الملتزمين.
+  purpose: 'قرار/سير عمل: هل جودة قاعدة الزبائن تتحسّن أم تتدهور — صافي دخول الالتزام مقابل خروجه خلال الفترة.',
+  async compute(ctx) {
+    const net = async (from: Date, to: Date) => {
+      const params: unknown[] = [from, to];
+      const sql =
+        `SELECT (
+             COUNT(*) FILTER (WHERE h.new_rating = 'Committed' AND h.old_rating IS DISTINCT FROM 'Committed')
+           - COUNT(*) FILTER (WHERE h.old_rating = 'Committed' AND h.new_rating IS DISTINCT FROM 'Committed')
+           )::int AS v
+           FROM client_rating_history h
+           JOIN clients c ON c.id = h.client_id
+          WHERE h.changed_at >= $1 AND h.changed_at < $2
+            AND c.deleted_at IS NULL` + appendClientScope(ctx, params);
+      return scalar(sql, params);
+    };
+    return { value: await net(ctx.from, ctx.to), previous: await net(ctx.prevFrom, ctx.prevTo) };
+  },
+};
+
 const candidatesNewCount: MetricDefinition = {
   key: 'candidates.new_count',
   permission: 'candidates.view_list',
@@ -213,6 +239,49 @@ const candidatesJunkRate: MetricDefinition = {
   },
 };
 
+const candidatesDuplicateRate: MetricDefinition = {
+  key: 'candidates.duplicate_rate',
+  permission: 'candidates.view_list',
+  titleAr: 'نسبة التكرار',
+  unit: 'percent',
+  purpose: 'سير عمل: نظافة البيانات عند الإدخال الميداني — نسبة الأسماء المكرّرة من إجمالي ما دخل خلال الفترة.',
+  async compute(ctx) {
+    const rate = async (from: Date, to: Date): Promise<number> => {
+      const params: unknown[] = [from, to];
+      const sql =
+        `SELECT
+            COUNT(*) FILTER (WHERE c.duplicate_flag = TRUE)::numeric AS dup,
+            COUNT(*)::numeric AS total
+           FROM candidates c
+          WHERE c.created_at >= $1 AND c.created_at < $2` + appendCandidateScope(ctx, params);
+      const { rows } = await pool.query(sql, params);
+      const total = Number(rows[0]?.total ?? 0);
+      const dup = Number(rows[0]?.dup ?? 0);
+      return total > 0 ? Math.round((dup / total) * 1000) / 10 : 0;
+    };
+    return { value: await rate(ctx.from, ctx.to), previous: await rate(ctx.prevFrom, ctx.prevTo) };
+  },
+};
+
+const referralSheetsBehindTarget: MetricDefinition = {
+  key: 'referral_sheets.behind_target_count',
+  permission: 'candidates.name_lists.view_list',
+  titleAr: 'أوراق إحالة دون الهدف',
+  unit: 'count',
+  purpose: 'سير عمل: متابعة إنجاز الأهداف الميدانية — لوائح قيد الجمع لم تبلغ عدد الأسماء المستهدف.',
+  async compute(ctx) {
+    // لقطة راهنة (backlog) — لا تعتمد على نافذة الزمن.
+    const params: unknown[] = [];
+    const sql =
+      `SELECT COUNT(*)::int AS v
+         FROM referral_sheets s
+        WHERE s.status = 'In-Progress'
+          AND s.target_candidates > 0
+          AND s.total_candidates < s.target_candidates` + appendReferralSheetScope(ctx, params);
+    return { value: await scalar(sql, params), previous: null };
+  },
+};
+
 export const METRIC_CATALOG: MetricDefinition[] = [
   clientsNewCount,
   clientsActiveTotal,
@@ -222,6 +291,9 @@ export const METRIC_CATALOG: MetricDefinition[] = [
   candidatesJunkRate,
   candidatesQualifiedUnconverted,
   clientsCommittedRatio,
+  clientsRatingNetChange,
+  candidatesDuplicateRate,
+  referralSheetsBehindTarget,
 ];
 
 export function findMetric(key: string): MetricDefinition | undefined {

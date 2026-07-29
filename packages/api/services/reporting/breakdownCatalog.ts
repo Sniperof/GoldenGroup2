@@ -555,6 +555,58 @@ const clientsTopReferrers: BreakdownDefinition = {
   },
 };
 
+// ── التوزيع الجغرافي وخط السير للمرشّحين (§3.7 #2/#3) ──────────────────────────
+
+// كثافة المرشّحين حسب خط السير + معدّل التحويل لكل خط (مطابقة geo_unit_id مباشرة).
+const candidatesByRoute: BreakdownDefinition = {
+  key: 'candidates.by_route',
+  permission: 'candidates.view_list',
+  titleAr: 'كثافة المرشّحين حسب خط السير',
+  kind: 'ranked-bar',
+  valueUnit: 'count',
+  secondaryLabel: 'تحويل',
+  purpose: 'قرار: أي خطوط السير تُنتج مرشّحين قابلين للتحويل فعليًا لا عددًا فقط.',
+  async compute(ctx) {
+    const params: unknown[] = [];
+    const sql =
+      `SELECT r.id AS rid, r.name AS rname,
+              COUNT(DISTINCT c.id)::int AS cnt,
+              COUNT(DISTINCT c.id) FILTER (WHERE c.converted_to_lead_id IS NOT NULL)::int AS conv
+         FROM candidates c
+         JOIN route_points rp ON rp.geo_unit_id = c.geo_unit_id
+         JOIN routes r ON r.id = rp.route_id
+        WHERE c.geo_unit_id IS NOT NULL` + appendCandidateScope(ctx, params) +
+      ` GROUP BY r.id, r.name ORDER BY cnt DESC LIMIT 10`;
+    const { rows } = await pool.query(sql, params);
+    return rows.map(r => {
+      const cnt = Number(r.cnt ?? 0);
+      const conv = Number(r.conv ?? 0);
+      return { key: String(r.rid), label: String(r.rname), value: cnt, value2: cnt > 0 ? Math.round((conv / cnt) * 1000) / 10 : 0 };
+    });
+  },
+};
+
+// أعلى المناطق كثافة مرشّحين (لقطة راهنة على geo_unit_id ضمن النطاق).
+const candidatesByGeoArea: BreakdownDefinition = {
+  key: 'candidates.by_geo_area',
+  permission: 'candidates.view_list',
+  titleAr: 'أعلى المناطق كثافة مرشّحين',
+  kind: 'ranked-bar',
+  valueUnit: 'count',
+  purpose: 'قرار: تخطيط تغطية ميدانية على مستوى المنطقة/الحي حسب كثافة المرشّحين.',
+  async compute(ctx) {
+    const params: unknown[] = [];
+    const sql =
+      `SELECT COALESCE(g.name, 'غير محدد') AS k, COUNT(*)::int AS v
+         FROM candidates c
+         LEFT JOIN geo_units g ON g.id = c.geo_unit_id
+        WHERE TRUE` + appendCandidateScope(ctx, params) +
+      ` GROUP BY 1 ORDER BY v DESC LIMIT 10`;
+    const { rows } = await pool.query(sql, params);
+    return rows.map(r => ({ key: String(r.k), label: String(r.k), value: Number(r.v ?? 0) }));
+  },
+};
+
 export const BREAKDOWN_CATALOG: BreakdownDefinition[] = [
   candidatesStageFunnel,
   referralSheetsTeamQuality,
@@ -572,6 +624,8 @@ export const BREAKDOWN_CATALOG: BreakdownDefinition[] = [
   clientsTopGeoAreas,
   clientsByRoute,
   clientsTopReferrers,
+  candidatesByRoute,
+  candidatesByGeoArea,
 ];
 
 export function findBreakdown(key: string): BreakdownDefinition | undefined {
