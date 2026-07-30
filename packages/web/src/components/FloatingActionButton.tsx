@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, UserPlus, UserCheck, ClipboardList } from 'lucide-react';
+import { Plus, UserPlus, UserCheck, ClipboardList } from './ui/icons';
 
 interface FloatingActionButtonProps {
     onAddSuggested: () => void;
@@ -34,8 +34,9 @@ export default function FloatingActionButton({ onAddSuggested, onAddCandidate, o
                     animate={{ rotate: isOpen ? 45 : 0 }}
                     transition={{ type: 'spring', stiffness: 300, damping: 20 }}
                     aria-label="القائمة السريعة"
+                    aria-expanded={isOpen}
                 >
-                    <Plus className="w-7 h-7" strokeWidth={2.5} />
+                    <Plus className="w-7 h-7" />
                 </motion.button>
 
                 {/* Speed Dial Options (They go up because of flex-col-reverse) */}

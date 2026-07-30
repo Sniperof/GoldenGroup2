@@ -91,6 +91,20 @@ export function canEditClient(
   return authorizeClientPermission(context, 'clients.edit', client);
 }
 
+export function canEditClientContactControl(
+  context: AuthContext,
+  client: ClientPolicySubject,
+): AuthorizationResult {
+  return authorizeClientPermission(context, 'clients.contact_control.edit', client);
+}
+
+export function canUnlockClientCooldown(
+  context: AuthContext,
+  client: ClientPolicySubject,
+): AuthorizationResult {
+  return authorizeClientPermission(context, 'clients.cooldown_unlock', client);
+}
+
 export function canViewClientRating(
   context: AuthContext,
   client: ClientPolicySubject,

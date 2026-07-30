@@ -16,8 +16,9 @@ import {
 } from '../services/telemarketingScope.js';
 import {
   CLOSES_TARGET_OUTCOMES,
-  HIDDEN_OPERATIONAL_TASK_TYPES,
+  evaluateDeviceTaskEligibility,
   normaliseOutcomeCode,
+  taskRequiresInstalledDevice,
   TelemarketingOutcomeCode,
 } from '@golden-crm/shared';
 import {
@@ -26,13 +27,84 @@ import {
   mapCustomerOwnership,
 } from '../services/customerOwnership.js';
 import { getSystemSettingNumber } from '../services/systemSettings.js';
-import { bookVisit, BookingError } from '../services/visitBooking.js';
+import { bookVisit, BookingError, FIELD_VISIT_SLOT_OCCUPIED_SQL } from '../services/visitBooking.js';
+import { refreshVisitType } from '../services/visitClassification.js';
 import {
   claimContactTarget,
   ContactTargetLockError,
   markContactTargetFirstContact,
 } from '../services/contactTargetLocks.js';
 import { authorize } from '../services/authorizationService.js';
+import { resolveAssignmentOwningBranch } from '../policies/routeAssignmentPolicy.js';
+import { lockPlanningDayMutation } from '../services/planningTaskCuration.js';
+import { buildPlanningTaskAvailablePredicate } from '../services/planningContactTargetScope.js';
+import {
+  isTelemarketingServiceRequestTaskType,
+  TELEMARKETING_SERVICE_REQUEST_TASK_TYPES,
+} from '../services/openTaskLinkagePolicy.js';
+import { canCreateTelemarketingServiceTask } from '../policies/telemarketingServiceTaskPolicy.js';
+
+async function acquireClientContactControlReadGuard(
+  clientId: number,
+): Promise<() => Promise<void>> {
+  const guard = await pool.connect();
+  try {
+    await guard.query('BEGIN');
+    await guard.query(
+      `SELECT pg_advisory_xact_lock_shared(hashtext($1))`,
+      [`client-contact-control:${clientId}`],
+    );
+  } catch (error) {
+    await guard.query('ROLLBACK');
+    guard.release();
+    throw error;
+  }
+  let released = false;
+  return async () => {
+    if (released) return;
+    released = true;
+    try {
+      await guard.query('COMMIT');
+    } catch (error) {
+      await guard.query('ROLLBACK');
+      throw error;
+    } finally {
+      guard.release();
+    }
+  };
+}
+
+function rejectBlockedContactExecution(
+  res: any,
+  state: {
+    doNotContact?: boolean;
+    cooldownActive?: boolean;
+    contactTargetStatus?: string | null;
+  },
+): boolean {
+  if (state.doNotContact === true) {
+    res.status(409).json({
+      error: 'الزبون في حالة عدم تواصل؛ لا يمكن تنفيذ إجراء جديد على جهة الاتصال',
+      code: 'CLIENT_DO_NOT_CONTACT',
+    });
+    return true;
+  }
+  if (state.cooldownActive === true) {
+    res.status(409).json({
+      error: 'الزبون ضمن فترة التهدئة؛ لا يمكن تنفيذ إجراء جديد على جهة الاتصال',
+      code: 'CLIENT_CONTACT_COOLDOWN',
+    });
+    return true;
+  }
+  if (state.contactTargetStatus === 'closed') {
+    res.status(409).json({
+      error: 'جهة الاتصال مغلقة؛ لا يمكن تنفيذ إجراء جديد عليها',
+      code: 'CONTACT_TARGET_CLOSED',
+    });
+    return true;
+  }
+  return false;
+}
 
 // ── Task-type-scoped contact visibility (migration 333) ─────────────────────
 // A role may hold `telemarketing.lists.view` (all contacts) or only
@@ -222,6 +294,32 @@ async function resolveOrCreateContactTarget(
         source_id = EXCLUDED.source_id,
         team_key = EXCLUDED.team_key,
         updated_at = NOW()
+      WHERE contact_targets.status = 'new'
+        AND (
+          contact_targets.team_key IS NULL
+          OR contact_targets.team_key = EXCLUDED.team_key
+          OR (
+            NOT EXISTS (
+              SELECT 1
+                FROM telemarketing_task_list_items existing_item
+               WHERE existing_item.contact_target_id = contact_targets.id
+            )
+            AND NOT EXISTS (
+              SELECT 1
+                FROM contact_target_open_tasks existing_link
+                JOIN open_tasks existing_task
+                  ON existing_task.id = existing_link.open_task_id
+               WHERE existing_link.contact_target_id = contact_targets.id
+                 AND existing_link.date = EXCLUDED.date
+                 AND existing_link.team_key <> EXCLUDED.team_key
+                 AND existing_link.link_status IN ('ready', 'queued')
+                 AND existing_task.status IN (
+                   'assigned', 'in_scheduling', 'scheduled', 'waiting_execution',
+                   'in_execution', 'ended', 'completed'
+                 )
+            )
+          )
+        )
       RETURNING id
       `,
       [branchId, entityId, supervisorHrUserId || null, geoUnitId, visitType, date, teamKey],
@@ -401,10 +499,15 @@ async function createMarketingVisitForAppointment(
   const schedule = await loadDaySchedule(params.date);
   const teamContext = getTeamSnapshotForVisit(schedule, params.teamKey);
 
-  const POST_SALE_TYPES = ['device_delivery', 'device_installation', 'device_activation', 'device_disconnection'];
-  const isPostSale = params.selectedTasks.length > 0 &&
-    params.selectedTasks.every(t => POST_SALE_TYPES.includes(t.taskType));
-  const visitFamily = isPostSale ? 'service' : 'marketing';
+  const taskTypes = params.selectedTasks.map((task) => task.taskType || 'device_demo');
+  const { rows: familyRows } = await db.query(
+    `SELECT task_type, task_family FROM task_type_config WHERE task_type = ANY($1::text[])`,
+    [taskTypes],
+  );
+  const familyByType = new Map(familyRows.map((row: any) => [row.task_type, row.task_family]));
+  const visitFamily = taskTypes.every((taskType) => familyByType.get(taskType) === 'marketing')
+    ? 'marketing'
+    : 'service';
 
   const customerSnapshot = {
     name: params.customerName,
@@ -468,7 +571,7 @@ async function createMarketingVisitForAppointment(
   for (let i = 0; i < params.selectedTasks.length; i++) {
     const task = params.selectedTasks[i];
     const taskType = task.taskType || 'device_demo';
-    const taskFamily = POST_SALE_TYPES.includes(taskType) ? 'service' : 'marketing';
+    const taskFamily = String(familyByType.get(taskType) ?? 'service');
 
     if (task.openTaskId != null) {
       const legacyId = `fv${fieldVisitId}_ot${task.openTaskId}`;
@@ -510,6 +613,8 @@ async function createMarketingVisitForAppointment(
       );
     }
   }
+
+  await refreshVisitType(db, fieldVisitId);
 
   return fieldVisitId;
 }
@@ -895,6 +1000,8 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view', 'telemarke
     ? `WHERE ${fieldVisitAppointmentWhere.join(' AND ')}`
     : '';
 
+  // Agenda membership follows the booking source. visit_type only classifies
+  // the selected work, so telemarketing-booked service/mixed visits belong here.
   const fieldVisitAppointmentsRes = await pool.query(
     `
       SELECT
@@ -907,6 +1014,7 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view', 'telemarke
         ${appointmentTeamKeySql} AS "teamKey",
         fv.scheduled_date::text AS date,
         substring(COALESCE(fv.scheduled_time, '') from 1 for 5) AS "timeSlot",
+        fv.status,
         COALESCE(fv.customer_snapshot->>'occupation', '') AS occupation,
         COALESCE(fv.customer_snapshot->>'waterSource', '') AS "waterSource",
         COALESCE(fv.telemarketer_notes, fv.field_notes, '') AS notes,
@@ -940,8 +1048,7 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view', 'telemarke
       ) tl ON TRUE
       ${fieldVisitWhere}
         ${fieldVisitWhere ? 'AND' : 'WHERE'} fv.origin_type = 'telemarketing'
-        AND fv.visit_type = 'marketing'
-        AND fv.status IN ('scheduled','in_progress','ended','completed')
+        AND ${FIELD_VISIT_SLOT_OCCUPIED_SQL}
       GROUP BY fv.id, c.id, ct.id, tl_origin.id, tl.id
       ORDER BY fv.created_at DESC
     `,
@@ -1235,19 +1342,33 @@ router.post('/task-lists/generate-from-plan', requirePermission('telemarketing.l
   if (!generateCheck.allowed) {
     return res.status(403).json({ error: generateCheck.reason || 'Not authorized to generate task lists' });
   }
-
-  // Query assigned tasks directly by assigned_team_key + assigned_for_date instead of
-  // re-deriving zone_ids. This ensures every assigned task is included regardless of
-  // whether the manager narrowed the route slice after the sync ran.
-  const targets = await getAssignedLeadsForTeam({ date, teamKey, branchId });
-  const leads = targets.leads;
-  const supervisorHrUserId = targets.supervisorHrUserId ?? null;
-  const skipped: { entityType: 'client'; entityId: number; reason: string; existingTeamKey?: string }[] = [];
+  const owningBranchId = await resolveAssignmentOwningBranch(date, teamKey);
+  if (owningBranchId == null || owningBranchId !== branchId) {
+    return res.status(403).json({ error: 'الفريق المحدد لا يتبع الفرع الفعّال' });
+  }
 
   const pgClient = await pool.connect();
 
   try {
     await pgClient.query('BEGIN');
+    await lockPlanningDayMutation(pgClient, branchId, date);
+
+    // Read and lock the assigned tasks inside the same transaction that commits
+    // them into the list. Exclusion and generation therefore cannot both win.
+    const targets = await getAssignedLeadsForTeam({
+      date,
+      teamKey,
+      branchId,
+      db: pgClient,
+    });
+    const leads = targets.leads;
+    const supervisorHrUserId = targets.supervisorHrUserId ?? null;
+    const skipped: {
+      entityType: 'client';
+      entityId: number;
+      reason: string;
+      existingTeamKey?: string;
+    }[] = [];
 
     const leadIds = leads.map((lead: any) => Number(lead.id)).filter((id: number) => Number.isInteger(id));
 
@@ -1429,6 +1550,39 @@ router.post('/task-lists/generate-from-plan', requirePermission('telemarketing.l
         }
       }
 
+      if (openTaskId != null) {
+        const claimResult = await pgClient.query(
+          `UPDATE open_tasks ot
+              SET status = 'in_scheduling',
+                  updated_at = NOW()
+             FROM clients c
+            WHERE ot.id = $1
+              AND ot.client_id = c.id
+              AND ot.branch_id = $2
+              AND ot.status = 'assigned'
+              AND ot.assigned_team_key = $3
+              AND ot.assigned_for_date = $4::date
+              AND c.do_not_contact = FALSE
+              AND (c.cooldown_until IS NULL OR c.cooldown_until < $4::date)
+              AND (c.is_active IS NULL OR c.is_active = TRUE)
+              AND c.deleted_at IS NULL
+              AND ${buildPlanningTaskAvailablePredicate('ot', '$3', '$4')}
+            RETURNING ot.id`,
+          [openTaskId, branchId, teamKey, date],
+        );
+        if ((claimResult as any).rowCount !== 1) {
+          skipped.push({ entityType: 'client', entityId, reason: 'state_changed' });
+          continue;
+        }
+        await pgClient.query(
+          `INSERT INTO task_activity_log (
+             task_id, event_type, performed_by, role, old_value, new_value
+           )
+           VALUES ($1, 'status_change', $2, NULL, 'assigned', 'in_scheduling')`,
+          [openTaskId, req.authContext?.userId ?? null],
+        );
+      }
+
       if (existingItem) {
         await pgClient.query(
           `
@@ -1496,17 +1650,6 @@ router.post('/task-lists/generate-from-plan', requirePermission('telemarketing.l
           [contactTargetId, openTaskId, branchId],
         );
 
-        const tlUpdateResult = await pgClient.query(
-          `UPDATE open_tasks SET status = 'in_scheduling', updated_at = NOW() WHERE id = $1 AND status = 'assigned'`,
-          [openTaskId],
-        );
-        if ((tlUpdateResult as any).rowCount > 0) {
-          await pgClient.query(
-            `INSERT INTO task_activity_log (task_id, event_type, performed_by, role, old_value, new_value)
-             VALUES ($1, 'status_change', $2, NULL, 'assigned', 'in_scheduling')`,
-            [openTaskId, req.authContext?.userId ?? null],
-          );
-        }
       }
 
       lifecycleUpdates.push({ contactTargetId, itemId });
@@ -1630,49 +1773,104 @@ router.patch(
     const taskList = await verifyTaskListAccess(req, res, String(req.params.taskListId));
     if (!taskList) return; // verifyTaskListAccess already sent 403/404
 
-    // Task-type scope guard (migr 333): a device-demo-only role may only act on
-    // a contact whose customer has a device_demo task.
-    if (getTelemarketingTaskTypeScope(req.authContext) === 'device_demo') {
-      const { rows: itemRows } = await pool.query(
-        `SELECT entity_type, entity_id FROM telemarketing_task_list_items WHERE id = $1 AND task_list_id = $2`,
-        [req.params.itemId, req.params.taskListId],
-      );
-      const it = itemRows[0];
-      const ok = it && it.entity_type === 'client' && await clientHasDeviceDemoTask(Number(it.entity_id));
-      if (!ok) {
-        return res.status(403).json({ error: 'غير مسموح: هذه الجهة خارج نطاق صلاحيتك (عرض جهاز فقط)' });
-      }
-    }
-
-    const { rows } = await pool.query(
-      `
-        UPDATE telemarketing_task_list_items
-        SET status = $1, call_outcome = $2
-        WHERE task_list_id = $3 AND id = $4
-        RETURNING
-          id,
-          task_list_id AS "taskListId",
-          entity_type AS "entityType",
-          entity_id AS "entityId",
-          name,
-          mobile,
-          contact_number AS "contactNumber",
-          contact_label AS "contactLabel",
-          address_text AS "addressText",
-          geo_unit_id AS "geoUnitId",
-          status,
-          call_outcome AS "callOutcome",
-          contact_target_id AS "contactTargetId"
-      `,
-      [status, callOutcome || null, req.params.taskListId, req.params.itemId],
+    const { rows: itemSubjectRows } = await pool.query(
+      `SELECT
+         i.entity_type,
+         i.entity_id,
+         c.do_not_contact AS "doNotContact",
+         (
+           c.cooldown_until IS NOT NULL
+           AND c.cooldown_until >= task_list.date::date
+         ) AS "cooldownActive",
+         ct.status AS "contactTargetStatus"
+         FROM telemarketing_task_list_items i
+         JOIN telemarketing_task_lists task_list
+           ON task_list.id = i.task_list_id
+         LEFT JOIN clients c
+           ON i.entity_type = 'client'
+          AND c.id = i.entity_id
+         LEFT JOIN contact_targets ct
+           ON ct.id = i.contact_target_id
+        WHERE i.id = $1
+          AND i.task_list_id = $2`,
+      [req.params.itemId, req.params.taskListId],
     );
-
-    if (!rows[0]) {
-      res.status(404).json({ message: 'عنصر القائمة غير موجود' });
-      return;
+    const itemSubject = itemSubjectRows[0];
+    if (!itemSubject) {
+      return res.status(404).json({ message: 'عنصر القائمة غير موجود' });
     }
+    const releaseContactControlGuard = itemSubject.entity_type === 'client'
+      ? await acquireClientContactControlReadGuard(Number(itemSubject.entity_id))
+      : null;
+    try {
+      if (itemSubject.entity_type === 'client') {
+        const { rows: refreshedRows } = await pool.query(
+          `SELECT
+             c.do_not_contact AS "doNotContact",
+             (
+               c.cooldown_until IS NOT NULL
+               AND c.cooldown_until >= task_list.date::date
+             ) AS "cooldownActive",
+             ct.status AS "contactTargetStatus"
+           FROM clients c
+           JOIN telemarketing_task_list_items item
+             ON item.entity_type = 'client'
+            AND item.entity_id = c.id
+           JOIN telemarketing_task_lists task_list
+             ON task_list.id = item.task_list_id
+           LEFT JOIN contact_targets ct
+             ON ct.id = item.contact_target_id
+          WHERE item.id = $1
+            AND item.task_list_id = $2`,
+          [req.params.itemId, req.params.taskListId],
+        );
+        itemSubject.doNotContact = refreshedRows[0]?.doNotContact === true;
+        itemSubject.cooldownActive = refreshedRows[0]?.cooldownActive === true;
+        itemSubject.contactTargetStatus = refreshedRows[0]?.contactTargetStatus ?? null;
+      }
+      if (rejectBlockedContactExecution(res, itemSubject)) return;
 
-    res.json(rows[0]);
+      // Task-type scope guard (migr 333): a device-demo-only role may only act on
+      // a contact whose customer has a device_demo task.
+      if (getTelemarketingTaskTypeScope(req.authContext) === 'device_demo') {
+        const it = itemSubject;
+        const ok = it && it.entity_type === 'client' && await clientHasDeviceDemoTask(Number(it.entity_id));
+        if (!ok) {
+          return res.status(403).json({ error: 'غير مسموح: هذه الجهة خارج نطاق صلاحيتك (عرض جهاز فقط)' });
+        }
+      }
+
+      const { rows } = await pool.query(
+        `
+          UPDATE telemarketing_task_list_items
+          SET status = $1, call_outcome = $2
+          WHERE task_list_id = $3 AND id = $4
+          RETURNING
+            id,
+            task_list_id AS "taskListId",
+            entity_type AS "entityType",
+            entity_id AS "entityId",
+            name,
+            mobile,
+            contact_number AS "contactNumber",
+            contact_label AS "contactLabel",
+            address_text AS "addressText",
+            geo_unit_id AS "geoUnitId",
+            status,
+            call_outcome AS "callOutcome",
+            contact_target_id AS "contactTargetId"
+        `,
+        [status, callOutcome || null, req.params.taskListId, req.params.itemId],
+      );
+
+      if (!rows[0]) {
+        return res.status(404).json({ message: 'عنصر القائمة غير موجود' });
+      }
+
+      return res.json(rows[0]);
+    } finally {
+      if (releaseContactControlGuard) await releaseContactControlGuard();
+    }
   },
 );
 
@@ -1686,32 +1884,63 @@ router.post('/contact-targets/:id/claim', requirePermission('telemarketing.calls
     if (callerId == null) {
       return res.status(401).json({ error: 'لا يمكن تحديد المستخدم الحالي' });
     }
-
-    // Task-type scope guard (migr 333): device-demo-only roles may only claim a
-    // contact whose customer has a device_demo task.
-    if (getTelemarketingTaskTypeScope(req.authContext) === 'device_demo') {
-      const { rows: ctRows } = await pool.query(
-        `SELECT target_id FROM contact_targets WHERE id = $1`, [contactTargetId],
-      );
-      const clientId = Number(ctRows[0]?.target_id);
-      if (!clientId || !(await clientHasDeviceDemoTask(clientId))) {
-        return res.status(403).json({ error: 'غير مسموح: هذه الجهة خارج نطاق صلاحيتك (عرض جهاز فقط)' });
-      }
-    }
-
-    await claimContactTarget(pool, contactTargetId, callerId);
-
-    const { rows } = await pool.query(
-      `SELECT ct.locked_by_hr_user_id AS "lockedByHrUserId",
-              hu.name AS "lockedByHrUserName",
-              ct.locked_at AS "lockedAt"
-         FROM contact_targets ct
-         LEFT JOIN hr_users hu ON hu.id = ct.locked_by_hr_user_id
-        WHERE ct.id = $1`,
+    const { rows: initialContactRows } = await pool.query(
+      `SELECT target_id
+         FROM contact_targets
+        WHERE id = $1
+          AND target_type = 'client'`,
       [contactTargetId],
     );
+    if (!initialContactRows[0]) {
+      return res.status(404).json({ error: 'جهة الاتصال غير موجودة' });
+    }
+    const clientId = Number(initialContactRows[0].target_id);
+    const releaseContactControlGuard = await acquireClientContactControlReadGuard(clientId);
+    try {
+      const { rows: contactSubjectRows } = await pool.query(
+      `SELECT
+         ct.target_id,
+         ct.status AS "contactTargetStatus",
+         c.do_not_contact AS "doNotContact",
+         (
+           c.cooldown_until IS NOT NULL
+           AND c.cooldown_until >= COALESCE(ct.date, CURRENT_DATE)
+         ) AS "cooldownActive"
+         FROM contact_targets ct
+         JOIN clients c ON c.id = ct.target_id
+        WHERE ct.id = $1
+          AND ct.target_type = 'client'`,
+      [contactTargetId],
+      );
+      if (!contactSubjectRows[0]) {
+        return res.status(404).json({ error: 'جهة الاتصال غير موجودة' });
+      }
+      if (rejectBlockedContactExecution(res, contactSubjectRows[0])) return;
 
-    return res.json(rows[0] ?? { lockedByHrUserId: callerId, lockedByHrUserName: null, lockedAt: null });
+      // Task-type scope guard (migr 333): device-demo-only roles may only claim a
+      // contact whose customer has a device_demo task.
+      if (getTelemarketingTaskTypeScope(req.authContext) === 'device_demo') {
+        if (!clientId || !(await clientHasDeviceDemoTask(clientId))) {
+          return res.status(403).json({ error: 'غير مسموح: هذه الجهة خارج نطاق صلاحيتك (عرض جهاز فقط)' });
+        }
+      }
+
+      await claimContactTarget(pool, contactTargetId, callerId);
+
+      const { rows } = await pool.query(
+        `SELECT ct.locked_by_hr_user_id AS "lockedByHrUserId",
+                hu.name AS "lockedByHrUserName",
+                ct.locked_at AS "lockedAt"
+           FROM contact_targets ct
+           LEFT JOIN hr_users hu ON hu.id = ct.locked_by_hr_user_id
+          WHERE ct.id = $1`,
+        [contactTargetId],
+      );
+
+      return res.json(rows[0] ?? { lockedByHrUserId: callerId, lockedByHrUserName: null, lockedAt: null });
+    } finally {
+      await releaseContactControlGuard();
+    }
   } catch (err: any) {
     if (err instanceof ContactTargetLockError) {
       return res.status(err.statusCode).json({ error: err.message, ownerName: err.ownerName });
@@ -1887,6 +2116,33 @@ router.post('/call-logs', requirePermission('telemarketing.calls.create'), async
     return res.status(404).json({ message: 'عنصر القائمة غير موجود' });
   }
   contactTargetId = taskListItem.contact_target_id ?? null;
+  const releaseContactControlGuard = taskListItem.entity_type === 'client'
+    ? await acquireClientContactControlReadGuard(Number(taskListItem.entity_id))
+    : null;
+  try {
+    if (taskListItem.entity_type === 'client') {
+    const { rows: contactControlRows } = await pool.query(
+      `SELECT
+         c.do_not_contact AS "doNotContact",
+         (
+           c.cooldown_until IS NOT NULL
+           AND c.cooldown_until >= task_list.date::date
+         ) AS "cooldownActive",
+         ct.status AS "contactTargetStatus"
+       FROM clients c
+       JOIN telemarketing_task_list_items item
+         ON item.entity_type = 'client'
+        AND item.entity_id = c.id
+       JOIN telemarketing_task_lists task_list
+         ON task_list.id = item.task_list_id
+       LEFT JOIN contact_targets ct
+         ON ct.id = item.contact_target_id
+      WHERE item.id = $1
+        AND item.task_list_id = $2`,
+      [taskListItem.id, taskListItem.task_list_id],
+    );
+    if (rejectBlockedContactExecution(res, contactControlRows[0] ?? {})) return;
+    }
 
   try {
     await claimContactTarget(pool, contactTargetId, calledBy);
@@ -2010,7 +2266,10 @@ router.post('/call-logs', requirePermission('telemarketing.calls.create'), async
     }
   }
 
-  res.json(rows[0]);
+    return res.json(rows[0]);
+  } finally {
+    if (releaseContactControlGuard) await releaseContactControlGuard();
+  }
 });
 
 /**
@@ -2093,14 +2352,41 @@ router.post('/book-visit', requirePermission('telemarketing.appointments.book'),
     let clientId = Number(body.clientId);
     let contactTargetId: number | null = null;
     let taskListItem: any = null;
+    if (Boolean(body.taskListId) !== Boolean(body.taskListItemId)) {
+      return res.status(400).json({
+        error: 'taskListId و taskListItemId مطلوبان معاً',
+        code: 'TASK_LIST_SUBJECT_INCOMPLETE',
+      });
+    }
     if (body.taskListId && body.taskListItemId) {
+      const taskList = await verifyTaskListAccess(req, res, String(body.taskListId));
+      if (!taskList) return;
+      if (taskList.branch_id != null && Number(taskList.branch_id) !== branchId) {
+        return res.status(403).json({
+          error: 'عنصر القائمة تابع لفرع آخر',
+          code: 'TASK_LIST_BRANCH_MISMATCH',
+        });
+      }
       taskListItem = await loadTaskListItem(pool, body.taskListId, body.taskListItemId);
       if (!taskListItem) {
         return res.status(404).json({ error: 'عنصر القائمة غير موجود' });
       }
+      if (taskListItem.entity_type !== 'client') {
+        return res.status(409).json({
+          error: 'حجز الزيارة يتطلب عنصر قائمة مرتبطاً بزبون',
+          code: 'TASK_LIST_SUBJECT_INVALID',
+        });
+      }
       contactTargetId = taskListItem.contact_target_id ?? null;
+      const itemClientId = Number(taskListItem.entity_id);
+      if (Number.isInteger(clientId) && clientId > 0 && clientId !== itemClientId) {
+        return res.status(409).json({
+          error: 'الزبون لا يطابق عنصر القائمة المحدد',
+          code: 'TASK_LIST_SUBJECT_MISMATCH',
+        });
+      }
       if (!Number.isInteger(clientId) || clientId <= 0) {
-        clientId = Number(taskListItem.entity_id);
+        clientId = itemClientId;
       }
     }
     if (!Number.isInteger(clientId) || clientId <= 0) {
@@ -2120,30 +2406,66 @@ router.post('/book-visit', requirePermission('telemarketing.appointments.book'),
         }))
       : [];
 
+    const releaseContactControlGuard = await acquireClientContactControlReadGuard(clientId);
     try {
-      await claimContactTarget(pool, contactTargetId, performedByUserId);
-    } catch (err: any) {
-      if (err instanceof ContactTargetLockError) {
-        return res.status(err.statusCode).json({ error: err.message, ownerName: err.ownerName });
+      const { rows: executionStateRows } = await pool.query(
+        `SELECT
+           c.id,
+           c.do_not_contact AS "doNotContact",
+           (
+             c.cooldown_until IS NOT NULL
+             AND c.cooldown_until >= COALESCE(task_list.date::date, ct.date, CURRENT_DATE)
+           ) AS "cooldownActive",
+           ct.target_id AS "contactTargetClientId",
+           ct.status AS "contactTargetStatus"
+         FROM clients c
+         LEFT JOIN telemarketing_task_lists task_list
+           ON task_list.id = $1
+         LEFT JOIN contact_targets ct
+           ON ct.id = $2
+          AND ct.target_type = 'client'
+        WHERE c.id = $3`,
+        [body.taskListId ?? null, contactTargetId, clientId],
+      );
+      const executionState = executionStateRows[0];
+      if (!executionState) {
+        return res.status(404).json({ error: 'الزبون غير موجود' });
       }
-      throw err;
-    }
+      if (
+        contactTargetId != null
+        && Number(executionState.contactTargetClientId) !== clientId
+      ) {
+        return res.status(409).json({
+          error: 'جهة الاتصال لا تطابق الزبون المحدد',
+          code: 'CONTACT_TARGET_SUBJECT_MISMATCH',
+        });
+      }
+      if (rejectBlockedContactExecution(res, executionState)) return;
 
-    const result = await bookVisit({
-      branchId,
-      clientId,
-      scheduledDate: String(body.date ?? ''),
-      scheduledTime: String(body.timeSlot ?? ''),
-      teamKey: String(body.teamKey ?? ''),
-      // DEC-003 D3: origin_type = 'telemarketing'; origin_id = call_log id if known,
-      // else the task list item id (still traceable to the campaign).
-      originType: 'telemarketing',
-      originId: body.callLogId ?? body.taskListItemId ?? null,
-      selectedTasks,
-      performedByUserId,
-      customerSnapshot: body.customerSnapshot ?? null,
-      telemarketerNotes: body.notes ?? null,
-    });
+      try {
+      await claimContactTarget(pool, contactTargetId, performedByUserId);
+      } catch (err: any) {
+        if (err instanceof ContactTargetLockError) {
+          return res.status(err.statusCode).json({ error: err.message, ownerName: err.ownerName });
+        }
+        throw err;
+      }
+
+      const result = await bookVisit({
+        branchId,
+        clientId,
+        scheduledDate: String(body.date ?? ''),
+        scheduledTime: String(body.timeSlot ?? ''),
+        teamKey: String(body.teamKey ?? ''),
+        // DEC-003 D3: origin_type = 'telemarketing'; origin_id = call_log id if known,
+        // else the task list item id (still traceable to the campaign).
+        originType: 'telemarketing',
+        originId: body.callLogId ?? body.taskListItemId ?? null,
+        selectedTasks,
+        performedByUserId,
+        customerSnapshot: body.customerSnapshot ?? null,
+        telemarketerNotes: body.notes ?? null,
+      });
 
     // Close the contact_target if one was attached (DEC-005 D26 + D23)
     if (contactTargetId != null) {
@@ -2172,11 +2494,14 @@ router.post('/book-visit', requirePermission('telemarketing.appointments.book'),
       );
     }
 
-    return res.json({
-      fieldVisitId: result.fieldVisitId,
-      visitTaskIds: result.visitTaskIds,
-      contactTargetId,
-    });
+      return res.json({
+        fieldVisitId: result.fieldVisitId,
+        visitTaskIds: result.visitTaskIds,
+        contactTargetId,
+      });
+    } finally {
+      await releaseContactControlGuard();
+    }
   } catch (err: any) {
     if (err instanceof BookingError) {
       return res.status(err.statusCode).json({ error: err.message });
@@ -2416,15 +2741,111 @@ router.get('/task-type-options', requirePermission('telemarketing.calls.create')
   try {
     const { rows } = await pool.query(
       `SELECT task_type AS "taskType", arabic_label AS "arabicLabel", task_family AS "taskFamily"
-         FROM task_type_config
+        FROM task_type_config
         WHERE is_active = TRUE
-          AND task_type <> ALL($1::text[])
+          AND task_type = ANY($1::text[])
         ORDER BY display_order ASC, task_type ASC`,
-      [Array.from(HIDDEN_OPERATIONAL_TASK_TYPES)],
+      [Array.from(TELEMARKETING_SERVICE_REQUEST_TASK_TYPES)],
     );
     return res.json(rows);
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/service-task-devices', requirePermission('telemarketing.calls.create'), async (req, res) => {
+  try {
+    const branchId = getBranchId(req);
+    const createdBy = getCallerId(req);
+    const clientId = Number(req.query.clientId);
+    const taskType = String(req.query.taskType ?? '').trim();
+
+    if (!branchId) return res.status(400).json({ error: 'Branch context required' });
+    if (!Number.isInteger(clientId) || clientId <= 0) {
+      return res.status(400).json({ error: 'clientId is required' });
+    }
+    if (!isTelemarketingServiceRequestTaskType(taskType)) {
+      return res.status(400).json({ error: 'taskType is not supported by telemarketing service requests' });
+    }
+    if (!taskRequiresInstalledDevice(taskType)) return res.json([]);
+
+    const { rows: clientRows } = await pool.query(
+      `SELECT c.id, c.branch_id,
+              EXISTS (
+                SELECT 1 FROM client_assignments ca
+                 WHERE ca.client_id = c.id AND ca.hr_user_id = $2
+              ) AS is_assigned
+         FROM clients c
+        WHERE c.id = $1 AND c.deleted_at IS NULL AND c.is_active = TRUE
+        LIMIT 1`,
+      [clientId, createdBy],
+    );
+    const clientSubject = clientRows[0];
+    if (!clientSubject) return res.status(404).json({ error: 'الزبون غير موجود أو غير فعال' });
+    if (Number(clientSubject.branch_id) !== branchId) {
+      return res.status(409).json({ error: 'فرع الزبون لا يطابق فرع العمل الحالي' });
+    }
+    const access = canCreateTelemarketingServiceTask(req.authContext!, {
+      branchId: Number(clientSubject.branch_id),
+      assignedUserIds: clientSubject.is_assigned && createdBy ? [createdBy] : [],
+    });
+    if (!access.allowed) {
+      return res.status(403).json({ error: 'غير مسموح بعرض أجهزة هذا الزبون ضمن نطاق صلاحيتك' });
+    }
+    if (getTelemarketingTaskTypeScope(req.authContext) === 'device_demo' && !(await clientHasDeviceDemoTask(clientId))) {
+      return res.status(403).json({ error: 'غير مسموح: هذه الجهة خارج نطاق صلاحيتك (عرض جهاز فقط)' });
+    }
+
+    const { rows } = await pool.query(
+      `SELECT d.id,
+              d.status,
+              d.contract_id AS "contractId",
+              d.serial_number AS "serialNumber",
+              COALESCE(
+                (SELECT COALESCE(dm.name_ar, dm.name_en) FROM device_models dm WHERE dm.id = d.device_model_id),
+                'جهاز'
+              ) AS "deviceModelName",
+              EXISTS (
+                SELECT 1 FROM service_agreements sa
+                 WHERE sa.installed_device_id = d.id
+                   AND sa.status = 'active'
+                   AND (sa.start_date IS NULL OR sa.start_date <= CURRENT_DATE)
+                   AND (sa.end_date IS NULL OR sa.end_date >= CURRENT_DATE)
+              ) AS "hasActiveServiceAgreement",
+              EXISTS (
+                SELECT 1 FROM device_warranties dw
+                 WHERE dw.device_id = d.id
+                   AND dw.warranty_type = 'golden'
+                   AND dw.status = 'active'
+                   AND (dw.end_date IS NULL OR dw.end_date >= CURRENT_DATE)
+              ) AS "hasActiveGoldenWarranty",
+              EXISTS (
+                SELECT 1 FROM open_tasks ot
+                 WHERE ot.device_id = d.id
+                   AND ot.task_type = $2
+                   AND ot.status NOT IN ('completed', 'closed', 'cancelled')
+              ) AS "hasActiveTask"
+         FROM installed_devices d
+        WHERE d.customer_id = $1
+          AND d.branch_id = $3
+        ORDER BY d.created_at DESC, d.id DESC`,
+      [clientId, taskType, branchId],
+    );
+
+    return res.json(rows.map((device: any) => {
+      const eligibility = evaluateDeviceTaskEligibility({
+        taskType,
+        deviceStatus: device.status,
+        hasContract: device.contractId != null,
+        hasActiveServiceAgreement: device.hasActiveServiceAgreement === true,
+        hasActiveTask: device.hasActiveTask === true,
+        hasActiveGoldenWarranty: device.hasActiveGoldenWarranty === true,
+      });
+      return { ...device, eligible: eligibility.allowed, eligibilityCode: eligibility.code, eligibilityReason: eligibility.reason };
+    }));
+  } catch (err: any) {
+    console.error('[telemarketing] service task device lookup error:', err);
+    return res.status(500).json({ error: err.message || 'فشل تحميل أجهزة الزبون' });
   }
 });
 
@@ -2454,6 +2875,9 @@ router.get('/task-type-options', requirePermission('telemarketing.calls.create')
  *                 type: integer
  *               taskType:
  *                 type: string
+ *               installedDeviceId:
+ *                 type: integer
+ *                 description: Required for every task type whose subject is an installed device
  *               notes:
  *                 type: string
  *               priority:
@@ -2473,6 +2897,7 @@ router.post('/service-tasks', requirePermission('telemarketing.calls.create'), a
     const branchId = getBranchId(req);
     const createdBy = getCallerId(req);
     const { clientId, taskType, notes, priority } = req.body ?? {};
+    const installedDeviceId = Number(req.body?.installedDeviceId) || null;
 
     if (!branchId) return res.status(400).json({ error: 'Branch context required' });
     if (!clientId || !Number.isInteger(Number(clientId))) {
@@ -2480,6 +2905,46 @@ router.post('/service-tasks', requirePermission('telemarketing.calls.create'), a
     }
     if (!taskType || typeof taskType !== 'string') {
       return res.status(400).json({ error: 'taskType is required' });
+    }
+    if (!isTelemarketingServiceRequestTaskType(taskType)) {
+      return res.status(409).json({
+        error: 'نوع المهمة المحدد يحتاج بيانات ارتباط لا يوفرها طلب الخدمة الهاتفي. أنشئ المهمة من مسارها التشغيلي المخصص.',
+      });
+    }
+    if (taskRequiresInstalledDevice(taskType) && !installedDeviceId) {
+      return res.status(409).json({
+        code: 'DEVICE_REQUIRED',
+        error: 'يجب اختيار جهاز محدد للزبون قبل إنشاء هذه المهمة',
+      });
+    }
+
+    const { rows: clientRows } = await pool.query(
+      `SELECT c.id, c.branch_id,
+              EXISTS (
+                SELECT 1 FROM client_assignments ca
+                 WHERE ca.client_id = c.id AND ca.hr_user_id = $2
+              ) AS is_assigned
+         FROM clients c
+        WHERE c.id = $1 AND c.deleted_at IS NULL AND c.is_active = TRUE
+        LIMIT 1`,
+      [Number(clientId), createdBy],
+    );
+    if (!clientRows[0]) {
+      return res.status(404).json({ error: 'الزبون غير موجود أو غير فعال' });
+    }
+    const clientSubject = clientRows[0];
+    if (Number(clientSubject.branch_id) !== branchId) {
+      return res.status(409).json({ error: 'فرع الزبون لا يطابق فرع العمل الحالي' });
+    }
+    const access = canCreateTelemarketingServiceTask(req.authContext!, {
+      branchId: Number(clientSubject.branch_id),
+      assignedUserIds: clientSubject.is_assigned && createdBy ? [createdBy] : [],
+    });
+    if (!access.allowed) {
+      return res.status(403).json({ error: 'غير مسموح بإنشاء طلب خدمة لهذا الزبون ضمن نطاق صلاحيتك' });
+    }
+    if (getTelemarketingTaskTypeScope(req.authContext) === 'device_demo' && !(await clientHasDeviceDemoTask(Number(clientId)))) {
+      return res.status(403).json({ error: 'غير مسموح: هذه الجهة خارج نطاق صلاحيتك (عرض جهاز فقط)' });
     }
 
     // Resolve task_family from task_type_config
@@ -2492,25 +2957,98 @@ router.post('/service-tasks', requirePermission('telemarketing.calls.create'), a
     }
     const taskFamily = ttcRows[0].task_family;
 
-    const { rows } = await pool.query(
-      `INSERT INTO open_tasks
-         (client_id, branch_id, task_type, task_family, reason, status,
-          priority, source, notes, created_by, origin)
-       VALUES ($1, $2, $3, $4, 'service_request', 'open',
-               $5, 'telemarketing', $6, $7, 'telemarketing_call')
-       RETURNING id, task_type AS "taskType", status, created_at AS "createdAt"`,
-      [
-        Number(clientId),
-        branchId,
-        taskType,
-        taskFamily,
-        ['high', 'medium', 'low'].includes(priority) ? priority : null,
-        notes || null,
-        createdBy,
-      ],
-    );
+    const dbClient = await pool.connect();
+    try {
+      await dbClient.query('BEGIN');
+      if (installedDeviceId) {
+        const { rows: deviceRows } = await dbClient.query(
+          `SELECT d.id,
+                  d.customer_id AS "customerId",
+                  d.branch_id AS "branchId",
+                  d.status,
+                  d.contract_id AS "contractId",
+                  EXISTS (
+                    SELECT 1 FROM service_agreements sa
+                     WHERE sa.installed_device_id = d.id
+                       AND sa.status = 'active'
+                       AND (sa.start_date IS NULL OR sa.start_date <= CURRENT_DATE)
+                       AND (sa.end_date IS NULL OR sa.end_date >= CURRENT_DATE)
+                  ) AS "hasActiveServiceAgreement",
+                  EXISTS (
+                    SELECT 1 FROM device_warranties dw
+                     WHERE dw.device_id = d.id
+                       AND dw.warranty_type = 'golden'
+                       AND dw.status = 'active'
+                       AND (dw.end_date IS NULL OR dw.end_date >= CURRENT_DATE)
+                  ) AS "hasActiveGoldenWarranty",
+                  EXISTS (
+                    SELECT 1 FROM open_tasks ot
+                     WHERE ot.device_id = d.id
+                       AND ot.task_type = $2
+                       AND ot.status NOT IN ('completed', 'closed', 'cancelled')
+                  ) AS "hasActiveTask"
+             FROM installed_devices d
+            WHERE d.id = $1
+            FOR UPDATE`,
+          [installedDeviceId, taskType],
+        );
+        const device = deviceRows[0];
+        if (!device) {
+          await dbClient.query('ROLLBACK');
+          return res.status(404).json({ error: 'الجهاز المحدد غير موجود' });
+        }
+        if (Number(device.customerId) !== Number(clientId) || Number(device.branchId) !== branchId) {
+          await dbClient.query('ROLLBACK');
+          return res.status(403).json({ error: 'الجهاز المحدد لا يتبع هذا الزبون ضمن فرع العمل الحالي' });
+        }
+        const eligibility = evaluateDeviceTaskEligibility({
+          taskType,
+          deviceStatus: device.status,
+          hasContract: device.contractId != null,
+          hasActiveServiceAgreement: device.hasActiveServiceAgreement === true,
+          hasActiveTask: device.hasActiveTask === true,
+          hasActiveGoldenWarranty: device.hasActiveGoldenWarranty === true,
+        });
+        if (!eligibility.allowed) {
+          await dbClient.query('ROLLBACK');
+          return res.status(409).json({ code: eligibility.code, error: eligibility.reason });
+        }
+      }
 
-    return res.status(201).json(rows[0]);
+      const { rows } = await dbClient.query(
+        `INSERT INTO open_tasks
+           (client_id, branch_id, task_type, task_family, reason, status,
+            priority, source, notes, created_by, origin, device_id)
+         VALUES ($1, $2, $3, $4, 'service_request', 'open',
+                 $5, 'telemarketing', $6, $7, 'telemarketing_call', $8)
+         RETURNING id, task_type AS "taskType", status, device_id AS "deviceId", created_at AS "createdAt"`,
+        [
+          Number(clientId),
+          branchId,
+          taskType,
+          taskFamily,
+          ['high', 'medium', 'low'].includes(priority) ? priority : null,
+          notes || null,
+          createdBy,
+          installedDeviceId,
+        ],
+      );
+      if (taskType === 'golden_warranty_offer' && installedDeviceId) {
+        await dbClient.query(
+          `INSERT INTO open_task_installed_devices (task_id, installed_device_id)
+           VALUES ($1, $2)
+           ON CONFLICT (task_id, installed_device_id) DO NOTHING`,
+          [rows[0].id, installedDeviceId],
+        );
+      }
+      await dbClient.query('COMMIT');
+      return res.status(201).json(rows[0]);
+    } catch (error) {
+      await dbClient.query('ROLLBACK');
+      throw error;
+    } finally {
+      dbClient.release();
+    }
   } catch (err: any) {
     console.error('[telemarketing] service task create error:', err);
     return res.status(500).json({ error: err.message || 'فشل إنشاء المهمة' });

@@ -22,16 +22,18 @@ import {
   UserRound,
   UserRoundCog,
   Users,
-} from 'lucide-react';
+} from '../components/ui/icons';
 import { api } from '../lib/api';
 import type { EmployeeDetail as EmployeeDetailType } from '../lib/types';
 import { usePermissions } from '../hooks/usePermissions';
 import { useRoleStore } from '../hooks/useRoleStore';
 import { useAuthStore } from '../hooks/useAuthStore';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
+import { useBranchStore } from '../hooks/useBranchStore';
 import EmployeeFormModal, { type EmployeeFormInitialValues } from '../components/employees/EmployeeFormModal';
 import Button from '../components/ui/Button';
 import Select from '../components/ui/Select';
+import Checkbox from '../components/ui/Checkbox';
 import { useSystemListsStore } from '../hooks/useSystemLists';
 import { getUnifiedApplicationState, getUnifiedApplicationStateClasses } from '../lib/applicationState';
 import GiftRecordsTable from '../components/gifts/GiftRecordsTable';
@@ -254,6 +256,7 @@ export default function EmployeeDetail() {
   const { lists, fetchLists }   = useSystemListsStore();
   const { user }                = useAuthStore();
   const { branchId: contextBranchId } = useBranchContextStore();
+  const { branches, fetchBranches } = useBranchStore();
   const { hasPermission }       = usePermissions();
 
   const canEditEmployee     = hasPermission('employees.edit');
@@ -266,6 +269,11 @@ export default function EmployeeDetail() {
   const [profileMessage, setProfileMessage] = useState('');
   const [accountMessage, setAccountMessage] = useState('');
   const [showEditModal, setShowEditModal]   = useState(false);
+  const [showTransferModal, setShowTransferModal] = useState(false);
+  const [transferBranchId, setTransferBranchId]   = useState<number | ''>('');
+  const [transferNote, setTransferNote]           = useState('');
+  const [transferring, setTransferring]           = useState(false);
+  const [transferError, setTransferError]         = useState('');
   const [savingProfile, setSavingProfile]   = useState(false);
   const [savingAccount, setSavingAccount]   = useState(false);
   const [activeTab, setActiveTab]           = useState<TabKey>('profile');
@@ -353,6 +361,34 @@ export default function EmployeeDetail() {
   );
 
   // ── Handlers ───────────────────────────────────────────────────────────────
+
+  function openTransferModal() {
+    void fetchBranches();
+    setTransferBranchId('');
+    setTransferNote('');
+    setTransferError('');
+    setShowTransferModal(true);
+  }
+
+  async function handleTransferBranch() {
+    if (!detail || transferBranchId === '') return;
+    setTransferring(true);
+    setTransferError('');
+    try {
+      await api.employees.transferBranch(detail.id, {
+        toBranchId: Number(transferBranchId),
+        note: transferNote.trim() || null,
+      });
+      const refreshed = await api.employees.get(detail.id) as EmployeeDetailType;
+      setDetail(refreshed);
+      setShowTransferModal(false);
+      setProfileMessage('تم نقل الموظف إلى الفرع الجديد.');
+    } catch (err: any) {
+      setTransferError(err?.message ?? 'تعذر نقل الموظف');
+    } finally {
+      setTransferring(false);
+    }
+  }
 
   async function handleSaveProfile(payload?: Record<string, unknown>) {
     if (!detail) return;
@@ -579,6 +615,14 @@ export default function EmployeeDetail() {
           <InfoRow label="المدير المباشر">{detail!.directManagerName}</InfoRow>
           <InfoRow label="نوع العقد">{detail!.contractType}</InfoRow>
           <InfoRow label="نوع العمل">{detail!.workType}</InfoRow>
+          {canEditEmployee && (
+            <div className="pt-3">
+              <Button variant="secondary" size="sm" onClick={openTransferModal}>
+                <ArrowRight className="h-3.5 w-3.5" />
+                نقل إلى فرع آخر
+              </Button>
+            </div>
+          )}
         </SectionCard>
 
         <SectionCard title="التواريخ" icon={<CalendarDays className="h-3.5 w-3.5" />} accent="emerald">
@@ -770,11 +814,10 @@ export default function EmployeeDetail() {
                   <div className="text-sm font-semibold text-slate-800">تفعيل الحساب</div>
                   <div className="text-xs text-slate-500 mt-0.5">إيقاف الوصول بدون حذف الربط</div>
                 </div>
-                <input
-                  type="checkbox"
+                <Checkbox
+                  bare
                   checked={accountForm.isActive}
-                  onChange={(e) => setAccountForm((c) => ({ ...c, isActive: e.target.checked }))}
-                  className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                  onCheckedChange={(v) => setAccountForm((c) => ({ ...c, isActive: v }))}
                 />
               </label>
             </div>
@@ -1114,6 +1157,57 @@ export default function EmployeeDetail() {
         onClose={() => { if (savingProfile) return; setShowEditModal(false); }}
         onSubmit={handleSaveProfile}
       />
+
+      {/* ── Branch transfer modal ──────────────────────────────────────────── */}
+      {showTransferModal && detail && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-xl">
+            <div className="flex items-center gap-2 border-b border-slate-100 px-5 py-4">
+              <ArrowRight className="h-4 w-4 text-sky-600" />
+              <h3 className="text-sm font-bold text-slate-800">نقل الموظف إلى فرع آخر</h3>
+            </div>
+            <div className="space-y-4 px-5 py-4">
+              <p className="text-xs leading-relaxed text-slate-500">
+                سيُنقل سجل الموظف وحسابه إلى الفرع الجديد. يبقى ما أنشأه أو يملكه (عقود/عملاء/مهام سابقة) في الفرع الحالي،
+                وتُصفَّر روابط المدير المباشر. لا يمكن النقل إذا كانت لديه مهام أو زيارات مفتوحة خارج الفرع الهدف.
+              </p>
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-600">الفرع الهدف</label>
+                <Select
+                  value={transferBranchId}
+                  onChange={(v) => setTransferBranchId(v)}
+                  placeholder="اختر الفرع"
+                  options={branches
+                    .filter((b) => b.id !== detail.branchId)
+                    .map((b) => ({ value: b.id, label: b.name }))}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-600">ملاحظة (اختياري)</label>
+                <textarea
+                  value={transferNote}
+                  onChange={(e) => setTransferNote(e.target.value)}
+                  rows={2}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-sky-400 focus:outline-none"
+                  placeholder="سبب النقل"
+                />
+              </div>
+              {transferError && (
+                <p className="rounded-lg bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{transferError}</p>
+              )}
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-5 py-4">
+              <Button variant="ghost" size="sm" onClick={() => { if (!transferring) setShowTransferModal(false); }} disabled={transferring}>
+                إلغاء
+              </Button>
+              <Button variant="primary" size="sm" onClick={() => void handleTransferBranch()} disabled={transferring || transferBranchId === ''}>
+                {transferring ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowRight className="h-3.5 w-3.5" />}
+                تأكيد النقل
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { Download, Loader2, MessageCircle, Printer } from 'lucide-react';
+import { Download, Loader2, MessageCircle, Printer } from '../ui/icons';
 import { useEffect, useState } from 'react';
 import { api } from '../../lib/api';
 import Button from '../ui/Button';

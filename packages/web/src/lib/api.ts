@@ -1,11 +1,13 @@
 import type {
   MarketingVisitCancelRequest,
   MarketingVisitRescheduleRequest,
+  DevicePossessionEntry,
   TaskTypeConfig,
   ZoneStudyMode,
   ZoneStudyResponse,
 } from '@golden-crm/shared';
 import { shouldAttachBranchContextHeader } from './branchContext';
+import { authFetch } from './authFetch';
 
 export const API_BASE = '/api';
 
@@ -33,6 +35,272 @@ export interface AccountStatementResponse {
     overdue_amount: number;
   };
   entries: AccountStatementEntry[];
+}
+
+// GET /clients/paged — server-side pagination companion to clients.list()
+// (isolated: list() is unchanged). See docs/analysis/clients-records-performance-and-filters.md
+export interface PagedClientsResponse {
+  items: any[];
+  total: number;
+  page: number;
+  limit: number;
+  kpis: { total: number; leads: number; fops: number; ops: number };
+}
+
+export interface PagedClientsParams {
+  branchId?: number | null;      // narrows a GLOBAL viewer to one branch (X-Branch-Id)
+  page?: number;
+  limit?: number;
+  search?: string;
+  filterClass?: string;          // Lead | FOP | OP
+  filterMediator?: string;       // Personal | Employee | Client
+  // Enriched catalog (docs/analysis/clients-records-performance-and-filters.md §7)
+  geoIds?: string;               // comma-joined subtree ids of the deepest selected geo level
+  routeGeoIds?: string;          // comma-joined subtree ids of a route's points
+  owner?: string | number;       // assigned hr_user id
+  rating?: string;               // Committed | NotCommitted | Undefined
+  waterSource?: string;          // admin-list value
+  dataQuality?: string;          // correct | incorrect | needs_edit
+  createdFrom?: string;          // YYYY-MM-DD
+  createdTo?: string;            // YYYY-MM-DD
+  serial?: string;               // device serial (partial)
+  hasDevice?: string;            // yes | no
+  taskType?: string;             // open_task task_type (has an ACTIVE task of this type)
+  sortKey?: string;
+  sortDir?: 'asc' | 'desc';
+}
+
+// GET /contracts/paged — server pagination companion to contracts.list()
+// (isolated: list() unchanged). Contracts are branch-only (no ASSIGNED tier).
+export interface PagedContractsResponse {
+  items: any[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface PagedContractsParams {
+  branchId?: number | null;      // narrows a GLOBAL viewer to one branch (X-Branch-Id)
+  customerId?: number;
+  page?: number;
+  limit?: number;
+  search?: string;
+  status?: string;               // draft | active | completed | cancelled
+  paymentType?: string;          // cash | installment
+  // Enriched catalog (docs/analysis/contracts-records-performance-filters-and-stats.md §3)
+  saleType?: string;             // tradein | retention | direct
+  oldDeviceCondition?: string;   // good | damaged (trade-in statistics)
+  saleSubtype?: string;          // definitive | temporary | free
+  saleOwner?: string | number;   // employee id
+  closingEmployee?: string | number;
+  deviceModel?: string | number;
+  dateFrom?: string;             // YYYY-MM-DD (contract_date)
+  dateTo?: string;
+  priceMin?: string | number;
+  priceMax?: string | number;
+  hasDevice?: string;            // yes | no
+  goldenWarranty?: string;       // yes | no
+  sortKey?: string;
+  sortDir?: 'asc' | 'desc';
+}
+
+export interface PagedInstalledDevicesResponse {
+  items: any[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface PagedInstalledDevicesParams {
+  branchId?: number | null;      // narrows a GLOBAL viewer to one branch (X-Branch-Id)
+  customerId?: number;
+  page?: number;
+  limit?: number;
+  search?: string;
+  status?: string;
+  deviceSource?: string;         // company_contract | external
+  goldenWarranty?: string;       // true | false
+  saleSubtype?: string;          // definitive | temporary | free
+  deviceModel?: string | number;
+  geoIds?: string;               // comma-separated geo subtree ids
+  installFrom?: string;          // YYYY-MM-DD
+  installTo?: string;
+  hasServiceAgreement?: string;  // yes | no
+  warrantyExpiringDays?: string | number;
+  sortKey?: string;
+  sortDir?: 'asc' | 'desc';
+}
+
+// ── Reporting & analytics (reporting-analytics §1.3) ─────────────────────────
+export interface MetricResponse {
+  metricKey: string;
+  title: string;
+  unit: 'count' | 'percent';
+  value: number;
+  previous: number | null;
+  deltaPct: number | null;
+  scope: 'GLOBAL' | 'BRANCH' | 'ASSIGNED';
+  branchIds: number[];
+  computedAt: string;
+  fromCache: boolean;
+}
+
+export interface BreakdownGroup {
+  key: string;
+  label: string;
+  value: number;
+  value2?: number;
+}
+
+export interface BreakdownResponse {
+  metricKey: string;
+  title: string;
+  kind: 'funnel' | 'ranked-bar' | 'donut' | 'timeline';
+  valueUnit: 'count' | 'percent';
+  secondaryLabel: string | null;
+  groups: BreakdownGroup[];
+  total: number;
+  scope: 'GLOBAL' | 'BRANCH' | 'ASSIGNED';
+  branchIds: number[];
+  computedAt: string;
+  fromCache: boolean;
+}
+
+export interface DashboardWidget {
+  key: string;
+  size: 'sm' | 'md' | 'lg';
+  scope: { branchId?: number } | null;
+}
+
+export interface EmergencyResultContext {
+  visitId: number;
+  visitTaskId: number;
+}
+
+export type PlanningExclusionLayer =
+  | 'TEAM_DAY'
+  | 'ALL_TEAMS_DAY'
+  | 'CLIENT_DO_NOT_CONTACT';
+export type PlanningCurationAction =
+  | 'EXCLUDE'
+  | 'RESTORE'
+  | 'SET_DO_NOT_CONTACT'
+  | 'CLEAR_DO_NOT_CONTACT';
+export type PlanningTargetMode =
+  | 'MATCHING_TASKS'
+  | 'ALL_TASKS_OF_MATCHED_CONTACTS'
+  | 'NON_MATCHING_TASKS_OF_MATCHED_CONTACTS';
+
+export interface PlanningDashboardFilters {
+  q?: string;
+  lifecycleStatuses?: Array<'ready' | 'queued' | 'contacted' | 'closed'>;
+  stationIds?: number[];
+  classifications?: string[];
+  ownershipTypes?: string[];
+  minTaskCount?: number;
+  maxTaskCount?: number;
+  taskIds?: number[];
+  taskTypes?: string[];
+  taskFamilies?: string[];
+  taskStatuses?: string[];
+  priorities?: string[];
+  dueState?: 'OVERDUE' | 'ON_DATE' | 'FUTURE' | 'NO_DATE';
+  attemptsMin?: number;
+  phoneState?: 'VALID' | 'MISSING';
+  exclusionLayers?: Array<PlanningExclusionLayer | 'NONE'>;
+}
+
+export type PlanningCurationSelector =
+  | { kind: 'TASK_IDS'; taskIds: number[] }
+  | { kind: 'CONTACT_KEYS'; contactKeys: string[] }
+  | {
+      kind: 'FILTERED_SET';
+      filters: PlanningDashboardFilters;
+      queryFingerprint: string;
+      targetMode: PlanningTargetMode;
+      exceptTaskIds?: number[];
+      exceptContactKeys?: string[];
+    };
+
+export interface PlanningCurationTask {
+  taskId: number;
+  clientId: number;
+  taskType: string;
+  taskTypeLabel: string;
+  taskFamily: string;
+  status: string;
+  priority: string | null;
+  dueDate: string | null;
+  expectedDate: string | null;
+  createdAt: string;
+  attemptCount: number;
+  matchesTaskFilters: boolean;
+  assignment: { teamKey: string | null; date: string | null; committed: boolean };
+  blocks: {
+    clientDoNotContact: boolean;
+    clientCooldown: boolean;
+    allTeamsDay: boolean;
+    currentTeamDay: boolean;
+  };
+  exclusionReasonCode: string | null;
+  exclusionReasonText: string | null;
+  availableActions: string[];
+}
+
+export interface PlanningCurationRow {
+  rowKey: string;
+  clientId: number;
+  clientName: string;
+  primaryPhone: string | null;
+  classification: string | null;
+  ownershipType: string;
+  ownerLabel: string;
+  workLocationGeoUnitId: number | null;
+  workLocationName: string | null;
+  lifecycleStatus: 'ready' | 'queued' | 'contacted' | 'closed';
+  contactTarget: { id: number; status: string; closingReason: string | null } | null;
+  listState: { generated: boolean; itemCount: number; committedTaskCount: number };
+  contactBlocks: { doNotContact: boolean; cooldownUntil: string | null };
+  counts: { totalTasks: number; matchingTasks: number; actionableTasks: number };
+  tasks: PlanningCurationTask[];
+}
+
+export interface PlanningCurationDashboardResponse {
+  date: string;
+  teamKey: string;
+  planState: 'PRE_GENERATION' | 'COMMITTED';
+  generatedAt: string | null;
+  rows: PlanningCurationRow[];
+  pagination: { page: number; limit: number; totalContacts: number; totalPages: number };
+  summary: {
+    contacts: number;
+    tasks: number;
+    matchingTasks: number;
+    actionableTasks: number;
+    matchingActionableTasks: number;
+    ready: number;
+    queued: number;
+    contacted: number;
+    closed: number;
+    excludedTeamDay: number;
+    excludedAllTeamsDay: number;
+    blockedCustomers: number;
+  };
+  facets: {
+    stations: Array<{ value: number; label: string; count: number }>;
+    taskTypes: Array<{ value: string; label: string; count: number }>;
+    taskFamilies: Array<{ value: string; label: string; count: number }>;
+    priorities: Array<{ value: string; label: string; count: number }>;
+  };
+  queryFingerprint: string;
+}
+
+function withEmergencyResultContext(path: string, context: EmergencyResultContext): string {
+  const query = new URLSearchParams({
+    visitId: String(context.visitId),
+    visitTaskId: String(context.visitTaskId),
+  });
+  return `${path}?${query.toString()}`;
 }
 
 // Read token from localStorage at call time (not at import time)
@@ -88,7 +356,15 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     const text = await res.text();
     try {
       const parsed = JSON.parse(text);
-      throw new Error(parsed.error || parsed.message || `API Error ${res.status}`);
+      const err = new Error(parsed.error || parsed.message || `API Error ${res.status}`) as Error & {
+        status?: number;
+        payload?: unknown;
+        response?: { status: number; data: unknown };
+      };
+      err.status = res.status;
+      err.payload = parsed;
+      err.response = { status: res.status, data: parsed };
+      throw err;
     } catch (error) {
       if (error instanceof Error && !error.message.startsWith('Unexpected')) {
         throw error;
@@ -119,8 +395,47 @@ function toQueryString(qs: URLSearchParams) {
 }
 
 export const api = {
-  dashboard: {
-    get: () => request<any>('/dashboard'),
+  reports: {
+    metric: (key: string, params?: Record<string, string | number | null | undefined>) => {
+      const query = new URLSearchParams();
+      Object.entries(params ?? {}).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '') query.set(k, String(v));
+      });
+      const suffix = query.toString() ? `?${query.toString()}` : '';
+      return request<MetricResponse>(`/reports/${key}${suffix}`);
+    },
+    refresh: (key: string, params?: Record<string, string | number | null | undefined>) => {
+      const query = new URLSearchParams();
+      Object.entries(params ?? {}).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '') query.set(k, String(v));
+      });
+      const suffix = query.toString() ? `?${query.toString()}` : '';
+      return request<MetricResponse>(`/reports/${key}/refresh${suffix}`, { method: 'POST' });
+    },
+    breakdown: (key: string, params?: Record<string, string | number | null | undefined>) => {
+      const query = new URLSearchParams();
+      Object.entries(params ?? {}).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '') query.set(k, String(v));
+      });
+      const suffix = query.toString() ? `?${query.toString()}` : '';
+      return request<BreakdownResponse>(`/reports/breakdown/${key}${suffix}`);
+    },
+    refreshBreakdown: (key: string, params?: Record<string, string | number | null | undefined>) => {
+      const query = new URLSearchParams();
+      Object.entries(params ?? {}).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '') query.set(k, String(v));
+      });
+      const suffix = query.toString() ? `?${query.toString()}` : '';
+      return request<BreakdownResponse>(`/reports/breakdown/${key}/refresh${suffix}`, { method: 'POST' });
+    },
+  },
+  dashboardLayout: {
+    get: () => request<{ layout: DashboardWidget[] }>('/me/dashboard-layout'),
+    save: (layout: DashboardWidget[]) =>
+      request<{ layout: DashboardWidget[] }>('/me/dashboard-layout', {
+        method: 'PUT',
+        body: JSON.stringify({ layout }),
+      }),
   },
   gifts: {
     definitions: {
@@ -136,17 +451,38 @@ export const api = {
           if (value !== undefined && value !== null && value !== '') query.set(key, String(value));
         });
         const suffix = query.toString() ? `?${query.toString()}` : '';
-        return request<any[]>(`/gifts/records${suffix}`);
+        return request<import('../data/giftsPrototype').GiftRecordPrototype[]>(`/gifts/records${suffix}`);
       },
-      create: (data: any) => request<any>('/gifts/records', { method: 'POST', body: JSON.stringify(data) }),
-      updateCondition: (id: number | string, data: { conditionStatus: string }) =>
+      similar: (data: any) =>
+        request<{ count: number }>('/gifts/records/similar', { method: 'POST', body: JSON.stringify(data) }),
+      create: async (data: any) => {
+        try {
+          return await request<any>('/gifts/records', { method: 'POST', body: JSON.stringify(data) });
+        } catch (error: any) {
+          if (error?.payload?.code !== 'similar_gift_promises') throw error;
+          const count = Number(error.payload?.similarCount) || 0;
+          const proceed = window.confirm(
+            `تنبيه: يوجد ${count} وعد/وعود غير منتهية مشابهة لهذا المستفيد. لا يمنع ذلك إنشاء وعد جديد مستقل. هل تريد المتابعة؟`,
+          );
+          if (!proceed) throw new Error('تم إيقاف الحفظ بعد تنبيه الوعود المشابهة');
+          return request<any>('/gifts/records', {
+            method: 'POST',
+            body: JSON.stringify({ ...data, similarPromiseWarningAcknowledged: true }),
+          });
+        }
+      },
+      updateCondition: (id: number | string, data: { conditionStatus: string; conditionNotes?: string }) =>
         request<any>(`/gifts/records/${id}/condition`, { method: 'PATCH', body: JSON.stringify(data) }),
       approve: (id: number | string, data?: { approvedQuantity?: number; approvalNotes?: string }) =>
         request<any>(`/gifts/records/${id}/approve`, { method: 'POST', body: JSON.stringify(data ?? {}) }),
-      createDeliveryTask: (id: number | string, data?: { giftRecordIds?: Array<number | string>; dueDate?: string; priority?: 'low' | 'medium' | 'high'; notes?: string }) =>
+      withdrawApproval: (id: number | string, data: { reason: string }) =>
+        request<any>(`/gifts/records/${id}/withdraw-approval`, { method: 'POST', body: JSON.stringify(data) }),
+      createDeliveryTask: (id: number | string, data?: { giftRecordIds?: Array<number | string>; dueDate?: string; priority?: 'low' | 'medium' | 'high'; creationReason?: string; notes?: string }) =>
         request<any>(`/gifts/records/${id}/create-delivery-task`, { method: 'POST', body: JSON.stringify(data ?? {}) }),
-      manualDelivery: (id: number | string, data?: { notes?: string }) =>
+      manualDelivery: (id: number | string, data: { methodId: number; branchId: number; acknowledged: true; notes?: string }) =>
         request<any>(`/gifts/records/${id}/manual-delivery`, { method: 'POST', body: JSON.stringify(data ?? {}) }),
+      reopenManualDelivery: (id: number | string, data: { reason: string }) =>
+        request<any>(`/gifts/records/${id}/reopen-manual-delivery`, { method: 'POST', body: JSON.stringify(data) }),
       cancel: (id: number | string, data?: { reason?: string }) =>
         request<any>(`/gifts/records/${id}/cancel`, { method: 'POST', body: JSON.stringify(data ?? {}) }),
     },
@@ -225,6 +561,11 @@ export const api = {
       return request<any[]>(`/employees/manager-candidates?${query.toString()}`);
     },
     upsertSystemAccount: (id: number, data: any) => request<any>(`/employees/${id}/system-account`, { method: 'PUT', body: JSON.stringify(data) }),
+    transferBranch: (id: number, data: { toBranchId: number; note?: string | null }) =>
+      request<{ employeeId: number; fromBranchId: number | null; toBranchId: number; movedAccounts: number }>(
+        `/employees/${id}/transfer-branch`,
+        { method: 'POST', body: JSON.stringify(data) },
+      ),
     delete: (id: number) => request<any>(`/employees/${id}`, { method: 'DELETE' }),
   },
   clients: {
@@ -234,7 +575,25 @@ export const api = {
       '/clients',
       branchId != null ? { headers: { 'X-Branch-Id': String(branchId) } } : undefined,
     ),
+    // Paginated + server-filtered list — used only by the Clients records page.
+    // list() above stays the full-list source for the ~15 picker/matching callers.
+    // Filter values of 'all'/''/null are dropped so callers can pass UI state as-is.
+    listPaged: (params: PagedClientsParams = {}) => {
+      const { branchId, ...rest } = params;
+      const query = new URLSearchParams();
+      Object.entries(rest).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '' && value !== 'all') {
+          query.set(key, String(value));
+        }
+      });
+      const suffix = query.size > 0 ? `?${query.toString()}` : '';
+      return request<PagedClientsResponse>(
+        `/clients/paged${suffix}`,
+        branchId != null ? { headers: { 'X-Branch-Id': String(branchId) } } : undefined,
+      );
+    },
     get: (id: number) => request<any>(`/clients/${id}`),
+    snapshot: (id: number) => request<{ snapshot: any }>(`/clients/${id}/snapshot`),
     getNetwork: (id: number) => request<any>(`/clients/${id}/network`),
     getRatingHistory: (id: number) => request<any[]>(`/clients/${id}/rating-history`),
     updateRating: (id: number, data: { rating: 'Committed' | 'NotCommitted' | 'Undefined'; notes?: string | null }) =>
@@ -255,14 +614,16 @@ export const api = {
     create: (data: any) => request<any>('/clients', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/clients/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id: number) => request<any>(`/clients/${id}`, { method: 'DELETE' }),
-    bulkDelete: (ids: number[]) => request<any>('/clients/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) }),
     // DEC-005 D29 + DEC-006 D32: contact-control surface
     setCooldown: (id: number, data: { days: number; reason: string }) =>
       request<any>(`/clients/${id}/cooldown`, { method: 'POST', body: JSON.stringify(data) }),
     clearCooldown: (id: number) =>
       request<any>(`/clients/${id}/cooldown`, { method: 'DELETE' }),
-    setDoNotContact: (id: number, doNotContact: boolean) =>
-      request<any>(`/clients/${id}/do-not-contact`, { method: 'PATCH', body: JSON.stringify({ doNotContact }) }),
+    setDoNotContact: (id: number, doNotContact: boolean, reason: string) =>
+      request<any>(`/clients/${id}/do-not-contact`, {
+        method: 'PATCH',
+        body: JSON.stringify({ doNotContact, reason }),
+      }),
   },
   customers: {
     getPurchaseHistory: (customerId: number) =>
@@ -294,6 +655,7 @@ export const api = {
       '/candidates',
       branchId != null ? { headers: { 'X-Branch-Id': String(branchId) } } : undefined,
     ),
+    get: (id: number) => request<import('@golden-crm/shared').CandidateDetail>(`/candidates/${id}`),
     create: (data: any) => request<any>('/candidates', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/candidates/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     linkToClient: (id: number, clientId: number) =>
@@ -330,6 +692,22 @@ export const api = {
         params?.branchId != null ? { headers: { 'X-Branch-Id': String(params.branchId) } } : undefined,
       );
     },
+    // Paginated + server-filtered list — used only by the contracts records page.
+    // list() above stays the full-list source for its other callers.
+    listPaged: (params: PagedContractsParams = {}) => {
+      const { branchId, ...rest } = params;
+      const query = new URLSearchParams();
+      Object.entries(rest).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '' && value !== 'all') {
+          query.set(key, String(value));
+        }
+      });
+      const suffix = query.size > 0 ? `?${query.toString()}` : '';
+      return request<PagedContractsResponse>(
+        `/contracts/paged${suffix}`,
+        branchId != null ? { headers: { 'X-Branch-Id': String(branchId) } } : undefined,
+      );
+    },
     get: (id: number) => request<any>(`/contracts/${id}`),
     create: (data: any) => request<any>('/contracts', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/contracts/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
@@ -356,7 +734,7 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(body ?? {}),
       }),
-    cancel: (contractId: number, body?: { reason?: string }) =>
+    cancel: (contractId: number, body?: { reason?: string; reasonCode?: string }) =>
       request<any>(`/contracts/${contractId}/cancel`, {
         method: 'POST',
         body: JSON.stringify(body ?? {}),
@@ -365,10 +743,7 @@ export const api = {
     // attached. Returns the raw HTML; callers turn it into a Blob URL so
     // it can be opened in a new tab without exposing the JWT.
     getPrintableHtml: async (contractId: number): Promise<string> => {
-      const token = getToken();
-      const res = await fetch(`${API_BASE}/contracts/${contractId}/printable`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
+      const res = await authFetch(`${API_BASE}/contracts/${contractId}/printable`);
       if (!res.ok) {
         const text = await res.text().catch(() => '');
         throw new Error(`فشل تحميل النسخة القانونية (${res.status}): ${text}`);
@@ -385,10 +760,14 @@ export const api = {
   },
   deviceWarranties: {
     list: (deviceId: number) => request<any[]>(`/device-warranties?deviceId=${deviceId}`),
+    eligibleForCardDelivery: (customerId: number, branchId?: number | null) => {
+      const qs = new URLSearchParams({ customerId: String(customerId) });
+      if (branchId) qs.set('branchId', String(branchId));
+      return request<any[]>(`/device-warranties/golden/card-delivery-eligible?${qs}`);
+    },
     update: (id: number, data: any) => request<any>(`/device-warranties/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     // DEC-CT-17 golden-warranty flows
     offerResult: (data: any) => request<any>(`/device-warranties/golden/offer-result`, { method: 'POST', body: JSON.stringify(data) }),
-    cardDelivery: (warrantyId: number, data: any) => request<any>(`/device-warranties/golden/${warrantyId}/card-delivery`, { method: 'POST', body: JSON.stringify(data) }),
     payments: (warrantyId: number) => request<any>(`/device-warranties/${warrantyId}/payments`),
     addPayment: (warrantyId: number, data: any) => request<any>(`/device-warranties/${warrantyId}/payments`, { method: 'POST', body: JSON.stringify(data) }),
   },
@@ -400,6 +779,20 @@ export const api = {
       if (params?.status)     qs.set('status', params.status);
       return request<any[]>(`/installed-devices?${qs}`);
     },
+    listPaged: (params: PagedInstalledDevicesParams = {}) => {
+      const { branchId, ...rest } = params;
+      const query = new URLSearchParams();
+      Object.entries(rest).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '' && value !== 'all') {
+          query.set(key, String(value));
+        }
+      });
+      const suffix = query.size > 0 ? `?${query.toString()}` : '';
+      return request<PagedInstalledDevicesResponse>(
+        `/installed-devices/paged${suffix}`,
+        branchId != null ? { headers: { 'X-Branch-Id': String(branchId) } } : undefined,
+      );
+    },
     get: (id: number) => request<any>(`/installed-devices/${id}`),
     createExternal: (data: any) => request<any>('/installed-devices/external', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/installed-devices/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
@@ -408,13 +801,24 @@ export const api = {
     problems: (id: number) => request<any[]>(`/installed-devices/${id}/problems`),
     technicalStates: (id: number) => request<any[]>(`/installed-devices/${id}/technical-states`),
   },
+  serviceAgreements: {
+    list: (params?: { installedDeviceId?: number; branchId?: number }) => {
+      const qs = new URLSearchParams();
+      if (params?.installedDeviceId) qs.set('installedDeviceId', String(params.installedDeviceId));
+      if (params?.branchId) qs.set('branchId', String(params.branchId));
+      return request<any[]>(`/service-agreements${toQueryString(qs)}`);
+    },
+    get: (id: number) => request<any>(`/service-agreements/${id}`),
+    create: (data: any) => request<any>('/service-agreements', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: number, data: any) => request<any>(`/service-agreements/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  },
   // DEC-CT-09: device possession ledger.
   // Backend route is mounted at /api/devices/:deviceId/possession.
   devicePossession: {
-    list:     (deviceId: number) => request<any[]>(`/devices/${deviceId}/possession`),
-    current:  (deviceId: number) => request<any | null>(`/devices/${deviceId}/possession/current`),
+    list:     (deviceId: number) => request<DevicePossessionEntry[]>(`/devices/${deviceId}/possession`),
+    current:  (deviceId: number) => request<DevicePossessionEntry | null>(`/devices/${deviceId}/possession/current`),
     transfer: (deviceId: number, data: { holderType: string; holderId?: number | null; reason: string; notes?: string; transferAt?: string }) =>
-      request<any>(`/devices/${deviceId}/possession`, { method: 'POST', body: JSON.stringify(data) }),
+      request<DevicePossessionEntry>(`/devices/${deviceId}/possession`, { method: 'POST', body: JSON.stringify(data) }),
   },
   deviceModels: {
     list: (params?: number | DeviceModelListOptions) => {
@@ -455,18 +859,18 @@ export const api = {
   },
   emergencyResult: {
     get:          (taskId: number)            => request<any>(`/emergency-result/${taskId}`),
-    savePreState: (taskId: number, data: any) => request<any>(`/emergency-result/${taskId}/pre-state`,  { method: 'PUT', body: JSON.stringify(data) }),
-    saveActions:  (taskId: number, data: any) => request<any>(`/emergency-result/${taskId}/actions`,    { method: 'PUT', body: JSON.stringify(data) }),
-    savePostState:(taskId: number, data: any) => request<any>(`/emergency-result/${taskId}/post-state`, { method: 'PUT', body: JSON.stringify(data) }),
-    saveCosts:    (taskId: number, data: any) => request<any>(`/emergency-result/${taskId}/costs`,      { method: 'PUT', body: JSON.stringify(data) }),
-    saveParts:          (taskId: number, parts: any[]) => request<any[]>(`/emergency-result/${taskId}/parts`, { method: 'PUT', body: JSON.stringify({ parts }) }),
+    savePreState: (taskId: number, data: any, context: EmergencyResultContext) => request<any>(withEmergencyResultContext(`/emergency-result/${taskId}/pre-state`, context),  { method: 'PUT', body: JSON.stringify(data) }),
+    saveActions:  (taskId: number, data: any, context: EmergencyResultContext) => request<any>(withEmergencyResultContext(`/emergency-result/${taskId}/actions`, context),    { method: 'PUT', body: JSON.stringify(data) }),
+    savePostState:(taskId: number, data: any, context: EmergencyResultContext) => request<any>(withEmergencyResultContext(`/emergency-result/${taskId}/post-state`, context), { method: 'PUT', body: JSON.stringify(data) }),
+    saveCosts:    (taskId: number, data: any, context: EmergencyResultContext) => request<any>(withEmergencyResultContext(`/emergency-result/${taskId}/costs`, context),      { method: 'PUT', body: JSON.stringify(data) }),
+    saveParts:          (taskId: number, parts: any[], context: EmergencyResultContext) => request<any[]>(withEmergencyResultContext(`/emergency-result/${taskId}/parts`, context), { method: 'PUT', body: JSON.stringify({ parts }) }),
     getParts:           (taskId: number)              => request<any[]>(`/emergency-result/${taskId}/parts`),
     deviceHistory:      (contractId: number)          => request<any[]>(`/emergency-result/device/${contractId}/history`),
     getPaymentEntries:  (taskId: number)              => request<any[]>(`/emergency-result/${taskId}/payment-entries`),
-    savePaymentEntries: (taskId: number, entries: any[]) => request<any>(`/emergency-result/${taskId}/payment-entries`, { method: 'PUT', body: JSON.stringify({ entries }) }),
+    savePaymentEntries: (taskId: number, entries: any[], context: EmergencyResultContext) => request<any>(withEmergencyResultContext(`/emergency-result/${taskId}/payment-entries`, context), { method: 'PUT', body: JSON.stringify({ entries }) }),
     getInstallments:    (taskId: number)              => request<any>(`/emergency-result/${taskId}/installments`),
-    saveInstallments:   (taskId: number, data: any)   => request<any>(`/emergency-result/${taskId}/installments`, { method: 'PUT', body: JSON.stringify(data) }),
-    confirmInstallments:(taskId: number)              => request<any>(`/emergency-result/${taskId}/installments/confirm`, { method: 'POST' }),
+    saveInstallments:   (taskId: number, data: any, context: EmergencyResultContext) => request<any>(withEmergencyResultContext(`/emergency-result/${taskId}/installments`, context), { method: 'PUT', body: JSON.stringify(data) }),
+    confirmInstallments:(taskId: number, context: EmergencyResultContext) => request<any>(withEmergencyResultContext(`/emergency-result/${taskId}/installments/confirm`, context), { method: 'POST' }),
   },
   emergencyTickets: {
     list: (params?: { openTaskId?: number }) => {
@@ -479,9 +883,15 @@ export const api = {
   openTasks: {
     create: (data: any) => request<any>('/open-tasks', { method: 'POST', body: JSON.stringify(data) }),
     listByClient: (clientId: number) => request<any[]>(`/open-tasks/client/${clientId}`),
+    listByDevice: (deviceId: number) => request<any[]>(`/open-tasks/device/${deviceId}`),
     collectableInstallments: (clientId: number) => request<any[]>(`/open-tasks/client/${clientId}/collectable-installments`),
     get: (id: number) => request<any>(`/open-tasks/${id}`),
     update: (id: number, data: any) => request<any>(`/open-tasks/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    cancel: (id: number, reasonId: number) =>
+      request<{ task: any; cancellationReason: { id: number; category: string; value: string; label: string } }>(
+        `/open-tasks/${id}/cancel`,
+        { method: 'POST', body: JSON.stringify({ reasonId }) },
+      ),
     assignTeam: (id: number, data: { supervisorId?: number; technicianId?: number; traineeId?: number }) =>
       request<any>(`/open-tasks/${id}/assign-team`, { method: 'POST', body: JSON.stringify(data) }),
     /** DEC-004 D22: book a field_visit from a needs_follow_up task using its expected_date. */
@@ -520,8 +930,6 @@ export const api = {
       }>;
     }>('/open-tasks/attempt-alerts'),
     getEmergencyResult: (id: number) => request<any>(`/open-tasks/${id}/emergency-result`),
-    submitEmergencyResult: (id: number, data: any) =>
-      request<any>(`/open-tasks/${id}/emergency-result`, { method: 'POST', body: JSON.stringify(data) }),
     listDeviceDemo: (params: { branchId?: number; status?: string; visitStatus?: string; scheduledDate?: string; scheduled?: 'yes' | 'no'; hideSnoozed?: 'true'; hideFutureTasks?: 'true' }) => {
       const q = new URLSearchParams();
       if (params.branchId) q.set('branchId', String(params.branchId));
@@ -601,6 +1009,74 @@ export const api = {
     save: (key: string, data: any) => request<any>(`/route-assignments/${key}`, { method: 'PUT', body: JSON.stringify(data) }),
   },
   planning: {
+    curationDashboard: (params: {
+      date: string;
+      teamKey: string;
+      filters?: PlanningDashboardFilters;
+      page?: number;
+      limit?: number;
+      sortBy?: string;
+      sortDir?: 'asc' | 'desc';
+    }) => {
+      const query = new URLSearchParams({
+        date: params.date,
+        teamKey: params.teamKey,
+        page: String(params.page ?? 1),
+        limit: String(params.limit ?? 50),
+        sortBy: params.sortBy ?? 'clientName',
+        sortDir: params.sortDir ?? 'asc',
+      });
+      if (params.filters && Object.keys(params.filters).length > 0) {
+        query.set('filters', JSON.stringify(params.filters));
+      }
+      return request<PlanningCurationDashboardResponse>(
+        `/planning/contact-targets-dashboard/curation?${query.toString()}`,
+      );
+    },
+    previewCuration: (data: {
+      date: string;
+      teamKey: string;
+      action: PlanningCurationAction;
+      layer: PlanningExclusionLayer;
+      selector: PlanningCurationSelector;
+      reasonCode?: string;
+      reasonText?: string;
+    }) => request<{
+      previewToken: string;
+      expiresAt: string;
+      canApply: boolean;
+      counts: {
+        contacts: number;
+        selectedTasks: number;
+        affectedTasks: number;
+        releasedAssignments: number;
+        closedTargets: number;
+        contactsFullyExcluded: number;
+        alreadyApplied: number;
+        committedConflicts: number;
+        skippedUnavailableTasks: number;
+      };
+      warnings: string[];
+      sample: Array<{
+        rowKey: string;
+        clientId: number;
+        clientName: string;
+        taskCount: number;
+        selectedTaskCount: number;
+      }>;
+    }>('/planning/contact-targets-dashboard/curation/preview', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+    applyCuration: (previewToken: string) => request<{
+      operationId: number;
+      changedTasks: number;
+      changedClients: number;
+      releasedAssignments: number;
+    }>('/planning/contact-targets-dashboard/curation/apply', {
+      method: 'POST',
+      body: JSON.stringify({ previewToken }),
+    }),
     assignedTasks: (date: string, teamKey: string) => {
       const query = new URLSearchParams({ date, teamKey });
       return request<any>(`/planning/assigned-tasks?${query.toString()}`);
@@ -686,10 +1162,12 @@ export const api = {
       return request<any[]>(`/field-visits/my-visits?${qs.toString()}`);
     },
     get: (id: number) => request<any>(`/field-visits/${id}`),
-    start: (id: number, data?: { lat?: number; lng?: number; accuracy?: number }) =>
+    start: (id: number, data?: { lat?: number; lng?: number; accuracy?: number; locationMissingReasonId?: number }) =>
       request<any>(`/field-visits/${id}/start`, { method: 'POST', body: JSON.stringify(data ?? {}) }),
-    end: (id: number, data?: { lat?: number; lng?: number; accuracy?: number }) =>
+    end: (id: number, data?: { lat?: number; lng?: number; accuracy?: number; locationMissingReasonId?: number }) =>
       request<any>(`/field-visits/${id}/end`, { method: 'POST', body: JSON.stringify(data ?? {}) }),
+    cancel: (id: number, data: { cancellationReasonId: number; notes?: string | null }) =>
+      request<any>(`/field-visits/${id}/cancel`, { method: 'POST', body: JSON.stringify(data) }),
     complete: (id: number) =>
       request<any>(`/field-visits/${id}/complete`, { method: 'POST' }),
     close: (id: number) =>
@@ -812,6 +1290,20 @@ export const api = {
         teamResponsibleUserId: number | null;
         hoursSinceUpdate: number;
         tiersAlerted: number[];
+      }>;
+      scheduledCount: number;
+      scheduledItems: Array<{
+        visitId: number;
+        status: string;
+        branchId: number;
+        clientId: number;
+        clientName: string | null;
+        teamResponsibleUserId: number | null;
+        teamResponsibleName: string | null;
+        scheduledDate: string;
+        scheduledTime: string | null;
+        alertedAt: string;
+        hoursSinceAlert: number;
       }>;
     }>('/field-visits/escalation-alerts'),
     /** Executive view: one row per branch with comparison KPIs over a date range. */
@@ -955,7 +1447,20 @@ export const api = {
       { method: 'POST', body: JSON.stringify(data) },
     ),
     taskTypeOptions: () => request<{ taskType: string; arabicLabel: string; taskFamily: string }[]>('/telemarketing/task-type-options'),
-    createServiceTask: (data: { clientId: number; taskType: string; notes?: string; priority?: string }) =>
+    serviceTaskDevices: (clientId: number, taskType: string) => {
+      const qs = new URLSearchParams({ clientId: String(clientId), taskType });
+      return request<Array<{
+        id: number;
+        status: string;
+        contractId: number | null;
+        serialNumber: string | null;
+        deviceModelName: string;
+        eligible: boolean;
+        eligibilityCode: string;
+        eligibilityReason: string;
+      }>>(`/telemarketing/service-task-devices?${qs}`);
+    },
+    createServiceTask: (data: { clientId: number; taskType: string; installedDeviceId?: number; notes?: string; priority?: string }) =>
       request<any>('/telemarketing/service-tasks', { method: 'POST', body: JSON.stringify(data) }),
   },
   systemLists: {
@@ -999,9 +1504,82 @@ export const api = {
   // ─────────────────────────────────────────────────────────────────
   // Service Requests (Phase 3) — intake layer for emergency_maintenance
   // ─────────────────────────────────────────────────────────────────
+  appAccounts: {
+    forClient: (clientId: number) =>
+      request<{ account: any | null }>(`/admin/clients/${clientId}/app-account`),
+    createDirect: (clientId: number) =>
+      request<any>(`/admin/clients/${clientId}/app-account`, { method: 'POST', body: '{}' }),
+    bulkActivate: (body: { mode: 'filter' | 'ids'; filter?: any; clientIds?: number[] }) =>
+      request<any>(`/admin/app-accounts/bulk-activate`, { method: 'POST', body: JSON.stringify(body) }),
+    suspend: (id: number, reason: string) =>
+      request<any>(`/admin/app-accounts/${id}/suspend`, { method: 'POST', body: JSON.stringify({ reason }) }),
+    reactivate: (id: number) =>
+      request<any>(`/admin/app-accounts/${id}/reactivate`, { method: 'POST', body: '{}' }),
+  },
+  accountRequests: {
+    list: (params: Record<string, string | number | boolean | undefined> = {}) => {
+      const qs = Object.entries(params)
+        .filter(([, v]) => v !== undefined && v !== '' && v !== null)
+        .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
+        .join('&');
+      return request<{ items: any[]; limit: number; offset: number }>(
+        `/admin/account-requests${qs ? `?${qs}` : ''}`,
+      );
+    },
+    get: (id: number) =>
+      request<{ request: any; audit: any[] }>(`/admin/account-requests/${id}`),
+    suggestions: (id: number) =>
+      request<{ suggestions: any[] }>(`/admin/account-requests/${id}/suggestions`),
+    claim: (id: number) =>
+      request<any>(`/admin/account-requests/${id}/claim`, { method: 'POST' }),
+    takeOver: (id: number, transferReason?: string) =>
+      request<any>(`/admin/account-requests/${id}/take-over`, {
+        method: 'POST',
+        body: JSON.stringify({ transferReason: transferReason ?? null }),
+      }),
+    reopen: (id: number, reopenReason: string) =>
+      request<any>(`/admin/account-requests/${id}/reopen`, {
+        method: 'POST',
+        body: JSON.stringify({ reopenReason }),
+      }),
+    addNote: (id: number, note: string) =>
+      request<any>(`/admin/account-requests/${id}/notes`, {
+        method: 'POST',
+        body: JSON.stringify({ note }),
+      }),
+    link: (id: number, clientId: number) =>
+      request<any>(`/admin/account-requests/${id}/link`, {
+        method: 'POST',
+        body: JSON.stringify({ clientId }),
+      }),
+    escalate: (id: number, reason: string) =>
+      request<any>(`/admin/account-requests/${id}/escalate`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      }),
+    reject: (id: number, reasonCode: string) =>
+      request<any>(`/admin/account-requests/${id}/reject`, {
+        method: 'POST',
+        body: JSON.stringify({ reasonCode }),
+      }),
+    resolveEscalation: (id: number, note?: string | null) =>
+      request<any>(`/admin/account-requests/${id}/resolve-escalation`, {
+        method: 'POST',
+        body: JSON.stringify({ note: note ?? null }),
+      }),
+    archive: (id: number, reason?: string | null) =>
+      request<any>(`/admin/account-requests/${id}/archive`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: reason ?? null }),
+      }),
+    unarchive: (id: number) =>
+      request<any>(`/admin/account-requests/${id}/unarchive`, { method: 'POST' }),
+  },
   serviceRequests: {
     create: (data: any) =>
       request<any>('/service-requests', { method: 'POST', body: JSON.stringify(data) }),
+    createWaterCheck: (data: any) =>
+      request<any>('/service-requests/water-check', { method: 'POST', body: JSON.stringify(data) }),
     createInternal: (data: any) =>
       request<any>('/service-requests/internal', { method: 'POST', body: JSON.stringify(data) }),
     list: (params: Record<string, string | number | boolean | undefined> = {}) => {
@@ -1031,17 +1609,14 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(data),
       }),
-    suggestedMatches: (id: number) =>
-      request<{ clients: any[]; candidates: any[] }>(`/service-requests/${id}/suggested-matches`),
-    requestInfo: (id: number, body: any = {}) =>
-      request<any>(`/service-requests/${id}/request-info`, {
+    suggestedMatches: (id: number, party?: 'beneficiary' | 'referrer') =>
+      request<{ clients: any[]; candidates: any[] }>(
+        `/service-requests/${id}/suggested-matches${party ? `?party=${party}` : ''}`,
+      ),
+    linkReferrer: (id: number, referrerClientId: number) =>
+      request<any>(`/service-requests/${id}/link-referrer`, {
         method: 'POST',
-        body: JSON.stringify(body),
-      }),
-    resumeReview: (id: number, body: any = {}) =>
-      request<any>(`/service-requests/${id}/resume-review`, {
-        method: 'POST',
-        body: JSON.stringify(body),
+        body: JSON.stringify({ referrerClientId }),
       }),
     resolveAtIntake: (id: number, body: any) =>
       request<any>(`/service-requests/${id}/resolve-at-intake`, {
@@ -1050,6 +1625,11 @@ export const api = {
       }),
     escalate: (id: number, reason?: string | null) =>
       request<any>(`/service-requests/${id}/escalate`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: reason ?? null }),
+      }),
+    resolveEscalation: (id: number, reason?: string | null) =>
+      request<any>(`/service-requests/${id}/resolve-escalation`, {
         method: 'POST',
         body: JSON.stringify({ reason: reason ?? null }),
       }),
@@ -1099,6 +1679,19 @@ export const api = {
       request<any>(`/service-requests/${id}/attach-periodic`, {
         method: 'POST',
         body: JSON.stringify({ periodicOpenTaskId, note: note ?? null }),
+      }),
+    handoffWaterCheck: (
+      id: number,
+      data: {
+        priority?: 'high' | 'medium' | 'low';
+        operatorNote?: string | null;
+        dueDate?: string | null;
+        creationReason?: string | null;
+      } = {},
+    ) =>
+      request<any>(`/service-requests/${id}/handoff-water-check`, {
+        method: 'POST',
+        body: JSON.stringify(data),
       }),
     archive: (id: number, reason?: string | null) =>
       request<any>(`/service-requests/${id}/archive`, {

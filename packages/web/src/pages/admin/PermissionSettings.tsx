@@ -8,10 +8,14 @@ import {
   Shield, Save, Loader2, AlertTriangle, ShieldCheck,
   Key, Briefcase, Users, UserCheck, FileText, BarChart2,
   ClipboardList, Calendar, AlertCircle, BookOpen, Settings, ListChecks
-} from 'lucide-react';
+} from '../../components/ui/icons';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import PageHeader from '../../components/ui/PageHeader';
+import {
+  getPermissionModuleLabel,
+  getPermissionSubmoduleLabel,
+} from '../../lib/permissionDisplay';
 
 type ScopeKey = 'GLOBAL' | 'BRANCH' | 'ASSIGNED';
 const ALL_SCOPE_KEYS: ScopeKey[] = ['GLOBAL', 'BRANCH', 'ASSIGNED'];
@@ -68,6 +72,8 @@ const ACTION_LABELS: Record<string, string> = {
   book: 'حجز',
   update_result: 'تسجيل نتيجة',
   can_be_assigned: 'قابل للإسناد',
+  direct_manager_eligible: 'مؤهل كمدير قسم',
+  direct_manager_branch_fallback: 'مدير بديل للفرع',
   conduct: 'إجراء',
   be_trainer: 'التدريب كمدرب',
   review: 'مراجعة',
@@ -88,7 +94,7 @@ const MODULE_CONFIG: Record<string, { label: string; icon: React.ReactNode; colo
   contracts:    { label: 'العقود',                      icon: <FileText className="w-4 h-4" />,     color: 'text-amber-600 bg-amber-50' },
   devices:      { label: 'الأجهزة وقطع الغيار',         icon: <BarChart2 className="w-4 h-4" />,    color: 'text-cyan-600 bg-cyan-50' },
   tasks:        { label: 'المهام والعمليات',             icon: <ClipboardList className="w-4 h-4" />, color: 'text-orange-600 bg-orange-50' },
-  planning:     { label: 'إدارة عمل الفرع',             icon: <Calendar className="w-4 h-4" />,     color: 'text-teal-600 bg-teal-50' },
+  planning:     { label: 'تخطيط عمل الفرع',             icon: <Calendar className="w-4 h-4" />,     color: 'text-teal-600 bg-teal-50' },
   routes:       { label: 'خطوط السير وتوزيعها',          icon: <Calendar className="w-4 h-4" />,     color: 'text-teal-600 bg-teal-50' },
   catalog:      { label: 'كتالوج الأجهزة والأسعار',      icon: <BarChart2 className="w-4 h-4" />,    color: 'text-cyan-600 bg-cyan-50' },
   sales:        { label: 'المبيعات',                     icon: <FileText className="w-4 h-4" />,     color: 'text-amber-600 bg-amber-50' },
@@ -105,40 +111,6 @@ const MODULE_CONFIG: Record<string, { label: string; icon: React.ReactNode; colo
   open_tasks:   { label: 'المهام المفتوحة',              icon: <ClipboardList className="w-4 h-4" />, color: 'text-orange-600 bg-orange-50' },
   service_requests: { label: 'طلبات الخدمة والصيانة',    icon: <FileText className="w-4 h-4" />,     color: 'text-cyan-600 bg-cyan-50' },
   reference_data: { label: 'القوائم المرجعية', icon: <ListChecks className="w-4 h-4" />, color: 'text-slate-600 bg-slate-100' },
-};
-
-const SUB_MODULE_LABELS: Record<string, string> = {
-  vacancies: 'الشواغر الوظيفية',
-  applications: 'طلبات التوظيف',
-  interviews: 'المقابلات',
-  training: 'الدورات التدريبية',
-  candidates: 'الأسماء المقترحة',
-  name_lists: 'لوائح الأسماء',
-  roles: 'الأدوار والصلاحيات',
-  roles_users: 'إسناد الأدوار للمستخدمين',
-  system_lists: 'القوائم النظامية',
-  branch_assignments: 'فروع المستخدمين المسموحة',
-  management: 'الإدارة',
-  system: 'النظام',
-  geography: 'المناطق الجغرافية',
-  visits: 'الزيارات',
-  tasks: 'المهام',
-  targets: 'الأهداف',
-  lists: 'قوائم الاتصال',
-  calls: 'المكالمات',
-  appointments: 'المواعيد',
-  schedule: 'جدولة الفرق',
-  routes: 'خطوط السير',
-  assignments: 'توزيع المسارات',
-  service_requests: 'طلبات الخدمة والصيانة',
-  lookups: 'الاستخدام داخل العمليات',
-  navigation: 'ظهور القسم',
-  device_models: 'تعريفات الأجهزة',
-  spare_parts: 'تعريفات قطع الغيار',
-  discounts: 'خصومات الأجهزة',
-  department_availability: 'أجهزة الأقسام',
-  installed_devices: 'الأجهزة المركبة',
-  installed_device_possession: 'حيازة الأجهزة',
 };
 
 const PERM_LABELS: Record<string, string> = {
@@ -187,6 +159,7 @@ const PERM_LABELS: Record<string, string> = {
   'clients.delete':                 'حذف الزبون',
   'clients.can_be_assigned':        'قابل للتعيين على زبائن',
   'candidates.view_list':           'عرض الأسماء المقترحة',
+  'candidates.assignment.manage':   'إدارة مسؤولي الأسماء المقترحة',
   'candidates.create':              'إضافة اسم مقترح',
   'candidates.edit':                'تعديل الاسم المقترح',
   'candidates.name_lists.view_list': 'عرض لوائح الأسماء',
@@ -196,6 +169,8 @@ const PERM_LABELS: Record<string, string> = {
   'employees.nav':                  'إظهار سجلات الموظفين',
   'employees.lookup':               'قراءة الموظفين داخل الحقول',
   'employees.manager_lookup':       'قراءة المديرين المباشرين',
+  'employees.direct_manager_eligible': 'مؤهل كمدير مباشر للقسم',
+  'employees.direct_manager_branch_fallback': 'مدير مباشر بديل على مستوى الفرع',
   'employees.view_list':            'عرض قائمة الموظفين',
   'employees.create':               'إضافة موظف جديد',
   'employees.edit':                 'تعديل بيانات الموظف',
@@ -247,14 +222,14 @@ function getPermLabel(perm: Permission): string {
   if (known) return known;
   if (perm.displayName && perm.displayName !== perm.key) return perm.displayName;
   const action = ACTION_LABELS[(perm as any).action ?? ''] ?? 'إجراء مخصص';
-  const sub = SUB_MODULE_LABELS[(perm as any).subModule ?? (perm as any).sub_module ?? ''] ?? 'مجموعة صلاحيات';
+  const sub = getPermissionSubmoduleLabel((perm as any).subModule ?? (perm as any).sub_module ?? '');
   return `${action} - ${sub}`;
 }
 
 function getPermissionContextLabel(perm: Permission): string {
   const { module, subModule } = getPermissionGrouping(perm);
   const moduleLabel = getModuleConfig(module).label;
-  const sub = SUB_MODULE_LABELS[subModule] ?? 'مجموعة صلاحيات';
+  const sub = getPermissionSubmoduleLabel(subModule);
   return `${moduleLabel} / ${sub}`;
 }
 
@@ -274,10 +249,11 @@ function getPermissionModule(perm: Permission): string {
 }
 
 function getModuleConfig(module: string) {
-  return MODULE_CONFIG[module] ?? {
-    label: 'إدارة عمل الفرع',
-    icon: <Calendar className="w-4 h-4" />,
-    color: 'text-teal-600 bg-teal-50',
+  const configured = MODULE_CONFIG[module];
+  return {
+    label: getPermissionModuleLabel(module),
+    icon: configured?.icon ?? <Calendar className="w-4 h-4" />,
+    color: configured?.color ?? 'text-slate-600 bg-slate-100',
   };
 }
 
@@ -479,7 +455,7 @@ export default function PermissionSettings() {
                                     </svg>
                                   )}
                                 </button>
-                                <span className={`text-[9px] font-semibold md:hidden ${isChecked ? 'text-sky-600' : 'text-slate-300'}`}>
+                                <span className={`text-xs font-semibold md:hidden ${isChecked ? 'text-sky-600' : 'text-slate-300'}`}>
                                   {SCOPE_LABELS[scope]}
                                 </span>
                               </div>

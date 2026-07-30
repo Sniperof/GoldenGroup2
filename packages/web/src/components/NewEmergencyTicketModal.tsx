@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, MapPin, ShieldCheck, FileText, Paperclip, Send, Image, Trash2, AlertTriangle } from 'lucide-react';
+import { Search, MapPin, ShieldCheck, FileText, Paperclip, Send, Image, Trash2, AlertTriangle } from './ui/icons';
 import { useAuthStore } from '../hooks/useAuthStore';
 import { useClientStore } from '../hooks/useClientStore';
 import { useEmergencyStore } from '../hooks/useEmergencyStore';

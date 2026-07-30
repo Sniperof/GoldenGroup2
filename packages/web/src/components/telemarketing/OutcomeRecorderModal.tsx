@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useSystemList } from '../../hooks/useSystemList';
 import { api } from '../../lib/api';
+import DateField from '../ui/DateField';
 import {
     Phone, CheckCircle2, PhoneOff, PhoneMissed, Send,
     MessageSquare, PhoneForwarded, UserCheck, PhoneCall,
     MapPin, AlertTriangle, Calendar, Edit3, Droplets, FileText,
-} from 'lucide-react';
+} from '../ui/icons';
 import Select from '../ui/Select';
 import Button from '../ui/Button';
 import Modal from '../ui/Modal';
@@ -20,6 +21,7 @@ import { getEntityContacts } from '../../lib/contactUtils';
 import { CONTACT_STATUS_CONFIG, CONTACT_TYPE_CONFIG } from '../../lib/contactRules';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import VisitTimePicker, { isVisitTimeConflict } from './VisitTimePicker';
+import { getOutcomeSaveErrorMessage } from './outcomeSaveError';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -73,6 +75,7 @@ interface OutcomeRecorderModalProps {
     appointmentDate?: string;
     /** HH:MM times already booked for the same team on this date (conflict guard). */
     bookedTimes?: string[];
+    /** Reject on failure so the modal can keep the form open and show the error in context. */
     onSave: (
         contactId: string,
         outcome: TelemarketingOutcomeCode,
@@ -264,6 +267,7 @@ export default function OutcomeRecorderModal({
     const [followUpPriority, setFollowUpPriority] = useState<'high' | 'medium' | 'low' | ''>('');
     const [rescheduleReason, setRescheduleReason] = useState('');
     const [saving, setSaving] = useState(false);
+    const [saveError, setSaveError] = useState<string | null>(null);
     const currentUser = useAuthStore((state) => state.user);
     const { items: rejectionReasons } = useSystemList('telemarketing_rejection_reason');
     const { items: rescheduleReasons } = useSystemList('telemarketing_reschedule_reason');
@@ -311,6 +315,7 @@ export default function OutcomeRecorderModal({
             setApptWaterSource((entityDetails as any)?.waterSource || '');
             setApptNotes('');
             setEditingCallTime(false);
+            setSaveError(null);
         }
     }, [isOpen, task, preselectedContactId, appointmentDate, entityDetails]);
 
@@ -386,6 +391,7 @@ export default function OutcomeRecorderModal({
 
     const handleSave = async () => {
         if (!canSave || saving) return;
+        setSaveError(null);
         setSaving(true);
 
         const communicationChannel = methodToChannel(method, cellularSubtype, whatsappSubtype);
@@ -419,6 +425,8 @@ export default function OutcomeRecorderModal({
 
         try {
             await onSave(selectedContactId || preselectedContactId || '', finalOutcome, notes, extras);
+        } catch (error) {
+            setSaveError(getOutcomeSaveErrorMessage(error));
         } finally {
             setSaving(false);
         }
@@ -447,19 +455,31 @@ export default function OutcomeRecorderModal({
             }
             subtitle={task?.name || undefined}
             footer={
-                <>
-                    <Button variant="ghost" onClick={onClose}>إلغاء</Button>
-                    <Button
-                        icon={CheckCircle2}
-                        loading={saving}
-                        disabled={!canSave || saving}
-                        onClick={handleSave}
-                    >
-                        {isTextMessage ? 'إرسال الرسالة'
-                            : isBookingOutcome ? 'حجز الموعد وحفظ النتيجة'
-                            : 'حفظ النتيجة'}
-                    </Button>
-                </>
+                <div className="w-full space-y-3">
+                    {saveError && (
+                        <div
+                            role="alert"
+                            aria-live="assertive"
+                            className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-700"
+                        >
+                            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                            <span>{saveError}</span>
+                        </div>
+                    )}
+                    <div className="flex items-center justify-end gap-2">
+                        <Button variant="ghost" onClick={onClose}>إلغاء</Button>
+                        <Button
+                            icon={CheckCircle2}
+                            loading={saving}
+                            disabled={!canSave || saving}
+                            onClick={handleSave}
+                        >
+                            {isTextMessage ? 'إرسال الرسالة'
+                                : isBookingOutcome ? 'حجز الموعد وحفظ النتيجة'
+                                : 'حفظ النتيجة'}
+                        </Button>
+                    </div>
+                </div>
             }
         >
                 {/* Body - two-pane: left = context + channel (sticky), right = outcome + details */}
@@ -566,11 +586,11 @@ export default function OutcomeRecorderModal({
                                             <div className="flex-1 min-w-0">
                                                 <p className="text-base font-black text-slate-800 leading-tight" dir="ltr">{contact.number}</p>
                                                 <div className="flex flex-wrap items-center gap-1 mt-1">
-                                                    {typeCfg && <span className="text-[10px] text-slate-500 font-bold">{typeCfg.label}</span>}
-                                                    {contact.label && <span className="text-[10px] text-slate-400">· {contact.label}</span>}
-                                                    {contact.isPrimary && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">أساسي</span>}
-                                                    {contact.hasWhatsApp && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-green-50 text-green-700 border border-green-200">واتساب</span>}
-                                                    {statusCfg && <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${statusCfg.style}`}>{statusCfg.label}</span>}
+                                                    {typeCfg && <span className="text-xs text-slate-500 font-bold">{typeCfg.label}</span>}
+                                                    {contact.label && <span className="text-xs text-slate-400">· {contact.label}</span>}
+                                                    {contact.isPrimary && <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">أساسي</span>}
+                                                    {contact.hasWhatsApp && <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-green-50 text-green-700 border border-green-200">واتساب</span>}
+                                                    {statusCfg && <span className={`text-xs font-bold px-1.5 py-0.5 rounded border ${statusCfg.style}`}>{statusCfg.label}</span>}
                                                 </div>
                                             </div>
                                             {isActive && <CheckCircle2 className="w-4 h-4 text-sky-500 shrink-0" />}
@@ -759,6 +779,7 @@ export default function OutcomeRecorderModal({
                                     value={visitTime}
                                     onChange={setVisitTime}
                                     bookedTimes={bookedTimes}
+                                    submitting={saving}
                                 />
 
                                 {/* Water source — only for device_demo tasks */}
@@ -960,13 +981,11 @@ export default function OutcomeRecorderModal({
                                         <Calendar className="w-3.5 h-3.5" />
                                         الموعد المتوقع <span className="text-violet-400 font-normal">(اختياري)</span>
                                     </label>
-                                    <input
-                                        type="date"
+                                    <DateField
                                         value={followUpDueDate}
-                                        onChange={e => setFollowUpDueDate(e.target.value)}
+                                        onChange={setFollowUpDueDate}
                                         min={new Date().toISOString().split('T')[0]}
-                                        className="w-full bg-white border border-violet-200 rounded-lg px-3 py-2 text-sm focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 focus:outline-none"
-                                        dir="ltr"
+                                        className="w-full bg-white border border-violet-200 rounded-lg pl-3 py-2 text-sm focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 focus:outline-none"
                                     />
                                 </div>
                                 {/* Task priority */}

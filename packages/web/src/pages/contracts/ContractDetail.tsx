@@ -4,8 +4,12 @@ import { api } from '../../lib/api';
 import { DeviceStatusBadge as SharedDeviceStatusBadge } from '../../components/devices/DeviceStatusBadge';
 import Select from '../../components/ui/Select';
 import Button from '../../components/ui/Button';
+import Modal from '../../components/ui/Modal';
 import { usePermissions } from '../../hooks/usePermissions';
 import ContractGiftsPanel from './ContractGiftsPanel';
+import { getOpenTaskDetailPath } from '../../lib/taskRoutes';
+import { ArrowRight, FileText } from 'lucide-react';
+import { useContractPrintable } from '../../hooks/useContractPrintable';
 
 // ── Lookup maps ───────────────────────────────────────────────────────────────
 
@@ -24,6 +28,9 @@ function maintenanceIntervalLabel(warrantyMonths?: number | null, warrantyVisits
 }
 const SALE_TYPE_LABELS: Record<string, string> = {
   tradein: 'استبدال', retention: 'احتفاظ', direct: 'بيع مباشر',
+};
+const OLD_DEVICE_CONDITION_LABELS: Record<string, string> = {
+  good: 'جيد', damaged: 'تالف',
 };
 const SALE_SOURCE_LABELS: Record<string, string> = {
   device_demo_task: 'مهمة عرض جهاز', app: 'التطبيق', social_media: 'وسائل التواصل الاجتماعي',
@@ -161,6 +168,10 @@ export default function ContractDetail() {
   const [activateInstallmentsCount, setActivateInstallmentsCount] = useState<number>(6);
   const [actionLoading, setActionLoading] = useState(false);
   const [activationLoading, setActivationLoading] = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [cancelReasons, setCancelReasons] = useState<Array<{ value: string; label: string }>>([]);
+  const [cancelReasonCode, setCancelReasonCode] = useState('');
+  const [cancelError, setCancelError] = useState<string | null>(null);
   // DEC-CT-01 follow-up: draft approve / reject workflow.
   const { hasPermission } = usePermissions();
   const [approvalLoading, setApprovalLoading] = useState<'approve' | 'reject' | null>(null);
@@ -176,6 +187,9 @@ export default function ContractDetail() {
     issues: string[];
     detail?: string;
   } | null>(null);
+  const { openPrintable, printLoading } = useContractPrintable(data?.id ?? Number(id));
+  const hasInstalledDevice = Boolean(data?.hasInstalledDevice || Number(data?.installedDeviceId) > 0);
+  const isDraftDevicePlan = data?.status === 'draft' && !hasInstalledDevice;
 
   useEffect(() => {
     if (data && activateFinalPrice === 0) setActivateFinalPrice(Number(data.finalPrice) || 0);
@@ -203,15 +217,36 @@ export default function ContractDetail() {
       .catch(() => setClosers([]));
   }, [data?.status, data?.closingEmployeeId, canApproveDraft]);
 
-  const handleCancelContract = async () => {
-    if (!window.confirm('هل أنت متأكد من إلغاء هذا العقد؟ سيتم إلغاء مهام تسديد الذمم المرتبطة وإبطال الأقساط غير المدفوعة.')) return;
+  const openCancelModal = () => {
+    setCancelReasonCode('');
+    setCancelError(null);
+    setShowCancelModal(true);
+    // تحميل كسول لقائمة أسباب الإلغاء المُدارة (contract_cancellation_reasons).
+    if (cancelReasons.length === 0) {
+      api.systemLists.list({ category: 'contract_cancellation_reasons', activeOnly: true })
+        .then((rows: any[]) => setCancelReasons(
+          (rows ?? []).map(r => ({ value: String(r.value), label: String(r.label ?? r.metadata?.label ?? r.value) })),
+        ))
+        .catch(() => setCancelReasons([]));
+    }
+  };
+
+  const submitCancelContract = async () => {
+    if (!cancelReasonCode) { setCancelError('اختر سبب الإلغاء'); return; }
     setActionLoading(true);
+    setCancelError(null);
     try {
-      await api.contracts.cancel(Number(id));
+      await api.contracts.cancel(Number(id), { reasonCode: cancelReasonCode });
       const refreshed = await api.contracts.get(Number(id));
       setData(refreshed);
+      setShowCancelModal(false);
     } catch (err: any) {
-      alert('فشل إلغاء العقد: ' + (err.message || err));
+      // رسائل 409 من الخلفية (مستوفى / مهمة صيانة قيد التنفيذ) تُعرض كما هي.
+      const raw = String(err?.message || err || '');
+      const jsonStart = raw.indexOf('{');
+      let msg = raw;
+      if (jsonStart >= 0) { try { msg = JSON.parse(raw.slice(jsonStart)).error || raw; } catch { /* keep raw */ } }
+      setCancelError(msg);
     } finally {
       setActionLoading(false);
     }
@@ -400,22 +435,59 @@ export default function ContractDetail() {
 
       {/* ── Sticky Navbar ────────────────────────────────────────────────────── */}
       <div className="sticky top-0 z-50 bg-gradient-to-r from-sky-600 to-sky-500 shadow-md">
-        <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
-          <button onClick={() => navigate('/contracts')}
-            className="text-white/80 hover:text-white text-sm transition-colors">
-            ← رجوع
-          </button>
-          <h1 className="text-white font-bold text-lg">تفاصيل العقد</h1>
-          {data.status === 'draft' ? (
-            <button onClick={() => navigate(`/contracts/${id}/edit`)}
-              className="text-white/80 hover:text-white text-sm border border-white/30 rounded-lg px-3 py-1 transition-colors">
-              تعديل
+        <div className="max-w-5xl mx-auto px-4 py-3 grid grid-cols-1 sm:grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3">
+          <div className="grid grid-cols-1 items-center gap-3 sm:contents">
+            <button
+              onClick={() => navigate('/contracts')}
+              aria-label="العودة إلى العقود"
+              title="العودة إلى العقود"
+              className="hidden sm:inline-flex w-8 h-8 items-center justify-center text-white/80 hover:text-white border border-white/20 rounded-lg transition-colors shrink-0"
+            >
+              <ArrowRight className="w-4 h-4" aria-hidden="true" />
             </button>
-          ) : (
-            <span className="text-white/70 text-xs border border-white/20 rounded-lg px-3 py-1">
-              غير قابل للتعديل
-            </span>
-          )}
+            <h1 className="text-white font-bold text-lg text-center">تفاصيل العقد</h1>
+          </div>
+          <div className="w-full sm:w-auto flex items-center justify-center sm:justify-end gap-2">
+            <button
+              onClick={() => navigate('/contracts')}
+              aria-label="العودة إلى العقود"
+              title="العودة إلى العقود"
+              className="sm:hidden w-8 h-8 inline-flex items-center justify-center text-white/80 hover:text-white border border-white/20 rounded-lg transition-colors shrink-0"
+            >
+              <ArrowRight className="w-4 h-4" aria-hidden="true" />
+            </button>
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={FileText}
+              onClick={openPrintable}
+              loading={printLoading}
+              className="rounded-lg"
+            >
+              النسخة القانونية
+            </Button>
+            {data.status === 'active' && data.saleSubtype !== 'temporary' && canApproveDraft && (
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={actionLoading}
+                onClick={openCancelModal}
+                className="rounded-lg"
+              >
+                إلغاء العقد
+              </Button>
+            )}
+            {data.status === 'draft' ? (
+              <button onClick={() => navigate(`/contracts/${id}/edit`)}
+                className="text-white/80 hover:text-white text-sm border border-white/30 rounded-lg px-3 py-1 transition-colors">
+                تعديل
+              </button>
+            ) : (
+              <span className="hidden sm:inline text-white/70 text-xs border border-white/20 rounded-lg px-3 py-1">
+                غير قابل للتعديل
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
@@ -472,7 +544,7 @@ export default function ContractDetail() {
               <Button variant="gold" size="sm" onClick={() => setShowActivateModal(true)}>
                 ⚡ تنشيط عملية الدفع
               </Button>
-              <Button variant="secondary" size="sm" disabled={actionLoading} onClick={handleCancelContract}>
+              <Button variant="secondary" size="sm" disabled={actionLoading} onClick={openCancelModal}>
                 {actionLoading ? 'جاري...' : 'إلغاء العقد'}
               </Button>
             </div>
@@ -632,8 +704,15 @@ export default function ContractDetail() {
 
           {/* ── Group 3: الجهاز والصيانة ───────────────────────────────────── */}
           <Card>
-            <CardTitle>🖥️ الجهاز والصيانة</CardTitle>
+            <CardTitle>
+              🖥️ {isDraftDevicePlan ? 'بيانات الجهاز المخطط' : 'الجهاز والصيانة'}
+            </CardTitle>
             <div className="space-y-3">
+              {isDraftDevicePlan && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
+                  هذه بيانات مخططة ضمن مسودة العقد فقط. لم يُنشأ جهاز مركب للزبون، وسيتم إنشاء سجل الجهاز عند اعتماد العقد.
+                </div>
+              )}
               {data.deviceModelName && (
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-slate-500">الموديل:</span>
@@ -648,7 +727,9 @@ export default function ContractDetail() {
               )}
               {data.serialNumber && (
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-slate-500">الرقم التسلسلي:</span>
+                  <span className="text-sm text-slate-500">
+                    {isDraftDevicePlan ? 'الرقم التسلسلي المخطط:' : 'الرقم التسلسلي:'}
+                  </span>
                   <span className="text-sm font-mono text-slate-700">{data.serialNumber}</span>
                 </div>
               )}
@@ -664,7 +745,9 @@ export default function ContractDetail() {
                 )}
                 {data.deviceStatus && (
                   <div>
-                    <span className="text-xs text-slate-400 block mb-1">حالة الجهاز</span>
+                    <span className="text-xs text-slate-400 block mb-1">
+                      {isDraftDevicePlan ? 'الحالة المخططة عند الاعتماد' : 'حالة الجهاز'}
+                    </span>
                     <DeviceStatusBadge status={data.deviceStatus} />
                   </div>
                 )}
@@ -680,6 +763,15 @@ export default function ContractDetail() {
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4 text-sm">
               {data.saleType && <LabelVal label="نوع البيع" value={SALE_TYPE_LABELS[data.saleType] ?? data.saleType} />}
+              {data.saleType === 'tradein' && data.oldContractNumber && (
+                <LabelVal label="رقم العقد القديم" value={data.oldContractNumber} mono />
+              )}
+              {data.saleType === 'tradein' && data.oldDeviceCondition && (
+                <LabelVal
+                  label="حالة الجهاز القديم"
+                  value={OLD_DEVICE_CONDITION_LABELS[data.oldDeviceCondition] ?? data.oldDeviceCondition}
+                />
+              )}
               {data.saleSubtype && <LabelVal label="الفئة" value={saleSubtypeLabel(data.saleSubtype)} />}
               {data.saleSource && <LabelVal label="المصدر" value={SALE_SOURCE_LABELS[data.saleSource] ?? data.saleSource} />}
               {data.saleReferenceNumber && <LabelVal label="المرجع" value={data.saleReferenceNumber} mono />}
@@ -991,7 +1083,7 @@ export default function ContractDetail() {
                 };
                 const ts = taskStatusMap[t.status] ?? { cls: 'bg-slate-100 text-slate-500', label: t.status };
                 const isEmergency = t.taskFamily === 'emergency' || t.taskType === 'emergency_maintenance';
-                const path = isEmergency ? `/tasks/emergency/${t.id}` : `/tasks/${t.taskType}/${t.id}`;
+                const path = getOpenTaskDetailPath(t.taskType, t.id) ?? '/tasks/group/maintenance';
                 return (
                   <div key={t.id} className="flex items-center justify-between gap-4 px-5 py-3.5 hover:bg-slate-50/60">
                     <div className="flex items-center gap-3 min-w-0">
@@ -1027,14 +1119,23 @@ export default function ContractDetail() {
       </div>
 
       {/* ══ Activation Modal ════════════════════════════════════════════════════ */}
-      {showApprovalModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-base font-bold text-slate-800">اعتماد العقد</h3>
-              <button onClick={() => setShowApprovalModal(false)} className="text-slate-400 hover:text-slate-600 text-lg leading-none">x</button>
-            </div>
-            <div className="space-y-4">
+      <Modal
+        isOpen={showApprovalModal}
+        onClose={() => setShowApprovalModal(false)}
+        size="md"
+        title="اعتماد العقد"
+        footer={
+          <div className="w-full flex gap-3">
+            <Button fullWidth disabled={approvalLoading !== null || !approvalCloserId} loading={approvalLoading === 'approve'} onClick={handleApprove}>
+              {approvalLoading === 'approve' ? 'جاري الاعتماد...' : 'موافقة واعتماد'}
+            </Button>
+            <Button variant="secondary" fullWidth onClick={() => setShowApprovalModal(false)}>
+              إلغاء
+            </Button>
+          </div>
+        }
+      >
+            <div className="p-6 space-y-4">
               <div>
                 <label className="text-xs font-bold text-slate-500 mb-1 block">موظف التسكير</label>
                 <Select<string>
@@ -1056,37 +1157,29 @@ export default function ContractDetail() {
               <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3 text-xs text-emerald-800 leading-relaxed">
                 عند الاعتماد سيتم تحويل العقد إلى نشط وإنشاء سجل الجهاز ومهمة التوصيل.
               </div>
-              <div className="flex gap-3 pt-2">
-                <Button
-                  fullWidth
-                  disabled={approvalLoading !== null || !approvalCloserId}
-                  loading={approvalLoading === 'approve'}
-                  onClick={handleApprove}
-                >
-                  {approvalLoading === 'approve' ? 'جاري الاعتماد...' : 'موافقة واعتماد'}
-                </Button>
-                <Button
-                  variant="secondary"
-                  fullWidth
-                  onClick={() => setShowApprovalModal(false)}
-                >
-                  إلغاء
-                </Button>
-              </div>
             </div>
-          </div>
-        </div>
-      )}
+      </Modal>
 
-      {approvalError && (
-        <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm px-4"
-          onClick={() => setApprovalError(null)}
-        >
-          <div
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 border-t-4 border-rose-500"
-            onClick={(e) => e.stopPropagation()}
-          >
+      <Modal
+        isOpen={!!approvalError}
+        onClose={() => setApprovalError(null)}
+        size="md"
+        hideCloseButton
+        className="border-t-4 border-rose-500"
+        footer={approvalError && (
+          <div className="w-full flex gap-2">
+            {approvalError.issues.length > 0 && (
+              <Button fullWidth onClick={() => { setApprovalError(null); setShowApprovalModal(false); navigate(`/contracts/${id}/edit`); }}>
+                فتح العقد لإكمال البيانات
+              </Button>
+            )}
+            <Button variant="secondary" fullWidth onClick={() => setApprovalError(null)}>
+              حسناً
+            </Button>
+          </div>
+        )}
+      >
+            {approvalError && (<div className="p-6">
             <div className="flex items-start gap-3 mb-4">
               <div className="w-10 h-10 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center text-lg font-bold shrink-0">!</div>
               <div className="flex-1">
@@ -1113,39 +1206,16 @@ export default function ContractDetail() {
               </div>
             )}
 
-            <div className="flex gap-2">
-              {approvalError.issues.length > 0 && (
-                <Button
-                  fullWidth
-                  onClick={() => {
-                    setApprovalError(null);
-                    setShowApprovalModal(false);
-                    navigate(`/contracts/${id}/edit`);
-                  }}
-                >
-                  فتح العقد لإكمال البيانات
-                </Button>
-              )}
-              <Button
-                variant="secondary"
-                fullWidth
-                onClick={() => setApprovalError(null)}
-              >
-                حسناً
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+            </div>)}
+      </Modal>
 
-      {showActivateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-base font-bold text-slate-800">تنشيط عملية الدفع</h3>
-              <button onClick={() => setShowActivateModal(false)} className="text-slate-400 hover:text-slate-600 text-lg leading-none">×</button>
-            </div>
-            <form onSubmit={handleActivatePayment} className="space-y-4">
+      <Modal
+        isOpen={showActivateModal}
+        onClose={() => setShowActivateModal(false)}
+        size="md"
+        title="تنشيط عملية الدفع"
+      >
+            <form onSubmit={handleActivatePayment} className="p-6 space-y-4">
               <div>
                 <label className="text-xs font-bold text-slate-500 mb-1 block">طريقة الدفع</label>
                 <div className="grid grid-cols-2 gap-2">
@@ -1186,9 +1256,41 @@ export default function ContractDetail() {
                 </Button>
               </div>
             </form>
+      </Modal>
+
+      <Modal
+        isOpen={showCancelModal}
+        onClose={() => setShowCancelModal(false)}
+        size="md"
+        title="إلغاء العقد"
+      >
+        <div className="p-6 space-y-4">
+          <p className="text-xs text-slate-600 leading-relaxed bg-amber-50 border border-amber-200 rounded-xl p-3">
+            سيتم إلغاء مهام تسديد الذمم وإبطال الأقساط غير المدفوعة، وإخراج جهاز العقد من الصيانة الدورية،
+            وإلغاء كفالة العقد. لا يمكن إلغاء عقد مستوفى المبالغ بالكامل.
+          </p>
+          <div>
+            <label className="text-xs font-bold text-slate-500 mb-1 block">سبب الإلغاء</label>
+            <select
+              value={cancelReasonCode}
+              onChange={e => { setCancelReasonCode(e.target.value); setCancelError(null); }}
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+            >
+              <option value="">— اختر السبب —</option>
+              {cancelReasons.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+            </select>
+          </div>
+          {cancelError && <p className="text-sm text-rose-600">{cancelError}</p>}
+          <div className="flex gap-3 pt-2">
+            <Button fullWidth variant="danger" loading={actionLoading} disabled={actionLoading} onClick={submitCancelContract}>
+              {actionLoading ? 'جاري الإلغاء...' : 'تأكيد الإلغاء'}
+            </Button>
+            <Button variant="secondary" fullWidth disabled={actionLoading} onClick={() => setShowCancelModal(false)}>
+              تراجع
+            </Button>
           </div>
         </div>
-      )}
+      </Modal>
     </div>
   );
 }

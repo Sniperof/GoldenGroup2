@@ -1,10 +1,10 @@
 import { useState, useMemo, useCallback, useEffect, type ReactNode } from 'react';
 import { motion } from 'framer-motion';
-import { Search, Download, RotateCcw, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
+import { Search, Download, RotateCcw, ChevronUp, ChevronDown, ChevronsUpDown } from './ui/icons';
+import type { LucideIcon } from './ui/icons';
 import Select from './ui/Select';
 import Input from './ui/Input';
-import PageHeader from './ui/PageHeader';
+import Checkbox from './ui/Checkbox';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -37,13 +37,6 @@ export interface SmartTableProps<T> {
     title: string;
     /** Optional descriptive line under the title. Defaults to the record count. */
     subtitle?: ReactNode;
-    /**
-     * Where the title block is rendered:
-     *  - 'card' (default): inside the table card as a section header.
-     *  - 'page': as a unified page-level header (matching <PageHeader>) ABOVE the card.
-     * Use 'page' when the table IS the page's primary content (no separate page header).
-     */
-    titlePlacement?: 'card' | 'page';
     icon: LucideIcon;
     data: T[];
     columns: ColumnDef<T>[];
@@ -60,6 +53,9 @@ export interface SmartTableProps<T> {
     emptyMessage?: string;
     getId: (item: T) => string | number;
     hideFilterBar?: boolean;
+    /** Hide the in-card title/toolbar header (when the page already has a title
+     * block + tabs above). The toolbar (reset · export) moves into the filter bar. */
+    hideHeader?: boolean;
     tableMinWidth?: number;
     defaultSortKey?: string;
     defaultSortDir?: 'asc' | 'desc';
@@ -69,6 +65,23 @@ export interface SmartTableProps<T> {
      * filler rows — for tables whose source showed every row.
      */
     paginated?: boolean;
+    /**
+     * Server-driven mode (controlled). When provided, the table STOPS doing its
+     * own filtering/sorting/pagination: `data` is treated as the current page
+     * exactly as returned by the server, and sort clicks / page changes are
+     * reported back via callbacks. Used by the Clients records page. Omit for the
+     * default fully-client-side behaviour (every other caller is unaffected).
+     */
+    server?: {
+        totalCount: number;
+        page: number;
+        itemsPerPage: number;
+        onPageChange: (page: number) => void;
+        onItemsPerPageChange: (n: number) => void;
+        sortKey: string | null;
+        sortDir: 'asc' | 'desc' | null;
+        onSortChange: (key: string, dir: 'asc' | 'desc' | null) => void;
+    };
 }
 
 /* ------------------------------------------------------------------ */
@@ -114,7 +127,6 @@ export default function SmartTable<T>({
     data,
     columns,
     subtitle,
-    titlePlacement = 'card',
     filters = [],
     searchKeys = [],
     searchPlaceholder = 'بحث...',
@@ -128,11 +140,15 @@ export default function SmartTable<T>({
     getId,
     rowClassName,
     hideFilterBar = false,
+    hideHeader = false,
     tableMinWidth = 860,
     defaultSortKey,
     defaultSortDir,
     paginated = true,
+    server,
 }: SmartTableProps<T> & { rowClassName?: (item: T) => string }) {
+
+    const isServer = !!server;
 
     /* ---------- state ---------- */
     const [search, setSearch] = useState('');
@@ -165,6 +181,8 @@ export default function SmartTable<T>({
 
     /* ---------- sorting ---------- */
     const sorted = useMemo(() => {
+        // Server mode: `data` is already the sorted, filtered current page.
+        if (isServer) return data;
         if (!sortKey || !sortDir) return filtered;
         const col = columns.find(c => c.key === sortKey);
         if (!col) return filtered;
@@ -181,22 +199,32 @@ export default function SmartTable<T>({
                 : String(bv).localeCompare(String(av), 'ar');
         });
         return arr;
-    }, [filtered, sortKey, sortDir, columns]);
+    }, [filtered, sortKey, sortDir, columns, isServer, data]);
 
     /* ---------- pagination ---------- */
     // When pagination is off, every row renders on a single page.
     const effectivePerPage = paginated ? itemsPerPage : Math.max(1, sorted.length);
     const totalPages = Math.max(1, Math.ceil(sorted.length / effectivePerPage));
 
+    // Footer values: server-controlled when in server mode, else derived locally.
+    const footerPerPage = isServer ? server!.itemsPerPage : effectivePerPage;
+    const footerTotal = isServer ? server!.totalCount : sorted.length;
+    const footerCurrentPage = isServer ? server!.page : currentPage;
+    const footerTotalPages = Math.max(1, Math.ceil(footerTotal / Math.max(1, footerPerPage)));
+    const goToPage = (p: number) => isServer ? server!.onPageChange(p) : setCurrentPage(p);
+    const changePerPage = (n: number) => isServer ? server!.onItemsPerPageChange(n) : setItemsPerPage(n);
+
     const paginatedData = useMemo(() => {
+        // Server mode: `data` IS the current page — render it verbatim.
+        if (isServer) return sorted;
         if (!paginated) return sorted;
         const start = (currentPage - 1) * itemsPerPage;
         return sorted.slice(start, start + itemsPerPage);
-    }, [sorted, currentPage, itemsPerPage, paginated]);
+    }, [sorted, currentPage, itemsPerPage, paginated, isServer]);
 
     // number of empty filler rows to keep the table height fixed (paginated only)
     const fillerRows = paginated && paginatedData.length > 0
-        ? Math.max(0, itemsPerPage - paginatedData.length)
+        ? Math.max(0, footerPerPage - paginatedData.length)
         : 0;
 
     useEffect(() => {
@@ -223,8 +251,27 @@ export default function SmartTable<T>({
         });
     }, []);
 
+    // External filters can replace `data` while selections are active. Keep only
+    // ids that are still visible so the counter and bulk payload cannot include
+    // stale rows from a previous filter result.
+    useEffect(() => {
+        const visibleIds = new Set(data.map(item => getId(item)));
+        setSelected(prev => {
+            const next = new Set([...prev].filter(id => visibleIds.has(id)));
+            return next.size === prev.size ? prev : next;
+        });
+    }, [data, getId]);
+
     /* ---------- sort handler ---------- */
     const handleSort = useCallback((key: string) => {
+        if (isServer) {
+            // Same cycle (asc → desc → none), reported to the host instead of local state.
+            const nextDir: SortDir = server!.sortKey === key
+                ? (server!.sortDir === 'asc' ? 'desc' : server!.sortDir === 'desc' ? null : 'asc')
+                : 'asc';
+            server!.onSortChange(key, nextDir);
+            return;
+        }
         if (sortKey === key) {
             if (sortDir === 'asc') setSortDir('desc');
             else if (sortDir === 'desc') { setSortKey(null); setSortDir(null); }
@@ -232,7 +279,11 @@ export default function SmartTable<T>({
             setSortKey(key);
             setSortDir('asc');
         }
-    }, [sortKey, sortDir]);
+    }, [isServer, server, sortKey, sortDir]);
+
+    // Sort indicators reflect the effective (server or local) sort state.
+    const shownSortKey = isServer ? server!.sortKey : sortKey;
+    const shownSortDir = isServer ? server!.sortDir : sortDir;
 
     /* ---------- reset ---------- */
     const resetFilters = useCallback(() => {
@@ -248,13 +299,15 @@ export default function SmartTable<T>({
     const hasActiveFilters = search.trim() !== '' || Object.values(filterValues).some(v => v !== 'all');
 
     const colSpanTotal = columns.length + (bulkActions ? 1 : 0) + (actions ? 1 : 0);
-    const startRecord = sorted.length === 0 ? 0 : (currentPage - 1) * effectivePerPage + 1;
-    const endRecord   = Math.min(sorted.length, currentPage * effectivePerPage);
+    const startRecord = footerTotal === 0 ? 0 : (footerCurrentPage - 1) * footerPerPage + 1;
+    const endRecord   = Math.min(footerTotal, footerCurrentPage * footerPerPage);
 
     /* Record-count line (used as the default subtitle). */
-    const countNode = hasActiveFilters
-        ? <><span className="text-sky-600 font-semibold">{sorted.length}</span> نتيجة من أصل {data.length}</>
-        : <><span className="font-semibold text-slate-600">{data.length}</span> سجل إجمالاً</>;
+    const countNode = isServer
+        ? <><span className="font-semibold text-slate-600">{footerTotal}</span> سجل إجمالاً</>
+        : hasActiveFilters
+            ? <><span className="text-sky-600 font-semibold">{sorted.length}</span> نتيجة من أصل {data.length}</>
+            : <><span className="font-semibold text-slate-600">{data.length}</span> سجل إجمالاً</>;
 
     /* Header toolbar (reset filters · export · custom header actions). */
     const toolbar = (
@@ -273,52 +326,66 @@ export default function SmartTable<T>({
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 text-xs font-medium transition-colors whitespace-nowrap"
             >
                 <Download className="w-3 h-3" />
-                تصدير CSV
+                توليد تقرير
             </button>
             {headerActions}
         </>
     );
 
+    const activeToolbar = bulkActions && selected.size > 0 ? (
+        <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="flex min-h-8 items-center gap-2 flex-wrap"
+        >
+            <span className="text-xs text-sky-700 font-semibold whitespace-nowrap">
+                تم تحديد {selected.size} عنصر
+            </span>
+            {bulkActions.map((bulkAction, index) => (
+                <button
+                    key={`${bulkAction.label}-${index}`}
+                    onClick={() => bulkAction.onClick(selectedItems)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
+                        bulkAction.variant === 'danger'
+                            ? 'bg-red-600 hover:bg-red-500 text-white'
+                            : 'bg-sky-600 hover:bg-sky-500 text-white'
+                    }`}
+                >
+                    <bulkAction.icon className="w-3.5 h-3.5" />
+                    {bulkAction.label}
+                </button>
+            ))}
+            <button
+                onClick={() => setSelected(new Set())}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium text-sky-600 hover:bg-sky-100 transition-colors whitespace-nowrap"
+            >
+                إلغاء
+            </button>
+        </motion.div>
+    ) : toolbar;
+
     /* ---------------------------------------------------------------- */
     /*  Render                                                           */
     /* ---------------------------------------------------------------- */
     return (
-        <>
-            {/* ── PAGE-LEVEL HEADER (title above the card) ── */}
-            {titlePlacement === 'page' && (
-                <PageHeader
-                    className="mb-5"
-                    title={title}
-                    subtitle={subtitle ?? countNode}
-                    icon={
-                        <div className="w-10 h-10 rounded-xl bg-sky-50 border border-sky-100 flex items-center justify-center shrink-0">
-                            <Icon className="w-5 h-5 text-sky-600" />
-                        </div>
-                    }
-                    actions={toolbar}
-                >
-                    {scopeIndicator}
-                </PageHeader>
-            )}
-
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
 
-            {/* ── HEADER (card variant — section label inside the card) ── */}
-            {titlePlacement === 'card' && (
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-5 py-4 border-b border-slate-100">
-                <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-xl bg-sky-50 border border-sky-100 flex items-center justify-center shrink-0">
-                        <Icon className="w-4 h-4 text-sky-600" />
+            {/* ── HEADER (unified section label inside the card) ── */}
+            {!hideHeader && (
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-5 py-4 border-b border-slate-100">
+                    <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-xl bg-sky-50 border border-sky-100 flex items-center justify-center shrink-0">
+                            <Icon className="w-4 h-4 text-sky-600" />
+                        </div>
+                        <div>
+                            <h2 className="text-lg font-bold text-slate-800 leading-tight">{title}</h2>
+                            <p className="text-xs text-slate-400 mt-0.5">{subtitle ?? countNode}</p>
+                        </div>
+                        {scopeIndicator}
                     </div>
-                    <div>
-                        <h2 className="text-lg font-bold text-slate-800 leading-tight">{title}</h2>
-                        <p className="text-xs text-slate-400 mt-0.5">{subtitle ?? countNode}</p>
-                    </div>
-                    {scopeIndicator}
-                </div>
 
-                <div className="flex items-center gap-2">{toolbar}</div>
-            </div>
+                    <div className="flex min-h-8 items-center gap-2">{activeToolbar}</div>
+                </div>
             )}
 
             {/* ── FILTER BAR ── */}
@@ -345,38 +412,9 @@ export default function SmartTable<T>({
                             ]}
                         />
                     ))}
+                    {/* When the card header is hidden, keep its toolbar (reset · export) here. */}
+                    {hideHeader && <div className="flex min-h-8 items-center gap-2 shrink-0">{activeToolbar}</div>}
                 </div>
-            )}
-
-            {/* ── BULK ACTIONS ── */}
-            {bulkActions && selected.size > 0 && (
-                <motion.div
-                    initial={{ opacity: 0, y: -4 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="bg-sky-50 border-b border-sky-100 px-5 py-2.5 flex items-center gap-3"
-                >
-                    <span className="text-xs text-sky-700 font-semibold">تم تحديد {selected.size} عنصر</span>
-                    <div className="mr-auto flex items-center gap-2">
-                        {bulkActions.map((ba, i) => (
-                            <button
-                                key={i}
-                                onClick={() => ba.onClick(selectedItems)}
-                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${ba.variant === 'danger'
-                                    ? 'bg-red-600 hover:bg-red-500 text-white'
-                                    : 'bg-sky-600 hover:bg-sky-500 text-white'}`}
-                            >
-                                <ba.icon className="w-3.5 h-3.5" />
-                                {ba.label}
-                            </button>
-                        ))}
-                        <button
-                            onClick={() => setSelected(new Set())}
-                            className="px-3 py-1.5 rounded-lg text-xs font-medium text-sky-600 hover:bg-sky-100 transition-colors"
-                        >
-                            إلغاء
-                        </button>
-                    </div>
-                </motion.div>
             )}
 
             {/* ── TABLE — horizontal scroll only, vertical scroll is the page ── */}
@@ -385,16 +423,21 @@ export default function SmartTable<T>({
                     className="w-full border-collapse"
                     style={{ minWidth: `${tableMinWidth}px` }}
                 >
-                    {/* sticky thead — sticks to the top of the viewport as the page scrolls */}
-                    <thead className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 shadow-[0_1px_0_0_#e2e8f0]">
+                    {/* sticky thead — sticks to the top of the scroll area as the page scrolls.
+                        `--st-sticky-top` lets a host page (e.g. a sticky tab bar above) push the
+                        header down so the two don't collide; defaults to 0 when unset. */}
+                    <thead
+                        className="sticky z-20 bg-slate-50 border-b border-slate-200 shadow-[0_1px_0_0_#e2e8f0]"
+                        style={{ top: 'var(--st-sticky-top, 0px)' }}
+                    >
                         <tr>
                             {bulkActions && (
                                 <th className="w-11 px-4 py-3">
-                                    <input
-                                        type="checkbox"
+                                    <Checkbox
                                         checked={allSelected}
-                                        onChange={toggleAll}
-                                        className="w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500 cursor-pointer accent-sky-600"
+                                        indeterminate={selected.size > 0 && !allSelected}
+                                        onCheckedChange={toggleAll}
+                                        label="تحديد الكل"
                                     />
                                 </th>
                             )}
@@ -411,8 +454,8 @@ export default function SmartTable<T>({
                                         {col.label}
                                         {col.sortable && (
                                             <span className="flex-shrink-0 text-slate-400">
-                                                {sortKey === col.key && sortDir === 'asc'  ? <ChevronUp   className="w-3.5 h-3.5 text-sky-500" /> :
-                                                 sortKey === col.key && sortDir === 'desc' ? <ChevronDown className="w-3.5 h-3.5 text-sky-500" /> :
+                                                {shownSortKey === col.key && shownSortDir === 'asc'  ? <ChevronUp   className="w-3.5 h-3.5 text-sky-500" /> :
+                                                 shownSortKey === col.key && shownSortDir === 'desc' ? <ChevronDown className="w-3.5 h-3.5 text-sky-500" /> :
                                                                                              <ChevronsUpDown className="w-3 h-3 opacity-40" />}
                                             </span>
                                         )}
@@ -434,8 +477,10 @@ export default function SmartTable<T>({
                             <tr>
                                 <td
                                     colSpan={colSpanTotal}
-                                    style={{ height: `${itemsPerPage * ROW_HEIGHT}px` }}
-                                    className="text-center align-middle"
+                                    // Paginated tables keep a fixed body height for visual
+                                    // consistency; un-paginated ones stay compact (dynamic).
+                                    style={paginated ? { height: `${footerPerPage * ROW_HEIGHT}px` } : undefined}
+                                    className={`text-center align-middle ${paginated ? '' : 'py-12'}`}
                                 >
                                     {EmptyIcon && <EmptyIcon className="w-10 h-10 mx-auto mb-3 text-slate-200" />}
                                     <p className="text-slate-400 text-sm font-medium">{emptyMessage}</p>
@@ -475,11 +520,10 @@ export default function SmartTable<T>({
                                 >
                                     {bulkActions && (
                                         <td className="w-11 px-4" onClick={e => e.stopPropagation()}>
-                                            <input
-                                                type="checkbox"
+                                            <Checkbox
                                                 checked={isSelected}
-                                                onChange={() => toggleOne(id)}
-                                                className="w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500 cursor-pointer accent-sky-600"
+                                                onCheckedChange={() => toggleOne(id)}
+                                                label="تحديد الصف"
                                             />
                                         </td>
                                     )}
@@ -524,16 +568,16 @@ export default function SmartTable<T>({
                 {/* Record info + page size selector */}
                 <div className="flex items-center gap-3 text-xs text-slate-500">
                     <span>
-                        {sorted.length === 0
+                        {footerTotal === 0
                             ? 'لا توجد سجلات'
-                            : <>عرض <span className="font-bold text-slate-700">{startRecord}–{endRecord}</span> من <span className="font-bold text-slate-700">{sorted.length}</span> سجل</>}
+                            : <>عرض <span className="font-bold text-slate-700">{startRecord}–{endRecord}</span> من <span className="font-bold text-slate-700">{footerTotal}</span> سجل</>}
                     </span>
                     <span className="h-4 w-px bg-slate-200" />
                     <label className="flex items-center gap-1.5">
                         <span>صفوف الصفحة</span>
                         <Select
-                            value={itemsPerPage}
-                            onChange={n => setItemsPerPage(Number(n))}
+                            value={footerPerPage}
+                            onChange={n => changePerPage(Number(n))}
                             ariaLabel="عدد صفوف الصفحة"
                             options={PAGE_SIZE_OPTIONS.map(n => ({ value: n, label: String(n) }))}
                         />
@@ -541,32 +585,32 @@ export default function SmartTable<T>({
                 </div>
 
                 {/* Page navigation */}
-                {totalPages > 1 && (
+                {footerTotalPages > 1 && (
                     <div className="flex items-center gap-1 bg-white border border-slate-200 p-1 rounded-xl">
                         <button
-                            disabled={currentPage === 1}
-                            onClick={() => setCurrentPage(1)}
+                            disabled={footerCurrentPage === 1}
+                            onClick={() => goToPage(1)}
                             className="px-2 py-1 text-xs font-bold rounded-lg no-pill transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-100 text-slate-600"
                             title="الأولى"
                         >«</button>
                         <button
-                            disabled={currentPage === 1}
-                            onClick={() => setCurrentPage(p => p - 1)}
+                            disabled={footerCurrentPage === 1}
+                            onClick={() => goToPage(footerCurrentPage - 1)}
                             className="px-2.5 py-1 text-xs font-bold rounded-lg no-pill transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-100 text-slate-600"
                         >السابق</button>
 
                         <div className="flex items-center gap-0.5 px-1">
-                            {Array.from({ length: totalPages }, (_, i) => i + 1)
-                                .filter(p => p === 1 || p === totalPages || Math.abs(p - currentPage) <= 1)
+                            {Array.from({ length: footerTotalPages }, (_, i) => i + 1)
+                                .filter(p => p === 1 || p === footerTotalPages || Math.abs(p - footerCurrentPage) <= 1)
                                 .map((p, i, arr) => (
                                     <div key={p} className="flex items-center gap-0.5">
                                         {i > 0 && arr[i - 1] !== p - 1 && (
                                             <span className="text-slate-300 text-xs px-0.5">…</span>
                                         )}
                                         <button
-                                            onClick={() => setCurrentPage(p)}
+                                            onClick={() => goToPage(p)}
                                             className={`w-7 h-7 flex items-center justify-center text-xs font-bold rounded-lg no-pill transition-all ${
-                                                currentPage === p
+                                                footerCurrentPage === p
                                                     ? 'bg-sky-600 text-white shadow-sm'
                                                     : 'text-slate-500 hover:bg-slate-100'
                                             }`}
@@ -576,13 +620,13 @@ export default function SmartTable<T>({
                         </div>
 
                         <button
-                            disabled={currentPage === totalPages}
-                            onClick={() => setCurrentPage(p => p + 1)}
+                            disabled={footerCurrentPage === footerTotalPages}
+                            onClick={() => goToPage(footerCurrentPage + 1)}
                             className="px-2.5 py-1 text-xs font-bold rounded-lg no-pill transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-100 text-slate-600"
                         >التالي</button>
                         <button
-                            disabled={currentPage === totalPages}
-                            onClick={() => setCurrentPage(totalPages)}
+                            disabled={footerCurrentPage === footerTotalPages}
+                            onClick={() => goToPage(footerTotalPages)}
                             className="px-2 py-1 text-xs font-bold rounded-lg no-pill transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-100 text-slate-600"
                             title="الأخيرة"
                         >»</button>
@@ -591,6 +635,5 @@ export default function SmartTable<T>({
             </div>
             )}
         </div>
-        </>
     );
 }

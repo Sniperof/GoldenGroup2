@@ -27,12 +27,12 @@
 | الحقل | النوع | NULL? | DEFAULT | Constraints | الوصف | مثال |
 |-------|-------|-------|---------|-------------|-------|------|
 | `id` | `SERIAL` | ❌ | — | `PRIMARY KEY` | المعرف الفريد للجهاز | `7` |
-| `contract_id` | `INTEGER` | ❌ | — | `FK → contracts(id) ON DELETE RESTRICT` | العقد المصدر للجهاز — لا يتغير بعد الإنشاء | `22` |
+| `contract_id` | `INTEGER` | ✅ | — | `FK → contracts(id) ON DELETE RESTRICT` | العقد المصدر للجهاز عندما يكون الجهاز مبيعاً من الشركة. يكون `NULL` للأجهزة الخارجية المسجلة للخدمة دون عقد بيع. | `22` أو `NULL` |
 | `customer_id` | `INTEGER` | ❌ | — | `FK → clients(id) ON DELETE RESTRICT` | مالك الجهاز الحالي (قابل للتغيير عند نقل الملكية) | `23` |
 | `branch_id` | `INTEGER` | ✅ | — | `FK → branches(id) ON DELETE SET NULL` | الفرع المسؤول عن خدمة الجهاز | `3` |
 | `device_model_id` | `INTEGER` | ✅ | — | `FK → device_models(id) ON DELETE SET NULL` | موديل الجهاز من الكتالوج | `5` |
 | `device_model_name` | `VARCHAR(255)` | ✅ | — | — | لقطة اسم الموديل وقت البيع | `"فلتر ذهبي 7 مراحل"` |
-| `serial_number` | `VARCHAR(255)` | ✅ | — | — | الرقم التسلسلي الفريد لهذه الوحدة تحديداً | `"GS-2026-001"` |
+| `serial_number` | `VARCHAR(255)` | ✅ | — | `UNIQUE lower(btrim(serial_number)) WHERE non-empty` | الرقم التسلسلي الفريد عالمياً لهذه الوحدة تحديداً؛ حالة الأحرف والمسافات الطرفية غير مؤثرة | `"GS-2026-001"` |
 | `status` | `VARCHAR(50)` | ❌ | `'pending_delivery'` | `CHECK (status IN (...))` | الحالة الفيزيائية الحالية للجهاز | `"installed"` |
 | `installation_geo_unit_id` | `INTEGER` | ✅ | — | `FK → geo_units(id) ON DELETE SET NULL` | المنطقة الجغرافية لموقع الجهاز | `123` |
 | `installation_address_text` | `TEXT` | ✅ | — | — | العنوان التفصيلي لموقع التركيب | `"المزة، بناية 5، طابق 2"` |
@@ -77,21 +77,49 @@ pending_delivery → delivered → installed → active → decommissioned
 ## 3. العلاقات (Relationships)
 
 ```
-contracts (1) ────────── (1) installed_devices
-                              │── customer_id  → clients
-                              │── branch_id    → branches
-                              │── device_model_id → device_models
-                              │── installation_geo_unit_id → geo_units
-                              └── ✅ ← open_tasks.device_id  (Phase 3)
-                              └── ✅ ← device_warranties.device_id  (Phase 4)
-                              └── ✅ ← device_installed_parts.device_id  (Phase 5)
+contracts (0..1) ─────── (0..1) installed_devices
+                                │── customer_id  → clients
+                                │── branch_id    → branches
+                                │── device_model_id → device_models
+                                │── installation_geo_unit_id → geo_units
+                                └── ✅ ← open_tasks.device_id  (Phase 3)
+                                └── ✅ ← device_warranties.device_id  (Phase 4)
+                                └── ✅ ← device_installed_parts.device_id  (Phase 5)
 ```
 
-**الربط العكسي:** يحتفظ `contracts.installed_device_id` بمرجع عكسي لتسهيل التنقل في الاتجاهين دون JOIN إضافي.
+**الربط العكسي:** يحتفظ `contracts.installed_device_id` بمرجع عكسي لتسهيل التنقل في الاتجاهين دون JOIN إضافي عندما يوجد عقد.
+
+**الأجهزة الخارجية:** الجهاز الخارجي هو صف كامل في `installed_devices`، لكنه لا يملك عقد بيع. لذلك يكون `contract_id = NULL` مع بقاء `customer_id` و`branch_id` وبيانات الموقع والحالة التشغيلية إلزامية لمسارات الخدمة.
+
+عند تسجيل جهاز خارجي يجب فتح سجل حيازة حالي في `device_possession_log` ضمن نفس الـ transaction:
+
+- `holder_type = customer`
+- `holder_id = installed_devices.customer_id`
+- `reason = external_registration`
+- `end_at = NULL`
+
+لا يجوز إنشاء جهاز خارجي بلا سجل حيازة مفتوح، لأن `customer_id` يحدد الزبون التشغيلي الحالي، أما دفتر الحيازة فهو المرجع التاريخي المعتمد لعلاقة الجهاز بالحائز.
+
+عند إنشاء جهاز خارجي لا يجوز افتراض أن حالته `active`. يجب على الموظف تحديد الحالة التشغيلية الحالية من واقع الجهاز:
+
+- `delivered`: الجهاز موجود عند الزبون وغير مركب بعد.
+- `installed`: الجهاز مركب لكنه غير مشغل/غير معتمد كفعال.
+- `active`: الجهاز مركب ومشغل.
+- `faulty`: الجهاز معطل أو أُدخل أساساً بغرض صيانة عطل.
 
 ---
 
 ## 4. منطق الأعمال (Business Rules)
+
+### BR-0: قاعدة الارتباط التشغيلية للمهام
+
+`installed_devices.id` هو المفتاح التشغيلي المعتمد لأي مهمة تخص جهازاً مادياً، سواء كان الجهاز من عقد بيع أو جهازاً خارجياً.
+
+- المهام التشغيلية للجهاز تُربط عبر `open_tasks.device_id`.
+- `contract_id` رابط اختياري في المهام التشغيلية، يستخدم كسياق مالي/قانوني عندما يوجد عقد.
+- لا يجوز منع مهمة تشغيلية بسبب غياب `contract_id` إذا كان لديها `device_id` صالح وفرع وزبون ونطاق صلاحية.
+- المهام المالية أو العقدية الصريحة فقط يجوز أن تشترط عقداً، مثل تحصيل قسط عقد أو وعود/استحقاقات مصدرها العقد.
+- للجهاز الخارجي، بديل العقد في الخدمة المتكررة هو `service_agreement` عند الحاجة، وليس عقد بيع وهمي.
 
 ### BR-1: الإنشاء التلقائي عند البيع
 
@@ -106,6 +134,14 @@ contracts (1) ────────── (1) installed_devices
 **الحقول المالية (تبقى في contracts):** `base_price`, `final_price`, `payment_type`, `down_payment`, `installments_count`, `status`, `buyer_*`, `source_*`, `sale_*`, `discount_*`, `invoice_notes`.
 
 **الحقول الفيزيائية (تُكتب في installed_devices فقط):** `serial_number`, `status`, `delivery_date`, `installation_date`, `installation_geo_unit_id`, `installation_address_text`, `installation_lat/lng`, `warranty_months`, `warranty_visits`, `contract_warranty_end_date`, `is_golden_warranty`, `golden_warranty_end_date`.
+
+### BR-2A: تفرد الرقم التسلسلي
+
+- `serial_number` يعرّف وحدة فيزيائية واحدة عالمياً، بصرف النظر عن العقد أو الزبون أو الفرع أو `device_source` أو الموديل.
+- المقارنة تتجاهل حالة الأحرف والمسافات الطرفية؛ لذلك `TEST-1` و` test-1 ` و`test-1` رقم واحد.
+- يسمح بـ`NULL` عندما لم تُعرف الهوية النهائية بعد، لكن القيمة غير الفارغة لا يجوز أن تظهر على أكثر من صف.
+- قاعدة البيانات هي الحارس النهائي ضد الطلبات المتزامنة، وتعيد واجهات الكتابة تعارضاً `409` بالكود `device_serial_conflict`.
+- لا يجوز إصلاح التكرارات التاريخية بحذف صف جهاز أو اختيار مالك الرقم آلياً؛ يجب أن يحدد فريق التشغيل الرقم الصحيح لكل سجل متأثر.
 
 ### BR-3: فاصل الصيانة المحسوب
 
@@ -438,3 +474,4 @@ packages/api/routes/contracts.ts contractSelect:
 | **2026-05-26** | `195_phase6_drop_contract_device_columns.sql` | **Phase 6:** حذف 13 حقلاً فيزيائياً من `contracts` (serial_number, device_status, delivery_date, installation_date, installation_geo/address/lat/lng, warranty_*, is_golden_warranty, *_warranty_end_date). تعديل trigger 191 ليُنشئ installed_devices بالحقول الأساسية فقط. تحويل `updateContractDeviceStatusOnTaskCompletion` لتكتب على `installed_devices.status`. |
 | **2026-05-26** | `196_device_warranties.sql` | **Phase 4:** إنشاء جدول `device_warranties` (id, device_id FK, warranty_type CHECK('contract'\|'golden'), start_date, end_date, months, visits, source_task_id FK, is_active, notes). UNIQUE(device_id, warranty_type). تحديث `contracts.ts` POST/PUT لـ UPSERT في `device_warranties` عند حفظ warrantyMonths. إنشاء route `GET /api/device-warranties?deviceId=` و`PATCH /api/device-warranties/:id`. |
 | **2026-05-26** | `197_device_installed_parts.sql` | **Phase 5:** إنشاء جدول `device_installed_parts` (id, device_id FK, open_task_id FK, spare_part_id FK, part_name_snapshot, maintenance_type, unit_price, quantity, line_total, event_type, event_date). تحديث `emergencyResult.ts` PUT /:taskId/parts ليُزامن القطع إلى `device_installed_parts` عند وجود device_id على المهمة. إنشاء route `GET /api/device-parts?deviceId=`. |
+| **2026-07-22** | `375_installed_device_serial_uniqueness.sql` | فرض التفرد العالمي للرقم التسلسلي بعد `lower(btrim(...))` مع السماح بـ`NULL`، وإيقاف المهاجرة بتقرير واضح عند وجود تكرارات تحتاج مصالحة تشغيلية. |

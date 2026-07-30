@@ -3,15 +3,16 @@ import { useSystemListsStore } from '../../hooks/useSystemLists';
 import { useRoleStore } from '../../hooks/useRoleStore';
 import type { SystemList } from '../../lib/types';
 import {
-  Settings2, Plus, Edit, Trash2, Save, X, ListPlus,
+  Settings2, Plus, Edit, Trash2, Save, ListPlus,
   Search, ChevronLeft, ChevronDown, GraduationCap,
   Tag, FolderPlus, Link2, FileText, Users, Briefcase,
   Info, AlertTriangle, ShieldCheck, BookOpen, Layers, Cpu, Phone,
   Wrench, ClipboardList, DollarSign, MapPin, Bug, Package,
-  RotateCcw, Ban, Truck, Clock, Percent, Star, Snowflake, Receipt,
-} from 'lucide-react';
+  RotateCcw, Ban, Truck, Clock, CalendarClock, Percent, Star, Snowflake, Receipt, Gauge,
+} from '../../components/ui/icons';
 import { motion, AnimatePresence } from 'framer-motion';
 import IconButton from '../../components/ui/IconButton';
+import Modal from '../../components/ui/Modal';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { Navigate } from 'react-router-dom';
 import Select from '../../components/ui/Select';
@@ -177,6 +178,74 @@ const CATEGORIES: CategoryMeta[] = [
       { label: 'التيلماركتر - حجز موعد زيارة', route: 'التيلماركتر > نتيجة التواصل/جدولة موعد', icon: <Phone className="w-3 h-3" /> },
     ],
   },
+
+  // ══════════════════════════════════════════════════════════════
+  // قوائم الطلبات
+  // ══════════════════════════════════════════════════════════════
+  {
+    id: 'service_request_resolve_at_intake_emergency_maintenance',
+    label: 'أسباب حل طلب الصيانة في الاستلام',
+    description: 'الخيارات المعتمدة عند إغلاق طلب صيانة مباشرة من الاستلام بدون إنشاء مهمة. تستخدم في زر "حُلَّ في الاستلام" داخل تفاصيل الطلب.',
+    impact: 'high',
+    usedIn: [
+      { label: 'طلبات الصيانة ← حُلَّ في الاستلام', route: 'الطلبات ← تفاصيل طلب الصيانة', icon: <ClipboardList className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'service_request_resolve_at_intake_water_check',
+    label: 'أسباب حل طلب فحص المياه في الاستلام',
+    description: 'الخيارات المعتمدة عند إغلاق طلب فحص مياه من الاستلام بدون إنشاء مهمة عرض جهاز. منفصلة عن طلبات الصيانة حتى لا تختلط دلالات القرار.',
+    impact: 'high',
+    usedIn: [
+      { label: 'طلبات فحص المياه ← حُلَّ في الاستلام', route: 'الطلبات ← فحص المياه ← تفاصيل الطلب', icon: <ClipboardList className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'service_request_completed_account_creation',
+    label: 'نتائج إكمال طلب إنشاء الحساب',
+    description: 'النتائج المعتمدة عند اعتماد ربط طلب إنشاء الحساب وتفعيل حساب التطبيق. القيمة تُشتقّ تلقائياً من تصنيف الزبون المرتبط (OP/FOP/Lead/زبون قائم) وتُثبَّت على الطلب المكتمل.',
+    impact: 'high',
+    usedIn: [
+      { label: 'طلبات إنشاء الحساب ← اعتماد الربط', route: 'الطلبات ← إنشاء الحساب ← تفاصيل الطلب', icon: <ClipboardList className="w-3 h-3" /> },
+    ],
+  },
+
+  {
+    id: 'device_demo_creation_reasons',
+    label: 'أسباب إنشاء مهمة عرض جهاز',
+    description: 'الأسباب التشغيلية المعتمدة عند إنشاء مهمة عرض جهاز يدوياً. تحفظ في سبب الإنشاء ولا تستخدم ككود reason النظامي.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال إضافة عرض جهاز', route: 'الزبائن > إضافة عرض جهاز', icon: <ClipboardList className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'device_demo_reschedule_reasons',
+    label: 'أسباب إعادة جدولة مهمة عرض جهاز',
+    description: 'الأسباب الخاصة بتأجيل نتيجة مهمة عرض جهاز فقط. لا تستخدم لقوائم إعادة جدولة الزيارة العامة أو مهام الصيانة.',
+    impact: 'high',
+    usedIn: [
+      { label: 'مودال نتيجة مهمة عرض جهاز — إعادة جدولة', route: 'المهام > عرض جهاز > تسجيل النتيجة', icon: <ClipboardList className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'device_demo_cancellation_reasons',
+    label: 'أسباب إلغاء مهمة عرض جهاز',
+    description: 'الأسباب الخاصة بإلغاء مهمة عرض جهاز فقط. لا تستخدم لقوائم إلغاء الزيارة العامة أو مهام الصيانة.',
+    impact: 'high',
+    usedIn: [
+      { label: 'مودال نتيجة مهمة عرض جهاز — إلغاء', route: 'المهام > عرض جهاز > تسجيل النتيجة', icon: <Ban className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'device_demo_offer_refusal_reasons',
+    label: 'أسباب رفض عرض جهاز',
+    description: 'الأسباب الخاصة برفض الزبون للعرض أثناء تسجيل نتيجة مهمة عرض جهاز.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال نتيجة مهمة عرض جهاز — رفض العرض', route: 'المهام > عرض جهاز > تسجيل النتيجة', icon: <Tag className="w-3 h-3" /> },
+    ],
+  },
   {
     id: 'contract_type',
     label: 'أنواع العقود',
@@ -308,6 +377,20 @@ const CATEGORIES: CategoryMeta[] = [
     ],
   },
   {
+    id: 'emergency_maintenance_reschedule_reasons',
+    label: 'سبب إعادة جدولة مهمة الصيانة الطارئة',
+    description: 'الأسباب الخاصة بإعادة جدولة مهمة الصيانة الطارئة من مسار تسجيل النتيجة السريع. منفصلة عن قوائم الزيارات وعن نتيجة "بحاجة متابعة".',
+    impact: 'high',
+    usedIn: [
+      { label: 'مودال نتيجة الصيانة الطارئة — إعادة جدولة', route: 'الزيارات → مهمة صيانة طارئة', icon: <CalendarClock className="w-3 h-3" /> },
+    ],
+  },
+  // `emergency_cancelled_reason` is intentionally shared by the full
+  // maintenance-costs cancellation decision and the quick emergency
+  // cancellation action. If the costs-stage cancellation decision is removed
+  // later, keep this category as the quick-cancel reason list unless product
+  // explicitly asks for a separate category.
+  {
     id: 'emergency_cancelled_reason',
     label: 'أسباب الإلغاء (نَتيجة الصيانة)',
     description: 'أسباب اختيار "إلغاء" كنَتيجة في تَكاليف الصيانة الطارئة من شاشة المرحلة 4 (مُختلفة عن إلغاء الزيارة).',
@@ -375,6 +458,15 @@ const CATEGORIES: CategoryMeta[] = [
     ],
   },
   {
+    id: 'periodic_maintenance_reschedule_reasons',
+    label: 'سبب إعادة جدولة مهمة الصيانة الدورية',
+    description: 'الأسباب الخاصة بإعادة جدولة مهمة الصيانة الدورية من مسار تسجيل النتيجة السريع. منفصلة عن قوائم الزيارات والصيانة الطارئة.',
+    impact: 'high',
+    usedIn: [
+      { label: 'مودال نتيجة الصيانة الدورية — إعادة جدولة', route: 'الزيارات > مهمة صيانة دورية', icon: <CalendarClock className="w-3 h-3" /> },
+    ],
+  },
+  {
     id: 'periodic_partially_performed_reason',
     label: 'أسباب تنفيذ الصيانة الدورية جزئيا',
     description: 'الأسباب المعتمدة عند تسجيل نتيجة صيانة دورية كمنفذة جزئيا، مثل رفض قطعة أو عدم توفرها.',
@@ -399,6 +491,15 @@ const CATEGORIES: CategoryMeta[] = [
     impact: 'medium',
     usedIn: [
       { label: 'نَموذج إنشاء/تَعديل عَقد', route: 'العقود ← نَموذج العَقد', icon: <Receipt className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'contract_cancellation_reasons',
+    label: 'أسباب إلغاء العَقد',
+    description: 'أسباب إلغاء عَقد نشِط غير مُستوفى المبالغ. تُسَجَّل على `contracts.cancellation_reason` وتُغَذّي إحصائية «العقود المُلغاة حَسب السبب».',
+    impact: 'medium',
+    usedIn: [
+      { label: 'نافذة إلغاء العَقد', route: 'العقود ← تفاصيل العَقد ← إلغاء العَقد', icon: <Ban className="w-3 h-3" /> },
     ],
   },
   {
@@ -434,6 +535,15 @@ const CATEGORIES: CategoryMeta[] = [
   // ══════════════════════════════════════════════════════════════
   // قوائم التَركيب
   // ══════════════════════════════════════════════════════════════
+  {
+    id: 'device_installation_creation_reasons',
+    label: 'أسباب إنشاء مهمة تركيب الجهاز',
+    description: 'الأسباب المعتمدة عند إنشاء مهمة تركيب جهاز. تحفظ في سبب الإنشاء ولا تستخدم كقائمة لعدم اكتمال أو رفض التركيب.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال إنشاء مهمة تركيب الجهاز', route: 'الأجهزة > الحالة الحالية > جدولة مهمة تركيب', icon: <Wrench className="w-3 h-3" /> },
+    ],
+  },
   {
     id: 'installation_incomplete_reason',
     label: 'أسباب عَدم اكتمال التَركيب',
@@ -478,6 +588,51 @@ const CATEGORIES: CategoryMeta[] = [
   // ══════════════════════════════════════════════════════════════
   // قوائم مهام الأجهزة (التركيب / السحب / الإرجاع / التشغيل / الفك)
   // ══════════════════════════════════════════════════════════════
+  {
+    id: 'device_retrieval_creation_reasons',
+    label: 'أسباب إنشاء مهمة سحب الجهاز',
+    description: 'الأسباب المعتمدة عند إنشاء مهمة سحب الجهاز. تحفظ في سبب الإنشاء ولا تستخدم كقائمة رفض أو إعادة جدولة.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'إنشاء مهمة سحب الجهاز', route: 'الأجهزة > المهام > سحب', icon: <Package className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'device_return_creation_reasons',
+    label: 'أسباب إنشاء مهمة إرجاع الجهاز',
+    description: 'الأسباب المعتمدة عند إنشاء مهمة إرجاع الجهاز بعد الصيانة. تحفظ في سبب الإنشاء ولا تختلط مع أسباب نتيجة الإرجاع.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'إنشاء مهمة إرجاع الجهاز', route: 'الأجهزة > المهام > إرجاع', icon: <Truck className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'device_checkup_creation_reasons',
+    label: 'أسباب إنشاء مهمة تشييك الجهاز',
+    description: 'الأسباب المعتمدة عند إنشاء مهمة تشييك الجهاز. تحفظ في سبب الإنشاء ولا تختلط مع رفض أو إعادة جدولة التشييك.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'إنشاء مهمة تشييك الجهاز', route: 'الأجهزة > المهام > تشييك', icon: <Gauge className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'device_disconnection_creation_reasons',
+    label: 'أسباب إنشاء مهمة فك الجهاز',
+    description: 'الأسباب المعتمدة عند إنشاء مهمة فك الجهاز. تحفظ في سبب الإنشاء ولا تستخدم كقائمة فشل أو إعادة جدولة الفك.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'إنشاء مهمة فك الجهاز', route: 'الأجهزة > الحالة التشغيلية > فك', icon: <Package className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'device_transfer_creation_reasons',
+    label: 'أسباب إنشاء مهمة نقل الجهاز',
+    description: 'الأسباب المعتمدة عند إنشاء مهمة نقل الجهاز. تحفظ في سبب الإنشاء ولا تختلط مع رفض أو إعادة جدولة النقل.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'إنشاء مهمة نقل الجهاز', route: 'الأجهزة > المهام > نقل', icon: <Truck className="w-3 h-3" /> },
+    ],
+  },
   {
     id: 'device_retrieval_refusal_reasons',
     label: 'أسباب رَفض السحب',
@@ -560,6 +715,15 @@ const CATEGORIES: CategoryMeta[] = [
     ],
   },
   {
+    id: 'device_delivery_creation_reasons',
+    label: 'أسباب إنشاء مهمة تسليم الجهاز',
+    description: 'الأسباب التشغيلية المعتمدة عند إنشاء مهمة تسليم جهاز. تحفظ في سبب الإنشاء ولا تستخدم كقائمة لإعادة الجدولة أو فشل التسليم.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'إنشاء مهمة تسليم الجهاز من حالة الجهاز', route: 'الأجهزة > الحالة الحالية > جدولة مهمة تسليم', icon: <Truck className="w-3 h-3" /> },
+    ],
+  },
+  {
     id: 'device_delivery_failure_reasons',
     label: 'أسباب فشل تسليم الجهاز',
     description: 'الأسباب المعتمدة عند اختيار "فشل التسليم" في مودل نتيجة مهمة تسليم الجهاز. تحفظ كسبب إغلاق مستقل.',
@@ -575,6 +739,24 @@ const CATEGORIES: CategoryMeta[] = [
     impact: 'medium',
     usedIn: [
       { label: 'مودال نتيجة التشغيل — متابعة', route: 'الزيارات ← مهمة تشغيل', icon: <Wrench className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'device_activation_failure_reasons',
+    label: 'أسباب فشل تشغيل الجهاز',
+    description: 'الأسباب المعتمدة عند اختيار نتيجة "فشل التشغيل". تحفظ كسبب نتيجة نهائي ولا تطلب تاريخ متابعة.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال نتيجة التشغيل - فشل التشغيل', route: 'الزيارات > مهمة تشغيل جهاز', icon: <Ban className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'device_activation_reschedule_reasons',
+    label: 'أسباب إعادة جدولة تشغيل الجهاز',
+    description: 'الأسباب المعتمدة عند اختيار "مشكلة بالجهاز". تحفظ مع تاريخ المتابعة لإعادة جدولة التشغيل.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال نتيجة التشغيل - مشكلة بالجهاز', route: 'الزيارات > مهمة تشغيل جهاز', icon: <Clock className="w-3 h-3" /> },
     ],
   },
   {
@@ -599,6 +781,15 @@ const CATEGORIES: CategoryMeta[] = [
   // ══════════════════════════════════════════════════════════════
   // قوائم التَحصيل
   // ══════════════════════════════════════════════════════════════
+  {
+    id: 'installment_collection_creation_reasons',
+    label: 'أسباب إنشاء مهمة التحصيل',
+    description: 'الأسباب المعتمدة عند إنشاء مهمة تحصيل قسط أو ذمة. تحفظ في سبب الإنشاء ولا تختلط مع أسباب الدفعة الجزئية أو إعادة الجدولة أو رفض الدفع.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'إنشاء مهمة تحصيل', route: 'مهام تسديد الذمم / إنشاء التحصيل التلقائي واليدوي', icon: <DollarSign className="w-3 h-3" /> },
+    ],
+  },
   {
     id: 'collection_partial_payment_reasons',
     label: 'أسباب الدَفع الجُزئي (التَحصيل)',
@@ -649,6 +840,15 @@ const CATEGORIES: CategoryMeta[] = [
   // قوائم الهَدايا
   // ══════════════════════════════════════════════════════════════
   {
+    id: 'gift_delivery_creation_reasons',
+    label: 'أسباب إنشاء مهمة تَسليم الهَدية',
+    description: 'الأسباب التشغيلية المعتمدة عند إنشاء مهمة تسليم هدية من سجل هدية معتمد. تحفظ في سبب الإنشاء ولا تستخدم ككود reason النظامي.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مودال إنشاء مهمة تسليم هدية', route: 'الهدايا ← إنشاء مهمة تسليم', icon: <ClipboardList className="w-3 h-3" /> },
+    ],
+  },
+  {
     id: 'gift_delivery_refusal_reasons',
     label: 'أسباب رَفض تَسليم الهَدية',
     description: 'الأسباب المعتمدة عند رَفض الزبون استلام الهدية في مهمة تسليم الهدايا.',
@@ -664,6 +864,24 @@ const CATEGORIES: CategoryMeta[] = [
     impact: 'low',
     usedIn: [
       { label: 'مودال نتيجة تسليم الهدية — إعادة جدولة', route: 'الزيارات ← مهمة تسليم هدية', icon: <Clock className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'gift_delivery_task_cancellation_reasons',
+    label: 'أسباب إلغاء مهمة تسليم الهدية',
+    description: 'أسباب إلغاء مهمة تسليم هدية قبل الجدولة. الإلغاء يعيد سجلات الهدية إلى حالة معتمدة للتسليم ولا يسجل رفضاً.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'إلغاء المهمة قبل الجدولة', route: 'المهام ← تسليم هدية ← إلغاء', icon: <Ban className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'gift_manual_delivery_methods',
+    label: 'طرق التسليم اليدوي للهدايا',
+    description: 'الطرق المعتمدة لتوثيق استلام الهدية في الشركة أو بالتسليم المباشر أو ضمن منفعة عقد.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'تأكيد تسليم يدوي', route: 'الهدايا ← تأكيد تسليم يدوي', icon: <ClipboardList className="w-3 h-3" /> },
     ],
   },
   {
@@ -757,9 +975,11 @@ const LIST_GROUPS: ListGroup[] = [
   { id: 'hr',            label: 'التوظيف والموظفون' },
   { id: 'telemarketing', label: 'التيلماركتر والتواصل' },
   { id: 'visits',        label: 'الزيارات والاستطلاع' },
+  { id: 'service_requests', label: 'قوائم الطلبات' },
   { id: 'emergency',     label: 'الصيانة الطارئة' },
   { id: 'periodic',      label: 'الصيانة الدورية' },
   { id: 'contracts',     label: 'العقود والبيع' },
+  { id: 'device_demo',   label: 'عرض جهاز' },
   { id: 'device_delivery',       label: 'تسليم الجهاز' },
   { id: 'device_installation',   label: 'تركيب الجهاز' },
   { id: 'device_activation',     label: 'تشغيل الجهاز' },
@@ -791,35 +1011,60 @@ const CATEGORY_GROUP: Record<string, string> = {
   visit_not_completed_reasons: 'visits', visit_task_reasons: 'visits',
   customer_followup_reasons: 'visits',
 
+  service_request_resolve_at_intake_emergency_maintenance: 'service_requests',
+  service_request_resolve_at_intake_water_check: 'service_requests',
+  service_request_completed_account_creation: 'service_requests',
+
   diagnosis_problem_types: 'emergency', emergency_resolved_reason: 'emergency',
   emergency_unresolved_reason: 'emergency', emergency_followup_reason: 'emergency',
+  emergency_maintenance_reschedule_reasons: 'emergency',
   emergency_cancelled_reason: 'emergency', service_unresolved_reasons: 'emergency',
   service_partial_reasons: 'emergency', reopen_reasons: 'emergency',
   emergency_uniqueness_override_reasons: 'emergency', part_no_retrieval_reason: 'emergency',
 
   periodic_manual_creation_reasons: 'periodic',
+  periodic_maintenance_reschedule_reasons: 'periodic',
   periodic_partially_performed_reason: 'periodic',
   periodic_not_performed_reason: 'periodic',
 
   contract_sale_source: 'contracts', discount_reason: 'contracts',
-  transfer_company: 'contracts', no_closing_reasons: 'contracts',
+  transfer_company: 'contracts', contract_cancellation_reasons: 'contracts',
 
+  device_demo_creation_reasons: 'device_demo',
+  device_demo_reschedule_reasons: 'device_demo',
+  device_demo_cancellation_reasons: 'device_demo',
+  device_demo_offer_refusal_reasons: 'device_demo',
+  no_closing_reasons: 'device_demo',
+
+  device_delivery_creation_reasons: 'device_delivery',
   device_delivery_reschedule_reasons: 'device_delivery', device_delivery_failure_reasons: 'device_delivery',
+  device_installation_creation_reasons: 'device_installation',
   installation_incomplete_reason: 'device_installation', installation_refusal_reason: 'device_installation',
   device_activation_followup_reasons: 'device_activation',
+  device_activation_failure_reasons: 'device_activation',
+  device_activation_reschedule_reasons: 'device_activation',
+  device_retrieval_creation_reasons: 'device_retrieval',
   device_retrieval_refusal_reasons: 'device_retrieval', device_retrieval_reschedule_reasons: 'device_retrieval',
+  device_return_creation_reasons: 'device_return',
   device_return_refusal_reasons: 'device_return', device_return_reschedule_reasons: 'device_return',
+  device_transfer_creation_reasons: 'device_transfer',
   device_transfer_refusal_reasons: 'device_transfer', device_transfer_reschedule_reasons: 'device_transfer',
+  device_checkup_creation_reasons: 'device_checkup',
   device_checkup_refusal_reasons: 'device_checkup', device_checkup_reschedule_reasons: 'device_checkup',
+  device_disconnection_creation_reasons: 'device_disconnection',
   device_disconnection_reasons: 'device_disconnection', device_disconnection_retrieval_reasons: 'device_disconnection',
   device_disconnection_reschedule_reasons: 'device_disconnection', device_disconnection_failure_reasons: 'device_disconnection',
 
+  installment_collection_creation_reasons: 'collection',
   collection_partial_payment_reasons: 'collection',
   collection_refusal_reasons: 'collection',
   collection_reschedule_reasons: 'collection',
 
+  gift_delivery_creation_reasons: 'gifts',
   gift_delivery_refusal_reasons: 'gifts',
   gift_delivery_reschedule_reasons: 'gifts',
+  gift_delivery_task_cancellation_reasons: 'gifts',
+  gift_manual_delivery_methods: 'gifts',
   gift_promise_conditions: 'gifts',
 
   golden_offer_creation_reasons: 'golden',
@@ -870,6 +1115,8 @@ export default function SystemLists() {
   const [search, setSearch] = useState('');
   const [editingItem, setEditingItem] = useState<SystemList | null>(null);
   const [formValue, setFormValue] = useState('');
+  const [formLabel, setFormLabel] = useState('');
+  const [formDescription, setFormDescription] = useState('');
   const [formOrder, setFormOrder] = useState(0);
   const [formLinkedRoleId, setFormLinkedRoleId] = useState<number | null>(null);
   const [formCanSelectDevice, setFormCanSelectDevice] = useState(false);
@@ -892,6 +1139,8 @@ export default function SystemLists() {
 
   const activeMeta = sidebarCategories.find(c => c.id === activeCategory);
   const isCertificateView = activeCategory === 'certificate';
+  const isServiceRequestResolveList = activeCategory.startsWith('service_request_resolve_at_intake_')
+    || activeCategory === 'service_request_completed_account_creation';
 
   const filteredItems = useMemo(() => {
     const cat = (isCertificateView && activeCertificate)
@@ -910,12 +1159,16 @@ export default function SystemLists() {
     if (item) {
       setEditingItem(item);
       setFormValue(item.value);
+      setFormLabel(String((item.metadata as any)?.label ?? ''));
+      setFormDescription(String((item.metadata as any)?.description ?? ''));
       setFormOrder(item.displayOrder);
       setFormLinkedRoleId(item.linkedRoleId ?? null);
       setFormCanSelectDevice(!!(item.metadata as any)?.canSelectDevice);
     } else {
       setEditingItem(null);
       setFormValue('');
+      setFormLabel('');
+      setFormDescription('');
       setFormOrder(filteredItems.length + 1);
       setFormLinkedRoleId(null);
       setFormCanSelectDevice(false);
@@ -931,10 +1184,19 @@ export default function SystemLists() {
         ? `${MAJOR_PREFIX}${activeCertificate}` : activeCategory;
       const isJobTitle = saveCategory === 'job_title';
       const isDeptType = saveCategory === 'department_type';
+      const isSrResolveList = saveCategory.startsWith('service_request_resolve_at_intake_')
+        || saveCategory === 'service_request_completed_account_creation';
 
       const extraFields: Record<string, unknown> = {};
       if (isJobTitle) extraFields.linkedRoleId = formLinkedRoleId;
       if (isDeptType) extraFields.metadata = { canSelectDevice: formCanSelectDevice };
+      if (isSrResolveList) {
+        extraFields.metadata = {
+          ...(editingItem?.metadata ?? {}),
+          label: formLabel.trim() || formValue,
+          description: formDescription.trim() || undefined,
+        };
+      }
 
       if (editingItem) {
         await updateList(editingItem.id, {
@@ -1008,7 +1270,7 @@ export default function SystemLists() {
             <h3 className="font-bold text-slate-600 text-sm uppercase tracking-wider">الفئات</h3>
             <button
               onClick={toggleAllGroups}
-              className="text-[11px] font-bold px-2 py-1 rounded-md text-slate-500 hover:bg-slate-100 transition-colors flex-shrink-0"
+              className="text-xs font-bold px-2 py-1 rounded-md text-slate-500 hover:bg-slate-100 transition-colors flex-shrink-0"
             >
               {allGroupsOpen ? 'طي الكل' : 'توسيع الكل'}
             </button>
@@ -1037,7 +1299,7 @@ export default function SystemLists() {
                       </motion.span>
                       <span className="truncate">{grp.label}</span>
                     </span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400 font-mono flex-shrink-0">{groupCount}</span>
+                    <span className="text-xs px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400 font-mono flex-shrink-0">{groupCount}</span>
                   </button>
 
                   <AnimatePresence initial={false}>
@@ -1298,16 +1560,17 @@ export default function SystemLists() {
       </div>
 
       {/* ── Item Modal ── */}
-      {isItemModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
-            <div className="flex items-center justify-between p-5 border-b border-slate-100 bg-slate-50">
-              <h3 className="font-bold text-base text-slate-800 flex items-center gap-2">
-                <Tag className="w-5 h-5 text-sky-500" />
-                {editingItem ? 'تعديل خيار' : `إضافة — ${panelTitle()}`}
-              </h3>
-              <IconButton icon={X} label="إغلاق" onClick={() => setIsItemModalOpen(false)} />
-            </div>
+      <Modal
+        isOpen={isItemModalOpen}
+        onClose={() => setIsItemModalOpen(false)}
+        size="md"
+        title={
+          <span className="flex items-center gap-2">
+            <Tag className="w-5 h-5 text-sky-500" />
+            {editingItem ? 'تعديل خيار' : `إضافة — ${panelTitle()}`}
+          </span>
+        }
+      >
             <form onSubmit={handleSave} className="p-6 space-y-5">
               {isCertificateView && activeCertificate && !editingItem && (
                 <div className="bg-violet-50 border border-violet-200 rounded-xl px-4 py-3 text-sm text-violet-700 flex items-center gap-2">
@@ -1322,13 +1585,43 @@ export default function SystemLists() {
                 </div>
               )}
               <Input
-                label={isCertificateView && activeCertificate ? 'اسم الاختصاص' : 'القيمة / الاسم'}
+                label={
+                  isServiceRequestResolveList
+                    ? 'الكود التقني'
+                    : isCertificateView && activeCertificate
+                      ? 'اسم الاختصاص'
+                      : 'القيمة / الاسم'
+                }
                 required
                 autoFocus
                 value={formValue}
                 onChange={e => setFormValue(e.target.value)}
-                placeholder={isCertificateView && activeCertificate ? 'مثال: هندسة حاسبات' : 'أدخل القيمة...'}
+                placeholder={
+                  isServiceRequestResolveList
+                    ? 'مثال: resolved_by_advice'
+                    : isCertificateView && activeCertificate
+                      ? 'مثال: هندسة حاسبات'
+                      : 'أدخل القيمة...'
+                }
+                helper={isServiceRequestResolveList ? 'هذا الكود يحفظ في الطلبات. غيّر الاسم الظاهر بدل تغيير الكود بعد الاستخدام.' : undefined}
               />
+              {isServiceRequestResolveList && (
+                <>
+                  <Input
+                    label="الاسم الظاهر للمستخدم"
+                    required
+                    value={formLabel}
+                    onChange={e => setFormLabel(e.target.value)}
+                    placeholder="مثال: حُلَّ بنصيحة هاتفية"
+                  />
+                  <Input
+                    label="وصف مختصر"
+                    value={formDescription}
+                    onChange={e => setFormDescription(e.target.value)}
+                    placeholder="يظهر تحت الخيار داخل مودل حل الطلب"
+                  />
+                </>
+              )}
               <Input
                 label="ترتيب الظهور"
                 type="number"
@@ -1386,20 +1679,15 @@ export default function SystemLists() {
                 <Button type="submit" icon={Save}>حفظ</Button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+      </Modal>
 
       {/* ── New Category Modal ── */}
-      {isNewCatOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
-            <div className="flex items-center justify-between p-5 border-b border-slate-100 bg-slate-50">
-              <h3 className="font-bold text-base text-slate-800 flex items-center gap-2">
-                <FolderPlus className="w-5 h-5 text-indigo-500" /> إضافة فئة جديدة
-              </h3>
-              <IconButton icon={X} label="إغلاق" onClick={() => setIsNewCatOpen(false)} />
-            </div>
+      <Modal
+        isOpen={isNewCatOpen}
+        onClose={() => setIsNewCatOpen(false)}
+        size="md"
+        title={<span className="flex items-center gap-2"><FolderPlus className="w-5 h-5 text-indigo-500" /> إضافة فئة جديدة</span>}
+      >
             <form onSubmit={handleAddNewCategory} className="p-6 space-y-5">
               <div className="bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-3 text-sm text-indigo-700">
                 بعد الإنشاء، انتقل للفئة الجديدة وأضف خياراتها من الصفحة الرئيسية.
@@ -1426,9 +1714,7 @@ export default function SystemLists() {
                 <Button type="submit" icon={FolderPlus}>إنشاء</Button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+      </Modal>
     </div>
   );
 }

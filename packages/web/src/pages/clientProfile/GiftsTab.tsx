@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Gift, PackageCheck, ShieldCheck } from 'lucide-react';
+import { Gift, PackageCheck, ShieldCheck } from '../../components/ui/icons';
 import Card, { CardHeader, CardTitle } from '../../components/ui/Card';
 import GiftRecordsTable from '../../components/gifts/GiftRecordsTable';
 import type { GiftRecordPrototype } from '../../data/giftsPrototype';

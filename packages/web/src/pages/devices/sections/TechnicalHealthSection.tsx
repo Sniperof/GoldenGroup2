@@ -8,8 +8,10 @@
 // in a dialog over the page.
 // ============================================================
 import { useEffect, useMemo, useState } from 'react';
-import { Activity, Loader2, LineChart, ListOrdered, X, ChevronLeft } from 'lucide-react';
-import IconButton from '../../../components/ui/IconButton';
+import { Activity, Loader2, LineChart, ListOrdered, ChevronLeft } from '../../../components/ui/icons';
+import { evaluateMembraneEfficiency } from '@golden-crm/shared';
+import Modal from '../../../components/ui/Modal';
+import SmartTable, { type ColumnDef } from '../../../components/SmartTable';
 import { api } from '../../../lib/api';
 
 type FieldKind = 'num' | 'enum' | 'bool';
@@ -107,6 +109,24 @@ function taskLabel(r: any) {
   return t ? (TASK_TYPE_LABELS[t] ?? t) : null;
 }
 
+function MembraneEfficiencyValue({ reading, current = false }: { reading: any; current?: boolean }) {
+  const evaluation = evaluateMembraneEfficiency(reading.membraneInputTds, reading.membraneOutputTds);
+  if (evaluation.status === 'incomplete') return null;
+  if (evaluation.status === 'invalid') {
+    return <span className="text-xs font-bold text-red-600">قراءة الميمبرين غير صالحة</span>;
+  }
+  if (evaluation.status === 'undefined') {
+    return <span className="text-xs font-bold text-amber-600">الكفاءة غير قابلة للحساب</span>;
+  }
+  if (!current) return <span className="text-xs font-bold text-slate-700">كفاءة {evaluation.percentage}%</span>;
+  return (
+    <div className="rounded-xl border border-slate-100 px-4 py-3">
+      <div className="mb-0.5 text-xs font-bold text-slate-400">كفاءة الميمبرين الحالية</div>
+      <div className="text-2xl font-black leading-none text-sky-600">{evaluation.percentage}<span className="text-sm">%</span></div>
+    </div>
+  );
+}
+
 function PhaseBadge({ phase }: { phase: string }) {
   const meta = PHASE_META[phase] ?? { label: phase, cls: 'bg-slate-50 text-slate-600 border-slate-200' };
   return <span className={`text-xs font-bold rounded-full border px-2 py-0.5 ${meta.cls}`}>{meta.label}</span>;
@@ -135,6 +155,7 @@ function Sparkline({ points }: { points: number[] }) {
 
 /* ── Full reading card (used inside the dialog) — grouped by form headings ── */
 function ReadingCard({ r }: { r: any }) {
+  const membrane = evaluateMembraneEfficiency(r.membraneInputTds, r.membraneOutputTds);
   const groups = SECTIONS
     .map(s => ({ title: s.title, measured: s.fields.map(f => ({ f, v: renderValue(f, r[f.key]) })).filter(x => x.v != null) }))
     .filter(g => g.measured.length > 0);
@@ -150,6 +171,11 @@ function ReadingCard({ r }: { r: any }) {
         </div>
         {r.recordedByName && <span className="text-xs text-slate-400">سجّلها: {r.recordedByName}</span>}
       </div>
+      {membrane.status === 'invalid' && (
+        <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700">
+          قراءة الميمبرين غير صالحة: الخرج أكبر من الدخل أو القيم المدخلة غير صحيحة. القيم الخام معروضة للمراجعة.
+        </div>
+      )}
       {groups.length > 0 ? (
         <div className="space-y-4">
           {groups.map(g => (
@@ -183,8 +209,17 @@ function PerFieldView({ ascending }: { ascending: any[] }) {
   const field = ALL_FIELDS.find(f => f.key === selectedField) ?? ALL_FIELDS[0];
   const series = useMemo(() => ascending
     .map(r => ({ value: r[field.key], createdAt: r.createdAt, phase: r.phase, taskType: r.taskTypeSnapshot ?? r.taskType }))
-    .filter(p => p.value != null && p.value !== ''), [ascending, field.key]);
+    .filter(p => p.value != null && p.value !== '')
+    .map((p, i) => ({ ...p, _i: i })), [ascending, field.key]);
   const numericPoints = field.kind === 'num' ? series.map(p => Number(p.value)) : [];
+
+  // Columns mirror the original raw table 1:1 (design-only migration to <SmartTable>).
+  const seriesColumns: ColumnDef<any>[] = [
+    { key: 'createdAt', label: 'التاريخ', render: p => <span className="text-xs text-slate-500">{formatDate(p.createdAt)}</span> },
+    { key: 'value', label: 'القيمة', render: p => <span className="text-sm font-bold text-slate-800">{renderValue(field, p.value)}</span> },
+    { key: 'phase', label: 'الدور', render: p => <PhaseBadge phase={p.phase} /> },
+    { key: 'taskType', label: 'المهمة', render: p => <span className="text-xs text-slate-600">{p.taskType ? (TASK_TYPE_LABELS[p.taskType] ?? p.taskType) : '—'}</span> },
+  ];
 
   return (
     <div className="space-y-4">
@@ -214,28 +249,19 @@ function PerFieldView({ ascending }: { ascending: any[] }) {
               </div>
             </div>
           )}
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-xs font-bold text-slate-500 border-b border-slate-200">
-                  <th className="text-right py-2 px-2">التاريخ</th>
-                  <th className="text-right py-2 px-2">القيمة</th>
-                  <th className="text-right py-2 px-2">الدور</th>
-                  <th className="text-right py-2 px-2">المهمة</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[...series].reverse().map((p, i) => (
-                  <tr key={i} className="border-b border-slate-100 hover:bg-slate-50/50">
-                    <td className="py-2 px-2 text-xs text-slate-500">{formatDate(p.createdAt)}</td>
-                    <td className="py-2 px-2 font-bold text-slate-800">{renderValue(field, p.value)}</td>
-                    <td className="py-2 px-2"><PhaseBadge phase={p.phase} /></td>
-                    <td className="py-2 px-2 text-xs text-slate-600">{p.taskType ? (TASK_TYPE_LABELS[p.taskType] ?? p.taskType) : '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <SmartTable<any>
+            title={field.label}
+            subtitle={`${series.length} قيمة`}
+            icon={LineChart}
+            data={[...series].reverse()}
+            columns={seriesColumns}
+            getId={p => p._i}
+            hideFilterBar
+            paginated={false}
+            tableMinWidth={520}
+            emptyIcon={LineChart}
+            emptyMessage="لا قيم مُسجَّلة لهذا الحقل"
+          />
         </>
       )}
     </div>
@@ -248,18 +274,13 @@ function HealthDialog({ rows, ascending, initialReading, onClose }: { rows: any[
   const [openReading, setOpenReading] = useState<any | null>(initialReading);
 
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col max-h-[90vh]" onClick={(e) => e.stopPropagation()} dir="rtl">
-        <div className="flex items-center justify-between gap-3 p-5 border-b border-slate-100">
-          <div className="flex items-center gap-2">
-            <Activity className="w-5 h-5 text-sky-500" />
-            <h3 className="text-base font-bold text-slate-800">الصحة الفنية للجهاز</h3>
-            <span className="text-xs font-bold text-slate-400">({rows.length} قراءة)</span>
-          </div>
-          <IconButton icon={X} label="إغلاق" size="sm" onClick={onClose} />
-        </div>
-
-        <div className="px-5 pt-4">
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="4xl"
+      title={<span className="flex items-center gap-2"><Activity className="w-5 h-5 text-sky-500" />الصحة الفنية للجهاز <span className="text-xs font-bold text-slate-400">({rows.length} قراءة)</span></span>}
+    >
+        <div className="px-5 pt-4 sticky top-0 z-10 bg-white">
           <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1 w-fit">
             <button onClick={() => { setTab('readings'); }} className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${tab === 'readings' ? 'bg-white text-sky-600 shadow-sm' : 'text-slate-500'}`}>
               <ListOrdered className="w-3.5 h-3.5" /> القراءات
@@ -270,7 +291,7 @@ function HealthDialog({ rows, ascending, initialReading, onClose }: { rows: any[
           </div>
         </div>
 
-        <div className="p-5 overflow-y-auto flex-1">
+        <div className="p-5">
           {tab === 'field' ? (
             <PerFieldView ascending={ascending} />
           ) : openReading ? (
@@ -290,14 +311,13 @@ function HealthDialog({ rows, ascending, initialReading, onClose }: { rows: any[
                     {taskLabel(r) && <span className="text-xs font-bold rounded-full border border-sky-200 bg-sky-50 text-sky-700 px-2 py-0.5">{taskLabel(r)}</span>}
                     <span className="text-xs text-slate-500">{formatDate(r.createdAt)}</span>
                   </div>
-                  {r.membraneEfficiency != null && <span className="text-xs font-bold text-slate-700">كفاءة {r.membraneEfficiency}%</span>}
+                  <MembraneEfficiencyValue reading={r} />
                 </button>
               ))}
             </div>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -321,7 +341,7 @@ export function TechnicalHealthSection({ deviceId }: { deviceId: number }) {
   const latest = rows[0] ?? null; // newest first from the API
 
   return (
-    <section id="technical-health" className="bg-white rounded-2xl border border-slate-100 shadow-sm">
+    <section id="technical-health" className="bg-white rounded-2xl border border-slate-100 shadow-sm scroll-mt-16">
       <header className="flex items-center justify-between gap-3 p-5 border-b border-slate-100 flex-wrap">
         <div className="flex items-center gap-2">
           <Activity className="w-5 h-5 text-sky-500" />
@@ -348,12 +368,7 @@ export function TechnicalHealthSection({ deviceId }: { deviceId: number }) {
           <div className="space-y-4">
             {/* Current health summary */}
             <div className="flex items-center gap-4 flex-wrap">
-              {latest?.membraneEfficiency != null && (
-                <div className="rounded-2xl border border-slate-100 px-4 py-3">
-                  <div className="text-xs text-slate-400 font-bold mb-0.5">كفاءة الميمبرين الحالية</div>
-                  <div className="text-2xl font-black text-sky-600 leading-none">{latest.membraneEfficiency}<span className="text-sm">%</span></div>
-                </div>
-              )}
+              <MembraneEfficiencyValue reading={latest} current />
               <div className="text-xs text-slate-500 space-y-1">
                 <div className="flex items-center gap-2">
                   <span className="text-slate-400">آخر قراءة:</span>
@@ -375,7 +390,7 @@ export function TechnicalHealthSection({ deviceId }: { deviceId: number }) {
                     <span className="text-xs text-slate-400">{formatDay(r.createdAt)}</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    {r.membraneEfficiency != null && <span className="text-xs font-bold text-slate-700">كفاءة {r.membraneEfficiency}%</span>}
+                    <MembraneEfficiencyValue reading={r} />
                     <span className="text-xs text-sky-600 font-bold">تفاصيل</span>
                   </div>
                 </button>

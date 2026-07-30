@@ -11,7 +11,7 @@
 // can be present without the other (e.g. demo has no contract, emergency
 // may have a device but a missing contract on legacy rows).
 // ============================================================
-import { FileText, MapPin, Wrench, ShieldCheck, Hash, Calendar, Package, ExternalLink } from 'lucide-react';
+import { FileText, MapPin, Wrench, ShieldCheck, Hash, Calendar, Package, ExternalLink } from '../../ui/icons';
 import { Card, InfoLine, EmptyState, formatDate, formatMoney } from '../shared';
 
 const CONTRACT_STATUS_LABELS: Record<string, string> = {

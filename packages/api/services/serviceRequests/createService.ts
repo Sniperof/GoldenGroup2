@@ -31,19 +31,24 @@ import {
 } from '../periodicMaintenanceTasks.js';
 
 export interface CreateServiceRequestInput {
+  requestType?: string | null;
   channel: ServiceRequestChannel;
   applicationSource?: string | null;
+  submittedPayload?: Record<string, unknown> | null;
 
   // Three parties (٠.١٢)
   requesterUserId?: number | null;
+  requesterAppAccountId?: number | null;
+  requesterClientId?: number | null;
   requesterExternal?: Record<string, unknown> | null;
   beneficiaryClientId?: number | null;
   beneficiaryCandidateId?: number | null;
   beneficiaryExternal?: Record<string, unknown> | null;
   referrerUserId?: number | null;
+  referrerClientId?: number | null;
   referrerExternal?: Record<string, unknown> | null;
   submissionType?: 'apply' | 'refer_a_candidate';
-  submitterTier?: 'visitor' | 'lead' | 'fop' | 'op' | 'staff';
+  submitterTier?: 'visitor' | 'customer' | 'lead' | 'fop' | 'op' | 'staff';
 
   // Device
   contractId?: number | null;
@@ -65,6 +70,9 @@ export interface CreateServiceRequestInput {
 
   // Scope (tracking only, SR-08)
   branchId?: number | null;
+  branchResolutionStatus?: 'not_applicable' | 'resolved' | 'ambiguous' | 'no_coverage' | 'missing_geo' | null;
+  branchResolutionReason?: string | null;
+  branchResolutionGeoUnitId?: number | null;
 
   // Actor context
   actorUserId: number | null;
@@ -74,6 +82,7 @@ export interface CreateServiceRequestInput {
 export interface CreatedServiceRequest {
   id: number;
   publicRefNumber: string;
+  requestType: string;
   status: 'received' | 'in_review';
   duplicateFlag: boolean;
   duplicateOfRequestId: number | null;
@@ -97,12 +106,15 @@ function validateMandatory(
 
   const isWalkIn =
     input.requesterUserId == null &&
+    input.requesterAppAccountId == null &&
+    input.requesterClientId == null &&
     input.beneficiaryClientId == null &&
     input.beneficiaryCandidateId == null;
 
   if (isWalkIn) {
     const ext = input.requesterExternal ?? {};
-    if (!ext['name'] || !ext['primary_phone']) {
+    const isOtpVerifiedVisitor = ext['identity_verification'] === 'otp';
+    if (!ext['primary_phone'] || (!ext['name'] && !isOtpVerifiedVisitor)) {
       return {
         ok: false,
         code: 'walkin_requester_external_required',
@@ -158,10 +170,10 @@ export async function createServiceRequest(
       try {
         const { rows } = await tx.client.query<{ id: number }>(
           `INSERT INTO service_requests (
-             public_ref_number, channel, application_source,
-             requester_user_id, requester_external,
+             public_ref_number, request_type, channel, application_source, submitted_payload,
+             requester_user_id, requester_app_account_id, requester_client_id, requester_external,
              beneficiary_client_id, beneficiary_candidate_id, beneficiary_external,
-             referrer_user_id, referrer_external,
+             referrer_user_id, referrer_client_id, referrer_external,
              submission_type, submitter_tier,
              contract_id, device_source, installed_device_id,
              external_device_name, external_device_serial,
@@ -169,32 +181,39 @@ export async function createServiceRequest(
              service_address,
              priority, status,
              reviewed_by_user_id, claimed_at,
-             branch_id
+             branch_id, branch_resolution_status, branch_resolution_reason,
+             branch_resolution_geo_unit_id
            ) VALUES (
-             $1, $2, $3,
-             $4, $5::jsonb,
-             $6, $7, $8::jsonb,
-             $9, $10::jsonb,
-             $11, $12,
-             $13, $14, $15,
+             $1, $2, $3, $4, $5::jsonb,
+             $6, $7, $8, $9::jsonb,
+             $10, $11, $12::jsonb,
+             $13, $14, $15::jsonb,
              $16, $17,
-             $18, $19, $20::jsonb,
-             $21::jsonb,
-             $22, $23,
-             $24, ${claimedAt},
-             $25
+             $18, $19, $20,
+             $21, $22,
+             $23, $24, $25::jsonb,
+             $26::jsonb,
+             $27, $28,
+             $29, ${claimedAt},
+             $30, $31, $32,
+             $33
            )
            RETURNING id`,
           [
             ref,
+            input.requestType ?? 'emergency_maintenance',
             input.channel,
             input.applicationSource ?? null,
+            JSON.stringify(input.submittedPayload ?? null),
             input.requesterUserId ?? null,
+            input.requesterAppAccountId ?? null,
+            input.requesterClientId ?? null,
             JSON.stringify(input.requesterExternal ?? null),
             input.beneficiaryClientId ?? null,
             input.beneficiaryCandidateId ?? null,
             JSON.stringify(input.beneficiaryExternal ?? null),
             input.referrerUserId ?? null,
+            input.referrerClientId ?? null,
             JSON.stringify(input.referrerExternal ?? null),
             input.submissionType ?? 'apply',
             input.submitterTier ?? 'staff',
@@ -211,6 +230,9 @@ export async function createServiceRequest(
             initialStatus,
             initialStatus === 'in_review' ? input.actorUserId : null,
             input.branchId ?? null,
+            input.branchResolutionStatus ?? 'not_applicable',
+            input.branchResolutionReason ?? null,
+            input.branchResolutionGeoUnitId ?? null,
           ],
         );
         inserted = { id: rows[0].id, ref };
@@ -241,8 +263,11 @@ export async function createServiceRequest(
       actorRole: input.actorRole,
       payload: {
         channel: input.channel,
+        request_type: input.requestType ?? 'emergency_maintenance',
         public_ref_number: inserted.ref,
         initial_status: initialStatus,
+        branch_id: input.branchId ?? null,
+        branch_resolution_status: input.branchResolutionStatus ?? 'not_applicable',
       },
     });
 
@@ -278,6 +303,7 @@ export async function createServiceRequest(
       data: {
         id: inserted.id,
         publicRefNumber: inserted.ref,
+        requestType: input.requestType ?? 'emergency_maintenance',
         status: initialStatus,
         duplicateFlag: dup.flagged,
         duplicateOfRequestId: dup.bestMatch?.candidateId ?? null,

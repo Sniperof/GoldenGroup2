@@ -3,7 +3,13 @@ import type { ContactEntry } from '@golden-crm/shared';
 import pool from '../db.js';
 import { clearPermissionCache } from '../middleware/permission.js';
 import { TEMPLATE_ROLE_ASSIGNMENT_ERROR, validateTemplateRoleAssignment } from './roleAssignmentGuard.js';
-import { upsertUserBranchAssignment } from './userBranchAssignmentService.js';
+import { setExclusiveBranchAssignment, applyExclusiveBranchAssignmentTx } from './userBranchAssignmentService.js';
+import { personalOwnershipPredicate } from './customerOwnership.js';
+import {
+  EMPLOYEE_USERNAME_CONFLICT_MESSAGE,
+  isEmployeeUsernameConflict,
+} from './employeeSystemAccountErrors.js';
+import { projectEmployeeLookupRow } from './employeeLookupProjection.js';
 import { deriveEmployeeRoleFromVacancyTitle, getEmployeeAvatar } from '../utils/recruitmentPolicy.js';
 import { sanitizeText } from '../utils/sanitize.js';
 import {
@@ -312,7 +318,7 @@ export async function prepareEmployeeWriteInput(
     const managerCandidates = await listScopedEmployeeManagerCandidates(branchId, departmentId);
     if (!managerCandidates.some((candidate) => candidate.id === directManagerId)) {
       throw createServiceError(400, {
-        error: 'يجب اختيار المدير المباشر من مدراء القسم المعتمدين في نفس الفرع',
+        error: 'يجب اختيار المدير المباشر من مدراء القسم أو مدير الفرع المعتمد ضمن نفس الفرع',
       });
     }
     const managerBranchId = await findEmployeeBranchId(directManagerId);
@@ -621,15 +627,7 @@ export async function getEmployeeLookup(scope?: {
     ? await listEmployees({ branchId: scope.branchId })
     : await listEmployees();
 
-  return rows.map((employee: any) => ({
-    id: employee.id,
-    name: employee.name,
-    mobile: employee.mobile,
-    jobTitle: employee.jobTitle,
-    branchId: employee.branchId,
-    departmentId: employee.departmentId,
-    status: employee.status,
-  }));
+  return rows.map(projectEmployeeLookupRow);
 }
 
 export async function getEmployeeById(employeeId: number | string) {
@@ -805,58 +803,62 @@ export async function saveEmployeeSystemAccount(
   const account = await findEmployeeSystemAccount(employeeId);
   let savedRow;
 
-  if (!account) {
-    if (!normalizedUsername) {
-      throw createServiceError(400, { error: 'اسم الدخول مطلوب لإنشاء حساب الموظف' });
-    }
-    if (!password?.trim?.()) {
-      throw createServiceError(400, { error: 'كلمة المرور مطلوبة لإنشاء حساب الموظف' });
-    }
+  try {
+    if (!account) {
+      if (!normalizedUsername) {
+        throw createServiceError(400, { error: 'اسم الدخول مطلوب لإنشاء حساب الموظف' });
+      }
+      if (!password?.trim?.()) {
+        throw createServiceError(400, { error: 'كلمة المرور مطلوبة لإنشاء حساب الموظف' });
+      }
 
-    const passwordHash = await bcrypt.hash(password.trim(), 10);
-    savedRow = await insertEmployeeSystemAccount({
-      employeeName: employee.name,
-      username: normalizedUsername,
-      passwordHash,
-      roleName: role.name,
-      roleId: role.id,
-      employeeId,
-      isActive: isActive ?? true,
-    });
-  } else {
-    let passwordHash: string | undefined;
-    if (password?.trim?.()) {
-      passwordHash = await bcrypt.hash(password.trim(), 10);
-    }
-
-    savedRow = await updateEmployeeSystemAccount({
-      accountId: account.id,
-      username: normalizedUsername,
-      passwordHash,
-      roleId: role.id,
-      roleName: role.name,
-      employeeName: employee.name,
-      isActive: typeof isActive === 'boolean' ? isActive : undefined,
-    });
-    clearPermissionCache(account.id);
-  }
-
-  // Auto-assign employee's branch to the hr_user account (best-effort).
-  // For new accounts the branch becomes primary; for existing accounts it
-  // is added only if not already present (upsert handles duplicates).
-  if (employee.branchId != null) {
-    try {
-      await upsertUserBranchAssignment({
-        userId: savedRow.id,
-        branchId: employee.branchId,
-        isPrimary: !account, // primary for new accounts; let existing logic decide for updates
-        status: 'active',
+      const passwordHash = await bcrypt.hash(password.trim(), 10);
+      savedRow = await insertEmployeeSystemAccount({
+        employeeName: employee.name,
+        username: normalizedUsername,
+        passwordHash,
+        roleName: role.name,
+        roleId: role.id,
+        employeeId,
+        isActive: isActive ?? true,
       });
-      clearPermissionCache(savedRow.id);
-    } catch {
-      // Non-fatal � branch assignment failure should not block account save
+    } else {
+      let passwordHash: string | undefined;
+      if (password?.trim?.()) {
+        passwordHash = await bcrypt.hash(password.trim(), 10);
+      }
+
+      savedRow = await updateEmployeeSystemAccount({
+        accountId: account.id,
+        username: normalizedUsername,
+        passwordHash,
+        roleId: role.id,
+        roleName: role.name,
+        employeeName: employee.name,
+        isActive: typeof isActive === 'boolean' ? isActive : undefined,
+      });
+      clearPermissionCache(account.id);
     }
+  } catch (error) {
+    if (isEmployeeUsernameConflict(error)) {
+      throw createServiceError(409, { error: EMPLOYEE_USERNAME_CONFLICT_MESSAGE });
+    }
+    throw error;
   }
+
+  // The employee record is the single source of truth for the account's branch:
+  // force the account's allowed branches to be EXACTLY the employee's branch
+  // (deactivating any others). This is authoritative, not best-effort — if it
+  // fails the whole account save fails, so an account is never left with a wrong
+  // or missing branch.
+  if (employee.branchId == null) {
+    throw createServiceError(400, { error: 'لا يمكن ربط حساب بموظف بلا فرع' });
+  }
+  await setExclusiveBranchAssignment({
+    userId: savedRow.id,
+    branchId: employee.branchId,
+  });
+  clearPermissionCache(savedRow.id);
 
   const roleDisplayName = await findRoleDisplayName(savedRow.roleId);
   return {
@@ -865,6 +867,135 @@ export async function saveEmployeeSystemAccount(
     isActive: savedRow.isActive,
     roleId: savedRow.roleId,
     roleDisplayName,
+  };
+}
+
+/**
+ * Guard: block an employee branch transfer while the employee still has in-flight
+ * work outside the target branch, so nothing is orphaned (the assignee would lose
+ * visibility of it after the move). "In-flight" =
+ *   - field_visits the employee is responsible for (team_responsible_user_id),
+ *     in a non-terminal status; OR
+ *   - open_tasks on customers the employee personally owns, not yet closed.
+ * Both restricted to branches other than the target (target-branch work stays
+ * visible after the move, so it can't orphan).
+ */
+async function assertNoBlockingOpenWork(employeeId: number, toBranchId: number): Promise<void> {
+  const { rows: accountRows } = await pool.query(
+    `SELECT id FROM hr_users WHERE employee_id = $1 AND is_active = TRUE`,
+    [employeeId],
+  );
+  const userIds = accountRows.map((r: any) => Number(r.id)).filter(Number.isInteger);
+  if (userIds.length === 0) {
+    return; // no linked account → no assigned work that could orphan
+  }
+
+  const { rows: visitRows } = await pool.query(
+    `SELECT COUNT(*)::int AS count
+       FROM field_visits
+      WHERE team_responsible_user_id = ANY($1::int[])
+        AND branch_id <> $2
+        AND status NOT IN ('completed', 'not_completed', 'cancelled', 'closed')`,
+    [userIds, toBranchId],
+  );
+  const openVisits = Number(visitRows[0]?.count ?? 0);
+
+  const { rows: taskRows } = await pool.query(
+    `SELECT COUNT(*)::int AS count
+       FROM open_tasks ot
+      WHERE ot.branch_id <> $2
+        AND ot.status NOT IN ('completed', 'closed', 'cancelled')
+        AND ${personalOwnershipPredicate('ot.client_id', 'ANY($1::int[])')}`,
+    [userIds, toBranchId],
+  );
+  const openTasks = Number(taskRows[0]?.count ?? 0);
+
+  if (openVisits > 0 || openTasks > 0) {
+    throw createServiceError(409, {
+      error: `لا يمكن نقل الموظف: لديه ${openVisits} زيارة و${openTasks} مهمة مفتوحة خارج الفرع الهدف. أغلقها أو أعد إسنادها أولًا.`,
+      openVisits,
+      openTasks,
+    });
+  }
+}
+
+/**
+ * Explicit branch transfer for an employee. Moves the employee record AND its
+ * linked account(s) together (the account branch is derived from the record),
+ * nulls now-invalid direct-manager links on both sides, and records an audit row.
+ * Deliberately leaves owned/created data (contracts, clients, historical
+ * tasks/visits) in the old branch — ownership persists, only the actor's
+ * visibility narrows. Blocked upfront if the employee has open work elsewhere.
+ */
+export async function transferEmployeeBranch(input: {
+  employeeId: number;
+  toBranchId: number;
+  actorUserId: number;
+  note?: string | null;
+}): Promise<{ employeeId: number; fromBranchId: number | null; toBranchId: number; movedAccounts: number }> {
+  const employee = await findEmployeeBasic(input.employeeId);
+  if (!employee) {
+    throw createServiceError(404, { error: 'الموظف غير موجود' });
+  }
+  const fromBranchId = employee.branchId ?? null;
+  if (fromBranchId === input.toBranchId) {
+    throw createServiceError(400, { error: 'الموظف موجود بالفعل في هذا الفرع' });
+  }
+  const targetBranch = await findBranchById(input.toBranchId);
+  if (!targetBranch) {
+    throw createServiceError(404, { error: 'الفرع الهدف غير موجود' });
+  }
+
+  await assertNoBlockingOpenWork(input.employeeId, input.toBranchId);
+
+  const client = await pool.connect();
+  const movedAccountIds: number[] = [];
+  try {
+    await client.query('BEGIN');
+
+    await client.query(
+      'UPDATE employees SET branch_id = $1, branch = $2 WHERE id = $3',
+      [input.toBranchId, targetBranch.name, input.employeeId],
+    );
+
+    // Direct-manager links become cross-branch (invalid under the same-branch rule):
+    // null the transferee's own manager and any subordinate that reported to them.
+    await client.query('UPDATE employees SET direct_manager_id = NULL WHERE id = $1', [input.employeeId]);
+    await client.query('UPDATE employees SET direct_manager_id = NULL WHERE direct_manager_id = $1', [input.employeeId]);
+
+    const { rows: accounts } = await client.query(
+      `SELECT id FROM hr_users WHERE employee_id = $1 AND is_active = TRUE`,
+      [input.employeeId],
+    );
+    for (const row of accounts) {
+      const accountId = Number(row.id);
+      await applyExclusiveBranchAssignmentTx(client, accountId, input.toBranchId);
+      movedAccountIds.push(accountId);
+    }
+
+    await client.query(
+      `INSERT INTO employee_branch_transfers (employee_id, from_branch_id, to_branch_id, transferred_by, note)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [input.employeeId, fromBranchId, input.toBranchId, input.actorUserId, input.note ?? null],
+    );
+
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  for (const accountId of movedAccountIds) {
+    clearPermissionCache(accountId);
+  }
+
+  return {
+    employeeId: input.employeeId,
+    fromBranchId,
+    toBranchId: input.toBranchId,
+    movedAccounts: movedAccountIds.length,
   };
 }
 

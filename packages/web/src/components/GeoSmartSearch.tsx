@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
-import { MapPin, Search, ChevronLeft, X, CheckCircle2 } from 'lucide-react';
+import { MapPin, Search, ChevronLeft, X, CheckCircle2 } from './ui/icons';
 import type { GeoUnit } from '../lib/types';
 const levelNames: Record<number, string> = {
     1: 'المحافظة',
@@ -105,9 +105,18 @@ export function formatGeoUnitLastLevels(geoUnits: GeoUnit[], geoUnitId?: number 
 export default function GeoSmartSearch({ geoUnits, value, onChange, label, required, placeholder, disabled, minSelectableLevel = 1, invalid = false }: GeoSmartSearchProps) {
     const [search, setSearch] = useState('');
     const [isOpen, setIsOpen] = useState(false);
-    const [openUpward, setOpenUpward] = useState(false);
+    // Fixed-position popover geometry (viewport coords). Computed on open and
+    // kept in sync on scroll/resize so the list never gets clipped by the
+    // scroll container / viewport edge and is never hidden behind a fixed
+    // bottom action bar.
+    const [ddPos, setDdPos] = useState<{ left: number; width: number; top?: number; bottom?: number; maxHeight: number } | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
+    const fieldRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
+    // Vertical band the popover is allowed to occupy: below any fixed/sticky top
+    // bar (app header, sticky page toolbar) and above any fixed bottom bar
+    // (action footer). Measured on open/resize; bars don't move during scroll.
+    const boundsRef = useRef<{ top: number; bottom: number }>({ top: 0, bottom: 0 });
 
     // Build units map once
     const unitsMap = useMemo(() => {
@@ -177,24 +186,96 @@ export default function GeoSmartSearch({ geoUnits, value, onChange, label, requi
         inputRef.current?.focus();
     }, [onChange]);
 
-    // Compute direction then open — called synchronously before any render
-    const openWithDirection = useCallback(() => {
-        if (containerRef.current) {
-            const rect = containerRef.current.getBoundingClientRect();
-            let scrollParent: Element | null = containerRef.current.parentElement;
-            let viewportBottom = window.innerHeight;
-            while (scrollParent) {
-                const style = window.getComputedStyle(scrollParent);
-                if (/auto|scroll/.test(style.overflow + style.overflowY)) {
-                    viewportBottom = scrollParent.getBoundingClientRect().bottom;
-                    break;
-                }
-                scrollParent = scrollParent.parentElement;
+    // Measure the safe vertical band: start from the field's scrollable ancestor,
+    // then pull the top edge below any fixed/sticky top bar and the bottom edge
+    // above any fixed bottom bar. Fixed/sticky bars stay put while the inner
+    // container scrolls, so this only needs to run on open and on resize.
+    const measureBounds = useCallback(() => {
+        const field = fieldRef.current;
+        let top = 0;
+        let bottom = window.innerHeight;
+        // nearest scrollable ancestor clips content vertically
+        let sp: HTMLElement | null = field?.parentElement ?? null;
+        while (sp) {
+            const s = window.getComputedStyle(sp);
+            if (/auto|scroll/.test(s.overflowY)) {
+                const r = sp.getBoundingClientRect();
+                top = Math.max(top, r.top);
+                bottom = Math.min(bottom, r.bottom);
+                break;
             }
-            setOpenUpward(viewportBottom - rect.bottom < 280);
+            sp = sp.parentElement;
         }
-        setIsOpen(true);
+        // fixed/sticky chrome overlapping the top/bottom edges
+        document.querySelectorAll<HTMLElement>('body *').forEach(el => {
+            if (field && el.contains(field)) return; // skip our own ancestors
+            const s = window.getComputedStyle(el);
+            if (s.position !== 'fixed' && s.position !== 'sticky') return;
+            const r = el.getBoundingClientRect();
+            if (r.width < 200 || r.height === 0 || r.height > 220) return;
+            if (r.top <= top + 8) top = Math.max(top, r.bottom);          // top bar
+            if (r.bottom >= bottom - 8) bottom = Math.min(bottom, r.top); // bottom bar
+        });
+        boundsRef.current = { top, bottom };
     }, []);
+
+    // Position the list within the safe band: pick whichever side of the anchor
+    // has more room and cap the height so it never spills over a bar or off-screen.
+    // If the field has scrolled out of the band, close instead of floating over chrome.
+    const computePosition = useCallback(() => {
+        const el = fieldRef.current;
+        if (!el) return;
+        const r = el.getBoundingClientRect();
+        const { top: safeTop, bottom: safeBottom } = boundsRef.current;
+        // Field scrolled behind the top bar or under the bottom bar → dismiss.
+        if (r.bottom <= safeTop + 2 || r.top >= safeBottom - 2) {
+            setIsOpen(false);
+            return;
+        }
+        const GAP = 6;          // gap between field and list
+        const DESIRED = 256;    // preferred list height (matches old max-h-64)
+        const spaceBelow = safeBottom - r.bottom - GAP;
+        const spaceAbove = r.top - safeTop - GAP;
+        // Open upward only when below can't hold a usable list AND above is roomier.
+        const upward = spaceBelow < Math.min(DESIRED, 200) && spaceAbove > spaceBelow;
+        const avail = upward ? spaceAbove : spaceBelow;
+        if (avail < 96) { setIsOpen(false); return; } // no usable room either way
+        const maxHeight = Math.min(DESIRED, avail);
+        setDdPos({
+            left: r.left,
+            width: r.width,
+            top: upward ? undefined : r.bottom + GAP,
+            bottom: upward ? window.innerHeight - r.top + GAP : undefined,
+            maxHeight,
+        });
+    }, []);
+
+    // Measure + position synchronously before opening so the first paint is correct.
+    const openWithDirection = useCallback(() => {
+        measureBounds();
+        computePosition();
+        setIsOpen(true);
+    }, [measureBounds, computePosition]);
+
+    // Keep the popover glued to the field while the page/container scrolls or resizes.
+    useEffect(() => {
+        if (!isOpen) return;
+        measureBounds();
+        computePosition();
+        let raf = 0;
+        const onScroll = () => {
+            if (raf) return;
+            raf = requestAnimationFrame(() => { raf = 0; computePosition(); });
+        };
+        const onResize = () => { measureBounds(); computePosition(); };
+        window.addEventListener('scroll', onScroll, true); // capture: catches inner scroll containers
+        window.addEventListener('resize', onResize);
+        return () => {
+            if (raf) cancelAnimationFrame(raf);
+            window.removeEventListener('scroll', onScroll, true);
+            window.removeEventListener('resize', onResize);
+        };
+    }, [isOpen, computePosition, measureBounds]);
 
     // Outside click
     useEffect(() => {
@@ -219,7 +300,7 @@ export default function GeoSmartSearch({ geoUnits, value, onChange, label, requi
                 </label>
             )}
 
-            <div className={`relative ${disabled ? 'opacity-50 pointer-events-none' : ''}`}>
+            <div ref={fieldRef} className={`relative ${disabled ? 'opacity-50 pointer-events-none' : ''}`}>
                 {/* Selected State */}
                 {selectedPath && !isOpen ? (
                     <div
@@ -260,9 +341,13 @@ export default function GeoSmartSearch({ geoUnits, value, onChange, label, requi
                     </div>
                 )}
 
-                {/* Dropdown */}
-                {isOpen && (
-                    <div className={`absolute z-50 w-full bg-white border border-slate-200 rounded-xl shadow-xl max-h-64 overflow-y-auto ${openUpward ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
+                {/* Dropdown — fixed popover so it can't be clipped by the scroll
+                    container/viewport or hidden behind a fixed bottom action bar. */}
+                {isOpen && ddPos && (
+                    <div
+                        className="fixed z-[70] bg-white border border-slate-200 rounded-xl shadow-xl overflow-y-auto"
+                        style={{ left: ddPos.left, width: ddPos.width, top: ddPos.top, bottom: ddPos.bottom, maxHeight: ddPos.maxHeight }}
+                    >
                         {suggestions.length === 0 ? (
                             <div className="p-4 text-center text-sm text-slate-400">لا توجد نتائج</div>
                         ) : (
@@ -293,7 +378,7 @@ export default function GeoSmartSearch({ geoUnits, value, onChange, label, requi
                                                 ))}
                                             </div>
                                         </div>
-                                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium border ${s.unit.level === 1 ? 'bg-indigo-50 text-indigo-600 border-indigo-200' :
+                                        <span className={`px-1.5 py-0.5 rounded text-xs font-medium border ${s.unit.level === 1 ? 'bg-indigo-50 text-indigo-600 border-indigo-200' :
                                                 s.unit.level === 2 ? 'bg-blue-50 text-blue-600 border-blue-200' :
                                                     s.unit.level === 3 ? 'bg-emerald-50 text-emerald-600 border-emerald-200' :
                                                         'bg-amber-50 text-amber-600 border-amber-200'
@@ -355,7 +440,7 @@ export function LocationBadge({ location, geoPath, govName }: LocationBadgeProps
             onMouseLeave={() => setShowTooltip(false)}
         >
             {displayGov && (
-                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-sky-50 text-sky-700 border border-sky-200 shrink-0">
+                <span className="px-1.5 py-0.5 rounded text-xs font-bold bg-sky-50 text-sky-700 border border-sky-200 shrink-0">
                     {displayGov}
                 </span>
             )}

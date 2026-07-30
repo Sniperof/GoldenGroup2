@@ -38,6 +38,12 @@ import {
   findPeriodicAttachmentCandidate,
   type PeriodicAttachmentCandidate,
 } from '../periodicMaintenanceTasks.js';
+import {
+  DEVICE_SERIAL_CONFLICT_CODE,
+  DEVICE_SERIAL_CONFLICT_MESSAGE,
+  assertDeviceSerialAvailable,
+  isDeviceSerialUniqueViolation,
+} from '../deviceSerialIntegrity.js';
 
 export interface PromoteInput {
   serviceRequestId: number;
@@ -644,6 +650,7 @@ async function createLightweightInstalledDevice(
   // (Documented limitation — promoted as a known V1.0 gap.)
   // Attempt INSERT and let DB reject if constraint forbids NULL.
   try {
+    const serialNumber = await assertDeviceSerialAvailable(db, externalDeviceSerial);
     const geoUnitId =
       (serviceAddress?.['geo_unit_id'] as number | undefined) ?? null;
     const addressText =
@@ -671,7 +678,7 @@ async function createLightweightInstalledDevice(
         customerId,
         modelId,
         externalDeviceName,
-        externalDeviceSerial,
+        serialNumber,
         geoUnitId,
         addressText,
       ],
@@ -679,6 +686,13 @@ async function createLightweightInstalledDevice(
     if (!rows[0]) return { ok: false, code: 'client_not_found' };
     return { ok: true, data: { id: rows[0].id } };
   } catch (err: unknown) {
+    if (isDeviceSerialUniqueViolation(err)) {
+      return {
+        ok: false,
+        code: DEVICE_SERIAL_CONFLICT_CODE,
+        message: DEVICE_SERIAL_CONFLICT_MESSAGE,
+      };
+    }
     const pgErr = err as { code?: string; constraint?: string; message?: string };
     if (pgErr?.code === '23502') {
       return {

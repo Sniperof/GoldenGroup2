@@ -3,7 +3,7 @@ import {
   User, Phone, Home, Building2, Briefcase, Star,
   MapPin, ChevronDown, ChevronUp, UserCheck, Smartphone,
   PhoneCall, Wifi, Globe, Wrench, Users, BadgeCheck,
-} from 'lucide-react';
+} from './ui/icons';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -73,6 +73,10 @@ const OWNERSHIP_META: Record<string, {
   personal_single_technician: {
     icon: Wrench,
     color: 'text-teal-700', bg: 'bg-teal-50', border: 'border-teal-200', dot: 'bg-teal-500',
+  },
+  personal_single_employee: {
+    icon: User,
+    color: 'text-indigo-700', bg: 'bg-indigo-50', border: 'border-indigo-200', dot: 'bg-indigo-500',
   },
   personal_multi: {
     icon: Users,

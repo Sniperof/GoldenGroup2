@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import Modal from '../ui/Modal';
-import { Loader2, Plus, Trash2 } from 'lucide-react';
+import { Loader2, Plus, Trash2 } from '../ui/icons';
 import type { EmergencyFinalDecision } from '@golden-crm/shared';
 import {
   EMERGENCY_FINAL_DECISION_LABELS,
   EMERGENCY_FINAL_DECISION_DESCRIPTIONS,
 } from '@golden-crm/shared';
 import Select from '../ui/Select';
+import Checkbox from '../ui/Checkbox';
 
 export type { EmergencyFinalDecision };
 
@@ -244,12 +245,9 @@ export default function EmergencyResultModal({ isOpen, saving, error, onClose, o
               الحالة الفنية للجهاز (اختياري)
             </summary>
             <div className="px-4 pb-4 pt-2 space-y-3">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={problemConfirmed}
-                  onChange={(e) => setProblemConfirmed(e.target.checked)}
-                  className="rounded border-slate-300" />
+              <Checkbox checked={problemConfirmed} onCheckedChange={setProblemConfirmed}>
                 <span className="text-sm text-slate-700">تأكيد وجود المشكلة</span>
-              </label>
+              </Checkbox>
               <div>
                 <label className="text-xs font-bold text-slate-500 block mb-1">ملاحظات فنية</label>
                 <textarea value={technicalNotes} onChange={(e) => setTechnicalNotes(e.target.value)}

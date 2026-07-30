@@ -36,6 +36,15 @@ export function canAccessGift(
   subject: GiftSubject,
   currentEmployeeId?: number | null,
 ) {
+  if (
+    permission === 'contract_gifts.reopen_manual_delivery'
+    && !context.isSuperAdmin
+    && !context.grants.some(grant => (
+      grant.permission === permission && grant.scope === 'GLOBAL'
+    ))
+  ) {
+    return false;
+  }
   return authorize(context, {
     permission,
     branchId: branchIdForGift(subject),

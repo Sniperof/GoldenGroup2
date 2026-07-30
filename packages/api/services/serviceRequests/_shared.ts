@@ -17,13 +17,15 @@ import pool from '../../db.js';
 
 // ---------------- canonical enums (mirror DB CHECK constraints) ----------------
 
+// 'awaiting_customer_info' dropped per request-section-contract.md §3 —
+// still a valid DB value for historical rows/audit, no longer reachable.
 export const SR_STATUSES = [
   'received',
   'in_review',
-  'awaiting_customer_info',
   'resolved_at_intake',
   'rejected',
   'promoted',
+  'completed',
   'cancelled',
 ] as const;
 export type ServiceRequestStatus = (typeof SR_STATUSES)[number];
@@ -32,13 +34,16 @@ export const SR_TERMINAL_STATUSES: ServiceRequestStatus[] = [
   'resolved_at_intake',
   'rejected',
   'promoted',
+  // General self-completion terminal (DEC-013): a request that finishes itself
+  // with a side-effect (e.g. account_creation activates an app_account) rather
+  // than spawning a downstream task. Distinct from resolved_at_intake/promoted.
+  'completed',
   'cancelled',
 ];
 
 export const SR_ACTIVE_STATUSES: ServiceRequestStatus[] = [
   'received',
   'in_review',
-  'awaiting_customer_info',
 ];
 
 export const SR_CHANNELS = [
@@ -71,8 +76,10 @@ export const SR_AUDIT_EVENT_TYPES = [
   'candidate_created',
   'priority_changed',
   'escalated_to_audit_admin',
+  'escalation_resolved',
   'rejected_decision',
   'promoted_to_task',
+  'request_completed',
   'merged_into_existing_task',
   'cancelled_by_admin',
   'customer_info_requested',

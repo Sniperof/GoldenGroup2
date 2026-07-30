@@ -1,5 +1,4 @@
-// All open_tasks belonging to this device. The list is filtered client-side
-// because /api/open-tasks/client/:clientId returns the client's full task feed.
+// All open_tasks belonging to this physical device across its customer history.
 
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -19,13 +18,15 @@ import {
   Wrench,
   X,
   Zap,
-} from 'lucide-react';
-import { SectionShell } from './SectionShell';
+} from '../../../components/ui/icons';
+import SmartTable, { type ColumnDef } from '../../../components/SmartTable';
 import { api } from '../../../lib/api';
 import Button from '../../../components/ui/Button';
 import Select from '../../../components/ui/Select';
+import DateField from '../../../components/ui/DateField';
 import { usePermissions } from '../../../hooks/usePermissions';
 import GeoSmartSearch, { type GeoSelection } from '../../../components/GeoSmartSearch';
+import { evaluateDeviceTaskEligibility } from '@golden-crm/shared';
 
 interface Props {
   tasks: any[];
@@ -75,6 +76,128 @@ const TASK_OPTIONS = [
   { type: 'periodic_maintenance', label: 'صيانة دورية', Icon: CalendarClock },
 ] as const;
 
+const DEVICE_STATUS_LABELS: Record<string, string> = {
+  registered: 'مسجّل',
+  pending_delivery: 'بانتظار التوصيل',
+  delivered: 'تم التوصيل',
+  installed: 'مركّب',
+  active: 'نشط',
+  faulty: 'معطل',
+  in_workshop: 'في الورشة',
+  ready: 'جاهز',
+  out_of_service: 'خارج الخدمة',
+  retrieved: 'مستردة',
+  discarded: 'مهمل',
+};
+
+const TASK_LABELS: Record<string, string> = Object.fromEntries(
+  TASK_OPTIONS.map((item) => [item.type, item.label]),
+) as Record<string, string>;
+
+const TASK_FAMILY_LABELS: Record<string, string> = {
+  delivery: 'تسليم',
+  service: 'خدمة',
+  maintenance: 'صيانة',
+  sales: 'مبيعات',
+};
+
+const PRIORITY_OPTIONS = [
+  { value: 'high' as const, label: 'عالية' },
+  { value: 'medium' as const, label: 'متوسطة' },
+  { value: 'low' as const, label: 'منخفضة' },
+];
+
+function deviceStatusLabel(status?: string | null) {
+  if (!status) return 'غير محددة';
+  return DEVICE_STATUS_LABELS[String(status)] ?? String(status);
+}
+
+const FALLBACK_PERIODIC_CREATION_REASONS = [
+  { value: 'bootstrap جهاز قائم', label: 'bootstrap جهاز قائم' },
+  { value: 'تصحيح جدول الصيانة', label: 'تصحيح جدول الصيانة' },
+  { value: 'طلب زيارة خارج الدورة', label: 'طلب زيارة خارج الدورة' },
+  { value: 'أخرى', label: 'أخرى' },
+];
+
+type CreationReasonOption = {
+  value: string;
+  label: string;
+  systemReason?: string | null;
+};
+
+const FALLBACK_RETRIEVAL_CREATION_REASONS: CreationReasonOption[] = [
+  { value: 'سحب الجهاز للصيانة', label: 'سحب الجهاز للصيانة', systemReason: 'device_retrieval_maintenance' },
+  { value: 'سحب الجهاز للتبديل', label: 'سحب الجهاز للتبديل', systemReason: 'device_retrieval_replacement' },
+  { value: 'إنشاء يدوي', label: 'إنشاء يدوي', systemReason: 'other' },
+];
+
+const FALLBACK_RETURN_CREATION_REASONS: CreationReasonOption[] = [
+  { value: 'إرجاع الجهاز بعد الصيانة', label: 'إرجاع الجهاز بعد الصيانة', systemReason: 'device_return_after_maintenance' },
+  { value: 'إرجاع يدوي', label: 'إرجاع يدوي', systemReason: 'other' },
+];
+
+const FALLBACK_CHECKUP_CREATION_REASONS: CreationReasonOption[] = [
+  { value: 'تشييك فني للجهاز', label: 'تشييك فني للجهاز', systemReason: 'device_checkup' },
+  { value: 'طلب الزبون', label: 'طلب الزبون', systemReason: 'manual_checkup' },
+  { value: 'إنشاء يدوي', label: 'إنشاء يدوي', systemReason: 'other' },
+];
+
+const FALLBACK_TRANSFER_CREATION_REASONS: CreationReasonOption[] = [
+  { value: 'نقل إلى عنوان جديد لنفس الزبون', label: 'نقل إلى عنوان جديد لنفس الزبون', systemReason: 'device_transfer_same_customer_new_address' },
+  { value: 'نقل إلى زبون آخر', label: 'نقل إلى زبون آخر', systemReason: 'device_transfer_another_customer' },
+  { value: 'إنشاء يدوي', label: 'إنشاء يدوي', systemReason: 'other' },
+];
+
+const FALLBACK_DELIVERY_CREATION_REASONS: CreationReasonOption[] = [
+  { value: 'تسليم جهاز بعد البيع', label: 'تسليم جهاز بعد البيع', systemReason: 'sale_delivery' },
+  { value: 'تسليم جهاز يدوي', label: 'تسليم جهاز يدوي', systemReason: 'manual_delivery' },
+  { value: 'إرجاع جهاز بعد الصيانة', label: 'إرجاع جهاز بعد الصيانة', systemReason: 'post_maintenance_return' },
+];
+
+const FALLBACK_INSTALLATION_CREATION_REASONS: CreationReasonOption[] = [
+  { value: 'تركيب بعد نجاح التسليم', label: 'تركيب بعد نجاح التسليم', systemReason: 'service_request' },
+  { value: 'إنشاء يدوي من حالة الجهاز', label: 'إنشاء يدوي من حالة الجهاز', systemReason: 'other' },
+  { value: 'تصحيح بيانات التركيب', label: 'تصحيح بيانات التركيب', systemReason: 'other' },
+];
+
+const FALLBACK_DISCONNECTION_CREATION_REASONS: CreationReasonOption[] = [
+  { value: 'طلب الزبون', label: 'طلب الزبون', systemReason: 'customer_request' },
+  { value: 'إلغاء عقد', label: 'إلغاء عقد', systemReason: 'contract_cancelled' },
+  { value: 'إيقاف مؤقت', label: 'إيقاف مؤقت', systemReason: 'temporary_stop' },
+  { value: 'سلامة فنية', label: 'سلامة فنية', systemReason: 'technical_safety' },
+  { value: 'تحضير صيانة', label: 'تحضير صيانة', systemReason: 'maintenance_preparation' },
+  { value: 'إنشاء يدوي', label: 'إنشاء يدوي', systemReason: 'other' },
+];
+
+function normalizeCreationReasons(rows: any, fallback: CreationReasonOption[]) {
+  const items = Array.isArray(rows)
+    ? rows
+        .filter((row: any) => row?.isActive !== false)
+        .map((row: any) => ({
+          value: String(row.value ?? '').trim(),
+          label: String(row.metadata?.label ?? row.value ?? '').trim(),
+          systemReason: row.metadata?.systemReason ? String(row.metadata.systemReason).trim() : null,
+        }))
+        .filter((item: CreationReasonOption) => item.value && item.label)
+    : [];
+  return items.length > 0 ? items : fallback;
+}
+
+function creationOptionsFor(reasonCode: string, items: CreationReasonOption[], fallback: CreationReasonOption[]) {
+  const source = items.length > 0 ? items : fallback;
+  const matching = source.filter((item) => !item.systemReason || item.systemReason === reasonCode);
+  return matching.length > 0 ? matching : source;
+}
+
+function selectedCreationReason(current: string, options: CreationReasonOption[]) {
+  return options.some((item) => item.value === current) ? current : (options[0]?.value ?? '');
+}
+
+function selectedCreationOption(current: string, options: CreationReasonOption[]) {
+  const value = selectedCreationReason(current, options);
+  return options.find((item) => item.value === value) ?? null;
+}
+
 function activeTaskOf(tasks: any[], taskType: string, deviceId: number) {
   return tasks.find((task) => (
     sameId(task.deviceId, deviceId)
@@ -104,7 +227,16 @@ function hasSuccessfulMaintenanceRetrieval(tasks: any[], deviceId: number) {
 
 function taskAvailability(taskType: string, device: any, deviceTasks: any[]) {
   const duplicate = activeTaskOf(deviceTasks, taskType, Number(device?.id));
-  if (duplicate) return { allowed: false, reason: `توجد مهمة نشطة بالفعل #${duplicate.id}` };
+  const sharedEligibility = evaluateDeviceTaskEligibility({
+    taskType,
+    deviceStatus: device?.status,
+    hasContract: device?.contractId != null && Number(device.contractId) > 0,
+    hasActiveServiceAgreement: device?.activeServiceAgreementId != null && Number(device.activeServiceAgreementId) > 0,
+    hasActiveTask: Boolean(duplicate),
+    hasSuccessfulDisconnection: hasSuccessfulDisconnection(deviceTasks, Number(device?.id)),
+    hasSuccessfulMaintenanceRetrieval: hasSuccessfulMaintenanceRetrieval(deviceTasks, Number(device?.id)),
+  });
+  if (!sharedEligibility.allowed) return { allowed: false, reason: sharedEligibility.reason };
 
   switch (taskType) {
     case 'device_delivery':
@@ -114,11 +246,11 @@ function taskAvailability(taskType: string, device: any, deviceTasks: any[]) {
     case 'device_installation':
       return device?.status === 'delivered'
         ? { allowed: true, reason: 'الجهاز مُسلّم وجاهز للتركيب' }
-        : { allowed: false, reason: 'التركيب يحتاج جهازاً بحالة delivered' };
+        : { allowed: false, reason: `التركيب يحتاج جهازاً بحالة مُسلّم. الحالة الحالية: ${deviceStatusLabel(device?.status)}` };
     case 'device_activation':
       return device?.status === 'installed'
         ? { allowed: true, reason: 'الجهاز مركب وجاهز للتشغيل' }
-        : { allowed: false, reason: 'التشغيل يحتاج جهازاً بحالة installed' };
+        : { allowed: false, reason: `التشغيل يحتاج جهازاً بحالة مركّب. الحالة الحالية: ${deviceStatusLabel(device?.status)}` };
     case 'device_checkup':
       return ['delivered', 'installed', 'active'].includes(String(device?.status))
         ? { allowed: true, reason: 'يسجل الحالة الفنية الحالية للجهاز فقط' }
@@ -126,10 +258,10 @@ function taskAvailability(taskType: string, device: any, deviceTasks: any[]) {
     case 'device_disconnection':
       return device?.status === 'active'
         ? { allowed: true, reason: 'الجهاز فعال ويمكن فكه' }
-        : { allowed: false, reason: 'الفك يحتاج جهازاً بحالة active' };
+        : { allowed: false, reason: `الفك يحتاج جهازاً بحالة فعّال. الحالة الحالية: ${deviceStatusLabel(device?.status)}` };
     case 'device_retrieval': {
       if (device?.status !== 'out_of_service') {
-        return { allowed: false, reason: 'السحب يحتاج جهازاً بحالة out_of_service' };
+        return { allowed: false, reason: `السحب يحتاج جهازاً مفكوكاً / خارج الخدمة. الحالة الحالية: ${deviceStatusLabel(device?.status)}` };
       }
       if (!hasSuccessfulDisconnection(deviceTasks, Number(device?.id))) {
         return { allowed: false, reason: 'السحب يحتاج مهمة فك ناجحة سابقة' };
@@ -138,7 +270,7 @@ function taskAvailability(taskType: string, device: any, deviceTasks: any[]) {
     }
     case 'device_return': {
       if (device?.status !== 'in_workshop') {
-        return { allowed: false, reason: 'الإرجاع يحتاج جهازاً بحالة in_workshop' };
+        return { allowed: false, reason: `الإرجاع يحتاج جهازاً داخل الورشة. الحالة الحالية: ${deviceStatusLabel(device?.status)}` };
       }
       if (!hasSuccessfulMaintenanceRetrieval(deviceTasks, Number(device?.id))) {
         return { allowed: false, reason: 'الإرجاع يحتاج سحب صيانة ناجح سابق' };
@@ -146,19 +278,27 @@ function taskAvailability(taskType: string, device: any, deviceTasks: any[]) {
       return { allowed: true, reason: 'الجهاز داخل الورشة وجاهز لإنشاء مهمة إرجاع' };
     }
     case 'device_transfer':
-      return ['delivered', 'installed', 'active'].includes(String(device?.status))
-        ? { allowed: true, reason: 'يمكن نقل الجهاز إلى عنوان مبدئي جديد أو إلى زبون آخر' }
-        : { allowed: false, reason: 'النقل يحتاج جهازاً موجوداً عند الزبون' };
-    case 'device_return':
-      return { allowed: false, reason: 'قواعد الإرجاع غير موثقة بعد' };
+      if (device?.status !== 'out_of_service') {
+        return { allowed: false, reason: `النقل يحتاج جهازاً مفكوكاً / خارج الخدمة. الحالة الحالية: ${deviceStatusLabel(device?.status)}` };
+      }
+      if (!hasSuccessfulDisconnection(deviceTasks, Number(device?.id))) {
+        return { allowed: false, reason: 'النقل يحتاج مهمة فك ناجحة سابقة' };
+      }
+      return { allowed: true, reason: 'الجهاز مفكوك ويمكن نقله إلى عنوان مبدئي جديد أو إلى زبون آخر' };
     case 'emergency_maintenance':
       return ['active', 'installed', 'faulty', 'out_of_service'].includes(String(device?.status))
         ? { allowed: true, reason: 'يمكن فتح صيانة طارئة مع وصف العطل' }
         : { allowed: false, reason: 'الصيانة الطارئة تحتاج جهازاً في مسار خدمة فعلي' };
-    case 'periodic_maintenance':
-      return device?.status === 'active'
-        ? { allowed: true, reason: 'يمكن إنشاء دورية يدوية لجهاز فعال' }
-        : { allowed: false, reason: 'الصيانة الدورية اليدوية تحتاج جهازاً active' };
+    case 'periodic_maintenance': {
+      if (device?.status !== 'active') {
+        return { allowed: false, reason: `الصيانة الدورية تحتاج جهازاً فعّالاً. الحالة الحالية: ${deviceStatusLabel(device?.status)}` };
+      }
+      const hasContract = device?.contractId != null && Number(device.contractId) > 0;
+      const hasServiceAgreement = device?.activeServiceAgreementId != null && Number(device.activeServiceAgreementId) > 0;
+      if (hasContract) return { allowed: true, reason: 'يمكن إنشاء دورية يدوية اعتماداً على عقد الجهاز' };
+      if (hasServiceAgreement) return { allowed: true, reason: 'يمكن إنشاء دورية يدوية اعتماداً على اتفاق الخدمة الفعال' };
+      return { allowed: false, reason: 'الصيانة الدورية للجهاز الخارجي تحتاج اتفاق خدمة فعالاً أولاً' };
+    }
     default:
       return { allowed: false, reason: 'نوع المهمة غير مدعوم' };
   }
@@ -167,7 +307,7 @@ function taskAvailability(taskType: string, device: any, deviceTasks: any[]) {
 export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreated }: Props) {
   const { hasPermission } = usePermissions();
   const [showDialog, setShowDialog] = useState(false);
-  const [mode, setMode] = useState<'choose' | 'checkup' | 'retrieval' | 'return' | 'transfer' | 'periodic'>('choose');
+  const [mode, setMode] = useState<'choose' | 'delivery' | 'installation' | 'activation' | 'disconnection' | 'emergency' | 'checkup' | 'retrieval' | 'return' | 'transfer' | 'periodic'>('choose');
   const [branches, setBranches] = useState<any[]>([]);
   const [geoUnits, setGeoUnits] = useState<any[]>([]);
   const [clients, setClients] = useState<any[]>([]);
@@ -178,7 +318,22 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
   const [dueDate, setDueDate] = useState('');
   const [priority, setPriority] = useState<'high' | 'medium' | 'low'>('medium');
   const [notes, setNotes] = useState('');
+  const [retrievalCreationReason, setRetrievalCreationReason] = useState(FALLBACK_RETRIEVAL_CREATION_REASONS[0].value);
+  const [returnCreationReason, setReturnCreationReason] = useState(FALLBACK_RETURN_CREATION_REASONS[0].value);
+  const [checkupCreationReason, setCheckupCreationReason] = useState(FALLBACK_CHECKUP_CREATION_REASONS[0].value);
+  const [transferCreationReason, setTransferCreationReason] = useState(FALLBACK_TRANSFER_CREATION_REASONS[0].value);
+  const [deliveryCreationReason, setDeliveryCreationReason] = useState(FALLBACK_DELIVERY_CREATION_REASONS[0].value);
+  const [installationCreationReason, setInstallationCreationReason] = useState(FALLBACK_INSTALLATION_CREATION_REASONS[0].value);
+  const [disconnectionCreationReason, setDisconnectionCreationReason] = useState(FALLBACK_DISCONNECTION_CREATION_REASONS[0].value);
+  const [retrievalCreationReasons, setRetrievalCreationReasons] = useState<CreationReasonOption[]>(FALLBACK_RETRIEVAL_CREATION_REASONS);
+  const [returnCreationReasons, setReturnCreationReasons] = useState<CreationReasonOption[]>(FALLBACK_RETURN_CREATION_REASONS);
+  const [checkupCreationReasons, setCheckupCreationReasons] = useState<CreationReasonOption[]>(FALLBACK_CHECKUP_CREATION_REASONS);
+  const [transferCreationReasons, setTransferCreationReasons] = useState<CreationReasonOption[]>(FALLBACK_TRANSFER_CREATION_REASONS);
+  const [deliveryCreationReasons, setDeliveryCreationReasons] = useState<CreationReasonOption[]>(FALLBACK_DELIVERY_CREATION_REASONS);
+  const [installationCreationReasons, setInstallationCreationReasons] = useState<CreationReasonOption[]>(FALLBACK_INSTALLATION_CREATION_REASONS);
+  const [disconnectionCreationReasons, setDisconnectionCreationReasons] = useState<CreationReasonOption[]>(FALLBACK_DISCONNECTION_CREATION_REASONS);
   const [periodicReason, setPeriodicReason] = useState('bootstrap جهاز قائم');
+  const [periodicCreationReasons, setPeriodicCreationReasons] = useState(FALLBACK_PERIODIC_CREATION_REASONS);
   const [periodicIntervalMonths, setPeriodicIntervalMonths] = useState('');
   const [transferKind, setTransferKind] = useState<'same_customer_new_address' | 'another_customer'>('same_customer_new_address');
   const [targetClientId, setTargetClientId] = useState('');
@@ -209,6 +364,38 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
     api.clients.list()
       .then((rows) => setClients(Array.isArray(rows) ? rows : []))
       .catch(() => setClients([]));
+    api.systemLists.getItemsByCode('periodic_manual_creation_reasons')
+      .then((rows: any) => {
+        const items = Array.isArray(rows)
+          ? rows.map((row: any) => ({
+              value: String(row.value ?? '').trim(),
+              label: String(row.metadata?.label ?? row.value ?? '').trim(),
+            })).filter((item) => item.value && item.label)
+          : [];
+        setPeriodicCreationReasons(items.length > 0 ? items : FALLBACK_PERIODIC_CREATION_REASONS);
+      })
+      .catch(() => setPeriodicCreationReasons(FALLBACK_PERIODIC_CREATION_REASONS));
+    api.systemLists.getItemsByCode('device_retrieval_creation_reasons')
+      .then((rows: any) => setRetrievalCreationReasons(normalizeCreationReasons(rows, FALLBACK_RETRIEVAL_CREATION_REASONS)))
+      .catch(() => setRetrievalCreationReasons(FALLBACK_RETRIEVAL_CREATION_REASONS));
+    api.systemLists.getItemsByCode('device_return_creation_reasons')
+      .then((rows: any) => setReturnCreationReasons(normalizeCreationReasons(rows, FALLBACK_RETURN_CREATION_REASONS)))
+      .catch(() => setReturnCreationReasons(FALLBACK_RETURN_CREATION_REASONS));
+    api.systemLists.getItemsByCode('device_checkup_creation_reasons')
+      .then((rows: any) => setCheckupCreationReasons(normalizeCreationReasons(rows, FALLBACK_CHECKUP_CREATION_REASONS)))
+      .catch(() => setCheckupCreationReasons(FALLBACK_CHECKUP_CREATION_REASONS));
+    api.systemLists.getItemsByCode('device_transfer_creation_reasons')
+      .then((rows: any) => setTransferCreationReasons(normalizeCreationReasons(rows, FALLBACK_TRANSFER_CREATION_REASONS)))
+      .catch(() => setTransferCreationReasons(FALLBACK_TRANSFER_CREATION_REASONS));
+    api.systemLists.getItemsByCode('device_delivery_creation_reasons')
+      .then((rows: any) => setDeliveryCreationReasons(normalizeCreationReasons(rows, FALLBACK_DELIVERY_CREATION_REASONS)))
+      .catch(() => setDeliveryCreationReasons(FALLBACK_DELIVERY_CREATION_REASONS));
+    api.systemLists.getItemsByCode('device_installation_creation_reasons')
+      .then((rows: any) => setInstallationCreationReasons(normalizeCreationReasons(rows, FALLBACK_INSTALLATION_CREATION_REASONS)))
+      .catch(() => setInstallationCreationReasons(FALLBACK_INSTALLATION_CREATION_REASONS));
+    api.systemLists.getItemsByCode('device_disconnection_creation_reasons')
+      .then((rows: any) => setDisconnectionCreationReasons(normalizeCreationReasons(rows, FALLBACK_DISCONNECTION_CREATION_REASONS)))
+      .catch(() => setDisconnectionCreationReasons(FALLBACK_DISCONNECTION_CREATION_REASONS));
   }, [showDialog, device?.branchId]);
 
   function openDialog() {
@@ -218,6 +405,13 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
     setDueDate(new Date().toISOString().split('T')[0]);
     setPriority('medium');
     setNotes('');
+    setRetrievalCreationReason(FALLBACK_RETRIEVAL_CREATION_REASONS[0].value);
+    setReturnCreationReason(FALLBACK_RETURN_CREATION_REASONS[0].value);
+    setCheckupCreationReason(FALLBACK_CHECKUP_CREATION_REASONS[0].value);
+    setTransferCreationReason(FALLBACK_TRANSFER_CREATION_REASONS[0].value);
+    setDeliveryCreationReason(FALLBACK_DELIVERY_CREATION_REASONS[0].value);
+    setInstallationCreationReason(FALLBACK_INSTALLATION_CREATION_REASONS[0].value);
+    setDisconnectionCreationReason(FALLBACK_DISCONNECTION_CREATION_REASONS[0].value);
     setPeriodicReason('bootstrap جهاز قائم');
     setPeriodicIntervalMonths('');
     setTransferKind('same_customer_new_address');
@@ -229,14 +423,211 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
     setShowDialog(true);
   }
 
+  async function createDeliveryTask() {
+    setError(null);
+    const fallbackReason = device?.contractId ? 'sale_delivery' : 'manual_delivery';
+    const options = creationOptionsFor(fallbackReason, deliveryCreationReasons, FALLBACK_DELIVERY_CREATION_REASONS);
+    const selected = selectedCreationOption(deliveryCreationReason, options);
+    const creationReason = selected?.value ?? '';
+    const taskReason = selected?.systemReason || fallbackReason;
+    if (!dueDate) {
+      setError('تاريخ المهمة مطلوب');
+      return;
+    }
+    if (!creationReason) {
+      setError('سبب إنشاء مهمة التسليم مطلوب');
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.openTasks.create({
+        clientId: device.customerId,
+        branchId: device.branchId,
+        installedDeviceId: device.id,
+        taskType: 'device_delivery',
+        taskFamily: 'delivery',
+        reason: taskReason,
+        creationReason,
+        contractId: device.contractId,
+        deliveryAddress: device.installationAddressText || undefined,
+        dueDate,
+        priority,
+        notes: notes.trim() || null,
+      });
+      setShowDialog(false);
+      onTaskCreated?.();
+    } catch (err: any) {
+      setError(err?.message || 'فشل إنشاء مهمة تسليم الجهاز');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createInstallationTask() {
+    setError(null);
+    const options = installationCreationReasons.length > 0 ? installationCreationReasons : FALLBACK_INSTALLATION_CREATION_REASONS;
+    const selected = selectedCreationOption(installationCreationReason, options);
+    const creationReason = selected?.value ?? '';
+    const geoUnitId = Number(device?.installationGeoUnitId);
+    const addressText = String(device?.installationAddressText ?? '').trim();
+    if (!dueDate) {
+      setError('تاريخ المهمة مطلوب');
+      return;
+    }
+    if (!creationReason) {
+      setError('سبب إنشاء مهمة التركيب مطلوب');
+      return;
+    }
+    if (!Number.isInteger(geoUnitId) || geoUnitId <= 0 || !addressText) {
+      setError('لا يمكن إنشاء مهمة تركيب قبل اكتمال عنوان تركيب الجهاز في تفاصيل الجهاز.');
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.openTasks.create({
+        clientId: device.customerId,
+        branchId: device.branchId,
+        installedDeviceId: device.id,
+        taskType: 'device_installation',
+        taskFamily: 'delivery',
+        reason: selected?.systemReason || 'other',
+        creationReason,
+        contractId: device.contractId,
+        deliveryAddress: addressText,
+        dueDate,
+        priority,
+        installationGeoUnitId: geoUnitId,
+        installationAddressText: addressText,
+        installationLat: device.installationLat ?? null,
+        installationLng: device.installationLng ?? null,
+        notes: notes.trim() || null,
+      });
+      setShowDialog(false);
+      onTaskCreated?.();
+    } catch (err: any) {
+      setError(err?.message || 'فشل إنشاء مهمة تركيب الجهاز');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createActivationTask() {
+    setError(null);
+    if (!dueDate) {
+      setError('تاريخ المهمة مطلوب');
+      return;
+    }
+    if (!device?.installationAddressText) {
+      setError('لا يمكن إنشاء مهمة تشغيل قبل اكتمال عنوان تركيب الجهاز.');
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.openTasks.create({
+        clientId: device.customerId,
+        branchId: device.branchId,
+        installedDeviceId: device.id,
+        taskType: 'device_activation',
+        taskFamily: 'delivery',
+        reason: 'other',
+        contractId: device.contractId,
+        deliveryAddress: device.installationAddressText || undefined,
+        expectedDate: dueDate,
+        dueDate,
+        priority,
+        notes: notes.trim() || null,
+      });
+      setShowDialog(false);
+      onTaskCreated?.();
+    } catch (err: any) {
+      setError(err?.message || 'فشل إنشاء مهمة تشغيل الجهاز');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createDisconnectionTask() {
+    setError(null);
+    const options = disconnectionCreationReasons.length > 0 ? disconnectionCreationReasons : FALLBACK_DISCONNECTION_CREATION_REASONS;
+    const selected = selectedCreationOption(disconnectionCreationReason, options);
+    const creationReason = selected?.value ?? '';
+    if (!dueDate) {
+      setError('تاريخ المهمة مطلوب');
+      return;
+    }
+    if (!creationReason) {
+      setError('سبب إنشاء مهمة الفك مطلوب');
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.openTasks.create({
+        clientId: device.customerId,
+        branchId: device.branchId,
+        installedDeviceId: device.id,
+        taskType: 'device_disconnection',
+        taskFamily: 'service',
+        reason: selected?.systemReason || 'customer_request',
+        creationReason,
+        contractId: device.contractId,
+        deliveryAddress: device.installationAddressText || undefined,
+        dueDate,
+        priority,
+        notes: notes.trim() || null,
+      });
+      setShowDialog(false);
+      onTaskCreated?.();
+    } catch (err: any) {
+      setError(err?.message || 'فشل إنشاء مهمة فك الجهاز');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createEmergencyTask() {
+    setError(null);
+    if (!dueDate) {
+      setError('تاريخ المهمة مطلوب');
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.openTasks.create({
+        clientId: device.customerId,
+        branchId: device.branchId,
+        installedDeviceId: device.id,
+        taskType: 'emergency_maintenance',
+        taskFamily: 'service',
+        reason: 'service_request',
+        contractId: device.contractId,
+        dueDate,
+        priority,
+        notes: notes.trim() || null,
+      });
+      setShowDialog(false);
+      onTaskCreated?.();
+    } catch (err: any) {
+      setError(err?.message || 'فشل إنشاء مهمة الصيانة الطارئة');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function createRetrievalTask() {
     setError(null);
+    const taskReason = retrievalPurpose === 'maintenance' ? 'device_retrieval_maintenance' : 'device_retrieval_replacement';
+    const creationOptions = creationOptionsFor(taskReason, retrievalCreationReasons, FALLBACK_RETRIEVAL_CREATION_REASONS);
+    const creationReason = selectedCreationReason(retrievalCreationReason, creationOptions);
     if (!serviceBranchId) {
       setError('اختر فرع الخدمة');
       return;
     }
     if (!dueDate) {
       setError('تاريخ المهمة مطلوب');
+      return;
+    }
+    if (!creationReason) {
+      setError('سبب إنشاء مهمة السحب مطلوب');
       return;
     }
     setBusy(true);
@@ -247,7 +638,8 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
         installedDeviceId: device.id,
         taskType: 'device_retrieval',
         taskFamily: 'service',
-        reason: retrievalPurpose === 'maintenance' ? 'device_retrieval_maintenance' : 'device_retrieval_replacement',
+        reason: taskReason,
+        creationReason,
         contractId: device.contractId,
         dueDate,
         priority,
@@ -266,8 +658,16 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
 
   async function createReturnTask() {
     setError(null);
+    const creationOptions = returnCreationReasons.length > 0 ? returnCreationReasons : FALLBACK_RETURN_CREATION_REASONS;
+    const creationOption = selectedCreationOption(returnCreationReason, creationOptions);
+    const creationReason = creationOption?.value ?? '';
+    const taskReason = creationOption?.systemReason || 'device_return_after_maintenance';
     if (!dueDate) {
       setError('تاريخ المهمة مطلوب');
+      return;
+    }
+    if (!creationReason) {
+      setError('سبب إنشاء مهمة الإرجاع مطلوب');
       return;
     }
     setBusy(true);
@@ -278,7 +678,8 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
         installedDeviceId: device.id,
         taskType: 'device_return',
         taskFamily: 'service',
-        reason: 'device_return_after_maintenance',
+        reason: taskReason,
+        creationReason,
         contractId: device.contractId,
         dueDate,
         priority,
@@ -295,8 +696,16 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
 
   async function createCheckupTask() {
     setError(null);
+    const creationOptions = checkupCreationReasons.length > 0 ? checkupCreationReasons : FALLBACK_CHECKUP_CREATION_REASONS;
+    const creationOption = selectedCreationOption(checkupCreationReason, creationOptions);
+    const creationReason = creationOption?.value ?? '';
+    const taskReason = creationOption?.systemReason || 'device_checkup';
     if (!dueDate) {
       setError('تاريخ المهمة مطلوب');
+      return;
+    }
+    if (!creationReason) {
+      setError('سبب إنشاء مهمة التشييك مطلوب');
       return;
     }
     setBusy(true);
@@ -307,7 +716,8 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
         installedDeviceId: device.id,
         taskType: 'device_checkup',
         taskFamily: 'service',
-        reason: 'device_checkup',
+        reason: taskReason,
+        creationReason,
         contractId: device.contractId,
         dueDate,
         priority,
@@ -325,6 +735,11 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
   async function createTransferTask() {
     setError(null);
     const neighborhoodId = transferGeoSelection.neighborhoodId;
+    const fallbackReason = transferKind === 'another_customer' ? 'device_transfer_another_customer' : 'device_transfer_same_customer_new_address';
+    const creationOptions = creationOptionsFor(fallbackReason, transferCreationReasons, FALLBACK_TRANSFER_CREATION_REASONS);
+    const creationOption = selectedCreationOption(transferCreationReason, creationOptions);
+    const creationReason = creationOption?.value ?? '';
+    const taskReason = creationOption?.systemReason || fallbackReason;
     if (!dueDate) {
       setError('تاريخ المهمة مطلوب');
       return;
@@ -341,6 +756,10 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
       setError('اختر الزبون الجديد');
       return;
     }
+    if (!creationReason) {
+      setError('سبب إنشاء مهمة النقل مطلوب');
+      return;
+    }
     setBusy(true);
     try {
       await api.openTasks.create({
@@ -349,7 +768,8 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
         installedDeviceId: device.id,
         taskType: 'device_transfer',
         taskFamily: 'service',
-        reason: transferKind === 'another_customer' ? 'device_transfer_another_customer' : 'device_transfer_same_customer_new_address',
+        reason: taskReason,
+        creationReason,
         dueDate,
         priority,
         transferKind,
@@ -396,52 +816,74 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
     }
   }
 
+  // Columns mirror the original raw table 1:1 (design-only migration to <SmartTable>).
+  const columns: ColumnDef<any>[] = [
+    {
+      key: 'id', label: '#',
+      render: t => <Link to={`/tasks/${t.id}`} className="font-mono text-sm text-slate-500 hover:text-sky-600 hover:underline">#{t.id}</Link>,
+    },
+    { key: 'taskType', label: 'النوع', render: t => <span className="text-sm text-slate-700">{TASK_LABELS[t.taskType] ?? t.taskType}</span> },
+    { key: 'taskFamily', label: 'العائلة', render: t => <span className="text-sm text-slate-500">{TASK_FAMILY_LABELS[t.taskFamily] ?? t.taskFamily}</span> },
+    { key: 'dueDate', label: 'تاريخ الاستحقاق', render: t => <span className="text-sm text-slate-700">{fmt(t.dueDate)}</span> },
+    {
+      key: 'status', label: 'الحالة',
+      render: t => {
+        const st = STATUS_LABEL[t.status] ?? { cls: 'bg-slate-100 text-slate-600', label: t.status };
+        return <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${st.cls}`}>{st.label}</span>;
+      },
+    },
+  ];
+
+  const retrievalReasonCode = retrievalPurpose === 'maintenance' ? 'device_retrieval_maintenance' : 'device_retrieval_replacement';
+  const retrievalCreationOptions = creationOptionsFor(retrievalReasonCode, retrievalCreationReasons, FALLBACK_RETRIEVAL_CREATION_REASONS);
+  const returnCreationOptions = returnCreationReasons.length > 0 ? returnCreationReasons : FALLBACK_RETURN_CREATION_REASONS;
+  const checkupCreationOptions = checkupCreationReasons.length > 0 ? checkupCreationReasons : FALLBACK_CHECKUP_CREATION_REASONS;
+  const transferReasonCode = transferKind === 'another_customer' ? 'device_transfer_another_customer' : 'device_transfer_same_customer_new_address';
+  const transferCreationOptions = creationOptionsFor(transferReasonCode, transferCreationReasons, FALLBACK_TRANSFER_CREATION_REASONS);
+  const deliveryReasonCode = device?.contractId ? 'sale_delivery' : 'manual_delivery';
+  const deliveryCreationOptions = creationOptionsFor(deliveryReasonCode, deliveryCreationReasons, FALLBACK_DELIVERY_CREATION_REASONS);
+  const installationCreationOptions = installationCreationReasons.length > 0 ? installationCreationReasons : FALLBACK_INSTALLATION_CREATION_REASONS;
+  const disconnectionCreationOptions = disconnectionCreationReasons.length > 0 ? disconnectionCreationReasons : FALLBACK_DISCONNECTION_CREATION_REASONS;
+  const selectedRetrievalCreationReason = selectedCreationReason(retrievalCreationReason, retrievalCreationOptions);
+  const selectedReturnCreationReason = selectedCreationReason(returnCreationReason, returnCreationOptions);
+  const selectedCheckupCreationReason = selectedCreationReason(checkupCreationReason, checkupCreationOptions);
+  const selectedTransferCreationReason = selectedCreationReason(transferCreationReason, transferCreationOptions);
+  const selectedDeliveryCreationReason = selectedCreationReason(deliveryCreationReason, deliveryCreationOptions);
+  const selectedInstallationCreationReason = selectedCreationReason(installationCreationReason, installationCreationOptions);
+  const selectedDisconnectionCreationReason = selectedCreationReason(disconnectionCreationReason, disconnectionCreationOptions);
+  const lifecycleModeConfig =
+    mode === 'delivery'
+      ? { title: 'مهمة التسليم', helper: 'تسليم جهاز بانتظار التسليم إلى موقع الزبون.', reasonLabel: 'سبب إنشاء مهمة التسليم' }
+      : mode === 'installation'
+        ? { title: 'مهمة التركيب', helper: 'تركيب جهاز مُسلّم على عنوان التركيب المسجل في تفاصيل الجهاز.', reasonLabel: 'سبب إنشاء مهمة التركيب' }
+        : mode === 'activation'
+          ? { title: 'مهمة التشغيل', helper: 'تشغيل جهاز مركّب والتأكد من جاهزيته للخدمة.', reasonLabel: '' }
+          : mode === 'disconnection'
+            ? { title: 'مهمة الفك', helper: 'فك جهاز فعّال تمهيداً للسحب أو النقل أو الإيقاف.', reasonLabel: 'سبب إنشاء مهمة الفك' }
+            : mode === 'emergency'
+              ? { title: 'مهمة صيانة طارئة', helper: 'فتح صيانة طارئة مع وصف العطل أو الملاحظة الفنية.', reasonLabel: '' }
+              : null;
+
   return (
-    <SectionShell
-      id="tasks"
-      title="المهام المرتبطة"
-      subtitle="كل المهام الميدانية على هذا الجهاز"
-      actions={
-        <Button size="sm" icon={ClipboardList} onClick={openDialog}>
-          إضافة مهمة جديدة
-        </Button>
-      }
-    >
-      {myTasks.length === 0 ? (
-        <p className="text-xs text-slate-400 italic">لا مهام مرتبطة بهذا الجهاز.</p>
-      ) : (
-        <table className="w-full text-xs">
-          <thead className="text-slate-400 font-bold">
-            <tr className="border-b border-slate-100">
-              <th className="text-right py-2 px-2">#</th>
-              <th className="text-right py-2 px-2">النوع</th>
-              <th className="text-right py-2 px-2">العائلة</th>
-              <th className="text-right py-2 px-2">تاريخ الاستحقاق</th>
-              <th className="text-right py-2 px-2">الحالة</th>
-            </tr>
-          </thead>
-          <tbody>
-            {myTasks.map(t => {
-              const st = STATUS_LABEL[t.status] ?? { cls: 'bg-slate-100 text-slate-600', label: t.status };
-              return (
-                <tr key={t.id} className="border-b border-slate-50 last:border-0">
-                  <td className="py-2 px-2 font-mono text-slate-500">
-                    <Link to={`/tasks/${t.id}`} className="hover:text-sky-600 hover:underline">#{t.id}</Link>
-                  </td>
-                  <td className="py-2 px-2 text-slate-700">{t.taskType}</td>
-                  <td className="py-2 px-2 text-slate-500">{t.taskFamily}</td>
-                  <td className="py-2 px-2 text-slate-700">{fmt(t.dueDate)}</td>
-                  <td className="py-2 px-2">
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${st.cls}`}>
-                      {st.label}
-                    </span>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
+    <section id="tasks" className="scroll-mt-16">
+      <SmartTable<any>
+        title="المهام المرتبطة"
+        subtitle="كل المهام الميدانية على هذا الجهاز"
+        icon={ClipboardList}
+        data={myTasks}
+        columns={columns}
+        getId={t => t.id}
+        hideFilterBar
+        paginated={false}
+        tableMinWidth={620}
+        headerActions={
+          <Button size="sm" icon={ClipboardList} onClick={openDialog}>
+            إضافة مهمة جديدة
+          </Button>
+        }
+        emptyIcon={ClipboardList}
+        emptyMessage="لا مهام مرتبطة بهذا الجهاز."
+      />
 
       {showDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" dir="rtl">
@@ -468,23 +910,22 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
                 <div className="grid gap-3 md:grid-cols-4">
                   {TASK_OPTIONS.map(({ type, label, Icon }) => {
                     const availability = taskAvailability(type, device, myTasks);
-                    const enabled = availability.allowed && (
-                      type === 'device_checkup'
-                      || type === 'device_retrieval'
-                      || type === 'device_return'
-                      || type === 'device_transfer'
-                      || (type === 'periodic_maintenance' && hasPermission('tasks.periodic.create_manual'))
-                    );
+                    const enabled = availability.allowed && (type !== 'periodic_maintenance' || hasPermission('tasks.periodic.create_manual'));
                     return (
                       <button
                         key={type}
                         type="button"
                         disabled={!enabled}
                         onClick={() => {
+                          if (type === 'device_delivery') setMode('delivery');
+                          if (type === 'device_installation') setMode('installation');
+                          if (type === 'device_activation') setMode('activation');
+                          if (type === 'device_disconnection') setMode('disconnection');
                           if (type === 'device_retrieval') setMode('retrieval');
                           if (type === 'device_checkup') setMode('checkup');
                           if (type === 'device_return') setMode('return');
                           if (type === 'device_transfer') setMode('transfer');
+                          if (type === 'emergency_maintenance') setMode('emergency');
                           if (type === 'periodic_maintenance') setMode('periodic');
                         }}
                         className={`min-h-[132px] rounded-lg border p-3 text-right transition ${
@@ -503,14 +944,97 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
                         </div>
                         <div className="mt-1 text-xs leading-relaxed">{availability.reason}</div>
                         {availability.allowed && type === 'periodic_maintenance' && !hasPermission('tasks.periodic.create_manual') && (
-                          <div className="mt-2 text-[11px] font-bold text-amber-600">تحتاج صلاحية إنشاء دورية يدوياً</div>
-                        )}
-                        {availability.allowed && type !== 'device_checkup' && type !== 'device_retrieval' && type !== 'device_return' && type !== 'device_transfer' && type !== 'periodic_maintenance' && (
-                          <div className="mt-2 text-[11px] font-bold text-amber-600">نموذج الإنشاء سيضاف لاحقاً</div>
+                          <div className="mt-2 text-xs font-bold text-amber-600">تحتاج صلاحية إنشاء دورية يدوياً</div>
                         )}
                       </button>
                     );
                   })}
+                </div>
+              )}
+
+              {lifecycleModeConfig && (
+                <div className="space-y-4">
+                  <button onClick={() => setMode('choose')} className="text-xs font-bold text-sky-700 hover:underline">
+                    رجوع لاختيار نوع المهمة
+                  </button>
+                  <div className="text-sm font-black text-slate-900">{lifecycleModeConfig.title}</div>
+
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3">
+                    <div className="text-xs font-bold text-slate-400">الجهاز</div>
+                    <div className="mt-1 text-sm font-black text-slate-800">
+                      {device?.deviceModelName || device?.serialNumber || `جهاز #${device?.id}`}
+                    </div>
+                    <div className="mt-1 text-xs text-slate-500">الحالة الحالية: {deviceStatusLabel(device?.status)}</div>
+                    <div className="mt-2 text-xs leading-relaxed text-slate-600">{lifecycleModeConfig.helper}</div>
+                  </div>
+
+                  {mode === 'installation' && (!device?.installationGeoUnitId || !String(device?.installationAddressText ?? '').trim()) && (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">
+                      يجب استكمال حي وعنوان التركيب في تفاصيل الجهاز قبل إنشاء مهمة التركيب.
+                    </div>
+                  )}
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {mode === 'delivery' && (
+                      <label className="space-y-1.5">
+                        <span className="text-xs font-bold text-slate-500">{lifecycleModeConfig.reasonLabel}</span>
+                        <Select<string>
+                          value={selectedDeliveryCreationReason}
+                          onChange={setDeliveryCreationReason}
+                          ariaLabel={lifecycleModeConfig.reasonLabel}
+                          className="w-full"
+                          options={deliveryCreationOptions.map((item) => ({ value: item.value, label: item.label }))}
+                        />
+                      </label>
+                    )}
+
+                    {mode === 'installation' && (
+                      <label className="space-y-1.5">
+                        <span className="text-xs font-bold text-slate-500">{lifecycleModeConfig.reasonLabel}</span>
+                        <Select<string>
+                          value={selectedInstallationCreationReason}
+                          onChange={setInstallationCreationReason}
+                          ariaLabel={lifecycleModeConfig.reasonLabel}
+                          className="w-full"
+                          options={installationCreationOptions.map((item) => ({ value: item.value, label: item.label }))}
+                        />
+                      </label>
+                    )}
+
+                    {mode === 'disconnection' && (
+                      <label className="space-y-1.5">
+                        <span className="text-xs font-bold text-slate-500">{lifecycleModeConfig.reasonLabel}</span>
+                        <Select<string>
+                          value={selectedDisconnectionCreationReason}
+                          onChange={setDisconnectionCreationReason}
+                          ariaLabel={lifecycleModeConfig.reasonLabel}
+                          className="w-full"
+                          options={disconnectionCreationOptions.map((item) => ({ value: item.value, label: item.label }))}
+                        />
+                      </label>
+                    )}
+
+                    <label className="space-y-1.5">
+                      <span className="text-xs font-bold text-slate-500">تاريخ المهمة</span>
+                      <DateField value={dueDate} onChange={setDueDate} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
+                    </label>
+
+                    <label className="space-y-1.5">
+                      <span className="text-xs font-bold text-slate-500">الأولوية</span>
+                      <Select<'high' | 'medium' | 'low'>
+                        value={priority}
+                        onChange={setPriority}
+                        ariaLabel="الأولوية"
+                        className="w-full"
+                        options={PRIORITY_OPTIONS}
+                      />
+                    </label>
+                  </div>
+
+                  <label className="block space-y-1.5">
+                    <span className="text-xs font-bold text-slate-500">ملاحظات</span>
+                    <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                  </label>
                 </div>
               )}
 
@@ -525,13 +1049,22 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
                     <div className="mt-1 text-sm font-black text-slate-800">
                       {device?.deviceModelName || device?.serialNumber || `جهاز #${device?.id}`}
                     </div>
-                    <div className="mt-1 text-xs text-slate-500">الحالة الحالية: {device?.status}</div>
+                    <div className="mt-1 text-xs text-slate-500">الحالة الحالية: {deviceStatusLabel(device?.status)}</div>
+                    {device?.contractId != null && (
+                      <div className="mt-1 text-xs text-slate-500">أساس الجدولة: عقد #{device.contractId}</div>
+                    )}
+                    {device?.activeServiceAgreementId != null && (
+                      <div className="mt-1 text-xs text-slate-500">
+                        أساس الجدولة: اتفاق خدمة #{device.activeServiceAgreementId}
+                        {device?.activeServiceAgreementMaintenancePlan ? ` - ${device.activeServiceAgreementMaintenancePlan}` : ''}
+                      </div>
+                    )}
                   </div>
 
                   <div className="grid gap-4 md:grid-cols-2">
                     <label className="space-y-1.5">
                       <span className="text-xs font-bold text-slate-500">تاريخ الاستحقاق</span>
-                      <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
+                      <DateField value={dueDate} onChange={setDueDate} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
                     </label>
 
                     <label className="space-y-1.5">
@@ -541,12 +1074,7 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
                         onChange={setPeriodicReason}
                         ariaLabel="سبب الإنشاء اليدوي"
                         className="w-full"
-                        options={[
-                          { value: 'bootstrap جهاز قائم', label: 'bootstrap جهاز قائم' },
-                          { value: 'تصحيح جدول الصيانة', label: 'تصحيح جدول الصيانة' },
-                          { value: 'طلب زيارة خارج الدورة', label: 'طلب زيارة خارج الدورة' },
-                          { value: 'أخرى', label: 'أخرى' },
-                        ]}
+                        options={periodicCreationReasons}
                       />
                     </label>
 
@@ -557,7 +1085,7 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
                         min={1}
                         value={periodicIntervalMonths}
                         onChange={(e) => setPeriodicIntervalMonths(e.target.value)}
-                        placeholder="اتركها فارغة لاستخدام العقد"
+                        placeholder="اتركها فارغة لاستخدام العقد أو اتفاق الخدمة"
                         className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
                       />
                     </label>
@@ -581,7 +1109,7 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
                     <div className="mt-1 text-sm font-black text-slate-800">
                       {device?.deviceModelName || device?.serialNumber || `جهاز #${device?.id}`}
                     </div>
-                    <div className="mt-1 text-xs text-slate-500">الحالة الحالية: {device?.status}</div>
+                    <div className="mt-1 text-xs text-slate-500">الحالة الحالية: {deviceStatusLabel(device?.status)}</div>
                   </div>
 
                   <div className="grid gap-4 md:grid-cols-2">
@@ -600,6 +1128,17 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
                     </label>
 
                     <label className="space-y-1.5">
+                      <span className="text-xs font-bold text-slate-500">سبب إنشاء مهمة السحب</span>
+                      <Select<string>
+                        value={selectedRetrievalCreationReason}
+                        onChange={setRetrievalCreationReason}
+                        ariaLabel="سبب إنشاء مهمة السحب"
+                        className="w-full"
+                        options={retrievalCreationOptions.map((item) => ({ value: item.value, label: item.label }))}
+                      />
+                    </label>
+
+                    <label className="space-y-1.5">
                       <span className="text-xs font-bold text-slate-500">فرع الخدمة</span>
                       <select value={serviceBranchId} onChange={(e) => setServiceBranchId(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
                         <option value="">اختر فرع الخدمة</option>
@@ -611,7 +1150,7 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
 
                     <label className="space-y-1.5">
                       <span className="text-xs font-bold text-slate-500">تاريخ المهمة</span>
-                      <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
+                      <DateField value={dueDate} onChange={setDueDate} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
                     </label>
 
                     <label className="space-y-1.5">
@@ -648,13 +1187,24 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
                     <div className="mt-1 text-sm font-black text-slate-800">
                       {device?.deviceModelName || device?.serialNumber || `جهاز #${device?.id}`}
                     </div>
-                    <div className="mt-1 text-xs text-slate-500">الحالة الحالية: {device?.status}</div>
+                    <div className="mt-1 text-xs text-slate-500">الحالة الحالية: {deviceStatusLabel(device?.status)}</div>
                   </div>
 
                   <div className="grid gap-4 md:grid-cols-2">
                     <label className="space-y-1.5">
+                      <span className="text-xs font-bold text-slate-500">سبب إنشاء مهمة الإرجاع</span>
+                      <Select<string>
+                        value={selectedReturnCreationReason}
+                        onChange={setReturnCreationReason}
+                        ariaLabel="سبب إنشاء مهمة الإرجاع"
+                        className="w-full"
+                        options={returnCreationOptions.map((item) => ({ value: item.value, label: item.label }))}
+                      />
+                    </label>
+
+                    <label className="space-y-1.5">
                       <span className="text-xs font-bold text-slate-500">تاريخ المهمة</span>
-                      <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
+                      <DateField value={dueDate} onChange={setDueDate} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
                     </label>
 
                     <label className="space-y-1.5">
@@ -690,13 +1240,24 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
                     <div className="mt-1 text-sm font-black text-slate-800">
                       {device?.deviceModelName || device?.serialNumber || `جهاز #${device?.id}`}
                     </div>
-                    <div className="mt-1 text-xs text-slate-500">الحالة الحالية: {device?.status}</div>
+                    <div className="mt-1 text-xs text-slate-500">الحالة الحالية: {deviceStatusLabel(device?.status)}</div>
                   </div>
 
                   <div className="grid gap-4 md:grid-cols-2">
                     <label className="space-y-1.5">
+                      <span className="text-xs font-bold text-slate-500">سبب إنشاء مهمة التشييك</span>
+                      <Select<string>
+                        value={selectedCheckupCreationReason}
+                        onChange={setCheckupCreationReason}
+                        ariaLabel="سبب إنشاء مهمة التشييك"
+                        className="w-full"
+                        options={checkupCreationOptions.map((item) => ({ value: item.value, label: item.label }))}
+                      />
+                    </label>
+
+                    <label className="space-y-1.5">
                       <span className="text-xs font-bold text-slate-500">تاريخ المهمة</span>
-                      <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
+                      <DateField value={dueDate} onChange={setDueDate} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
                     </label>
 
                     <label className="space-y-1.5">
@@ -732,7 +1293,7 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
                     <div className="mt-1 text-sm font-black text-slate-800">
                       {device?.deviceModelName || device?.serialNumber || `جهاز #${device?.id}`}
                     </div>
-                    <div className="mt-1 text-xs text-slate-500">الحالة الحالية: {device?.status}</div>
+                    <div className="mt-1 text-xs text-slate-500">الحالة الحالية: {deviceStatusLabel(device?.status)}</div>
                   </div>
 
                   <div className="grid gap-4 md:grid-cols-2">
@@ -747,6 +1308,17 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
                           { value: 'same_customer_new_address', label: 'إلى عنوان جديد لنفس الزبون' },
                           { value: 'another_customer', label: 'إلى زبون آخر' },
                         ]}
+                      />
+                    </label>
+
+                    <label className="space-y-1.5">
+                      <span className="text-xs font-bold text-slate-500">سبب إنشاء مهمة النقل</span>
+                      <Select<string>
+                        value={selectedTransferCreationReason}
+                        onChange={setTransferCreationReason}
+                        ariaLabel="سبب إنشاء مهمة النقل"
+                        className="w-full"
+                        options={transferCreationOptions.map((item) => ({ value: item.value, label: item.label }))}
                       />
                     </label>
 
@@ -766,7 +1338,7 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
 
                     <label className="space-y-1.5">
                       <span className="text-xs font-bold text-slate-500">تاريخ المهمة</span>
-                      <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
+                      <DateField value={dueDate} onChange={setDueDate} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
                     </label>
 
                     <label className="space-y-1.5">
@@ -817,22 +1389,52 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
                   </label>
                 </div>
               )}
-              {mode === 'return' && (
-                <button onClick={createReturnTask} disabled={busy} className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-bold text-white hover:bg-sky-500 disabled:opacity-60">
-                  {busy && <Loader2 className="h-4 w-4 animate-spin" />}
-                  إنشاء مهمة الإرجاع
-                </button>
-              )}
             </div>
 
             <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
               <button onClick={() => setShowDialog(false)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50">
                 إلغاء
               </button>
+              {mode === 'delivery' && (
+                <button onClick={createDeliveryTask} disabled={busy} className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-bold text-white hover:bg-sky-500 disabled:opacity-60">
+                  {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+                  إنشاء مهمة التسليم
+                </button>
+              )}
+              {mode === 'installation' && (
+                <button onClick={createInstallationTask} disabled={busy} className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-bold text-white hover:bg-sky-500 disabled:opacity-60">
+                  {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+                  إنشاء مهمة التركيب
+                </button>
+              )}
+              {mode === 'activation' && (
+                <button onClick={createActivationTask} disabled={busy} className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-bold text-white hover:bg-sky-500 disabled:opacity-60">
+                  {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+                  إنشاء مهمة التشغيل
+                </button>
+              )}
+              {mode === 'disconnection' && (
+                <button onClick={createDisconnectionTask} disabled={busy} className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-bold text-white hover:bg-sky-500 disabled:opacity-60">
+                  {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+                  إنشاء مهمة الفك
+                </button>
+              )}
+              {mode === 'emergency' && (
+                <button onClick={createEmergencyTask} disabled={busy} className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-bold text-white hover:bg-sky-500 disabled:opacity-60">
+                  {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+                  إنشاء صيانة طارئة
+                </button>
+              )}
               {mode === 'retrieval' && (
                 <button onClick={createRetrievalTask} disabled={busy} className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-bold text-white hover:bg-sky-500 disabled:opacity-60">
                   {busy && <Loader2 className="h-4 w-4 animate-spin" />}
                   إنشاء مهمة السحب
+                </button>
+              )}
+              {mode === 'return' && (
+                <button onClick={createReturnTask} disabled={busy} className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-bold text-white hover:bg-sky-500 disabled:opacity-60">
+                  {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+                  إنشاء مهمة الإرجاع
                 </button>
               )}
               {mode === 'checkup' && (
@@ -857,7 +1459,7 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
           </div>
         </div>
       )}
-    </SectionShell>
+    </section>
   );
 }
 

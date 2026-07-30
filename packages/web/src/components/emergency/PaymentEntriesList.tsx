@@ -1,4 +1,4 @@
-import { Plus, X } from 'lucide-react';
+import { Plus, X } from '../ui/icons';
 import { useSystemListItems } from '../../hooks/useSystemListItems';
 import Select from '../ui/Select';
 import Input from '../ui/Input';
@@ -6,10 +6,12 @@ import Input from '../ui/Input';
 export interface PaymentEntry {
   _key: string;       // client-side unique key
   method: 'hand' | 'transfer' | 'barter' | '';
+  paymentInstrument: 'cash' | 'sham_cash' | 'syriatel_cash' | 'mtn_cash' | 'alharam' | 'bank_transfer' | 'barter' | '';
   amountValue: string;
   currency: 'syp' | 'usd';
   exchangeRate: string;
   transferCompanyId: string;
+  referenceNumber: string;
   barterDescription: string;
 }
 
@@ -19,11 +21,12 @@ interface Props {
   disabled?: boolean;
   grandTotal?: number;   // for comparison display
   label?: string;
+  capturePaymentInstrument?: boolean;
 }
 
 let keyCounter = 0;
 export function newEntry(): PaymentEntry {
-  return { _key: String(++keyCounter), method: '', amountValue: '', currency: 'syp', exchangeRate: '', transferCompanyId: '', barterDescription: '' };
+  return { _key: String(++keyCounter), method: '', paymentInstrument: '', amountValue: '', currency: 'syp', exchangeRate: '', transferCompanyId: '', referenceNumber: '', barterDescription: '' };
 }
 
 function entrySyp(e: PaymentEntry): number {
@@ -38,7 +41,15 @@ const METHOD_META = [
   { value: 'barter',   label: 'مقايضة',  icon: '🔄' },
 ] as const;
 
-export default function PaymentEntriesList({ entries, onChange, disabled, grandTotal, label }: Props) {
+const TRANSFER_INSTRUMENTS = [
+  { value: 'sham_cash', label: 'شام كاش' },
+  { value: 'syriatel_cash', label: 'سيريتل كاش' },
+  { value: 'mtn_cash', label: 'MTN كاش' },
+  { value: 'alharam', label: 'الهرم' },
+  { value: 'bank_transfer', label: 'حوالة بنكية' },
+] as const;
+
+export default function PaymentEntriesList({ entries, onChange, disabled, grandTotal, label, capturePaymentInstrument = false }: Props) {
   const transferCompanies = useSystemListItems('transfer_company');
 
   const update = (key: string, patch: Partial<PaymentEntry>) =>
@@ -73,7 +84,16 @@ export default function PaymentEntriesList({ entries, onChange, disabled, grandT
             <div className="flex gap-1.5">
               {METHOD_META.map(m => (
                 <button key={m.value} type="button" disabled={disabled}
-                  onClick={() => update(e._key, { method: m.value, amountValue: '', currency: 'syp', exchangeRate: '', transferCompanyId: '', barterDescription: '' })}
+                  onClick={() => update(e._key, {
+                    method: m.value,
+                    paymentInstrument: m.value === 'hand' ? 'cash' : m.value === 'transfer' ? 'sham_cash' : 'barter',
+                    amountValue: '',
+                    currency: 'syp',
+                    exchangeRate: '',
+                    transferCompanyId: '',
+                    referenceNumber: '',
+                    barterDescription: '',
+                  })}
                   className={`flex-1 flex flex-col items-center gap-0.5 py-2 rounded-xl border-2 text-xs font-bold transition-all ${
                     e.method === m.value
                       ? 'border-rose-400 bg-rose-50 text-rose-700'
@@ -112,7 +132,32 @@ export default function PaymentEntriesList({ entries, onChange, disabled, grandT
 
             {(e.method === 'hand' || e.method === 'transfer') && (
               <div className="space-y-2">
-                {e.method === 'transfer' && (
+                {e.method === 'transfer' && capturePaymentInstrument && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <label className="block text-xs font-bold text-slate-500">أداة الحوالة</label>
+                      <Select
+                        value={e.paymentInstrument}
+                        onChange={v => update(e._key, { paymentInstrument: v as PaymentEntry['paymentInstrument'] })}
+                        disabled={disabled}
+                        ariaLabel="أداة الحوالة"
+                        className="w-full"
+                        options={TRANSFER_INSTRUMENTS.map(item => ({ value: item.value, label: item.label }))}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block text-xs font-bold text-slate-500">رقم الحوالة</label>
+                      <Input
+                        value={e.referenceNumber}
+                        onChange={ev => update(e._key, { referenceNumber: ev.target.value })}
+                        placeholder="—"
+                        disabled={disabled}
+                        dir="ltr"
+                      />
+                    </div>
+                  </div>
+                )}
+                {e.method === 'transfer' && !capturePaymentInstrument && (
                   <div className="space-y-1">
                     <label className="block text-xs font-bold text-slate-500">شركة الحوالة</label>
                     <Select
@@ -161,7 +206,7 @@ export default function PaymentEntriesList({ entries, onChange, disabled, grandT
                         placeholder="ل.س / $" disabled={disabled} dir="ltr" />
                     </div>
                     <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-center">
-                      <div className="text-[9px] text-blue-500 font-bold">يعادل</div>
+                      <div className="text-xs text-blue-500 font-bold">يعادل</div>
                       <div className="text-xs font-black text-blue-700">
                         {syp > 0 ? syp.toLocaleString('ar-SY') : '—'} ل.س
                       </div>

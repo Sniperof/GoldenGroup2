@@ -3,9 +3,12 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
     ChevronRight, Loader2, Package, Clock, Wrench, PenTool, GraduationCap,
     Truck, Gem, Star, Image, Video, FileText, AlertCircle, RefreshCw,
-    Zap, Tag, Plus, Pencil, Trash2, X, Save, ShieldCheck, Cog,
-} from 'lucide-react';
-import IconButton from '../components/ui/IconButton';
+    Zap, Tag, Plus, Pencil, Trash2, Save, ShieldCheck, Cog,
+} from '../components/ui/icons';
+import Modal from '../components/ui/Modal';
+import Checkbox from '../components/ui/Checkbox';
+import DataTable from '../components/ui/DataTable';
+import DateField from '../components/ui/DateField';
 import { api } from '../lib/api';
 import type { DeviceModel, DeviceDiscount, SparePart, MaintenancePartType, CatalogPriceHistoryEntry } from '../lib/types';
 import { usePermissions } from '../hooks/usePermissions';
@@ -540,36 +543,34 @@ export default function DeviceDetail() {
                                 <p className="text-sm">لا يوجد سجل أسعار بعد</p>
                             </div>
                         ) : (
-                            <div className="overflow-hidden rounded-xl border border-slate-200">
-                                <table className="min-w-full divide-y divide-slate-100 text-sm">
-                                    <thead className="bg-slate-50 text-slate-600">
-                                        <tr>
-                                            <th className="px-4 py-3 text-right font-bold">السعر</th>
-                                            <th className="px-4 py-3 text-right font-bold">من تاريخ</th>
-                                            <th className="px-4 py-3 text-right font-bold">حتى تاريخ</th>
-                                            <th className="px-4 py-3 text-right font-bold">الحالة</th>
-                                            <th className="px-4 py-3 text-right font-bold">ملاحظة</th>
-                                            <th className="px-4 py-3 text-right font-bold">أضيف بواسطة</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-100 bg-white">
-                                        {prices.map(p => (
-                                            <tr key={p.id} className="align-middle">
-                                                <td className="px-4 py-3 text-slate-800 font-bold font-mono">{formatPrice(p.price)}</td>
-                                                <td className="px-4 py-3 text-slate-500 text-xs">{formatPriceMoment(p.effectiveFrom)}</td>
-                                                <td className="px-4 py-3 text-slate-500 text-xs">{formatPriceMoment(p.effectiveTo)}</td>
-                                                <td className="px-4 py-3">
-                                                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold ${p.isCurrent ? 'text-sky-700 bg-sky-50' : 'text-slate-500 bg-slate-100'}`}>
-                                                        {p.isCurrent ? 'فعال الآن' : 'تاريخي'}
-                                                    </span>
-                                                </td>
-                                                <td className="px-4 py-3 text-slate-500 text-xs">{p.note || '—'}</td>
-                                                <td className="px-4 py-3 text-slate-500 text-xs">{p.createdByName || '—'}</td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
+                            <DataTable card>
+                                <DataTable.Head>
+                                    <DataTable.Row>
+                                        <DataTable.Th>السعر</DataTable.Th>
+                                        <DataTable.Th>من تاريخ</DataTable.Th>
+                                        <DataTable.Th>حتى تاريخ</DataTable.Th>
+                                        <DataTable.Th>الحالة</DataTable.Th>
+                                        <DataTable.Th>ملاحظة</DataTable.Th>
+                                        <DataTable.Th>أضيف بواسطة</DataTable.Th>
+                                    </DataTable.Row>
+                                </DataTable.Head>
+                                <DataTable.Body>
+                                    {prices.map(p => (
+                                        <DataTable.Row key={p.id} className="align-middle">
+                                            <DataTable.Td className="text-slate-800 font-bold font-mono">{formatPrice(p.price)}</DataTable.Td>
+                                            <DataTable.Td className="text-slate-500 text-xs">{formatPriceMoment(p.effectiveFrom)}</DataTable.Td>
+                                            <DataTable.Td className="text-slate-500 text-xs">{formatPriceMoment(p.effectiveTo)}</DataTable.Td>
+                                            <DataTable.Td>
+                                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold ${p.isCurrent ? 'text-sky-700 bg-sky-50' : 'text-slate-500 bg-slate-100'}`}>
+                                                    {p.isCurrent ? 'فعال الآن' : 'تاريخي'}
+                                                </span>
+                                            </DataTable.Td>
+                                            <DataTable.Td className="text-slate-500 text-xs">{p.note || '—'}</DataTable.Td>
+                                            <DataTable.Td className="text-slate-500 text-xs">{p.createdByName || '—'}</DataTable.Td>
+                                        </DataTable.Row>
+                                    ))}
+                                </DataTable.Body>
+                            </DataTable>
                         )}
                     </div>
                     )}
@@ -601,58 +602,56 @@ export default function DeviceDetail() {
                                 <p className="text-sm">لا توجد حسومات زمنية</p>
                             </div>
                         ) : (
-                            <div className="overflow-hidden rounded-xl border border-slate-200">
-                                <table className="min-w-full divide-y divide-slate-100 text-sm">
-                                    <thead className="bg-slate-50 text-slate-600">
-                                        <tr>
-                                            <th className="px-4 py-3 text-right font-bold">الحملة</th>
-                                            <th className="px-4 py-3 text-right font-bold">%</th>
-                                            <th className="px-4 py-3 text-right font-bold">من تاريخ</th>
-                                            <th className="px-4 py-3 text-right font-bold">حتى تاريخ</th>
-                                            <th className="px-4 py-3 text-right font-bold">حالة</th>
-                                                    {canManageDiscounts && <th className="px-4 py-3 text-right font-bold">إجراءات</th>}
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-100 bg-white">
-                                        {discounts.map(d => {
-                                            const status = getDiscountStatus(d);
-                                            return (
-                                                <tr key={d.id} className="align-middle">
-                                                    <td className="px-4 py-3 font-semibold text-slate-800">{d.label}</td>
-                                                    <td className="px-4 py-3 text-slate-600 font-mono">{d.percentage}%</td>
-                                                    <td className="px-4 py-3 text-slate-500 text-xs">{d.startDate}</td>
-                                                    <td className="px-4 py-3 text-slate-500 text-xs">{d.endDate}</td>
-                                                    <td className="px-4 py-3">
-                                                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold ${status.color}`}>
-                                                            {status.label}
-                                                        </span>
-                                                    </td>
-                                                    {canManageDiscounts && (
-                                                    <td className="px-4 py-3">
-                                                        <div className="flex gap-2">
-                                                            <button
-                                                                onClick={() => handleEditClick(d)}
-                                                                className="p-1.5 rounded-lg text-slate-400 hover:text-sky-600 hover:bg-sky-50 transition-colors"
-                                                                title="تعديل"
-                                                            >
-                                                                <Pencil className="w-3.5 h-3.5" />
-                                                            </button>
-                                                            <button
-                                                                onClick={() => handleDeleteDiscount(d.id)}
-                                                                className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                                                                title="حذف"
-                                                            >
-                                                                <Trash2 className="w-3.5 h-3.5" />
-                                                            </button>
-                                                        </div>
-                                                    </td>
-                                                    )}
-                                                </tr>
-                                            );
-                                        })}
-                                    </tbody>
-                                </table>
-                            </div>
+                            <DataTable card>
+                                <DataTable.Head>
+                                    <DataTable.Row>
+                                        <DataTable.Th>الحملة</DataTable.Th>
+                                        <DataTable.Th>%</DataTable.Th>
+                                        <DataTable.Th>من تاريخ</DataTable.Th>
+                                        <DataTable.Th>حتى تاريخ</DataTable.Th>
+                                        <DataTable.Th>حالة</DataTable.Th>
+                                        {canManageDiscounts && <DataTable.Th>إجراءات</DataTable.Th>}
+                                    </DataTable.Row>
+                                </DataTable.Head>
+                                <DataTable.Body>
+                                    {discounts.map(d => {
+                                        const status = getDiscountStatus(d);
+                                        return (
+                                            <DataTable.Row key={d.id} className="align-middle">
+                                                <DataTable.Td className="font-semibold text-slate-800">{d.label}</DataTable.Td>
+                                                <DataTable.Td className="text-slate-600 font-mono">{d.percentage}%</DataTable.Td>
+                                                <DataTable.Td className="text-slate-500 text-xs">{d.startDate}</DataTable.Td>
+                                                <DataTable.Td className="text-slate-500 text-xs">{d.endDate}</DataTable.Td>
+                                                <DataTable.Td>
+                                                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold ${status.color}`}>
+                                                        {status.label}
+                                                    </span>
+                                                </DataTable.Td>
+                                                {canManageDiscounts && (
+                                                <DataTable.Td>
+                                                    <div className="flex gap-2">
+                                                        <button
+                                                            onClick={() => handleEditClick(d)}
+                                                            className="p-1.5 rounded-lg text-slate-400 hover:text-sky-600 hover:bg-sky-50 transition-colors"
+                                                            title="تعديل"
+                                                        >
+                                                            <Pencil className="w-3.5 h-3.5" />
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleDeleteDiscount(d.id)}
+                                                            className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                                            title="حذف"
+                                                        >
+                                                            <Trash2 className="w-3.5 h-3.5" />
+                                                        </button>
+                                                    </div>
+                                                </DataTable.Td>
+                                                )}
+                                            </DataTable.Row>
+                                        );
+                                    })}
+                                </DataTable.Body>
+                            </DataTable>
                         )}
                     </div>
                     )}
@@ -720,13 +719,24 @@ function PriceModal({ deviceId, currentPrice, onClose, onSaved }: {
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" dir="rtl">
-            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
-                <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-                    <h3 className="text-base font-bold text-slate-800">إضافة سعر جديد</h3>
-                    <IconButton icon={X} label="إغلاق" size="sm" onClick={onClose} />
-                </div>
-
+        <Modal
+            isOpen
+            onClose={onClose}
+            size="md"
+            title="إضافة سعر جديد"
+            footer={
+              <div className="w-full flex gap-3">
+                <button onClick={onClose} className="flex-1 px-4 py-2.5 border border-slate-200 text-slate-700 rounded-xl hover:bg-slate-50 text-sm font-semibold">
+                    إلغاء
+                </button>
+                <button onClick={handleSave} disabled={saving}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-sky-600 text-white rounded-xl hover:bg-sky-500 text-sm font-semibold disabled:opacity-60">
+                    {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                    {saving ? 'جاري الحفظ...' : 'حفظ'}
+                </button>
+              </div>
+            }
+        >
                 <div className="px-5 py-5 space-y-4">
                     {error && (
                         <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 rounded-lg px-3 py-2 text-sm">
@@ -757,22 +767,7 @@ function PriceModal({ deviceId, currentPrice, onClose, onSaved }: {
                         />
                     </div>
                 </div>
-
-                <div className="flex gap-3 px-5 pb-5">
-                    <button onClick={onClose} className="flex-1 px-4 py-2.5 border border-slate-200 text-slate-700 rounded-xl hover:bg-slate-50 text-sm font-semibold">
-                        إلغاء
-                    </button>
-                    <button
-                        onClick={handleSave}
-                        disabled={saving}
-                        className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-sky-600 text-white rounded-xl hover:bg-sky-500 text-sm font-semibold disabled:opacity-60"
-                    >
-                        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                        {saving ? 'جاري الحفظ...' : 'حفظ'}
-                    </button>
-                </div>
-            </div>
-        </div>
+        </Modal>
     );
 }
 
@@ -819,15 +814,24 @@ function DiscountModal({ deviceId, editingDiscount, onClose, onSaved }: {
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" dir="rtl">
-            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
-                <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-                    <h3 className="text-base font-bold text-slate-800">
-                        {editingDiscount ? 'تعديل حملة الخصم' : 'إضافة حملة خصم'}
-                    </h3>
-                    <IconButton icon={X} label="إغلاق" size="sm" onClick={onClose} />
-                </div>
-
+        <Modal
+            isOpen
+            onClose={onClose}
+            size="md"
+            title={editingDiscount ? 'تعديل حملة الخصم' : 'إضافة حملة خصم'}
+            footer={
+              <div className="w-full flex gap-3">
+                <button onClick={onClose} className="flex-1 px-4 py-2.5 border border-slate-200 text-slate-700 rounded-xl hover:bg-slate-50 text-sm font-semibold">
+                    إلغاء
+                </button>
+                <button onClick={handleSave} disabled={saving}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 text-white rounded-xl hover:bg-emerald-500 text-sm font-semibold disabled:opacity-60">
+                    {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                    {saving ? 'جاري الحفظ...' : 'حفظ'}
+                </button>
+              </div>
+            }
+        >
                 <div className="px-5 py-5 space-y-4">
                     {error && (
                         <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 rounded-lg px-3 py-2 text-sm">
@@ -863,49 +867,30 @@ function DiscountModal({ deviceId, editingDiscount, onClose, onSaved }: {
                     <div className="grid grid-cols-2 gap-3">
                         <div>
                             <label className="block text-sm font-medium text-slate-700 mb-1.5">من تاريخ <span className="text-red-500">*</span></label>
-                            <input
-                                type="date"
+                            <DateField
                                 value={startDate}
-                                onChange={e => setStartDate(e.target.value)}
+                                onChange={setStartDate}
                                 className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
                             />
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-slate-700 mb-1.5">حتى تاريخ <span className="text-red-500">*</span></label>
-                            <input
-                                type="date"
+                            <DateField
                                 value={endDate}
-                                onChange={e => setEndDate(e.target.value)}
+                                onChange={setEndDate}
                                 className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
                             />
                         </div>
                     </div>
 
-                    <label className="flex items-center gap-3 cursor-pointer px-3 py-2.5 rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors">
-                        <input
-                            type="checkbox"
-                            checked={isActive}
-                            onChange={e => setIsActive(e.target.checked)}
-                            className="w-4 h-4 accent-emerald-600"
-                        />
-                        <span className="text-sm font-medium text-slate-700">فعّال</span>
-                    </label>
-                </div>
-
-                <div className="flex gap-3 px-5 pb-5">
-                    <button onClick={onClose} className="flex-1 px-4 py-2.5 border border-slate-200 text-slate-700 rounded-xl hover:bg-slate-50 text-sm font-semibold">
-                        إلغاء
-                    </button>
-                    <button
-                        onClick={handleSave}
-                        disabled={saving}
-                        className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 text-white rounded-xl hover:bg-emerald-500 text-sm font-semibold disabled:opacity-60"
+                    <Checkbox
+                        checked={isActive}
+                        onCheckedChange={setIsActive}
+                        className="gap-3 px-3 py-2.5 rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors"
                     >
-                        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                        {saving ? 'جاري الحفظ...' : 'حفظ'}
-                    </button>
+                        <span className="text-sm font-medium text-slate-700">فعّال</span>
+                    </Checkbox>
                 </div>
-            </div>
-        </div>
+        </Modal>
     );
 }

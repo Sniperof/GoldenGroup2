@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Navigate } from 'react-router-dom';
-import { Settings, Database, Trash2, AlertTriangle, RefreshCw, CheckCircle2, Clock, Save } from 'lucide-react';
+import { Settings, Database, Trash2, AlertTriangle, RefreshCw, CheckCircle2, Clock, Save } from '../components/ui/icons';
 import { usePermissions } from '../hooks/usePermissions';
 import { api } from '../lib/api';
 import Button from '../components/ui/Button';
@@ -40,6 +40,10 @@ export default function SystemSettings() {
     const [savedPeriodicSettings, setSavedPeriodicSettings] = useState(DEFAULT_PERIODIC_SETTINGS);
     const [periodicSavingKey, setPeriodicSavingKey] = useState<string | null>(null);
     const [periodicMsg, setPeriodicMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+    const [visitJobInterval, setVisitJobInterval] = useState('15');
+    const [savedVisitJobInterval, setSavedVisitJobInterval] = useState('15');
+    const [visitJobSaving, setVisitJobSaving] = useState(false);
+    const [visitJobMsg, setVisitJobMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
 
     useEffect(() => {
         let cancelled = false;
@@ -56,6 +60,9 @@ export default function SystemSettings() {
                 }
                 setPeriodicSettings(nextPeriodic);
                 setSavedPeriodicSettings(nextPeriodic);
+                const visitInterval = res.settings.find((s) => s.key === 'visit_escalation_job_interval_minutes')?.value ?? '15';
+                setVisitJobInterval(visitInterval);
+                setSavedVisitJobInterval(visitInterval);
             })
             .catch(() => { if (!cancelled) setCleanupMsg({ type: 'err', text: 'تعذّر تحميل الإعداد.' }); })
             .finally(() => { if (!cancelled) setCleanupLoading(false); });
@@ -115,6 +122,21 @@ export default function SystemSettings() {
             setPeriodicMsg({ type: 'err', text: err?.message ?? 'فشل حفظ إعداد الصيانة الدورية.' });
         } finally {
             setPeriodicSavingKey(null);
+        }
+    };
+
+    const saveVisitJobInterval = async () => {
+        setVisitJobSaving(true);
+        setVisitJobMsg(null);
+        try {
+            const res = await api.systemSettings.update('visit_escalation_job_interval_minutes', Number(visitJobInterval));
+            setVisitJobInterval(res.value);
+            setSavedVisitJobInterval(res.value);
+            setVisitJobMsg({ type: 'ok', text: 'تم الحفظ، وستُقرأ القيمة تلقائياً بعد دورة الفحص الحالية.' });
+        } catch (err: any) {
+            setVisitJobMsg({ type: 'err', text: err?.message ?? 'فشل حفظ فترة الفحص.' });
+        } finally {
+            setVisitJobSaving(false);
         }
     };
 
@@ -189,6 +211,42 @@ export default function SystemSettings() {
                         )}
                         {!canManageSettings && (
                             <p className="text-xs text-slate-400 mt-3">للعرض فقط — تعديل الإعداد يحتاج صلاحية «تعديل إعدادات النظام».</p>
+                        )}
+                    </div>
+                </motion.div>
+
+                {/* Periodic maintenance operational settings */}
+                <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm"
+                >
+                    <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex items-center gap-3">
+                        <Clock className="w-5 h-5 text-amber-600" />
+                        <h2 className="text-lg font-bold text-slate-800">فحص تنبيهات الزيارات</h2>
+                    </div>
+                    <div className="p-6">
+                        <p className="text-xs text-slate-500 leading-relaxed mb-5">
+                            عدد الدقائق بين دورات فحص الزيارات المعلقة قبل البدء والزيارات التي تنتظر التوثيق. المجال المسموح من دقيقة إلى 1440 دقيقة.
+                        </p>
+                        <div className="flex items-end gap-3 flex-wrap">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-600 mb-1.5">فترة الفحص بالدقائق</label>
+                                <input type="number" min={1} max={1440} value={visitJobInterval}
+                                    onChange={(e) => setVisitJobInterval(e.target.value)}
+                                    disabled={!canManageSettings || visitJobSaving}
+                                    className="w-32 px-3 py-2 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-200 disabled:bg-slate-50 disabled:text-slate-400" />
+                            </div>
+                            <Button variant="secondary" icon={Save} onClick={saveVisitJobInterval}
+                                loading={visitJobSaving}
+                                disabled={!canManageSettings || !visitJobInterval || visitJobInterval === savedVisitJobInterval}>
+                                حفظ
+                            </Button>
+                        </div>
+                        {visitJobMsg && (
+                            <p className={`text-xs font-bold mt-3 ${visitJobMsg.type === 'ok' ? 'text-emerald-600' : 'text-red-600'}`}>
+                                {visitJobMsg.text}
+                            </p>
                         )}
                     </div>
                 </motion.div>

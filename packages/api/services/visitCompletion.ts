@@ -30,8 +30,9 @@ export interface CheckResult {
 }
 
 /**
- * Runs the DEC-007 D44 guards and, if they pass and the visit is in `ended`
- * (or `in_progress`), transitions to `completed`.
+ * Runs the DEC-007 D44 guards and, if they pass and the visit is in `ended`,
+ * transitions to `completed`. A visit must record its physical end/GPS before
+ * documentation can complete it.
  *
  * The function uses an existing PoolClient when one is passed (so callers can
  * keep the transition inside their own transaction), otherwise opens a new
@@ -61,9 +62,9 @@ export async function checkAndCompleteVisit(
       if (!useExternal) await client.query('COMMIT');
       return { completed: true, alreadyCompleted: true };
     }
-    // Only auto-advance from in_progress or ended. cancelled / not_completed
-    // are terminal and managed by their own flows.
-    if (status !== 'in_progress' && status !== 'ended') {
+    // Completion is allowed only after the field team records the visit end.
+    // This prevents task/survey saves during in_progress from bypassing end GPS.
+    if (status !== 'ended') {
       if (!useExternal) await client.query('ROLLBACK');
       return { completed: false, reason: `status_not_eligible:${status}` };
     }

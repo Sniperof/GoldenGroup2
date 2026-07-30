@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Loader2, Target, Filter } from 'lucide-react';
+import { Loader2, Target, Filter } from '../components/ui/icons';
 import { useOpenTaskStore } from '../hooks/useOpenTaskStore';
 import { useBranchListScope } from '../hooks/useBranchListScope';
 import ClientCardPopup from '../components/ClientCardPopup';
@@ -275,7 +275,6 @@ export default function OpenTasks() {
           columns={columns}
           getId={(task) => task.id}
           hideFilterBar
-          paginated={false}
           tableMinWidth={1180}
           defaultSortKey="createdAt"
           defaultSortDir="desc"

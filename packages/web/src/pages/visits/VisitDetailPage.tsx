@@ -8,47 +8,17 @@ import {
     ShoppingCart, Smartphone, Wrench, Zap, Puzzle, Map as MapIcon,
     ClipboardCheck, ListPlus, Lock, Unlock, RefreshCw, FileText,
     Repeat, XCircle, ChevronLeft,
-} from 'lucide-react';
+} from '../../components/ui/icons';
 import { api } from '../../lib/api';
 import VisitSurveyModal from '../../components/fieldVisits/VisitSurveyModal';
 import ReferralSheetModal from '../../components/fieldVisits/ReferralSheetModal';
 import PullTaskModal from '../../components/fieldVisits/PullTaskModal';
-import DeviceDemoResultModal from '../../taskTypes/device_demo/DeviceDemoResultModal';
-import DeviceActivationResultModal from '../../taskTypes/device_delivery/DeviceActivationResultModal';
-import DeviceDeliveryResultModal from '../../taskTypes/device_delivery/DeviceDeliveryResultModal';
-import DeviceDisconnectionResultModal from '../../taskTypes/device_delivery/DeviceDisconnectionResultModal';
-import DeviceInstallationResultModal from '../../taskTypes/device_delivery/DeviceInstallationResultModal';
-import DeviceRetrievalResultModal from '../../taskTypes/device_delivery/DeviceRetrievalResultModal';
-import DeviceReturnResultModal from '../../taskTypes/device_delivery/DeviceReturnResultModal';
-import DeviceTransferResultModal from '../../taskTypes/device_delivery/DeviceTransferResultModal';
-import EmergencyResultModal from '../../taskTypes/emergency_maintenance/EmergencyResultModal';
-import GoldenWarrantyOfferModal from '../../taskTypes/golden_warranty_offer/GoldenWarrantyOfferModal';
-import GoldenWarrantyCardDeliveryModal from '../../taskTypes/golden_warranty_card_delivery/GoldenWarrantyCardDeliveryModal';
-import InstallmentCollectionResultModal from '../../taskTypes/installment_collection/InstallmentCollectionResultModal';
+import VisitReasonModal from '../../components/fieldVisits/VisitReasonModal';
+import VisitTaskResultModalHost, {
+    hasVisitTaskResultModal,
+} from '../../components/fieldVisits/VisitTaskResultModalHost';
 import ClientSnapshot from '../../components/ClientSnapshot';
 import { useAuthStore } from '../../hooks/useAuthStore';
-import DeviceCheckupResultModal from '../../taskTypes/device_delivery/DeviceCheckupResultModal';
-
-const RESULT_MODAL_TASK_TYPES = new Set([
-    'device_demo',
-    'device_checkup',
-    'device_delivery',
-    'device_installation',
-    'device_activation',
-    'device_disconnection',
-    'device_retrieval',
-    'device_return',
-    'device_transfer',
-    'emergency_maintenance',
-    'periodic_maintenance',
-    'golden_warranty_offer',
-    'golden_warranty_card_delivery',
-    'installment_collection',
-]);
-
-function hasResultModal(taskType: string | null | undefined) {
-    return !!taskType && RESULT_MODAL_TASK_TYPES.has(taskType);
-}
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -266,6 +236,8 @@ export default function VisitDetailPage() {
     const [removingTaskId, setRemovingTaskId] = useState<number | null>(null);
     const [resultTask, setResultTask] = useState<any | null>(null);
     const [reopening, setReopening] = useState(false);
+    const [gpsReasonAction, setGpsReasonAction] = useState<'start' | 'end' | null>(null);
+    const [cancelOpen, setCancelOpen] = useState(false);
     const hasPermission = useAuthStore((s) => s.hasPermission);
     const canReopen = hasPermission('field_visits.reopen_closed');
 
@@ -293,7 +265,7 @@ export default function VisitDetailPage() {
             navigator.geolocation.getCurrentPosition(
                 pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }),
                 () => resolve(null),
-                { timeout: 8000, maximumAge: 30000 },
+                { timeout: 30000, maximumAge: 30000, enableHighAccuracy: true },
             );
         });
 
@@ -301,7 +273,11 @@ export default function VisitDetailPage() {
         setActionLoading('start');
         try {
             const gps = await captureGps();
-            await api.fieldVisits.start(visitId, gps ?? {});
+            if (!gps) {
+                setGpsReasonAction('start');
+                return;
+            }
+            await api.fieldVisits.start(visitId, gps);
             await load();
         } catch (err: any) {
             alert(err?.message ?? 'فشل في تسجيل بداية الزيارة');
@@ -312,21 +288,14 @@ export default function VisitDetailPage() {
         setActionLoading('end');
         try {
             const gps = await captureGps();
-            await api.fieldVisits.end(visitId, gps ?? {});
+            if (!gps) {
+                setGpsReasonAction('end');
+                return;
+            }
+            await api.fieldVisits.end(visitId, gps);
             await load();
         } catch (err: any) {
             alert(err?.message ?? 'فشل في تسجيل نهاية الزيارة');
-        } finally { setActionLoading(null); }
-    };
-
-    const handleComplete = async () => {
-        if (!confirm('تأكيد إتمام الزيارة؟')) return;
-        setActionLoading('complete');
-        try {
-            await api.fieldVisits.complete(visitId);
-            await load();
-        } catch (err: any) {
-            alert(err?.message ?? 'فشل في إتمام الزيارة');
         } finally { setActionLoading(null); }
     };
 
@@ -380,9 +349,10 @@ export default function VisitDetailPage() {
     const survey = visit.survey;
     const gps = visit.client_gps;
 
-    const canStart = visit.status === 'scheduled';
-    const canEnd = visit.status === 'in_progress';
-    const canComplete = visit.status === 'ended';
+    const canExecute = hasPermission('field_visits.edit');
+    const canStart = canExecute && visit.status === 'scheduled';
+    const canCancel = canExecute && visit.status === 'scheduled';
+    const canEnd = canExecute && visit.status === 'in_progress';
     const canManageReferral = visit.status === 'in_progress' || visit.status === 'ended';
     const allTasksHaveResult = tasks.every((t: any) => t.result_id != null);
     const canCloseVisit = visit.status === 'completed' && allTasksHaveResult;
@@ -490,19 +460,18 @@ export default function VisitDetailPage() {
                             <span>بدء الزيارة</span>
                         </button>
                     )}
+                    {canCancel && (
+                        <button onClick={() => setCancelOpen(true)} disabled={actionLoading === 'cancel'}
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-rose-600 text-white text-sm font-bold hover:bg-rose-500 disabled:opacity-60 transition-colors">
+                            {actionLoading === 'cancel' ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />}
+                            <span>إلغاء الزيارة</span>
+                        </button>
+                    )}
                     {canEnd && (
                         <button onClick={handleEnd} disabled={actionLoading === 'end'}
                             className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-600 text-white text-sm font-bold hover:bg-amber-500 disabled:opacity-60 transition-colors">
                             {actionLoading === 'end' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Square className="w-4 h-4" />}
                             <span>إنهاء الزيارة</span>
-                        </button>
-                    )}
-                    {canComplete && (
-                        <button onClick={handleComplete} disabled={actionLoading === 'complete' || !allTasksHaveResult}
-                            title={!allTasksHaveResult ? 'يجب تسجيل نتائج جميع المهام أولاً' : ''}
-                            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600 text-white text-sm font-bold hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
-                            {actionLoading === 'complete' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Flag className="w-4 h-4" />}
-                            <span>إتمام الزيارة</span>
                         </button>
                     )}
                     {canCloseVisit && (
@@ -678,7 +647,7 @@ export default function VisitDetailPage() {
                             // after it transitions to `ended`. The visit auto-completes
                             // once the last task result + the survey are in place.
                             const canRecord = (visit.status === 'in_progress' || visit.status === 'ended') && !hasResult;
-                            const canOpenResultModal = hasResultModal(task.task_type);
+                            const canOpenResultModal = hasVisitTaskResultModal(task.task_type);
                             const canEditResult = visit.status === 'completed' && hasResult && canOpenResultModal;
                             const decisionMeta = getFinalDecisionMeta(task.final_decision);
                             const outcomeMeta = getDerivedOutcomeMeta(task);
@@ -839,142 +808,58 @@ export default function VisitDetailPage() {
                         onClose={() => setPullOpen(false)} onPulled={() => { setPullOpen(false); load(); }} />
                 </>
             )}
-            {resultTask?.task_type === 'device_demo' && (
-                <DeviceDemoResultModal
-                    key={`${visit.id}:${resultTask.id}`}
-                    visitId={visit.id}
-                    taskId={resultTask.id}
+            {resultTask && (
+                <VisitTaskResultModalHost
                     visit={visit}
                     task={resultTask}
-                    preOffers={resultTask.preOffers ?? resultTask.pre_offers ?? []}
+                    primaryTeam={primaryTeam}
+                    backupTeam={backupTeam}
                     onClose={() => setResultTask(null)}
                     onSaved={() => { setResultTask(null); load(); }}
                 />
             )}
-            {resultTask?.task_type === 'device_checkup' && (
-                <DeviceCheckupResultModal
-                    key={`${visit.id}:${resultTask.id}`}
-                    visitId={visit.id}
-                    taskId={resultTask.id}
-                    task={resultTask}
-                    onClose={() => setResultTask(null)}
-                    onSaved={() => { setResultTask(null); load(); }}
-                />
-            )}
-            {resultTask?.task_type === 'device_delivery' && (
-                <DeviceDeliveryResultModal
-                    key={`${visit.id}:${resultTask.id}`}
-                    visitId={visit.id}
-                    taskId={resultTask.id}
-                    task={resultTask}
-                    onClose={() => setResultTask(null)}
-                    onSaved={() => { setResultTask(null); load(); }}
-                />
-            )}
-            {resultTask?.task_type === 'device_installation' && (
-                <DeviceInstallationResultModal
-                    key={`${visit.id}:${resultTask.id}`}
-                    visitId={visit.id}
-                    taskId={resultTask.id}
-                    task={resultTask}
-                    onClose={() => setResultTask(null)}
-                    onSaved={() => { setResultTask(null); load(); }}
-                />
-            )}
-            {resultTask?.task_type === 'device_activation' && (
-                <DeviceActivationResultModal
-                    key={`${visit.id}:${resultTask.id}`}
-                    visitId={visit.id}
-                    taskId={resultTask.id}
-                    task={resultTask}
-                    onClose={() => setResultTask(null)}
-                    onSaved={() => { setResultTask(null); load(); }}
-                />
-            )}
-            {resultTask?.task_type === 'device_disconnection' && (
-                <DeviceDisconnectionResultModal
-                    key={`${visit.id}:${resultTask.id}`}
-                    visitId={visit.id}
-                    taskId={resultTask.id}
-                    task={resultTask}
-                    onClose={() => setResultTask(null)}
-                    onSaved={() => { setResultTask(null); load(); }}
-                />
-            )}
-            {resultTask?.task_type === 'device_retrieval' && (
-                <DeviceRetrievalResultModal
-                    key={`${visit.id}:${resultTask.id}`}
-                    visitId={visit.id}
-                    taskId={resultTask.id}
-                    task={resultTask}
-                    onClose={() => setResultTask(null)}
-                    onSaved={() => { setResultTask(null); load(); }}
-                />
-            )}
-            {resultTask?.task_type === 'device_return' && (
-                <DeviceReturnResultModal
-                    key={`${visit.id}:${resultTask.id}`}
-                    visitId={visit.id}
-                    taskId={resultTask.id}
-                    task={resultTask}
-                    onClose={() => setResultTask(null)}
-                    onSaved={() => { setResultTask(null); load(); }}
-                />
-            )}
-            {resultTask?.task_type === 'device_transfer' && (
-                <DeviceTransferResultModal
-                    key={`${visit.id}:${resultTask.id}`}
-                    visitId={visit.id}
-                    taskId={resultTask.id}
-                    task={resultTask}
-                    onClose={() => setResultTask(null)}
-                    onSaved={() => { setResultTask(null); load(); }}
-                />
-            )}
-            {(resultTask?.task_type === 'emergency_maintenance' || resultTask?.task_type === 'periodic_maintenance') && (
-                <EmergencyResultModal
-                    key={`${visit.id}:${resultTask.id}`}
-                    taskId={resultTask.source_open_task_id ?? resultTask.open_task_id ?? resultTask.id}
-                    visitId={visit.id}
-                    visitTaskId={resultTask.id}
-                    maintenanceKind={resultTask.task_type === 'periodic_maintenance' ? 'periodic' : 'emergency'}
-                    contractId={resultTask.contract_id ?? null}
-                    visitTechnicianEmployeeId={primaryTeam?.technician?.id ?? backupTeam?.technician?.id ?? null}
-                    visitTechnicianName={primaryTeam?.technician?.name ?? backupTeam?.technician?.name ?? null}
-                    onClose={() => setResultTask(null)}
-                    onSaved={() => { setResultTask(null); load(); }}
-                />
-            )}
-            {resultTask?.task_type === 'golden_warranty_offer' && (
-                <GoldenWarrantyOfferModal
-                    key={`${visit.id}:${resultTask.id}`}
-                    visitId={visit.id}
-                    taskId={resultTask.id}
-                    task={resultTask}
-                    onClose={() => setResultTask(null)}
-                    onSaved={() => { setResultTask(null); load(); }}
-                />
-            )}
-            {resultTask?.task_type === 'golden_warranty_card_delivery' && (
-                <GoldenWarrantyCardDeliveryModal
-                    key={`${visit.id}:${resultTask.id}`}
-                    visitId={visit.id}
-                    taskId={resultTask.id}
-                    task={resultTask}
-                    onClose={() => setResultTask(null)}
-                    onSaved={() => { setResultTask(null); load(); }}
-                />
-            )}
-            {resultTask?.task_type === 'installment_collection' && (
-                <InstallmentCollectionResultModal
-                    key={`${visit.id}:${resultTask.id}`}
-                    visitId={visit.id}
-                    taskId={resultTask.id}
-                    task={resultTask}
-                    onClose={() => setResultTask(null)}
-                    onSaved={() => { setResultTask(null); load(); }}
-                />
-            )}
+            <VisitReasonModal
+                open={gpsReasonAction != null}
+                category="location_missing_reasons"
+                title={gpsReasonAction === 'end' ? 'تعذر تسجيل موقع إنهاء الزيارة' : 'تعذر تسجيل موقع بدء الزيارة'}
+                description="اختر سبب غياب GPS للمتابعة. تُستخدم القائمة نفسها عند البدء والإنهاء."
+                confirmLabel={gpsReasonAction === 'end' ? 'إنهاء بدون GPS' : 'بدء بدون GPS'}
+                saving={actionLoading === 'gps-reason'}
+                onClose={() => setGpsReasonAction(null)}
+                onConfirm={async (reasonId) => {
+                    const action = gpsReasonAction;
+                    if (!action) return;
+                    setActionLoading('gps-reason');
+                    try {
+                        if (action === 'start') await api.fieldVisits.start(visitId, { locationMissingReasonId: reasonId });
+                        else await api.fieldVisits.end(visitId, { locationMissingReasonId: reasonId });
+                        setGpsReasonAction(null);
+                        await load();
+                    } catch (err: any) {
+                        alert(err?.message ?? 'فشل حفظ سبب غياب GPS');
+                    } finally { setActionLoading(null); }
+                }}
+            />
+            <VisitReasonModal
+                open={cancelOpen}
+                category="visit_cancellation_reasons"
+                title="إلغاء الزيارة"
+                description="الإلغاء متاح قبل بدء الزيارة فقط، وستعود المهام المرتبطة إلى قائمة الانتظار."
+                confirmLabel="تأكيد الإلغاء"
+                includeNotes
+                saving={actionLoading === 'cancel'}
+                onClose={() => setCancelOpen(false)}
+                onConfirm={async (reasonId, notes) => {
+                    setActionLoading('cancel');
+                    try {
+                        await api.fieldVisits.cancel(visitId, { cancellationReasonId: reasonId, notes });
+                        setCancelOpen(false);
+                        await load();
+                    } catch (err: any) {
+                        alert(err?.message ?? 'فشل إلغاء الزيارة');
+                    } finally { setActionLoading(null); }
+                }}
+            />
         </div>
     );
 }

@@ -6,13 +6,18 @@ import { trpc } from '../../lib/trpc';
 import { usePermissions } from '../../hooks/usePermissions';
 import Select from '../../components/ui/Select';
 import Card from '../../components/ui/Card';
+import Checkbox from '../../components/ui/Checkbox';
+import {
+  getPermissionModuleLabel,
+  getPermissionSubmoduleLabel,
+} from '../../lib/permissionDisplay';
 import {
   ShieldCheck, ChevronRight, Save, Loader2, AlertTriangle,
-  CheckSquare, Square, Key, Eye, Plus, Pencil, Trash2,
+  Key, Eye, Plus, Pencil, Trash2,
   ToggleRight, Award, Users, BookOpen, ClipboardList,
   Briefcase, GraduationCap, Settings, ListChecks, CheckCheck,
   UserCheck, Calendar, FileText, AlertCircle, BarChart2, ChevronDown
-} from 'lucide-react';
+} from '../../components/ui/icons';
 
 type ScopeType = RolePermissionGrant['scopeType'];
 
@@ -52,6 +57,8 @@ const ACTION_LABELS: Record<string, string> = {
   book: 'حجز',
   update_result: 'تسجيل نتيجة',
   can_be_assigned: 'قابل للإسناد',
+  direct_manager_eligible: 'مؤهل كمدير قسم',
+  direct_manager_branch_fallback: 'مدير بديل للفرع',
   conduct: 'إجراء',
   be_trainer: 'التدريب كمدرب',
   review: 'مراجعة',
@@ -145,6 +152,7 @@ const PERM_LABELS: Record<string, { label: string; desc: string }> = {
 
   // Candidates
   'candidates.view_list': { label: 'عرض الأسماء المقترحة',   desc: 'الاطلاع على قائمة الأسماء المقترحة للتوظيف' },
+  'candidates.assignment.manage': { label: 'إدارة مسؤولي الأسماء المقترحة', desc: 'إسناد الاسم لموظف مؤهل أو تحويل ملكيته إلى الفرع' },
   'candidates.create':    { label: 'إضافة اسم مقترح',        desc: 'إدخال اسم مقترح جديد يدوياً أو عبر الاستيراد' },
   'candidates.edit':      { label: 'تعديل الاسم المقترح',    desc: 'تحديث بيانات الاسم المقترح' },
   'candidates.name_lists.view_list': { label: 'عرض لوائح الأسماء',  desc: 'الاطلاع على لوائح الأسماء ضمن سجل الأسماء المقترحة' },
@@ -156,6 +164,14 @@ const PERM_LABELS: Record<string, { label: string; desc: string }> = {
   'employees.nav':        { label: 'إظهار سجلات الموظفين',      desc: 'إظهار صفحة سجلات الموظفين في الدروار' },
   'employees.lookup':     { label: 'قراءة الموظفين داخل الحقول', desc: 'إظهار الموظفين كخيارات داخل النماذج بدون فتح السجل الكامل' },
   'employees.manager_lookup': { label: 'قراءة المديرين المباشرين', desc: 'إظهار المرشحين لحقل المدير المباشر ضمن فرع وقسم الموظف' },
+  'employees.direct_manager_eligible': {
+    label: 'مؤهل كمدير مباشر للقسم',
+    desc: 'يجعل أصحاب الدور خيارات للمدير المباشر داخل قسم الموظف نفسه',
+  },
+  'employees.direct_manager_branch_fallback': {
+    label: 'مدير مباشر بديل على مستوى الفرع',
+    desc: 'يجعل أصحاب الدور خيارات بديلة لجميع أقسام الفرع بعد مديري القسم',
+  },
   'employees.view_list':  { label: 'عرض قائمة الموظفين',     desc: 'الاطلاع على سجلات الموظفين الميدانيين' },
   'employees.create':     { label: 'إضافة موظف جديد',        desc: 'إضافة موظف جديد أو إنشاء سجل موظف من طلب توظيف مقبول' },
   'employees.edit':       { label: 'تعديل بيانات الموظف',    desc: 'تحديث معلومات الموظف' },
@@ -264,7 +280,7 @@ const MODULE_CONFIG: Record<string, { label: string; icon: React.ReactNode; colo
   contracts:    { label: 'العقود',                      icon: <FileText className="w-4 h-4" />,     color: 'text-amber-600 bg-amber-50' },
   devices:      { label: 'الأجهزة وقطع الغيار',         icon: <BarChart2 className="w-4 h-4" />,    color: 'text-cyan-600 bg-cyan-50' },
   tasks:        { label: 'المهام والعمليات',             icon: <ClipboardList className="w-4 h-4" />, color: 'text-orange-600 bg-orange-50' },
-  planning:     { label: 'إدارة عمل الفرع',             icon: <Calendar className="w-4 h-4" />,     color: 'text-teal-600 bg-teal-50' },
+  planning:     { label: 'تخطيط عمل الفرع',             icon: <Calendar className="w-4 h-4" />,     color: 'text-teal-600 bg-teal-50' },
   routes:       { label: 'خطوط السير وتوزيعها',          icon: <Calendar className="w-4 h-4" />,     color: 'text-teal-600 bg-teal-50' },
   catalog:      { label: 'كتالوج الأجهزة والأسعار',      icon: <BarChart2 className="w-4 h-4" />,    color: 'text-cyan-600 bg-cyan-50' },
   sales:        { label: 'المبيعات',                     icon: <FileText className="w-4 h-4" />,     color: 'text-amber-600 bg-amber-50' },
@@ -283,50 +299,17 @@ const MODULE_CONFIG: Record<string, { label: string; icon: React.ReactNode; colo
   reference_data: { label: 'القوائم المرجعية', icon: <ListChecks className="w-4 h-4" />, color: 'text-slate-600 bg-slate-100' },
 };
 
-const SUB_MODULE_LABELS: Record<string, string> = {
-  vacancies:    'الشواغر الوظيفية',
-  applications: 'طلبات التوظيف',
-  interviews:   'المقابلات',
-  training:     'الدورات التدريبية',
-  candidates:    'الأسماء المقترحة',
-  name_lists:    'لوائح الأسماء',
-  roles:        'الأدوار والصلاحيات',
-  roles_users:  'إسناد الأدوار للمستخدمين',
-  system_lists: 'القوائم النظامية',
-  branch_assignments: 'فروع المستخدمين المسموحة',
-  management: 'الإدارة',
-  system: 'النظام',
-  geography: 'المناطق الجغرافية',
-  visits: 'الزيارات',
-  tasks: 'المهام',
-  targets: 'الأهداف',
-  lists: 'قوائم الاتصال',
-  calls: 'المكالمات',
-  appointments: 'المواعيد',
-  schedule: 'جدولة الفرق',
-  routes: 'خطوط السير',
-  assignments: 'توزيع المسارات',
-  service_requests: 'طلبات الخدمة والصيانة',
-  lookups: 'الاستخدام داخل العمليات',
-  navigation: 'ظهور القسم',
-  device_models: 'تعريفات الأجهزة',
-  spare_parts: 'تعريفات قطع الغيار',
-  discounts: 'خصومات الأجهزة',
-  department_availability: 'أجهزة الأقسام',
-  installed_devices: 'الأجهزة المركبة',
-  installed_device_possession: 'حيازة الأجهزة',
-};
-
 function getModuleConfig(module: string) {
-  return MODULE_CONFIG[module] ?? {
-    label: 'إدارة عمل الفرع',
-    icon: <Calendar className="w-4 h-4" />,
-    color: 'text-teal-600 bg-teal-50',
+  const configured = MODULE_CONFIG[module];
+  return {
+    label: getPermissionModuleLabel(module),
+    icon: configured?.icon ?? <Calendar className="w-4 h-4" />,
+    color: configured?.color ?? 'text-slate-600 bg-slate-100',
   };
 }
 
 function getSubModuleLabel(subModule: string): string {
-  return SUB_MODULE_LABELS[subModule] ?? 'مجموعة صلاحيات';
+  return getPermissionSubmoduleLabel(subModule);
 }
 
 function getPermissionGrouping(perm: Permission): { module: string; subModule: string } {
@@ -646,7 +629,10 @@ export default function RolePermissions() {
           const moduleTotal = allModulePerms.length;
           const allModuleSelected = moduleSelected === moduleTotal;
           const isOpen = openModules.has(module);
-          const subModuleNames = Object.keys(subGroups).map(getSubModuleLabel);
+          const subModulePreviews = Object.keys(subGroups).map(subModule => ({
+            key: subModule,
+            label: getSubModuleLabel(subModule),
+          }));
 
           return (
             <div key={module} className={`bg-white rounded-2xl border overflow-hidden transition-all ${isOpen ? 'border-sky-200 shadow-lg shadow-sky-100/60' : 'border-slate-100 shadow-sm hover:shadow-md hover:border-slate-200'}`}>
@@ -660,14 +646,14 @@ export default function RolePermissions() {
                     <h3 className="text-base font-bold text-slate-800">{modCfg.label}</h3>
                     {!isOpen && (
                       <div className="flex flex-wrap gap-1.5 mt-2 mb-1">
-                        {subModuleNames.slice(0, 3).map(name => (
-                          <span key={name} className="inline-flex items-center rounded-full bg-slate-100 text-slate-500 px-2 py-0.5 text-xs font-medium">
-                            {name}
+                        {subModulePreviews.slice(0, 3).map(subModule => (
+                          <span key={subModule.key} className="inline-flex items-center rounded-full bg-slate-100 text-slate-500 px-2 py-0.5 text-xs font-medium">
+                            {subModule.label}
                           </span>
                         ))}
-                        {subModuleNames.length > 3 && (
+                        {subModulePreviews.length > 3 && (
                           <span className="inline-flex items-center rounded-full bg-slate-100 text-slate-400 px-2 py-0.5 text-xs font-medium">
-                            +{subModuleNames.length - 3}
+                            +{subModulePreviews.length - 3}
                           </span>
                         )}
                       </div>
@@ -742,17 +728,13 @@ export default function RolePermissions() {
                                 isOn ? 'bg-sky-50/40 hover:bg-sky-50/70' : 'hover:bg-slate-50/80'
                               }`}
                             >
-                              <button
-                                type="button"
-                                onClick={() => toggle(perm)}
+                              <Checkbox
+                                checked={isOn}
+                                onCheckedChange={() => toggle(perm)}
                                 disabled={!canManageRolePermissions || !!isProtectedRole}
-                                aria-pressed={isOn}
-                                className="mt-0.5 shrink-0 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-300 disabled:cursor-not-allowed"
-                              >
-                                {isOn
-                                  ? <CheckSquare className="w-4 h-4 text-sky-500" />
-                                  : <Square className="w-4 h-4 text-slate-300 group-hover:text-slate-400" />}
-                              </button>
+                                label={getPermLabel(perm)}
+                                className="mt-0.5"
+                              />
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-start justify-between gap-3">
                                   <div className="min-w-0">

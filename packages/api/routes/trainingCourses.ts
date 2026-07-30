@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import pool from '../db.js';
 import { requirePermission } from '../middleware/permission.js';
+import { canAccessTrainingCourse } from '../policies/trainingCoursePolicy.js';
 import {
   addTrainingCourseTrainees,
   completeTrainingCourse,
@@ -46,6 +47,14 @@ router.get('/trainers', requirePermission('jobs.training.create'), async (req, r
     const branchId = req.query.branchId ? Number(req.query.branchId) : null;
     if (!branchId || isNaN(branchId)) {
       return res.status(400).json({ error: 'branchId is required' });
+    }
+    const decision = canAccessTrainingCourse(
+      req.authContext!,
+      'jobs.training.create',
+      { branchId },
+    );
+    if (!decision.allowed) {
+      return res.status(403).json({ error: 'غير مسموح بعرض مدربي فرع خارج نطاق صلاحيتك' });
     }
 
     const { rows } = await pool.query(
@@ -106,9 +115,10 @@ router.get('/trainers', requirePermission('jobs.training.create'), async (req, r
 router.get('/eligible/:jobVacancyId', requirePermission('jobs.training.view_eligible'), async (req, res) => {
   try {
     const jobVacancyId = Array.isArray(req.params.jobVacancyId) ? req.params.jobVacancyId[0] : req.params.jobVacancyId;
-    const rows = await getEligibleTrainingTrainees(jobVacancyId);
+    const rows = await getEligibleTrainingTrainees(jobVacancyId, req.authContext!);
     res.json(rows);
   } catch (err: any) {
+    if (err?.status) return res.status(err.status).json(err.payload ?? { error: err.message });
     console.error('Error fetching eligible trainees:', err);
     res.status(500).json({ error: err.message });
   }
@@ -156,7 +166,7 @@ router.get('/eligible/:jobVacancyId', requirePermission('jobs.training.view_elig
  */
 router.post('/', requirePermission('jobs.training.create'), async (req, res) => {
   try {
-    const result = await createTrainingCourse(req.body, req.user!);
+    const result = await createTrainingCourse(req.body, req.user!, req.authContext!);
     res.status(201).json(result);
   } catch (err: any) {
     if (err?.status) return res.status(err.status).json(err.payload ?? { error: err.message });
@@ -205,9 +215,10 @@ router.post('/', requirePermission('jobs.training.create'), async (req, res) => 
  */
 router.get('/', requirePermission('jobs.training.view_list'), async (req, res) => {
   try {
-    const result = await listTrainingCoursesFlow(req.query as Record<string, string>);
+    const result = await listTrainingCoursesFlow(req.query as Record<string, string>, req.authContext!);
     res.json(result);
   } catch (err: any) {
+    if (err?.status) return res.status(err.status).json(err.payload ?? { error: err.message });
     console.error('Error fetching training courses:', err);
     res.status(500).json({ error: err.message });
   }
@@ -241,7 +252,7 @@ router.get('/', requirePermission('jobs.training.view_list'), async (req, res) =
 router.get('/:id', requirePermission('jobs.training.view_detail'), async (req, res) => {
   try {
     const courseId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const result = await getTrainingCourseDetail(courseId);
+    const result = await getTrainingCourseDetail(courseId, req.authContext!);
     res.json(result);
   } catch (err: any) {
     if (err?.status) return res.status(err.status).json(err.payload ?? { error: err.message });
@@ -276,7 +287,7 @@ router.get('/:id', requirePermission('jobs.training.view_detail'), async (req, r
 router.patch('/:id/start', requirePermission('jobs.training.start'), async (req, res) => {
   try {
     const courseId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const result = await startTrainingCourse(courseId, req.user!);
+    const result = await startTrainingCourse(courseId, req.user!, req.authContext!);
     res.json(result);
   } catch (err: any) {
     if (err?.status) return res.status(err.status).json(err.payload ?? { error: err.message });
@@ -332,7 +343,7 @@ router.patch('/:id/start', requirePermission('jobs.training.start'), async (req,
 router.post('/:id/attendance', requirePermission('jobs.training.record_attendance'), async (req, res) => {
   try {
     const courseId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const result = await recordTrainingAttendance(courseId, req.body, req.user!);
+    const result = await recordTrainingAttendance(courseId, req.body, req.user!, req.authContext!);
     res.json(result);
   } catch (err: any) {
     if (err?.status) return res.status(err.status).json(err.payload ?? { error: err.message });
@@ -378,7 +389,7 @@ router.post('/:id/attendance', requirePermission('jobs.training.record_attendanc
 router.patch('/:id/end-date', requirePermission('jobs.training.create'), async (req, res) => {
   try {
     const courseId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const result = await updateTrainingCourseEndDateFlow(courseId, req.body, req.user!);
+    const result = await updateTrainingCourseEndDateFlow(courseId, req.body, req.user!, req.authContext!);
     res.json(result);
   } catch (err: any) {
     if (err?.status) return res.status(err.status).json(err.payload ?? { error: err.message });
@@ -413,7 +424,7 @@ router.patch('/:id/end-date', requirePermission('jobs.training.create'), async (
 router.patch('/:id/complete', requirePermission('jobs.training.complete'), async (req, res) => {
   try {
     const courseId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const result = await completeTrainingCourse(courseId, req.user!);
+    const result = await completeTrainingCourse(courseId, req.user!, req.authContext!);
     res.json(result);
   } catch (err: any) {
     if (err?.status) return res.status(err.status).json(err.payload ?? { error: err.message });
@@ -465,7 +476,7 @@ router.patch('/:id/trainees/:applicationId/result', requirePermission('jobs.trai
   try {
     const courseId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const applicationIdParam = Array.isArray(req.params.applicationId) ? req.params.applicationId[0] : req.params.applicationId;
-    const result = await recordTrainingResult(courseId, parseInt(applicationIdParam), req.body, req.user!);
+    const result = await recordTrainingResult(courseId, parseInt(applicationIdParam), req.body, req.user!, req.authContext!);
     res.json(result);
   } catch (err: any) {
     if (err?.status) return res.status(err.status).json(err.payload ?? { error: err.message });
@@ -512,7 +523,7 @@ router.patch('/:id/trainees/:applicationId/result', requirePermission('jobs.trai
 router.post('/:id/trainees', requirePermission('jobs.training.add_trainees'), async (req, res) => {
   try {
     const courseId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const result = await addTrainingCourseTrainees(courseId, req.body, req.user!);
+    const result = await addTrainingCourseTrainees(courseId, req.body, req.user!, req.authContext!);
     res.json(result);
   } catch (err: any) {
     if (err?.status) return res.status(err.status).json(err.payload ?? { error: err.message });

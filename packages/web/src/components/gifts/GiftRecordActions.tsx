@@ -1,6 +1,7 @@
-import { useState } from 'react';
-import { BadgeCheck, CalendarPlus, CheckCircle2, ClipboardCheck, HandHeart, XCircle } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { BadgeCheck, CalendarPlus, CheckCircle2, ClipboardCheck, HandHeart, XCircle } from '../ui/icons';
 import Modal from '../ui/Modal';
+import DateField from '../ui/DateField';
 import { api } from '../../lib/api';
 import { usePermissions } from '../../hooks/usePermissions';
 import {
@@ -9,13 +10,15 @@ import {
   type GiftRecordPrototype,
 } from '../../data/giftsPrototype';
 
-type ActionKind = 'condition' | 'approve' | 'task' | 'manual' | 'cancel';
+type ActionKind = 'condition' | 'approve' | 'withdraw' | 'task' | 'manual' | 'reopen' | 'cancel';
 
 const actionTitles: Record<ActionKind, string> = {
   condition: 'تحديث تحقق الشرط',
   approve: 'اعتماد الهدية للتسليم',
+  withdraw: 'سحب اعتماد الهدية',
   task: 'إنشاء مهمة تسليم الهدية',
   manual: 'تأكيد تسليم يدوي',
+  reopen: 'إعادة فتح التسليم اليدوي',
   cancel: 'إلغاء سجل الهدية',
 };
 
@@ -44,9 +47,11 @@ function ActionButton({
 
 export default function GiftRecordActions({
   record,
+  candidateRecords = [],
   onChanged,
 }: {
   record: GiftRecordPrototype;
+  candidateRecords?: GiftRecordPrototype[];
   onChanged?: () => void;
 }) {
   const { hasPermission } = usePermissions();
@@ -56,10 +61,17 @@ export default function GiftRecordActions({
 
   // form state
   const [conditionStatus, setConditionStatus] = useState<GiftConditionStatus>(record.conditionStatus);
-  const [approvedQuantity, setApprovedQuantity] = useState<number>(record.approvedQuantity || 1);
+  const [conditionNotes, setConditionNotes] = useState('');
+  const [approvedQuantity, setApprovedQuantity] = useState<number>(record.approvedQuantity ?? record.promisedQuantity ?? 1);
   const [approvalNotes, setApprovalNotes] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [priority, setPriority] = useState<'low' | 'medium' | 'high'>('medium');
+  const [creationReason, setCreationReason] = useState('');
+  const [creationReasons, setCreationReasons] = useState<any[]>([]);
+  const [manualMethods, setManualMethods] = useState<any[]>([]);
+  const [manualMethodId, setManualMethodId] = useState('');
+  const [manualAcknowledged, setManualAcknowledged] = useState(false);
+  const [selectedTaskRecordIds, setSelectedTaskRecordIds] = useState<Array<string | number>>([record.id]);
   const [notes, setNotes] = useState('');
   const [reason, setReason] = useState('');
 
@@ -67,19 +79,59 @@ export default function GiftRecordActions({
   const isClientBeneficiary = record.beneficiaryType === 'contract_customer' || record.beneficiaryType === 'customer_referrer';
 
   const canVerify = hasPermission('contract_gifts.verify_condition') && (status === 'promised' || status === 'approved_for_delivery');
-  const canApprove = hasPermission('contract_gifts.approve_delivery') && (status === 'promised' || status === 'approved_for_delivery');
+  const canApprove = hasPermission('contract_gifts.approve_delivery') && status === 'promised';
+  const canWithdraw = hasPermission('contract_gifts.approve_delivery') && status === 'approved_for_delivery' && !record.deliveryTaskId;
   const canCreateTask = hasPermission('contract_gifts.create_delivery_task') && status === 'approved_for_delivery' && isClientBeneficiary && !record.deliveryTaskId;
-  const canManual = hasPermission('contract_gifts.manual_delivery') && status === 'approved_for_delivery' && record.beneficiaryType === 'employee_or_personal' && !record.deliveryTaskId;
+  const canManual = hasPermission('contract_gifts.manual_delivery') && status === 'approved_for_delivery' && !record.deliveryTaskId;
+  const canReopen = hasPermission('contract_gifts.reopen_manual_delivery') && status === 'delivered_manually';
   const canCancel = hasPermission('contract_gifts.cancel') && (status === 'promised' || status === 'approved_for_delivery');
 
-  const hasAnyAction = canVerify || canApprove || canCreateTask || canManual || canCancel;
+  const hasAnyAction = canVerify || canApprove || canWithdraw || canCreateTask || canManual || canReopen || canCancel;
+  const taskCompanions = candidateRecords.filter(candidate => (
+    candidate.status === 'approved_for_delivery'
+    && !candidate.deliveryTaskId
+    && candidate.beneficiaryClientId != null
+    && String(candidate.beneficiaryClientId) === String(record.beneficiaryClientId)
+    && String(candidate.responsibleBranchId ?? candidate.sourceBranchId ?? '') === String(record.responsibleBranchId ?? record.sourceBranchId ?? '')
+  ));
+
+  useEffect(() => {
+    api.systemLists.getItemsByCode('gift_delivery_creation_reasons')
+      .then((items: any) => {
+        const list = Array.isArray(items) ? items : [];
+        setCreationReasons(list);
+        setCreationReason((current) => current || (list[0]?.value ?? ''));
+      })
+      .catch(() => setCreationReasons([]));
+  }, []);
+
+  useEffect(() => {
+    api.systemLists.getItemsByCode('gift_manual_delivery_methods')
+      .then((items: any) => {
+        const list = Array.isArray(items) ? items : [];
+        setManualMethods(list);
+        setManualMethodId(current => current || String(list[0]?.id ?? ''));
+      })
+      .catch(() => setManualMethods([]));
+  }, []);
 
   function openAction(kind: ActionKind) {
     setError(null);
-    if (kind === 'condition') setConditionStatus(record.conditionStatus);
-    if (kind === 'approve') { setApprovedQuantity(record.approvedQuantity || 1); setApprovalNotes(''); }
-    if (kind === 'task') { setDueDate(''); setPriority('medium'); setNotes(''); }
-    if (kind === 'manual') setNotes('');
+    if (kind === 'condition') { setConditionStatus(record.conditionStatus); setConditionNotes(record.conditionNotes ?? ''); }
+    if (kind === 'approve') { setApprovedQuantity(record.approvedQuantity ?? record.promisedQuantity ?? 1); setApprovalNotes(''); }
+    if (kind === 'withdraw' || kind === 'reopen') setReason('');
+    if (kind === 'task') {
+      setDueDate('');
+      setPriority('medium');
+      setCreationReason(creationReasons[0]?.value ?? '');
+      setNotes('');
+      setSelectedTaskRecordIds([record.id]);
+    }
+    if (kind === 'manual') {
+      setNotes('');
+      setManualMethodId(String(manualMethods[0]?.id ?? ''));
+      setManualAcknowledged(false);
+    }
     if (kind === 'cancel') setReason('');
     setAction(kind);
   }
@@ -96,7 +148,10 @@ export default function GiftRecordActions({
     setError(null);
     try {
       if (action === 'condition') {
-        await api.gifts.records.updateCondition(record.id, { conditionStatus });
+        await api.gifts.records.updateCondition(record.id, {
+          conditionStatus,
+          conditionNotes: conditionNotes.trim() || undefined,
+        });
       } else if (action === 'approve') {
         if (record.conditionStatus === 'not_met' && !approvalNotes.trim()) {
           setError('ملاحظات الاعتماد إلزامية عند اعتماد سجل شرطه غير محقق');
@@ -104,13 +159,42 @@ export default function GiftRecordActions({
           return;
         }
         await api.gifts.records.approve(record.id, { approvedQuantity, approvalNotes: approvalNotes.trim() || undefined });
+      } else if (action === 'withdraw') {
+        if (!reason.trim()) { setError('سبب سحب الاعتماد إلزامي'); setSubmitting(false); return; }
+        await api.gifts.records.withdrawApproval(record.id, { reason: reason.trim() });
       } else if (action === 'task') {
         if (!dueDate) { setError('تاريخ التسليم المطلوب إلزامي'); setSubmitting(false); return; }
-        await api.gifts.records.createDeliveryTask(record.id, { dueDate, priority, notes: notes.trim() || undefined });
+        if (creationReasons.length > 0 && !creationReason) {
+          setError('سبب إنشاء مهمة تسليم الهدية إلزامي');
+          setSubmitting(false);
+          return;
+        }
+        await api.gifts.records.createDeliveryTask(record.id, {
+          giftRecordIds: selectedTaskRecordIds.filter(id => String(id) !== String(record.id)),
+          dueDate,
+          priority,
+          creationReason: creationReason || undefined,
+          notes: notes.trim() || undefined,
+        });
       } else if (action === 'manual') {
-        await api.gifts.records.manualDelivery(record.id, { notes: notes.trim() || undefined });
+        const branchId = Number(record.responsibleBranchId ?? record.sourceBranchId);
+        if (!manualMethodId || !branchId || !manualAcknowledged) {
+          setError('طريقة التسليم وإقرار الاستلام مطلوبان');
+          setSubmitting(false);
+          return;
+        }
+        await api.gifts.records.manualDelivery(record.id, {
+          methodId: Number(manualMethodId),
+          branchId,
+          acknowledged: true,
+          notes: notes.trim() || undefined,
+        });
+      } else if (action === 'reopen') {
+        if (!reason.trim()) { setError('سبب إعادة فتح التسليم اليدوي إلزامي'); setSubmitting(false); return; }
+        await api.gifts.records.reopenManualDelivery(record.id, { reason: reason.trim() });
       } else if (action === 'cancel') {
-        await api.gifts.records.cancel(record.id, { reason: reason.trim() || undefined });
+        if (!reason.trim()) { setError('سبب الإلغاء إلزامي'); setSubmitting(false); return; }
+        await api.gifts.records.cancel(record.id, { reason: reason.trim() });
       }
       setAction(null);
       onChanged?.();
@@ -142,6 +226,14 @@ export default function GiftRecordActions({
             onClick={() => openAction('approve')}
           />
         )}
+        {canWithdraw && (
+          <ActionButton
+            icon={XCircle}
+            label="سحب الاعتماد"
+            tone="border-amber-200 text-amber-700 hover:bg-amber-50"
+            onClick={() => openAction('withdraw')}
+          />
+        )}
         {canCreateTask && (
           <ActionButton
             icon={CalendarPlus}
@@ -156,6 +248,14 @@ export default function GiftRecordActions({
             label="تأكيد تسليم يدوي"
             tone="border-teal-200 text-teal-700 hover:bg-teal-50"
             onClick={() => openAction('manual')}
+          />
+        )}
+        {canReopen && (
+          <ActionButton
+            icon={CalendarPlus}
+            label="إعادة فتح التسليم"
+            tone="border-amber-200 text-amber-700 hover:bg-amber-50"
+            onClick={() => openAction('reopen')}
           />
         )}
         {canCancel && (
@@ -200,24 +300,34 @@ export default function GiftRecordActions({
           <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-6 text-slate-600">
             <span className="font-bold text-slate-700">{record.giftName}</span>
             {' · '}
-            {record.approvedQuantity} {record.unitLabel}
+            {record.approvedQuantity ?? record.promisedQuantity} {record.unitLabel}
             {' · '}
             المستفيد: {record.beneficiaryName}
           </div>
 
           {action === 'condition' && (
-            <label className="block text-xs font-bold text-slate-500">
-              حالة تحقق الشرط
-              <select
-                value={conditionStatus}
-                onChange={(e) => setConditionStatus(e.target.value as GiftConditionStatus)}
-                className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"
-              >
-                {Object.entries(giftConditionStatusLabels).map(([value, label]) => (
-                  <option key={value} value={value}>{label}</option>
-                ))}
-              </select>
-            </label>
+            <>
+              <label className="block text-xs font-bold text-slate-500">
+                حالة تحقق الشرط
+                <select
+                  value={conditionStatus}
+                  onChange={(e) => setConditionStatus(e.target.value as GiftConditionStatus)}
+                  className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"
+                >
+                  {Object.entries(giftConditionStatusLabels).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="block text-xs font-bold text-slate-500">
+                ملاحظات التحقق (اختياري)
+                <textarea
+                  value={conditionNotes}
+                  onChange={(e) => setConditionNotes(e.target.value)}
+                  className="mt-1 min-h-[72px] w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+                />
+              </label>
+            </>
           )}
 
           {action === 'approve' && (
@@ -250,12 +360,39 @@ export default function GiftRecordActions({
 
           {action === 'task' && (
             <>
+              {taskCompanions.length > 1 && (
+                <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-3">
+                  <div className="mb-2 text-xs font-bold text-indigo-800">
+                    سجلات المستفيد نفسه والفرع نفسه — نتيجة المهمة ستطبق على المجموعة كاملة
+                  </div>
+                  <div className="space-y-2">
+                    {taskCompanions.map(candidate => {
+                      const isPrimary = String(candidate.id) === String(record.id);
+                      const checked = selectedTaskRecordIds.some(id => String(id) === String(candidate.id));
+                      return (
+                        <label key={candidate.id} className="flex items-center gap-2 text-xs text-indigo-900">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            disabled={isPrimary}
+                            onChange={(event) => setSelectedTaskRecordIds(current => (
+                              event.target.checked
+                                ? [...current, candidate.id]
+                                : current.filter(id => String(id) !== String(candidate.id))
+                            ))}
+                          />
+                          <span>{candidate.giftName} — {candidate.approvedQuantity ?? candidate.promisedQuantity} {candidate.unitLabel}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
               <label className="block text-xs font-bold text-slate-500">
                 تاريخ التسليم المطلوب
-                <input
-                  type="date"
+                <DateField
                   value={dueDate}
-                  onChange={(e) => setDueDate(e.target.value)}
+                  onChange={setDueDate}
                   className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"
                 />
               </label>
@@ -271,6 +408,23 @@ export default function GiftRecordActions({
                   <option value="high">عالية</option>
                 </select>
               </label>
+              {creationReasons.length > 0 && (
+                <label className="block text-xs font-bold text-slate-500">
+                  سبب إنشاء المهمة
+                  <select
+                    value={creationReason}
+                    onChange={(e) => setCreationReason(e.target.value)}
+                    className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"
+                  >
+                    <option value="">— اختر سبب الإنشاء —</option>
+                    {creationReasons.map((item: any) => (
+                      <option key={item.id ?? item.value} value={item.value}>
+                        {item.label || item.value}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <label className="block text-xs font-bold text-slate-500">
                 ملاحظات (اختياري)
                 <textarea
@@ -285,8 +439,30 @@ export default function GiftRecordActions({
           {action === 'manual' && (
             <>
               <div className="rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs leading-6 text-teal-800">
-                التأكيد اليدوي يغلق كامل الكمية المعتمدة لوسيط موظف/شخصي بدون مهمة ميدانية.
+                التأكيد اليدوي يغلق كامل الكمية المعتمدة بدون إنشاء نتيجة جزئية.
               </div>
+              <label className="block text-xs font-bold text-slate-500">
+                طريقة التسليم
+                <select
+                  value={manualMethodId}
+                  onChange={(event) => setManualMethodId(event.target.value)}
+                  className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"
+                >
+                  <option value="">— اختر طريقة التسليم —</option>
+                  {manualMethods.map((method: any) => (
+                    <option key={method.id} value={method.id}>{method.label ?? method.value}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={manualAcknowledged}
+                  onChange={(event) => setManualAcknowledged(event.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>أقر بأن المستفيد استلم كامل الهدية المعتمدة.</span>
+              </label>
               <label className="block text-xs font-bold text-slate-500">
                 ملاحظات التسليم (اختياري)
                 <textarea
@@ -298,9 +474,13 @@ export default function GiftRecordActions({
             </>
           )}
 
-          {action === 'cancel' && (
+          {(action === 'withdraw' || action === 'reopen' || action === 'cancel') && (
             <label className="block text-xs font-bold text-slate-500">
-              سبب الإلغاء (اختياري)
+              {action === 'withdraw'
+                ? 'سبب سحب الاعتماد *'
+                : action === 'reopen'
+                  ? 'سبب إعادة الفتح *'
+                  : 'سبب الإلغاء *'}
               <textarea
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}

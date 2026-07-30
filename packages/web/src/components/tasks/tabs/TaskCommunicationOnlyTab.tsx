@@ -2,7 +2,7 @@ import { useState } from 'react';
 import {
   Activity, CheckCircle2, Layers, Loader2, MessageSquare, Phone, PhoneCall,
   PhoneMissed, RotateCcw, Send, ShoppingCart, Users,
-} from 'lucide-react';
+} from '../../ui/icons';
 import { OPEN_TASK_STATUS_LABELS, type OpenTaskStatus, getOutcomeMeta } from '@golden-crm/shared';
 import { Card, EmptyState, TabAlert, formatDateTime } from '../shared';
 import Button from '../../ui/Button';

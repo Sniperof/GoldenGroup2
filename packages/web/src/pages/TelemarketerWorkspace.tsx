@@ -1,17 +1,18 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     Headset, Phone, FileText, CheckCircle2, History, CreditCard,
     AlertTriangle, Calendar, Send, Zap, User, Clock, CheckCircle,
     MapPin, PlusCircle, MessageSquare, ThumbsUp, Wrench, Activity, Briefcase,
-    Search, ChevronLeft, ChevronRight, Layers, Eye, Edit3, X, Cpu, Gift,
-} from 'lucide-react';
+    Search, ChevronLeft, ChevronRight, Layers, Eye, Edit3, X, Cpu, Gift, Loader2, RefreshCw,
+} from '../components/ui/icons';
 import { api } from '../lib/api';
+import { getOpenTaskDetailPath } from '../lib/taskRoutes';
 import IconButton from '../components/ui/IconButton';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import { useCandidateStore } from '../hooks/useCandidateStore';
 import { useClientStore } from '../hooks/useClientStore';
-import { OPEN_TASK_TYPE_LABELS, OPEN_TASK_REASON_LABELS, isHiddenOperationalTaskType } from '@golden-crm/shared';
+import { OPEN_TASK_TYPE_LABELS, OPEN_TASK_REASON_LABELS, isHiddenOperationalTaskType, taskRequiresInstalledDevice } from '@golden-crm/shared';
 import type { OpenTask, OpenTaskType, OpenTaskReason } from '@golden-crm/shared';
 import { useTelemarketingStore } from '../hooks/useTelemarketingStore';
 import TeamAgendaPanel from '../components/telemarketing/TeamAgendaPanel';
@@ -31,6 +32,10 @@ import { VisitsTab } from './ClientProfile';
 import ClientModal from '../components/ClientModal';
 import Select from '../components/ui/Select';
 import Button from '../components/ui/Button';
+import Modal from '../components/ui/Modal';
+import Badge from '../components/ui/Badge';
+import DataTable from '../components/ui/DataTable';
+import DatePicker from '../components/ui/DatePicker';
 import type { DaySchedule, Contract, Visit, TaskListItem, Appointment, CustomerOwnership, ContactEntry, Client } from '../lib/types';
 import type { TelemarketingOutcomeCode, GeoUnit } from '@golden-crm/shared';
 import { OUTCOME_MAP, getOutcomeMeta, normaliseOutcomeCode, PHONE_STATUS_TO_CONTACT_ENTRY } from '@golden-crm/shared';
@@ -101,6 +106,13 @@ interface CrossTeamTarget {
     latestCallAt: string | null;
 }
 
+interface SelectedClientDetailRequest {
+    clientId: number;
+    client: Client | null;
+    loading: boolean;
+    error: string | null;
+}
+
 function groupByCustomer(items: TaskListItem[]): CustomerGroup[] {
     const map = new Map<string, CustomerGroup>();
     for (const item of items) {
@@ -158,10 +170,10 @@ function groupByCustomer(items: TaskListItem[]): CustomerGroup[] {
 type StatusFilter = 'all' | 'in_list' | 'contacted' | 'closed';
 
 const statusFilterConfig: Record<StatusFilter, { label: string; activeBg: string; activeText: string; inactiveBg: string; inactiveText: string }> = {
-    all:       { label: 'الكل',          activeBg: 'bg-slate-700',   activeText: 'text-white',       inactiveBg: 'bg-slate-100',   inactiveText: 'text-slate-600' },
-    in_list:   { label: 'ضمن القائمة',   activeBg: 'bg-violet-600',  activeText: 'text-white',       inactiveBg: 'bg-violet-50',   inactiveText: 'text-violet-700' },
-    contacted: { label: 'تم التواصل',    activeBg: 'bg-amber-500',   activeText: 'text-white',       inactiveBg: 'bg-amber-50',    inactiveText: 'text-amber-700' },
-    closed:    { label: 'مغلقة',         activeBg: 'bg-slate-600',   activeText: 'text-white',       inactiveBg: 'bg-slate-100',   inactiveText: 'text-slate-600' },
+    all:       { label: 'الكل',          activeBg: 'bg-slate-700',   activeText: 'text-white',       inactiveBg: 'bg-transparent',   inactiveText: 'text-slate-500' },
+    in_list:   { label: 'ضمن القائمة',   activeBg: 'bg-sky-600',     activeText: 'text-white',       inactiveBg: 'bg-transparent',   inactiveText: 'text-slate-500' },
+    contacted: { label: 'تم التواصل',    activeBg: 'bg-amber-500',   activeText: 'text-white',       inactiveBg: 'bg-transparent',   inactiveText: 'text-slate-500' },
+    closed:    { label: 'مغلقة',         activeBg: 'bg-slate-600',   activeText: 'text-white',       inactiveBg: 'bg-transparent',   inactiveText: 'text-slate-500' },
 };
 
 /** Returns true if the contact target is closed for any reason. */
@@ -224,13 +236,6 @@ const getAppointmentForCustomer = (cg: CustomerGroup, appointments: Appointment[
         (cg.contactTargetId ? a.contactTargetId === cg.contactTargetId : true),
     );
 
-const getOpenTaskDetailPath = (taskType: string | null | undefined, taskId: number | null | undefined) => {
-    if (!taskId) return null;
-    if (taskType === 'emergency_maintenance') return `/tasks/emergency/${taskId}`;
-    if (taskType === 'device_demo') return `/tasks/device-demo/${taskId}`;
-    return null;
-};
-
 const getPriorityLabel = (priority: string | null | undefined) => {
     if (!priority) return '-';
     if (priority === 'high') return 'عالية';
@@ -276,6 +281,9 @@ export default function TelemarketerWorkspace() {
     // React to the external branch switcher (no full reload — §4).
     const branchId = useBranchContextStore(s => s.branchId);
     const [date, setDate] = useState(getPlanningDate());
+    // Manual date selection — the calendar icon in the header opens this popover.
+    const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
+    const dateAnchorRef = useRef<HTMLButtonElement>(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
     // Six advanced queue filters + sort (DEC: rich queue redesign)
@@ -601,7 +609,7 @@ export default function TelemarketerWorkspace() {
         }
     }, [filteredGroups, selectedCustomerKey]);
 
-    const [activeTab, setActiveTab] = useState<'calllog' | 'devices' | 'purchase' | 'gifts' | 'account' | 'openTasks' | 'visits'>('calllog');
+    const [activeTab, setActiveTab] = useState<'calllog' | 'devices' | 'purchase' | 'gifts' | 'account' | 'openTasks' | 'visits' | 'agenda'>('calllog');
     const [isOutcomeModalOpen, setIsOutcomeModalOpen] = useState(false);
     const [isAppointmentModalOpen, setIsAppointmentModalOpen] = useState(false);
     const [appointmentMode, setAppointmentMode] = useState<'call_result' | 'direct'>('call_result');
@@ -620,6 +628,17 @@ export default function TelemarketerWorkspace() {
     const [serviceTaskNotes, setServiceTaskNotes] = useState('');
     const [serviceTaskPriority, setServiceTaskPriority] = useState('');
     const [serviceTaskSaving, setServiceTaskSaving] = useState(false);
+    const [serviceTaskDevices, setServiceTaskDevices] = useState<Array<{
+        id: number;
+        status: string;
+        serialNumber: string | null;
+        deviceModelName: string;
+        eligible: boolean;
+        eligibilityReason: string;
+    }>>([]);
+    const [serviceTaskDeviceId, setServiceTaskDeviceId] = useState('');
+    const [serviceTaskDevicesLoading, setServiceTaskDevicesLoading] = useState(false);
+    const [serviceTaskDeviceError, setServiceTaskDeviceError] = useState('');
     // Pre-selected contact — set when user picks a number in the contact picker
     const [preselectedContactId, setPreselectedContactId] = useState<string>('');
     // Contact picker modal (step 1 before outcome modal)
@@ -629,8 +648,102 @@ export default function TelemarketerWorkspace() {
     const [messageReplyContactId, setMessageReplyContactId] = useState<string>('');
     const [crossTeamTargetsByClient, setCrossTeamTargetsByClient] = useState<Record<number, CrossTeamTarget[]>>({});
     const [crossTeamLoading, setCrossTeamLoading] = useState(false);
+    const [selectedClientDetailRequest, setSelectedClientDetailRequest] = useState<SelectedClientDetailRequest | null>(null);
+    const [selectedClientDetailReloadKey, setSelectedClientDetailReloadKey] = useState(0);
 
     const selectedCustomer = useMemo(() => filteredGroups.find(cg => cg.key === selectedCustomerKey) || null, [filteredGroups, selectedCustomerKey]);
+
+    useEffect(() => {
+        if (!isServiceTaskOpen || !selectedCustomer || !taskRequiresInstalledDevice(serviceTaskType)) {
+            setServiceTaskDevices([]);
+            setServiceTaskDeviceId('');
+            setServiceTaskDevicesLoading(false);
+            setServiceTaskDeviceError('');
+            return;
+        }
+        if (selectedCustomer.entityType !== 'client') {
+            setServiceTaskDevices([]);
+            setServiceTaskDeviceId('');
+            setServiceTaskDeviceError('هذه المهمة تحتاج زبونا مسجلا وجهازا مركبا');
+            return;
+        }
+
+        let cancelled = false;
+        setServiceTaskDevicesLoading(true);
+        setServiceTaskDeviceError('');
+        setServiceTaskDeviceId('');
+        api.telemarketing.serviceTaskDevices(selectedCustomer.entityId, serviceTaskType)
+            .then((rows) => {
+                if (cancelled) return;
+                setServiceTaskDevices(rows);
+                const eligible = rows.filter(device => device.eligible);
+                if (eligible.length === 1) setServiceTaskDeviceId(String(eligible[0].id));
+                if (rows.length === 0) setServiceTaskDeviceError('لا يوجد جهاز مرتبط بهذا الزبون ضمن الفرع الحالي');
+                else if (eligible.length === 0) setServiceTaskDeviceError('لا يوجد جهاز مؤهل لإنشاء هذه المهمة حاليا');
+            })
+            .catch((error: any) => {
+                if (!cancelled) {
+                    setServiceTaskDevices([]);
+                    setServiceTaskDeviceError(error?.message || 'تعذر تحميل أجهزة الزبون');
+                }
+            })
+            .finally(() => { if (!cancelled) setServiceTaskDevicesLoading(false); });
+        return () => { cancelled = true; };
+    }, [isServiceTaskOpen, selectedCustomer, serviceTaskType]);
+    const listedSelectedClient = useMemo(() => {
+        if (!selectedCustomer || selectedCustomer.entityType !== 'client') return null;
+        return clients.find(client => client.id === selectedCustomer.entityId) || null;
+    }, [selectedCustomer, clients]);
+
+    useEffect(() => {
+        if (!selectedCustomer || selectedCustomer.entityType !== 'client' || listedSelectedClient) {
+            setSelectedClientDetailRequest(null);
+            return;
+        }
+
+        const clientId = selectedCustomer.entityId;
+        let cancelled = false;
+        setSelectedClientDetailRequest({ clientId, client: null, loading: true, error: null });
+
+        api.clients.get(clientId)
+            .then((client: Client) => {
+                if (!cancelled) {
+                    setSelectedClientDetailRequest({ clientId, client, loading: false, error: null });
+                }
+            })
+            .catch(() => {
+                if (!cancelled) {
+                    setSelectedClientDetailRequest({
+                        clientId,
+                        client: null,
+                        loading: false,
+                        error: 'تعذر تحميل تفاصيل الزبون. تحقق من الصلاحية أو الاتصال ثم أعد المحاولة.',
+                    });
+                }
+            });
+
+        return () => { cancelled = true; };
+    }, [selectedCustomer, listedSelectedClient, selectedClientDetailReloadKey]);
+
+    const updateWorkspaceClient = useCallback(async (id: number, updates: Partial<Client>) => {
+        const listedClient = clients.find(client => client.id === id);
+        if (listedClient) {
+            await updateClient(id, updates);
+            return;
+        }
+
+        const fallbackClient = selectedClientDetailRequest?.clientId === id
+            ? selectedClientDetailRequest.client
+            : null;
+        if (!fallbackClient) {
+            throw new Error('Client details are not loaded');
+        }
+
+        const updatedClient = await api.clients.update(id, { ...fallbackClient, ...updates });
+        setSelectedClientDetailRequest(current => current?.clientId === id
+            ? { clientId: id, client: updatedClient, loading: false, error: null }
+            : current);
+    }, [clients, selectedClientDetailRequest, updateClient]);
 
     // Replaces the legacy bulk `api.visits.list()` load. The new field_visits
     // endpoint requires a clientId (or date) filter — so we fetch visits per
@@ -725,8 +838,20 @@ export default function TelemarketerWorkspace() {
     const entityDetails = useMemo(() => {
         if (!selectedCustomer) return null;
         if (selectedCustomer.entityType === 'candidate') return candidates.find(c => c.id === selectedCustomer.entityId);
-        return clients.find(c => c.id === selectedCustomer.entityId);
-    }, [selectedCustomer, candidates, clients]);
+        if (listedSelectedClient) return listedSelectedClient;
+        return selectedClientDetailRequest?.clientId === selectedCustomer.entityId
+            ? selectedClientDetailRequest.client
+            : null;
+    }, [selectedCustomer, candidates, listedSelectedClient, selectedClientDetailRequest]);
+
+    const entityDetailsLoading = !!selectedCustomer &&
+        selectedCustomer.entityType === 'client' &&
+        !listedSelectedClient &&
+        (selectedClientDetailRequest?.clientId !== selectedCustomer.entityId || selectedClientDetailRequest.loading);
+    const entityDetailsError = selectedCustomer?.entityType === 'client' &&
+        selectedClientDetailRequest?.clientId === selectedCustomer.entityId
+        ? selectedClientDetailRequest.error
+        : null;
 
     const selectedContacts = useMemo(() => {
         if (!entityDetails) return [];
@@ -817,7 +942,9 @@ export default function TelemarketerWorkspace() {
     // ── Call outcome handler ──────────────────────────────────────────────────
 
     const handleSaveOutcome = async (contactId: string, outcome: TelemarketingOutcomeCode, notes: string, extras?: SaveExtras) => {
-        if (!selectedCustomer || !activeTaskList) return;
+        if (!selectedCustomer || !activeTaskList) {
+            throw new Error('تعذر حفظ النتيجة لأن سياق جهة الاتصال لم يعد متاحاً. أعد فتح النافذة وحاول مجدداً.');
+        }
 
         const meta = OUTCOME_MAP[outcome] ?? OUTCOME_MAP['no_answer'];
         const entityContacts = getEntityContacts(entityDetails as any);
@@ -846,8 +973,7 @@ export default function TelemarketerWorkspace() {
                 communicationMethod,
             });
         } catch {
-            setCallLogSaveError('فشل حفظ سجل الاتصال — تحقق من الاتصال وحاول مجدداً');
-            return;
+            throw new Error('فشل حفظ سجل الاتصال — تحقق من الاتصال وحاول مجدداً');
         }
 
         // Also save to customer_call_logs for client entities.
@@ -884,7 +1010,7 @@ export default function TelemarketerWorkspace() {
                 const updatedContacts = (entityDetails.contacts as ContactEntry[]).map(c =>
                     c.id === selectedContact.id ? { ...c, status: newContactStatus } : c
                 );
-                await updateClient(selectedCustomer.entityId, { contacts: updatedContacts }).catch(() => {});
+                await updateWorkspaceClient(selectedCustomer.entityId, { contacts: updatedContacts }).catch(() => {});
             }
         }
 
@@ -898,6 +1024,7 @@ export default function TelemarketerWorkspace() {
                     .filter(ot => ot.openTaskId != null)
                     .map(ot => api.openTasks.update(ot.openTaskId!, {
                         status: 'cancelled',
+                        cancellationReason: reasonNote,
                         notes: reasonNote,
                     }).catch(() => {}))
             );
@@ -952,18 +1079,29 @@ export default function TelemarketerWorkspace() {
                     requestedDeviceModelId: null,
                     requestedDeviceName: '',
                 }, selectedTaskEntries.length > 0 ? selectedTaskEntries : undefined);
-
-                if (selectedCustomer.entityType === 'client' && extras.waterSource) {
-                    await updateClient(selectedCustomer.entityId, { waterSource: extras.waterSource });
-                }
-                // Mark as booked AFTER appointment is confirmed
-                await Promise.all(selectedCustomer.allItems.map(item =>
-                    updateTaskListItemStatus(activeTaskList.id, item.id, 'booked', outcome)
-                ));
-                setIsOutcomeModalOpen(false);
-                await loadData(date, appointmentDate);
             } catch (err: any) {
-                setCallLogSaveError(err.message || 'فشل حجز الموعد — تحقق من التفاصيل وحاول مجدداً');
+                throw new Error(err?.message || 'فشل حجز الموعد — تحقق من التفاصيل وحاول مجدداً');
+            }
+
+            // The visit is committed. Leave the editable validation state before
+            // secondary synchronization can publish the new slot back to the modal.
+            setIsOutcomeModalOpen(false);
+
+            let clientSyncFailed = false;
+            if (selectedCustomer.entityType === 'client' && extras.waterSource) {
+                try {
+                    await updateWorkspaceClient(selectedCustomer.entityId, { waterSource: extras.waterSource });
+                } catch {
+                    clientSyncFailed = true;
+                }
+            }
+            // Mark as booked AFTER appointment is confirmed.
+            await Promise.all(selectedCustomer.allItems.map(item =>
+                updateTaskListItemStatus(activeTaskList.id, item.id, 'booked', outcome)
+            ));
+            await loadData(date, appointmentDate);
+            if (clientSyncFailed) {
+                setCallLogSaveError('تم حجز الموعد بنجاح، لكن تعذر تحديث مصدر المياه في بيانات الزبون.');
             }
             return;
         }
@@ -985,6 +1123,8 @@ export default function TelemarketerWorkspace() {
             setServiceTaskTypeLabel(foundLabel ?? extras.serviceTaskType);
             setServiceTaskNotes('');
             setServiceTaskPriority('');
+            setServiceTaskDeviceId('');
+            setServiceTaskDeviceError('');
             setIsServiceTaskOpen(true);
         } else if (meta.opensAppointment) {
             // Fallback: legacy path if inline data is missing
@@ -1040,8 +1180,18 @@ export default function TelemarketerWorkspace() {
             await addAppointment(appointmentPayload, data.selectedTaskEntries);
         }
 
+        // Booking succeeded; close immediately before live appointments update
+        // can make the submitted slot collide with itself in the open modal.
+        setIsAppointmentModalOpen(false);
+        setAppointmentMode('call_result');
+
+        let clientSyncFailed = false;
         if (selectedCustomer.entityType === 'client' && data.waterSource) {
-            await updateClient(selectedCustomer.entityId, { waterSource: data.waterSource });
+            try {
+                await updateWorkspaceClient(selectedCustomer.entityId, { waterSource: data.waterSource });
+            } catch {
+                clientSyncFailed = true;
+            }
         }
 
         // Update ALL items for this customer as booked in the store.
@@ -1050,21 +1200,31 @@ export default function TelemarketerWorkspace() {
         ));
 
         await loadData(date, appointmentDate);
+        if (clientSyncFailed) {
+            setCallLogSaveError('تم حجز الموعد بنجاح، لكن تعذر تحديث مصدر المياه في بيانات الزبون.');
+        }
     };
 
     // ── Manual close handler ─────────────────────────────────────────────────
 
     const handleCreateServiceTask = async () => {
         if (!selectedCustomer || !serviceTaskType) return;
+        if (taskRequiresInstalledDevice(serviceTaskType) && !serviceTaskDeviceId) {
+            setServiceTaskDeviceError('يجب اختيار جهاز مؤهل قبل إنشاء المهمة');
+            return;
+        }
         setServiceTaskSaving(true);
         try {
             await api.telemarketing.createServiceTask({
                 clientId: selectedCustomer.entityId,
                 taskType: serviceTaskType,
+                installedDeviceId: serviceTaskDeviceId ? Number(serviceTaskDeviceId) : undefined,
                 notes: serviceTaskNotes || undefined,
                 priority: serviceTaskPriority || undefined,
             });
             setIsServiceTaskOpen(false);
+            setServiceTaskDeviceId('');
+            setServiceTaskDevices([]);
             setServiceTaskType('');
             setServiceTaskTypeLabel('');
             setServiceTaskNotes('');
@@ -1119,7 +1279,7 @@ export default function TelemarketerWorkspace() {
         }
 
         if (selectedCustomer.entityType === 'client') {
-            const client = clients.find(c => c.id === selectedCustomer.entityId);
+            const client = entityDetails as Client | null;
             if (client) {
                 events.push({ id: 'client_' + client.id, date: client.createdAt, type: 'suggestion', icon: User, color: 'text-amber-600', bg: 'bg-amber-100',
                     content: <><p className="text-sm font-bold text-slate-800">تم تسجيل الزبون في النظام</p>{client.referrerName && <p className="text-xs text-slate-600 mt-1">الوسيط: {client.referrerName}</p>}</> });
@@ -1202,7 +1362,7 @@ export default function TelemarketerWorkspace() {
         });
 
         return events.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    }, [selectedCustomer, candidates, clients, contracts, visits, maintenanceRequests, callLogs]);
+    }, [selectedCustomer, entityDetails, candidates, contracts, visits, maintenanceRequests, callLogs]);
 
     const openTaskRows = useMemo(() => {
         if (!selectedCustomer) return [];
@@ -1262,9 +1422,26 @@ export default function TelemarketerWorkspace() {
                     <button type="button" onClick={goToPlanningDate} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors border ${isPlanningDate ? 'bg-violet-600 text-white border-violet-700' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
                         {formatDateArabic(date)}
                     </button>
+                    <button
+                        ref={dateAnchorRef}
+                        type="button"
+                        onClick={() => setIsDatePickerOpen(o => !o)}
+                        aria-label="اختيار تاريخ محدد"
+                        title="اختيار تاريخ محدد"
+                        className="p-1.5 rounded-lg hover:bg-slate-100 transition-colors border border-slate-200 text-slate-600"
+                    >
+                        <Calendar className="w-4 h-4" />
+                    </button>
                     <button type="button" onClick={() => changeDateBy(1)} className="flex items-center gap-1 p-1.5 rounded-lg hover:bg-slate-100 transition-colors border border-slate-200">
                         <ChevronLeft className="w-4 h-4 text-slate-600" />
                     </button>
+                    <DatePicker
+                        isOpen={isDatePickerOpen}
+                        onClose={() => setIsDatePickerOpen(false)}
+                        anchorRef={dateAnchorRef}
+                        value={parseDateKey(date)}
+                        onChange={(d) => setDate(formatDateKey(d))}
+                    />
                 </div>
             </div>
 
@@ -1272,7 +1449,23 @@ export default function TelemarketerWorkspace() {
             <div className="flex-1 flex overflow-hidden p-3 gap-3">
 
                 {/* COLUMN 1: Customer queue (20%) */}
-                <div className="w-[25%] min-w-[300px] bg-white border border-slate-200 rounded-xl flex flex-col shadow-sm overflow-hidden">
+                <div className="w-1/4 min-w-[300px] bg-white border border-slate-200 rounded-xl flex flex-col overflow-hidden">
+                    {/* Team KPIs strip */}
+                    <div className="grid grid-cols-3 gap-1.5 p-2.5 border-b border-slate-100 shrink-0 text-center">
+                        <div className="bg-sky-50 rounded-lg py-1.5">
+                            <p className="text-base font-black text-sky-700 leading-none">{bookingRate}%</p>
+                            <p className="text-[11px] font-bold text-sky-700/80 mt-1 leading-tight">نسبة النجاح</p>
+                        </div>
+                        <div className="bg-slate-100 rounded-lg py-1.5">
+                            <p className="text-base font-black text-slate-700 leading-none">{closedCount}</p>
+                            <p className="text-[11px] font-bold text-slate-500 mt-1 leading-tight">جهات مغلقة</p>
+                        </div>
+                        <div className="bg-emerald-50 rounded-lg py-1.5">
+                            <p className="text-base font-black text-emerald-700 leading-none">{totalScheduled}</p>
+                            <p className="text-[11px] font-bold text-emerald-700/80 mt-1 leading-tight">زيارات مجدولة</p>
+                        </div>
+                    </div>
+
                     {/* Team Selector */}
                     <div className="p-3 border-b border-slate-100 bg-slate-50">
                         <label className="text-xs font-bold text-slate-500 mb-1.5 block">اختر أحد الفرق النشطة</label>
@@ -1295,7 +1488,7 @@ export default function TelemarketerWorkspace() {
                             const isActive = statusFilter === filter;
                             return (
                                 <button key={filter} onClick={() => setStatusFilter(filter)}
-                                    className={`px-2 py-1 rounded-lg text-xs font-bold transition-all ${isActive ? `${config.activeBg} ${config.activeText} shadow-sm` : `${config.inactiveBg} ${config.inactiveText} hover:opacity-80`}`}>
+                                    className={`px-2 py-1 rounded-lg text-xs font-bold transition-all ${isActive ? `${config.activeBg} ${config.activeText} shadow-sm` : `${config.inactiveBg} ${config.inactiveText} hover:bg-slate-100`}`}>
                                     {config.label} ({count})
                                 </button>
                             );
@@ -1330,7 +1523,7 @@ export default function TelemarketerWorkspace() {
                     {/* Queue header */}
                     <div className="sticky top-0 z-10 px-4 py-2.5 border-b border-slate-100 flex items-center justify-between bg-white shrink-0">
                         <h2 className="text-sm font-bold text-slate-800">قائمة الزبائن</h2>
-                        <span className="px-2 py-0.5 rounded-lg text-[11px] font-bold bg-violet-100 text-violet-700 border border-violet-200">{inListCount} ضمن القائمة</span>
+                        <span className="px-2 py-0.5 rounded-lg text-xs font-bold bg-violet-100 text-violet-700 border border-violet-200">{inListCount} ضمن القائمة</span>
                     </div>
 
                     {/* Customer list */}
@@ -1371,52 +1564,45 @@ export default function TelemarketerWorkspace() {
                 </div>
 
                 {/* COLUMN 2: Customer detail (55%) */}
-                <div className="flex-1 min-w-0 bg-white border border-slate-200 rounded-xl flex flex-col shadow-sm overflow-hidden relative">
+                <div className="flex-1 min-w-0 bg-white border border-slate-200 rounded-xl flex flex-col shadow-md overflow-hidden relative">
                     {selectedCustomer && entityDetails ? (
                         <>
                             {/* Client snapshot */}
                             <div className="px-6 py-5 border-b border-slate-100 bg-white shrink-0">
                                 <div className="flex items-start justify-between gap-5">
                                     <div className="flex items-start gap-4 min-w-0">
-                                        <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-lg font-black shrink-0 border shadow-sm ${
+                                        <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-xl font-black shrink-0 ring-1 shadow-sm ${
                                             selectedCustomer.entityType === 'client'
-                                                ? 'bg-sky-50 text-sky-800 border-sky-100'
-                                                : 'bg-amber-50 text-amber-800 border-amber-100'
+                                                ? 'bg-gradient-to-br from-sky-50 to-sky-100 text-sky-700 ring-sky-200/70'
+                                                : 'bg-gradient-to-br from-amber-50 to-amber-100 text-amber-700 ring-amber-200/70'
                                         }`}>
                                             {getInitials(selectedCustomer.name)}
                                         </div>
                                         <div className="min-w-0">
-                                            <div className="flex items-center gap-2 flex-wrap">
-                                                <h2 className="text-lg font-bold text-slate-800 leading-tight">{selectedCustomer.name}</h2>
+                                            <div className="flex items-baseline gap-2 flex-wrap">
+                                                <h2 className="text-xl font-black text-slate-900 leading-tight tracking-tight">{selectedCustomer.name}</h2>
                                                 {selectedSnapshotMeta.nickname && (
                                                     <span className="text-sm font-bold text-slate-400">({selectedSnapshotMeta.nickname})</span>
                                                 )}
                                             </div>
-                                            <div className="mt-2 flex items-center gap-2 flex-wrap">
-                                                <span className={`px-2 py-0.5 rounded-lg text-xs font-black border ${
-                                                    selectedCustomer.entityType === 'client'
-                                                        ? 'bg-sky-50 text-sky-700 border-sky-200'
-                                                        : 'bg-amber-50 text-amber-700 border-amber-200'
-                                                }`}>
+                                            <div className="mt-2.5 flex items-center gap-1.5 flex-wrap">
+                                                <Badge variant={selectedCustomer.entityType === 'client' ? 'info' : 'gold'}>
                                                     {selectedSnapshotMeta.classification}
-                                                </span>
+                                                </Badge>
                                                 {selectedSnapshotMeta.rating && selectedSnapshotMeta.classification === 'OP' && (
-                                                    <span className="px-2 py-0.5 rounded-lg text-xs font-black border bg-emerald-50 text-emerald-700 border-emerald-200">
-                                                        {selectedSnapshotMeta.rating}
-                                                    </span>
+                                                    <Badge variant="success">{selectedSnapshotMeta.rating}</Badge>
                                                 )}
                                                 {selectedCustomer.entityType === 'client' ? (
                                                     <OwnershipBadge ownership={selectedCustomer.primaryItem.ownership} />
                                                 ) : null}
                                                 {selectedSnapshotMeta.branchName && (
-                                                    <span className="px-2 py-0.5 rounded-lg text-xs font-bold border bg-slate-50 text-slate-600 border-slate-200">
+                                                    <span className="inline-flex items-center gap-1 text-xs font-bold text-slate-500 bg-slate-100 rounded-md px-2 py-1">
+                                                        <MapPin className="w-3 h-3 text-slate-400" />
                                                         {selectedSnapshotMeta.branchName}
                                                     </span>
                                                 )}
                                                 {selectedCustomer.lockedByHrUserName && (
-                                                    <span className="px-2 py-0.5 rounded-lg text-xs font-bold border bg-amber-50 text-amber-700 border-amber-200">
-                                                        قيد المتابعة: {selectedCustomer.lockedByHrUserName}
-                                                    </span>
+                                                    <Badge variant="warning">قيد المتابعة: {selectedCustomer.lockedByHrUserName}</Badge>
                                                 )}
                                             </div>
                                         </div>
@@ -1425,36 +1611,36 @@ export default function TelemarketerWorkspace() {
                                     {primarySelectedContact && (
                                         <a
                                             href={`tel:${primarySelectedContact.number}`}
-                                            className="h-11 px-4 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100 transition-colors font-black flex items-center gap-2 shrink-0 shadow-sm"
+                                            className="h-11 px-5 rounded-full bg-emerald-600 text-white hover:bg-emerald-700 transition-colors font-black flex items-center gap-2 shrink-0 shadow-sm shadow-emerald-600/25"
                                         >
                                             <Phone className="w-4 h-4" />
-                                            <span dir="ltr">{primarySelectedContact.number}</span>
+                                            <span dir="ltr" className="tracking-wide">{primarySelectedContact.number}</span>
                                         </a>
                                     )}
                                 </div>
 
-                                <div className="mt-5 grid grid-cols-2 lg:grid-cols-4 gap-2">
+                                <div className="mt-5 grid grid-cols-2 lg:grid-cols-4 gap-2.5">
                                     {selectedSnapshotMeta.occupation && (
-                                        <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
-                                            <p className="text-xs font-bold text-slate-400 mb-1">المهنة</p>
+                                        <div className="rounded-xl border border-slate-200/70 bg-slate-50/60 px-3.5 py-2.5">
+                                            <p className="text-[11px] font-bold text-slate-400 mb-1 flex items-center gap-1"><Briefcase className="w-3 h-3" />المهنة</p>
                                             <p className="text-sm font-black text-slate-800 truncate">{selectedSnapshotMeta.occupation}</p>
                                         </div>
                                     )}
                                     {selectedSnapshotMeta.spouseOccupation && (
-                                        <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
-                                            <p className="text-xs font-bold text-slate-400 mb-1">مهنة الزوج/الزوجة</p>
+                                        <div className="rounded-xl border border-slate-200/70 bg-slate-50/60 px-3.5 py-2.5">
+                                            <p className="text-[11px] font-bold text-slate-400 mb-1 flex items-center gap-1"><User className="w-3 h-3" />مهنة الزوج/الزوجة</p>
                                             <p className="text-sm font-black text-slate-800 truncate">{selectedSnapshotMeta.spouseOccupation}</p>
                                         </div>
                                     )}
                                     {selectedSnapshotMeta.sourceChannel && (
-                                        <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
-                                            <p className="text-xs font-bold text-slate-400 mb-1">مصدر الزبون</p>
+                                        <div className="rounded-xl border border-slate-200/70 bg-slate-50/60 px-3.5 py-2.5">
+                                            <p className="text-[11px] font-bold text-slate-400 mb-1 flex items-center gap-1"><Activity className="w-3 h-3" />مصدر الزبون</p>
                                             <p className="text-sm font-black text-slate-800 truncate">{selectedSnapshotMeta.sourceChannel}</p>
                                         </div>
                                     )}
                                     {selectedSnapshotMeta.referrersCount > 0 && (
-                                        <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
-                                            <p className="text-xs font-bold text-slate-400 mb-1">الوسيط</p>
+                                        <div className="rounded-xl border border-slate-200/70 bg-slate-50/60 px-3.5 py-2.5">
+                                            <p className="text-[11px] font-bold text-slate-400 mb-1 flex items-center gap-1"><Search className="w-3 h-3" />الوسيط</p>
                                             <p className="text-sm font-black text-slate-800 truncate">
                                                 {selectedSnapshotMeta.referrerName || `${selectedSnapshotMeta.referrersCount} وسيط`}
                                                 {selectedSnapshotMeta.referrerName && selectedSnapshotMeta.referrersCount > 1 ? ` +${selectedSnapshotMeta.referrersCount - 1}` : ''}
@@ -1463,12 +1649,14 @@ export default function TelemarketerWorkspace() {
                                     )}
                                 </div>
 
-                                <div className="mt-4 grid grid-cols-1 xl:grid-cols-[1.35fr_1fr] gap-4">
-                                    <div className="rounded-lg border border-slate-100 bg-white px-4 py-3 shadow-sm">
-                                        <div className="flex items-start gap-2">
-                                            <MapPin className="w-4 h-4 text-sky-500 mt-0.5 shrink-0" />
+                                <div className="mt-4 grid grid-cols-1 xl:grid-cols-[1.35fr_1fr] gap-3">
+                                    <div className="rounded-xl border border-sky-100 bg-sky-50/50 px-4 py-3">
+                                        <div className="flex items-start gap-2.5">
+                                            <span className="w-7 h-7 rounded-lg bg-white border border-sky-100 flex items-center justify-center shrink-0 shadow-sm">
+                                                <MapPin className="w-4 h-4 text-sky-500" />
+                                            </span>
                                             <div className="min-w-0">
-                                                <p className="text-xs text-slate-400 font-black mb-1">العنوان المعتمد للتواصل</p>
+                                                <p className="text-[11px] text-slate-400 font-black mb-0.5">العنوان المعتمد للتواصل</p>
                                                 <p className="text-sm text-slate-900 font-black leading-relaxed">{selectedAddressLabel}</p>
                                                 {selectedSnapshotMeta.detailedAddress && (
                                                     <p className="text-xs text-slate-500 font-semibold mt-1 leading-relaxed">{selectedSnapshotMeta.detailedAddress}</p>
@@ -1477,11 +1665,11 @@ export default function TelemarketerWorkspace() {
                                         </div>
                                     </div>
 
-                                    <div className="rounded-lg border border-slate-100 bg-white px-4 py-3 shadow-sm">
+                                    <div className="rounded-xl border border-slate-200/70 bg-slate-50/60 px-4 py-3">
                                         <div className="flex items-center justify-between gap-3 mb-2">
-                                            <p className="text-xs text-slate-400 font-black">أرقام إضافية</p>
+                                            <p className="text-[11px] text-slate-400 font-black flex items-center gap-1"><Phone className="w-3 h-3" />أرقام إضافية</p>
                                             {selectedOtherTargets.length > 0 && (
-                                                <span className="text-xs px-2 py-0.5 rounded-lg border border-cyan-100 bg-cyan-50 text-cyan-700 font-black">
+                                                <span className="text-[11px] px-2 py-0.5 rounded-md bg-teal-50 text-teal-700 border border-teal-100 font-black">
                                                     {selectedOtherTargets.length} جهة أخرى اليوم
                                                 </span>
                                             )}
@@ -1492,9 +1680,9 @@ export default function TelemarketerWorkspace() {
                                                     <a
                                                         key={contact.id || contact.number}
                                                         href={`tel:${contact.number}`}
-                                                        className="flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100 text-sm font-bold transition-colors"
+                                                        className="flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300 text-sm font-bold transition-colors shadow-sm"
                                                     >
-                                                        <Phone className="w-3.5 h-3.5" />
+                                                        <Phone className="w-3.5 h-3.5 text-slate-400" />
                                                         <span dir="ltr">{contact.number}</span>
                                                         {contact.label && <span className="text-xs text-slate-500">{contact.label}</span>}
                                                         {contact.hasWhatsApp && <MessageSquare className="w-3.5 h-3.5 text-green-500" />}
@@ -1526,8 +1714,49 @@ export default function TelemarketerWorkspace() {
                                 )}
                             </div>
 
+                            {/* Cross-team awareness for the selected customer */}
+                            {selectedOtherTargets.length > 0 && (
+                                <div className="px-6 pb-4 bg-white shrink-0">
+                                    <div className="rounded-lg bg-teal-50/60 border border-teal-100 p-3">
+                                        <h3 className="text-xs font-bold text-slate-600 mb-2 flex items-center gap-1.5">
+                                            <Layers className="w-3.5 h-3.5 text-teal-600" /> الوعي عبر الفرق — جهات أخرى لهذا الزبون اليوم
+                                            {crossTeamLoading && <span className="text-xs font-bold text-teal-600">· تحميل...</span>}
+                                        </h3>
+                                        <div className="space-y-2 max-h-40 overflow-y-auto custom-scroll">
+                                            {selectedOtherTargets.map(target => {
+                                                const isClosed = target.status === 'closed';
+                                                const outcome = target.latestTelemarketingOutcome || target.latestCallOutcome;
+                                                const outcomeLabel = outcome ? getOutcomeDisplay(outcome).label : 'بدون نتيجة';
+                                                return (
+                                                    <div key={target.id} className="rounded-lg bg-white border border-teal-100 px-3 py-2">
+                                                        <div className="flex items-center justify-between gap-2">
+                                                            <span className="text-xs font-black text-slate-800 truncate">{target.teamKey || 'فريق غير محدد'}</span>
+                                                            <span className={`text-xs px-1.5 py-0.5 rounded border font-bold ${isClosed ? 'bg-slate-100 text-slate-600 border-slate-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+                                                                {isClosed ? 'مغلقة' : target.status}
+                                                            </span>
+                                                        </div>
+                                                        <div className="mt-1 grid grid-cols-2 gap-1 text-xs font-bold text-slate-500">
+                                                            <span className="truncate">الموقع: {target.workLocationName || '-'}</span>
+                                                            <span className="truncate">المهام: {target.taskCount}</span>
+                                                            <span className="truncate">آخر نتيجة: {outcomeLabel}</span>
+                                                            <span className="truncate">القفل: {target.lockedByHrUserName || '-'}</span>
+                                                        </div>
+                                                        {target.latestVisitId && (
+                                                            <div className="mt-1 flex items-center gap-1 text-xs font-bold text-emerald-700">
+                                                                <Calendar className="w-3 h-3" />
+                                                                زيارة {target.visitDate || ''} {target.visitTime || ''}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
                             {/* Tabs */}
-                            <div className="px-4 flex gap-1 border-b border-[#E3E7EC] shrink-0 bg-white z-10 overflow-x-auto custom-scroll">
+                            <div className="px-4 flex gap-1 border-b border-slate-200 shrink-0 bg-white z-10 overflow-x-auto custom-scroll">
                                 {[
                                     { id: 'calllog', label: 'سجل الاتصال', icon: Phone },
                                     { id: 'devices', label: 'الأجهزة', icon: Cpu },
@@ -1536,6 +1765,7 @@ export default function TelemarketerWorkspace() {
                                     { id: 'account', label: 'كشف الحساب', icon: FileText },
                                     { id: 'openTasks', label: 'المهام المفتوحة', icon: Layers },
                                     { id: 'visits', label: 'الزيارات', icon: Wrench },
+                                    { id: 'agenda', label: 'مواعيد الفريق', icon: Calendar },
                                 ].map(tab => (
                                     <button key={tab.id} onClick={() => setActiveTab(tab.id as any)}
                                         className={`relative inline-flex items-center gap-1.5 px-3 py-2.5 text-sm font-bold whitespace-nowrap transition-colors ${activeTab === tab.id
@@ -1580,42 +1810,45 @@ export default function TelemarketerWorkspace() {
                                                 <p className="text-sm font-bold text-slate-500">لا توجد مهام مفتوحة لهذا الزبون</p>
                                             </div>
                                         ) : (
-                                            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-                                                <table className="w-full text-right">
-                                                    <thead className="bg-slate-50 border-b border-slate-100">
-                                                        <tr>
-                                                            <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wide">نوع المهمة</th>
-                                                            <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wide">العقد</th>
-                                                            <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wide">السبب</th>
-                                                            <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wide">الأولوية</th>
-                                                            <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wide text-center">إجراء</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody>
-                                                        {openTaskRows.map(row => {
-                                                            const detailPath = getOpenTaskDetailPath(row.taskType, row.id);
-                                                            return (
-                                                                <tr key={row.key} className="border-b border-slate-100 last:border-b-0 hover:bg-violet-50/40 transition-colors">
-                                                                    <td className="px-4 py-3 text-sm font-bold text-slate-800">{row.taskTypeLabel}</td>
-                                                                    <td className="px-4 py-3 text-sm text-slate-600">{row.contractLabel}</td>
-                                                                    <td className="px-4 py-3 text-sm text-slate-600">{row.reasonLabel}</td>
-                                                                    <td className="px-4 py-3 text-sm text-slate-600">{row.priorityLabel}</td>
-                                                                    <td className="px-4 py-3 text-center">
-                                                                        {detailPath ? (
-                                                                            <Button type="button" variant="secondary" size="sm" icon={Eye} onClick={() => navigate(detailPath)} className="bg-violet-50 border-violet-100 text-violet-700 hover:bg-violet-100">
-                                                                                عرض التفاصيل
-                                                                            </Button>
-                                                                        ) : (
-                                                                            <span className="text-xs text-slate-400 font-bold">-</span>
-                                                                        )}
-                                                                    </td>
-                                                                </tr>
-                                                            );
-                                                        })}
-                                                    </tbody>
-                                                </table>
-                                            </div>
+                                            <DataTable card>
+                                                <DataTable.Head>
+                                                    <DataTable.Row>
+                                                        <DataTable.Th>نوع المهمة</DataTable.Th>
+                                                        <DataTable.Th>العقد</DataTable.Th>
+                                                        <DataTable.Th>السبب</DataTable.Th>
+                                                        <DataTable.Th>الأولوية</DataTable.Th>
+                                                        <DataTable.Th align="center">إجراء</DataTable.Th>
+                                                    </DataTable.Row>
+                                                </DataTable.Head>
+                                                <DataTable.Body>
+                                                    {openTaskRows.map(row => {
+                                                        const detailPath = getOpenTaskDetailPath(row.taskType, row.id);
+                                                        return (
+                                                            <DataTable.Row key={row.key} className="hover:bg-violet-50/40">
+                                                                <DataTable.Td className="font-bold text-slate-800">{row.taskTypeLabel}</DataTable.Td>
+                                                                <DataTable.Td className="text-slate-600">{row.contractLabel}</DataTable.Td>
+                                                                <DataTable.Td className="text-slate-600">{row.reasonLabel}</DataTable.Td>
+                                                                <DataTable.Td className="text-slate-600">{row.priorityLabel}</DataTable.Td>
+                                                                <DataTable.Td align="center">
+                                                                    {detailPath ? (
+                                                                        <Button type="button" variant="secondary" size="sm" icon={Eye} onClick={() => navigate(detailPath)} className="bg-violet-50 border-violet-100 text-violet-700 hover:bg-violet-100">
+                                                                            عرض التفاصيل
+                                                                        </Button>
+                                                                    ) : (
+                                                                        <span className="text-xs text-slate-400 font-bold">-</span>
+                                                                    )}
+                                                                </DataTable.Td>
+                                                            </DataTable.Row>
+                                                        );
+                                                    })}
+                                                </DataTable.Body>
+                                            </DataTable>
                                         )}
+                                    </div>
+                                )}
+                                {activeTab === 'agenda' && (
+                                    <div className="absolute inset-0">
+                                        <TeamAgendaPanel appointments={teamAppointments} date={appointmentDate} />
                                     </div>
                                 )}
                             </div>
@@ -1653,7 +1886,7 @@ export default function TelemarketerWorkspace() {
                                     </div>
                                     <div className="text-right overflow-hidden">
                                         <p className={`font-black text-xs leading-tight truncate ${isCtClosedForSelected ? 'text-slate-500' : 'text-white'}`}>{isCtClosedForSelected ? 'جهة الاتصال مغلقة' : 'تسجيل نتيجة التواصل'}</p>
-                                        <p className={`text-[9px] font-bold opacity-70 truncate ${isCtClosedForSelected ? 'text-slate-400' : 'text-violet-100'}`}>{isCtClosedForSelected ? 'لا يمكن تسجيل نتيجة' : 'تحديث الحالة'}</p>
+                                        <p className={`text-xs font-bold opacity-70 truncate ${isCtClosedForSelected ? 'text-slate-400' : 'text-violet-100'}`}>{isCtClosedForSelected ? 'لا يمكن تسجيل نتيجة' : 'تحديث الحالة'}</p>
                                     </div>
                                 </button>
 
@@ -1663,7 +1896,7 @@ export default function TelemarketerWorkspace() {
                                         <Calendar className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                                         <div className="text-right">
                                             <p className="font-black text-xs text-emerald-700 leading-tight">موعد مؤكد</p>
-                                            <p className="text-[9px] font-bold text-emerald-500" dir="ltr">{selectedAppointment.date} {selectedAppointment.timeSlot}</p>
+                                            <p className="text-xs font-bold text-emerald-500" dir="ltr">{selectedAppointment.date} {selectedAppointment.timeSlot}</p>
                                         </div>
                                     </div>
                                 )}
@@ -1673,7 +1906,7 @@ export default function TelemarketerWorkspace() {
                                         <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                                         <div className="text-right">
                                             <p className="font-black text-xs leading-tight">محجوزة</p>
-                                            <p className="text-[9px] font-bold">{selectedCustomer.lockedByHrUserName || 'تيلماركتر آخر'}</p>
+                                            <p className="text-xs font-bold">{selectedCustomer.lockedByHrUserName || 'تيلماركتر آخر'}</p>
                                         </div>
                                     </div>
                                 )}
@@ -1708,17 +1941,23 @@ export default function TelemarketerWorkspace() {
                             </div>
 
                             {/* Manual close modal */}
-                            {isManualCloseOpen && (
-                                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-                                    onClick={e => { if (e.target === e.currentTarget) { setIsManualCloseOpen(false); setManualCloseReason(''); } }}>
-                                    <div className="w-full max-w-sm rounded-2xl bg-white shadow-2xl">
-                                        <div className="flex items-start justify-between border-b border-slate-100 px-5 py-4">
-                                            <div>
-                                                <h3 className="font-bold text-slate-800">إغلاق جهة الاتصال</h3>
-                                                <p className="text-xs text-slate-500 mt-0.5">تعود المهمة إلى مرحلة قيد الانتظار</p>
-                                            </div>
-                                            <IconButton icon={X} label="إغلاق" size="sm" onClick={() => { setIsManualCloseOpen(false); setManualCloseReason(''); }} />
-                                        </div>
+                            <Modal
+                                isOpen={isManualCloseOpen}
+                                onClose={() => { setIsManualCloseOpen(false); setManualCloseReason(''); }}
+                                size="sm"
+                                title="إغلاق جهة الاتصال"
+                                subtitle="تعود المهمة إلى مرحلة قيد الانتظار"
+                                footer={
+                                    <div className="w-full flex gap-3">
+                                        <Button variant="secondary" onClick={() => { setIsManualCloseOpen(false); setManualCloseReason(''); }} className="flex-1">
+                                            إلغاء
+                                        </Button>
+                                        <Button variant="danger" loading={manualCloseSaving} onClick={handleManualClose} className="flex-1">
+                                            إغلاق وإعادة للانتظار
+                                        </Button>
+                                    </div>
+                                }
+                            >
                                         <div className="px-5 py-4">
                                             <label className="block text-xs font-bold text-slate-600 mb-1">سبب الإغلاق (اختياري)</label>
                                             <Select<string>
@@ -1731,104 +1970,44 @@ export default function TelemarketerWorkspace() {
                                                 className="w-full"
                                             />
                                         </div>
-                                        <div className="flex gap-3 border-t border-slate-100 px-5 py-4">
-                                            <Button variant="secondary" onClick={() => { setIsManualCloseOpen(false); setManualCloseReason(''); }} className="flex-1">
-                                                إلغاء
-                                            </Button>
-                                            <Button
-                                                variant="danger"
-                                                loading={manualCloseSaving}
-                                                onClick={handleManualClose}
-                                                className="flex-1"
-                                            >
-                                                إغلاق وإعادة للانتظار
-                                            </Button>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
+                            </Modal>
                         </>
+                    ) : selectedCustomer && entityDetailsLoading ? (
+                        <div className="flex-1 flex items-center justify-center flex-col text-slate-500 bg-slate-50">
+                            <Loader2 className="w-8 h-8 mb-3 animate-spin text-violet-500" />
+                            <p className="font-bold text-sm">جارٍ تحميل تفاصيل الزبون</p>
+                        </div>
+                    ) : selectedCustomer && entityDetailsError ? (
+                        <div className="flex-1 flex items-center justify-center flex-col text-center text-slate-500 bg-slate-50 px-8">
+                            <AlertTriangle className="w-10 h-10 mb-3 text-red-400" />
+                            <p className="font-bold text-sm text-slate-700">{entityDetailsError}</p>
+                            <Button
+                                type="button"
+                                variant="secondary"
+                                size="sm"
+                                icon={RefreshCw}
+                                onClick={() => setSelectedClientDetailReloadKey(key => key + 1)}
+                                className="mt-4"
+                            >
+                                إعادة المحاولة
+                            </Button>
+                        </div>
                     ) : (
-                        <div className="flex-1 flex items-center justify-center flex-col text-slate-400 bg-slate-50 relative overflow-hidden">
-                            <Headset className="w-20 h-20 mb-4 text-violet-100" />
-                            <p className="font-bold text-slate-500">يرجى اختيار زبون من قائمة الفريق</p>
+                        <div className="flex-1 flex flex-col overflow-hidden bg-slate-50">
+                            <div className="flex flex-col items-center justify-center text-slate-400 p-8 shrink-0">
+                                <Headset className="w-16 h-16 mb-3 text-sky-100" />
+                                <p className="font-bold text-slate-500">يرجى اختيار زبون من قائمة الفريق</p>
+                                <p className="text-xs text-slate-400 mt-1">أو استعرض مواعيد الفريق أدناه</p>
+                            </div>
+                            <div className="flex-1 relative border-t border-slate-100 min-h-0">
+                                <div className="absolute inset-0">
+                                    <TeamAgendaPanel appointments={teamAppointments} date={appointmentDate} />
+                                </div>
+                            </div>
                         </div>
                     )}
                 </div>
 
-                {/* COLUMN 3: Team situational awareness (25%) */}
-                <div className="w-1/4 min-w-[300px] flex flex-col gap-3 relative shrink-0">
-                    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm shrink-0">
-                        <h3 className="text-base font-bold text-slate-800 mb-3 flex items-center gap-1.5"><Zap className="w-4 h-4 text-amber-500" /> مؤشر أداء التيلماركتر</h3>
-                        <div className="grid grid-cols-3 gap-2 text-center">
-                            <div className="bg-emerald-50 rounded-xl p-3 border border-emerald-100 shadow-sm flex flex-col justify-between">
-                                <p className="text-xs font-bold text-emerald-700 mb-1 leading-tight line-clamp-2">زيارات مجدولة</p>
-                                <p className="text-lg font-black text-emerald-700">{totalScheduled}</p>
-                            </div>
-                            <div className="bg-violet-50 rounded-xl p-3 border border-violet-100 shadow-sm flex flex-col justify-between">
-                                <p className="text-xs font-bold text-violet-700 mb-1 leading-tight line-clamp-2">جهات مغلقة</p>
-                                <p className="text-lg font-black text-violet-700">{closedCount}</p>
-                            </div>
-                            <div className="bg-sky-50 rounded-xl p-3 border border-sky-100 shadow-sm flex flex-col justify-between">
-                                <p className="text-xs font-bold text-sky-700 mb-1 leading-tight line-clamp-2">نسبة نجاح الحجز</p>
-                                <p className="text-lg font-black text-sky-700">{bookingRate}%</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm shrink-0">
-                        <div className="flex items-center justify-between gap-2 mb-3">
-                            <h3 className="text-base font-bold text-slate-800 flex items-center gap-1.5">
-                                <Layers className="w-4 h-4 text-cyan-600" />
-                                الوعي عبر الفرق
-                            </h3>
-                            {crossTeamLoading && <span className="text-xs font-bold text-cyan-600">تحميل...</span>}
-                        </div>
-                        {!selectedCustomer ? (
-                            <p className="text-xs text-slate-400 font-bold">اختر زبونا لعرض جهات اليوم.</p>
-                        ) : selectedOtherTargets.length === 0 ? (
-                            <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-500">
-                                لا توجد جهات أخرى لهذا الزبون اليوم.
-                            </div>
-                        ) : (
-                            <div className="space-y-2 max-h-48 overflow-y-auto custom-scroll">
-                                {selectedOtherTargets.map(target => {
-                                    const isClosed = target.status === 'closed';
-                                    const outcome = target.latestTelemarketingOutcome || target.latestCallOutcome;
-                                    const outcomeLabel = outcome ? getOutcomeDisplay(outcome).label : 'بدون نتيجة';
-                                    return (
-                                        <div key={target.id} className="rounded-lg border border-cyan-100 bg-cyan-50/50 px-3 py-2">
-                                            <div className="flex items-center justify-between gap-2">
-                                                <span className="text-xs font-black text-slate-800 truncate">{target.teamKey || 'فريق غير محدد'}</span>
-                                                <span className={`text-xs px-1.5 py-0.5 rounded border font-bold ${isClosed ? 'bg-slate-100 text-slate-600 border-slate-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
-                                                    {isClosed ? 'مغلقة' : target.status}
-                                                </span>
-                                            </div>
-                                            <div className="mt-1 grid grid-cols-2 gap-1 text-xs font-bold text-slate-500">
-                                                <span className="truncate">الموقع: {target.workLocationName || '-'}</span>
-                                                <span className="truncate">المهام: {target.taskCount}</span>
-                                                <span className="truncate">آخر نتيجة: {outcomeLabel}</span>
-                                                <span className="truncate">القفل: {target.lockedByHrUserName || '-'}</span>
-                                            </div>
-                                            {target.latestVisitId && (
-                                                <div className="mt-1 flex items-center gap-1 text-xs font-bold text-emerald-700">
-                                                    <Calendar className="w-3 h-3" />
-                                                    زيارة {target.visitDate || ''} {target.visitTime || ''}
-                                                </div>
-                                            )}
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="flex-1 bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm flex flex-col relative w-full h-full">
-                        <div className="absolute inset-0">
-                            <TeamAgendaPanel appointments={teamAppointments} date={appointmentDate} />
-                        </div>
-                    </div>
-                </div>
             </div>
 
             {/* Message Reply Modal — updates outcome of a previously sent text message */}
@@ -1848,25 +2027,16 @@ export default function TelemarketerWorkspace() {
             />
 
             {/* Step-1 Contact Picker Modal — user selects which number to call */}
-            {isContactPickerOpen && selectedCustomer && entityDetails && (
-                <div
-                    className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-4"
-                    dir="rtl"
-                    onClick={e => { if (e.target === e.currentTarget) setIsContactPickerOpen(false); }}
-                >
-                    <div className="w-full max-w-sm rounded-2xl bg-white shadow-2xl overflow-hidden">
-                        {/* Header */}
-                        <div className="flex items-start justify-between px-5 py-4 border-b border-slate-100 bg-violet-50">
-                            <div>
-                                <h3 className="font-bold text-slate-800 text-base">اختر رقم التواصل</h3>
-                                <p className="text-xs text-slate-500 mt-0.5">{selectedCustomer.name}</p>
-                            </div>
-                            <IconButton icon={X} label="إغلاق" size="sm" onClick={() => setIsContactPickerOpen(false)} />
-                        </div>
-
+            <Modal
+                isOpen={isContactPickerOpen && !!selectedCustomer && !!entityDetails}
+                onClose={() => setIsContactPickerOpen(false)}
+                size="sm"
+                title="اختر رقم التواصل"
+                subtitle={selectedCustomer?.name}
+            >
                         {/* Contact list */}
                         <div className="p-3 space-y-2">
-                            {getEntityContacts(entityDetails as any).map(contact => (
+                            {entityDetails && getEntityContacts(entityDetails as any).map(contact => (
                                 <button
                                     key={contact.id}
                                     type="button"
@@ -1898,25 +2068,31 @@ export default function TelemarketerWorkspace() {
                                 </button>
                             ))}
                         </div>
-                    </div>
-                </div>
-            )}
+            </Modal>
 
             {/* Service Task Creation Modal — step-2 after service_request outcome */}
-            {isServiceTaskOpen && selectedCustomer && (
-                <div
-                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
-                    dir="rtl"
-                    onClick={e => { if (e.target === e.currentTarget) setIsServiceTaskOpen(false); }}
-                >
-                    <div className="w-full max-w-sm rounded-2xl bg-white shadow-2xl overflow-hidden">
-                        <div className="flex items-start justify-between px-5 py-4 border-b border-slate-100 bg-indigo-50">
-                            <div>
-                                <h3 className="font-bold text-slate-800">إنشاء مهمة خدمة</h3>
-                                <p className="text-xs text-slate-500 mt-0.5">{selectedCustomer.name}</p>
-                            </div>
-                            <IconButton icon={X} label="إغلاق" size="sm" onClick={() => setIsServiceTaskOpen(false)} />
-                        </div>
+            <Modal
+                isOpen={isServiceTaskOpen && !!selectedCustomer}
+                onClose={() => setIsServiceTaskOpen(false)}
+                size="md"
+                title="إنشاء مهمة خدمة"
+                subtitle={selectedCustomer?.name}
+                footer={
+                    <div className="w-full flex gap-3">
+                        <Button variant="secondary" onClick={() => setIsServiceTaskOpen(false)} className="flex-1">
+                            تخطي
+                        </Button>
+                        <Button
+                            loading={serviceTaskSaving}
+                            disabled={serviceTaskDevicesLoading || (taskRequiresInstalledDevice(serviceTaskType) && !serviceTaskDeviceId)}
+                            onClick={handleCreateServiceTask}
+                            className="flex-1 bg-indigo-600 hover:bg-indigo-500"
+                        >
+                            إنشاء المهمة
+                        </Button>
+                    </div>
+                }
+            >
                         <div className="px-5 py-4 space-y-3">
                             {/* Task type — pre-filled, read-only display */}
                             <div>
@@ -1925,6 +2101,32 @@ export default function TelemarketerWorkspace() {
                                     {serviceTaskTypeLabel || serviceTaskType}
                                 </div>
                             </div>
+                            {taskRequiresInstalledDevice(serviceTaskType) && (
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-600 mb-1">جهاز الزبون *</label>
+                                    <Select<string>
+                                        value={serviceTaskDeviceId}
+                                        onChange={(value) => {
+                                            setServiceTaskDeviceId(String(value));
+                                            setServiceTaskDeviceError('');
+                                        }}
+                                        disabled={serviceTaskDevicesLoading}
+                                        placeholder={serviceTaskDevicesLoading ? 'جاري تحميل الأجهزة...' : 'اختر الجهاز'}
+                                        ariaLabel="جهاز الزبون"
+                                        className="w-full"
+                                        options={serviceTaskDevices.map(device => ({
+                                            value: String(device.id),
+                                            label: `${device.deviceModelName} — ${device.serialNumber || `#${device.id}`}${device.eligible ? '' : ` — ${device.eligibilityReason}`}`,
+                                            disabled: !device.eligible,
+                                        }))}
+                                    />
+                                    {serviceTaskDeviceError && (
+                                        <div className="mt-2 rounded border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700">
+                                            {serviceTaskDeviceError}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                             {/* Notes */}
                             <div>
                                 <label className="block text-xs font-bold text-slate-600 mb-1">ملاحظات (اختياري)</label>
@@ -1952,17 +2154,7 @@ export default function TelemarketerWorkspace() {
                                 </div>
                             </div>
                         </div>
-                        <div className="flex gap-3 border-t border-slate-100 px-5 py-4">
-                            <Button variant="secondary" onClick={() => setIsServiceTaskOpen(false)} className="flex-1">
-                                تخطي
-                            </Button>
-                            <Button loading={serviceTaskSaving} onClick={handleCreateServiceTask} className="flex-1 bg-indigo-600 hover:bg-indigo-500">
-                                إنشاء المهمة
-                            </Button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            </Modal>
 
             {/* Modals */}
             <OutcomeRecorderModal
@@ -1998,7 +2190,7 @@ export default function TelemarketerWorkspace() {
                     isOpen={isClientEditModalOpen}
                     onClose={() => setIsClientEditModalOpen(false)}
                     onSave={(updatedClient: Client) => {
-                        updateClient(updatedClient.id, updatedClient).catch(() => {});
+                        updateWorkspaceClient(updatedClient.id, updatedClient).catch(() => {});
                         setIsClientEditModalOpen(false);
                         loadClients();
                     }}

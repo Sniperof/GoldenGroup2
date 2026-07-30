@@ -29,6 +29,7 @@ import { getSystemSettingNumber } from './systemSettings.js';
 
 let timer: NodeJS.Timeout | null = null;
 let running = false;
+let stopped = true;
 
 async function ensureAlertTable(): Promise<void> {
   await pool.query(`
@@ -42,6 +43,48 @@ async function ensureAlertTable(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_visit_escalation_alerts_visit
       ON visit_escalation_alerts(visit_id);
   `);
+}
+
+async function ensureScheduledAlertTable(): Promise<void> {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS visit_scheduled_alerts (
+      id                  BIGSERIAL PRIMARY KEY,
+      visit_id            BIGINT NOT NULL REFERENCES field_visits(id) ON DELETE CASCADE,
+      responsible_user_id INTEGER REFERENCES hr_users(id) ON DELETE SET NULL,
+      alerted_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      resolved_at         TIMESTAMPTZ,
+      UNIQUE (visit_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_visit_scheduled_alerts_pending_recipient
+      ON visit_scheduled_alerts (responsible_user_id, alerted_at)
+      WHERE resolved_at IS NULL;
+  `);
+}
+
+async function createScheduledVisitAlerts(): Promise<number> {
+  await ensureScheduledAlertTable();
+  const { rowCount } = await pool.query(
+    `INSERT INTO visit_scheduled_alerts (visit_id, responsible_user_id)
+     SELECT fv.id, fv.team_responsible_user_id
+       FROM field_visits fv
+      WHERE fv.status = 'scheduled'
+        AND (
+          fv.scheduled_date < CURRENT_DATE
+          OR (
+            fv.scheduled_date = CURRENT_DATE
+            AND COALESCE(
+              CASE
+                WHEN COALESCE(fv.scheduled_time, '') ~ '([01][0-9]|2[0-3]):[0-5][0-9]\\s*$'
+                  THEN substring(fv.scheduled_time from '([01][0-9]|2[0-3]):[0-5][0-9]\\s*$')::time
+                ELSE NULL
+              END,
+              TIME '23:59:59'
+            ) < LOCALTIME
+          )
+        )
+     ON CONFLICT (visit_id) DO NOTHING`,
+  );
+  return rowCount ?? 0;
 }
 
 interface TierContext {
@@ -89,6 +132,7 @@ export async function runVisitEscalationOnce(): Promise<{ l1: number; l2: number
   const l1Hours = await getSystemSettingNumber('visit_undocumented_alert_hours_l1', 24);
   const l2Hours = await getSystemSettingNumber('visit_undocumented_alert_hours_l2', 48);
   const l3Hours = await getSystemSettingNumber('visit_undocumented_alert_hours_l3', 72);
+  const scheduled = await createScheduledVisitAlerts();
 
   // Run from highest tier downward so a visit that's >72h doesn't get logged
   // for L1 and L2 redundantly in the same tick. Each tier still records its
@@ -96,6 +140,9 @@ export async function runVisitEscalationOnce(): Promise<{ l1: number; l2: number
   const l3 = await runTier({ tier: 3, hours: l3Hours, recipientLabel: 'مدير الفرع' });
   const l2 = await runTier({ tier: 2, hours: l2Hours, recipientLabel: 'مشرف + قفل بدء زيارة جديدة' });
   const l1 = await runTier({ tier: 1, hours: l1Hours, recipientLabel: 'الفني المسؤول وفنيي الفريق' });
+  if (scheduled > 0) {
+    console.log(`[visitEscalationJob] scheduled visits pending start: ${scheduled}`);
+  }
   return { l1, l2, l3 };
 }
 
@@ -116,18 +163,31 @@ async function tick(): Promise<void> {
   }
 }
 
+async function scheduleNextTick(): Promise<void> {
+  if (stopped) return;
+  const configured = await getSystemSettingNumber('visit_escalation_job_interval_minutes', 15);
+  const intervalMinutes = Math.min(1440, Math.max(1, Math.round(configured)));
+  timer = setTimeout(async () => {
+    timer = null;
+    await tick();
+    await scheduleNextTick();
+  }, intervalMinutes * 60 * 1000);
+}
+
 export function startVisitEscalationJob(): void {
-  if (timer) return;
-  // 15-minute cadence is fine — escalation thresholds are measured in hours.
-  timer = setInterval(() => { void tick(); }, 15 * 60 * 1000);
-  // Also kick off once at boot so freshly-started servers don't wait 15min.
-  void tick();
-  console.log('[visitEscalationJob] started (15-minute cadence)');
+  if (!stopped) return;
+  stopped = false;
+  void (async () => {
+    await tick();
+    await scheduleNextTick();
+  })();
+  console.log('[visitEscalationJob] started (interval controlled by system settings)');
 }
 
 export function stopVisitEscalationJob(): void {
+  stopped = true;
   if (timer) {
-    clearInterval(timer);
+    clearTimeout(timer);
     timer = null;
   }
 }

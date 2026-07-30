@@ -5,12 +5,13 @@ import type { ApplicationStage, ApplicationStatus } from '../../lib/types';
 import { getUnifiedApplicationState, getUnifiedApplicationStateClasses } from '../../lib/applicationState';
 import {
   ClipboardList, Search, Filter, ChevronDown, Eye, AlertTriangle, Calendar, Archive, Plus
-} from 'lucide-react';
+} from '../../components/ui/icons';
 import PermissionGate from '../../components/PermissionGate';
 import PageHeader from '../../components/ui/PageHeader';
 import SmartTable from '../../components/SmartTable';
 import type { ColumnDef } from '../../components/SmartTable';
 import Select from '../../components/ui/Select';
+import Checkbox from '../../components/ui/Checkbox';
 
 const STAGE_COLORS: Record<ApplicationStage, string> = {
   'Submitted': 'bg-blue-100 text-blue-700',
@@ -271,16 +272,14 @@ export default function Applications() {
 
       {/* Archived toggle */}
       <div className="flex items-center gap-2 mb-3">
-        <label className="flex items-center gap-2 cursor-pointer select-none text-sm text-slate-600">
-          <input
-            type="checkbox"
-            checked={filters.isArchived === 'true'}
-            onChange={e => setFilter('isArchived', e.target.checked ? 'true' : 'false')}
-            className="rounded border-slate-300 text-sky-500 focus:ring-sky-500"
-          />
+        <Checkbox
+          checked={filters.isArchived === 'true'}
+          onCheckedChange={v => setFilter('isArchived', v ? 'true' : 'false')}
+          className="text-sm text-slate-600"
+        >
           <Archive className="w-3.5 h-3.5 text-slate-400" />
           عرض المؤرشفة فقط
-        </label>
+        </Checkbox>
       </div>
 
       {/* Table */}

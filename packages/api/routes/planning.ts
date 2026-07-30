@@ -4,8 +4,36 @@ import { requirePermission } from '../middleware/permission.js';
 import { getPlanningMarketingTargets } from '../services/planningMarketingTargets.js';
 import { syncAssignedTasks } from '../services/assignedTasks.js';
 import { buildClientLifecycleStatusSql } from '../services/customerOwnership.js';
+import {
+  buildExcludedTaskTeamPredicate,
+  buildPlanningTaskExcludedPredicate,
+} from '../services/planningContactTargetScope.js';
+import {
+  applyPlanningCuration,
+  assertPlanningTeamSubject,
+  getPlanningCurationDashboard,
+  lockPlanningDayMutation,
+  PlanningCurationError,
+  previewPlanningCuration,
+  type PlanningCurationAction,
+  type PlanningCurationSelector,
+  type PlanningDashboardFilters,
+  type PlanningExclusionLayer,
+} from '../services/planningTaskCuration.js';
 
 const router = Router();
+
+function sendPlanningCurationError(res: any, error: unknown) {
+  if (error instanceof PlanningCurationError) {
+    return res.status(error.status).json({
+      error: error.message,
+      code: error.code,
+      ...(error.details ? { details: error.details } : {}),
+    });
+  }
+  console.error('Planning curation error:', error);
+  return res.status(500).json({ error: 'فشل تنفيذ عملية تنقية التخطيط' });
+}
 
 type ContactTargetWorkspaceStatus = 'assigned' | 'queued' | 'contacted' | 'closed';
 
@@ -18,6 +46,7 @@ async function reconcileContactTargetWorkspace(
   const db = await pool.connect();
   try {
     await db.query('BEGIN');
+    await lockPlanningDayMutation(db, branchId, date);
 
     const { rows: taskRows } = await db.query(
       `WITH scoped_tasks AS (
@@ -26,13 +55,14 @@ async function reconcileContactTargetWorkspace(
            ot.client_id AS "clientId",
            ot.status,
            ot.excluded_for_date::text AS "excludedForDate",
+           ${buildPlanningTaskExcludedPredicate('ot', '$1', '$2')} AS "isPlanningExcluded",
            COALESCE(ttc.contact_target_visit_type, 'marketing') AS "visitType",
            CASE
              WHEN ttc.location_basis IN ('contract', 'device') THEN inst.installation_geo_unit_id
-             ELSE c.neighborhood
+             ELSE COALESCE(c.neighborhood, c.district)
            END AS "workLocationGeoUnitId"
          FROM open_tasks ot
-         JOIN clients c ON c.id = ot.client_id AND c.branch_id = ot.branch_id
+         JOIN clients c ON c.id = ot.client_id
          JOIN task_type_config ttc ON ttc.task_type = ot.task_type
          LEFT JOIN installed_devices inst
            ON inst.id = ot.device_id
@@ -44,11 +74,16 @@ async function reconcileContactTargetWorkspace(
                ot.assigned_team_key = $1
                AND ot.status = 'assigned'
                AND ot.assigned_for_date = $2::date
-               AND (ot.excluded_for_date IS NULL OR ot.excluded_for_date <> $2::date)
              )
              OR (
-               ot.excluded_for_date = $2::date
-               AND ot.status IN ('open', 'needs_follow_up', 'assigned')
+               EXISTS (
+                 SELECT 1
+                   FROM contact_target_open_tasks existing_link
+                  WHERE existing_link.open_task_id = ot.id
+                    AND existing_link.branch_id = ot.branch_id
+                    AND existing_link.team_key = $1
+                    AND existing_link.date = $2::date
+               )
              )
            )
        )
@@ -89,6 +124,15 @@ async function reconcileContactTargetWorkspace(
       const clientId = Number(first.clientId);
       let contactTargetId = Number(first.contactTargetId);
 
+      if (
+        (!Number.isInteger(contactTargetId) || contactTargetId <= 0)
+        && first.workLocationGeoUnitId == null
+      ) {
+        // A contact target cannot have a stable constitutional grain without a
+        // resolved work location. Keep a historical NULL-grain target if one
+        // already exists, but never create another ambiguous one.
+        continue;
+      }
       if (!Number.isInteger(contactTargetId) || contactTargetId <= 0) {
         const { rows } = await db.query(
           `INSERT INTO contact_targets (
@@ -97,6 +141,31 @@ async function reconcileContactTargetWorkspace(
              date, team_key, work_location_geo_unit_id
            )
            VALUES ($1, 'client', $2, 'lead', $6, 'lead', $2, NULL, $3, 'new', $4::date, $5, $3)
+           ON CONFLICT (branch_id, target_type, target_id, work_location_geo_unit_id, date)
+           WHERE work_location_geo_unit_id IS NOT NULL
+           DO UPDATE SET
+             team_key = EXCLUDED.team_key,
+             updated_at = NOW()
+           WHERE contact_targets.status = 'new'
+             AND NOT EXISTS (
+               SELECT 1
+                 FROM telemarketing_task_list_items existing_item
+                WHERE existing_item.contact_target_id = contact_targets.id
+             )
+             AND NOT EXISTS (
+               SELECT 1
+                 FROM contact_target_open_tasks existing_link
+                 JOIN open_tasks existing_task
+                   ON existing_task.id = existing_link.open_task_id
+                WHERE existing_link.contact_target_id = contact_targets.id
+                  AND existing_link.date = EXCLUDED.date
+                  AND existing_link.team_key <> EXCLUDED.team_key
+                  AND existing_link.link_status IN ('ready', 'queued')
+                  AND existing_task.status IN (
+                    'assigned', 'in_scheduling', 'scheduled', 'waiting_execution',
+                    'in_execution', 'ended', 'completed'
+                  )
+             )
            RETURNING id`,
           [branchId, clientId, first.workLocationGeoUnitId ?? null, date, teamKey, first.visitType ?? 'marketing'],
         );
@@ -106,14 +175,14 @@ async function reconcileContactTargetWorkspace(
       if (!Number.isInteger(contactTargetId) || contactTargetId <= 0) continue;
 
       const activeTasks = clientTasks.filter(task =>
-        task.status === 'assigned' && task.excludedForDate !== date,
+        task.status === 'assigned' && task.isPlanningExcluded !== true,
       );
       const allTasksExcluded = clientTasks.length > 0 && activeTasks.length === 0;
 
       for (const task of clientTasks) {
         const taskId = Number(task.taskId);
         if (!Number.isInteger(taskId) || taskId <= 0) continue;
-        const linkStatus = task.excludedForDate === date
+        const linkStatus = task.isPlanningExcluded === true
           ? 'excluded'
           : allTasksExcluded
             ? 'closed'
@@ -143,34 +212,9 @@ async function reconcileContactTargetWorkspace(
         );
       }
 
-      if (allTasksExcluded) {
-        await db.query(
-          `UPDATE contact_targets
-              SET status = 'closed',
-                  closing_reason = 'manual_supervisor',
-                  closed_by = COALESCE(closed_by, $2::int),
-                  closed_at = COALESCE(closed_at, NOW()),
-                  updated_at = NOW()
-            WHERE id = $1
-              AND branch_id = $3
-              AND status IN ('new', 'queued', 'in_call_list', 'contacted')`,
-          [contactTargetId, userId, branchId],
-        );
-      } else {
-        await db.query(
-          `UPDATE contact_targets
-              SET status = 'new',
-                  closing_reason = NULL,
-                  closed_by = NULL,
-                  closed_at = NULL,
-                  updated_at = NOW()
-            WHERE id = $1
-              AND branch_id = $2
-              AND status = 'closed'
-              AND closing_reason = 'manual_supervisor'`,
-          [contactTargetId, branchId],
-        );
-      }
+      // Planning exclusion is an overlay, not a contact lifecycle transition.
+      // A pre-generation curation decision may update the task link, but it must
+      // never close or re-open contact_targets (DEC-009 R-6).
     }
 
     await db.query('COMMIT');
@@ -334,11 +378,13 @@ router.get('/marketing-targets', requirePermission('planning.manage'), async (re
     if (branchId == null) {
       return res.status(400).json({ error: 'A branch context is required' });
     }
+    await assertPlanningTeamSubject(req.authContext!, date, teamKey, branchId);
 
     const result = await getPlanningMarketingTargets({ date, teamKey, branchId, mode });
 
     return res.json(result);
   } catch (err: any) {
+    if (err instanceof PlanningCurationError) return sendPlanningCurationError(res, err);
     console.error('Failed to calculate planning marketing targets:', err);
     return res.status(500).json({ error: err.message || 'Failed to calculate marketing targets' });
   }
@@ -474,6 +520,7 @@ router.get('/assigned-tasks', requirePermission('planning.manage'), async (req, 
     if (branchId == null) {
       return res.status(400).json({ error: 'A branch context is required' });
     }
+    await assertPlanningTeamSubject(req.authContext!, date, teamKey, branchId);
 
     // ── Step 1: determine whether a task list has been generated ────────────
     // Two modes:
@@ -559,7 +606,7 @@ router.get('/assigned-tasks', requirePermission('planning.manage'), async (req, 
        LEFT JOIN LATERAL (
          SELECT ict.id, ict.status, ict.latest_call_outcome
          FROM contact_targets ict
-         WHERE ict.branch_id   = c.branch_id
+         WHERE ict.branch_id   = $4
            AND ict.target_type = 'client'
            AND ict.target_id   = c.id
            AND ict.visit_type  = 'marketing'
@@ -569,7 +616,7 @@ router.get('/assigned-tasks', requirePermission('planning.manage'), async (req, 
          LIMIT 1
        ) ct ON TRUE
        WHERE c.id = ANY($1::int[])`,
-      [clientIds, teamKey, date],
+      [clientIds, teamKey, date, branchId],
     );
     const clientMetaById = new Map(clientRows.map((r: any) => [Number(r.id), r]));
 
@@ -768,8 +815,94 @@ router.get('/assigned-tasks', requirePermission('planning.manage'), async (req, 
 
     return res.json({ teamKey, date, taskListGenerated, taskListGeneratedAt, newEligibleCount, clients, summary });
   } catch (err: any) {
+    if (err instanceof PlanningCurationError) return sendPlanningCurationError(res, err);
     console.error('Failed to load assigned tasks:', err);
     return res.status(500).json({ error: err.message || 'Failed to load assigned tasks' });
+  }
+});
+
+/**
+ * Server-filtered planning curation workspace.
+ *
+ * The same canonical selector is used for the page, preview and apply. This is
+ * deliberately separate from the legacy lifecycle dashboard during the
+ * compatibility window so a filter can never be visual-only.
+ */
+router.get('/contact-targets-dashboard/curation', requirePermission('planning.manage'), async (req, res) => {
+  try {
+    const date = typeof req.query.date === 'string' ? req.query.date : '';
+    const teamKey = typeof req.query.teamKey === 'string' ? req.query.teamKey : '';
+    const branchId = req.authContext?.actingBranchId ?? null;
+    if (branchId == null) {
+      return res.status(400).json({ error: 'يجب تحديد فرع فعّال', code: 'BRANCH_REQUIRED' });
+    }
+    let filters: PlanningDashboardFilters = {};
+    if (typeof req.query.filters === 'string' && req.query.filters.trim()) {
+      if (req.query.filters.length > 20_000) {
+        return res.status(400).json({ error: 'حجم الفلاتر أكبر من المسموح' });
+      }
+      try {
+        filters = JSON.parse(req.query.filters);
+      } catch {
+        return res.status(400).json({ error: 'صيغة الفلاتر غير صالحة' });
+      }
+    }
+
+    const response = await getPlanningCurationDashboard({
+      authContext: req.authContext!,
+      date,
+      teamKey,
+      branchId,
+      filters,
+      page: Number(req.query.page ?? 1),
+      limit: Number(req.query.limit ?? 50),
+      sortBy: typeof req.query.sortBy === 'string' ? req.query.sortBy : undefined,
+      sortDir: req.query.sortDir === 'desc' ? 'desc' : 'asc',
+    });
+    return res.json(response);
+  } catch (error) {
+    return sendPlanningCurationError(res, error);
+  }
+});
+
+router.post('/contact-targets-dashboard/curation/preview', requirePermission('planning.manage'), async (req, res) => {
+  try {
+    const branchId = req.authContext?.actingBranchId ?? null;
+    if (branchId == null) {
+      return res.status(400).json({ error: 'يجب تحديد فرع فعّال', code: 'BRANCH_REQUIRED' });
+    }
+    const response = await previewPlanningCuration({
+      authContext: req.authContext!,
+      date: typeof req.body?.date === 'string' ? req.body.date : '',
+      teamKey: typeof req.body?.teamKey === 'string' ? req.body.teamKey : '',
+      branchId,
+      action: req.body?.action as PlanningCurationAction,
+      layer: req.body?.layer as PlanningExclusionLayer,
+      selector: req.body?.selector as PlanningCurationSelector,
+      reasonCode: req.body?.reasonCode,
+      reasonText: req.body?.reasonText,
+    });
+    return res.json(response);
+  } catch (error) {
+    return sendPlanningCurationError(res, error);
+  }
+});
+
+router.post('/contact-targets-dashboard/curation/apply', requirePermission('planning.manage'), async (req, res) => {
+  try {
+    const previewToken = typeof req.body?.previewToken === 'string'
+      ? req.body.previewToken
+      : '';
+    if (!previewToken) {
+      return res.status(400).json({ error: 'previewToken مطلوب', code: 'PREVIEW_TOKEN_REQUIRED' });
+    }
+    const response = await applyPlanningCuration({
+      authContext: req.authContext!,
+      previewToken,
+    });
+    return res.json(response);
+  } catch (error) {
+    return sendPlanningCurationError(res, error);
   }
 });
 
@@ -803,6 +936,7 @@ router.post('/contact-targets-dashboard/sync', requirePermission('planning.manag
     if (branchId == null) {
       return res.status(400).json({ error: 'A branch context is required' });
     }
+    await assertPlanningTeamSubject(req.authContext!, date, teamKey, branchId);
 
     const sync = await syncAssignedTasks({
       date,
@@ -828,6 +962,7 @@ router.post('/contact-targets-dashboard/sync', requirePermission('planning.manag
       },
     });
   } catch (err: any) {
+    if (err instanceof PlanningCurationError) return sendPlanningCurationError(res, err);
     console.error('Failed to sync contact targets dashboard:', err);
     return res.status(500).json({ error: err.message || 'Failed to sync contact targets dashboard' });
   }
@@ -848,6 +983,7 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
     if (branchId == null) {
       return res.status(400).json({ error: 'A branch context is required' });
     }
+    await assertPlanningTeamSubject(req.authContext!, date, teamKey, branchId);
 
     const { rows: taskListRows } = await pool.query(
       `SELECT id, created_at AS "createdAt" FROM telemarketing_task_lists
@@ -883,9 +1019,8 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
 
            SELECT ot.client_id
              FROM open_tasks ot
-           WHERE ot.excluded_for_date = $4::date
-              AND ot.branch_id = $3
-              AND ot.status IN ('open', 'needs_follow_up', 'assigned')
+           WHERE ot.branch_id = $3
+             AND ${buildExcludedTaskTeamPredicate('ot', '$1', '$4')}
 
            UNION
 
@@ -939,7 +1074,7 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
        LEFT JOIN geo_units gu
          ON gu.id = c.neighborhood
        LEFT JOIN contact_targets ct
-         ON ct.branch_id = c.branch_id
+         ON ct.branch_id = $4
         AND ct.target_type = 'client'
         AND ct.target_id = c.id
         AND ct.date = $2::date
@@ -947,7 +1082,7 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
        LEFT JOIN geo_units ct_work_gu
          ON ct_work_gu.id = COALESCE(ct.work_location_geo_unit_id, ct.zone_id)
        WHERE c.id = ANY($1::int[])`,
-      [clientIds, date, teamKey],
+      [clientIds, date, teamKey, branchId],
     );
     const clientMetaById = new Map<number, any>();
     const contactTargetMetaByContext = new Map<string, any>();
@@ -1022,8 +1157,7 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
              AND ot.assigned_for_date = $4::date
            )
            OR (
-             ot.excluded_for_date = $4::date
-             AND ot.status IN ('open', 'needs_follow_up', 'assigned')
+             ${buildExcludedTaskTeamPredicate('ot', '$3', '$4')}
            )
          )
          AND COALESCE(
@@ -1235,6 +1369,7 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
       summary,
     });
   } catch (err: any) {
+    if (err instanceof PlanningCurationError) return sendPlanningCurationError(res, err);
     console.error('Failed to load contact targets dashboard:', err);
     return res.status(500).json({ error: err.message || 'Failed to load contact targets dashboard' });
   }

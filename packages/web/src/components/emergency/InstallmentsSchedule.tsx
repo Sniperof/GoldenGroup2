@@ -1,6 +1,7 @@
-import { AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Loader2 } from '../ui/icons';
 import { useEffect, useState } from 'react';
 import Button from '../ui/Button';
+import DateField from '../ui/DateField';
 import Input from '../ui/Input';
 
 export interface Installment {
@@ -104,7 +105,7 @@ export default function InstallmentsSchedule({
               </div>
               <div className="flex items-center gap-2">
                 <span className="font-black text-slate-800">{Number(r.amountSyp).toLocaleString('ar-SY')} ل.س</span>
-                {r.dueId && <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5">استحقاق #{r.dueId}</span>}
+                {r.dueId && <span className="text-xs font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5">استحقاق #{r.dueId}</span>}
               </div>
             </div>
           ))}
@@ -149,10 +150,10 @@ export default function InstallmentsSchedule({
                 <tr key={r.installmentNumber} className="border-b border-slate-50">
                   <td className="px-3 py-2 font-black text-slate-400">{r.installmentNumber}</td>
                   <td className="px-2 py-1.5">
-                    <input type="date" value={r.dueDate}
-                      onChange={e => updateRow(idx, 'dueDate', e.target.value)}
+                    <DateField value={r.dueDate}
+                      onChange={v => updateRow(idx, 'dueDate', v)}
                       disabled={disabled}
-                      className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs focus:outline-none focus:border-rose-400 bg-white" />
+                      className="w-full rounded-lg border border-slate-200 pl-2 py-1.5 text-xs focus:outline-none focus:border-rose-400 bg-white" />
                   </td>
                   <td className="px-2 py-1.5">
                     <Input type="number" min={0} value={r.amountSyp}

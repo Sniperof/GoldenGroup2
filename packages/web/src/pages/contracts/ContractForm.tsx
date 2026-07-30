@@ -8,7 +8,7 @@ import {
     AlertTriangle, ShieldCheck, ArrowRightLeft, Globe, Landmark,
     BadgeDollarSign, Gift, Plus, X, Edit2,
     ExternalLink, Smartphone, Clipboard, Loader2
-} from 'lucide-react';
+} from '../../components/ui/icons';
 import { api } from '../../lib/api';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { useBranchContextStore } from '../../hooks/useBranchContextStore';
@@ -19,6 +19,7 @@ import type { GeoUnit } from '../../lib/types';
 import type { ClientReferrer } from '@golden-crm/shared';
 import Select from '../../components/ui/Select';
 import Modal from '../../components/ui/Modal';
+import DateField from '../../components/ui/DateField';
 import {
     giftConditionStatusLabels,
     type GiftConditionStatus,
@@ -85,11 +86,13 @@ interface LineItem {
 
 interface ContractGiftPromiseDraft {
     giftDefinitionId: string;
-    beneficiaryKind: 'contract_customer' | 'customer_referrer';
+    beneficiaryKind: 'contract_customer' | 'customer_referrer' | 'employee_referrer' | 'personal_referrer';
     referrerId: string;
     conditionLabel: string;
     conditionStatus: GiftConditionStatus;
     quantity: number;
+    similarPromiseWarningAcknowledged?: boolean;
+    similarGiftRecordIds?: number[];
 }
 
 interface ContractGiftPromisePreview extends ContractGiftPromiseDraft {
@@ -219,10 +222,14 @@ function referrerTypeLabel(type?: string | null): string {
     }
 }
 
-function isReferralPromiseSource(referrer?: ClientReferrer | null): boolean {
-    if (!referrer) return false;
-    const reason = String(referrer.referralReason ?? '').trim().toLowerCase();
-    return Boolean(referrer.referralSheetId) || reason === 'direct referral' || reason === 'part of sheet';
+function giftBeneficiaryKindForReferrer(
+    referrer?: ClientReferrer | null,
+): Exclude<ContractGiftPromiseDraft['beneficiaryKind'], 'contract_customer'> | null {
+    const type = String(referrer?.referrerType ?? '').toLowerCase();
+    if (type === 'client' || type === 'customer') return 'customer_referrer';
+    if (type === 'employee') return 'employee_referrer';
+    if (type === 'personal' || type === 'person') return 'personal_referrer';
+    return null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -332,6 +339,8 @@ export default function ContractForm() {
                     }
                     setSaleSubtype(c.saleSubtype || 'definitive');
                     setSaleType(c.saleType || 'direct');
+                    setOldContractNumber(c.oldContractNumber || '');
+                    setOldDeviceCondition(c.oldDeviceCondition === 'damaged' ? 'damaged' : 'good');
                     setContractDate(c.contractDate?.slice(0, 10) || new Date().toISOString().slice(0, 10));
                     setDeliveryDate(c.deliveryDate?.slice(0, 10) || '');
                     setInstallationDate(c.installationDate?.slice(0, 10) || '');
@@ -437,6 +446,24 @@ export default function ContractForm() {
                         unitPrice: li.unitPrice,
                         sparePartId: li.sparePartId || undefined,
                     })));
+                    // وعود الهدايا المسودة المحفوظة على العقد (حتى لا تُدهس عند التعديل).
+                    if (Array.isArray(c.draftGiftPromises)) {
+                        setGiftPromises(c.draftGiftPromises.map((p: any, idx: number) => ({
+                            id: `GP-EDIT-${idx}`,
+                            giftDefinitionId: p.giftDefinitionId != null ? String(p.giftDefinitionId) : '',
+                            beneficiaryKind: ['customer_referrer', 'employee_referrer', 'personal_referrer'].includes(p.beneficiaryKind)
+                                ? p.beneficiaryKind
+                                : 'contract_customer',
+                            referrerId: p.referrerId != null ? String(p.referrerId) : '',
+                            conditionLabel: p.conditionLabel ?? '',
+                            conditionStatus: (p.conditionStatus ?? 'pending') as GiftConditionStatus,
+                            quantity: Math.max(1, Number(p.quantity) || 1),
+                            similarPromiseWarningAcknowledged: p.similarPromiseWarningAcknowledged === true,
+                            similarGiftRecordIds: Array.isArray(p.similarGiftRecordIds)
+                                ? p.similarGiftRecordIds.map(Number).filter(Number.isInteger)
+                                : [],
+                        })));
+                    }
                     if (c.paymentType) setPaymentType(c.paymentType);
                     if (Array.isArray(c.paymentEntries) && c.paymentEntries.length > 0) {
                         const entries: PaymentEntryDraft[] = c.paymentEntries.map((e: any, idx: number) => ({
@@ -576,15 +603,11 @@ export default function ContractForm() {
     const selectedCustomerReferrers = useMemo(() => {
         const referrers = selectedCustomer?.referrers ?? [];
         return referrers.filter(referrer => {
-            const type = String(referrer.referrerType ?? '').toLowerCase();
-            return selectedReferrerIds.includes(String(referrer.id)) && (type === 'client' || type === 'customer');
+            return selectedReferrerIds.includes(String(referrer.id)) && giftBeneficiaryKindForReferrer(referrer) != null;
         });
     }, [selectedCustomer, selectedReferrerIds]);
     const contractGiftEligibleReferrers = useMemo(() => (
-        selectedCustomerReferrers.filter(referrer => !isReferralPromiseSource(referrer))
-    ), [selectedCustomerReferrers]);
-    const selectedReferralPromiseSourceReferrers = useMemo(() => (
-        selectedCustomerReferrers.filter(isReferralPromiseSource)
+        selectedCustomerReferrers
     ), [selectedCustomerReferrers]);
     const selectedGiftDefinition = useMemo(() => (
         activeGiftDefinitions.find(definition => String(definition.id) === giftPromiseDraft.giftDefinitionId)
@@ -1025,19 +1048,59 @@ export default function ContractForm() {
             beneficiaryKind: 'contract_customer',
             referrerId: contractGiftEligibleReferrers[0]?.id ? String(contractGiftEligibleReferrers[0].id) : '',
             conditionLabel: isGiftContract ? 'عقد هدية معتمد' : 'توقيع عقد نقدي',
-            conditionStatus: isGiftContract ? 'met' : 'pending',
+            conditionStatus: 'pending',
             quantity: 1,
         });
         setShowGiftPromiseModal(true);
     }
 
-    function addGiftPromise() {
+    async function addGiftPromise() {
         if (!selectedGiftDefinition) return;
-        if (giftPromiseDraft.beneficiaryKind === 'customer_referrer' && contractGiftEligibleReferrers.length === 0) return;
+        const selectedReferrer = giftPromiseDraft.beneficiaryKind === 'contract_customer'
+            ? null
+            : contractGiftEligibleReferrers.find(referrer => String(referrer.id) === giftPromiseDraft.referrerId) ?? null;
+        if (giftPromiseDraft.beneficiaryKind !== 'contract_customer' && !selectedReferrer) return;
+
+        let similarPromiseWarningAcknowledged = false;
+        let similarGiftRecordIds: number[] = [];
+        if (contextBranchId && selectedCustomer) {
+            try {
+                const similar = await api.gifts.records.similar({
+                    giftDefinitionId: Number(selectedGiftDefinition.id),
+                    beneficiaryType: giftPromiseDraft.beneficiaryKind,
+                    beneficiaryClientId: giftPromiseDraft.beneficiaryKind === 'contract_customer'
+                        ? selectedCustomer.id
+                        : giftPromiseDraft.beneficiaryKind === 'customer_referrer'
+                            ? selectedReferrer?.referralEntityId
+                            : null,
+                    beneficiaryEmployeeId: giftPromiseDraft.beneficiaryKind === 'employee_referrer'
+                        ? selectedReferrer?.referralEntityId
+                        : null,
+                    beneficiaryName: giftPromiseDraft.beneficiaryKind === 'contract_customer'
+                        ? selectedCustomer.name
+                        : selectedReferrer?.referrerName,
+                    sourceBranchId: contextBranchId,
+                    responsibleBranchId: contextBranchId,
+                });
+                if (similar.count > 0) {
+                    const proceed = window.confirm(
+                        `تنبيه: يوجد ${similar.count} وعد/وعود غير منتهية مشابهة لهذا المستفيد. لا يمنع ذلك إنشاء وعد جديد. هل تريد المتابعة؟`,
+                    );
+                    if (!proceed) return;
+                    similarPromiseWarningAcknowledged = true;
+                }
+            } catch (error: any) {
+                window.alert(error?.message ?? 'تعذر فحص الوعود المشابهة قبل الحفظ');
+                return;
+            }
+        }
         setGiftPromises(prev => [{
             ...giftPromiseDraft,
             id: `gift-promise-${Date.now()}`,
+            conditionStatus: 'pending',
             quantity: Math.max(1, Number(giftPromiseDraft.quantity) || 1),
+            similarPromiseWarningAcknowledged,
+            similarGiftRecordIds,
         }, ...prev]);
         setShowGiftPromiseModal(false);
     }
@@ -1065,12 +1128,10 @@ export default function ContractForm() {
             .slice(0, 25);
     }, [customerSearch, customers, showCustomerDropdown]);
 
-    // Plan 2026-06-10 §1 — mirror backend deriveContractStatus:
-    // a contract with no closing employee is saved as a draft, which DEC-CT-01
-    // declares to have zero side effects. Drafts therefore need only the minimal
-    // fields required to identify the deal; full validation kicks in only for
-    // active contracts.
-    const isDraftMode = !closingEmployeeId;
+    // ContractForm only creates/edits drafts. Selecting a closer records the
+    // proposed closer but does not activate the contract; full activation
+    // validation runs in the explicit approval flow.
+    const isDraftMode = true;
 
     // Plan 2026-06-10 §3 — legal info constraint is governed by payment type:
     //   • cash (active)    → documentary only, all 9 optional
@@ -1131,6 +1192,9 @@ export default function ContractForm() {
         if (!serialNumber.trim()) issues.push('أدخل الرقم التسلسلي للجهاز');
         if (!geoSelection.govId) issues.push('اختر المحافظة في عنوان التركيب');
         else if (!geoSelection.neighborhoodId) issues.push('اختر الحي (الموقع التفصيلي) في عنوان التركيب');
+        if (saleType === 'tradein' && !oldContractNumber.trim()) {
+            issues.push('أدخل رقم العقد القديم المستبدل');
+        }
 
         // National ID format applies always when entered (even in draft).
         if (!nidIsValid) issues.push('الرقم الوطني يجب أن يكون 11 رقم بالضبط');
@@ -1197,7 +1261,7 @@ export default function ContractForm() {
         buyerNationalIdIssueDate, buyerNationalIdBox, saleSubtype, saleSource,
         sourceTaskId, paymentType, paymentEntries, confirmedEntries,
         totalPaidSyp, grandTotal, hasDownPayment, installmentsConfirmed,
-        totalInstallmentSyp,
+        totalInstallmentSyp, saleType, oldContractNumber,
     ]);
     const isValid = validationIssues.length === 0;
 
@@ -1209,8 +1273,6 @@ export default function ContractForm() {
             const isTemporarySale = saleSubtype === 'temporary';
             const isNoFinancialObligations = isFreeSale;
             const isNoInitialPayments = isFreeSale || isTemporarySale;
-            const nextContractStatus = closingEmployeeId ? 'active' : 'draft';
-
             const finalBasePrice = isNoFinancialObligations ? 0 : (selectedDevice?.basePrice || 0);
             const finalPriceVal = isNoFinancialObligations ? 0 : grandTotal;
             const finalPaymentType = isNoInitialPayments ? 'cash' : paymentType;
@@ -1229,6 +1291,8 @@ export default function ContractForm() {
                 warrantyMonths: warrantyMonths > 0 ? warrantyMonths : 0,
                 warrantyVisits: (warrantyMonths > 0 && warrantyVisits > 0) ? warrantyVisits : null,
                 saleType,
+                oldContractNumber: saleType === 'tradein' ? oldContractNumber.trim() : null,
+                oldDeviceCondition: saleType === 'tradein' ? oldDeviceCondition : null,
                 saleSource: saleSource || null,
                 sourceVisit: saleSource === 'device_demo_task' ? (sourceTaskId.trim() || null) : null,
                 discountId: (isNoFinancialObligations || !selectedDiscountId) ? null : Number(selectedDiscountId),
@@ -1255,10 +1319,10 @@ export default function ContractForm() {
                 invoiceNotes: invoiceNotes.trim() || null,
                 contractType,
                 saleSubtype,
-                // DEC-CT-01: `temporary` is no longer a status; it's a saleSubtype.
-                // Status follows draft→active rule: active iff a closing_employee_id
-                // is assigned at creation, otherwise draft.
-                status: nextContractStatus,
+                // Saving from ContractForm is always a draft write. A selected
+                // closer is only a proposal; activation is exclusively the
+                // explicit approve endpoint after server-side re-validation.
+                status: 'draft',
                 sourceOpenTaskId: sourceOpenTaskId || null,
                 sourceTaskOfferId: sourceTaskOfferId || null,
                 saleReferenceNumber: saleReferenceNumber || null,
@@ -1294,6 +1358,17 @@ export default function ContractForm() {
                         confirmed: installmentsConfirmed,
                     }))
                     : []),
+                // وعود الهدايا تُحفظ كمسودة على العقد وتُحوَّل إلى gift_records عند الاعتماد.
+                giftPromises: giftPromises.map(p => ({
+                    giftDefinitionId: Number(p.giftDefinitionId) || null,
+                    beneficiaryKind: p.beneficiaryKind,
+                    referrerId: p.beneficiaryKind !== 'contract_customer' ? (p.referrerId || null) : null,
+                    conditionLabel: p.conditionLabel,
+                    conditionStatus: 'pending',
+                    quantity: Math.max(1, Number(p.quantity) || 1),
+                    similarPromiseWarningAcknowledged: p.similarPromiseWarningAcknowledged === true,
+                    similarGiftRecordIds: p.similarGiftRecordIds ?? [],
+                })),
             };
 
             const result = isEdit && editId
@@ -1335,11 +1410,11 @@ export default function ContractForm() {
         }
     }, [
         isValid, saving, isEdit, editId, isDraftMode, selectedCustomer, deviceModelId, selectedDevice, serialNumber,
-        contractDate, saleType, saleSource, sourceTaskId, selectedDiscountId,
+        contractDate, saleType, oldContractNumber, oldDeviceCondition, saleSource, sourceTaskId, selectedDiscountId,
         paymentType, grandTotal, basePrice, installmentDrafts, installmentsConfirmed,
         persistedInstallmentsConfirmed, paymentEntries, closingEmployeeId,
         invoiceNotes, lineItems, geoSelection, detailedAddress, mapPosition, fatherNameOverride,
-        nationalIdOverride, saleSubtype, selectedReferrerIds, sourceOpenTaskId, sourceTaskOfferId, saleReferenceNumber,
+        nationalIdOverride, saleSubtype, selectedReferrerIds, sourceOpenTaskId, sourceTaskOfferId, saleReferenceNumber, giftPromises,
         selectedOfferVisitId, selectedOfferTaskId, noClosingReasonId, saleOwnerId, navigate,
         warrantyMonths, warrantyVisits, deliveryDate, installationDate,
         buyerBirthDate, buyerGender, buyerMotherName, buyerNationalIdRegistry,
@@ -1611,7 +1686,7 @@ export default function ContractForm() {
                                                     <p className="text-xs text-slate-400" dir="ltr">{c.mobile}</p>
                                                 </div>
                                                 {(!c.fatherName || !c.nationalId) && (
-                                                    <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-amber-50 text-amber-500 border border-amber-100">ناقص</span>
+                                                    <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-amber-50 text-amber-500 border border-amber-100">ناقص</span>
                                                 )}
                                             </button>
                                         ))
@@ -1731,8 +1806,8 @@ export default function ContractForm() {
                                         <label className={labelCls(buyerBirthDate.length > 0)}>
                                             تاريخ الميلاد {star(buyerBirthDate.length > 0)}
                                         </label>
-                                        <input type="date" value={buyerBirthDate}
-                                            onChange={e => setBuyerBirthDate(e.target.value)}
+                                        <DateField value={buyerBirthDate}
+                                            onChange={setBuyerBirthDate}
                                             className={inputCls(buyerBirthDate.length > 0)} />
                                     </div>
 
@@ -1761,8 +1836,8 @@ export default function ContractForm() {
                                         <label className={labelCls(buyerNationalIdIssueDate.length > 0)}>
                                             تاريخ منح الهوية {star(buyerNationalIdIssueDate.length > 0)}
                                         </label>
-                                        <input type="date" value={buyerNationalIdIssueDate}
-                                            onChange={e => setBuyerNationalIdIssueDate(e.target.value)}
+                                        <DateField value={buyerNationalIdIssueDate}
+                                            onChange={setBuyerNationalIdIssueDate}
                                             className={inputCls(buyerNationalIdIssueDate.length > 0)} />
                                     </div>
 
@@ -1844,7 +1919,7 @@ export default function ContractForm() {
                                                 <div className="text-xs leading-6">
                                                     <div className="font-bold text-slate-800">{definition?.name ?? 'تعريف هدية'}</div>
                                                     <div className="text-slate-500">
-                                                        المستفيد: {promise.beneficiaryKind === 'customer_referrer' ? (referrer?.referrerName ?? 'وسيط زبون') : selectedCustomer.name}
+                                                        المستفيد: {promise.beneficiaryKind !== 'contract_customer' ? (referrer?.referrerName ?? 'وسيط العقد') : selectedCustomer.name}
                                                     </div>
                                                     <div className="text-slate-500">
                                                         الشرط: {promise.conditionLabel} - {giftConditionStatusLabels[promise.conditionStatus]} - العدد: {promise.quantity}
@@ -1883,7 +1958,7 @@ export default function ContractForm() {
                                                     : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'}`}>
                                                 <st.icon className="w-4 h-4" />
                                                 <span className="text-xs font-bold">{st.label}</span>
-                                                <span className={`text-[9px] ${isActive ? 'opacity-70' : 'text-slate-400'}`}>{st.desc}</span>
+                                                <span className={`text-xs ${isActive ? 'opacity-70' : 'text-slate-400'}`}>{st.desc}</span>
                                             </button>
                                         );
                                     })}
@@ -2303,16 +2378,10 @@ export default function ContractForm() {
 
                     <div className="grid grid-cols-2 gap-4">
                         <Field label="تاريخ التسليم المتوقع">
-                            <div className="relative">
-                                <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300 pointer-events-none" />
-                                <input type="date" value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)} className={`${inputClass} pr-10`} />
-                            </div>
+                            <DateField value={deliveryDate} onChange={setDeliveryDate} className={inputClass} />
                         </Field>
                         <Field label="تاريخ التركيب المتوقع">
-                            <div className="relative">
-                                <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300 pointer-events-none" />
-                                <input type="date" value={installationDate} onChange={e => setInstallationDate(e.target.value)} className={`${inputClass} pr-10`} />
-                            </div>
+                            <DateField value={installationDate} onChange={setInstallationDate} className={inputClass} />
                         </Field>
                     </div>
 
@@ -2731,9 +2800,9 @@ export default function ContractForm() {
                                                         <td className="px-3 py-2">
                                                             {installmentsConfirmed
                                                                 ? <span className="text-sm text-slate-700">{inst.dueDate}</span>
-                                                                : <input type="date" value={inst.dueDate}
-                                                                    onChange={e => setInstallmentDrafts(prev => prev.map((d, i) => i === idx ? { ...d, dueDate: e.target.value } : d))}
-                                                                    className="text-sm border border-slate-200 rounded px-2 py-1 focus:outline-none focus:border-sky-400" />
+                                                                : <DateField value={inst.dueDate}
+                                                                    onChange={v => setInstallmentDrafts(prev => prev.map((d, i) => i === idx ? { ...d, dueDate: v } : d))}
+                                                                    className="text-sm border border-slate-200 rounded pl-2 py-1 focus:outline-none focus:border-sky-400" />
                                                             }
                                                         </td>
                                                         <td className="px-3 py-2">
@@ -2834,7 +2903,15 @@ export default function ContractForm() {
                         <button
                             type="button"
                             onClick={addGiftPromise}
-                            disabled={!selectedGiftDefinition || (giftPromiseDraft.beneficiaryKind === 'customer_referrer' && contractGiftEligibleReferrers.length === 0)}
+                            disabled={
+                                !selectedGiftDefinition
+                                || (
+                                    giftPromiseDraft.beneficiaryKind !== 'contract_customer'
+                                    && !contractGiftEligibleReferrers.some(referrer => (
+                                        giftBeneficiaryKindForReferrer(referrer) === giftPromiseDraft.beneficiaryKind
+                                    ))
+                                )
+                            }
                             className="inline-flex h-9 items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-xs font-bold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                             <Save className="h-4 w-4" />
@@ -2844,81 +2921,81 @@ export default function ContractForm() {
                 }
             >
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2" dir="rtl">
-                    <label className="text-xs font-bold text-slate-500">
+                    <div className="text-xs font-bold text-slate-500">
                         تعريف الهدية
-                        <select
+                        <Select<string>
+                            className="mt-1 w-full"
                             value={giftPromiseDraft.giftDefinitionId}
-                            onChange={e => setGiftPromiseDraft(prev => ({ ...prev, giftDefinitionId: e.target.value }))}
-                            className={inputClass}
-                        >
-                            {activeGiftDefinitions.map(definition => (
-                                <option key={definition.id} value={String(definition.id)}>{definition.name}</option>
-                            ))}
-                        </select>
-                    </label>
+                            onChange={value => setGiftPromiseDraft(prev => ({ ...prev, giftDefinitionId: value }))}
+                            placeholder="— اختر تعريفاً —"
+                            ariaLabel="تعريف الهدية"
+                            options={activeGiftDefinitions.map(definition => ({ value: String(definition.id), label: definition.name }))}
+                        />
+                    </div>
 
-                    <label className="text-xs font-bold text-slate-500">
+                    <div className="text-xs font-bold text-slate-500">
                         المستفيد
-                        <select
+                        <Select<string>
+                            className="mt-1 w-full"
                             value={giftPromiseDraft.beneficiaryKind}
-                            onChange={e => setGiftPromiseDraft(prev => ({
+                            onChange={value => setGiftPromiseDraft(prev => ({
                                 ...prev,
-                                beneficiaryKind: e.target.value as ContractGiftPromiseDraft['beneficiaryKind'],
-                                conditionLabel: e.target.value === 'customer_referrer' ? 'وسيط بيعة من نوع زبون' : prev.conditionLabel,
+                                beneficiaryKind: value as ContractGiftPromiseDraft['beneficiaryKind'],
+                                referrerId: value === 'contract_customer'
+                                    ? ''
+                                    : String(contractGiftEligibleReferrers.find(referrer => (
+                                        giftBeneficiaryKindForReferrer(referrer) === value
+                                    ))?.id ?? ''),
+                                conditionLabel: value === 'customer_referrer'
+                                    ? 'وسيط بيعة من نوع زبون'
+                                    : value === 'employee_referrer'
+                                        ? 'وسيط بيعة من نوع موظف'
+                                        : value === 'personal_referrer'
+                                            ? 'وسيط بيعة شخصي'
+                                            : prev.conditionLabel,
                             }))}
-                            className={inputClass}
-                        >
-                            <option value="contract_customer">زبون العقد: {selectedCustomer?.name ?? 'الزبون'}</option>
-                            <option value="customer_referrer" disabled={contractGiftEligibleReferrers.length === 0}>وسيط بيعة من نوع زبون</option>
-                        </select>
-                    </label>
+                            ariaLabel="المستفيد"
+                            options={[
+                                { value: 'contract_customer', label: `زبون العقد: ${selectedCustomer?.name ?? 'الزبون'}` },
+                                { value: 'customer_referrer', label: 'وسيط بيعة من نوع زبون', disabled: !contractGiftEligibleReferrers.some(r => giftBeneficiaryKindForReferrer(r) === 'customer_referrer') },
+                                { value: 'employee_referrer', label: 'وسيط بيعة من نوع موظف', disabled: !contractGiftEligibleReferrers.some(r => giftBeneficiaryKindForReferrer(r) === 'employee_referrer') },
+                                { value: 'personal_referrer', label: 'وسيط بيعة شخصي', disabled: !contractGiftEligibleReferrers.some(r => giftBeneficiaryKindForReferrer(r) === 'personal_referrer') },
+                            ]}
+                        />
+                    </div>
 
-                    {giftPromiseDraft.beneficiaryKind === 'customer_referrer' && (
-                        <label className="text-xs font-bold text-slate-500 md:col-span-2">
-                            وسيط البيع الزبون
-                            <select
+                    {giftPromiseDraft.beneficiaryKind !== 'contract_customer' && (
+                        <div className="text-xs font-bold text-slate-500 md:col-span-2">
+                            وسيط البيع
+                            <Select<string>
+                                className="mt-1 w-full"
                                 value={giftPromiseDraft.referrerId}
-                                onChange={e => setGiftPromiseDraft(prev => ({ ...prev, referrerId: e.target.value }))}
-                                className={inputClass}
-                            >
-                                {contractGiftEligibleReferrers.map(referrer => (
-                                    <option key={referrer.id} value={String(referrer.id)}>{referrer.referrerName}</option>
-                                ))}
-                            </select>
-                        </label>
-                    )}
-
-                    {selectedReferralPromiseSourceReferrers.length > 0 && (
-                        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-6 text-amber-800 md:col-span-2">
-                            وسيط الزبون المحدد مصدره لائحة أسماء أو اقتراح مباشر، لذلك لا يأخذ وعد هدية إضافي من العقد. يتم إنشاء الوعد من مصدر الترشيح نفسه، والعقد يستخدم لاحقا كإثبات تحقق الشرط.
+                                onChange={value => setGiftPromiseDraft(prev => ({ ...prev, referrerId: value }))}
+                                ariaLabel="وسيط البيع"
+                                options={contractGiftEligibleReferrers
+                                    .filter(referrer => giftBeneficiaryKindForReferrer(referrer) === giftPromiseDraft.beneficiaryKind)
+                                    .map(referrer => ({ value: String(referrer.id), label: referrer.referrerName }))}
+                            />
                         </div>
                     )}
 
-                    <label className="text-xs font-bold text-slate-500">
+                    <div className="text-xs font-bold text-slate-500">
                         شرط/سبب الوعد
-                        <select
+                        <Select<string>
+                            className="mt-1 w-full"
                             value={giftPromiseDraft.conditionLabel}
-                            onChange={e => setGiftPromiseDraft(prev => ({ ...prev, conditionLabel: e.target.value }))}
-                            className={inputClass}
-                        >
-                            {['توقيع عقد نقدي', 'استحقاق بعد الدفعة الثانية', 'شراء أكثر من عقد', 'وسيط بيعة من نوع زبون', 'قرار إداري', 'عقد هدية معتمد'].map(option => (
-                                <option key={option} value={option}>{option}</option>
-                            ))}
-                        </select>
-                    </label>
+                            onChange={value => setGiftPromiseDraft(prev => ({ ...prev, conditionLabel: value }))}
+                            ariaLabel="شرط/سبب الوعد"
+                            options={['توقيع عقد نقدي', 'استحقاق بعد الدفعة الثانية', 'شراء أكثر من عقد', 'وسيط بيعة من نوع زبون', 'قرار إداري', 'عقد هدية معتمد'].map(option => ({ value: option, label: option }))}
+                        />
+                    </div>
 
-                    <label className="text-xs font-bold text-slate-500">
+                    <div className="text-xs font-bold text-slate-500">
                         حالة تحقق الشرط
-                        <select
-                            value={giftPromiseDraft.conditionStatus}
-                            onChange={e => setGiftPromiseDraft(prev => ({ ...prev, conditionStatus: e.target.value as GiftConditionStatus }))}
-                            className={inputClass}
-                        >
-                            {Object.entries(giftConditionStatusLabels).map(([value, label]) => (
-                                <option key={value} value={value}>{label}</option>
-                            ))}
-                        </select>
-                    </label>
+                        <div className="mt-1 flex h-10 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700">
+                            بانتظار التحقق
+                        </div>
+                    </div>
 
                     <label className="text-xs font-bold text-slate-500">
                         العدد

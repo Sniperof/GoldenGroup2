@@ -1,5 +1,5 @@
 import { useParams } from 'react-router-dom';
-import { Monitor } from 'lucide-react';
+import { Monitor } from '../../components/ui/icons';
 import TaskDetailLayout from '../../components/tasks/TaskDetailLayout';
 import { InfoLine, formatDate } from '../../components/tasks/shared';
 import DeviceDemoOfferTab from '../../taskTypes/device_demo/DeviceDemoOfferTab';
@@ -76,7 +76,7 @@ export default function DeviceDemoDetail() {
   const hasPermission = useAuthStore(s => s.hasPermission);
   const taskId = Number(id);
   const canReturnToDeviceDemoTable = hasPermission('tasks.demo.view');
-  const backHref = canReturnToDeviceDemoTable ? '/tasks/device-demo' : '/tasks/group/my-customers';
+  const backHref = canReturnToDeviceDemoTable ? '/tasks/group/device-demo' : '/tasks/group/my-customers';
 
   return (
     <TaskDetailLayout

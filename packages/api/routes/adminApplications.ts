@@ -8,6 +8,7 @@ import {
 } from '../domain/stageEngine.js';
 import { checkVacancyCapacity, checkDuplicate } from '../utils/applicationHelpers.js';
 import { sanitizeText } from '../utils/sanitize.js';
+import { insertReferrer } from '../repositories/applicationRepository.js';
 import { requirePermission, resolveTargetBranchId } from '../middleware/permission.js';
 import {
   deriveEmployeeRoleFromVacancyTitle,
@@ -18,6 +19,12 @@ import {
   insertPreparedEmployeeProfile,
   prepareEmployeeWriteInput,
 } from '../services/employeeService.js';
+import {
+  VACANCY_NOT_APPLICABLE_CODE,
+  VACANCY_NOT_APPLICABLE_MESSAGE,
+  findApplicableVacancyById,
+} from '../services/vacancyApplicability.js';
+import { applicationSubmissionErrorResponse } from '../services/applicationSubmissionError.js';
 
 const router = Router();
 
@@ -368,16 +375,19 @@ router.post('/', requirePermission('jobs.applications.create'), async (req, res)
 
     // Vacancy: if linked, must be Open and within date range
     if (jobVacancyId) {
-      const { rows: vacRows } = await client.query(
-        `SELECT id, status, branch_id FROM job_vacancies
-         WHERE id = $1 AND status = 'Open' AND CURRENT_DATE BETWEEN start_date AND end_date`,
-        [jobVacancyId]
+      const vacancy = await findApplicableVacancyById(
+        client,
+        jobVacancyId,
+        { forUpdate: true },
       );
-      if (vacRows.length === 0) {
+      if (!vacancy) {
         await client.query('ROLLBACK');
-        return res.status(400).json({ error: 'الشاغر غير موجود أو غير متاح للتقديم' });
+        return res.status(409).json({
+          error: VACANCY_NOT_APPLICABLE_MESSAGE,
+          code: VACANCY_NOT_APPLICABLE_CODE,
+        });
       }
-      applicationBranchId = vacRows[0].branch_id;
+      applicationBranchId = vacancy.branchId;
       if (!applicationBranchId) {
         await client.query('ROLLBACK');
         return res.status(400).json({ error: 'تعذر تحديد فرع الشاغر' });
@@ -441,31 +451,7 @@ router.post('/', requirePermission('jobs.applications.create'), async (req, res)
     // Insert referrer if 'Refer a Candidate'
     let referrerId: number | null = null;
     if (submissionType === 'Refer a Candidate' && body.referrer) {
-      const r = body.referrer;
-      const normalizedReferrerType = r.type === 'Customer' ? 'Client' : r.type;
-      const referrerEntityId = normalizedReferrerType === 'Employee'
-        ? (r.referralEntityId ?? r.employeeId ?? null)
-        : (r.referralEntityId ?? null);
-      const { rows: refRows } = await client.query(
-        `INSERT INTO referrers (
-          type, employee_id, referral_entity_id, full_name, last_name, mobile_number,
-          governorate, city_or_area, sub_area, neighborhood,
-          detailed_address, referrer_work, referrer_notes
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-        RETURNING id`,
-        [
-          normalizedReferrerType || 'Client',
-          normalizedReferrerType === 'Employee' ? (r.employeeId ?? null) : null,
-          referrerEntityId,
-          sanitizeText(r.fullName), r.lastName ? sanitizeText(r.lastName) : null, r.mobileNumber || null,
-          r.governorate ? sanitizeText(r.governorate) : null, r.cityOrArea ? sanitizeText(r.cityOrArea) : null,
-          r.subArea ? sanitizeText(r.subArea) : null, r.neighborhood ? sanitizeText(r.neighborhood) : null,
-          r.detailedAddress ? sanitizeText(r.detailedAddress) : null,
-          r.referrerWork ? sanitizeText(r.referrerWork) : null,
-          r.referrerNotes ? sanitizeText(r.referrerNotes) : null,
-        ]
-      );
-      referrerId = refRows[0].id;
+      referrerId = await insertReferrer(client, body.referrer);
     }
 
     // Insert application
@@ -509,8 +495,11 @@ router.post('/', requirePermission('jobs.applications.create'), async (req, res)
     res.status(201).json(appRows[0]);
   } catch (err: any) {
     await client.query('ROLLBACK');
-    console.error('Error creating admin application:', err);
-    res.status(500).json({ error: err.message });
+    const response = applicationSubmissionErrorResponse(err);
+    if (response.status === 500) {
+      console.error('Error creating admin application:', err);
+    }
+    res.status(response.status).json(response.payload);
   } finally {
     client.release();
   }

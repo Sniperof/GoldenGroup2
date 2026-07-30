@@ -30,8 +30,8 @@
 // ────────────────────────────────────────────────────────────────────────────
 import { forwardRef } from 'react';
 import type { ButtonHTMLAttributes } from 'react';
-import { Loader2 } from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
+import { Loader2 } from './icons';
+import type { LucideIcon } from './icons';
 
 export type IconButtonVariant = 'ghost' | 'outline' | 'solid' | 'danger' | 'gold';
 export type IconButtonSize = 'sm' | 'md' | 'lg';

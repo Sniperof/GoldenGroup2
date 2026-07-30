@@ -26,6 +26,8 @@ const EDITABLE_KEYS = [
   'periodic_default_interval_months',
   'periodic_attach_warning_days',
   'periodic_attach_allowed_statuses',
+  'dashboard_metric_refresh_hours',
+  'visit_escalation_job_interval_minutes',
 ] as const;
 
 type EditableKey = typeof EDITABLE_KEYS[number];
@@ -37,6 +39,8 @@ const SETTING_TYPES: Record<EditableKey, 'integer' | 'boolean' | 'time' | 'json'
   periodic_default_interval_months: 'integer',
   periodic_attach_warning_days: 'integer',
   periodic_attach_allowed_statuses: 'json',
+  dashboard_metric_refresh_hours: 'integer',
+  visit_escalation_job_interval_minutes: 'integer',
 };
 
 const ALLOWED_PERIODIC_STATUSES = new Set(['open', 'assigned', 'in_scheduling', 'scheduled', 'waiting_execution']);
@@ -63,6 +67,9 @@ function normalizeSettingValue(key: EditableKey, value: unknown): string {
     if (!Number.isInteger(n) || n < 0) throw new Error('القيمة يجب أن تكون رقماً صحيحاً موجباً.');
     if (key === 'periodic_default_interval_months' && n < 1) {
       throw new Error('فترة الصيانة الافتراضية يجب أن تكون شهراً واحداً على الأقل.');
+    }
+    if (key === 'visit_escalation_job_interval_minutes' && (n < 1 || n > 1440)) {
+      throw new Error('فترة فحص تنبيهات الزيارات يجب أن تكون بين دقيقة و1440 دقيقة.');
     }
     return String(n);
   }

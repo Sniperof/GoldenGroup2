@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, User, Phone, MapPin, Share2, Save, Plus, Trash2, MessageCircle, MapPinned, CheckCircle, AlertCircle, ClipboardList, Lock, ChevronDown } from 'lucide-react';
+import { X, User, Phone, MapPin, Share2, Save, Plus, Trash2, MessageCircle, MapPinned, CheckCircle, AlertCircle, ClipboardList, Lock, ChevronDown } from './ui/icons';
 import type { Client, GeoUnit, ContactEntry, ContactType, ContactStatus, ReferralType, ReferralOriginChannel } from '../lib/types';
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
@@ -9,11 +9,13 @@ import GeoSmartSearch from './GeoSmartSearch';
 import type { GeoSelection } from './GeoSmartSearch';
 import Select from './ui/Select';
 import Modal from './ui/Modal';
+import Checkbox from './ui/Checkbox';
+import DateField from './ui/DateField';
 import { useCandidateStore } from '../hooks/useCandidateStore';
 import { api } from '../lib/api';
 import { useAuthStore } from '../hooks/useAuthStore';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
-import { findEmployeeByNumber, formatEmployeeMediatorLabel, MediatorEmployee, toMediatorEmployee } from '../lib/employeeMediatorLookup';
+import { findEmployeeByNumber, formatEmployeeMediatorLabel, MediatorEmployee, resolveEmployeeMediatorReference, toMediatorEmployee } from '../lib/employeeMediatorLookup';
 import {
     CONTACT_STATUS_CONFIG,
     CONTACT_TYPE_CONFIG,
@@ -98,9 +100,11 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
         ? ((canUseBranchContext ? contextBranchId : null) ?? (isCreateBranchLocked ? userBranchId : null))
         : null;
     const hasFixedBranchContext = fixedOperationalBranchId != null;
+    // Branch is only selectable at creation; edits never move a client between
+    // branches (transfer will be a dedicated operation — constitution BR-5).
     const canSelectOperationalBranch =
-        authUser?.isSuperAdmin === true ||
-        (!isEditMode && createClientScope === 'GLOBAL');
+        !isEditMode &&
+        (authUser?.isSuperAdmin === true || createClientScope === 'GLOBAL');
     const canChooseBranch = canSelectOperationalBranch && !hasFixedBranchContext;
     const canChooseAssignedOwner =
         authUser?.isSuperAdmin === true ||
@@ -297,6 +301,30 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
             // Already handled in select client
         }
     }, [referralType, employeeFound, selectedClientId, currentUserDisplayName]);
+
+    useEffect(() => {
+        if (
+            !isOpen
+            || initialData?.referrerType !== 'Employee'
+            || initialData.referralEntityId == null
+        ) {
+            return;
+        }
+        const mediator = employees.find(
+            (employee) => employee.id === Number(initialData.referralEntityId),
+        );
+        if (!mediator) return;
+
+        setEmployeeFound(mediator);
+        setEmployeeIdInput(String(mediator.employeeNumber ?? ''));
+        setEmployeeSearchError('');
+        setReferralNameSnapshot(mediator.name);
+    }, [
+        employees,
+        initialData?.referralEntityId,
+        initialData?.referrerType,
+        isOpen,
+    ]);
 
     const handleEmployeeBlur = () => {
         if (!employeeIdInput.trim()) {
@@ -597,6 +625,9 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
 
     // -- Save --
     const handleSave = () => {
+        const employeeReference = referralType === 'Employee'
+            ? resolveEmployeeMediatorReference(employeeIdInput, employeeFound)
+            : null;
         if (canChooseBranch && effectiveBranchId == null) {
             alert('يجب تحديد الفرع قبل حفظ العميل');
             return;
@@ -638,7 +669,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
         }
 
         // Referral validation: skip when fromCandidate (all referral data locked from candidate)
-        if (!fromCandidate && referralType === 'Employee' && !employeeFound) {
+        if (!fromCandidate && referralType === 'Employee' && !employeeReference) {
             alert('يجب تحديد الموظف الوسيط');
             return;
         }
@@ -653,14 +684,14 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
             : referralType === 'Unknown'
                 ? 'مجهول'
                 : referralType === 'Employee'
-                    ? (employeeFound?.name || '')
+                    ? (employeeReference?.fullName || '')
                     : referralType === 'Client'
                         ? (clientSearch.trim() || referralNameSnapshot.trim())
                         : referralNameSnapshot.trim();
         const resolvedReferralEntityId = referralType === 'Client'
             ? selectedClientId || undefined
             : referralType === 'Employee'
-                ? employeeFound?.id || undefined
+                ? employeeReference?.referralEntityId || undefined
                 : undefined;
         const existingReferralDate = initialData?.referrers?.[0]?.referralDate || initialData?.referralDate || '';
         const resolvedReferrers = referralType || resolvedReferrerName || resolvedReferralEntityId
@@ -775,8 +806,21 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                             {/* ============ IDENTITY TAB ============ */}
                             {activeTab === 'identity' && (
                                 <div className="space-y-4">
-                                    {(canChooseBranch || canChooseAssignedOwner) && (
+                                    {(canChooseBranch || canChooseAssignedOwner || (isEditMode && initialData?.branchId != null)) && (
                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                                            {isEditMode && initialData?.branchId != null && (
+                                                <div className="space-y-1">
+                                                    <label className="text-xs font-semibold text-slate-500">
+                                                        الفرع التشغيلي
+                                                    </label>
+                                                    <div className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm bg-slate-100 text-slate-600">
+                                                        {initialData.branchName ?? `الفرع #${initialData.branchId}`}
+                                                    </div>
+                                                    <p className="text-xs text-slate-400">
+                                                        لا يمكن تغيير الفرع من نموذج التعديل؛ النقل بين الفروع يتطلب عملية نقل مخصصة.
+                                                    </p>
+                                                </div>
+                                            )}
                                             {canChooseBranch && (
                                                 <div className="space-y-1">
                                                     <label className="text-xs font-semibold text-slate-500">
@@ -830,17 +874,16 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                                     const checked = assignmentUserIds.includes(user.id);
                                                                     return (
                                                                         <label key={user.id} className="flex items-center gap-2.5 px-3 py-2.5 cursor-pointer hover:bg-slate-50 transition-colors select-none">
-                                                                            <input
-                                                                                type="checkbox"
+                                                                            <Checkbox
+                                                                                bare
                                                                                 checked={checked}
-                                                                                onChange={e => {
-                                                                                    if (e.target.checked) {
+                                                                                onCheckedChange={isChecked => {
+                                                                                    if (isChecked) {
                                                                                         setAssignmentUserIds(prev => [...prev, user.id]);
                                                                                     } else {
                                                                                         setAssignmentUserIds(prev => prev.filter(id => id !== user.id));
                                                                                     }
                                                                                 }}
-                                                                                className="w-4 h-4 rounded accent-sky-500 shrink-0"
                                                                             />
                                                                             <div>
                                                                                 <div className="text-sm text-slate-700 font-medium">{user.name}</div>
@@ -1293,7 +1336,12 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                             <input
                                                                 type="text"
                                                                 value={employeeIdInput}
-                                                                onChange={(e) => setEmployeeIdInput(e.target.value)}
+                                                                onChange={(e) => {
+                                                                    setEmployeeIdInput(e.target.value);
+                                                                    setEmployeeFound(null);
+                                                                    setEmployeeSearchError('');
+                                                                    setReferralNameSnapshot('');
+                                                                }}
                                                                 onBlur={handleEmployeeBlur}
                                                                 placeholder="أدخل رقم الموظف..."
                                                                 className="w-1/2 p-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:border-sky-500 focus:outline-none"
@@ -1447,10 +1495,9 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                         </div>
                                         <div className="space-y-1">
                                             <label className="text-xs font-semibold text-slate-500">تاريخ الميلاد</label>
-                                            <input
-                                                type="date"
+                                            <DateField
                                                 value={birthDate}
-                                                onChange={e => setBirthDate(e.target.value)}
+                                                onChange={setBirthDate}
                                                 className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none"
                                             />
                                         </div>
@@ -1515,7 +1562,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                         </div>
                                         <div className="space-y-1">
                                             <label className="text-xs font-semibold text-slate-500">تاريخ منح الهوية</label>
-                                            <input type="date" value={nationalIdIssueDate} onChange={e => setNationalIdIssueDate(e.target.value)}
+                                            <DateField value={nationalIdIssueDate} onChange={setNationalIdIssueDate}
                                                 className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:border-sky-500 focus:outline-none" />
                                         </div>
                                     </div>

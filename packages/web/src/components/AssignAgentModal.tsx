@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { UserCheck } from 'lucide-react';
+import { UserCheck } from './ui/icons';
 import { useCollectionStore } from '../hooks/useCollectionStore';
 import { api } from '../lib/api';
 import Select from './ui/Select';

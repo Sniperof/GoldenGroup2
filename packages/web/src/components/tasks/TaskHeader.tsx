@@ -1,5 +1,5 @@
-import type { LucideIcon } from 'lucide-react';
-import { ChevronRight, UserRound, Clock, MapPin, Tag, Link2 } from 'lucide-react';
+import type { LucideIcon } from '../ui/icons';
+import { ChevronRight, UserRound, Clock, MapPin, Tag, Link2 } from '../ui/icons';
 import {
   OPEN_TASK_STATUS_LABELS, OPEN_TASK_PHASE_LABELS, OPEN_TASK_PHASE_COLORS,
   OPEN_TASK_TYPE_LABELS, getTaskPhase, type OpenTaskStatus,

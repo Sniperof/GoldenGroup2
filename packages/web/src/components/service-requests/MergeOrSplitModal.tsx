@@ -3,7 +3,7 @@
 // Constitution: maintenance.md §EM-UNIQ-01..06
 // ============================================================
 import { useEffect, useState } from 'react';
-import { GitMerge, Split, AlertTriangle } from 'lucide-react';
+import { GitMerge, Split, AlertTriangle } from '../ui/icons';
 import { api } from '../../lib/api';
 import Select from '../ui/Select';
 import Modal from '../ui/Modal';

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarClock, CircleCheck, CircleX, CreditCard, Loader2, Wallet, X } from 'lucide-react';
+import { CalendarClock, CircleCheck, CircleX, CreditCard, Loader2, Wallet } from '../../components/ui/icons';
 import { api } from '../../lib/api';
+import Modal from '../../components/ui/Modal';
+import DateField from '../../components/ui/DateField';
 import type { TaskResultModalProps } from '../../components/tasks/types';
 import PaymentEntriesList, { newEntry, type PaymentEntry } from '../../components/emergency/PaymentEntriesList';
 
@@ -22,7 +24,7 @@ function partSyp(e: PaymentEntry): number {
 function partComplete(e: PaymentEntry): boolean {
   if (!e.method) return false;
   if (!(Number(e.amountValue) > 0)) return false;
-  if (e.method === 'transfer' && !e.transferCompanyId) return false;
+  if (e.method === 'transfer' && !e.paymentInstrument) return false;
   if (e.method !== 'barter' && e.currency === 'usd' && !(Number(e.exchangeRate) > 0)) return false;
   if (e.method === 'barter' && !e.barterDescription.trim()) return false;
   return true;
@@ -47,7 +49,13 @@ export default function InstallmentCollectionResultModal({ visitId, taskId, task
 
   // المطلوب = الذمة (الرصيد المتبقي على القسط).
   const expectedAmount = useMemo(() => {
-    return num(task?.expectedAmountSyp ?? task?.expected_amount_syp ?? task?.remainingBalance ?? task?.remaining_balance);
+    return num(
+      task?.expectedAmountSyp
+      ?? task?.expected_amount_syp
+      ?? task?.expectedAmount
+      ?? task?.remainingBalance
+      ?? task?.remaining_balance,
+    );
   }, [task]);
 
   const isPayment = mode === 'paid_full' || mode === 'paid_partial';
@@ -99,11 +107,12 @@ export default function InstallmentCollectionResultModal({ visitId, taskId, task
         return;
       }
       body.payment_parts = entries.map(e => ({
-        method: e.method,
+        paymentCategory: e.method,
+        method: e.paymentInstrument,
         amountValue: Number(e.amountValue),
         currency: e.currency,
         exchangeRate: e.exchangeRate ? Number(e.exchangeRate) : null,
-        transferCompanyId: e.transferCompanyId || null,
+        referenceNumber: e.referenceNumber.trim() || null,
         barterDescription: e.barterDescription || null,
       }));
     }
@@ -141,19 +150,23 @@ export default function InstallmentCollectionResultModal({ visitId, taskId, task
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" dir="rtl">
-      <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-emerald-200 bg-white shadow-xl">
-        <div className="flex items-center justify-between border-b border-emerald-200 bg-emerald-50 px-5 py-4">
-          <div className="flex items-center gap-2">
-            <CreditCard className="h-5 w-5 text-emerald-600" />
-            <h2 className="text-base font-black text-emerald-900">نتيجة تسديد الذمة</h2>
-          </div>
-          <button onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-white hover:text-slate-700">
-            <X className="h-5 w-5" />
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="2xl"
+      title={<span className="flex items-center gap-2"><CreditCard className="h-5 w-5 text-emerald-600" />نتيجة تسديد الذمة</span>}
+      footer={
+        <>
+          <button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50">إلغاء</button>
+          <button onClick={submit} disabled={saving}
+            className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-60">
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+            تسجيل النتيجة
           </button>
-        </div>
-
-        <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+        </>
+      }
+    >
+        <div className="space-y-4 px-5 py-4">
           {error && <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>}
 
           {/* الذمة واضحة */}
@@ -178,6 +191,7 @@ export default function InstallmentCollectionResultModal({ visitId, taskId, task
                 entries={entries}
                 onChange={setEntries}
                 grandTotal={expectedAmount ?? undefined}
+                capturePaymentInstrument
                 label="دفعات الزبون (يد / حوالة / مقايضة — ل.س أو $)"
               />
 
@@ -214,7 +228,7 @@ export default function InstallmentCollectionResultModal({ visitId, taskId, task
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="space-y-1.5">
                 <span className="text-xs font-bold text-slate-500">تاريخ المتابعة *</span>
-                <input type="date" value={nextExpectedDate} onChange={(e) => setNextExpectedDate(e.target.value)}
+                <DateField value={nextExpectedDate} onChange={setNextExpectedDate}
                   className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
               </label>
               <label className="space-y-1.5">
@@ -235,16 +249,6 @@ export default function InstallmentCollectionResultModal({ visitId, taskId, task
               className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
           </label>
         </div>
-
-        <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-5 py-4">
-          <button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50">إلغاء</button>
-          <button onClick={submit} disabled={saving}
-            className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-60">
-            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-            تسجيل النتيجة
-          </button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

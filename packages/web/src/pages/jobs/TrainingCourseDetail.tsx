@@ -6,9 +6,11 @@ import {
   GraduationCap, ArrowRight, Calendar, User, Monitor, Building2,
   CheckCircle, XCircle, Loader2, AlertTriangle, Play, Award,
   UserPlus, ChevronDown,
-} from 'lucide-react';
+} from '../../components/ui/icons';
 import PermissionGate from '../../components/PermissionGate';
 import Select from '../../components/ui/Select';
+import DateField from '../../components/ui/DateField';
+import Modal from '../../components/ui/Modal';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -305,24 +307,35 @@ export default function TrainingCourseDetail() {
       </div>
 
 
-      <div className={showEndDateModal ? 'fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4' : 'hidden'} onClick={() => setShowEndDateModal(false)}>
-        {showEndDateModal && (
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6" dir="rtl" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-5">
-              <h3 className="text-base font-bold text-slate-800">تعديل الدورة التدريبية</h3>
-              <button onClick={() => setShowEndDateModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400">
-                <XCircle className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="space-y-4">
+      <Modal
+        isOpen={showEndDateModal}
+        onClose={() => setShowEndDateModal(false)}
+        size="md"
+        title="تعديل الدورة التدريبية"
+        footer={
+          <>
+            <button onClick={() => setShowEndDateModal(false)} className="px-5 py-2.5 text-sm bg-slate-100 rounded-xl text-slate-600 hover:bg-slate-200 transition-colors">
+              إلغاء
+            </button>
+            <button
+              onClick={saveEndDate}
+              disabled={endDateSubmitting}
+              className="px-5 py-2.5 text-sm bg-sky-600 text-white rounded-xl hover:bg-sky-700 font-bold shadow-lg shadow-sky-500/25 transition-all disabled:opacity-50 flex items-center gap-2"
+            >
+              {endDateSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Calendar className="w-4 h-4" />}
+              حفظ التعديل
+            </button>
+          </>
+        }
+      >
+            <div className="p-6 space-y-4">
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">تاريخ نهاية الدورة</label>
-                <input
-                  type="date"
+                <DateField
                   value={endDateDraft}
                   min={minimumAllowedEndDate}
-                  onChange={e => setEndDateDraft(e.target.value)}
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-sky-500"
+                  onChange={setEndDateDraft}
+                  className="w-full border border-slate-200 rounded-lg pl-3 py-2.5 text-sm focus:ring-2 focus:ring-sky-500"
                 />
                 <p className="mt-1 text-xs text-slate-400">
                   {latestAttendanceDate
@@ -334,22 +347,7 @@ export default function TrainingCourseDetail() {
                 <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-2 text-sm">{endDateError}</div>
               )}
             </div>
-            <div className="mt-5 flex justify-end gap-3">
-              <button onClick={() => setShowEndDateModal(false)} className="px-5 py-2.5 text-sm bg-slate-100 rounded-xl text-slate-600 hover:bg-slate-200 transition-colors">
-                إلغاء
-              </button>
-              <button
-                onClick={saveEndDate}
-                disabled={endDateSubmitting}
-                className="px-5 py-2.5 text-sm bg-sky-600 text-white rounded-xl hover:bg-sky-700 font-bold shadow-lg shadow-sky-500/25 transition-all disabled:opacity-50 flex items-center gap-2"
-              >
-                {endDateSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Calendar className="w-4 h-4" />}
-                حفظ التعديل
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
+      </Modal>
 
       {/* Attendance Grid */}
       {(isStarted || isCompleted) && course.trainees.length > 0 && (
@@ -410,13 +408,12 @@ export default function TrainingCourseDetail() {
             <div className="mt-5 border-t border-slate-100 pt-5">
               <h3 className="text-base font-bold text-slate-800 mb-3">تسجيل حضور يوم:</h3>
               <div className="flex items-center gap-3 mb-4 flex-wrap">
-                <input
-                  type="date"
+                <DateField
                   value={attDate}
                   min={course.startDate}
                   max={course.endDate}
-                  onChange={e => handleDateChange(e.target.value)}
-                  className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-500"
+                  onChange={handleDateChange}
+                  className="border border-slate-200 rounded-lg pl-3 py-2 text-sm focus:ring-2 focus:ring-sky-500"
                 />
                 <button
                   onClick={() => initPendingForDate(attDate)}

@@ -17,6 +17,7 @@ const MAP: Record<string, { cls: string; label: string }> = {
   ready:            { cls: 'bg-cyan-100 text-cyan-700',      label: 'جاهز' },
   out_of_service:   { cls: 'bg-slate-100 text-slate-500',      label: 'خارج الخدمة' },
   retrieved:        { cls: 'bg-slate-100 text-slate-600',    label: 'مستردة' },
+  contract_cancelled: { cls: 'bg-rose-100 text-rose-700',   label: 'مُلغى (عقد)' },
 };
 
 interface Props {

@@ -10,8 +10,9 @@
 //                       → same endpoint, open_task = cancelled
 // ============================================================
 import { useState, useEffect } from 'react';
-import { X, Wrench, CalendarClock, XCircle, ChevronLeft, Loader2 } from 'lucide-react';
-import IconButton from '../../components/ui/IconButton';
+import { Wrench, CalendarClock, XCircle, ChevronLeft, Loader2 } from '../../components/ui/icons';
+import Modal from '../../components/ui/Modal';
+import DateField from '../../components/ui/DateField';
 import Select from '../../components/ui/Select';
 import Button from '../../components/ui/Button';
 import { api } from '../../lib/api';
@@ -54,34 +55,37 @@ export default function EmergencyResultModal({
   const maintenanceLabel = maintenanceKind === 'periodic' ? 'الصيانة الدورية' : 'الصيانة الطارئة';
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[80]" dir="rtl">
-      <div className="bg-white rounded-lg shadow-2xl w-full max-w-5xl mx-4 max-h-[94vh] overflow-hidden flex flex-col">
-        <header className="flex items-center justify-between p-4 border-b border-slate-200 bg-white sticky top-0 z-10">
-          <div className="flex items-center gap-2">
-            {mode !== 'choose' && mode !== 'apply' && (
-              <button
-                onClick={() => setMode('choose')}
-                className="text-slate-500 hover:text-slate-700 inline-flex items-center gap-1 text-sm"
-              >
-                <ChevronLeft className="h-4 w-4" /> رجوع
-              </button>
-            )}
-            <h2 className="text-lg font-bold text-slate-800">
-              {mode === 'choose'     && `نتيجة ${maintenanceLabel} — مهمة #${taskId}`}
-              {mode === 'apply'      && `تطبيق الصيانة — مهمة #${taskId}`}
-              {mode === 'reschedule' && `إعادة جَدولة المهمة #${taskId}`}
-              {mode === 'cancel'     && `إلغاء المهمة #${taskId}`}
-            </h2>
-          </div>
-          <IconButton icon={X} label="إغلاق" onClick={close} />
-        </header>
-
-        <div className="overflow-auto p-4">
+    <Modal
+      isOpen
+      onClose={close}
+      size="5xl"
+      title={
+        <span className="flex items-center gap-2">
+          {mode !== 'choose' && mode !== 'apply' && (
+            <button
+              onClick={() => setMode('choose')}
+              className="text-slate-500 hover:text-slate-700 inline-flex items-center gap-1 text-sm"
+            >
+              <ChevronLeft className="h-4 w-4" /> رجوع
+            </button>
+          )}
+          <span>
+            {mode === 'choose'     && `نتيجة ${maintenanceLabel} — مهمة #${taskId}`}
+            {mode === 'apply'      && `تطبيق الصيانة — مهمة #${taskId}`}
+            {mode === 'reschedule' && `إعادة جَدولة المهمة #${taskId}`}
+            {mode === 'cancel'     && `إلغاء المهمة #${taskId}`}
+          </span>
+        </span>
+      }
+    >
+        <div className="p-4">
           {mode === 'choose' && <ChooserScreen maintenanceKind={maintenanceKind} onPick={setMode} />}
 
           {mode === 'apply' && (
             <EmergencyResultWizard
               taskId={taskId}
+              visitId={visitId}
+              visitTaskId={visitTaskId}
               contractId={contractId}
               maintenanceKind={maintenanceKind}
               readOnly={readOnly}
@@ -94,6 +98,7 @@ export default function EmergencyResultModal({
           {mode === 'reschedule' && (
             <LifecycleForm
               kind="reschedule"
+              maintenanceKind={maintenanceKind}
               visitId={visitId ?? null}
               visitTaskId={visitTaskId ?? null}
               onDone={close}
@@ -104,6 +109,7 @@ export default function EmergencyResultModal({
           {mode === 'cancel' && (
             <LifecycleForm
               kind="cancel"
+              maintenanceKind={maintenanceKind}
               visitId={visitId ?? null}
               visitTaskId={visitTaskId ?? null}
               onDone={close}
@@ -111,8 +117,7 @@ export default function EmergencyResultModal({
             />
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -180,12 +185,14 @@ function ChooserScreen({ maintenanceKind, onPick }: { maintenanceKind: Maintenan
 // ── Reschedule / Cancel lifecycle form ────────────────────────────
 function LifecycleForm({
   kind,
+  maintenanceKind,
   visitId,
   visitTaskId,
   onDone,
   onCancel,
 }: {
   kind: 'reschedule' | 'cancel';
+  maintenanceKind: MaintenanceKind;
   visitId: number | null;
   visitTaskId: number | null;
   onDone: () => void;
@@ -199,7 +206,13 @@ function LifecycleForm({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const listCode = kind === 'reschedule' ? 'customer_followup_reasons' : 'visit_cancellation_reasons';
+  const listCode = kind === 'reschedule'
+    ? maintenanceKind === 'periodic'
+      ? 'periodic_maintenance_reschedule_reasons'
+      : 'emergency_maintenance_reschedule_reasons'
+    : maintenanceKind === 'emergency'
+      ? 'emergency_cancelled_reason'
+      : 'visit_cancellation_reasons';
 
   useEffect(() => {
     setLoading(true);
@@ -271,12 +284,11 @@ function LifecycleForm({
             التاريخ المُتوقَّع للزيارة القادمة
             <span className="text-rose-500"> *</span>
           </label>
-          <input
-            type="date"
+          <DateField
             value={expectedDate}
-            onChange={(e) => setExpectedDate(e.target.value)}
+            onChange={setExpectedDate}
             min={new Date().toISOString().split('T')[0]}
-            className="w-full text-sm border border-slate-300 rounded-lg p-2.5 bg-white"
+            className="w-full text-sm border border-slate-300 rounded-lg py-2.5 pl-2.5 bg-white"
           />
           <p className="text-xs text-slate-500">
             المهمة سَتَعود إلى pool "بانتظار جَدولة" بحالة "بحاجة متابعة" مع هذا التاريخ كَإشارة لمَسؤول الجَدولة.

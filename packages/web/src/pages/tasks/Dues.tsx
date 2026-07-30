@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { DollarSign, UserPlus, AlertTriangle, TrendingDown, Flag, Loader2 } from 'lucide-react';
+import { DollarSign, UserPlus, AlertTriangle, TrendingDown, Flag, Loader2 } from '../../components/ui/icons';
 import { useCollectionStore } from '../../hooks/useCollectionStore';
 import { api } from '../../lib/api';
 import SmartTable from '../../components/SmartTable';
@@ -154,7 +154,6 @@ export default function Dues() {
             <div className="flex-1 min-h-0 flex flex-col">
                 <SmartTable
                     title="لوحة التحصيل"
-                    titlePlacement="page"
                     icon={DollarSign}
                     data={dues}
                     columns={columns}

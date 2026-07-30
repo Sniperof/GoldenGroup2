@@ -89,7 +89,7 @@ received  ────→  in_review  ──→  resolved_at_intake   [terminal]
 
 | المخرج | الحالة | `open_task`؟ | المُنفِّذ |
 |---|---|:---:|---|
-| **حُلَّ عند الاستلام** | `resolved_at_intake` | ❌ | Operator (قنوات triager-present فقط — §٢ كلها مؤهَّلة) |
+| **حُلَّ عند الاستلام** | `resolved_at_intake` | ❌ | Operator (بعد تولّي الطلب — أي قناة، راجع SR-R005) |
 | **رُفض** | `rejected` | ❌ | **Request Audit Admin حصراً** بعد `review_required_flag = TRUE` |
 | **رُقّي إلى مهمة** | `promoted` | ✅ | Operator بعد ربط الزبون+الجهاز+عطل واحد على الأقل |
 | **أُلغي إدارياً** | `cancelled` | ❌ | Operator أو Audit Admin بسبب مهيكَل |

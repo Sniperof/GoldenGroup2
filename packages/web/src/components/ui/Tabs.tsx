@@ -12,7 +12,7 @@
 // Style values match TABS_AND_TOASTS.md exactly. Do NOT duplicate this
 // component or its classes inline in pages — import this instead.
 // ────────────────────────────────────────────────────────────────────────────
-import type { LucideIcon } from 'lucide-react';
+import type { LucideIcon } from './icons';
 
 export type TabDef<K extends string = string> = {
   id: K;

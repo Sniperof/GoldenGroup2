@@ -1,6 +1,8 @@
 import pool from '../db.js';
 import { getPlanningWorkScope } from './planningMarketingTargets.js';
 import { resolveAssignmentOwningBranch } from '../policies/routeAssignmentPolicy.js';
+import { buildPlanningTaskAvailablePredicate } from './planningContactTargetScope.js';
+import { lockPlanningDayMutation } from './planningTaskCuration.js';
 
 /** Thrown when a team is asked to plan/assign a branch it does not belong to. */
 export class CrossBranchAssignmentError extends Error {
@@ -52,9 +54,24 @@ export async function syncAssignedTasks(params: {
   performedBy?: number | null;
   db?: { query: typeof pool.query };   // optional transaction client (FIX-2)
 }): Promise<AssignedTaskSyncResult> {
+  if (!params.db) {
+    const transaction = await pool.connect();
+    try {
+      await transaction.query('BEGIN');
+      const result = await syncAssignedTasks({ ...params, db: transaction });
+      await transaction.query('COMMIT');
+      return result;
+    } catch (error) {
+      await transaction.query('ROLLBACK');
+      throw error;
+    } finally {
+      transaction.release();
+    }
+  }
+
   const { date, teamKey, branchId, scopeId = null, performedBy = null } = params;
-  // FIX-2: use provided client or fall back to pool
-  const db = params.db ?? pool;
+  const db = params.db;
+  await lockPlanningDayMutation(db, branchId, date);
 
   // ── Step 0 (branch-isolation guard, GAP-DS-005 / PL-R005): the team's owning
   // branch is DERIVED from its scheduled supervisor (day_schedules has no branch_id).
@@ -63,16 +80,16 @@ export async function syncAssignedTasks(params: {
   // let a foreign-branch task (e.g. Tartous task on a Damascus team) be assigned.
   // Reject the mismatch at the single write chokepoint. When the owning branch can't
   // be derived (team not scheduled yet) we stay permissive, per routeAssignmentPolicy.
-  const owningBranchId = await resolveAssignmentOwningBranch(date, teamKey);
+  const owningBranchId = await resolveAssignmentOwningBranch(date, teamKey, db);
   if (owningBranchId != null && owningBranchId !== branchId) {
     throw new CrossBranchAssignmentError(teamKey, owningBranchId, branchId);
   }
 
   // ── Step 1: eligible task IDs from work scope (N-window + ownership + zone already applied)
   // FIX-3: do NOT expand to all client tasks — use only what workScope approved.
-  // Note: getPlanningWorkScope always uses pool (it must read the just-saved route_assignment),
-  // so we call it before entering any transaction block in the caller.
-  const workScope = await getPlanningWorkScope({ date, teamKey, branchId });
+  // The scope is read through the same transaction so route/schedule/task state
+  // is reconciled as one planning-day mutation.
+  const workScope = await getPlanningWorkScope({ date, teamKey, branchId, db });
   const plannedTaskIds = Array.from(
     new Set(
       workScope.tasks
@@ -90,8 +107,11 @@ export async function syncAssignedTasks(params: {
        FROM open_tasks
       WHERE status = 'assigned'
         AND assigned_team_key = $1
-        AND assigned_for_date = $2`,
-    [teamKey, date],
+        AND assigned_for_date = $2
+        AND branch_id = $3
+      ORDER BY id
+      FOR UPDATE`,
+    [teamKey, date, branchId],
   );
   const currentlyAssignedIds = currentlyAssignedRows.map(r => Number(r.id));
   const currentlyAssignedSet = new Set(currentlyAssignedIds);
@@ -116,8 +136,12 @@ export async function syncAssignedTasks(params: {
               excluded_for_date   AS "excludedForDate",
               last_waiting_status AS "lastWaitingStatus"
          FROM open_tasks
-        WHERE id = ANY($1::int[])`,
-      [plannedTaskIds],
+        WHERE id = ANY($1::int[])
+          AND branch_id = $2
+          AND ${buildPlanningTaskAvailablePredicate('open_tasks', '$3', '$4')}
+        ORDER BY id
+        FOR UPDATE`,
+      [plannedTaskIds, branchId, teamKey, date],
     );
     rows.forEach(r => taskRowMap.set(Number(r.id), r));
   }
@@ -133,16 +157,16 @@ export async function syncAssignedTasks(params: {
 
   // ── Step 5: diff
   // newly_assigned = eligible (in waiting state) that aren't already assigned
-  const newlyAssignedIds = eligibleTaskIds.filter(id => {
+  let newlyAssignedIds = eligibleTaskIds.filter(id => {
     const row = taskRowMap.get(id);
     return !currentlyAssignedSet.has(id) && row != null && WAITING_STATES.has(row.status);
   });
   // released = currently assigned for this team but no longer eligible
-  const releasedIds = currentlyAssignedIds.filter(id => !eligibleTaskSet.has(id));
+  let releasedIds = currentlyAssignedIds.filter(id => !eligibleTaskSet.has(id));
 
   // ── Step 6: write newly assigned
   if (newlyAssignedIds.length > 0) {
-    await db.query(
+    const { rows: assignedRows } = await db.query(
       // FIX-1: last_waiting_status = status captures 'open' or 'needs_follow_up'
       // before overwriting status with 'assigned', enabling correct restoration.
       `UPDATE open_tasks
@@ -154,9 +178,13 @@ export async function syncAssignedTasks(params: {
               assigned_scope_id   = CASE WHEN $4::int IS NULL THEN assigned_scope_id ELSE $4 END,
               updated_at          = NOW()
         WHERE id = ANY($1::int[])
-          AND status IN ('open', 'needs_follow_up')`,
-      [newlyAssignedIds, teamKey, date, scopeId],
+          AND branch_id = $5
+          AND status IN ('open', 'needs_follow_up')
+          AND ${buildPlanningTaskAvailablePredicate('open_tasks', '$2', '$3')}
+        RETURNING id`,
+      [newlyAssignedIds, teamKey, date, scopeId, branchId],
     );
+    newlyAssignedIds = assignedRows.map((row: any) => Number(row.id));
 
     if (performedBy != null) {
       for (const id of newlyAssignedIds) {
@@ -177,14 +205,17 @@ export async function syncAssignedTasks(params: {
           SET assigned_scope_id = $1, updated_at = NOW()
         WHERE id = ANY($2::int[])
           AND status = 'assigned'
+          AND assigned_team_key = $3
+          AND assigned_for_date = $4
+          AND branch_id = $5
           AND (assigned_scope_id IS NULL OR assigned_scope_id <> $1)`,
-      [scopeId, eligibleTaskIds],
+      [scopeId, eligibleTaskIds, teamKey, date, branchId],
     );
   }
 
   // ── Step 8: release tasks no longer in scope
   if (releasedIds.length > 0) {
-    await db.query(
+    const { rows: releasedRows } = await db.query(
       `UPDATE open_tasks
           SET status            = COALESCE(last_waiting_status, 'open'),
               assigned_team_key = NULL,
@@ -193,9 +224,14 @@ export async function syncAssignedTasks(params: {
               assigned_scope_id = NULL,
               updated_at        = NOW()
         WHERE id = ANY($1::int[])
-          AND status = 'assigned'`,
-      [releasedIds],
+          AND status = 'assigned'
+          AND assigned_team_key = $2
+          AND assigned_for_date = $3
+          AND branch_id = $4
+        RETURNING id`,
+      [releasedIds, teamKey, date, branchId],
     );
+    releasedIds = releasedRows.map((row: any) => Number(row.id));
 
     if (performedBy != null) {
       for (const id of releasedIds) {
@@ -209,36 +245,19 @@ export async function syncAssignedTasks(params: {
     }
   }
 
-  // ── Step 9 (DEC-009 لبنة 7 — release-side symmetry): when a task is released
-  // from this team (e.g. the manager narrowed the route so an overlapping zone left
-  // this team's scope), close THIS team's contact_target for it — but only when the
-  // target has no other task still assigned to this team. Without this, team A's
-  // stale target lingers after the task is re-pulled by team B, so the same task
-  // surfaces under two teams. Skips already-contacted targets to avoid wiping live
-  // call progress (post-generation route narrowing is itself blocked upstream).
+  // ── Step 9: release only the task-to-target link. Planning reconciliation is
+  // an overlay and must not manufacture a contact lifecycle transition. Keeping
+  // the target row preserves the historical contact grain while a later team may
+  // claim an uncommitted `new` target.
   if (releasedIds.length > 0) {
     await db.query(
-      `UPDATE contact_targets ct
-          SET status         = 'closed',
-              closing_reason = 'reassigned',
-              closed_at      = NOW(),
-              updated_at     = NOW()
-        WHERE ct.team_key = $1
-          AND ct.date     = $2::date
-          AND ct.status NOT IN ('closed', 'contacted')
-          AND EXISTS (
-            SELECT 1 FROM contact_target_open_tasks ctot
-             WHERE ctot.contact_target_id = ct.id
-               AND ctot.open_task_id = ANY($3::int[])
-          )
-          AND NOT EXISTS (
-            SELECT 1
-              FROM contact_target_open_tasks ctot2
-              JOIN open_tasks ot2 ON ot2.id = ctot2.open_task_id
-             WHERE ctot2.contact_target_id = ct.id
-               AND ot2.status = 'assigned'
-               AND ot2.assigned_team_key = $1
-          )`,
+      `UPDATE contact_target_open_tasks
+          SET link_status = 'closed',
+              updated_at = NOW()
+        WHERE team_key = $1
+          AND date = $2::date
+          AND open_task_id = ANY($3::int[])
+          AND link_status IN ('ready', 'excluded')`,
       [teamKey, date, releasedIds],
     );
   }

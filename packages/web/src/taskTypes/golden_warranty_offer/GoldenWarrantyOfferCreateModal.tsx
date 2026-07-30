@@ -5,9 +5,12 @@
 // 'golden_warranty_offer'). Posts api.openTasks.create with installedDeviceIds.
 // ============================================================
 import { useEffect, useMemo, useState } from 'react';
-import { Award, Loader2, X } from 'lucide-react';
+import { Award, Loader2 } from '../../components/ui/icons';
 import { api } from '../../lib/api';
 import Select from '../../components/ui/Select';
+import DateField from '../../components/ui/DateField';
+import Checkbox from '../../components/ui/Checkbox';
+import Modal from '../../components/ui/Modal';
 
 interface DevicePick { id: number; label: string; hasActiveGolden: boolean; selected: boolean; }
 
@@ -77,30 +80,36 @@ export default function GoldenWarrantyOfferCreateModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" dir="rtl">
-      <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-amber-200 bg-white shadow-xl">
-        <div className="flex items-center justify-between border-b border-amber-200 bg-amber-50 px-5 py-4">
-          <div className="flex items-center gap-2"><Award className="h-5 w-5 text-amber-600" /><h2 className="text-base font-black text-amber-900">إنشاء عرض كفالة ذهبية</h2></div>
-          <button onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-white hover:text-slate-700"><X className="h-5 w-5" /></button>
-        </div>
-        <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="2xl"
+      title={<span className="flex items-center gap-2"><Award className="h-5 w-5 text-amber-600" />إنشاء عرض كفالة ذهبية</span>}
+      footer={
+        <>
+          <button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50">إلغاء</button>
+          <button onClick={submit} disabled={saving} className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-bold text-white hover:bg-amber-500 disabled:opacity-60">
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}إنشاء مهمة العرض</button>
+        </>
+      }
+    >
+        <div className="space-y-4 px-5 py-4">
           {error && <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>}
           <div>
             <div className="text-xs font-bold text-slate-500 mb-1">الأجهزة المؤهَّلة (اختيار متعدد)</div>
             <div className="rounded-lg border border-slate-200 p-2">
               {devices.length === 0 && <p className="text-sm text-slate-400 px-1 py-2">لا أجهزة لهذا الزبون.</p>}
               {devices.map((d) => (
-                <label key={d.id} className={`flex items-center gap-2 px-1 py-1.5 text-sm ${d.hasActiveGolden ? 'opacity-60' : ''}`}>
-                  <input type="checkbox" checked={d.selected} disabled={d.hasActiveGolden} onChange={() => toggle(d.id)} />
+                <Checkbox key={d.id} checked={d.selected} disabled={d.hasActiveGolden} onCheckedChange={() => toggle(d.id)} className={`px-1 py-1.5 text-sm ${d.hasActiveGolden ? 'opacity-60' : ''}`}>
                   <span>{d.label}</span>
                   {d.hasActiveGolden && <span className="text-xs text-amber-700">كفالة ذهبية فعّالة</span>}
-                </label>
+                </Checkbox>
               ))}
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <label className="space-y-1.5 block"><span className="text-xs font-bold text-slate-500">التاريخ المطلوب *</span>
-              <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label>
+              <DateField value={dueDate} onChange={setDueDate} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label>
             <label className="space-y-1.5 block"><span className="text-xs font-bold text-slate-500">الأولوية</span>
               <Select
                 value={priority}
@@ -124,12 +133,6 @@ export default function GoldenWarrantyOfferCreateModal({
               <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label>
           </div>
         </div>
-        <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
-          <button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50">إلغاء</button>
-          <button onClick={submit} disabled={saving} className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-bold text-white hover:bg-amber-500 disabled:opacity-60">
-            {saving && <Loader2 className="h-4 w-4 animate-spin" />}إنشاء مهمة العرض</button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

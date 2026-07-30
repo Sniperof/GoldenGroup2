@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
-import { User, UserPlus, ShieldCheck, Edit2, Building2, ToggleLeft, ToggleRight, Loader2 } from 'lucide-react';
+import { User, UserPlus, ShieldCheck, Edit2, Building2, ToggleLeft, ToggleRight, Loader2 } from '../../components/ui/icons';
 import { useRoleStore } from '../../hooks/useRoleStore';
 import type { HrUser } from '../../hooks/useRoleStore';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -150,7 +150,6 @@ export default function Users() {
             columns={columns}
             getId={(u) => u.id}
             hideFilterBar
-            paginated={false}
             defaultSortKey="name"
             defaultSortDir="asc"
             emptyIcon={User}
@@ -181,7 +180,7 @@ export default function Users() {
           <UserModal user={editUser} roles={roles} onClose={() => { setShowModal(false); setEditUser(null); }} />
         )}
         {branchUser && (
-          <UserBranchAssignmentsModal user={branchUser} readOnly={!canManageBranchAssignments} onClose={() => setBranchUser(null)} />
+          <UserBranchAssignmentsModal user={branchUser} readOnly={!canManageBranchAssignments || branchUser.employeeId != null} onClose={() => setBranchUser(null)} />
         )}
       </div>
     </div>
