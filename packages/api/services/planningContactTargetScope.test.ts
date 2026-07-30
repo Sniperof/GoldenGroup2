@@ -22,15 +22,15 @@ test('excluded planning task predicate rejects unsafe SQL tokens', () => {
   );
 });
 
-test('dashboard read and reconciliation paths share the team-scoped predicate', () => {
+test('dashboard reads layered exclusions while legacy reconciliation stays team-scoped', () => {
   const routeUrl = new URL('../routes/planning.ts', import.meta.url);
   const routeSource = readFileSync(routeUrl, 'utf8');
   const predicateCalls = routeSource.match(/buildExcludedTaskTeamPredicate\('ot'/g) ?? [];
 
-  assert.equal(predicateCalls.length, 3);
+  assert.equal(predicateCalls.length, 2);
   assert.match(
     routeSource,
-    /buildExcludedTaskTeamPredicate\('ot', '\$1', '\$2'\)/,
+    /buildPlanningTaskExcludedPredicate\('ot', '\$1', '\$2'\)/,
   );
   assert.match(
     routeSource,

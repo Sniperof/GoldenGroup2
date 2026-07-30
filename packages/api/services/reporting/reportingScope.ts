@@ -41,6 +41,15 @@ export function appendContractScope(ctx: MetricComputeContext, params: QueryPara
   return appendBranchScope(ctx, params, alias);
 }
 
+/**
+ * Installed devices are branch-only (no ASSIGNED tier): scope is the branch
+ * filter alone on installed_devices.branch_id. A viewer without BRANCH/GLOBAL
+ * installed_devices.view is denied earlier (NONE).
+ */
+export function appendInstalledDeviceScope(ctx: MetricComputeContext, params: QueryParams, alias = 'd'): string {
+  return appendBranchScope(ctx, params, alias);
+}
+
 /** Matches GET /api/referral-sheets: ASSIGNED means the reviewer assigned to the sheet. */
 export function appendReferralSheetScope(ctx: MetricComputeContext, params: QueryParams, alias = 's'): string {
   let sql = appendBranchScope(ctx, params, alias);

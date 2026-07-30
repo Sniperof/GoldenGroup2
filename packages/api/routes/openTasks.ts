@@ -39,6 +39,7 @@ import {
   lockEligibleGoldenWarrantyCards,
   parseGoldenWarrantyIds,
 } from '../services/goldenWarrantyCardDelivery.js';
+import { lockPlanningDayMutation } from '../services/planningTaskCuration.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -64,6 +65,22 @@ const PLANNING_WINDOW_DAYS: Record<string, number> = {
   device_transfer: 3,
 };
 const DEFAULT_PLANNING_WINDOW = 7;
+
+function parseRequiredPlanningDate(value: unknown): string | null {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? value
+    : null;
+}
+
+async function lockPlanningBranchesForDate(
+  db: { query: typeof pool.query },
+  branchIds: number[],
+  date: string,
+) {
+  for (const branchId of Array.from(new Set(branchIds)).sort((a, b) => a - b)) {
+    await lockPlanningDayMutation(db, branchId, date);
+  }
+}
 
 // Each operations task table is a filtered open_tasks view by task_type set,
 // gated by its own `permission` (migration 288) so a role can be granted some
@@ -4410,38 +4427,95 @@ router.post('/:id/exclude', requirePermission('open_tasks.edit'), async (req, re
     const reason = typeof req.body?.reason === 'string' && req.body.reason.trim().length > 0
       ? req.body.reason.trim()
       : null;
-    // Local calendar date (NOT UTC) — toISOString() is a day behind before the UTC offset.
-    const today = (() => {
-      const d = new Date();
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    })();
-    const oldStatus = taskRows[0].status;
-    const newStatus = oldStatus === 'assigned'
-      ? (taskRows[0].last_waiting_status || 'open')
-      : oldStatus;
+    const planningDate = parseRequiredPlanningDate(req.body?.date);
+    if (!planningDate) {
+      return res.status(400).json({ error: 'date مطلوبة بصيغة YYYY-MM-DD' });
+    }
+    if (!reason) {
+      return res.status(400).json({ error: 'سبب الاستبعاد مطلوب (reason)' });
+    }
 
-    await pool.query(
-      `UPDATE open_tasks
-       SET excluded_for_date = $1,
-           excluded_reason = $2,
-           status = CASE WHEN status = 'assigned' THEN COALESCE(last_waiting_status, 'open') ELSE status END,
-           assigned_scope_id = CASE WHEN status = 'assigned' THEN NULL ELSE assigned_scope_id END,
-           -- DEC-009 multi-team — KEEP assigned_team_key on exclusion so the excluded
-           -- contact stays attributed to the team that excluded it (dashboard isolation).
-           -- Safe: syncAssignedTasks only reads team_key on status='assigned' rows.
-           assigned_for_date = CASE WHEN status = 'assigned' THEN NULL ELSE assigned_for_date END,
-           assigned_at = CASE WHEN status = 'assigned' THEN NULL ELSE assigned_at END,
-           updated_at = NOW()
-       WHERE id = $3`,
-      [today, reason, id],
-    );
-
-    if (oldStatus === 'assigned') {
-      await pool.query(
-        `INSERT INTO task_activity_log (task_id, event_type, performed_by, role, old_value, new_value, reason)
-         VALUES ($1, 'status_change', $2, NULL, $3, $4, $5)`,
-        [id, authContext.userId, oldStatus, newStatus, reason],
+    const db = await pool.connect();
+    try {
+      await db.query('BEGIN');
+      await lockPlanningBranchesForDate(db, [Number(taskRows[0].branch_id)], planningDate);
+      const { rows: lockedRows } = await db.query(
+        `SELECT
+           ot.id,
+           ot.branch_id,
+           ot.status,
+           ot.last_waiting_status,
+           ot.assigned_for_date,
+           EXISTS (
+             SELECT 1
+               FROM telemarketing_task_list_items item
+               JOIN telemarketing_task_lists task_list ON task_list.id = item.task_list_id
+              WHERE item.open_task_id = ot.id
+                AND task_list.branch_id = ot.branch_id
+                AND task_list.date = $2
+           ) AS committed
+         FROM open_tasks ot
+         WHERE ot.id = $1
+         FOR UPDATE`,
+        [id, planningDate],
       );
+      const locked = lockedRows[0];
+      if (
+        !locked
+        || !EXCLUDABLE_STATES.includes(locked.status)
+        || locked.committed === true
+        || (
+          locked.status === 'assigned'
+          && String(locked.assigned_for_date ?? '').slice(0, 10) !== planningDate
+        )
+      ) {
+        await db.query('ROLLBACK');
+        return res.status(409).json({
+          error: 'تغيرت المهمة أو أصبحت معتمدة، أعد تحميل التخطيط قبل الاستبعاد.',
+          code: 'task_committed',
+        });
+      }
+
+      await db.query(
+        `WITH changed AS (
+           UPDATE open_tasks
+              SET excluded_for_date = $1::date,
+                  excluded_reason = $2,
+                  status = CASE WHEN status = 'assigned' THEN COALESCE(last_waiting_status, 'open') ELSE status END,
+                  assigned_scope_id = CASE WHEN status = 'assigned' THEN NULL ELSE assigned_scope_id END,
+                  assigned_team_key = CASE WHEN status = 'assigned' THEN NULL ELSE assigned_team_key END,
+                  assigned_for_date = CASE WHEN status = 'assigned' THEN NULL ELSE assigned_for_date END,
+                  assigned_at = CASE WHEN status = 'assigned' THEN NULL ELSE assigned_at END,
+                  updated_at = NOW()
+            WHERE id = $3
+            RETURNING id, branch_id
+         )
+         INSERT INTO planning_task_exclusions (
+           open_task_id, branch_id, planning_date, exclusion_scope, team_key,
+           team_snapshot, reason_code, reason_text, excluded_by
+         )
+         SELECT id, branch_id, $1::date, 'all_teams', NULL, NULL,
+                'legacy_open_tasks_api', $2, $4
+           FROM changed
+         ON CONFLICT DO NOTHING`,
+        [planningDate, reason, id, authContext.userId],
+      );
+
+      if (locked.status === 'assigned') {
+        await db.query(
+          `INSERT INTO task_activity_log (
+             task_id, event_type, performed_by, role, old_value, new_value, reason
+           )
+           VALUES ($1, 'status_change', $2, NULL, 'assigned', $3, $4)`,
+          [id, authContext.userId, locked.last_waiting_status || 'open', reason],
+        );
+      }
+      await db.query('COMMIT');
+    } catch (error) {
+      await db.query('ROLLBACK');
+      throw error;
+    } finally {
+      db.release();
     }
 
     const task = await loadOpenTaskById(pool, id);
@@ -4500,14 +4574,91 @@ router.post('/:id/restore', requirePermission('open_tasks.edit'), async (req, re
       return res.status(403).json({ error: 'ليس لديك صلاحية الوصول لهذه المهمة' });
     }
 
-    await pool.query(
-      `UPDATE open_tasks
-       SET excluded_for_date = NULL,
-           excluded_reason = NULL,
-           updated_at = NOW()
-       WHERE id = $1`,
-      [id],
-    );
+    const restoreDate = parseRequiredPlanningDate(req.body?.date);
+    const restoreReason = typeof req.body?.reason === 'string'
+      ? req.body.reason.trim().slice(0, 500)
+      : '';
+    if (!restoreDate) {
+      return res.status(400).json({ error: 'date مطلوبة بصيغة YYYY-MM-DD' });
+    }
+    if (!restoreReason) {
+      return res.status(400).json({ error: 'سبب الاسترجاع مطلوب (reason)' });
+    }
+
+    const db = await pool.connect();
+    try {
+      await db.query('BEGIN');
+      await lockPlanningBranchesForDate(db, [Number(taskRows[0].branch_id)], restoreDate);
+      await db.query(
+        `SELECT id
+           FROM open_tasks
+          WHERE id = $1
+            AND branch_id = $2
+          FOR UPDATE`,
+        [id, taskRows[0].branch_id],
+      );
+      await db.query(
+        `UPDATE open_tasks
+            SET excluded_for_date = NULL,
+                excluded_reason = NULL,
+                updated_at = NOW()
+          WHERE id = $1
+            AND branch_id = $2
+            AND excluded_for_date = $3::date`,
+        [id, taskRows[0].branch_id, restoreDate],
+      );
+      await db.query(
+        `UPDATE planning_task_exclusions
+            SET revoked_at = NOW(),
+                revoked_by = $3,
+                revoke_reason = $4
+          WHERE open_task_id = $1
+            AND branch_id = $2
+            AND planning_date = $5::date
+            AND exclusion_scope = 'all_teams'
+            AND revoked_at IS NULL`,
+        [
+          id,
+          taskRows[0].branch_id,
+          authContext.userId,
+          restoreReason,
+          restoreDate,
+        ],
+      );
+      await db.query(
+        `UPDATE contact_target_open_tasks ctot
+            SET link_status = 'ready',
+                updated_at = NOW()
+           FROM contact_targets ct
+          WHERE ctot.contact_target_id = ct.id
+            AND ctot.open_task_id = $1
+            AND ctot.branch_id = $2
+            AND ctot.date = $3::date
+            AND ct.status = 'new'
+            AND NOT EXISTS (
+              SELECT 1
+                FROM planning_task_exclusions active
+               WHERE active.open_task_id = ctot.open_task_id
+                 AND active.branch_id = ctot.branch_id
+                 AND active.planning_date = ctot.date
+                 AND active.revoked_at IS NULL
+                 AND (
+                   active.exclusion_scope = 'all_teams'
+                   OR (
+                     active.exclusion_scope = 'team'
+                     AND active.team_key = ctot.team_key
+                   )
+                 )
+            )`,
+        [id, taskRows[0].branch_id, restoreDate],
+      );
+      await db.query('COMMIT');
+    } catch (error) {
+      await db.query('ROLLBACK');
+      throw error;
+    } finally {
+      db.release();
+    }
 
     const task = await loadOpenTaskById(pool, id);
     res.json(task);
@@ -4560,7 +4711,13 @@ router.post('/:id/restore', requirePermission('open_tasks.edit'), async (req, re
 router.post('/bulk-exclude', requirePermission('open_tasks.edit'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
-    const taskIds = Array.isArray(req.body?.taskIds) ? req.body.taskIds.map((id: any) => Number(id)).filter((id: number) => Number.isFinite(id)) : [];
+    const taskIds = Array.from(new Set(
+      Array.isArray(req.body?.taskIds)
+        ? req.body.taskIds
+          .map((id: any) => Number(id))
+          .filter((id: number) => Number.isInteger(id) && id > 0)
+        : [],
+    ));
     if (taskIds.length === 0) return res.status(400).json({ error: 'taskIds مطلوبة' });
 
     const { rows: taskRows } = await pool.query(
@@ -4587,32 +4744,99 @@ router.post('/bulk-exclude', requirePermission('open_tasks.edit'), async (req, r
     const reason = typeof req.body?.reason === 'string' && req.body.reason.trim().length > 0
       ? req.body.reason.trim()
       : null;
-    // Local calendar date (NOT UTC) — toISOString() is a day behind before the UTC offset.
-    const today = (() => {
-      const d = new Date();
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    })();
+    const planningDate = parseRequiredPlanningDate(req.body?.date);
+    if (!planningDate) {
+      return res.status(400).json({ error: 'date مطلوبة بصيغة YYYY-MM-DD' });
+    }
+    if (!reason) {
+      return res.status(400).json({ error: 'سبب الاستبعاد مطلوب (reason)' });
+    }
 
-    await pool.query(
-      `UPDATE open_tasks
-       SET excluded_for_date = $1,
-           excluded_reason = $2,
-           status = CASE WHEN status = 'assigned' THEN COALESCE(last_waiting_status, 'open') ELSE status END,
-           assigned_scope_id = CASE WHEN status = 'assigned' THEN NULL ELSE assigned_scope_id END,
-           -- DEC-009 multi-team — KEEP assigned_team_key on exclusion (dashboard isolation).
-           assigned_for_date = CASE WHEN status = 'assigned' THEN NULL ELSE assigned_for_date END,
-           assigned_at = CASE WHEN status = 'assigned' THEN NULL ELSE assigned_at END,
-           updated_at = NOW()
-       WHERE id = ANY($3::int[])`,
-      [today, reason, taskIds],
-    );
-
-    for (const row of taskRows.filter(row => row.status === 'assigned')) {
-      await pool.query(
-        `INSERT INTO task_activity_log (task_id, event_type, performed_by, role, old_value, new_value, reason)
-         VALUES ($1, 'status_change', $2, NULL, 'assigned', $3, $4)`,
-        [row.id, authContext.userId, row.last_waiting_status || 'open', reason],
+    const db = await pool.connect();
+    try {
+      await db.query('BEGIN');
+      await lockPlanningBranchesForDate(
+        db,
+        taskRows.map(row => Number(row.branch_id)),
+        planningDate,
       );
+      const { rows: lockedRows } = await db.query(
+        `SELECT
+           ot.id,
+           ot.branch_id,
+           ot.status,
+           ot.last_waiting_status,
+           ot.assigned_for_date,
+           EXISTS (
+             SELECT 1
+               FROM telemarketing_task_list_items item
+               JOIN telemarketing_task_lists task_list ON task_list.id = item.task_list_id
+              WHERE item.open_task_id = ot.id
+                AND task_list.branch_id = ot.branch_id
+                AND task_list.date = $2
+           ) AS committed
+         FROM open_tasks ot
+         WHERE ot.id = ANY($1::int[])
+         ORDER BY ot.id
+         FOR UPDATE`,
+        [taskIds, planningDate],
+      );
+      const conflicting = lockedRows.filter(row =>
+        !EXCLUDABLE_STATES.includes(row.status)
+        || row.committed === true
+        || (
+          row.status === 'assigned'
+          && String(row.assigned_for_date ?? '').slice(0, 10) !== planningDate
+        ));
+      if (lockedRows.length !== taskIds.length || conflicting.length > 0) {
+        await db.query('ROLLBACK');
+        return res.status(409).json({
+          error: 'تغيرت بعض المهام أو أصبحت معتمدة، أعد تحميل التخطيط قبل الاستبعاد.',
+          code: 'task_committed',
+          committedIds: conflicting.map(row => Number(row.id)),
+        });
+      }
+
+      await db.query(
+        `WITH changed AS (
+           UPDATE open_tasks
+              SET excluded_for_date = $1::date,
+                  excluded_reason = $2,
+                  status = CASE WHEN status = 'assigned' THEN COALESCE(last_waiting_status, 'open') ELSE status END,
+                  assigned_scope_id = CASE WHEN status = 'assigned' THEN NULL ELSE assigned_scope_id END,
+                  assigned_team_key = CASE WHEN status = 'assigned' THEN NULL ELSE assigned_team_key END,
+                  assigned_for_date = CASE WHEN status = 'assigned' THEN NULL ELSE assigned_for_date END,
+                  assigned_at = CASE WHEN status = 'assigned' THEN NULL ELSE assigned_at END,
+                  updated_at = NOW()
+            WHERE id = ANY($3::int[])
+            RETURNING id, branch_id
+         )
+         INSERT INTO planning_task_exclusions (
+           open_task_id, branch_id, planning_date, exclusion_scope, team_key,
+           team_snapshot, reason_code, reason_text, excluded_by
+         )
+         SELECT id, branch_id, $1::date, 'all_teams', NULL, NULL,
+                'legacy_open_tasks_api', $2, $4
+           FROM changed
+         ON CONFLICT DO NOTHING`,
+        [planningDate, reason, taskIds, authContext.userId],
+      );
+
+      for (const row of lockedRows.filter(row => row.status === 'assigned')) {
+        await db.query(
+          `INSERT INTO task_activity_log (
+             task_id, event_type, performed_by, role, old_value, new_value, reason
+           )
+           VALUES ($1, 'status_change', $2, NULL, 'assigned', $3, $4)`,
+          [row.id, authContext.userId, row.last_waiting_status || 'open', reason],
+        );
+      }
+      await db.query('COMMIT');
+    } catch (error) {
+      await db.query('ROLLBACK');
+      throw error;
+    } finally {
+      db.release();
     }
 
     res.json({ updated: taskIds.length });
@@ -4661,7 +4885,13 @@ router.post('/bulk-exclude', requirePermission('open_tasks.edit'), async (req, r
 router.post('/bulk-restore', requirePermission('open_tasks.edit'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
-    const taskIds = Array.isArray(req.body?.taskIds) ? req.body.taskIds.map((id: any) => Number(id)).filter((id: number) => Number.isFinite(id)) : [];
+    const taskIds = Array.from(new Set(
+      Array.isArray(req.body?.taskIds)
+        ? req.body.taskIds
+          .map((id: any) => Number(id))
+          .filter((id: number) => Number.isInteger(id) && id > 0)
+        : [],
+    ));
     if (taskIds.length === 0) return res.status(400).json({ error: 'taskIds مطلوبة' });
 
     const { rows: taskRows } = await pool.query(
@@ -4673,14 +4903,93 @@ router.post('/bulk-restore', requirePermission('open_tasks.edit'), async (req, r
       return res.status(403).json({ error: 'ليس لديك صلاحية الوصول لبعض هذه المهام' });
     }
 
-    await pool.query(
-      `UPDATE open_tasks
-       SET excluded_for_date = NULL,
-           excluded_reason = NULL,
-           updated_at = NOW()
-       WHERE id = ANY($1::int[])`,
-      [taskIds],
-    );
+    const restoreDate = parseRequiredPlanningDate(req.body?.date);
+    const restoreReason = typeof req.body?.reason === 'string'
+      ? req.body.reason.trim().slice(0, 500)
+      : '';
+    if (!restoreDate) {
+      return res.status(400).json({ error: 'date مطلوبة بصيغة YYYY-MM-DD' });
+    }
+    if (!restoreReason) {
+      return res.status(400).json({ error: 'سبب الاسترجاع مطلوب (reason)' });
+    }
+
+    const db = await pool.connect();
+    try {
+      await db.query('BEGIN');
+      await lockPlanningBranchesForDate(
+        db,
+        taskRows.map(row => Number(row.branch_id)),
+        restoreDate,
+      );
+      const { rows: lockedRows } = await db.query(
+        `SELECT id, branch_id
+           FROM open_tasks
+          WHERE id = ANY($1::int[])
+          ORDER BY id
+          FOR UPDATE`,
+        [taskIds],
+      );
+      if (lockedRows.length !== taskIds.length) {
+        await db.query('ROLLBACK');
+        return res.status(409).json({
+          error: 'تغيرت بعض المهام، أعد تحميل التخطيط قبل الاسترجاع.',
+          code: 'selection_changed',
+        });
+      }
+      await db.query(
+        `UPDATE open_tasks
+            SET excluded_for_date = NULL,
+                excluded_reason = NULL,
+                updated_at = NOW()
+          WHERE id = ANY($1::int[])
+            AND excluded_for_date = $2::date`,
+        [taskIds, restoreDate],
+      );
+      await db.query(
+        `UPDATE planning_task_exclusions
+            SET revoked_at = NOW(),
+                revoked_by = $2,
+                revoke_reason = $3
+          WHERE open_task_id = ANY($1::int[])
+            AND planning_date = $4::date
+            AND exclusion_scope = 'all_teams'
+            AND revoked_at IS NULL`,
+        [taskIds, authContext.userId, restoreReason, restoreDate],
+      );
+      await db.query(
+        `UPDATE contact_target_open_tasks ctot
+            SET link_status = 'ready',
+                updated_at = NOW()
+           FROM contact_targets ct
+          WHERE ctot.contact_target_id = ct.id
+            AND ctot.open_task_id = ANY($1::int[])
+            AND ctot.date = $2::date
+            AND ct.status = 'new'
+            AND NOT EXISTS (
+              SELECT 1
+                FROM planning_task_exclusions active
+               WHERE active.open_task_id = ctot.open_task_id
+                 AND active.branch_id = ctot.branch_id
+                 AND active.planning_date = ctot.date
+                 AND active.revoked_at IS NULL
+                 AND (
+                   active.exclusion_scope = 'all_teams'
+                   OR (
+                     active.exclusion_scope = 'team'
+                     AND active.team_key = ctot.team_key
+                   )
+                 )
+            )`,
+        [taskIds, restoreDate],
+      );
+      await db.query('COMMIT');
+    } catch (error) {
+      await db.query('ROLLBACK');
+      throw error;
+    } finally {
+      db.release();
+    }
 
     res.json({ updated: taskIds.length });
   } catch (err: any) {

@@ -494,6 +494,15 @@ const CATEGORIES: CategoryMeta[] = [
     ],
   },
   {
+    id: 'contract_cancellation_reasons',
+    label: 'أسباب إلغاء العَقد',
+    description: 'أسباب إلغاء عَقد نشِط غير مُستوفى المبالغ. تُسَجَّل على `contracts.cancellation_reason` وتُغَذّي إحصائية «العقود المُلغاة حَسب السبب».',
+    impact: 'medium',
+    usedIn: [
+      { label: 'نافذة إلغاء العَقد', route: 'العقود ← تفاصيل العَقد ← إلغاء العَقد', icon: <Ban className="w-3 h-3" /> },
+    ],
+  },
+  {
     id: 'discount_reason',
     label: 'أسباب الحَسم',
     description: 'أسباب تَبرير حَسم نِسبة من تَكلفة الصيانة. تُسَجَّل في تَكاليف الصيانة الطارئة جَنباً مع نَسبة الحَسم.',
@@ -1019,7 +1028,7 @@ const CATEGORY_GROUP: Record<string, string> = {
   periodic_not_performed_reason: 'periodic',
 
   contract_sale_source: 'contracts', discount_reason: 'contracts',
-  transfer_company: 'contracts',
+  transfer_company: 'contracts', contract_cancellation_reasons: 'contracts',
 
   device_demo_creation_reasons: 'device_demo',
   device_demo_reschedule_reasons: 'device_demo',

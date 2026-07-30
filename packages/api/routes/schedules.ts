@@ -1,8 +1,9 @@
 import { Router, type Request } from 'express';
 import pool from '../db.js';
-import { getOrBuildAuthContext } from '../middleware/permission.js';
+import { getOrBuildAuthContext, requirePermission } from '../middleware/permission.js';
 import { resolveListAccessScope } from '../services/authorizationService.js';
 import type { AuthContext, AuthUser } from '@golden-crm/shared';
+import { lockPlanningScheduleMutation } from '../services/planningTaskCuration.js';
 
 const router = Router();
 
@@ -16,6 +17,29 @@ const LOCKED_SLOT = { locked: true } as const;
 
 function isLockedSlot(slot: any): boolean {
   return Boolean(slot) && typeof slot === 'object' && slot.locked === true;
+}
+
+function slotIdentity(slot: any, isSolo: boolean) {
+  if (!slot || typeof slot !== 'object' || isLockedSlot(slot)) return null;
+  return isSolo
+    ? {
+        technician: toEmployeeId(slot.technician),
+        trainee: toEmployeeId(slot.trainee),
+        telemarketers: uniqueEmployeeIds(slot.telemarketers),
+      }
+    : {
+        supervisor: toEmployeeId(slot.supervisor),
+        technician: toEmployeeId(slot.technician),
+        trainee: toEmployeeId(slot.trainee),
+        telemarketers: uniqueEmployeeIds(slot.telemarketers),
+      };
+}
+
+function uniqueEmployeeIds(value: unknown): number[] {
+  if (!Array.isArray(value)) return [];
+  return Array.from(new Set(
+    value.map(Number).filter(id => Number.isInteger(id) && id > 0),
+  )).sort((a, b) => a - b);
 }
 
 function slotOwnerEmployeeId(slot: any, isSolo: boolean): number | null {
@@ -394,7 +418,7 @@ async function validateSchedulePayload(req: any, teams: unknown, solos: unknown)
  *       500:
  *         description: Server error
  */
-router.get('/:date', async (req, res) => {
+router.get('/:date', requirePermission('planning.manage'), async (req, res) => {
   const authContext = await getOrBuildAuthContext(req as Request & { user: AuthUser });
   const { rows } = await pool.query('SELECT * FROM day_schedules WHERE date = $1', [req.params.date]);
   if (rows.length === 0) {
@@ -445,8 +469,9 @@ router.get('/:date', async (req, res) => {
  *       500:
  *         description: Server error
  */
-router.put('/:date', async (req, res) => {
+router.put('/:date', requirePermission('planning.manage'), async (req, res) => {
   const { teams = [], solos = [] } = req.body ?? {};
+  const scheduleDate = Array.isArray(req.params.date) ? req.params.date[0] : req.params.date;
   const authContext = await getOrBuildAuthContext(req as Request & { user: AuthUser });
   const plan = resolveListAccessScope(authContext, 'routes.assign.view');
   // Wholesale replace is safe ONLY for an all-branches GLOBAL view (saw every slot
@@ -469,49 +494,107 @@ router.put('/:date', async (req, res) => {
     return res.status(validation.status).json({ error: validation.error });
   }
 
-  let mergedTeams: any[] = teams;
-  let mergedSolos: any[] = solos;
-  if (!privileged && ((teams as any[]).some(isLockedSlot) || (solos as any[]).some(isLockedSlot))) {
-    const { rows: storedRows } = await pool.query(
-      'SELECT teams, solos FROM day_schedules WHERE date = $1',
+  const db = await pool.connect();
+  try {
+    await db.query('BEGIN');
+    await lockPlanningScheduleMutation(db, scheduleDate);
+
+    let mergedTeams: any[] = teams;
+    let mergedSolos: any[] = solos;
+    const { rows: storedRows } = await db.query(
+      'SELECT teams, solos FROM day_schedules WHERE date = $1 FOR UPDATE',
       [req.params.date],
     );
     const storedTeams: any[] = Array.isArray(storedRows[0]?.teams) ? storedRows[0].teams : [];
     const storedSolos: any[] = Array.isArray(storedRows[0]?.solos) ? storedRows[0].solos : [];
-    // Keep the index: a locked placeholder is replaced by the stored slot it stood for.
-    mergedTeams = (teams as any[]).map((t, i) => (isLockedSlot(t) ? storedTeams[i] : t));
-    mergedSolos = (solos as any[]).map((s, i) => (isLockedSlot(s) ? storedSolos[i] : s));
-  }
-
-  // DEC-009 لبنة 8 (freeze): a team whose contact targets are already generated for
-  // this date cannot be deleted — its committed call list and assigned tasks depend
-  // on the slot index (team_N). Composition may still change; only removal is blocked.
-  const { rows: generatedTeamRows } = await pool.query(
-    'SELECT DISTINCT team_key FROM telemarketing_task_lists WHERE date = $1',
-    [req.params.date],
-  );
-  for (const gr of generatedTeamRows) {
-    const m = String(gr.team_key).match(/^(team|solo)_(\d+)$/);
-    if (!m) continue;
-    const idx = Number(m[2]);
-    const slot = m[1] === 'team' ? mergedTeams[idx] : mergedSolos[idx];
-    const slotMissing = slot == null || (typeof slot === 'object' && Object.keys(slot).length === 0);
-    if (slotMissing) {
-      return res.status(409).json({
-        error: `تعذّر الحفظ: لا يمكن حذف الفريق بعد توليد جهات اتصاله لهذا اليوم (DEC-009 لبنة 8).`,
-        code: 'TEAM_FROZEN_AFTER_GENERATION',
-        teamKey: gr.team_key,
-      });
+    if (!privileged && ((teams as any[]).some(isLockedSlot) || (solos as any[]).some(isLockedSlot))) {
+      // Keep the index: a locked placeholder is replaced by the stored slot it stood for.
+      mergedTeams = (teams as any[]).map((t, i) => (isLockedSlot(t) ? storedTeams[i] : t));
+      mergedSolos = (solos as any[]).map((s, i) => (isLockedSlot(s) ? storedSolos[i] : s));
     }
-  }
 
-  const { rows } = await pool.query(
-    `INSERT INTO day_schedules (date, teams, solos) VALUES ($1, $2, $3)
-    ON CONFLICT (date) DO UPDATE SET teams=$2, solos=$3 RETURNING *`,
-    [req.params.date, JSON.stringify(mergedTeams), JSON.stringify(mergedSolos)]
-  );
-  // Re-scope the response so the saver doesn't receive other branches' identities back.
-  res.json(await scopeScheduleForViewer(authContext, rows[0]));
+    // team_N/solo_N are positional identities. The shared date lock makes this
+    // check atomic with sync, curation, reconciliation, and list generation.
+    const { rows: frozenRows } = await db.query(
+      `SELECT DISTINCT team_key AS "teamKey", team_snapshot AS "teamSnapshot"
+         FROM planning_task_exclusions
+        WHERE planning_date = $1::date
+          AND exclusion_scope = 'team'
+          AND revoked_at IS NULL
+       UNION ALL
+       SELECT DISTINCT team_key AS "teamKey", NULL::jsonb AS "teamSnapshot"
+         FROM work_scopes
+        WHERE date = $1::date
+       UNION ALL
+       SELECT DISTINCT assigned_team_key AS "teamKey", NULL::jsonb AS "teamSnapshot"
+         FROM open_tasks
+        WHERE assigned_for_date = $1::date
+          AND assigned_team_key IS NOT NULL
+          AND status IN (
+            'assigned', 'in_scheduling', 'scheduled', 'waiting_execution',
+            'in_execution', 'ended'
+          )`,
+      [req.params.date],
+    );
+    const checkedKeys = new Set<string>();
+    for (const row of frozenRows) {
+      const teamKey = String(row.teamKey ?? '');
+      if (!teamKey || checkedKeys.has(teamKey)) continue;
+      checkedKeys.add(teamKey);
+      const match = teamKey.match(/^(team|solo)_(\d+)$/);
+      if (!match) continue;
+      const isSolo = match[1] === 'solo';
+      const index = Number(match[2]);
+      const storedSlot = row.teamSnapshot
+        ?? (isSolo ? storedSolos[index] : storedTeams[index]);
+      const proposedSlot = isSolo ? mergedSolos[index] : mergedTeams[index];
+      if (
+        JSON.stringify(slotIdentity(storedSlot, isSolo))
+        !== JSON.stringify(slotIdentity(proposedSlot, isSolo))
+      ) {
+        await db.query('ROLLBACK');
+        return res.status(409).json({
+          error: 'تعذّر الحفظ: هوية الفريق مرتبطة بنطاق عمل أو إسناد أو قرار استبعاد لهذا اليوم.',
+          code: 'TEAM_SLOT_FROZEN',
+          teamKey,
+        });
+      }
+    }
+
+    const { rows: generatedTeamRows } = await db.query(
+      'SELECT DISTINCT team_key FROM telemarketing_task_lists WHERE date = $1',
+      [req.params.date],
+    );
+    for (const gr of generatedTeamRows) {
+      const m = String(gr.team_key).match(/^(team|solo)_(\d+)$/);
+      if (!m) continue;
+      const idx = Number(m[2]);
+      const slot = m[1] === 'team' ? mergedTeams[idx] : mergedSolos[idx];
+      const slotMissing = slot == null || (typeof slot === 'object' && Object.keys(slot).length === 0);
+      if (slotMissing) {
+        await db.query('ROLLBACK');
+        return res.status(409).json({
+          error: 'تعذّر الحفظ: لا يمكن حذف الفريق بعد توليد جهات اتصاله لهذا اليوم.',
+          code: 'TEAM_FROZEN_AFTER_GENERATION',
+          teamKey: gr.team_key,
+        });
+      }
+    }
+
+    const { rows } = await db.query(
+      `INSERT INTO day_schedules (date, teams, solos) VALUES ($1, $2, $3)
+       ON CONFLICT (date) DO UPDATE SET teams=$2, solos=$3 RETURNING *`,
+      [req.params.date, JSON.stringify(mergedTeams), JSON.stringify(mergedSolos)],
+    );
+    await db.query('COMMIT');
+    // Re-scope the response so the saver doesn't receive other branches' identities back.
+    return res.json(await scopeScheduleForViewer(authContext, rows[0]));
+  } catch (error) {
+    await db.query('ROLLBACK');
+    throw error;
+  } finally {
+    db.release();
+  }
 });
 
 export default router;

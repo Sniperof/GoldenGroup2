@@ -339,6 +339,8 @@ export default function ContractForm() {
                     }
                     setSaleSubtype(c.saleSubtype || 'definitive');
                     setSaleType(c.saleType || 'direct');
+                    setOldContractNumber(c.oldContractNumber || '');
+                    setOldDeviceCondition(c.oldDeviceCondition === 'damaged' ? 'damaged' : 'good');
                     setContractDate(c.contractDate?.slice(0, 10) || new Date().toISOString().slice(0, 10));
                     setDeliveryDate(c.deliveryDate?.slice(0, 10) || '');
                     setInstallationDate(c.installationDate?.slice(0, 10) || '');
@@ -1190,6 +1192,9 @@ export default function ContractForm() {
         if (!serialNumber.trim()) issues.push('أدخل الرقم التسلسلي للجهاز');
         if (!geoSelection.govId) issues.push('اختر المحافظة في عنوان التركيب');
         else if (!geoSelection.neighborhoodId) issues.push('اختر الحي (الموقع التفصيلي) في عنوان التركيب');
+        if (saleType === 'tradein' && !oldContractNumber.trim()) {
+            issues.push('أدخل رقم العقد القديم المستبدل');
+        }
 
         // National ID format applies always when entered (even in draft).
         if (!nidIsValid) issues.push('الرقم الوطني يجب أن يكون 11 رقم بالضبط');
@@ -1256,7 +1261,7 @@ export default function ContractForm() {
         buyerNationalIdIssueDate, buyerNationalIdBox, saleSubtype, saleSource,
         sourceTaskId, paymentType, paymentEntries, confirmedEntries,
         totalPaidSyp, grandTotal, hasDownPayment, installmentsConfirmed,
-        totalInstallmentSyp,
+        totalInstallmentSyp, saleType, oldContractNumber,
     ]);
     const isValid = validationIssues.length === 0;
 
@@ -1286,6 +1291,8 @@ export default function ContractForm() {
                 warrantyMonths: warrantyMonths > 0 ? warrantyMonths : 0,
                 warrantyVisits: (warrantyMonths > 0 && warrantyVisits > 0) ? warrantyVisits : null,
                 saleType,
+                oldContractNumber: saleType === 'tradein' ? oldContractNumber.trim() : null,
+                oldDeviceCondition: saleType === 'tradein' ? oldDeviceCondition : null,
                 saleSource: saleSource || null,
                 sourceVisit: saleSource === 'device_demo_task' ? (sourceTaskId.trim() || null) : null,
                 discountId: (isNoFinancialObligations || !selectedDiscountId) ? null : Number(selectedDiscountId),
@@ -1403,7 +1410,7 @@ export default function ContractForm() {
         }
     }, [
         isValid, saving, isEdit, editId, isDraftMode, selectedCustomer, deviceModelId, selectedDevice, serialNumber,
-        contractDate, saleType, saleSource, sourceTaskId, selectedDiscountId,
+        contractDate, saleType, oldContractNumber, oldDeviceCondition, saleSource, sourceTaskId, selectedDiscountId,
         paymentType, grandTotal, basePrice, installmentDrafts, installmentsConfirmed,
         persistedInstallmentsConfirmed, paymentEntries, closingEmployeeId,
         invoiceNotes, lineItems, geoSelection, detailedAddress, mapPosition, fatherNameOverride,

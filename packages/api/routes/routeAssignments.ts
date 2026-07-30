@@ -12,6 +12,7 @@ import {
   resolveAssignmentOwningBranch,
   resolveOwningBranchesForKeys,
 } from '../policies/routeAssignmentPolicy.js';
+import { lockPlanningDayMutation } from '../services/planningTaskCuration.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -345,47 +346,67 @@ router.put('/:key', requirePermission('routes.assign.manage'), async (req, res) 
     return res.status(400).json({ error: validation.error });
   }
 
-  // DEC-009 لبنة 8 (freeze / append-only): once contact targets have been generated
-  // into the call list for this team+date, the route scope may only GROW. Removing a
-  // covered zone (or a whole route) would orphan already-generated contact targets and
-  // hand a committed task to another team on the next sync. Additions are allowed.
-  const { rows: generatedRows } = await pool.query(
-    'SELECT 1 FROM telemarketing_task_lists WHERE team_key = $1 AND date = $2 LIMIT 1',
-    [teamKey, date],
-  );
-  if (generatedRows.length > 0) {
-    const [oldZones, newZones] = await Promise.all([
-      resolveTeamZoneIds(date, teamKey),
-      resolveZoneIdsForAssignment(validation.routes, validation.extraZones),
-    ]);
-    const newZoneSet = new Set(newZones);
-    const removedZones = oldZones.filter((z) => !newZoneSet.has(z));
-    if (removedZones.length > 0) {
-      return res.status(409).json({
-        error: 'تعذّر التعديل: بعد توليد جهات الاتصال لا يمكن حذف مناطق أو مسارات من نطاق الفريق — يُسمح بإضافة مناطق/مسارات جديدة فقط (DEC-009 لبنة 8).',
-        code: 'SCOPE_FROZEN_AFTER_GENERATION',
-        removedZones,
-      });
-    }
-  }
-
-  // FIX-2: save route_assignment first (committed to pool so getPlanningWorkScope
-  // can read it immediately), then run sync in the same pgClient transaction.
-  // If sync fails, route_assignment is already committed (it's the manager's
-  // authoritative intent). A failed sync is surfaced as syncWarning in the
-  // response — the next route save will retry the reconcile.
-  const { rows } = await pool.query(
-    `INSERT INTO route_assignments (key, routes, extra_zones, station_order) VALUES ($1, $2, $3, $4)
-    ON CONFLICT (key) DO UPDATE SET routes=$2, extra_zones=$3, station_order=$4 RETURNING *`,
-    [key, JSON.stringify(validation.routes), JSON.stringify(validation.extraZones), JSON.stringify(validation.stationOrder)]
-  );
-
-  let syncResult = null;
-  let syncWarning: string | null = null;
   const pgClient = await pool.connect();
   try {
     await pgClient.query('BEGIN');
-    syncResult = await syncAssignedTasks({
+    await lockPlanningDayMutation(pgClient, syncBranchId, date);
+
+    const lockedOwningBranch = await resolveAssignmentOwningBranch(date, teamKey, pgClient);
+    if (lockedOwningBranch !== owningBranch) {
+      await pgClient.query('ROLLBACK');
+      return res.status(409).json({
+        error: 'تغيرت هوية الفريق أثناء الحفظ؛ أعد تحميل جدول اليوم وحاول مجدداً.',
+        code: 'TEAM_SUBJECT_CHANGED',
+      });
+    }
+
+    // Once generated, the route scope is append-only. Read the frozen baseline
+    // and proposed zones under the same planning-day transaction as the save+sync.
+    const { rows: generatedRows } = await pgClient.query(
+      `SELECT 1
+         FROM telemarketing_task_lists
+        WHERE team_key = $1
+          AND date = $2
+          AND branch_id = $3
+        LIMIT 1`,
+      [teamKey, date, syncBranchId],
+    );
+    if (generatedRows.length > 0) {
+      const oldZones = await resolveTeamZoneIds(date, teamKey, pgClient);
+      const newZones = await resolveZoneIdsForAssignment(
+        validation.routes,
+        validation.extraZones,
+        pgClient,
+      );
+      const newZoneSet = new Set(newZones);
+      const removedZones = oldZones.filter((zoneId) => !newZoneSet.has(zoneId));
+      if (removedZones.length > 0) {
+        await pgClient.query('ROLLBACK');
+        return res.status(409).json({
+          error: 'تعذّر التعديل: بعد توليد جهات الاتصال لا يمكن حذف مناطق أو مسارات من نطاق الفريق — يُسمح بإضافة مناطق أو مسارات جديدة فقط.',
+          code: 'SCOPE_FROZEN_AFTER_GENERATION',
+          removedZones,
+        });
+      }
+    }
+
+    const { rows } = await pgClient.query(
+      `INSERT INTO route_assignments (key, routes, extra_zones, station_order)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (key) DO UPDATE
+         SET routes = $2,
+             extra_zones = $3,
+             station_order = $4
+       RETURNING *`,
+      [
+        key,
+        JSON.stringify(validation.routes),
+        JSON.stringify(validation.extraZones),
+        JSON.stringify(validation.stationOrder),
+      ],
+    );
+
+    const syncResult = await syncAssignedTasks({
       date,
       teamKey,
       branchId: syncBranchId,
@@ -393,21 +414,18 @@ router.put('/:key', requirePermission('routes.assign.manage'), async (req, res) 
       db: pgClient,
     });
     await pgClient.query('COMMIT');
-  } catch (err: any) {
+    return res.json({
+      routes: rows[0].routes,
+      extraZones: rows[0].extra_zones,
+      stationOrder: rows[0].station_order || [],
+      syncResult,
+    });
+  } catch (err) {
     await pgClient.query('ROLLBACK');
-    syncWarning = err?.message ?? 'تعذّر تحديث الإسنادات';
-    console.error('[route-assignments] syncAssignedTasks failed:', err);
+    throw err;
   } finally {
     pgClient.release();
   }
-
-  res.json({
-    routes: rows[0].routes,
-    extraZones: rows[0].extra_zones,
-    stationOrder: rows[0].station_order || [],
-    ...(syncResult && { syncResult }),
-    ...(syncWarning && { syncWarning }),
-  });
 });
 
 export default router;

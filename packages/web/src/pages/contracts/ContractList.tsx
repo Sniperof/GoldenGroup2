@@ -42,7 +42,6 @@ const SORT_KEY_MAP: Record<string, string> = {
 const SALE_TYPE_LABELS: Record<string, string> = { tradein: 'استبدال', retention: 'احتفاظ', direct: 'بيع مباشر' };
 const SALE_SUBTYPE_LABELS: Record<string, string> = { definitive: 'نهائي', temporary: 'مؤقت', free: 'مجاني' };
 const STATUS_LABELS: Record<string, string> = { draft: 'مسودة', active: 'فعال', completed: 'مكتمل', cancelled: 'ملغي' };
-const YESNO_LABELS: Record<string, string> = { yes: 'نعم', no: 'لا' };
 
 // Labeled slot inside the unified filter panel.
 function FilterField({ label, children, wide }: { label: string; children: ReactNode; wide?: boolean }) {
@@ -104,12 +103,11 @@ export default function ContractList() {
     const [filterStatus, setFilterStatus] = useState('all');
     const [filterPaymentType, setFilterPaymentType] = useState('all');
     const [filterSaleType, setFilterSaleType] = useState('all');
+    const [filterOldDeviceCondition, setFilterOldDeviceCondition] = useState('all');
     const [filterSaleSubtype, setFilterSaleSubtype] = useState('all');
     const [filterSaleOwner, setFilterSaleOwner] = useState('all');
     const [filterClosingEmployee, setFilterClosingEmployee] = useState('all');
     const [filterDeviceModel, setFilterDeviceModel] = useState('all');
-    const [filterHasDevice, setFilterHasDevice] = useState('all');
-    const [filterGoldenWarranty, setFilterGoldenWarranty] = useState('all');
     const [dateFrom, setDateFrom] = useState('');
     const [dateTo, setDateTo] = useState('');
     const [priceMin, setPriceMin] = useState('');
@@ -127,8 +125,8 @@ export default function ContractList() {
 
     useEffect(() => { setPage(1); }, [
         filterStatus, filterPaymentType, contextBranchId,
-        filterSaleType, filterSaleSubtype, filterSaleOwner, filterClosingEmployee, filterDeviceModel,
-        filterHasDevice, filterGoldenWarranty, dateFrom, dateTo, priceMin, priceMax,
+        filterSaleType, filterOldDeviceCondition, filterSaleSubtype, filterSaleOwner, filterClosingEmployee, filterDeviceModel,
+        dateFrom, dateTo, priceMin, priceMax,
     ]);
 
     useEffect(() => {
@@ -167,12 +165,11 @@ export default function ContractList() {
             status: filterStatus,
             paymentType: filterPaymentType,
             saleType: filterSaleType,
+            oldDeviceCondition: filterOldDeviceCondition,
             saleSubtype: filterSaleSubtype,
             saleOwner: filterSaleOwner,
             closingEmployee: filterClosingEmployee,
             deviceModel: filterDeviceModel,
-            hasDevice: filterHasDevice,
-            goldenWarranty: filterGoldenWarranty,
             dateFrom,
             dateTo,
             priceMin,
@@ -183,8 +180,8 @@ export default function ContractList() {
         setContracts(res.items as Contract[]);
         setTotal(res.total);
     }, [isGlobalView, contextBranchId, page, limit, debouncedSearch, filterStatus, filterPaymentType,
-        filterSaleType, filterSaleSubtype, filterSaleOwner, filterClosingEmployee, filterDeviceModel,
-        filterHasDevice, filterGoldenWarranty, dateFrom, dateTo, priceMin, priceMax, sortKey, sortDir]);
+        filterSaleType, filterOldDeviceCondition, filterSaleSubtype, filterSaleOwner, filterClosingEmployee, filterDeviceModel,
+        dateFrom, dateTo, priceMin, priceMax, sortKey, sortDir]);
 
     useEffect(() => {
         if (!canViewContracts) { setLoading(false); setInitialLoad(false); return; }
@@ -265,9 +262,8 @@ export default function ContractList() {
 
     const clearAllFilters = () => {
         setSearchTerm(''); setFilterStatus('all'); setFilterPaymentType('all');
-        setFilterSaleType('all'); setFilterSaleSubtype('all'); setFilterSaleOwner('all');
+        setFilterSaleType('all'); setFilterOldDeviceCondition('all'); setFilterSaleSubtype('all'); setFilterSaleOwner('all');
         setFilterClosingEmployee('all'); setFilterDeviceModel('all');
-        setFilterHasDevice('all'); setFilterGoldenWarranty('all');
         setDateFrom(''); setDateTo(''); setPriceMin(''); setPriceMax('');
     };
 
@@ -276,12 +272,11 @@ export default function ContractList() {
     if (filterStatus !== 'all') filterChips.push({ key: 'status', label: 'الحالة', value: STATUS_LABELS[filterStatus] ?? filterStatus, onRemove: () => setFilterStatus('all') });
     if (filterPaymentType !== 'all') filterChips.push({ key: 'payment', label: 'الدفع', value: filterPaymentType === 'cash' ? 'نقدي' : 'أقساط', onRemove: () => setFilterPaymentType('all') });
     if (filterSaleType !== 'all') filterChips.push({ key: 'saleType', label: 'نوع البيع', value: SALE_TYPE_LABELS[filterSaleType] ?? filterSaleType, onRemove: () => setFilterSaleType('all') });
+    if (filterOldDeviceCondition !== 'all') filterChips.push({ key: 'oldDeviceCondition', label: 'حالة الجهاز المستبدل', value: filterOldDeviceCondition === 'good' ? 'جيد' : 'تالف', onRemove: () => setFilterOldDeviceCondition('all') });
     if (filterSaleSubtype !== 'all') filterChips.push({ key: 'saleSubtype', label: 'النوع الفرعي', value: SALE_SUBTYPE_LABELS[filterSaleSubtype] ?? filterSaleSubtype, onRemove: () => setFilterSaleSubtype('all') });
     if (filterSaleOwner !== 'all') filterChips.push({ key: 'owner', label: 'صاحب البيعة', value: employeeOptions.find((e) => String(e.id) === filterSaleOwner)?.name ?? filterSaleOwner, onRemove: () => setFilterSaleOwner('all') });
     if (filterClosingEmployee !== 'all') filterChips.push({ key: 'closer', label: 'موظف التسكير', value: closerOptions.find((e) => String(e.id) === filterClosingEmployee)?.name ?? filterClosingEmployee, onRemove: () => setFilterClosingEmployee('all') });
     if (filterDeviceModel !== 'all') filterChips.push({ key: 'model', label: 'الموديل', value: deviceModelOptions.find((m) => String(m.id) === filterDeviceModel)?.name ?? filterDeviceModel, onRemove: () => setFilterDeviceModel('all') });
-    if (filterHasDevice !== 'all') filterChips.push({ key: 'hasDevice', label: 'لديه جهاز', value: YESNO_LABELS[filterHasDevice], onRemove: () => setFilterHasDevice('all') });
-    if (filterGoldenWarranty !== 'all') filterChips.push({ key: 'golden', label: 'ضمان ذهبي', value: YESNO_LABELS[filterGoldenWarranty], onRemove: () => setFilterGoldenWarranty('all') });
     if (dateFrom || dateTo) filterChips.push({ key: 'date', label: 'الفترة', value: `${dateFrom || '…'} → ${dateTo || '…'}`, onRemove: () => { setDateFrom(''); setDateTo(''); } });
     if (priceMin || priceMax) filterChips.push({ key: 'price', label: 'المبلغ', value: `${priceMin || '…'} - ${priceMax || '…'}`, onRemove: () => { setPriceMin(''); setPriceMax(''); } });
 
@@ -294,7 +289,7 @@ export default function ContractList() {
                         <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                         <input
                             type="text"
-                            placeholder="بحث عن عقد (رقم، زبون، جهاز، سيريال)..."
+                            placeholder="بحث عن عقد (رقم حالي/قديم، زبون، جهاز، سيريال)..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                             className="w-full bg-slate-50 border border-slate-200 rounded-xl pr-10 pl-4 py-3 text-sm focus:border-sky-500 focus:outline-none transition-all focus:bg-white"
@@ -351,6 +346,10 @@ export default function ContractList() {
                             <Select className="w-full" value={filterSaleType} onChange={setFilterSaleType} ariaLabel="نوع البيع"
                                 options={[{ value: 'all', label: 'كل الأنواع' }, { value: 'direct', label: 'بيع مباشر' }, { value: 'tradein', label: 'استبدال' }, { value: 'retention', label: 'احتفاظ' }]} />
                         </FilterField>
+                        <FilterField label="حالة الجهاز المستبدل">
+                            <Select className="w-full" value={filterOldDeviceCondition} onChange={setFilterOldDeviceCondition} ariaLabel="حالة الجهاز المستبدل"
+                                options={[{ value: 'all', label: 'كل الحالات' }, { value: 'good', label: 'جيد' }, { value: 'damaged', label: 'تالف' }]} />
+                        </FilterField>
                         <FilterField label="النوع الفرعي">
                             <Select className="w-full" value={filterSaleSubtype} onChange={setFilterSaleSubtype} ariaLabel="النوع الفرعي"
                                 options={[{ value: 'all', label: 'الكل' }, { value: 'definitive', label: 'نهائي' }, { value: 'temporary', label: 'مؤقت' }, { value: 'free', label: 'مجاني' }]} />
@@ -373,14 +372,6 @@ export default function ContractList() {
                                     options={[{ value: 'all', label: 'كل الموديلات' }, ...deviceModelOptions.map((m) => ({ value: String(m.id), label: m.name }))]} />
                             </FilterField>
                         )}
-                        <FilterField label="لديه جهاز مركّب">
-                            <Select className="w-full" value={filterHasDevice} onChange={setFilterHasDevice} ariaLabel="لديه جهاز مركّب"
-                                options={[{ value: 'all', label: 'الكل' }, { value: 'yes', label: 'نعم' }, { value: 'no', label: 'لا' }]} />
-                        </FilterField>
-                        <FilterField label="ضمان ذهبي فعّال">
-                            <Select className="w-full" value={filterGoldenWarranty} onChange={setFilterGoldenWarranty} ariaLabel="ضمان ذهبي فعّال"
-                                options={[{ value: 'all', label: 'الكل' }, { value: 'yes', label: 'نعم' }, { value: 'no', label: 'لا' }]} />
-                        </FilterField>
                         <FilterField label="فترة التعاقد" wide>
                             <div className="flex items-center gap-1.5">
                                 <DateField value={dateFrom} onChange={setDateFrom} placeholder="من تاريخ" className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 hover:border-slate-300 focus:border-sky-500 focus:outline-none transition-colors" />

@@ -8,11 +8,13 @@ import {
   canCreateClient,
   canDeleteClient,
   canEditClient,
+  canEditClientContactControl,
   canEditClientRating,
   canListClients,
   canManageClientAssignments,
   canViewClient,
   canViewClientRating,
+  canUnlockClientCooldown,
   getClientListAccessPlan,
 } from '../policies/clientPolicy.js';
 import { canEditCandidate } from '../policies/candidatePolicy.js';
@@ -34,6 +36,10 @@ import {
 } from '../services/customerOwnership.js';
 import { buildClientSnapshot } from '../lib/clientSnapshot.js';
 import { resolveReferenceValueForWrite } from '../services/referenceValueService.js';
+import {
+  applyClientDoNotContactState,
+  lockClientContactControlMutations,
+} from '../services/planningTaskCuration.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -764,8 +770,12 @@ async function hasClientDeviceOrContractInBranches(
   return rows.length > 0;
 }
 
-async function loadClientSubject(clientId: string | number): Promise<ClientSubject | null> {
-  const { rows } = await pool.query(
+async function loadClientSubject(
+  clientId: string | number,
+  db: { query: typeof pool.query } = pool,
+  lock = false,
+): Promise<ClientSubject | null> {
+  const { rows } = await db.query(
     `SELECT
        c.branch_id AS "branchId",
        COALESCE(
@@ -779,7 +789,8 @@ async function loadClientSubject(clientId: string | number): Promise<ClientSubje
          '{}'::int[]
        ) AS "assignedUserIds"
      FROM clients c
-    WHERE c.id = $1`,
+    WHERE c.id = $1
+    ${lock ? 'FOR UPDATE OF c' : ''}`,
     [clientId],
   );
 
@@ -2649,6 +2660,11 @@ router.post('/:id/cooldown', requirePermission('clients.contact_control.edit'), 
       return res.status(400).json({ error: 'clientId غير صالح' });
     }
     const authContext = getRequiredAuthContext(req);
+    const subject = await loadClientSubject(clientId);
+    if (!subject) return res.status(404).json({ error: 'الزبون غير موجود' });
+    if (!canEditClientContactControl(authContext, subject).allowed) {
+      return res.status(403).json({ error: 'ليس لديك صلاحية تغيير حالة التواصل لهذا الزبون' });
+    }
     const { days, reason } = req.body as { days?: number; reason?: string };
 
     if (!Number.isFinite(days) || !days || days <= 0) {
@@ -2658,20 +2674,40 @@ router.post('/:id/cooldown', requirePermission('clients.contact_control.edit'), 
       return res.status(400).json({ error: 'سبب التهدئة مطلوب (reason)' });
     }
 
-    const { rows } = await pool.query(
-      `UPDATE clients
-          SET cooldown_until  = CURRENT_DATE + ($1 || ' days')::INTERVAL,
-              cooldown_reason = $2,
-              cooldown_set_by = $3,
-              cooldown_set_at = NOW()
-        WHERE id = $4
-        RETURNING id,
-                  cooldown_until  AS "cooldownUntil",
-                  cooldown_reason AS "cooldownReason",
-                  cooldown_set_by AS "cooldownSetBy",
-                  cooldown_set_at AS "cooldownSetAt"`,
-      [Math.floor(days), reason.trim(), authContext.userId ?? null, clientId],
-    );
+    const db = await pool.connect();
+    let rows: any[] = [];
+    try {
+      await db.query('BEGIN');
+      await lockClientContactControlMutations(db, [clientId]);
+      const lockedSubject = await loadClientSubject(clientId, db, true);
+      if (!lockedSubject || !canEditClientContactControl(authContext, lockedSubject).allowed) {
+        await db.query('ROLLBACK');
+        return res.status(403).json({
+          error: 'تغير نطاق الزبون؛ لم يعد مسموحاً تغيير حالة التواصل.',
+        });
+      }
+      const result = await db.query(
+        `UPDATE clients
+            SET cooldown_until  = CURRENT_DATE + ($1 || ' days')::INTERVAL,
+                cooldown_reason = $2,
+                cooldown_set_by = $3,
+                cooldown_set_at = NOW()
+          WHERE id = $4
+          RETURNING id,
+                    cooldown_until  AS "cooldownUntil",
+                    cooldown_reason AS "cooldownReason",
+                    cooldown_set_by AS "cooldownSetBy",
+                    cooldown_set_at AS "cooldownSetAt"`,
+        [Math.floor(days), reason.trim(), authContext.userId ?? null, clientId],
+      );
+      rows = result.rows;
+      await db.query('COMMIT');
+    } catch (error) {
+      await db.query('ROLLBACK');
+      throw error;
+    } finally {
+      db.release();
+    }
     if (rows.length === 0) {
       return res.status(404).json({ error: 'الزبون غير موجود' });
     }
@@ -2699,17 +2735,43 @@ router.delete('/:id/cooldown', requirePermission('clients.cooldown_unlock'), asy
     if (!Number.isInteger(clientId) || clientId <= 0) {
       return res.status(400).json({ error: 'clientId غير صالح' });
     }
+    const authContext = getRequiredAuthContext(req);
+    const subject = await loadClientSubject(clientId);
+    if (!subject) return res.status(404).json({ error: 'الزبون غير موجود' });
+    if (!canUnlockClientCooldown(authContext, subject).allowed) {
+      return res.status(403).json({ error: 'ليس لديك صلاحية فك فترة التهدئة لهذا الزبون' });
+    }
 
-    const { rows } = await pool.query(
-      `UPDATE clients
-          SET cooldown_until  = NULL,
-              cooldown_reason = NULL,
-              cooldown_set_by = NULL,
-              cooldown_set_at = NULL
-        WHERE id = $1
-        RETURNING id`,
-      [clientId],
-    );
+    const db = await pool.connect();
+    let rows: any[] = [];
+    try {
+      await db.query('BEGIN');
+      await lockClientContactControlMutations(db, [clientId]);
+      const lockedSubject = await loadClientSubject(clientId, db, true);
+      if (!lockedSubject || !canUnlockClientCooldown(authContext, lockedSubject).allowed) {
+        await db.query('ROLLBACK');
+        return res.status(403).json({
+          error: 'تغير نطاق الزبون؛ لم يعد مسموحاً فك فترة التهدئة.',
+        });
+      }
+      const result = await db.query(
+        `UPDATE clients
+            SET cooldown_until  = NULL,
+                cooldown_reason = NULL,
+                cooldown_set_by = NULL,
+                cooldown_set_at = NULL
+          WHERE id = $1
+          RETURNING id`,
+        [clientId],
+      );
+      rows = result.rows;
+      await db.query('COMMIT');
+    } catch (error) {
+      await db.query('ROLLBACK');
+      throw error;
+    } finally {
+      db.release();
+    }
     if (rows.length === 0) {
       return res.status(404).json({ error: 'الزبون غير موجود' });
     }
@@ -2737,22 +2799,54 @@ router.patch('/:id/do-not-contact', requirePermission('clients.contact_control.e
     if (!Number.isInteger(clientId) || clientId <= 0) {
       return res.status(400).json({ error: 'clientId غير صالح' });
     }
+    const authContext = getRequiredAuthContext(req);
+    const subject = await loadClientSubject(clientId);
+    if (!subject) return res.status(404).json({ error: 'الزبون غير موجود' });
+    if (!canEditClientContactControl(authContext, subject).allowed) {
+      return res.status(403).json({ error: 'ليس لديك صلاحية تغيير حالة التواصل لهذا الزبون' });
+    }
     const { doNotContact } = req.body as { doNotContact?: boolean };
     if (typeof doNotContact !== 'boolean') {
       return res.status(400).json({ error: 'doNotContact (boolean) مطلوب' });
     }
 
-    const { rows } = await pool.query(
-      `UPDATE clients
-          SET do_not_contact = $1
-        WHERE id = $2
-        RETURNING id, do_not_contact AS "doNotContact"`,
-      [doNotContact, clientId],
-    );
-    if (rows.length === 0) {
-      return res.status(404).json({ error: 'الزبون غير موجود' });
+    const reasonText = typeof req.body?.reason === 'string'
+      ? req.body.reason.trim().slice(0, 500) || null
+      : null;
+    if (!reasonText) {
+      return res.status(400).json({ error: 'سبب تغيير حالة عدم التواصل مطلوب (reason)' });
     }
-    return res.json(rows[0]);
+    const db = await pool.connect();
+    try {
+      await db.query('BEGIN');
+      await lockClientContactControlMutations(db, [clientId]);
+      const lockedSubject = await loadClientSubject(clientId, db, true);
+      if (!lockedSubject || !canEditClientContactControl(authContext, lockedSubject).allowed) {
+        await db.query('ROLLBACK');
+        return res.status(403).json({
+          error: 'تغير نطاق الزبون؛ لم يعد مسموحاً تغيير حالة التواصل.',
+        });
+      }
+      const result = await applyClientDoNotContactState(db, {
+        clientIds: [clientId],
+        enable: doNotContact,
+        reasonCode: 'client_profile',
+        reasonText,
+        userId: authContext.userId,
+      });
+      await db.query('COMMIT');
+      return res.json({
+        id: clientId,
+        doNotContact,
+        releasedAssignments: result.releasedAssignments,
+        closedTargets: result.closedTargets,
+      });
+    } catch (error) {
+      await db.query('ROLLBACK');
+      throw error;
+    } finally {
+      db.release();
+    }
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

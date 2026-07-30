@@ -11,7 +11,7 @@
 // ============================================================
 
 import pool from '../../db.js';
-import { appendCandidateScope, appendClientScope, appendContractScope, appendReferralSheetScope } from './reportingScope.js';
+import { appendCandidateScope, appendClientScope, appendContractScope, appendInstalledDeviceScope, appendReferralSheetScope } from './reportingScope.js';
 
 export type MetricUnit = 'count' | 'percent';
 export type ScopeMode = 'GLOBAL' | 'BRANCH' | 'ASSIGNED';
@@ -295,7 +295,7 @@ const contractsCount: MetricDefinition = {
       const params: unknown[] = [from, to];
       const sql =
         `SELECT COUNT(*)::int AS v FROM contracts c
-          WHERE c.status <> 'draft' AND c.contract_date >= $1 AND c.contract_date < $2` + appendContractScope(ctx, params);
+          WHERE c.status <> 'draft' AND NULLIF(TRIM(c.contract_date), '')::timestamptz >= $1 AND NULLIF(TRIM(c.contract_date), '')::timestamptz < $2` + appendContractScope(ctx, params);
       return scalar(sql, params);
     };
     return { value: await count(ctx.from, ctx.to), previous: await count(ctx.prevFrom, ctx.prevTo) };
@@ -313,7 +313,7 @@ const contractsSalesValue: MetricDefinition = {
       const params: unknown[] = [from, to];
       const sql =
         `SELECT COALESCE(SUM(c.final_price), 0)::numeric AS v FROM contracts c
-          WHERE c.status IN ('active','completed') AND c.contract_date >= $1 AND c.contract_date < $2` + appendContractScope(ctx, params);
+          WHERE c.status IN ('active','completed') AND NULLIF(TRIM(c.contract_date), '')::timestamptz >= $1 AND NULLIF(TRIM(c.contract_date), '')::timestamptz < $2` + appendContractScope(ctx, params);
       return scalar(sql, params);
     };
     return { value: await sum(ctx.from, ctx.to), previous: await sum(ctx.prevFrom, ctx.prevTo) };
@@ -331,7 +331,7 @@ const contractsAvgValue: MetricDefinition = {
       const params: unknown[] = [from, to];
       const sql =
         `SELECT COALESCE(ROUND(AVG(c.final_price)), 0)::numeric AS v FROM contracts c
-          WHERE c.status IN ('active','completed') AND c.contract_date >= $1 AND c.contract_date < $2` + appendContractScope(ctx, params);
+          WHERE c.status IN ('active','completed') AND NULLIF(TRIM(c.contract_date), '')::timestamptz >= $1 AND NULLIF(TRIM(c.contract_date), '')::timestamptz < $2` + appendContractScope(ctx, params);
       return scalar(sql, params);
     };
     return { value: await avg(ctx.from, ctx.to), previous: await avg(ctx.prevFrom, ctx.prevTo) };
@@ -352,7 +352,7 @@ const contractsCancellationRate: MetricDefinition = {
             COUNT(*) FILTER (WHERE c.status = 'cancelled')::numeric AS cancelled,
             COUNT(*)::numeric AS total
            FROM contracts c
-          WHERE c.status <> 'draft' AND c.contract_date >= $1 AND c.contract_date < $2` + appendContractScope(ctx, params);
+          WHERE c.status <> 'draft' AND NULLIF(TRIM(c.contract_date), '')::timestamptz >= $1 AND NULLIF(TRIM(c.contract_date), '')::timestamptz < $2` + appendContractScope(ctx, params);
       const { rows } = await pool.query(sql, params);
       const total = Number(rows[0]?.total ?? 0);
       const cancelled = Number(rows[0]?.cancelled ?? 0);
@@ -375,6 +375,67 @@ const contractsStuckDrafts: MetricDefinition = {
   },
 };
 
+// ── الأجهزة المركّبة — فرعية فقط عبر appendInstalledDeviceScope (فرع فقط). ──
+const devicesActiveBase: MetricDefinition = {
+  key: 'devices.active_base',
+  permission: 'installed_devices.view',
+  titleAr: 'الأجهزة الفعّالة',
+  unit: 'count',
+  purpose: 'قرار: عدد الأجهزة الفعّالة حالياً (القاعدة التي تقود الصيانة والخدمة) — لقطة راهنة.',
+  async compute(ctx) {
+    const params: unknown[] = [];
+    const sql = `SELECT COUNT(*)::int AS v FROM installed_devices d WHERE d.status = 'active'` + appendInstalledDeviceScope(ctx, params);
+    return { value: await scalar(sql, params), previous: null };
+  },
+};
+
+const devicesInstalledInPeriod: MetricDefinition = {
+  key: 'devices.installed_in_period',
+  permission: 'installed_devices.view',
+  titleAr: 'أجهزة رُكّبت',
+  unit: 'count',
+  purpose: 'قرار: عدد الأجهزة التي رُكّبت خلال الفترة على مستوى الفرع.',
+  async compute(ctx) {
+    const count = async (from: Date, to: Date) => {
+      const params: unknown[] = [from, to];
+      const sql =
+        `SELECT COUNT(*)::int AS v FROM installed_devices d
+          WHERE d.installation_date >= $1::date AND d.installation_date < $2::date` + appendInstalledDeviceScope(ctx, params);
+      return scalar(sql, params);
+    };
+    return { value: await count(ctx.from, ctx.to), previous: await count(ctx.prevFrom, ctx.prevTo) };
+  },
+};
+
+const devicesGoldenActive: MetricDefinition = {
+  key: 'devices.golden_active',
+  permission: 'installed_devices.view',
+  titleAr: 'أجهزة بضمان ذهبي',
+  unit: 'count',
+  purpose: 'قرار: عدد الأجهزة بضمان ذهبي فعّال — شريحة مميّزة — لقطة راهنة.',
+  async compute(ctx) {
+    const params: unknown[] = [];
+    const sql = `SELECT COUNT(*)::int AS v FROM installed_devices d WHERE d.is_golden_warranty = TRUE AND d.status <> 'contract_cancelled'` + appendInstalledDeviceScope(ctx, params);
+    return { value: await scalar(sql, params), previous: null };
+  },
+};
+
+const devicesWarrantyExpiring: MetricDefinition = {
+  key: 'devices.warranty_expiring',
+  permission: 'installed_devices.view',
+  titleAr: 'كفالات توشك على الانتهاء',
+  unit: 'count',
+  purpose: 'سير عمل: أجهزة فعّالة تنتهي كفالتها (ذهبية/عقد) خلال ٦٠ يوماً — هدف تجديد — لقطة راهنة.',
+  async compute(ctx) {
+    const params: unknown[] = [];
+    const sql =
+      `SELECT COUNT(*)::int AS v FROM installed_devices d
+        WHERE d.status = 'active'
+          AND LEAST(COALESCE(d.golden_warranty_end_date, DATE '9999-12-31'), COALESCE(d.contract_warranty_end_date, DATE '9999-12-31')) BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '60 days'` + appendInstalledDeviceScope(ctx, params);
+    return { value: await scalar(sql, params), previous: null };
+  },
+};
+
 export const METRIC_CATALOG: MetricDefinition[] = [
   clientsNewCount,
   clientsActiveTotal,
@@ -392,6 +453,10 @@ export const METRIC_CATALOG: MetricDefinition[] = [
   contractsAvgValue,
   contractsCancellationRate,
   contractsStuckDrafts,
+  devicesActiveBase,
+  devicesInstalledInPeriod,
+  devicesGoldenActive,
+  devicesWarrantyExpiring,
 ];
 
 export function findMetric(key: string): MetricDefinition | undefined {

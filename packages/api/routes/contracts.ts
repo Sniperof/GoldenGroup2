@@ -21,6 +21,11 @@ import {
   deviceSerialConflictPayload,
 } from '../services/deviceSerialIntegrity.js';
 import { deriveContractWriteStatus } from '../services/contractLifecycle.js';
+import { normalizeContractTradeinDetails } from '../services/contractTradein.js';
+import {
+  cancelUpcomingPeriodicMaintenanceForContractCancel,
+  PeriodicMaintenanceTransferError,
+} from '../services/periodicMaintenanceTasks.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -42,6 +47,8 @@ const contractSelect = `
   c.status, c.created_at AS "createdAt", c.branch_id AS "branchId",
   c.service_branch_id AS "serviceBranchId",
   c.sale_type AS "saleType", c.sale_source AS "saleSource",
+  c.old_contract_number AS "oldContractNumber",
+  c.old_device_condition AS "oldDeviceCondition",
   c.discount_id AS "discountId",
   c.closing_employee_id AS "closingEmployeeId",
   c.closing_date AS "closingDate",
@@ -398,6 +405,13 @@ async function fetchProjectedDuesByContractIds(dbClient: any, contractIds: numbe
  *           type: integer
  *         saleType:
  *           type: string
+ *         oldContractNumber:
+ *           type: string
+ *           nullable: true
+ *         oldDeviceCondition:
+ *           type: string
+ *           enum: [good, damaged]
+ *           nullable: true
  *         saleSource:
  *           type: string
  *         discountId:
@@ -581,6 +595,7 @@ router.get('/paged', requirePermission('contracts.view_list'), async (req, res) 
       const ref = `$${params.length}`;
       conditions.push(
         `(c.contract_number ILIKE ${ref} OR c.customer_name ILIKE ${ref} OR c.device_model_name ILIKE ${ref}`
+        + ` OR c.old_contract_number ILIKE ${ref}`
         + ` OR COALESCE(d.serial_number, c.draft_device_payload->>'serialNumber') ILIKE ${ref})`,
       );
     }
@@ -602,6 +617,13 @@ router.get('/paged', requirePermission('contracts.view_list'), async (req, res) 
     if (['tradein', 'retention', 'direct'].includes(saleType)) {
       params.push(saleType);
       conditions.push(`c.sale_type = $${params.length}`);
+    }
+    const oldDeviceCondition = typeof req.query.oldDeviceCondition === 'string'
+      ? req.query.oldDeviceCondition.trim()
+      : '';
+    if (['good', 'damaged'].includes(oldDeviceCondition)) {
+      params.push(oldDeviceCondition);
+      conditions.push(`c.sale_type = 'tradein' AND c.old_device_condition = $${params.length}`);
     }
     const saleSubtype = typeof req.query.saleSubtype === 'string' ? req.query.saleSubtype.trim() : '';
     if (['definitive', 'temporary', 'free'].includes(saleSubtype)) {
@@ -630,10 +652,6 @@ router.get('/paged', requirePermission('contracts.view_list'), async (req, res) 
     if (priceMax != null) { params.push(priceMax); conditions.push(`c.final_price <= $${params.length}`); }
 
     // Cross-entity boolean flags on the joined installed device (contract → 0/1 device).
-    if (req.query.hasDevice === 'yes') conditions.push(`d.id IS NOT NULL`);
-    else if (req.query.hasDevice === 'no') conditions.push(`d.id IS NULL`);
-    if (req.query.goldenWarranty === 'yes') conditions.push(`d.is_golden_warranty = TRUE`);
-    else if (req.query.goldenWarranty === 'no') conditions.push(`d.is_golden_warranty IS NOT TRUE`);
 
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
@@ -922,6 +940,14 @@ router.get('/:id', requirePermission('contracts.view_list'), async (req, res) =>
  */
 router.post('/', requirePermission('contracts.create'), async (req, res) => {
   const c = req.body;
+  const tradeinDetails = normalizeContractTradeinDetails(
+    c.saleType,
+    c.oldContractNumber,
+    c.oldDeviceCondition,
+  );
+  if (tradeinDetails.ok === false) {
+    return res.status(400).json({ error: tradeinDetails.error, code: tradeinDetails.code });
+  }
   const derivedStatus = deriveContractWriteStatus(c.status);
   const targetBranchId = resolveTargetBranchId(req, res, c.branchId);
   if (targetBranchId == null) return;
@@ -1071,8 +1097,9 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
         buyer_birth_date, buyer_gender,
         contract_type, source_open_task_id, source_task_offer_id, sale_reference_number,
         no_closing_reason_id, sale_subtype, created_by,
-        sale_owner_id, offer_team_snapshot, contract_referrers, draft_device_payload)
-      VALUES (NULLIF($1::text, ''),$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40)
+        sale_owner_id, offer_team_snapshot, contract_referrers, draft_device_payload,
+        old_contract_number, old_device_condition)
+      VALUES (NULLIF($1::text, ''),$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42)
       RETURNING id`,
       [c.contractNumber, c.customerId, c.customerName, c.contractDate,
        c.sourceVisit || null, c.deviceModelId, c.deviceModelName,
@@ -1082,7 +1109,7 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
        // Service branch defaults to the sale branch (= client = entering employee
        // branch) until cross-branch service is wired up. Seeds the device branch.
        c.serviceBranchId ?? targetBranchId,
-       c.saleType || 'direct',
+       tradeinDetails.saleType,
        c.discountId || null, c.saleSource || null,
        c.closingEmployeeId || null, c.invoiceNotes || null,
        c.appliedDeviceDiscountId || null,
@@ -1099,7 +1126,9 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
        // Single-mediator rule: a sale has exactly one referrer — store at most one
        // even if the client sends more (UI is not the guard).
        Array.isArray(c.selectedReferrers) ? JSON.stringify(c.selectedReferrers.slice(0, 1)) : '[]',
-       derivedStatus === 'draft' ? JSON.stringify(draftDevicePayload) : null]
+       derivedStatus === 'draft' ? JSON.stringify(draftDevicePayload) : null,
+       tradeinDetails.oldContractNumber,
+       tradeinDetails.oldDeviceCondition]
     );
     const contractId = rows[0].id;
 
@@ -1263,6 +1292,14 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
     });
   }
   const c = req.body;
+  const tradeinDetails = normalizeContractTradeinDetails(
+    c.saleType,
+    c.oldContractNumber,
+    c.oldDeviceCondition,
+  );
+  if (tradeinDetails.ok === false) {
+    return res.status(400).json({ error: tradeinDetails.error, code: tradeinDetails.code });
+  }
   const derivedStatus = deriveContractWriteStatus(c.status);
   const draftDevicePayload = buildDraftDevicePayload(c);
 
@@ -1371,9 +1408,10 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
         contract_type=$27, source_open_task_id=$28, source_task_offer_id=$29,
         sale_reference_number=$30, no_closing_reason_id=$31, sale_subtype=$32,
         sale_owner_id = CASE WHEN $33::boolean THEN sale_owner_id ELSE $34 END,
-        contract_referrers=$35, draft_device_payload=$36
+        contract_referrers=$35, draft_device_payload=$36,
+        sale_type=$37, old_contract_number=$38, old_device_condition=$39
         -- offer_team_snapshot is deliberately NOT updated here: DEC-CT-13 freezes it at creation.
-      WHERE id=$37`,
+      WHERE id=$40`,
       [c.contractNumber, c.customerId, c.customerName, c.contractDate,
        c.sourceVisit || null, c.deviceModelId, c.deviceModelName,
        c.maintenancePlan, c.basePrice, c.finalPrice, c.paymentType,
@@ -1397,6 +1435,9 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
        // even if the client sends more (UI is not the guard).
        Array.isArray(c.selectedReferrers) ? JSON.stringify(c.selectedReferrers.slice(0, 1)) : '[]',
        derivedStatus === 'draft' ? JSON.stringify(draftDevicePayload) : null,
+       tradeinDetails.saleType,
+       tradeinDetails.oldContractNumber,
+       tradeinDetails.oldDeviceCondition,
        req.params.id]
     );
 
@@ -2249,9 +2290,10 @@ router.post('/:id/approve', async (req, res) => {
   }
 });
 
-// POST /api/contracts/:id/cancel — إلغاء عقد نشِط (التسكير العكسي).
-// عملية صريحة لأن PUT يرفض تعديل غير المسوّدة. تتكفّل triggers الـDB بأثر
-// الأجهزة/الكفالات عند تغيّر الحالة.
+// POST /api/contracts/:id/cancel — إلغاء عقد نشِط غير مستوفى المبالغ.
+// عملية صريحة لأن PUT يرفض تعديل غير المسوّدة. الأثر: إبطال الذمم/الأقساط +
+// ضبط أجهزة العقد إلى contract_cancelled (تُسقطها من الصيانة الدورية) + إلغاء
+// مهامها الدورية المفتوحة. كفالة العقد تُلغى بلا شرط عبر trigger على الجدول.
 router.post('/:id/cancel', async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'غير مصرح' });
   const authContext = await getOrBuildAuthContext(req as any);
@@ -2259,7 +2301,11 @@ router.post('/:id/cancel', async (req, res) => {
   if (!Number.isInteger(contractId) || contractId <= 0) {
     return res.status(400).json({ error: 'id غير صالح' });
   }
-  const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+  // reasonCode: قيمة من قائمة contract_cancellation_reasons (المصدر المفضّل)؛
+  // reason نصّ حرّ للتوافق الخلفي. المخزَّن في cancellation_reason = الكود إن وُجد.
+  const reasonCode = typeof req.body?.reasonCode === 'string' ? req.body.reasonCode.trim() : '';
+  const reasonText = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+  const reason = reasonCode || reasonText;
 
   const pgClient = await pool.connect();
   try {
@@ -2267,6 +2313,7 @@ router.post('/:id/cancel', async (req, res) => {
     const { rows: cur } = await pgClient.query(
       `SELECT id, status, branch_id, customer_id, final_price, created_at,
               COALESCE((SELECT SUM(amount_syp) FROM contract_installments WHERE contract_id = contracts.id), 0) AS installments_total,
+              COALESCE((SELECT SUM(remaining_balance) FROM contract_installments WHERE contract_id = contracts.id AND remaining_balance > 0), 0) AS installments_remaining,
               COALESCE((SELECT SUM(CASE WHEN entry_type = 'refund' THEN -amount_syp ELSE amount_syp END)
                           FROM contract_payment_entries
                          WHERE contract_id = contracts.id AND installment_id IS NULL), 0) AS signing_paid
@@ -2282,6 +2329,16 @@ router.post('/:id/cancel', async (req, res) => {
     if (c.status !== 'active') {
       await pgClient.query('ROLLBACK');
       return res.status(409).json({ error: `لا يمكن إلغاء عقد بحالة "${c.status}". الإلغاء متاح للعقود النشطة فقط.` });
+    }
+
+    // بوّابة: الإلغاء متاح فقط لعقد لم تُستوفَ مبالغه بالكامل. المتبقّي =
+    // متبقّي دفعة التوقيع + متبقّي الأقساط. المستوفى كلياً لا يُلغى من هنا.
+    const outstanding =
+      (Number(c.final_price) - Number(c.installments_total) - Number(c.signing_paid))
+      + Number(c.installments_remaining);
+    if (outstanding <= 0) {
+      await pgClient.query('ROLLBACK');
+      return res.status(409).json({ error: 'لا يمكن إلغاء عقد مستوفى المبالغ بالكامل.' });
     }
 
     const userId = (authContext as any).userId ?? null;
@@ -2340,10 +2397,41 @@ router.post('/:id/cancel', async (req, res) => {
       }
     }
 
+    // 4) أثر الجهاز: لكل جهاز مرتبط بالعقد لم يصل حالة نهائية، ألغِ مهامه
+    // الدورية المفتوحة (يرمي إن كانت مهمة قيد التنفيذ) ثم اضبط حالته إلى
+    // contract_cancelled فيسقط من كل مسارات توليد/تسجيل الصيانة (تحرس على active).
+    // trigger الكفالة على الجدول يُلغي كفالة العقد بلا شرط عند تحوّل الحالة.
+    const { rows: contractDevices } = await pgClient.query(
+      `SELECT id FROM installed_devices
+        WHERE contract_id = $1 AND status <> 'contract_cancelled'
+        FOR UPDATE`,
+      [contractId],
+    );
+    let cancelledPeriodicTasks = 0;
+    for (const dev of contractDevices) {
+      const deviceId = Number(dev.id);
+      const ids = await cancelUpcomingPeriodicMaintenanceForContractCancel(pgClient, {
+        installedDeviceId: deviceId,
+        performedByUserId: userId,
+      });
+      cancelledPeriodicTasks += ids.length;
+      await pgClient.query(
+        `UPDATE installed_devices SET status = 'contract_cancelled', updated_at = NOW() WHERE id = $1`,
+        [deviceId],
+      );
+    }
+
     await pgClient.query('COMMIT');
-    res.json({ success: true, contractId, status: 'cancelled', cancelledCollectionTasks: cancelledTaskIds.length });
+    res.json({
+      success: true, contractId, status: 'cancelled',
+      cancelledCollectionTasks: cancelledTaskIds.length,
+      cancelledPeriodicTasks, affectedDevices: contractDevices.length,
+    });
   } catch (err: any) {
     await pgClient.query('ROLLBACK');
+    if (err instanceof PeriodicMaintenanceTransferError) {
+      return res.status(409).json({ error: err.message });
+    }
     console.error('[contracts] cancel failed:', err);
     res.status(500).json({ error: 'فشل إلغاء العقد', detail: err?.message });
   } finally {

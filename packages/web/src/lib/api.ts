@@ -89,6 +89,7 @@ export interface PagedContractsParams {
   paymentType?: string;          // cash | installment
   // Enriched catalog (docs/analysis/contracts-records-performance-filters-and-stats.md §3)
   saleType?: string;             // tradein | retention | direct
+  oldDeviceCondition?: string;   // good | damaged (trade-in statistics)
   saleSubtype?: string;          // definitive | temporary | free
   saleOwner?: string | number;   // employee id
   closingEmployee?: string | number;
@@ -99,6 +100,33 @@ export interface PagedContractsParams {
   priceMax?: string | number;
   hasDevice?: string;            // yes | no
   goldenWarranty?: string;       // yes | no
+  sortKey?: string;
+  sortDir?: 'asc' | 'desc';
+}
+
+export interface PagedInstalledDevicesResponse {
+  items: any[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface PagedInstalledDevicesParams {
+  branchId?: number | null;      // narrows a GLOBAL viewer to one branch (X-Branch-Id)
+  customerId?: number;
+  page?: number;
+  limit?: number;
+  search?: string;
+  status?: string;
+  deviceSource?: string;         // company_contract | external
+  goldenWarranty?: string;       // true | false
+  saleSubtype?: string;          // definitive | temporary | free
+  deviceModel?: string | number;
+  geoIds?: string;               // comma-separated geo subtree ids
+  installFrom?: string;          // YYYY-MM-DD
+  installTo?: string;
+  hasServiceAgreement?: string;  // yes | no
+  warrantyExpiringDays?: string | number;
   sortKey?: string;
   sortDir?: 'asc' | 'desc';
 }
@@ -147,6 +175,124 @@ export interface DashboardWidget {
 export interface EmergencyResultContext {
   visitId: number;
   visitTaskId: number;
+}
+
+export type PlanningExclusionLayer =
+  | 'TEAM_DAY'
+  | 'ALL_TEAMS_DAY'
+  | 'CLIENT_DO_NOT_CONTACT';
+export type PlanningCurationAction =
+  | 'EXCLUDE'
+  | 'RESTORE'
+  | 'SET_DO_NOT_CONTACT'
+  | 'CLEAR_DO_NOT_CONTACT';
+export type PlanningTargetMode =
+  | 'MATCHING_TASKS'
+  | 'ALL_TASKS_OF_MATCHED_CONTACTS'
+  | 'NON_MATCHING_TASKS_OF_MATCHED_CONTACTS';
+
+export interface PlanningDashboardFilters {
+  q?: string;
+  lifecycleStatuses?: Array<'ready' | 'queued' | 'contacted' | 'closed'>;
+  stationIds?: number[];
+  classifications?: string[];
+  ownershipTypes?: string[];
+  minTaskCount?: number;
+  maxTaskCount?: number;
+  taskIds?: number[];
+  taskTypes?: string[];
+  taskFamilies?: string[];
+  taskStatuses?: string[];
+  priorities?: string[];
+  dueState?: 'OVERDUE' | 'ON_DATE' | 'FUTURE' | 'NO_DATE';
+  attemptsMin?: number;
+  phoneState?: 'VALID' | 'MISSING';
+  exclusionLayers?: Array<PlanningExclusionLayer | 'NONE'>;
+}
+
+export type PlanningCurationSelector =
+  | { kind: 'TASK_IDS'; taskIds: number[] }
+  | { kind: 'CONTACT_KEYS'; contactKeys: string[] }
+  | {
+      kind: 'FILTERED_SET';
+      filters: PlanningDashboardFilters;
+      queryFingerprint: string;
+      targetMode: PlanningTargetMode;
+      exceptTaskIds?: number[];
+      exceptContactKeys?: string[];
+    };
+
+export interface PlanningCurationTask {
+  taskId: number;
+  clientId: number;
+  taskType: string;
+  taskTypeLabel: string;
+  taskFamily: string;
+  status: string;
+  priority: string | null;
+  dueDate: string | null;
+  expectedDate: string | null;
+  createdAt: string;
+  attemptCount: number;
+  matchesTaskFilters: boolean;
+  assignment: { teamKey: string | null; date: string | null; committed: boolean };
+  blocks: {
+    clientDoNotContact: boolean;
+    clientCooldown: boolean;
+    allTeamsDay: boolean;
+    currentTeamDay: boolean;
+  };
+  exclusionReasonCode: string | null;
+  exclusionReasonText: string | null;
+  availableActions: string[];
+}
+
+export interface PlanningCurationRow {
+  rowKey: string;
+  clientId: number;
+  clientName: string;
+  primaryPhone: string | null;
+  classification: string | null;
+  ownershipType: string;
+  ownerLabel: string;
+  workLocationGeoUnitId: number | null;
+  workLocationName: string | null;
+  lifecycleStatus: 'ready' | 'queued' | 'contacted' | 'closed';
+  contactTarget: { id: number; status: string; closingReason: string | null } | null;
+  listState: { generated: boolean; itemCount: number; committedTaskCount: number };
+  contactBlocks: { doNotContact: boolean; cooldownUntil: string | null };
+  counts: { totalTasks: number; matchingTasks: number; actionableTasks: number };
+  tasks: PlanningCurationTask[];
+}
+
+export interface PlanningCurationDashboardResponse {
+  date: string;
+  teamKey: string;
+  planState: 'PRE_GENERATION' | 'COMMITTED';
+  generatedAt: string | null;
+  rows: PlanningCurationRow[];
+  pagination: { page: number; limit: number; totalContacts: number; totalPages: number };
+  summary: {
+    contacts: number;
+    tasks: number;
+    matchingTasks: number;
+    actionableTasks: number;
+    matchingActionableTasks: number;
+    ready: number;
+    queued: number;
+    contacted: number;
+    closed: number;
+    excludedTeamDay: number;
+    excludedAllTeamsDay: number;
+    blockedCustomers: number;
+  };
+  facets: {
+    stations: Array<{ value: number; label: string; count: number }>;
+    taskTypes: Array<{ value: string; label: string; count: number }>;
+    taskFamilies: Array<{ value: string; label: string; count: number }>;
+    priorities: Array<{ value: string; label: string; count: number }>;
+  };
+  queryFingerprint: string;
 }
 
 function withEmergencyResultContext(path: string, context: EmergencyResultContext): string {
@@ -473,8 +619,11 @@ export const api = {
       request<any>(`/clients/${id}/cooldown`, { method: 'POST', body: JSON.stringify(data) }),
     clearCooldown: (id: number) =>
       request<any>(`/clients/${id}/cooldown`, { method: 'DELETE' }),
-    setDoNotContact: (id: number, doNotContact: boolean) =>
-      request<any>(`/clients/${id}/do-not-contact`, { method: 'PATCH', body: JSON.stringify({ doNotContact }) }),
+    setDoNotContact: (id: number, doNotContact: boolean, reason: string) =>
+      request<any>(`/clients/${id}/do-not-contact`, {
+        method: 'PATCH',
+        body: JSON.stringify({ doNotContact, reason }),
+      }),
   },
   customers: {
     getPurchaseHistory: (customerId: number) =>
@@ -585,7 +734,7 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(body ?? {}),
       }),
-    cancel: (contractId: number, body?: { reason?: string }) =>
+    cancel: (contractId: number, body?: { reason?: string; reasonCode?: string }) =>
       request<any>(`/contracts/${contractId}/cancel`, {
         method: 'POST',
         body: JSON.stringify(body ?? {}),
@@ -629,6 +778,20 @@ export const api = {
       if (params?.branchId)   qs.set('branchId', String(params.branchId));
       if (params?.status)     qs.set('status', params.status);
       return request<any[]>(`/installed-devices?${qs}`);
+    },
+    listPaged: (params: PagedInstalledDevicesParams = {}) => {
+      const { branchId, ...rest } = params;
+      const query = new URLSearchParams();
+      Object.entries(rest).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '' && value !== 'all') {
+          query.set(key, String(value));
+        }
+      });
+      const suffix = query.size > 0 ? `?${query.toString()}` : '';
+      return request<PagedInstalledDevicesResponse>(
+        `/installed-devices/paged${suffix}`,
+        branchId != null ? { headers: { 'X-Branch-Id': String(branchId) } } : undefined,
+      );
     },
     get: (id: number) => request<any>(`/installed-devices/${id}`),
     createExternal: (data: any) => request<any>('/installed-devices/external', { method: 'POST', body: JSON.stringify(data) }),
@@ -846,6 +1009,74 @@ export const api = {
     save: (key: string, data: any) => request<any>(`/route-assignments/${key}`, { method: 'PUT', body: JSON.stringify(data) }),
   },
   planning: {
+    curationDashboard: (params: {
+      date: string;
+      teamKey: string;
+      filters?: PlanningDashboardFilters;
+      page?: number;
+      limit?: number;
+      sortBy?: string;
+      sortDir?: 'asc' | 'desc';
+    }) => {
+      const query = new URLSearchParams({
+        date: params.date,
+        teamKey: params.teamKey,
+        page: String(params.page ?? 1),
+        limit: String(params.limit ?? 50),
+        sortBy: params.sortBy ?? 'clientName',
+        sortDir: params.sortDir ?? 'asc',
+      });
+      if (params.filters && Object.keys(params.filters).length > 0) {
+        query.set('filters', JSON.stringify(params.filters));
+      }
+      return request<PlanningCurationDashboardResponse>(
+        `/planning/contact-targets-dashboard/curation?${query.toString()}`,
+      );
+    },
+    previewCuration: (data: {
+      date: string;
+      teamKey: string;
+      action: PlanningCurationAction;
+      layer: PlanningExclusionLayer;
+      selector: PlanningCurationSelector;
+      reasonCode?: string;
+      reasonText?: string;
+    }) => request<{
+      previewToken: string;
+      expiresAt: string;
+      canApply: boolean;
+      counts: {
+        contacts: number;
+        selectedTasks: number;
+        affectedTasks: number;
+        releasedAssignments: number;
+        closedTargets: number;
+        contactsFullyExcluded: number;
+        alreadyApplied: number;
+        committedConflicts: number;
+        skippedUnavailableTasks: number;
+      };
+      warnings: string[];
+      sample: Array<{
+        rowKey: string;
+        clientId: number;
+        clientName: string;
+        taskCount: number;
+        selectedTaskCount: number;
+      }>;
+    }>('/planning/contact-targets-dashboard/curation/preview', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+    applyCuration: (previewToken: string) => request<{
+      operationId: number;
+      changedTasks: number;
+      changedClients: number;
+      releasedAssignments: number;
+    }>('/planning/contact-targets-dashboard/curation/apply', {
+      method: 'POST',
+      body: JSON.stringify({ previewToken }),
+    }),
     assignedTasks: (date: string, teamKey: string) => {
       const query = new URLSearchParams({ date, teamKey });
       return request<any>(`/planning/assigned-tasks?${query.toString()}`);

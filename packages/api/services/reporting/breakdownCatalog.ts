@@ -8,7 +8,7 @@
 
 import pool from '../../db.js';
 import type { MetricComputeContext } from './metricsCatalog.js';
-import { appendCandidateScope, appendClientScope, appendContractScope, appendReferralSheetScope } from './reportingScope.js';
+import { appendCandidateScope, appendClientScope, appendContractScope, appendInstalledDeviceScope, appendReferralSheetScope } from './reportingScope.js';
 
 export type BreakdownKind = 'funnel' | 'ranked-bar' | 'donut' | 'timeline';
 
@@ -625,7 +625,7 @@ const contractsSalesByBranch: BreakdownDefinition = {
     const sql =
       `SELECT COALESCE(b.name, 'غير محدد') AS k, COALESCE(SUM(c.final_price), 0)::numeric AS v
          FROM contracts c LEFT JOIN branches b ON b.id = c.branch_id
-        WHERE c.status IN ('active','completed') AND c.contract_date >= $1 AND c.contract_date < $2` + appendContractScope(ctx, params) +
+        WHERE c.status IN ('active','completed') AND NULLIF(TRIM(c.contract_date), '')::timestamptz >= $1 AND NULLIF(TRIM(c.contract_date), '')::timestamptz < $2` + appendContractScope(ctx, params) +
       ` GROUP BY 1 ORDER BY v DESC LIMIT 10`;
     const { rows } = await pool.query(sql, params);
     return rows.map(r => ({ key: String(r.k), label: String(r.k), value: Number(r.v ?? 0) }));
@@ -644,7 +644,7 @@ const contractsSalesBySeller: BreakdownDefinition = {
     const sql =
       `SELECT COALESCE(e.name, 'غير محدد') AS k, COALESCE(SUM(c.final_price), 0)::numeric AS v
          FROM contracts c LEFT JOIN employees e ON e.id = c.sale_owner_id
-        WHERE c.status IN ('active','completed') AND c.contract_date >= $1 AND c.contract_date < $2` + appendContractScope(ctx, params) +
+        WHERE c.status IN ('active','completed') AND NULLIF(TRIM(c.contract_date), '')::timestamptz >= $1 AND NULLIF(TRIM(c.contract_date), '')::timestamptz < $2` + appendContractScope(ctx, params) +
       ` GROUP BY 1 ORDER BY v DESC LIMIT 10`;
     const { rows } = await pool.query(sql, params);
     return rows.map(r => ({ key: String(r.k), label: String(r.k), value: Number(r.v ?? 0) }));
@@ -663,7 +663,7 @@ const contractsSalesBySaleType: BreakdownDefinition = {
     const sql =
       `SELECT COALESCE(NULLIF(TRIM(c.sale_type), ''), 'غير محدد') AS k, COUNT(*)::int AS v
          FROM contracts c
-        WHERE c.status <> 'draft' AND c.contract_date >= $1 AND c.contract_date < $2` + appendContractScope(ctx, params) +
+        WHERE c.status <> 'draft' AND NULLIF(TRIM(c.contract_date), '')::timestamptz >= $1 AND NULLIF(TRIM(c.contract_date), '')::timestamptz < $2` + appendContractScope(ctx, params) +
       ` GROUP BY 1 ORDER BY v DESC`;
     const { rows } = await pool.query(sql, params);
     return rows.map(r => { const k = String(r.k); return { key: k, label: CONTRACT_SALE_TYPE_LABELS[k] ?? k, value: Number(r.v ?? 0) }; });
@@ -682,7 +682,7 @@ const contractsByPaymentType: BreakdownDefinition = {
     const sql =
       `SELECT COALESCE(NULLIF(TRIM(c.payment_type), ''), 'غير محدد') AS k, COUNT(*)::int AS v
          FROM contracts c
-        WHERE c.status <> 'draft' AND c.contract_date >= $1 AND c.contract_date < $2` + appendContractScope(ctx, params) +
+        WHERE c.status <> 'draft' AND NULLIF(TRIM(c.contract_date), '')::timestamptz >= $1 AND NULLIF(TRIM(c.contract_date), '')::timestamptz < $2` + appendContractScope(ctx, params) +
       ` GROUP BY 1 ORDER BY v DESC`;
     const { rows } = await pool.query(sql, params);
     return rows.map(r => { const k = String(r.k); return { key: k, label: CONTRACT_PAYMENT_LABELS[k] ?? k, value: Number(r.v ?? 0) }; });
@@ -701,7 +701,7 @@ const contractsByDeviceModel: BreakdownDefinition = {
     const sql =
       `SELECT COALESCE(NULLIF(TRIM(c.device_model_name), ''), 'غير محدد') AS k, COUNT(*)::int AS v
          FROM contracts c
-        WHERE c.status <> 'draft' AND c.contract_date >= $1 AND c.contract_date < $2` + appendContractScope(ctx, params) +
+        WHERE c.status <> 'draft' AND NULLIF(TRIM(c.contract_date), '')::timestamptz >= $1 AND NULLIF(TRIM(c.contract_date), '')::timestamptz < $2` + appendContractScope(ctx, params) +
       ` GROUP BY 1 ORDER BY v DESC LIMIT 10`;
     const { rows } = await pool.query(sql, params);
     return rows.map(r => ({ key: String(r.k), label: String(r.k), value: Number(r.v ?? 0) }));
@@ -718,8 +718,10 @@ const contractsCancelledByReason: BreakdownDefinition = {
   async compute(ctx) {
     const params: unknown[] = [ctx.from, ctx.to];
     const sql =
-      `SELECT COALESCE(NULLIF(TRIM(c.cancellation_reason), ''), 'غير محدد') AS k, COUNT(*)::int AS v
+      `SELECT COALESCE(NULLIF(TRIM(sl.metadata->>'label'), ''), NULLIF(TRIM(c.cancellation_reason), ''), 'غير محدد') AS k, COUNT(*)::int AS v
          FROM contracts c
+         LEFT JOIN system_lists sl
+           ON sl.category = 'contract_cancellation_reasons' AND sl.value = c.cancellation_reason
         WHERE c.status = 'cancelled' AND c.cancelled_at >= $1 AND c.cancelled_at < $2` + appendContractScope(ctx, params) +
       ` GROUP BY 1 ORDER BY v DESC LIMIT 10`;
     const { rows } = await pool.query(sql, params);
@@ -748,11 +750,120 @@ const contractsSalesTrend: BreakdownDefinition = {
          SELECT date_trunc('${bucket.trunc}', c.contract_date::timestamptz) AS bucket, COALESCE(SUM(c.final_price), 0)::numeric AS v
            FROM contracts c
           WHERE c.status IN ('active','completed')
-            AND c.contract_date >= $1 AND c.contract_date < $2` + appendContractScope(ctx, params) +
+            AND NULLIF(TRIM(c.contract_date), '')::timestamptz >= $1 AND NULLIF(TRIM(c.contract_date), '')::timestamptz < $2` + appendContractScope(ctx, params) +
       ` GROUP BY 1
        )
        SELECT b.bucket, COALESCE(s.v, 0)::numeric AS v
          FROM buckets b LEFT JOIN sums s ON s.bucket = b.bucket
+        ORDER BY b.bucket`;
+    const { rows } = await pool.query(sql, params);
+    return rows.map(r => { const iso = new Date(r.bucket).toISOString(); return { key: iso, label: iso, value: Number(r.v ?? 0) }; });
+  },
+};
+
+// ── الأجهزة المركّبة — فرعية فقط عبر appendInstalledDeviceScope (فرع فقط). ──
+const DEVICE_STATUS_LABELS: Record<string, string> = {
+  registered: 'مُسجّل', pending_delivery: 'بانتظار التسليم', delivered: 'مُسلّم', installed: 'مُركّب',
+  active: 'فعّال', faulty: 'متعطّل', in_workshop: 'في الورشة', ready: 'جاهز',
+  out_of_service: 'خارج الخدمة', retrieved: 'مُسترجَع', contract_cancelled: 'مُلغى (عقد)',
+};
+const DEVICE_SOURCE_LABELS: Record<string, string> = { company_contract: 'شركة (عقد)', external: 'خارجي' };
+
+const devicesByStatus: BreakdownDefinition = {
+  key: 'devices.by_status',
+  permission: 'installed_devices.view',
+  titleAr: 'الأجهزة حسب الحالة',
+  kind: 'donut',
+  valueUnit: 'count',
+  purpose: 'قرار: توزيع الأجهزة على حالاتها التشغيلية (لقطة راهنة ضمن النطاق).',
+  async compute(ctx) {
+    const params: unknown[] = [];
+    const sql =
+      `SELECT d.status AS k, COUNT(*)::int AS v FROM installed_devices d WHERE 1=1` + appendInstalledDeviceScope(ctx, params) +
+      ` GROUP BY 1 ORDER BY v DESC`;
+    const { rows } = await pool.query(sql, params);
+    return rows.map(r => { const k = String(r.k); return { key: k, label: DEVICE_STATUS_LABELS[k] ?? k, value: Number(r.v ?? 0) }; });
+  },
+};
+
+const devicesBySource: BreakdownDefinition = {
+  key: 'devices.by_source',
+  permission: 'installed_devices.view',
+  titleAr: 'الأجهزة حسب المصدر',
+  kind: 'donut',
+  valueUnit: 'count',
+  purpose: 'قرار: نسبة أجهزة الشركة (عقد) مقابل الخارجية (لقطة راهنة).',
+  async compute(ctx) {
+    const params: unknown[] = [];
+    const sql =
+      `SELECT COALESCE(NULLIF(TRIM(d.device_source), ''), 'غير محدد') AS k, COUNT(*)::int AS v FROM installed_devices d WHERE 1=1` + appendInstalledDeviceScope(ctx, params) +
+      ` GROUP BY 1 ORDER BY v DESC`;
+    const { rows } = await pool.query(sql, params);
+    return rows.map(r => { const k = String(r.k); return { key: k, label: DEVICE_SOURCE_LABELS[k] ?? k, value: Number(r.v ?? 0) }; });
+  },
+};
+
+const devicesByModel: BreakdownDefinition = {
+  key: 'devices.by_model',
+  permission: 'installed_devices.view',
+  titleAr: 'الأجهزة حسب الموديل',
+  kind: 'ranked-bar',
+  valueUnit: 'count',
+  purpose: 'قرار: أكثر الموديلات انتشارًا في القاعدة المركّبة (توجيه المخزون والقطع).',
+  async compute(ctx) {
+    const params: unknown[] = [];
+    const sql =
+      `SELECT COALESCE(NULLIF(TRIM(COALESCE(d.device_model_name, c.device_model_name, d.external_device_name)), ''), 'غير محدد') AS k, COUNT(*)::int AS v
+         FROM installed_devices d LEFT JOIN contracts c ON c.id = d.contract_id WHERE 1=1` + appendInstalledDeviceScope(ctx, params) +
+      ` GROUP BY 1 ORDER BY v DESC LIMIT 10`;
+    const { rows } = await pool.query(sql, params);
+    return rows.map(r => ({ key: String(r.k), label: String(r.k), value: Number(r.v ?? 0) }));
+  },
+};
+
+const devicesByBranch: BreakdownDefinition = {
+  key: 'devices.by_branch',
+  permission: 'installed_devices.view',
+  titleAr: 'الأجهزة حسب الفرع',
+  kind: 'ranked-bar',
+  valueUnit: 'count',
+  purpose: 'قرار: توزيع القاعدة المركّبة على الفروع.',
+  async compute(ctx) {
+    const params: unknown[] = [];
+    const sql =
+      `SELECT COALESCE(b.name, 'غير محدد') AS k, COUNT(*)::int AS v
+         FROM installed_devices d LEFT JOIN branches b ON b.id = d.branch_id WHERE 1=1` + appendInstalledDeviceScope(ctx, params) +
+      ` GROUP BY 1 ORDER BY v DESC LIMIT 10`;
+    const { rows } = await pool.query(sql, params);
+    return rows.map(r => ({ key: String(r.k), label: String(r.k), value: Number(r.v ?? 0) }));
+  },
+};
+
+const devicesInstallationTrend: BreakdownDefinition = {
+  key: 'devices.installation_trend',
+  permission: 'installed_devices.view',
+  titleAr: 'اتجاه التركيب',
+  kind: 'timeline',
+  valueUnit: 'count',
+  purpose: 'قرار: حركة تركيب الأجهزة عبر الزمن ضمن الفترة والنطاق.',
+  async compute(ctx) {
+    const bucket = acquisitionBucket(ctx.from, ctx.to);
+    const params: unknown[] = [ctx.from, ctx.to];
+    const sql =
+      `WITH buckets AS (
+         SELECT generate_series(
+           date_trunc('${bucket.trunc}', $1::timestamptz),
+           date_trunc('${bucket.trunc}', $2::timestamptz - interval '1 millisecond'),
+           interval '${bucket.interval}'
+         ) AS bucket
+       ), counts AS (
+         SELECT date_trunc('${bucket.trunc}', d.installation_date::timestamptz) AS bucket, COUNT(*)::int AS v
+           FROM installed_devices d
+          WHERE d.installation_date >= $1::date AND d.installation_date < $2::date` + appendInstalledDeviceScope(ctx, params) +
+      ` GROUP BY 1
+       )
+       SELECT b.bucket, COALESCE(cnt.v, 0)::int AS v
+         FROM buckets b LEFT JOIN counts cnt ON cnt.bucket = b.bucket
         ORDER BY b.bucket`;
     const { rows } = await pool.query(sql, params);
     return rows.map(r => { const iso = new Date(r.bucket).toISOString(); return { key: iso, label: iso, value: Number(r.v ?? 0) }; });
@@ -785,6 +896,11 @@ export const BREAKDOWN_CATALOG: BreakdownDefinition[] = [
   contractsByDeviceModel,
   contractsCancelledByReason,
   contractsSalesTrend,
+  devicesByStatus,
+  devicesBySource,
+  devicesByModel,
+  devicesByBranch,
+  devicesInstallationTrend,
 ];
 
 export function findBreakdown(key: string): BreakdownDefinition | undefined {

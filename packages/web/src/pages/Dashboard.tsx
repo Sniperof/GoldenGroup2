@@ -1,19 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { BarChart3, ClipboardList, LayoutDashboard, LayoutGrid, Sparkles, UsersRound, FileText } from '../components/ui/icons';
+import { BarChart3, ClipboardList, LayoutDashboard, LayoutGrid, Sparkles, UsersRound, FileText, HardDrive } from '../components/ui/icons';
 import { useSearchParams } from 'react-router-dom';
-import { api } from '../lib/api';
 import { usePermissions } from '../hooks/usePermissions';
-import { useAuthStore } from '../hooks/useAuthStore';
-import ScopeFilterBar, { type BranchOption } from '../components/dashboard/ScopeFilterBar';
+import { useBranchContextStore } from '../hooks/useBranchContextStore';
+import ScopeFilterBar from '../components/dashboard/ScopeFilterBar';
 import MetricWidget from '../components/dashboard/MetricWidget';
 import BreakdownWidget from '../components/dashboard/BreakdownWidget';
-import { WIDGET_REGISTRY, type ScopeState, type WidgetDef } from '../components/dashboard/widgetRegistry';
+import { WIDGET_REGISTRY, type ScopeState, type WidgetDef, type TimePreset } from '../components/dashboard/widgetRegistry';
 
 const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.06 } } };
 const item = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } };
 
-type DashboardSection = 'summary' | 'clients' | 'candidates' | 'name-lists' | 'contracts';
+type DashboardSection = 'summary' | 'clients' | 'candidates' | 'name-lists' | 'contracts' | 'devices';
 
 const SECTION_META: Record<DashboardSection, {
   label: string;
@@ -51,6 +50,12 @@ const SECTION_META: Record<DashboardSection, {
     description: 'قيمة المبيعات، نوع البيع، أداء البائعين ومعدّل الإلغاء',
     icon: FileText,
   },
+  devices: {
+    label: 'الأجهزة',
+    title: 'تحليلات الأجهزة المركّبة',
+    description: 'القاعدة المركّبة الحيّة، الكفالات، التوزيع حسب الحالة والموديل والفرع',
+    icon: HardDrive,
+  },
 };
 
 function isNameListWidget(widget: WidgetDef): boolean {
@@ -63,6 +68,7 @@ function widgetsForSection(section: DashboardSection, widgets: WidgetDef[]): Wid
   if (section === 'clients') return widgets.filter(widget => widget.department === 'الزبائن');
   if (section === 'name-lists') return widgets.filter(isNameListWidget);
   if (section === 'contracts') return widgets.filter(widget => widget.department === 'العقود');
+  if (section === 'devices') return widgets.filter(widget => widget.department === 'الأجهزة');
   return widgets.filter(widget => widget.department === 'الأسماء المقترحة' && !isNameListWidget(widget));
 }
 
@@ -86,11 +92,14 @@ function SectionHeading({ icon: Icon, title, description }: {
 
 export default function Dashboard() {
   const { hasPermission } = usePermissions();
-  const isSuperAdmin = useAuthStore(s => s.user?.isSuperAdmin === true);
-  const getPermissionScope = useAuthStore(s => s.getPermissionScope);
   const [searchParams, setSearchParams] = useSearchParams();
-  const [scope, setScope] = useState<ScopeState>({ preset: 'month', branchId: null });
-  const [branches, setBranches] = useState<BranchOption[]>([]);
+  const [preset, setPreset] = useState<TimePreset>('month');
+
+  // Branch scope has a SINGLE source of truth app-wide: the external branch
+  // switcher (branch context). The dashboard no longer owns a branch picker —
+  // it reads the selected branch and applies it to every widget's scope.
+  const contextBranchId = useBranchContextStore(s => s.branchId);
+  const scope = useMemo<ScopeState>(() => ({ preset, branchId: contextBranchId ?? null }), [preset, contextBranchId]);
 
   // §8.1 — لا يدخل أي مؤشر إلى الواجهة قبل اجتياز بوابة صلاحية مصدره.
   const visibleWidgets = useMemo(
@@ -105,6 +114,7 @@ export default function Dashboard() {
     if (widgetsForSection('candidates', visibleWidgets).length > 0) sections.push('candidates');
     if (widgetsForSection('name-lists', visibleWidgets).length > 0) sections.push('name-lists');
     if (widgetsForSection('contracts', visibleWidgets).length > 0) sections.push('contracts');
+    if (widgetsForSection('devices', visibleWidgets).length > 0) sections.push('devices');
     return sections;
   }, [visibleWidgets]);
 
@@ -126,31 +136,12 @@ export default function Dashboard() {
   );
   const sectionMeta = SECTION_META[activeSection];
 
-  // الفلتر عام للقسم المفتوح، ولا يظهر إذا كانت صلاحيات مؤشرات القسم ذات نطاقات مختلطة.
-  const canPickBranch = useMemo(
-    () => isSuperAdmin || (activeWidgets.length > 0 && activeWidgets.every(widget => getPermissionScope(widget.permission) === 'GLOBAL')),
-    [isSuperAdmin, activeWidgets, getPermissionScope],
-  );
-
   useEffect(() => {
     if (requestedSection === activeSection || availableSections.length === 0) return;
     const next = new URLSearchParams(searchParams);
     next.set('section', activeSection);
     setSearchParams(next, { replace: true });
   }, [activeSection, availableSections.length, requestedSection, searchParams, setSearchParams]);
-
-  useEffect(() => {
-    if (!canPickBranch && scope.branchId != null) {
-      setScope(current => ({ ...current, branchId: null }));
-    }
-  }, [canPickBranch, scope.branchId]);
-
-  useEffect(() => {
-    if (!canPickBranch) return;
-    api.branches.list()
-      .then(rows => setBranches((rows ?? []).map((branch: any) => ({ id: branch.id, name: branch.name }))))
-      .catch(() => setBranches([]));
-  }, [canPickBranch]);
 
   const selectSection = (section: DashboardSection) => {
     const next = new URLSearchParams(searchParams);
@@ -185,7 +176,7 @@ export default function Dashboard() {
           </div>
         </section>
 
-        <ScopeFilterBar value={scope} onChange={setScope} canPickBranch={canPickBranch} branches={branches} />
+        <ScopeFilterBar preset={preset} onPresetChange={setPreset} />
 
         {availableSections.length > 0 && (
           <nav className="mb-7 mt-4 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm" aria-label="أقسام الداشبورد">

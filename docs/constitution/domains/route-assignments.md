@@ -1,6 +1,6 @@
 # دستور الكيان: توزيع المسارات (Route Assignments Domain Constitution)
 
-> **الحالة (Status):** Active Draft / Authoritative  
+> **الحالة (Status):** Active / Authoritative — implementation-aligned as of 2026-07-30
 > **المرجع الأعلى للكيان `route_assignments` في النظام.** تم إعداده بناءً على `001_core_tables.sql`، `094_route_assignment_station_order.sql`، `routeAssignments.ts`، و`route-assignment.md`.
 
 ---
@@ -53,7 +53,7 @@
 | **RA-R004** | `direction` إما `forward` أو `reverse` | `routeAssignments.ts` | أي قيمة أخرى تُرفض برسالة `invalid direction`. |
 | **RA-R005** | لا تكرار للمناطق الإضافية | `routeAssignments.ts` | `seenExtraZones` Set ترفض `zoneId` مكرر في `extraZones`. |
 | **RA-R006** | لا تكرار بترتيب المحطات | `routeAssignments.ts` | `seenStationOrder` Set ترفض `zoneId` مكرر في `stationOrder`. |
-| **RA-R007** | عند الحفظ يُستدعى `syncAssignedTasks` تلقائياً | `routeAssignments.ts` | بعد `UPSERT` إلى `route_assignments`، يُشغل `syncAssignedTasks` ضمن transaction منفصلة. فشل المزامنة لا يبطل حفظ التوزيع. |
+| **RA-R007** | حفظ التوزيع ومزامنة المهام عملية ذرية واحدة تحت قفل يوم التخطيط | `routeAssignments.ts` | يبدأ المسار transaction واحدة، ثم يأخذ `lockPlanningDayMutation(branchId, date)`، ويعيد التحقق داخل القفل من هوية الفريق وقيد التجميد بعد التوليد، ثم ينفذ `UPSERT route_assignments` و`syncAssignedTasks(..., db: pgClient)` قبل `COMMIT`. أي فشل في الحفظ أو المزامنة ينفذ `ROLLBACK` للعملية كلها؛ لا يجوز تثبيت التوزيع منفرداً أو إرجاع `syncWarning`. |
 | **RA-R008** | يجب تحديد الفرع (`actingBranchId`) | `routeAssignments.ts` | غياب الفرع يرجع `400` برسالة `يجب تحديد الفرع`. |
 
 ---
@@ -128,6 +128,7 @@ erDiagram
 
 - **غير موجود:** لا يوجد سجل للتاريخ/الفريق المطلوبين؛ الواجهة تعرض `routes: []`, `extraZones: []`, `stationOrder: []`.
 - **موجود:** يوجد سجل محفوظ؛ البيانات تُستخدم لحساب نطاق العمل وللمزامنة التلقائية.
+- **انتقال الحفظ الذري:** محاولة الحفظ إما أن تثبت التوزيع ونتيجة `syncAssignedTasks` معاً، أو تبقي الحالة السابقة كاملة بعد `ROLLBACK`. لا توجد حالة وسيطة دستورية يكون فيها التوزيع الجديد محفوظاً والمهام غير متزامنة.
 
 ---
 
@@ -148,7 +149,7 @@ erDiagram
 
 - `GET /route-assignments` (الخريطة): `routes.assign.view`؛ GLOBAL ⇒ كل الفروع، BRANCH ⇒ فقط المفاتيح التي فرعها المالك ضمن فروع المستخدم (عبر `resolveOwningBranchesForKeys`)، NONE ⇒ `{}`.
 - `GET /route-assignments/:key`: سجل قائم ⇒ تحقق الفرع المالك (`canViewAssignment`)؛ لا سجل ⇒ مصفوفات فارغة (soft-404).
-- `PUT /route-assignments/:key`: `routes.assign.manage` + فرع فعّال + `canManageAssignment(الفرع المالك)`؛ فشل ⇒ `403`. المزامنة تُشغَّل على الفرع المالك (`owningBranch ?? actingBranchId`).
+- `PUT /route-assignments/:key`: `routes.assign.manage` + فرع فعّال + `canManageAssignment(الفرع المالك)`؛ فشل ⇒ `403`. بعد التفويض يبدأ قفل يوم التخطيط على الفرع المالك (`owningBranch ?? actingBranchId`)، ثم يعاد التحقق من هوية الفريق والتجميد داخل القفل، ويُحفظ التوزيع وتُزامن المهام في transaction واحدة.
 - غياب الفرع الفعّال يمنع الحفظ برسالة `يجب تحديد الفرع`.
 - الملفات: `packages/api/policies/routeAssignmentPolicy.ts` (الاشتقاق + التفويض).
 
@@ -162,7 +163,7 @@ erDiagram
 |---|---|---|---|
 | **GET** | `/route-assignments` | `routes.assign.view` | يجلب توزيعات المسارات كخريطة، مُرشّحة بالفرع المالك (GLOBAL=الكل). |
 | **GET** | `/route-assignments/:key` | `routes.assign.view` + تحقق الفرع المالك | يجلب توزيع مسار محدد بمفتاحه. إن لم يوجد يرجع مصفوفات فارغة. |
-| **PUT** | `/route-assignments/:key` | `routes.assign.manage` + فرع فعّال + تحقق الفرع المالك | يُنشئ أو يحدث التوزيع، ثم يُشغل `syncAssignedTasks` على الفرع المالك. |
+| **PUT** | `/route-assignments/:key` | `routes.assign.manage` + فرع فعّال + تحقق الفرع المالك | تحت قفل يوم التخطيط يعيد التحقق من هوية الفريق وقيد التجميد، ثم ينشئ/يحدث التوزيع ويشغل `syncAssignedTasks` على الفرع المالك ضمن transaction واحدة. نجاح العمليتين فقط ينتج `200`؛ أي فشل يعيد العملية كلها إلى الحالة السابقة. |
 
 ### 7.2 معلمات الطلب
 
@@ -180,7 +181,7 @@ erDiagram
 |---|---|
 | Request (PUT) | `{ "routes": [{"routeId":5,"startIdx":0,"endIdx":3,"direction":"forward"}], "extraZones": [101], "stationOrder": [101,105] }` |
 | Response (GET) | `{ "routes": [...], "extraZones": [...], "stationOrder": [...] }` |
-| Response (PUT) | `{ "routes": [...], "extraZones": [...], "stationOrder": [...], "syncResult": {...}, "syncWarning": "..." }` |
+| Response (PUT) | `{ "routes": [...], "extraZones": [...], "stationOrder": [...], "syncResult": {...} }` — لا يوجد `syncWarning`؛ فشل المزامنة يعني فشل الطلب و`ROLLBACK` وليس نجاحاً جزئياً. |
 
 ### 7.4 أخطاء التحقق
 
@@ -192,6 +193,9 @@ erDiagram
 - `400`: `Extra zone X is duplicated`.
 - `400`: `Station X is duplicated in the ordering`.
 - `400`: `يجب تحديد الفرع`.
+- `409 / TEAM_SUBJECT_CHANGED`: تغيرت هوية الفريق بين التفويض والحفظ؛ لا يُحفظ شيء.
+- `409 / SCOPE_FROZEN_AFTER_GENERATION`: بعد التوليد لا يجوز حذف منطقة من نطاق الفريق؛ لا يُحفظ شيء.
+- فشل `UPSERT` أو `syncAssignedTasks`: يفشل الطلب وتُلغى transaction كاملة؛ لا تُعاد استجابة نجاح جزئي.
 
 ---
 
@@ -209,6 +213,8 @@ erDiagram
 | **TC-06** | تكرار منطقة إضافية | `PUT /route-assignments/...` | `extraZones: [101, 101]` | `400` برسالة تكرار | seenExtraZones |
 | **TC-07** | غياب الفرع عند الحفظ | `PUT /route-assignments/...` | أي body بدون `actingBranchId` | `400` برسالة `يجب تحديد الفرع` | auth context |
 | **TC-08** | جلب توزيع غير موجود | `GET /route-assignments/2026-05-28_team_99` | — | `200` مع مصفوفات فارغة | soft 404 |
+| **TC-09** | فشل مزامنة المهام بعد `UPSERT` | `PUT /route-assignments/...` | توزيع صالح مع خطأ مفروض من `syncAssignedTasks` | يفشل الطلب، ويثبت الاختبار أن سجل `route_assignments` والمهام بقيا على حالتهما السابقة بعد `ROLLBACK`؛ لا `syncWarning` | atomicity |
+| **TC-10** | تغير هوية الفريق أو محاولة تقليص نطاق مولّد أثناء انتظار القفل | `PUT /route-assignments/...` | طلب كان صالحاً قبل أخذ القفل ثم تغيرت حالته | يعاد التحقق تحت قفل اليوم، ويرجع `409` دون `UPSERT` أو مزامنة | TOCTOU / freeze |
 
 ---
 
@@ -220,7 +226,7 @@ erDiagram
 
 - **GAP-RA-003:** ✅ **محلول (2026-06-16، هجرة 291):** `GET /route-assignments` صار يُرشّح بالفرع المالك (BRANCH = فروع المستخدم فقط، GLOBAL = الكل، NONE = `{}`)، و`GET/:key`+`PUT/:key` يفرضان تحقق الفرع المالك. أُضيف تحقق صلاحية `routes.assign.*` (كان `requireAuth` فقط).
 
-- **GAP-RA-004:** `syncAssignedTasks` يُشغل في transaction منفصلة عن `route_assignments` UPSERT. فشل المزامنة لا يبطل الحفظ، مما قد يؤدي إلى حالة عدم تطابق بين التوزيع والمهام المسندة.
+- **GAP-RA-004:** ✅ **محلول (2026-07-30):** صار `route_assignments` UPSERT و`syncAssignedTasks` يعملان داخل transaction واحدة وتحت `lockPlanningDayMutation` لليوم والفرع، مع إعادة فحص هوية الفريق وقيد التجميد داخل القفل. أي فشل ينفذ `ROLLBACK`، وأزيل عقد النجاح الجزئي `syncWarning`.
 
 ---
 
@@ -231,3 +237,4 @@ erDiagram
 | **غير مؤكد** | `001_core_tables.sql` | إنشاء جدول `route_assignments` مع الأعمدة `key`, `routes`, `extra_zones`. |
 | **غير مؤكد** | `094_route_assignment_station_order.sql` | إضافة عمود `station_order JSONB DEFAULT '[]'` لترتيب المحطات. |
 | **2026-06-16** | `291_route_assignments_permission_family.sql` | **عائلة صلاحيات التوزيع:** إضافة `routes.assign.view`+`routes.assign.manage` (GLOBAL/BRANCH)، backfill من `marketing_visits.*`. الكود: `routeAssignments.ts` يفرض القدرة + عزل الفرع المالك (المشتق من موظفي الفريق) عبر `routeAssignmentPolicy.ts`. يحلّ GAP-RA-003 وثغرة الكتابة عبر-الفروع. |
+| **2026-07-30** | تغيير برمجي بلا هجرة — `routeAssignments.ts` و`assignedTasks.ts` | **ذرّية الحفظ والمزامنة:** قفل يوم التخطيط، إعادة فحص هوية الفريق والتجميد، ثم `UPSERT` و`syncAssignedTasks` باستخدام `pgClient` نفسه قبل `COMMIT`. الفشل يلغي العملية كاملة ويغلق GAP-RA-004. |

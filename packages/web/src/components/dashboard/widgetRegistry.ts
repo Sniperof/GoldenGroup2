@@ -72,6 +72,16 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
   { key: 'contracts.by_device_model', titleAr: 'العقود حسب موديل الجهاز', description: 'أكثر الموديلات تعاقدًا', unit: 'count', permission: 'contracts.view_list', department: 'العقود', defaultSize: 'lg', kind: 'ranked-bar', accent: 'indigo' },
   { key: 'contracts.cancelled_by_reason', titleAr: 'العقود الملغاة حسب السبب', description: 'أبرز أسباب الإلغاء خلال الفترة', unit: 'count', permission: 'contracts.view_list', department: 'العقود', defaultSize: 'lg', kind: 'ranked-bar', accent: 'rose' },
   { key: 'contracts.sales_trend', titleAr: 'اتجاه قيمة المبيعات', description: 'حركة المبيعات المحقّقة عبر الزمن', unit: 'count', permission: 'contracts.view_list', department: 'العقود', defaultSize: 'lg', kind: 'timeline', accent: 'sky' },
+  // ── الأجهزة المركّبة — فرعية فقط عبر installed_devices.view ──
+  { key: 'devices.active_base', titleAr: 'الأجهزة الفعّالة', description: 'الأجهزة الفعّالة حالياً ضمن النطاق', unit: 'count', permission: 'installed_devices.view', department: 'الأجهزة', defaultSize: 'sm', accent: 'emerald', trendDirection: 'higher-is-better' },
+  { key: 'devices.installed_in_period', titleAr: 'أجهزة رُكّبت', description: 'عدد الأجهزة المركّبة خلال الفترة', unit: 'count', permission: 'installed_devices.view', department: 'الأجهزة', defaultSize: 'sm', accent: 'sky', trendDirection: 'higher-is-better' },
+  { key: 'devices.golden_active', titleAr: 'أجهزة بضمان ذهبي', description: 'شريحة الأجهزة ذات الضمان الذهبي الفعّال', unit: 'count', permission: 'installed_devices.view', department: 'الأجهزة', defaultSize: 'sm', accent: 'amber', trendDirection: 'neutral' },
+  { key: 'devices.warranty_expiring', titleAr: 'كفالات توشك على الانتهاء', description: 'أجهزة تنتهي كفالتها خلال ٦٠ يوماً (هدف تجديد)', unit: 'count', permission: 'installed_devices.view', department: 'الأجهزة', defaultSize: 'sm', accent: 'rose', trendDirection: 'neutral' },
+  { key: 'devices.by_status', titleAr: 'الأجهزة حسب الحالة', description: 'توزيع الأجهزة على حالاتها التشغيلية', unit: 'count', permission: 'installed_devices.view', department: 'الأجهزة', defaultSize: 'lg', kind: 'donut', accent: 'indigo' },
+  { key: 'devices.by_source', titleAr: 'الأجهزة حسب المصدر', description: 'شركة (عقد) مقابل خارجي', unit: 'count', permission: 'installed_devices.view', department: 'الأجهزة', defaultSize: 'lg', kind: 'donut', accent: 'violet' },
+  { key: 'devices.by_model', titleAr: 'الأجهزة حسب الموديل', description: 'أكثر الموديلات انتشارًا في القاعدة المركّبة', unit: 'count', permission: 'installed_devices.view', department: 'الأجهزة', defaultSize: 'lg', kind: 'ranked-bar', accent: 'sky' },
+  { key: 'devices.by_branch', titleAr: 'الأجهزة حسب الفرع', description: 'توزيع القاعدة المركّبة على الفروع', unit: 'count', permission: 'installed_devices.view', department: 'الأجهزة', defaultSize: 'lg', kind: 'ranked-bar', accent: 'emerald' },
+  { key: 'devices.installation_trend', titleAr: 'اتجاه التركيب', description: 'حركة تركيب الأجهزة عبر الزمن', unit: 'count', permission: 'installed_devices.view', department: 'الأجهزة', defaultSize: 'lg', kind: 'timeline', accent: 'sky' },
 ];
 
 export const TIME_PRESET_OPTIONS: { value: TimePreset; label: string }[] = [

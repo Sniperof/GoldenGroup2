@@ -29,6 +29,9 @@ function maintenanceIntervalLabel(warrantyMonths?: number | null, warrantyVisits
 const SALE_TYPE_LABELS: Record<string, string> = {
   tradein: 'استبدال', retention: 'احتفاظ', direct: 'بيع مباشر',
 };
+const OLD_DEVICE_CONDITION_LABELS: Record<string, string> = {
+  good: 'جيد', damaged: 'تالف',
+};
 const SALE_SOURCE_LABELS: Record<string, string> = {
   device_demo_task: 'مهمة عرض جهاز', app: 'التطبيق', social_media: 'وسائل التواصل الاجتماعي',
 };
@@ -165,6 +168,10 @@ export default function ContractDetail() {
   const [activateInstallmentsCount, setActivateInstallmentsCount] = useState<number>(6);
   const [actionLoading, setActionLoading] = useState(false);
   const [activationLoading, setActivationLoading] = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [cancelReasons, setCancelReasons] = useState<Array<{ value: string; label: string }>>([]);
+  const [cancelReasonCode, setCancelReasonCode] = useState('');
+  const [cancelError, setCancelError] = useState<string | null>(null);
   // DEC-CT-01 follow-up: draft approve / reject workflow.
   const { hasPermission } = usePermissions();
   const [approvalLoading, setApprovalLoading] = useState<'approve' | 'reject' | null>(null);
@@ -210,15 +217,36 @@ export default function ContractDetail() {
       .catch(() => setClosers([]));
   }, [data?.status, data?.closingEmployeeId, canApproveDraft]);
 
-  const handleCancelContract = async () => {
-    if (!window.confirm('هل أنت متأكد من إلغاء هذا العقد؟ سيتم إلغاء مهام تسديد الذمم المرتبطة وإبطال الأقساط غير المدفوعة.')) return;
+  const openCancelModal = () => {
+    setCancelReasonCode('');
+    setCancelError(null);
+    setShowCancelModal(true);
+    // تحميل كسول لقائمة أسباب الإلغاء المُدارة (contract_cancellation_reasons).
+    if (cancelReasons.length === 0) {
+      api.systemLists.list({ category: 'contract_cancellation_reasons', activeOnly: true })
+        .then((rows: any[]) => setCancelReasons(
+          (rows ?? []).map(r => ({ value: String(r.value), label: String(r.label ?? r.metadata?.label ?? r.value) })),
+        ))
+        .catch(() => setCancelReasons([]));
+    }
+  };
+
+  const submitCancelContract = async () => {
+    if (!cancelReasonCode) { setCancelError('اختر سبب الإلغاء'); return; }
     setActionLoading(true);
+    setCancelError(null);
     try {
-      await api.contracts.cancel(Number(id));
+      await api.contracts.cancel(Number(id), { reasonCode: cancelReasonCode });
       const refreshed = await api.contracts.get(Number(id));
       setData(refreshed);
+      setShowCancelModal(false);
     } catch (err: any) {
-      alert('فشل إلغاء العقد: ' + (err.message || err));
+      // رسائل 409 من الخلفية (مستوفى / مهمة صيانة قيد التنفيذ) تُعرض كما هي.
+      const raw = String(err?.message || err || '');
+      const jsonStart = raw.indexOf('{');
+      let msg = raw;
+      if (jsonStart >= 0) { try { msg = JSON.parse(raw.slice(jsonStart)).error || raw; } catch { /* keep raw */ } }
+      setCancelError(msg);
     } finally {
       setActionLoading(false);
     }
@@ -438,6 +466,17 @@ export default function ContractDetail() {
             >
               النسخة القانونية
             </Button>
+            {data.status === 'active' && data.saleSubtype !== 'temporary' && canApproveDraft && (
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={actionLoading}
+                onClick={openCancelModal}
+                className="rounded-lg"
+              >
+                إلغاء العقد
+              </Button>
+            )}
             {data.status === 'draft' ? (
               <button onClick={() => navigate(`/contracts/${id}/edit`)}
                 className="text-white/80 hover:text-white text-sm border border-white/30 rounded-lg px-3 py-1 transition-colors">
@@ -505,7 +544,7 @@ export default function ContractDetail() {
               <Button variant="gold" size="sm" onClick={() => setShowActivateModal(true)}>
                 ⚡ تنشيط عملية الدفع
               </Button>
-              <Button variant="secondary" size="sm" disabled={actionLoading} onClick={handleCancelContract}>
+              <Button variant="secondary" size="sm" disabled={actionLoading} onClick={openCancelModal}>
                 {actionLoading ? 'جاري...' : 'إلغاء العقد'}
               </Button>
             </div>
@@ -724,6 +763,15 @@ export default function ContractDetail() {
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4 text-sm">
               {data.saleType && <LabelVal label="نوع البيع" value={SALE_TYPE_LABELS[data.saleType] ?? data.saleType} />}
+              {data.saleType === 'tradein' && data.oldContractNumber && (
+                <LabelVal label="رقم العقد القديم" value={data.oldContractNumber} mono />
+              )}
+              {data.saleType === 'tradein' && data.oldDeviceCondition && (
+                <LabelVal
+                  label="حالة الجهاز القديم"
+                  value={OLD_DEVICE_CONDITION_LABELS[data.oldDeviceCondition] ?? data.oldDeviceCondition}
+                />
+              )}
               {data.saleSubtype && <LabelVal label="الفئة" value={saleSubtypeLabel(data.saleSubtype)} />}
               {data.saleSource && <LabelVal label="المصدر" value={SALE_SOURCE_LABELS[data.saleSource] ?? data.saleSource} />}
               {data.saleReferenceNumber && <LabelVal label="المرجع" value={data.saleReferenceNumber} mono />}
@@ -1208,6 +1256,40 @@ export default function ContractDetail() {
                 </Button>
               </div>
             </form>
+      </Modal>
+
+      <Modal
+        isOpen={showCancelModal}
+        onClose={() => setShowCancelModal(false)}
+        size="md"
+        title="إلغاء العقد"
+      >
+        <div className="p-6 space-y-4">
+          <p className="text-xs text-slate-600 leading-relaxed bg-amber-50 border border-amber-200 rounded-xl p-3">
+            سيتم إلغاء مهام تسديد الذمم وإبطال الأقساط غير المدفوعة، وإخراج جهاز العقد من الصيانة الدورية،
+            وإلغاء كفالة العقد. لا يمكن إلغاء عقد مستوفى المبالغ بالكامل.
+          </p>
+          <div>
+            <label className="text-xs font-bold text-slate-500 mb-1 block">سبب الإلغاء</label>
+            <select
+              value={cancelReasonCode}
+              onChange={e => { setCancelReasonCode(e.target.value); setCancelError(null); }}
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+            >
+              <option value="">— اختر السبب —</option>
+              {cancelReasons.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+            </select>
+          </div>
+          {cancelError && <p className="text-sm text-rose-600">{cancelError}</p>}
+          <div className="flex gap-3 pt-2">
+            <Button fullWidth variant="danger" loading={actionLoading} disabled={actionLoading} onClick={submitCancelContract}>
+              {actionLoading ? 'جاري الإلغاء...' : 'تأكيد الإلغاء'}
+            </Button>
+            <Button variant="secondary" fullWidth disabled={actionLoading} onClick={() => setShowCancelModal(false)}>
+              تراجع
+            </Button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

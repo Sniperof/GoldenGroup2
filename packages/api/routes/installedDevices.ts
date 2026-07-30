@@ -126,6 +126,148 @@ router.get('/', requirePermission('installed_devices.view', 'clients.devices.vie
   res.json(rows);
 });
 
+// Shared branch-scope for the device list endpoints. Installed devices are
+// branch-only (no ASSIGNED tier): scope is the branch filter alone. Mirrors the
+// Contracts records pattern (actingBranchId for non-super-admin; optional
+// X-Branch-Id narrowing for a GLOBAL super-admin) so GET '/' and '/paged' agree.
+function appendInstalledDeviceListScope(authContext: any, req: any, params: any[]): string[] {
+  const conditions: string[] = [];
+  if (!authContext.isSuperAdmin) {
+    conditions.push(`d.branch_id = $${params.push(authContext.actingBranchId)}`);
+  } else {
+    const hb = Number(req.header('x-branch-id'));
+    if (Number.isFinite(hb) && hb > 0) conditions.push(`d.branch_id = $${params.push(hb)}`);
+  }
+  return conditions;
+}
+
+// Whitelist of sortable columns for GET '/paged' (never interpolate raw input).
+const INSTALLED_DEVICE_SORT_COLUMNS: Record<string, string> = {
+  id: 'd.id',
+  deviceModelName: 'COALESCE(d.device_model_name, c.device_model_name, d.external_device_name)',
+  customerName: 'COALESCE(cl.name, c.customer_name)',
+  installationDate: 'd.installation_date',
+  status: 'd.status',
+  createdAt: 'd.created_at',
+};
+
+// GET /api/installed-devices/paged — server pagination + rich filters + sort.
+// Isolated companion to GET '/'; the records page (InstalledDevicesList) is its
+// only consumer. Branch-scoped via appendInstalledDeviceListScope (no drift).
+router.get('/paged', requirePermission('installed_devices.view', 'clients.devices.view', 'contracts.view_list'), async (req, res) => {
+  try {
+    const authContext = req.authContext!;
+    const params: any[] = [];
+    const conditions = appendInstalledDeviceListScope(authContext, req, params);
+
+    const cid = Number(req.query.customerId);
+    if (cid > 0) conditions.push(`d.customer_id = $${params.push(cid)}`);
+
+    const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+    if (search) {
+      params.push(`%${search}%`);
+      const ref = `$${params.length}`;
+      conditions.push(
+        `(COALESCE(d.device_model_name, c.device_model_name, d.external_device_name) ILIKE ${ref}`
+        + ` OR d.serial_number ILIKE ${ref}`
+        + ` OR COALESCE(cl.name, c.customer_name) ILIKE ${ref}`
+        + ` OR c.contract_number ILIKE ${ref})`,
+      );
+    }
+
+    const DEVICE_STATUSES = ['registered', 'pending_delivery', 'delivered', 'installed', 'active', 'faulty', 'in_workshop', 'ready', 'out_of_service', 'retrieved', 'contract_cancelled'];
+    const status = typeof req.query.status === 'string' ? req.query.status.trim() : '';
+    if (DEVICE_STATUSES.includes(status)) { params.push(status); conditions.push(`d.status = $${params.length}`); }
+
+    const deviceSource = typeof req.query.deviceSource === 'string' ? req.query.deviceSource.trim() : '';
+    if (['company_contract', 'external'].includes(deviceSource)) { params.push(deviceSource); conditions.push(`d.device_source = $${params.length}`); }
+
+    const goldenWarranty = req.query.goldenWarranty;
+    if (goldenWarranty === 'true' || goldenWarranty === 'yes') conditions.push(`d.is_golden_warranty = TRUE`);
+    else if (goldenWarranty === 'false' || goldenWarranty === 'no') conditions.push(`d.is_golden_warranty IS NOT TRUE`);
+
+    const saleSubtype = typeof req.query.saleSubtype === 'string' ? req.query.saleSubtype.trim() : '';
+    if (['definitive', 'temporary', 'free'].includes(saleSubtype)) { params.push(saleSubtype); conditions.push(`c.sale_subtype = $${params.length}`); }
+
+    const toId = (v: unknown) => { const n = Number(v); return Number.isInteger(n) && n > 0 ? n : null; };
+    const deviceModel = toId(req.query.deviceModel);
+    if (deviceModel != null) { params.push(deviceModel); conditions.push(`COALESCE(d.device_model_id, c.device_model_id) = $${params.length}`); }
+
+    // Geo subtree: the frontend expands a selected node to its descendant ids.
+    const geoIds = typeof req.query.geoIds === 'string'
+      ? req.query.geoIds.split(',').map(s => s.trim()).filter(s => /^\d+$/.test(s))
+      : [];
+    if (geoIds.length > 0) { params.push(geoIds.map(Number)); conditions.push(`d.installation_geo_unit_id = ANY($${params.length}::int[])`); }
+
+    const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+    const installFrom = typeof req.query.installFrom === 'string' && dateRe.test(req.query.installFrom) ? req.query.installFrom : '';
+    if (installFrom) { params.push(installFrom); conditions.push(`d.installation_date >= $${params.length}::date`); }
+    const installTo = typeof req.query.installTo === 'string' && dateRe.test(req.query.installTo) ? req.query.installTo : '';
+    if (installTo) { params.push(installTo); conditions.push(`d.installation_date < ($${params.length}::date + INTERVAL '1 day')`); }
+
+    const hasServiceAgreement = req.query.hasServiceAgreement;
+    if (hasServiceAgreement === 'yes') conditions.push(`active_sa.id IS NOT NULL`);
+    else if (hasServiceAgreement === 'no') conditions.push(`active_sa.id IS NULL`);
+
+    // Warranty ending within N days (golden or contract) — renewal targeting.
+    const expDays = Number(req.query.warrantyExpiringDays);
+    if (Number.isInteger(expDays) && expDays > 0) {
+      params.push(expDays);
+      const ref = `$${params.length}`;
+      conditions.push(
+        `(GREATEST(COALESCE(d.golden_warranty_end_date, DATE '1900-01-01'), COALESCE(d.contract_warranty_end_date, DATE '1900-01-01')) >= CURRENT_DATE`
+        + ` AND LEAST(COALESCE(d.golden_warranty_end_date, DATE '9999-12-31'), COALESCE(d.contract_warranty_end_date, DATE '9999-12-31')) <= CURRENT_DATE + (${ref} || ' days')::interval)`,
+      );
+    }
+
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const pageRaw = Number(req.query.page);
+    const page = Number.isInteger(pageRaw) && pageRaw > 0 ? pageRaw : 1;
+    const limitRaw = Number(req.query.limit);
+    const limit = Math.min(100, Math.max(1, Number.isInteger(limitRaw) && limitRaw > 0 ? limitRaw : 25));
+    const offset = (page - 1) * limit;
+
+    const sortKey = typeof req.query.sortKey === 'string' && INSTALLED_DEVICE_SORT_COLUMNS[req.query.sortKey]
+      ? req.query.sortKey
+      : 'createdAt';
+    const sortDir = req.query.sortDir === 'asc' ? 'ASC' : 'DESC';
+    const orderBy = `${INSTALLED_DEVICE_SORT_COLUMNS[sortKey]} ${sortDir}, d.id ${sortDir}`;
+
+    const fromJoins =
+      `FROM installed_devices d
+       LEFT JOIN contracts c ON c.id = d.contract_id
+       LEFT JOIN clients cl ON cl.id = d.customer_id
+       LEFT JOIN branches b ON b.id = d.branch_id
+       LEFT JOIN geo_units gu ON gu.id = d.installation_geo_unit_id
+       LEFT JOIN device_models dm ON dm.id = COALESCE(d.device_model_id, c.device_model_id)
+       LEFT JOIN LATERAL (
+         SELECT sa.id, sa.maintenance_plan, sa.visits_count
+           FROM service_agreements sa
+          WHERE sa.installed_device_id = d.id
+            AND sa.status = 'active'
+            AND (sa.start_date IS NULL OR sa.start_date <= CURRENT_DATE)
+            AND (sa.end_date IS NULL OR sa.end_date >= CURRENT_DATE)
+          ORDER BY COALESCE(sa.start_date, sa.agreement_date) DESC, sa.id DESC
+          LIMIT 1
+       ) active_sa ON TRUE`;
+
+    const pageParams = [...params, limit, offset];
+    const limitRef = `$${params.length + 1}`;
+    const offsetRef = `$${params.length + 2}`;
+
+    const [pageResult, countResult] = await Promise.all([
+      pool.query(`SELECT ${selectFields} ${fromJoins} ${where} ORDER BY ${orderBy} LIMIT ${limitRef} OFFSET ${offsetRef}`, pageParams),
+      pool.query(`SELECT COUNT(*)::int AS total ${fromJoins} ${where}`, params),
+    ]);
+
+    res.json({ items: pageResult.rows, total: countResult.rows[0]?.total ?? 0, page, limit });
+  } catch (err: any) {
+    console.error('[installed-devices] paged failed:', err);
+    res.status(500).json({ error: 'فشل تحميل الأجهزة', detail: err?.message });
+  }
+});
+
 // POST /api/installed-devices/external
 router.post('/external', requirePermission('installed_devices.create_external'), async (req, res, next) => {
   try {

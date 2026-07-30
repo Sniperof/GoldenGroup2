@@ -872,6 +872,7 @@ export interface CatalogPriceHistoryEntry {
 export type ContractStatus = 'draft' | 'active' | 'cancelled' | 'completed' | 'discarded';
 export type SaleSubtype = 'definitive' | 'temporary' | 'free';
 export type SaleType = 'tradein' | 'retention' | 'direct';
+export type OldDeviceCondition = 'good' | 'damaged';
 // DEC-CT-02: `maintenance_contract` has been extracted into the independent
 // `service_agreements` entity. The literal is retained in this union for
 // backward compatibility with existing web state and read paths only —
@@ -893,7 +894,8 @@ export type DeviceStatus =
   | 'in_workshop'
   | 'ready'
   | 'out_of_service'
-  | 'retrieved';
+  | 'retrieved'
+  | 'contract_cancelled';
 
 // Warranty status — per DEC-CT-05 (replaces is_active).
 export type WarrantyStatus = 'pending' | 'active' | 'cancelled' | 'expired';
@@ -1054,6 +1056,10 @@ export interface Contract {
     installationDate: string;
     status: ContractStatus;
     saleType?: SaleType | null;
+    /** Statistical snapshot only; it does not link to or mutate another contract. */
+    oldContractNumber?: string | null;
+    /** Statistical condition of the old device for trade-in sales. */
+    oldDeviceCondition?: OldDeviceCondition | null;
     saleSource?: SaleSource | null;
     discountId?: number | null;
     discount?: ContractDiscountSnapshot | null;
