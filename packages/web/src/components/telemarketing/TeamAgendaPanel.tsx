@@ -1,11 +1,14 @@
 import React, { useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MapPin, User, Calendar, CalendarOff } from '../ui/icons';
+import { MapPin, User, Calendar, CalendarOff, ChevronLeft } from '../ui/icons';
 import { Appointment } from '../../lib/types';
 
 interface TeamAgendaPanelProps {
     appointments: Appointment[];
     date: string;
+    /** When provided, a collapse/close button appears in the header (used by the
+     *  desktop rail to collapse, and the mobile drawer to dismiss). */
+    onCollapse?: () => void;
 }
 
 const normalizeTimeSlot = (value: string | null | undefined) => String(value || '').slice(0, 5);
@@ -16,7 +19,7 @@ const TERMINAL_STATUS_META: Partial<Record<Appointment['status'] & string, { lab
     not_completed: { label: 'لم تكتمل', className: 'border-amber-200 bg-amber-50 text-amber-700' },
 };
 
-export default function TeamAgendaPanel({ appointments, date }: TeamAgendaPanelProps) {
+export default function TeamAgendaPanel({ appointments, date, onCollapse }: TeamAgendaPanelProps) {
     // Flexible booking means appointments can land on any minute, so the agenda
     // is now a real chronological list of the actual bookings rather than a
     // fixed 24-row hourly grid.
@@ -37,9 +40,22 @@ export default function TeamAgendaPanel({ appointments, date }: TeamAgendaPanelP
                     </h2>
                     <p className="text-xs text-slate-500 mt-1 mr-5">جدول زيارات الخطة: {date}</p>
                 </div>
-                <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md px-2 py-0.5">
-                    {sortedAppointments.length} موعد
-                </span>
+                <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md px-2 py-0.5">
+                        {sortedAppointments.length} موعد
+                    </span>
+                    {onCollapse && (
+                        <button
+                            type="button"
+                            onClick={onCollapse}
+                            title="طيّ"
+                            aria-label="طيّ لوحة مواعيد الفريق"
+                            className="w-7 h-7 rounded-lg border border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100 hover:text-slate-700 flex items-center justify-center transition-colors"
+                        >
+                            <ChevronLeft className="w-4 h-4" />
+                        </button>
+                    )}
+                </div>
             </div>
 
             {/* Chronological timeline */}
