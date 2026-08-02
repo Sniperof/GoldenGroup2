@@ -245,7 +245,9 @@ export default function PlanOverview() {
         return { key: card.key, dashboard, scope };
       }));
       if (cancelled) return;
-      setTeamDashboards(Object.fromEntries(results.filter(item => item.dashboard).map(item => [item.key, item.dashboard])));
+      setTeamDashboards(Object.fromEntries(
+        results.flatMap(item => item.dashboard ? [[item.key, item.dashboard] as const] : []),
+      ));
       setWorkScopes(Object.fromEntries(results.filter(item => item.scope).map(item => [item.key, item.scope])));
       setDashboardFailures(results.filter(item => !item.dashboard).length);
       setOperationalLoading(false);
@@ -281,7 +283,12 @@ export default function PlanOverview() {
     const ids = new Set<number>();
     [...(currentSchedule.teams || []), ...(currentSchedule.solos || [])].forEach(team => {
       if ((team as any)?.locked === true) return;
-      [team.supervisor, team.technician, team.trainee, ...(team.telemarketers || [])]
+      [
+        ...('supervisor' in team ? [team.supervisor] : []),
+        team.technician,
+        team.trainee,
+        ...(team.telemarketers || []),
+      ]
         .filter((id): id is number => typeof id === 'number')
         .forEach(id => ids.add(id));
     });
