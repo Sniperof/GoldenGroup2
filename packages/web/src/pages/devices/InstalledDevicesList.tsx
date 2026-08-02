@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import { HardDrive, Eye, Loader2, ShieldCheck, MapPin, Search, SlidersHorizontal, ChevronDown, X, XCircle, Building2 } from '../../components/ui/icons';
 import SmartTable from '../../components/SmartTable';
 import type { ColumnDef } from '../../components/SmartTable';
+import { collectAllPages } from '../../components/tableExport';
 import Select from '../../components/ui/Select';
 import DateField from '../../components/ui/DateField';
 import BranchScopeIndicator from '../../components/BranchScopeIndicator';
@@ -167,13 +168,11 @@ export default function InstalledDevicesList() {
             .catch(() => setDeviceModelOptions([]));
     }, []);
 
-    const fetchDevices = useCallback(async () => {
+    const buildListParams = useCallback((): Parameters<typeof api.installedDevices.listPaged>[0] => {
         const branchParam = isGlobalView ? contextBranchId : null;
         const useSort = sortDir != null && sortKey != null;
-        const res = await api.installedDevices.listPaged({
+        return {
             branchId: branchParam,
-            page,
-            limit,
             search: debouncedSearch,
             status: filterStatus,
             deviceSource: filterSource,
@@ -187,11 +186,28 @@ export default function InstalledDevicesList() {
             geoIds: geo.geoIdsCsv || undefined,
             sortKey: useSort ? (SORT_KEY_MAP[sortKey!] ?? undefined) : undefined,
             sortDir: useSort ? sortDir : undefined,
+        };
+    }, [isGlobalView, contextBranchId, debouncedSearch, filterStatus, filterSource, filterGolden,
+        filterSaleSubtype, filterDeviceModel, filterServiceAgreement, filterWarrantyExpiring, installFrom, installTo, geo.geoIdsCsv, sortKey, sortDir]);
+
+    const fetchDevices = useCallback(async () => {
+        const res = await api.installedDevices.listPaged({
+            ...buildListParams(),
+            page,
+            limit,
         });
         setDevices(res.items as InstalledDevice[]);
         setTotal(res.total);
-    }, [isGlobalView, contextBranchId, page, limit, debouncedSearch, filterStatus, filterSource, filterGolden,
-        filterSaleSubtype, filterDeviceModel, filterServiceAgreement, filterWarrantyExpiring, installFrom, installTo, geo.geoIdsCsv, sortKey, sortDir]);
+    }, [buildListParams, page, limit]);
+
+    const fetchAllFiltered = useCallback(() => collectAllPages<InstalledDevice>(async (exportPage, exportLimit) => {
+        const res = await api.installedDevices.listPaged({
+            ...buildListParams(),
+            page: exportPage,
+            limit: exportLimit,
+        });
+        return { items: res.items as InstalledDevice[], total: res.total };
+    }), [buildListParams]);
 
     useEffect(() => {
         if (!canViewDevices) { setLoading(false); setInitialLoad(false); return; }
@@ -407,6 +423,7 @@ export default function InstalledDevicesList() {
                     hideFilterBar={true}
                     data={devices}
                     columns={columns}
+                    exportRows={fetchAllFiltered}
                     getId={(d) => d.id}
                     server={{
                         totalCount: total,

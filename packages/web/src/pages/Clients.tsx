@@ -45,6 +45,7 @@ import PageHeader from '../components/ui/PageHeader';
 import ClientAvatar from '../components/ClientAvatar';
 import SmartTable from '../components/SmartTable';
 import type { ColumnDef, FilterDef } from '../components/SmartTable';
+import { collectAllPages } from '../components/tableExport';
 import ManualSearchModal from '../components/candidates/ManualSearchModal';
 import QualificationModal from '../components/candidates/QualificationModal';
 import AddCandidateModal from '../components/candidates/AddCandidateModal';
@@ -287,19 +288,26 @@ export default function Clients() {
         return () => { active = false; };
     }, [fetchClients]);
 
-    // On-demand loader for the "activate filtered results" bulk action — walks the
-    // paged endpoint (100/page) to gather the WHOLE filtered set, since the page
-    // state only holds one page. Explicit admin action, so a larger fetch is fine.
-    const fetchAllFiltered = useCallback(async (): Promise<Client[]> => {
+    // On-demand loader shared by whole-filter bulk actions and CSV export. It
+    // keeps the active server filters and sort instead of exporting one page.
+    const fetchAllFiltered = useCallback(async (): Promise<Array<Client & { lifecycleStage: string }>> => {
         const base = buildListParams();
-        const acc: Client[] = [];
-        for (let p = 1; p <= 500; p++) {
-            const res = await api.clients.listPaged({ ...base, page: p, limit: 100 });
-            acc.push(...(res.items as Client[]));
-            if (acc.length >= res.total || res.items.length === 0) break;
-        }
-        return acc;
-    }, [buildListParams]);
+        const useSort = sortDir != null;
+        const rows = await collectAllPages<Client>(async (exportPage, exportLimit) => {
+            const res = await api.clients.listPaged({
+                ...base,
+                page: exportPage,
+                limit: exportLimit,
+                sortKey: useSort ? (SORT_KEY_MAP[sortKey] ?? 'id') : undefined,
+                sortDir: useSort ? sortDir : undefined,
+            });
+            return { items: res.items as Client[], total: res.total };
+        });
+        return rows.map(client => ({
+            ...client,
+            lifecycleStage: (client as Client & { lifecycleStage?: string }).lifecycleStage ?? 'Lead',
+        }));
+    }, [buildListParams, sortKey, sortDir]);
 
     // Owner options — eligible personal owners, scoped to the branch filter.
     useEffect(() => {
@@ -809,6 +817,7 @@ export default function Clients() {
                 hideFilterBar={true}
                 data={mainList}
                 columns={visibleClientColumns}
+                exportRows={fetchAllFiltered}
                 tableMinWidth={980}
                 getId={(c) => c.id}
                 defaultSortKey="id"

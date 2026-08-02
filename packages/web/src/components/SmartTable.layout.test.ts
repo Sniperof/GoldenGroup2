@@ -14,3 +14,9 @@ test('client profile does not inject a tab-height offset into nested tables', ()
   assert.doesNotMatch(clientProfileSource, /--st-sticky-top/);
   assert.doesNotMatch(clientProfileSource, /tabsBarH|tabsBarRef/);
 });
+
+test('server-driven SmartTable requires a complete-result loader before exporting', () => {
+  assert.match(smartTableSource, /exportRows\?: \(\) => Promise<T\[]> \| T\[]/);
+  assert.match(smartTableSource, /if \(isServer && !exportRows\) return/);
+  assert.match(smartTableSource, /disabled=\{isExporting \|\| \(isServer && !exportRows\)\}/);
+});

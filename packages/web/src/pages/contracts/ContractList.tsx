@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import { FileText, Plus, Eye, Loader2, Building2, Search, SlidersHorizontal, ChevronDown, X, XCircle } from '../../components/ui/icons';
 import SmartTable from '../../components/SmartTable';
 import type { ColumnDef } from '../../components/SmartTable';
+import { collectAllPages } from '../../components/tableExport';
 import Select from '../../components/ui/Select';
 import DateField from '../../components/ui/DateField';
 import BranchScopeIndicator from '../../components/BranchScopeIndicator';
@@ -154,13 +155,11 @@ export default function ContractList() {
             .catch(() => setDeviceModelOptions([]));
     }, []);
 
-    const fetchContracts = useCallback(async () => {
+    const buildListParams = useCallback((): Parameters<typeof api.contracts.listPaged>[0] => {
         const branchParam = isGlobalView ? contextBranchId : null;
         const useSort = sortDir != null && sortKey != null;
-        const res = await api.contracts.listPaged({
+        return {
             branchId: branchParam,
-            page,
-            limit,
             search: debouncedSearch,
             status: filterStatus,
             paymentType: filterPaymentType,
@@ -176,12 +175,29 @@ export default function ContractList() {
             priceMax,
             sortKey: useSort ? (SORT_KEY_MAP[sortKey!] ?? undefined) : undefined,
             sortDir: useSort ? sortDir : undefined,
+        };
+    }, [isGlobalView, contextBranchId, debouncedSearch, filterStatus, filterPaymentType,
+        filterSaleType, filterOldDeviceCondition, filterSaleSubtype, filterSaleOwner, filterClosingEmployee, filterDeviceModel,
+        dateFrom, dateTo, priceMin, priceMax, sortKey, sortDir]);
+
+    const fetchContracts = useCallback(async () => {
+        const res = await api.contracts.listPaged({
+            ...buildListParams(),
+            page,
+            limit,
         });
         setContracts(res.items as Contract[]);
         setTotal(res.total);
-    }, [isGlobalView, contextBranchId, page, limit, debouncedSearch, filterStatus, filterPaymentType,
-        filterSaleType, filterOldDeviceCondition, filterSaleSubtype, filterSaleOwner, filterClosingEmployee, filterDeviceModel,
-        dateFrom, dateTo, priceMin, priceMax, sortKey, sortDir]);
+    }, [buildListParams, page, limit]);
+
+    const fetchAllFiltered = useCallback(() => collectAllPages<Contract>(async (exportPage, exportLimit) => {
+        const res = await api.contracts.listPaged({
+            ...buildListParams(),
+            page: exportPage,
+            limit: exportLimit,
+        });
+        return { items: res.items as Contract[], total: res.total };
+    }), [buildListParams]);
 
     useEffect(() => {
         if (!canViewContracts) { setLoading(false); setInitialLoad(false); return; }
@@ -398,6 +414,7 @@ export default function ContractList() {
                     hideFilterBar={true}
                     data={contracts}
                     columns={columns}
+                    exportRows={fetchAllFiltered}
                     getId={(c) => c.id}
                     server={{
                         totalCount: total,

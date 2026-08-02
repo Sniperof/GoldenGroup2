@@ -1,10 +1,11 @@
-import { useState, useMemo, useCallback, useEffect, type ReactNode } from 'react';
+import { isValidElement, useState, useMemo, useCallback, useEffect, type ReactNode } from 'react';
 import { motion } from 'framer-motion';
-import { Search, Download, RotateCcw, ChevronUp, ChevronDown, ChevronsUpDown } from './ui/icons';
+import { Search, Download, Loader2, RotateCcw, ChevronUp, ChevronDown, ChevronsUpDown } from './ui/icons';
 import type { LucideIcon } from './ui/icons';
 import Select from './ui/Select';
 import Input from './ui/Input';
 import Checkbox from './ui/Checkbox';
+import { buildCsv, downloadCsv } from './tableExport';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -18,6 +19,8 @@ export interface ColumnDef<T> {
     width?: string;
     minWidth?: string;
     getValue?: (item: T) => string | number;
+    /** Plain value used by CSV export when the visible cell is rendered JSX. */
+    exportValue?: (item: T) => unknown;
 }
 
 export interface FilterDef {
@@ -59,6 +62,9 @@ export interface SmartTableProps<T> {
     tableMinWidth?: number;
     defaultSortKey?: string;
     defaultSortDir?: 'asc' | 'desc';
+    /** Loads the complete filtered result for export (required in server mode). */
+    exportRows?: () => Promise<T[]> | T[];
+    exportFileName?: string;
     /**
      * Client-side pagination. Default `true` (10/page with footer nav).
      * Set `false` to render ALL rows on one page — no page navigation and no
@@ -97,24 +103,12 @@ const ROW_HEIGHT = 56; // px — fixed row height for visual consistency
 
 type SortDir = 'asc' | 'desc' | null;
 
-function exportCSV<T>(columns: ColumnDef<T>[], data: T[], title: string) {
-    const header = columns.map(c => c.label).join(',');
-    const rows = data.map(item =>
-        columns.map(c => {
-            const val = c.getValue ? c.getValue(item) : (item as any)[c.key];
-            const str = String(val ?? '').replace(/"/g, '""');
-            return `"${str}"`;
-        }).join(',')
-    );
-    const bom = '\uFEFF';
-    const csv = bom + [header, ...rows].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${title}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+function reactNodeText(node: ReactNode): string {
+    if (node == null || typeof node === 'boolean') return '';
+    if (typeof node === 'string' || typeof node === 'number') return String(node);
+    if (Array.isArray(node)) return node.map(reactNodeText).filter(Boolean).join(' ');
+    if (isValidElement<{ children?: ReactNode }>(node)) return reactNodeText(node.props.children);
+    return '';
 }
 
 /* ------------------------------------------------------------------ */
@@ -144,6 +138,8 @@ export default function SmartTable<T>({
     tableMinWidth = 860,
     defaultSortKey,
     defaultSortDir,
+    exportRows,
+    exportFileName,
     paginated = true,
     server,
 }: SmartTableProps<T> & { rowClassName?: (item: T) => string }) {
@@ -160,6 +156,7 @@ export default function SmartTable<T>({
     const [selected, setSelected] = useState<Set<string | number>>(new Set());
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(10);
+    const [isExporting, setIsExporting] = useState(false);
 
     /* ---------- filtering ---------- */
     const filtered = useMemo(() => {
@@ -285,6 +282,34 @@ export default function SmartTable<T>({
     const shownSortKey = isServer ? server!.sortKey : sortKey;
     const shownSortDir = isServer ? server!.sortDir : sortDir;
 
+    const handleExport = useCallback(async () => {
+        if (isServer && !exportRows) return;
+        setIsExporting(true);
+        try {
+            const rows = exportRows ? await exportRows() : sorted;
+            const csv = buildCsv(
+                columns.map(column => ({
+                    label: column.label,
+                    getValue: (item: T) => {
+                        if (column.exportValue) return column.exportValue(item);
+                        if (column.render) {
+                            const rendered = reactNodeText(column.render(item)).replace(/\s+/g, ' ').trim();
+                            if (rendered) return rendered;
+                        }
+                        return column.getValue ? column.getValue(item) : (item as Record<string, unknown>)[column.key];
+                    },
+                })),
+                rows,
+            );
+            downloadCsv(csv, exportFileName ?? title);
+        } catch (error) {
+            console.error('Failed to export table:', error);
+            window.alert('تعذر توليد التقرير كاملاً. يرجى إعادة المحاولة.');
+        } finally {
+            setIsExporting(false);
+        }
+    }, [isServer, exportRows, sorted, columns, exportFileName, title]);
+
     /* ---------- reset ---------- */
     const resetFilters = useCallback(() => {
         setSearch('');
@@ -322,11 +347,13 @@ export default function SmartTable<T>({
                 </button>
             )}
             <button
-                onClick={() => exportCSV(columns, sorted, title)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 text-xs font-medium transition-colors whitespace-nowrap"
+                onClick={handleExport}
+                disabled={isExporting || (isServer && !exportRows)}
+                title={isServer && !exportRows ? 'التصدير الكامل غير مهيأ لهذا الجدول' : undefined}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 text-xs font-medium transition-colors whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
             >
-                <Download className="w-3 h-3" />
-                توليد تقرير
+                {isExporting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+                {isExporting ? 'جاري تجهيز التقرير…' : 'توليد تقرير'}
             </button>
             {headerActions}
         </>
