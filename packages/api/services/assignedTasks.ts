@@ -3,6 +3,7 @@ import { getPlanningWorkScope } from './planningMarketingTargets.js';
 import { resolveAssignmentOwningBranch } from '../policies/routeAssignmentPolicy.js';
 import { buildPlanningTaskAvailablePredicate } from './planningContactTargetScope.js';
 import { lockPlanningDayMutation } from './planningTaskCuration.js';
+import { assertPlanningDayCycleWritable } from './planningDayCycle.js';
 
 /** Thrown when a team is asked to plan/assign a branch it does not belong to. */
 export class CrossBranchAssignmentError extends Error {
@@ -72,6 +73,7 @@ export async function syncAssignedTasks(params: {
   const { date, teamKey, branchId, scopeId = null, performedBy = null } = params;
   const db = params.db;
   await lockPlanningDayMutation(db, branchId, date);
+  await assertPlanningDayCycleWritable(db, branchId, date, teamKey);
 
   // ── Step 0 (branch-isolation guard, GAP-DS-005 / PL-R005): the team's owning
   // branch is DERIVED from its scheduled supervisor (day_schedules has no branch_id).
@@ -133,7 +135,7 @@ export async function syncAssignedTasks(params: {
       lastWaitingStatus: string | null;
     }>(
       `SELECT id, status,
-              excluded_for_date   AS "excludedForDate",
+              excluded_for_date::text AS "excludedForDate",
               last_waiting_status AS "lastWaitingStatus"
          FROM open_tasks
         WHERE id = ANY($1::int[])

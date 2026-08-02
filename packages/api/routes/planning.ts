@@ -20,10 +20,20 @@ import {
   type PlanningDashboardFilters,
   type PlanningExclusionLayer,
 } from '../services/planningTaskCuration.js';
+import {
+  assertPlanningDayCycleWritable,
+  closePlanningDayCycle,
+  getPlanningDayCycle,
+  PlanningDayCycleError,
+  previewPlanningDayCycleClose,
+} from '../services/planningDayCycle.js';
 
 const router = Router();
 
 function sendPlanningCurationError(res: any, error: unknown) {
+  if (error instanceof PlanningDayCycleError) {
+    return res.status(error.status).json({ error: error.message, code: error.code });
+  }
   if (error instanceof PlanningCurationError) {
     return res.status(error.status).json({
       error: error.message,
@@ -848,18 +858,20 @@ router.get('/contact-targets-dashboard/curation', requirePermission('planning.ma
       }
     }
 
+    const cycle = await getPlanningDayCycle(pool, branchId, date, teamKey);
     const response = await getPlanningCurationDashboard({
       authContext: req.authContext!,
       date,
       teamKey,
       branchId,
+      closedCycle: cycle.status === 'closed',
       filters,
       page: Number(req.query.page ?? 1),
       limit: Number(req.query.limit ?? 50),
       sortBy: typeof req.query.sortBy === 'string' ? req.query.sortBy : undefined,
       sortDir: req.query.sortDir === 'desc' ? 'desc' : 'asc',
     });
-    return res.json(response);
+    return res.json({ ...response, cycle });
   } catch (error) {
     return sendPlanningCurationError(res, error);
   }
@@ -871,10 +883,13 @@ router.post('/contact-targets-dashboard/curation/preview', requirePermission('pl
     if (branchId == null) {
       return res.status(400).json({ error: 'يجب تحديد فرع فعّال', code: 'BRANCH_REQUIRED' });
     }
+    const date = typeof req.body?.date === 'string' ? req.body.date : '';
+    const teamKey = typeof req.body?.teamKey === 'string' ? req.body.teamKey : '';
+    await assertPlanningDayCycleWritable(pool, branchId, date, teamKey);
     const response = await previewPlanningCuration({
       authContext: req.authContext!,
-      date: typeof req.body?.date === 'string' ? req.body.date : '',
-      teamKey: typeof req.body?.teamKey === 'string' ? req.body.teamKey : '',
+      date,
+      teamKey,
       branchId,
       action: req.body?.action as PlanningCurationAction,
       layer: req.body?.layer as PlanningExclusionLayer,
@@ -883,6 +898,43 @@ router.post('/contact-targets-dashboard/curation/preview', requirePermission('pl
       reasonText: req.body?.reasonText,
     });
     return res.json(response);
+  } catch (error) {
+    return sendPlanningCurationError(res, error);
+  }
+});
+
+router.post('/contact-targets-dashboard/close/preview', requirePermission('planning.manage'), async (req, res) => {
+  try {
+    const date = typeof req.body?.date === 'string' ? req.body.date : '';
+    const teamKey = typeof req.body?.teamKey === 'string' ? req.body.teamKey : '';
+    const branchId = req.authContext?.actingBranchId ?? null;
+    if (branchId == null) {
+      return res.status(400).json({ error: 'A branch context is required', code: 'BRANCH_REQUIRED' });
+    }
+    await assertPlanningTeamSubject(req.authContext!, date, teamKey, branchId);
+    return res.json(await previewPlanningDayCycleClose({ branchId, date, teamKey }));
+  } catch (error) {
+    return sendPlanningCurationError(res, error);
+  }
+});
+
+router.post('/contact-targets-dashboard/close', requirePermission('planning.manage'), async (req, res) => {
+  try {
+    const date = typeof req.body?.date === 'string' ? req.body.date : '';
+    const teamKey = typeof req.body?.teamKey === 'string' ? req.body.teamKey : '';
+    const branchId = req.authContext?.actingBranchId ?? null;
+    if (branchId == null) {
+      return res.status(400).json({ error: 'A branch context is required', code: 'BRANCH_REQUIRED' });
+    }
+    await assertPlanningTeamSubject(req.authContext!, date, teamKey, branchId);
+    const result = await closePlanningDayCycle({
+      branchId,
+      date,
+      teamKey,
+      closedBy: req.authContext?.userId ?? null,
+      reason: 'plan_ended_manual',
+    });
+    return res.json({ date, teamKey, ...result });
   } catch (error) {
     return sendPlanningCurationError(res, error);
   }
@@ -937,6 +989,7 @@ router.post('/contact-targets-dashboard/sync', requirePermission('planning.manag
       return res.status(400).json({ error: 'A branch context is required' });
     }
     await assertPlanningTeamSubject(req.authContext!, date, teamKey, branchId);
+    await assertPlanningDayCycleWritable(pool, branchId, date, teamKey);
 
     const sync = await syncAssignedTasks({
       date,
@@ -962,7 +1015,9 @@ router.post('/contact-targets-dashboard/sync', requirePermission('planning.manag
       },
     });
   } catch (err: any) {
-    if (err instanceof PlanningCurationError) return sendPlanningCurationError(res, err);
+    if (err instanceof PlanningCurationError || err instanceof PlanningDayCycleError) {
+      return sendPlanningCurationError(res, err);
+    }
     console.error('Failed to sync contact targets dashboard:', err);
     return res.status(500).json({ error: err.message || 'Failed to sync contact targets dashboard' });
   }
@@ -1356,6 +1411,7 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
       contacted: clients.filter(client => client.workspaceStatus === 'contacted').length,
       closed: clients.filter(client => client.workspaceStatus === 'closed').length,
     };
+    const cycle = await getPlanningDayCycle(pool, branchId, date, teamKey);
 
     return res.json({
       teamKey,
@@ -1367,6 +1423,7 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
       pendingSyncCount,
       clients,
       summary,
+      cycle,
     });
   } catch (err: any) {
     if (err instanceof PlanningCurationError) return sendPlanningCurationError(res, err);

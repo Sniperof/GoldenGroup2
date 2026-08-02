@@ -606,21 +606,6 @@ export default function ClientProfile() {
     const [client, setClient] = useState<Client | null>(null);
     const [allGeoUnits, setAllGeoUnits] = useState<GeoUnit[]>([]);
     const [loading, setLoading] = useState(true);
-    // The tab bar is sticky at the top of the scroll area. Tables inside a tab
-    // (SmartTable) also have a sticky header — measure the bar so those headers
-    // can stick just below it instead of colliding at top:0.
-    const tabsBarRef = useRef<HTMLDivElement>(null);
-    const [tabsBarH, setTabsBarH] = useState(0);
-    useEffect(() => {
-        const el = tabsBarRef.current;
-        if (!el) return;
-        const update = () => setTabsBarH(el.getBoundingClientRect().height);
-        update();
-        const ro = new ResizeObserver(update);
-        ro.observe(el);
-        return () => ro.disconnect();
-    }, [client]);
-
     useEffect(() => {
         const clientId = Number(id);
         if (!clientId) {
@@ -717,7 +702,7 @@ export default function ClientProfile() {
                         </div>
 
                         <main className="min-w-0">
-                            <div ref={tabsBarRef} className="sticky top-0 z-30 mb-4 border-b border-slate-200 bg-slate-50/95 backdrop-blur">
+                            <div className="sticky top-0 z-30 mb-4 border-b border-slate-200 bg-slate-50/95 backdrop-blur">
                                 <ProfileTabsBar
                                     tabs={[
                                         { id: 'overview', label: 'نظرة عامة', icon: LayoutDashboard },
@@ -738,7 +723,7 @@ export default function ClientProfile() {
                                 />
                             </div>
 
-                            <div className="pt-1" style={{ ['--st-sticky-top' as any]: `${tabsBarH}px` }}>
+                            <div className="pt-1">
                         <AnimatePresence mode="wait">
                             <motion.div
                                 key={safeActiveTab}

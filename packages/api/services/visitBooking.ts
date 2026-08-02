@@ -45,6 +45,9 @@ export interface BookVisitInput {
   performedByUserId: number | null;
   customerSnapshot?: Record<string, unknown> | null;
   telemarketerNotes?: string | null;
+  answeredBy?: 'customer' | 'spouse' | 'child' | 'other' | null;
+  fieldInstructions?: string | null;
+  bookingCallLogId?: string | null;
 }
 
 export interface BookVisitResult {
@@ -366,6 +369,9 @@ export async function bookVisit(input: BookVisitInput): Promise<BookVisitResult>
          appointment_booked_at,
          booked_by_telemarketer_id,
          telemarketer_notes,
+         answered_by,
+         field_instructions,
+         booking_call_log_id,
          created_by
        ) VALUES (
          'marketing', $1, $2, $3, 'scheduled',
@@ -376,7 +382,10 @@ export async function bookVisit(input: BookVisitInput): Promise<BookVisitResult>
          NOW(),
          $11,
          $12,
-         $13
+         $13,
+         $14,
+         $15,
+         $16
        )
        RETURNING id`,
       [
@@ -392,6 +401,9 @@ export async function bookVisit(input: BookVisitInput): Promise<BookVisitResult>
         input.customerSnapshot ? JSON.stringify(input.customerSnapshot) : null,
         input.performedByUserId,
         input.telemarketerNotes ?? null,
+        input.answeredBy ?? null,
+        input.fieldInstructions ?? null,
+        input.bookingCallLogId ?? null,
         input.performedByUserId,
       ],
     );

@@ -24,6 +24,7 @@ export interface QueueCardStatus {
     manualClose: boolean;
     apptTime?: string | null;
     contactedCount: number;
+    planEnded?: boolean;
 }
 
 interface Props {
@@ -59,7 +60,7 @@ export function ratingDisplay(raw: string | null | undefined): { label: string; 
 }
 
 export default function CustomerQueueCard({ attrs, status, isActive, otherTeamsCount, ownershipLabel, onClick }: Props) {
-    const { booked, closed, contacted, manualClose, apptTime, contactedCount } = status;
+    const { booked, closed, contacted, manualClose, apptTime, contactedCount, planEnded } = status;
 
     // Leading status rail encodes lifecycle stage; the avatar keeps its own
     // data-quality colour so the two signals don't fight.
@@ -116,6 +117,11 @@ export default function CustomerQueueCard({ attrs, status, isActive, otherTeamsC
 
                 {/* Meta — classification · status · location · indicators (one line) */}
                 <div className="flex items-center gap-1.5 flex-wrap text-xs font-bold text-slate-500">
+                    {planEnded && (
+                        <span className="rounded-md border border-slate-300 bg-slate-100 px-1.5 py-0.5 text-[10px] font-black text-slate-700">
+                            انتهت الخطة
+                        </span>
+                    )}
                     {classCfg && <span className={`text-[10px] tracking-wide ${classCfg.cls}`}>{classCfg.label}</span>}
                     {statusWord && (<><span className="text-slate-300">·</span><span>{statusWord}</span></>)}
                     {attrs.stationLabel && (

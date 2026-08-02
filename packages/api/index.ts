@@ -6,7 +6,24 @@ import { createExpressMiddleware } from '@trpc/server/adapters/express';
 import { appRouter } from './trpc/router.js';
 import { setupSwagger } from './swagger.js';
 import { createContext } from './trpc/init.js';
-import { NODE_ENV, PORT, CORS_ORIGINS } from './config/env.js';
+import {
+  NODE_ENV,
+  PORT,
+  CORS_ORIGINS,
+  TRUST_PROXY,
+  APP_RATE_LIMIT_ENABLED,
+  APP_RATE_OTP_SEND,
+  APP_RATE_OTP_SEND_WINDOW_S,
+  APP_RATE_OTP_VERIFY,
+  APP_RATE_OTP_VERIFY_WINDOW_S,
+  APP_RATE_MUTATION,
+  APP_RATE_MUTATION_WINDOW_S,
+  APP_RATE_INTAKE,
+  APP_RATE_INTAKE_WINDOW_S,
+  APP_RATE_READ,
+  APP_RATE_READ_WINDOW_S,
+} from './config/env.js';
+import { rateLimit } from './middleware/rateLimit.js';
 import { UPLOADS_DIR } from './storage/uploader.js';
 import { requireAuth } from './middleware/auth.js';
 import { requireNotHQOnly } from './middleware/permission.js';
@@ -81,7 +98,59 @@ const app = express();
 // Restrict origins when CORS_ORIGINS is set in the environment.
 // Falls back to open cors() if unset, preserving current dev behaviour.
 app.use(cors(CORS_ORIGINS.length ? { origin: CORS_ORIGINS } : undefined));
+// `req.ip` feeds the public rate limits. Behind a reverse proxy this must be
+// set (TRUST_PROXY=1) or every caller resolves to the proxy address and the
+// per-IP windows become one shared bucket for the whole internet.
+app.set('trust proxy', TRUST_PROXY);
+if (NODE_ENV === 'production' && TRUST_PROXY === false) {
+  console.warn(
+    '[boot] TRUST_PROXY is unset. If the API sits behind nginx, per-IP rate limits ' +
+    'will collapse into a single bucket. Set TRUST_PROXY=1 in production.env.',
+  );
+}
 app.use(express.json({ limit: '10mb' }));
+
+// ── Public mobile surface: coarse per-IP limits ─────────────────────────────
+// Applied here, before the routers, so no future /api/app route can be added
+// without inheriting a limit. Identity-level caps (per phone / per account)
+// are enforced in the DB inside the services.
+const appReadLimiter = rateLimit({
+  bucket: 'app:read', limit: APP_RATE_READ, windowSeconds: APP_RATE_READ_WINDOW_S,
+});
+app.use('/api/app/otp/send', rateLimit({
+  bucket: 'app:otp:send',
+  limit: APP_RATE_OTP_SEND,
+  windowSeconds: APP_RATE_OTP_SEND_WINDOW_S,
+  message: 'طلبات كثيرة لرمز التحقق. حاول بعد قليل.',
+}));
+app.use('/api/app/otp/verify', rateLimit({
+  bucket: 'app:otp:verify',
+  limit: APP_RATE_OTP_VERIFY,
+  windowSeconds: APP_RATE_OTP_VERIFY_WINDOW_S,
+}));
+app.use('/api/app/service-requests', (req, res, next) => (
+  req.method === 'GET'
+    ? appReadLimiter(req, res, next)
+    : rateLimit({
+        bucket: 'app:intake',
+        limit: APP_RATE_INTAKE,
+        windowSeconds: APP_RATE_INTAKE_WINDOW_S,
+        message: 'طلبات كثيرة. حاول بعد قليل.',
+      })(req, res, next)
+));
+app.use('/api/app', (req, res, next) => (
+  req.method === 'GET'
+    ? appReadLimiter(req, res, next)
+    : rateLimit({
+        bucket: 'app:mutation',
+        limit: APP_RATE_MUTATION,
+        windowSeconds: APP_RATE_MUTATION_WINDOW_S,
+      })(req, res, next)
+));
+app.use('/api/public', appReadLimiter);
+if (!APP_RATE_LIMIT_ENABLED) {
+  console.warn('[boot] APP_RATE_LIMIT_ENABLED=false — the public mobile surface is unthrottled.');
+}
 
 /**
  * @swagger

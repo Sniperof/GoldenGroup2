@@ -306,7 +306,10 @@ export async function createServiceRequest(
         requestType: input.requestType ?? 'emergency_maintenance',
         status: initialStatus,
         duplicateFlag: dup.flagged,
-        duplicateOfRequestId: dup.bestMatch?.candidateId ?? null,
+        // service_requests.id is BIGINT — node-pg returns it as a string, so
+        // without this the field contradicts its own declared `number | null`
+        // and reaches JSON clients quoted. Same boundary coercion as `id`.
+        duplicateOfRequestId: dup.bestMatch ? Number(dup.bestMatch.candidateId) : null,
         reviewRequiredFlag: dup.flagged,
         periodicAttachmentCandidate,
       },

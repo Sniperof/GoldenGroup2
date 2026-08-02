@@ -39,7 +39,7 @@ export function buildPlanningTaskExcludedPredicate(
   const date = assertSqlToken(dateParameter, SQL_PARAMETER, 'date parameter');
 
   return `(
-    ${alias}.excluded_for_date = ${date}::date
+    COALESCE(${alias}.excluded_for_date = ${date}::date, FALSE)
     OR EXISTS (
       SELECT 1
       FROM planning_task_exclusions planning_exclusion

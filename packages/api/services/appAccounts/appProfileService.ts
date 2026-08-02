@@ -32,6 +32,63 @@ export interface MyProfile {
     neighborhood: string | null;
     detailedAddress: string | null;
   };
+  /**
+   * The same four levels as `address`, as geo_units ids — what a cascading
+   * picker needs to preselect itself. Names alone cannot drive a picker, and
+   * matching by name is wrong twice over: names repeat across governorates,
+   * and a renamed unit would silently stop matching.
+   *
+   * Added alongside `address` rather than folded into it so existing readers
+   * of `address.governorate` (a display string) keep working unchanged.
+   */
+  addressIds: {
+    governorate: number | null;
+    cityOrArea: number | null;
+    subArea: number | null;
+    neighborhood: number | null;
+  };
+  /** Deepest level present — the unit branch resolution routes on. */
+  geoUnitId: number | null;
+}
+
+interface GeoPathRow {
+  id: number;
+  level: number;
+  name: string;
+}
+
+/**
+ * Turns the ancestor walk into the two parallel shapes. Pure — exported for
+ * tests.
+ *
+ * The client record stores only three geo columns for a four-level tree, and
+ * the deepest one holds whichever level was picked (a sub-area on some rows, a
+ * neighbourhood on others). The missing level is not lost: walking up
+ * `geo_units.parent_id` reconstructs the full contiguous chain, which is why no
+ * schema change was needed to make the profile drive the request form.
+ */
+export function buildProfileAddress(rows: GeoPathRow[], detailedAddress: string | null): {
+  address: MyProfile['address'];
+  addressIds: MyProfile['addressIds'];
+  geoUnitId: number | null;
+} {
+  const address: MyProfile['address'] = {
+    governorate: null, cityOrArea: null, subArea: null, neighborhood: null, detailedAddress,
+  };
+  const addressIds: MyProfile['addressIds'] = {
+    governorate: null, cityOrArea: null, subArea: null, neighborhood: null,
+  };
+  const BY_LEVEL = { 1: 'governorate', 2: 'cityOrArea', 3: 'subArea', 4: 'neighborhood' } as const;
+
+  let deepest: { level: number; id: number } | null = null;
+  for (const row of rows) {
+    const key = BY_LEVEL[row.level as 1 | 2 | 3 | 4];
+    if (!key) continue;
+    address[key] = row.name;
+    addressIds[key] = Number(row.id);
+    if (!deepest || row.level > deepest.level) deepest = { level: row.level, id: Number(row.id) };
+  }
+  return { address, addressIds, geoUnitId: deepest?.id ?? null };
 }
 
 export async function getMyProfile(claims: AppAccountClaims): Promise<MyProfile> {
@@ -58,28 +115,21 @@ export async function getMyProfile(claims: AppAccountClaims): Promise<MyProfile>
   if (cliRows.length === 0) throw httpError(404, 'سجل الزبون غير موجود');
   const c = cliRows[0];
 
-  // Resolve the address path (level 1..4 names) by walking up the geo tree.
-  const address: MyProfile['address'] = {
-    governorate: null, cityOrArea: null, subArea: null, neighborhood: null,
-    detailedAddress: c.detailed_address,
-  };
+  // Resolve the address path (levels 1..4, ids + names) by walking up the tree.
+  let path: GeoPathRow[] = [];
   if (c.deepest_geo != null) {
-    const { rows: path } = await pool.query<{ level: number; name: string }>(
+    const { rows } = await pool.query<GeoPathRow>(
       `WITH RECURSIVE p AS (
          SELECT id, name, level, parent_id FROM geo_units WHERE id = $1
          UNION ALL
          SELECT g.id, g.name, g.level, g.parent_id FROM geo_units g JOIN p ON g.id = p.parent_id
        )
-       SELECT level, name FROM p`,
+       SELECT id, level, name FROM p`,
       [c.deepest_geo],
     );
-    for (const r of path) {
-      if (r.level === 1) address.governorate = r.name;
-      else if (r.level === 2) address.cityOrArea = r.name;
-      else if (r.level === 3) address.subArea = r.name;
-      else if (r.level === 4) address.neighborhood = r.name;
-    }
+    path = rows;
   }
+  const { address, addressIds, geoUnitId } = buildProfileAddress(path, c.detailed_address);
 
   // Extra numbers from contacts, normalized, excluding the primary + duplicates.
   const primaryNorm = normalizePhone(claims.phone);
@@ -101,5 +151,7 @@ export async function getMyProfile(claims: AppAccountClaims): Promise<MyProfile>
     secondaryMobiles,
     classification: deriveClientClassification(c.candidate_status),
     address,
+    addressIds,
+    geoUnitId,
   };
 }

@@ -8,6 +8,7 @@ import type {
 } from '@golden-crm/shared';
 import { shouldAttachBranchContextHeader } from './branchContext';
 import { authFetch } from './authFetch';
+import { DEVICE_BLOCK_MESSAGE_KEY, deviceClassHeader, readDeviceBlock } from './deviceClass';
 
 export const API_BASE = '/api';
 
@@ -193,7 +194,7 @@ export type PlanningTargetMode =
 
 export interface PlanningDashboardFilters {
   q?: string;
-  lifecycleStatuses?: Array<'ready' | 'queued' | 'contacted' | 'closed'>;
+  lifecycleStatuses?: Array<'ready' | 'queued' | 'in_call_list' | 'contacted' | 'closed'>;
   stationIds?: number[];
   classifications?: string[];
   ownershipTypes?: string[];
@@ -257,8 +258,8 @@ export interface PlanningCurationRow {
   ownerLabel: string;
   workLocationGeoUnitId: number | null;
   workLocationName: string | null;
-  lifecycleStatus: 'ready' | 'queued' | 'contacted' | 'closed';
-  contactTarget: { id: number; status: string; closingReason: string | null } | null;
+  lifecycleStatus: 'ready' | 'queued' | 'in_call_list' | 'contacted' | 'closed';
+  contactTarget: { id: number; status: string; closingReason: string | null; attemptCount: number } | null;
   listState: { generated: boolean; itemCount: number; committedTaskCount: number };
   contactBlocks: { doNotContact: boolean; cooldownUntil: string | null };
   counts: { totalTasks: number; matchingTasks: number; actionableTasks: number };
@@ -268,6 +269,7 @@ export interface PlanningCurationRow {
 export interface PlanningCurationDashboardResponse {
   date: string;
   teamKey: string;
+  teamLabel: string;
   planState: 'PRE_GENERATION' | 'COMMITTED';
   generatedAt: string | null;
   rows: PlanningCurationRow[];
@@ -278,8 +280,11 @@ export interface PlanningCurationDashboardResponse {
     matchingTasks: number;
     actionableTasks: number;
     matchingActionableTasks: number;
+    includedTodayTasks: number;
+    excludedTodayTasks: number;
     ready: number;
     queued: number;
+    in_call_list: number;
     contacted: number;
     closed: number;
     excludedTeamDay: number;
@@ -293,6 +298,25 @@ export interface PlanningCurationDashboardResponse {
     priorities: Array<{ value: string; label: string; count: number }>;
   };
   queryFingerprint: string;
+  cycle: PlanningDayCycle;
+}
+
+export interface PlanningDayCycleSummary {
+  contactTargetsClosed: number;
+  taskListsClosed: number;
+  linksClosed: number;
+  tasksReleased: number;
+  preservedBookings: number;
+  activeLocks: number;
+}
+
+export interface PlanningDayCycle {
+  status: 'planning' | 'ready' | 'active' | 'closing' | 'closed';
+  activatedAt: string | null;
+  closedAt: string | null;
+  closedBy: number | null;
+  closeReason: string | null;
+  closureSummary: PlanningDayCycleSummary;
 }
 
 function withEmergencyResultContext(path: string, context: EmergencyResultContext): string {
@@ -336,6 +360,10 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const token = getToken();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    // Resolves the Mac-vs-iPad ambiguity the server cannot see (see
+    // lib/deviceClass.ts). Sent on every call because the device policy is
+    // enforced per request, not only at login.
+    ...deviceClassHeader(),
     ...(options?.headers as Record<string, string>),
   };
   if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -350,6 +378,21 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     localStorage.removeItem('hr_user');
     window.location.href = '/login';
     throw new Error('انتهت صلاحية الجلسة — يرجى تسجيل الدخول مرة أخرى');
+  }
+
+  if (res.status === 403) {
+    // The device policy refuses this device. A session opened on a desktop
+    // travels with the token, so this can land mid-session on any call — treat
+    // it as "this device cannot hold a session": clear it and show the reason
+    // on the login screen instead of an error toast on every page.
+    const blocked = await readDeviceBlock(res);
+    if (blocked) {
+      localStorage.removeItem('hr_token');
+      localStorage.removeItem('hr_user');
+      sessionStorage.setItem(DEVICE_BLOCK_MESSAGE_KEY, blocked);
+      window.location.href = '/login';
+      throw new Error(blocked);
+    }
   }
 
   if (!res.ok) {
@@ -900,6 +943,8 @@ export const api = {
       timeSlot?: string;
       teamKey: string;
       notes?: string | null;
+      telemarketerNotes?: string | null;
+      fieldInstructions?: string | null;
       taskListId?: string;
       taskListItemId?: string;
       taskListItemIds?: string[];
@@ -1087,6 +1132,21 @@ export const api = {
     },
     syncContactTargetsDashboard: (date: string, teamKey: string) =>
       request<any>('/planning/contact-targets-dashboard/sync', {
+        method: 'POST',
+        body: JSON.stringify({ date, teamKey }),
+      }),
+    previewClosePlanningDay: (date: string, teamKey: string) =>
+      request<{ cycle: PlanningDayCycle; summary: PlanningDayCycleSummary }>(
+        '/planning/contact-targets-dashboard/close/preview',
+        { method: 'POST', body: JSON.stringify({ date, teamKey }) },
+      ),
+    closePlanningDay: (date: string, teamKey: string) =>
+      request<{
+        date: string;
+        teamKey: string;
+        alreadyClosed: boolean;
+        summary: PlanningDayCycleSummary;
+      }>('/planning/contact-targets-dashboard/close', {
         method: 'POST',
         body: JSON.stringify({ date, teamKey }),
       }),
@@ -1442,6 +1502,9 @@ export const api = {
       selectedOpenTasks?: Array<{ openTaskId: number; taskType: string }>;
       customerSnapshot?: Record<string, unknown> | null;
       notes?: string | null;
+      telemarketerNotes?: string | null;
+      answeredBy?: 'customer' | 'spouse' | 'child' | 'other' | null;
+      fieldInstructions?: string | null;
     }) => request<{ fieldVisitId: number; visitTaskIds: number[]; contactTargetId: number | null }>(
       '/telemarketing/book-visit',
       { method: 'POST', body: JSON.stringify(data) },

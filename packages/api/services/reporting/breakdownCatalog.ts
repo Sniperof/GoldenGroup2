@@ -8,7 +8,7 @@
 
 import pool from '../../db.js';
 import type { MetricComputeContext } from './metricsCatalog.js';
-import { appendCandidateScope, appendClientScope, appendContractScope, appendInstalledDeviceScope, appendReferralSheetScope } from './reportingScope.js';
+import { appendApplicationScope, appendAuditApplicationScope, appendCandidateScope, appendClientScope, appendContractScope, appendDirectSuggestionScope, appendInstalledDeviceScope, appendInterviewScope, appendReferralSheetScope, appendVacancyScope } from './reportingScope.js';
 
 export type BreakdownKind = 'funnel' | 'ranked-bar' | 'donut' | 'timeline';
 
@@ -870,6 +870,319 @@ const devicesInstallationTrend: BreakdownDefinition = {
   },
 };
 
+// ── لوائح الأسماء (referral_sheets) والترشيحات المباشرة (§3.4 #8/#9/#10) ──────────
+const REFERRAL_SHEET_STATUS_LABELS: Record<string, string> = {
+  New: 'جديدة', 'In-Progress': 'قيد الجمع', Completed: 'مكتملة', Archived: 'مؤرشفة',
+};
+const DIRECT_SUGGESTION_STATUS_LABELS: Record<string, string> = {
+  pending: 'بانتظار التواصل', contacted: 'تم التواصل', converted: 'محوَّل',
+};
+
+// توزيع لوائح الأسماء على حالاتها (لقطة راهنة ضمن النطاق) — القيم الأربع الكاملة.
+const referralSheetsByStatus: BreakdownDefinition = {
+  key: 'referral_sheets.by_status',
+  permission: 'candidates.name_lists.view_list',
+  titleAr: 'لوائح الأسماء حسب الحالة',
+  kind: 'donut',
+  valueUnit: 'count',
+  purpose: 'سير عمل: توزيع لوائح الأسماء على حالاتها (جديدة/قيد الجمع/مكتملة/مؤرشفة) — لقطة راهنة ضمن النطاق.',
+  async compute(ctx) {
+    const params: unknown[] = [];
+    const sql =
+      `SELECT COALESCE(NULLIF(TRIM(s.status), ''), 'غير محدد') AS k, COUNT(*)::int AS v
+         FROM referral_sheets s WHERE 1=1` + appendReferralSheetScope(ctx, params) +
+      ` GROUP BY 1 ORDER BY v DESC`;
+    const { rows } = await pool.query(sql, params);
+    return rows.map(r => { const k = String(r.k); return { key: k, label: REFERRAL_SHEET_STATUS_LABELS[k] ?? k, value: Number(r.v ?? 0) }; });
+  },
+};
+
+// مصدر إنشاء اللائحة: من زيارة ميدانية (field_visit_id) مقابل إدخال يدوي.
+const referralSheetsBySource: BreakdownDefinition = {
+  key: 'referral_sheets.by_source',
+  permission: 'candidates.name_lists.view_list',
+  titleAr: 'لوائح الأسماء حسب المصدر',
+  kind: 'donut',
+  valueUnit: 'count',
+  purpose: 'قرار: نسبة اللوائح الناشئة من زيارة ميدانية مقابل الإدخال اليدوي خلال الفترة على النطاق.',
+  async compute(ctx) {
+    const params: unknown[] = [ctx.from, ctx.to];
+    const sql =
+      `SELECT (s.field_visit_id IS NOT NULL) AS from_visit, COUNT(*)::int AS v
+         FROM referral_sheets s
+        WHERE s.created_at >= $1 AND s.created_at < $2` + appendReferralSheetScope(ctx, params) +
+      ` GROUP BY 1 ORDER BY v DESC`;
+    const { rows } = await pool.query(sql, params);
+    return rows.map(r => ({
+      key: r.from_visit ? 'field_visit' : 'manual',
+      label: r.from_visit ? 'زيارة ميدانية' : 'إدخال يدوي',
+      value: Number(r.v ?? 0),
+    }));
+  },
+};
+
+// اتجاه إنشاء لوائح الأسماء عبر الزمن (buckets تلقائية) ضمن الفترة والنطاق.
+const referralSheetsCreationTrend: BreakdownDefinition = {
+  key: 'referral_sheets.creation_trend',
+  permission: 'candidates.name_lists.view_list',
+  titleAr: 'اتجاه إنشاء لوائح الأسماء',
+  kind: 'timeline',
+  valueUnit: 'count',
+  purpose: 'قرار: حركة نشاط جمع الأسماء عبر الزمن ضمن الفترة والنطاق.',
+  async compute(ctx) {
+    const bucket = acquisitionBucket(ctx.from, ctx.to);
+    const params: unknown[] = [ctx.from, ctx.to];
+    const sql =
+      `WITH buckets AS (
+         SELECT generate_series(
+           date_trunc('${bucket.trunc}', $1::timestamptz),
+           date_trunc('${bucket.trunc}', $2::timestamptz - interval '1 millisecond'),
+           interval '${bucket.interval}'
+         ) AS bucket
+       ), counts AS (
+         SELECT date_trunc('${bucket.trunc}', s.created_at) AS bucket, COUNT(*)::int AS v
+           FROM referral_sheets s
+          WHERE s.created_at >= $1 AND s.created_at < $2` + appendReferralSheetScope(ctx, params) +
+      ` GROUP BY 1
+       )
+       SELECT b.bucket, COALESCE(ct.v, 0)::int AS v
+         FROM buckets b LEFT JOIN counts ct ON ct.bucket = b.bucket
+        ORDER BY b.bucket`;
+    const { rows } = await pool.query(sql, params);
+    return rows.map(r => { const iso = new Date(r.bucket).toISOString(); return { key: iso, label: iso, value: Number(r.v ?? 0) }; });
+  },
+};
+
+// توزيع لوائح الأسماء على الفروع (مفيد لأصحاب GLOBAL) — لقطة راهنة.
+const referralSheetsByBranch: BreakdownDefinition = {
+  key: 'referral_sheets.by_branch',
+  permission: 'candidates.name_lists.view_list',
+  titleAr: 'لوائح الأسماء حسب الفرع',
+  kind: 'ranked-bar',
+  valueUnit: 'count',
+  purpose: 'قرار: توزيع نشاط جمع الأسماء على الفروع ضمن النطاق.',
+  async compute(ctx) {
+    const params: unknown[] = [];
+    const sql =
+      `SELECT COALESCE(b.name, 'غير محدد') AS k, COUNT(*)::int AS v
+         FROM referral_sheets s LEFT JOIN branches b ON b.id = s.branch_id WHERE 1=1` + appendReferralSheetScope(ctx, params) +
+      ` GROUP BY 1 ORDER BY v DESC LIMIT 10`;
+    const { rows } = await pool.query(sql, params);
+    return rows.map(r => ({ key: String(r.k), label: String(r.k), value: Number(r.v ?? 0) }));
+  },
+};
+
+// قمع الترشيح المباشر الميداني (§3.4 #10): مسار مستقل عن candidates.stage_funnel.
+// النطاق مشتقّ عبر الزيارة (direct_suggestions → visit_tasks → field_visits).
+const DIRECT_SUGGESTION_FUNNEL_STAGES: { key: string; label: string }[] = [
+  { key: 'pending', label: 'بانتظار التواصل' },
+  { key: 'contacted', label: 'تم التواصل' },
+  { key: 'converted', label: 'محوَّل' },
+];
+const directSuggestionsMiniFunnel: BreakdownDefinition = {
+  key: 'direct_suggestions.mini_funnel',
+  permission: 'candidates.view_list',
+  titleAr: 'قمع الترشيح المباشر الميداني',
+  kind: 'funnel',
+  valueUnit: 'count',
+  purpose: 'سير عمل: نجاح آلية الاقتراح المباشر أثناء الزيارة (مسار مستقل عن قمع المرشّحين).',
+  async compute(ctx) {
+    const params: unknown[] = [ctx.from, ctx.to];
+    const sql =
+      `SELECT ds.status AS status, COUNT(*)::int AS v
+         FROM direct_suggestions ds
+        WHERE ds.created_at >= $1 AND ds.created_at < $2` + appendDirectSuggestionScope(ctx, params) +
+      ` GROUP BY ds.status`;
+    const { rows } = await pool.query(sql, params);
+    const counts = new Map<string, number>();
+    for (const r of rows) counts.set(String(r.status), Number(r.v ?? 0));
+    // قمع تراكمي: كل مرحلة = مَن بلغها أو تجاوزها (تقدّم خطّي pending→contacted→converted).
+    return DIRECT_SUGGESTION_FUNNEL_STAGES.map((s, idx) => {
+      let reached = 0;
+      for (let k = idx; k < DIRECT_SUGGESTION_FUNNEL_STAGES.length; k++) {
+        reached += counts.get(DIRECT_SUGGESTION_FUNNEL_STAGES[k].key) ?? 0;
+      }
+      return { key: s.key, label: DIRECT_SUGGESTION_STATUS_LABELS[s.key] ?? s.label, value: reached };
+    });
+  },
+};
+
+// ── التوظيف (§2.ط) — الطبقة الأولى ─────────────────────────────────────────────
+// قمع التوظيف يُبنى على current_stage (٥ مراحل بقيد CHECK) لا application_status
+// (١٦ قيمة legacy) — أوضح وأكثر استقراراً، وهو الترتيب الرسمي في jobs-recruitment §6.2.
+const APPLICATION_STAGES: { key: string; label: string }[] = [
+  { key: 'Submitted', label: 'مُقدَّم' },
+  { key: 'Shortlisted', label: 'مؤهَّل' },
+  { key: 'Interview', label: 'مقابلة' },
+  { key: 'Training', label: 'تدريب' },
+  { key: 'Final Decision', label: 'قرار نهائي' },
+];
+const APPLICATION_DECISION_LABELS: Record<string, string> = {
+  Hired: 'تم التوظيف', Rejected: 'مرفوض', Failed: 'راسب', Retreated: 'منسحب',
+};
+const INTERVIEW_TYPE_LABELS: Record<string, string> = {
+  'HR Interview': 'مقابلة موارد بشرية', 'Technical Interview': 'مقابلة فنية',
+};
+
+const applicationsStageFunnel: BreakdownDefinition = {
+  key: 'applications.stage_funnel',
+  permission: 'jobs.applications.view_list',
+  titleAr: 'قمع التوظيف',
+  kind: 'funnel',
+  valueUnit: 'count',
+  purpose: 'قرار: أين يتساقط المتقدمون في مسار التوظيف (قمع تراكمي للمراحل ضمن الفترة والنطاق).',
+  async compute(ctx) {
+    const params: unknown[] = [ctx.from, ctx.to];
+    const sql =
+      `SELECT ja.current_stage AS stage, COUNT(*)::int AS v
+         FROM job_applications ja
+        WHERE ja.created_at >= $1 AND ja.created_at < $2
+          AND ja.is_archived IS NOT TRUE` + appendApplicationScope(ctx, params) +
+      ` GROUP BY ja.current_stage`;
+    const { rows } = await pool.query(sql, params);
+    const counts = new Map<string, number>();
+    for (const r of rows) counts.set(String(r.stage), Number(r.v ?? 0));
+    // قمع تراكمي: كل مرحلة = مَن بلغها أو تجاوزها (المرحلة الحالية = أعمق ما بلغه الطلب).
+    return APPLICATION_STAGES.map((s, idx) => {
+      let reached = 0;
+      for (let k = idx; k < APPLICATION_STAGES.length; k++) {
+        reached += counts.get(APPLICATION_STAGES[k].key) ?? 0;
+      }
+      return { key: s.key, label: s.label, value: reached };
+    });
+  },
+};
+
+const applicationsByDecision: BreakdownDefinition = {
+  key: 'applications.by_decision',
+  permission: 'jobs.applications.view_list',
+  titleAr: 'مخرجات الطلبات حسب القرار',
+  kind: 'donut',
+  valueUnit: 'count',
+  purpose: 'قرار: تركيبة القرارات النهائية (توظيف/رفض/رسوب/انسحاب) خلال الفترة ضمن النطاق.',
+  async compute(ctx) {
+    const params: unknown[] = [ctx.from, ctx.to];
+    const sql =
+      `SELECT ja.decision AS k, COUNT(*)::int AS v
+         FROM job_applications ja
+        WHERE ja.decision IS NOT NULL
+          AND ja.updated_at >= $1 AND ja.updated_at < $2` + appendApplicationScope(ctx, params) +
+      ` GROUP BY 1 ORDER BY v DESC`;
+    const { rows } = await pool.query(sql, params);
+    return rows.map(r => { const k = String(r.k); return { key: k, label: APPLICATION_DECISION_LABELS[k] ?? k, value: Number(r.v ?? 0) }; });
+  },
+};
+
+const applicationsTimeInStage: BreakdownDefinition = {
+  key: 'applications.time_in_stage',
+  permission: 'jobs.applications.view_list',
+  titleAr: 'متوسط البقاء بكل مرحلة (أيام)',
+  kind: 'ranked-bar',
+  valueUnit: 'count',
+  purpose: 'قرار: أي مرحلة تُبطئ مسار التوظيف فعلياً — تُحسب من انتقالات المراحل في سجل التدقيق.',
+  async compute(ctx) {
+    // كل انتقال يحمل old_value (المرحلة المغادَرة)؛ المدة = الفارق عن الانتقال السابق
+    // لنفس الطلب، أو عن تاريخ إنشاء الطلب إن كان أول انتقال.
+    const params: unknown[] = [ctx.from, ctx.to];
+    const sql =
+      `WITH transitions AS (
+         SELECT al.application_id,
+                al.old_value AS stage,
+                al."timestamp" AS moved_at,
+                LAG(al."timestamp") OVER (PARTITION BY al.application_id ORDER BY al."timestamp") AS prev_at,
+                ja.created_at AS app_created
+           FROM audit_logs al
+           JOIN job_applications ja ON ja.id = al.application_id
+          WHERE al.action_type = 'Stage Transition'
+            AND al.old_value IS NOT NULL
+            AND al."timestamp" >= $1 AND al."timestamp" < $2` + appendAuditApplicationScope(ctx, params) +
+      ` )
+       SELECT stage AS k,
+              ROUND(AVG(EXTRACT(EPOCH FROM (moved_at - COALESCE(prev_at, app_created))) / 86400)::numeric, 1) AS v
+         FROM transitions
+        GROUP BY stage`;
+    const { rows } = await pool.query(sql, params);
+    const byStage = new Map<string, number>();
+    for (const r of rows) byStage.set(String(r.k), Number(r.v ?? 0));
+    // بترتيب المراحل الرسمي لا بترتيب القيمة — القراءة الزمنية تتبع المسار.
+    return APPLICATION_STAGES.filter(s => byStage.has(s.key)).map(s => ({
+      key: s.key, label: s.label, value: byStage.get(s.key) ?? 0,
+    }));
+  },
+};
+
+const vacanciesByDepartment: BreakdownDefinition = {
+  key: 'vacancies.by_department',
+  permission: 'jobs.vacancies.view_list',
+  titleAr: 'الشواغر المفتوحة حسب القسم',
+  kind: 'ranked-bar',
+  valueUnit: 'count',
+  purpose: 'قرار: أين يتركّز الطلب على التوظيف — توزيع المقاعد الشاغرة على الأقسام (لقطة راهنة).',
+  async compute(ctx) {
+    const params: unknown[] = [];
+    const sql =
+      `SELECT COALESCE(d.name, 'غير محدد') AS k, COALESCE(SUM(jv.vacancy_count), 0)::int AS v
+         FROM job_vacancies jv
+         LEFT JOIN departments d ON d.id = jv.department_id
+        WHERE jv.status = 'Open'` + appendVacancyScope(ctx, params) +
+      ` GROUP BY 1 ORDER BY v DESC LIMIT 10`;
+    const { rows } = await pool.query(sql, params);
+    return rows.map(r => ({ key: String(r.k), label: String(r.k), value: Number(r.v ?? 0) }));
+  },
+};
+
+const interviewsByType: BreakdownDefinition = {
+  key: 'interviews.by_type',
+  permission: 'jobs.interviews.view_list',
+  titleAr: 'المقابلات حسب النوع',
+  kind: 'donut',
+  valueUnit: 'count',
+  purpose: 'قرار: تركيبة المقابلات بين الموارد البشرية والفنية خلال الفترة ضمن النطاق.',
+  async compute(ctx) {
+    const params: unknown[] = [ctx.from, ctx.to];
+    const sql =
+      `SELECT i.interview_type AS k, COUNT(*)::int AS v
+         FROM interviews i
+        WHERE i.created_at >= $1 AND i.created_at < $2` + appendInterviewScope(ctx, params) +
+      ` GROUP BY 1 ORDER BY v DESC`;
+    const { rows } = await pool.query(sql, params);
+    return rows.map(r => { const k = String(r.k); return { key: k, label: INTERVIEW_TYPE_LABELS[k] ?? k, value: Number(r.v ?? 0) }; });
+  },
+};
+
+const interviewsByInterviewer: BreakdownDefinition = {
+  key: 'interviews.by_interviewer',
+  permission: 'jobs.interviews.view_list',
+  titleAr: 'المقابلات حسب المُقابِل',
+  kind: 'ranked-bar',
+  valueUnit: 'count',
+  secondaryLabel: 'نجاح',
+  purpose: 'إنجاز فريق: حمولة كل مُقابِل ونسبة نجاح مقابلاته خلال الفترة ضمن النطاق.',
+  async compute(ctx) {
+    const params: unknown[] = [ctx.from, ctx.to];
+    const sql =
+      `SELECT COALESCE(hu.name, i.interviewer_name, 'غير محدد') AS k,
+              COUNT(*)::int AS cnt,
+              COUNT(*) FILTER (WHERE i.interview_status = 'Interview Completed')::int AS passed,
+              COUNT(*) FILTER (WHERE i.interview_status IN ('Interview Completed','Interview Failed'))::int AS resolved
+         FROM interviews i
+         LEFT JOIN hr_users hu ON hu.id = i.interviewer_user_id
+        WHERE i.created_at >= $1 AND i.created_at < $2` + appendInterviewScope(ctx, params) +
+      ` GROUP BY 1 ORDER BY cnt DESC LIMIT 10`;
+    const { rows } = await pool.query(sql, params);
+    return rows.map(r => {
+      const resolved = Number(r.resolved ?? 0);
+      const passed = Number(r.passed ?? 0);
+      return {
+        key: String(r.k),
+        label: String(r.k),
+        value: Number(r.cnt ?? 0),
+        value2: resolved > 0 ? Math.round((passed / resolved) * 1000) / 10 : 0,
+      };
+    });
+  },
+};
+
 export const BREAKDOWN_CATALOG: BreakdownDefinition[] = [
   candidatesStageFunnel,
   referralSheetsTeamQuality,
@@ -889,6 +1202,11 @@ export const BREAKDOWN_CATALOG: BreakdownDefinition[] = [
   clientsTopReferrers,
   candidatesByRoute,
   candidatesByGeoArea,
+  referralSheetsByStatus,
+  referralSheetsBySource,
+  referralSheetsCreationTrend,
+  referralSheetsByBranch,
+  directSuggestionsMiniFunnel,
   contractsSalesByBranch,
   contractsSalesBySeller,
   contractsSalesBySaleType,
@@ -901,6 +1219,12 @@ export const BREAKDOWN_CATALOG: BreakdownDefinition[] = [
   devicesByModel,
   devicesByBranch,
   devicesInstallationTrend,
+  applicationsStageFunnel,
+  applicationsByDecision,
+  applicationsTimeInStage,
+  vacanciesByDepartment,
+  interviewsByType,
+  interviewsByInterviewer,
 ];
 
 export function findBreakdown(key: string): BreakdownDefinition | undefined {

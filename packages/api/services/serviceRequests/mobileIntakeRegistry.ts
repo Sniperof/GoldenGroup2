@@ -1,6 +1,7 @@
 import type { PoolClient } from 'pg';
 import type { MobileIntakeIdentity } from './mobileIntakeIdentity.js';
 import { submitMobileWaterCheck } from './mobileWaterCheckIntake.js';
+import { WATER_CHECK_FORM_VERSION } from './waterCheckFormSchema.js';
 import type { ServiceRequestTypeDefinition } from './serviceRequestTypeRegistry.js';
 
 export interface MobileIntakeHandler {
@@ -16,7 +17,7 @@ export interface MobileIntakeHandler {
 const handlers: Record<string, MobileIntakeHandler> = {
   water_check: {
     requestType: 'water_check',
-    formVersion: 'water_check.mobile.v1',
+    formVersion: WATER_CHECK_FORM_VERSION,
     submit: submitMobileWaterCheck,
   },
 };

@@ -1,5 +1,4 @@
-import { Link } from 'react-router-dom';
-import { CalendarCheck, ClipboardList, Gift, UserRound } from '../ui/icons';
+import { CalendarCheck, Gift, UserRound } from '../ui/icons';
 import DataTable from '../ui/DataTable';
 import type { GiftRecordPrototype } from '../../data/giftsPrototype';
 import {
@@ -33,7 +32,6 @@ function EmptyState() {
 
 export default function GiftRecordsTable({
   records,
-  compact = false,
   onChanged,
 }: {
   records: GiftRecordPrototype[];
@@ -52,8 +50,7 @@ export default function GiftRecordsTable({
               <DataTable.Th>الشرط</DataTable.Th>
               <DataTable.Th>الحالة</DataTable.Th>
               <DataTable.Th>المصدر</DataTable.Th>
-              {!compact && <DataTable.Th>المسؤولية</DataTable.Th>}
-              <DataTable.Th>إجراءات لاحقة</DataTable.Th>
+              <DataTable.Th>الإجراءات</DataTable.Th>
             </DataTable.Row>
           </DataTable.Head>
           <DataTable.Body>
@@ -110,34 +107,12 @@ export default function GiftRecordsTable({
                     ))}
                   </div>
                 </DataTable.Td>
-                {!compact && (
-                  <DataTable.Td>
-                    <div className="text-xs text-slate-500">فرع المصدر: {record.sourceBranchName}</div>
-                    <div className="mt-1 text-xs text-slate-500">فرع المسؤولية: {record.responsibleBranchName}</div>
-                    <div className="mt-1 font-medium text-slate-700">
-                      {record.beneficiaryOwnershipLabel ?? 'حسب ملكية المستفيد'}
-                    </div>
-                  </DataTable.Td>
-                )}
                 <DataTable.Td>
-                  <div className="flex flex-col gap-2">
-                    {record.contractId && (
-                      <Link
-                        to={`/contracts/${record.contractId}`}
-                        className="inline-flex w-fit items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50"
-                      >
-                        <ClipboardList className="h-3.5 w-3.5" />
-                        العقد
-                      </Link>
-                    )}
-                    {onChanged && (
-                      <GiftRecordActions
-                        record={record}
-                        candidateRecords={records}
-                        onChanged={onChanged}
-                      />
-                    )}
-                  </div>
+                  <GiftRecordActions
+                    record={record}
+                    candidateRecords={records}
+                    onChanged={onChanged}
+                  />
                 </DataTable.Td>
               </DataTable.Row>
             ))}

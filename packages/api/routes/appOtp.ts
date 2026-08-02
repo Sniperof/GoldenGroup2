@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { sendOtp, verifyOtp } from '../services/otp/otpService.js';
+import { sendAppError } from '../utils/appErrors.js';
 
 const router = Router();
 
@@ -64,19 +65,21 @@ const router = Router();
  *       403: { description: "Account suspended (details.code = suspended)" }
  *       404: { description: "Purpose precondition failed (details.code = no_active_account | no_pending_request)" }
  *       409: { description: "account_creation blocked (details.code = active_account_exists | suspended | pending_request_exists, details.status)" }
- *       429: { description: Resend window has not elapsed (see details.retryAfterSeconds) }
+ *       429:
+ *         description: >
+ *           Throttled. Three distinct causes, told apart by details.code:
+ *           absent = the 60s resend window has not elapsed (details.retryAfterSeconds);
+ *           `daily_cap_reached` = this number exhausted its 24h message cap across ALL
+ *           purposes (details.limit); `rate_limited` = the per-IP window for this route
+ *           (details.retryAfterSeconds, plus a Retry-After header).
  */
 router.post('/send', async (req, res) => {
   try {
     const { phone, purpose } = req.body ?? {};
     const result = await sendOtp({ phone, purpose });
     res.json(result);
-  } catch (err: any) {
-    if (err?.status) {
-      return res.status(err.status).json({ error: err.message, ...(err.details ? { details: err.details } : {}) });
-    }
-    console.error('OTP send error:', err);
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    sendAppError(res, err, 'otp.send');
   }
 });
 
@@ -125,12 +128,8 @@ router.post('/verify', async (req, res) => {
     const { phone, code, purpose } = req.body ?? {};
     const result = await verifyOtp({ phone, code, purpose });
     res.json(result);
-  } catch (err: any) {
-    if (err?.status) {
-      return res.status(err.status).json({ error: err.message, ...(err.details ? { details: err.details } : {}) });
-    }
-    console.error('OTP verify error:', err);
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    sendAppError(res, err, 'otp.verify');
   }
 });
 

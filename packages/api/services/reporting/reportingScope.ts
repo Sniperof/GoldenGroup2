@@ -1,4 +1,5 @@
 import type { MetricComputeContext } from './metricsCatalog.js';
+import { ReportingError } from './reportingError.js';
 
 type QueryParams = unknown[];
 
@@ -58,4 +59,93 @@ export function appendReferralSheetScope(ctx: MetricComputeContext, params: Quer
     sql += ` AND ${alias}.assigned_hr_user_id = $${params.length}`;
   }
   return sql;
+}
+
+// ── التوظيف (Jobs & Recruitment) ───────────────────────────────────────────────
+// المفاتيح الثلاثة (jobs.applications/vacancies/interviews .view_list) تُعلن
+// ASSIGNED ضمن allowed_scopes، لذا يجب معالجتها صراحةً هنا: تجاهلها يعني أن صاحب
+// منحة ASSIGNED يرى أرقام الفرع كاملة (توسيع صامت للنطاق).
+
+/** ASSIGNED على الطلبات = الطلبات التي أدخلها المستخدم (entered_by_user_id، أثر الإنشاء). */
+export function appendApplicationScope(ctx: MetricComputeContext, params: QueryParams, alias = 'ja'): string {
+  let sql = appendBranchScope(ctx, params, alias);
+  if (ctx.scope === 'ASSIGNED') {
+    params.push(ctx.userId);
+    sql += ` AND ${alias}.entered_by_user_id = $${params.length}`;
+  }
+  return sql;
+}
+
+/**
+ * الشاغر لا يملك عمود ملكية/إسناد إطلاقاً، فلا معنى شخصي لـ ASSIGNED عليه.
+ * يُرفض صراحةً (fail closed) بدل إظهار أرقام الفرع كاملة أو صفر صامت — نظير
+ * planning.manage في planning-contact-targets §7.1.
+ */
+export function appendVacancyScope(ctx: MetricComputeContext, params: QueryParams, alias = 'jv'): string {
+  if (ctx.scope === 'ASSIGNED') {
+    throw new ReportingError(403, 'لا يوجد عرض شخصي لمؤشرات الشواغر — تحتاج اتساع الفرع أو أعلى');
+  }
+  return appendBranchScope(ctx, params, alias);
+}
+
+/**
+ * المقابلات بلا branch_id؛ نطاقها مشتقّ عبر الطلب (interviews → job_applications).
+ * ASSIGNED = المقابلات التي يجريها المستخدم نفسه (interviewer_user_id).
+ */
+export function appendInterviewScope(ctx: MetricComputeContext, params: QueryParams, alias = 'i'): string {
+  let sql = '';
+  if (ctx.branchIds.length > 0) {
+    params.push(ctx.branchIds);
+    sql += ` AND EXISTS (SELECT 1 FROM job_applications ja_scope
+                          WHERE ja_scope.id = ${alias}.application_id
+                            AND ja_scope.branch_id = ANY($${params.length}))`;
+  }
+  if (ctx.scope === 'ASSIGNED') {
+    params.push(ctx.userId);
+    sql += ` AND ${alias}.interviewer_user_id = $${params.length}`;
+  }
+  return sql;
+}
+
+/**
+ * audit_logs بلا branch_id؛ نطاقه مشتقّ عبر الطلب المرتبط (application_id).
+ * يُستعمل لمؤشرات زمن الدورة المبنية على انتقالات المراحل.
+ */
+export function appendAuditApplicationScope(ctx: MetricComputeContext, params: QueryParams, alias = 'al'): string {
+  const conds: string[] = [];
+  if (ctx.branchIds.length > 0) {
+    params.push(ctx.branchIds);
+    conds.push(`ja_scope.branch_id = ANY($${params.length})`);
+  }
+  if (ctx.scope === 'ASSIGNED') {
+    params.push(ctx.userId);
+    conds.push(`ja_scope.entered_by_user_id = $${params.length}`);
+  }
+  if (conds.length === 0) return '';
+  return ` AND EXISTS (SELECT 1 FROM job_applications ja_scope
+                        WHERE ja_scope.id = ${alias}.application_id
+                          AND ${conds.join(' AND ')})`;
+}
+
+/**
+ * direct_suggestions has no branch_id of its own; its scope is derived through the
+ * originating visit: direct_suggestions → visit_tasks → field_visits.branch_id.
+ * ASSIGNED narrows to visits the user leads (field_visits.team_responsible_user_id)
+ * so a supervisor sees only their own field-collected suggestions, never the branch.
+ */
+export function appendDirectSuggestionScope(ctx: MetricComputeContext, params: QueryParams, alias = 'ds'): string {
+  const conds: string[] = [];
+  if (ctx.branchIds.length > 0) {
+    params.push(ctx.branchIds);
+    conds.push(`fv.branch_id = ANY($${params.length})`);
+  }
+  if (ctx.scope === 'ASSIGNED') {
+    params.push(ctx.userId);
+    conds.push(`fv.team_responsible_user_id = $${params.length}`);
+  }
+  if (conds.length === 0) return '';
+  return ` AND ${alias}.visit_task_id IN (
+            SELECT vt.id FROM visit_tasks vt
+              JOIN field_visits fv ON fv.id = vt.field_visit_id
+             WHERE ${conds.join(' AND ')})`;
 }

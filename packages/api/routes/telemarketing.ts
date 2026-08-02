@@ -37,12 +37,21 @@ import {
 import { authorize } from '../services/authorizationService.js';
 import { resolveAssignmentOwningBranch } from '../policies/routeAssignmentPolicy.js';
 import { lockPlanningDayMutation } from '../services/planningTaskCuration.js';
+import {
+  assertPlanningDayCycleWritable,
+  markPlanningDayCycleActive,
+  PlanningDayCycleError,
+} from '../services/planningDayCycle.js';
 import { buildPlanningTaskAvailablePredicate } from '../services/planningContactTargetScope.js';
 import {
   isTelemarketingServiceRequestTaskType,
   TELEMARKETING_SERVICE_REQUEST_TASK_TYPES,
 } from '../services/openTaskLinkagePolicy.js';
 import { canCreateTelemarketingServiceTask } from '../policies/telemarketingServiceTaskPolicy.js';
+import {
+  resolveBookingAddress,
+  withResolvedBookingAddress,
+} from '../services/telemarketingAppointmentSnapshot.js';
 
 async function acquireClientContactControlReadGuard(
   clientId: number,
@@ -360,7 +369,8 @@ async function loadTaskListItem(
         entity_type,
         entity_id,
         contact_target_id,
-        open_task_id
+        open_task_id,
+        address_text
       FROM telemarketing_task_list_items
       WHERE task_list_id = $1
         AND id = $2
@@ -632,7 +642,7 @@ async function createMarketingVisitForAppointment(
  */
 async function verifyTaskListAccess(req: any, res: any, taskListId: string): Promise<any | null> {
   const { rows } = await pool.query(
-    `SELECT id, team_key, date, branch_id FROM telemarketing_task_lists WHERE id = $1`,
+    `SELECT id, team_key, date, branch_id, status FROM telemarketing_task_lists WHERE id = $1`,
     [taskListId],
   );
   if (!rows[0]) {
@@ -641,6 +651,14 @@ async function verifyTaskListAccess(req: any, res: any, taskListId: string): Pro
   }
 
   const taskList = rows[0];
+
+  if (taskList.status === 'closed') {
+    res.status(409).json({
+      message: 'انتهت خطة هذه القائمة؛ السجل متاح للقراءة فقط',
+      code: 'PLANNING_DAY_CLOSED',
+    });
+    return null;
+  }
 
   // Use canAccessTaskList for consistent scope logic
   const allowed = await canAccessTaskList(req.authContext, {
@@ -667,6 +685,9 @@ const mapTaskListRows = (rows: any[]) => {
         teamKey: row.teamKey,
         date: row.date,
         createdAt: row.createdAt,
+        status: row.listStatus ?? 'open',
+        closedAt: row.listClosedAt ?? null,
+        closeReason: row.listCloseReason ?? null,
         items: [],
       });
     }
@@ -685,6 +706,9 @@ const mapTaskListRows = (rows: any[]) => {
         status: row.itemStatus,
         callOutcome: row.callOutcome,
         contactTargetId: row.contactTargetId ?? null,
+        contactTargetStatus: row.contactTargetStatus ?? null,
+        contactTargetClosingReason: row.contactTargetClosingReason ?? null,
+        contactTargetClosedAt: row.contactTargetClosedAt ?? null,
         lockedByHrUserId: row.lockedByHrUserId ?? null,
         lockedByHrUserName: row.lockedByHrUserName ?? null,
         openTaskId: row.itemOpenTaskId ?? null,
@@ -932,6 +956,9 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view', 'telemarke
         tl.date,
         tl.created_at AS "createdAt",
         tl.branch_id AS "branchId",
+        tl.status AS "listStatus",
+        tl.closed_at AS "listClosedAt",
+        tl.close_reason AS "listCloseReason",
         i.id AS "itemId",
         i.entity_type AS "entityType",
         i.entity_id AS "entityId",
@@ -944,6 +971,9 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view', 'telemarke
         i.status AS "itemStatus",
         i.call_outcome AS "callOutcome",
         i.contact_target_id AS "contactTargetId",
+        ct.status AS "contactTargetStatus",
+        ct.closing_reason AS "contactTargetClosingReason",
+        ct.closed_at AS "contactTargetClosedAt",
         ct.locked_by_hr_user_id AS "lockedByHrUserId",
         lock_hu.name AS "lockedByHrUserName",
         ot.id AS "itemOpenTaskId",
@@ -1009,15 +1039,33 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view', 'telemarke
         'client' AS "entityType",
         fv.client_id AS "entityId",
         COALESCE(fv.customer_snapshot->>'name', c.name, '') AS "customerName",
-        COALESCE(fv.customer_snapshot->>'addressText', fv.customer_snapshot->>'address', '') AS "customerAddress",
+        COALESCE(
+          NULLIF(fv.customer_snapshot->>'addressText', ''),
+          NULLIF(fv.customer_snapshot->'address'->>'detailedAddress', ''),
+          CASE
+            WHEN jsonb_typeof(fv.customer_snapshot->'address') = 'string'
+              THEN NULLIF(fv.customer_snapshot->>'address', '')
+            ELSE NULL
+          END,
+          MAX(NULLIF(inst_source.installation_address_text, '')),
+          NULLIF(c.detailed_address, ''),
+          NULLIF(c.referral_address_text, ''),
+          ''
+        ) AS "customerAddress",
         COALESCE(fv.customer_snapshot->>'mobile', c.mobile, '') AS "customerMobile",
+        COALESCE(
+          ct.work_location_geo_unit_id,
+          MAX(inst_source.installation_geo_unit_id),
+          c.neighborhood,
+          c.district
+        ) AS "workLocationGeoUnitId",
         ${appointmentTeamKeySql} AS "teamKey",
         fv.scheduled_date::text AS date,
         substring(COALESCE(fv.scheduled_time, '') from 1 for 5) AS "timeSlot",
         fv.status,
         COALESCE(fv.customer_snapshot->>'occupation', '') AS occupation,
         COALESCE(fv.customer_snapshot->>'waterSource', '') AS "waterSource",
-        COALESCE(fv.telemarketer_notes, fv.field_notes, '') AS notes,
+        COALESCE(fv.field_instructions, fv.telemarketer_notes, fv.field_notes, '') AS notes,
         COALESCE(
           json_agg(DISTINCT vt.task_type) FILTER (WHERE vt.id IS NOT NULL),
           '[]'::json
@@ -1034,6 +1082,8 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view', 'telemarke
       FROM field_visits fv
       JOIN clients c ON c.id = fv.client_id
       LEFT JOIN visit_tasks vt ON vt.field_visit_id = fv.id
+      LEFT JOIN open_tasks ot_source ON ot_source.id = vt.source_open_task_id
+      LEFT JOIN installed_devices inst_source ON inst_source.id = ot_source.device_id
       LEFT JOIN contact_targets ct ON ct.latest_visit_id = fv.id
       LEFT JOIN telemarketing_task_list_items tli_origin ON tli_origin.id = fv.origin_id::text
       LEFT JOIN telemarketing_task_lists tl_origin ON tl_origin.id = tli_origin.task_list_id
@@ -1057,7 +1107,43 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view', 'telemarke
 
   // Plan 2026-06-10 Phase 2.4 — single source of truth (field_visits);
   // legacy merge/dedupe logic removed.
-  const appointmentRows = fieldVisitAppointmentsRes.rows;
+  const appointmentGeoUnitIds = Array.from(new Set(
+    fieldVisitAppointmentsRes.rows
+      .map((row: any) => Number(row.workLocationGeoUnitId))
+      .filter((id: number) => Number.isInteger(id) && id > 0),
+  ));
+  const workLocationPaths = new Map<number, string[]>();
+  if (appointmentGeoUnitIds.length > 0) {
+    const { rows: geoPathRows } = await pool.query(
+      `WITH RECURSIVE geo_ancestors AS (
+         SELECT requested.id AS requested_id, gu.id, gu.name, gu.level, gu.parent_id
+         FROM unnest($1::int[]) AS requested(id)
+         JOIN geo_units gu ON gu.id = requested.id
+         UNION ALL
+         SELECT child.requested_id, parent.id, parent.name, parent.level, parent.parent_id
+         FROM geo_ancestors child
+         JOIN geo_units parent ON parent.id = child.parent_id
+       )
+       SELECT requested_id AS "requestedId", json_agg(name ORDER BY level) AS path
+       FROM geo_ancestors
+       GROUP BY requested_id`,
+      [appointmentGeoUnitIds],
+    );
+    geoPathRows.forEach((row: any) => {
+      const path = Array.isArray(row.path) ? row.path.map(String) : [];
+      workLocationPaths.set(Number(row.requestedId), path);
+    });
+  }
+  const appointmentRows = fieldVisitAppointmentsRes.rows.map((row: any) => {
+    const geoUnitId = Number(row.workLocationGeoUnitId);
+    const path = Number.isInteger(geoUnitId) ? workLocationPaths.get(geoUnitId) ?? [] : [];
+    return {
+      ...row,
+      workLocationGeoUnitId: Number.isInteger(geoUnitId) ? geoUnitId : null,
+      workLocationName: path[path.length - 1] ?? null,
+      workLocationPath: path,
+    };
+  });
 
   // Filter call logs by branch and date-scoped task lists
   // Instead of filtering only by branch+team_key (which returns logs from all dates),
@@ -1220,6 +1306,8 @@ router.post('/task-lists/upsert', requirePermission('telemarketing.lists.generat
 
   try {
     await client.query('BEGIN');
+    await lockPlanningDayMutation(client, branchId, date);
+    await assertPlanningDayCycleWritable(client, branchId, date, teamKey);
 
     const existing = await client.query(
       `SELECT id FROM telemarketing_task_lists WHERE team_key = $1 AND date = $2 LIMIT 1`,
@@ -1236,10 +1324,10 @@ router.post('/task-lists/upsert', requirePermission('telemarketing.lists.generat
     } else {
       await client.query(
         `
-          INSERT INTO telemarketing_task_lists (id, team_key, date, created_at)
-          VALUES ($1,$2,$3,$4)
+          INSERT INTO telemarketing_task_lists (id, team_key, date, created_at, branch_id)
+          VALUES ($1,$2,$3,$4,$5)
         `,
-        [finalTaskListId, teamKey, date, createdAt || new Date().toISOString()],
+        [finalTaskListId, teamKey, date, createdAt || new Date().toISOString(), branchId],
       );
     }
 
@@ -1271,10 +1359,14 @@ router.post('/task-lists/upsert', requirePermission('telemarketing.lists.generat
       );
     }
 
+    await markPlanningDayCycleActive(client, branchId, date, teamKey);
     await client.query('COMMIT');
     res.json({ id: finalTaskListId, teamKey, date, createdAt: createdAt || new Date().toISOString(), items: items || [] });
   } catch (error) {
     await client.query('ROLLBACK');
+    if (error instanceof PlanningDayCycleError) {
+      return res.status(error.status).json({ error: error.message, code: error.code });
+    }
     throw error;
   } finally {
     client.release();
@@ -1352,6 +1444,7 @@ router.post('/task-lists/generate-from-plan', requirePermission('telemarketing.l
   try {
     await pgClient.query('BEGIN');
     await lockPlanningDayMutation(pgClient, branchId, date);
+    await assertPlanningDayCycleWritable(pgClient, branchId, date, teamKey);
 
     // Read and lock the assigned tasks inside the same transaction that commits
     // them into the list. Exclusion and generation therefore cannot both win.
@@ -1680,6 +1773,7 @@ router.post('/task-lists/generate-from-plan', requirePermission('telemarketing.l
       }
     }
 
+    await markPlanningDayCycleActive(pgClient, branchId, date, teamKey);
     await pgClient.query('COMMIT');
 
     return res.json({
@@ -1701,6 +1795,9 @@ router.post('/task-lists/generate-from-plan', requirePermission('telemarketing.l
     });
   } catch (error) {
     await pgClient.query('ROLLBACK');
+    if (error instanceof PlanningDayCycleError) {
+      return res.status(error.status).json({ error: error.message, code: error.code });
+    }
     throw error;
   } finally {
     pgClient.release();
@@ -2343,6 +2440,16 @@ router.post('/book-visit', requirePermission('telemarketing.appointments.book'),
     const branchId = getBranchId(req);
     const performedByUserId = getCallerId(req);
 
+    const answeredBy = body.answeredBy == null || body.answeredBy === ''
+      ? null
+      : String(body.answeredBy);
+    if (answeredBy != null && !['customer', 'spouse', 'child', 'other'].includes(answeredBy)) {
+      return res.status(400).json({
+        error: 'قيمة من رد على الاتصال غير صالحة',
+        code: 'INVALID_ANSWERED_BY',
+      });
+    }
+
     if (branchId == null) {
       return res.status(400).json({ error: 'Branch context required' });
     }
@@ -2451,6 +2558,62 @@ router.post('/book-visit', requirePermission('telemarketing.appointments.book'),
         throw err;
       }
 
+      const selectedTaskIds = selectedTasks
+        .map(task => task.openTaskId)
+        .filter(taskId => Number.isInteger(taskId) && taskId > 0);
+      const { rows: bookingAddressRows } = await pool.query(
+        `SELECT
+           c.detailed_address AS "customerAddress",
+           COALESCE(
+             MAX(NULLIF(inst.installation_address_text, ''))
+               FILTER (WHERE ttc.location_basis IN ('contract', 'device')),
+             NULLIF(c.detailed_address, ''),
+             NULLIF(c.referral_address_text, '')
+           ) AS "taskLocationAddress"
+         FROM clients c
+         LEFT JOIN open_tasks ot ON ot.client_id = c.id AND ot.id = ANY($2::int[])
+         LEFT JOIN task_type_config ttc ON ttc.task_type = ot.task_type
+         LEFT JOIN installed_devices inst ON inst.id = ot.device_id
+         WHERE c.id = $1
+         GROUP BY c.id`,
+        [clientId, selectedTaskIds],
+      );
+      const resolvedAddress = resolveBookingAddress({
+        taskListAddress: taskListItem?.address_text,
+        taskLocationAddress: bookingAddressRows[0]?.taskLocationAddress,
+        customerAddress: bookingAddressRows[0]?.customerAddress,
+        suppliedSnapshot: body.customerSnapshot,
+      });
+
+      const bookingCallLogId = body.callLogId == null || body.callLogId === ''
+        ? null
+        : String(body.callLogId);
+      if (bookingCallLogId != null && bookingCallLogId.length > 100) {
+        return res.status(400).json({
+          error: 'معرف سجل الاتصال غير صالح',
+          code: 'INVALID_BOOKING_CALL_LOG_ID',
+        });
+      }
+      if (bookingCallLogId != null) {
+        const { rows: matchingCallRows } = await pool.query(
+          `SELECT id
+             FROM telemarketing_call_logs
+            WHERE id = $1
+              AND entity_type = 'client'
+              AND entity_id = $2
+              AND called_by IS NOT DISTINCT FROM $3
+              AND ($4::text IS NULL OR task_list_id = $4)
+            LIMIT 1`,
+          [bookingCallLogId, clientId, performedByUserId, body.taskListId ?? null],
+        );
+        if (!matchingCallRows[0]) {
+          return res.status(409).json({
+            error: 'سجل الاتصال لا يطابق الزبون أو مستخدم الحجز',
+            code: 'BOOKING_CALL_SUBJECT_MISMATCH',
+          });
+        }
+      }
+
       const result = await bookVisit({
         branchId,
         clientId,
@@ -2460,11 +2623,14 @@ router.post('/book-visit', requirePermission('telemarketing.appointments.book'),
         // DEC-003 D3: origin_type = 'telemarketing'; origin_id = call_log id if known,
         // else the task list item id (still traceable to the campaign).
         originType: 'telemarketing',
-        originId: body.callLogId ?? body.taskListItemId ?? null,
+        originId: body.taskListItemId ?? null,
         selectedTasks,
         performedByUserId,
-        customerSnapshot: body.customerSnapshot ?? null,
-        telemarketerNotes: body.notes ?? null,
+        customerSnapshot: withResolvedBookingAddress(body.customerSnapshot, resolvedAddress),
+        telemarketerNotes: body.telemarketerNotes ?? body.notes ?? null,
+        answeredBy: answeredBy as 'customer' | 'spouse' | 'child' | 'other' | null,
+        fieldInstructions: body.fieldInstructions ?? null,
+        bookingCallLogId,
       });
 
     // Close the contact_target if one was attached (DEC-005 D26 + D23)

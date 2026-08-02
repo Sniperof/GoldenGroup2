@@ -8,8 +8,31 @@ function readText(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+/**
+ * The geo path, preferring the labels snapshotted on the request at submit
+ * time over a live lookup of the ids. The snapshot is what the customer
+ * actually picked; a live lookup silently rewrites history when the geo tree
+ * is renamed or reorganised later. Falls back to id resolution for rows
+ * written before the labels were stored.
+ */
+function getGeoPath(address: any, submitted: any, unitsById: Map<number, string>): string {
+  const labels = address?.labels;
+  if (labels && typeof labels === 'object') {
+    const fromLabels = [labels.governorate, labels.city_or_area, labels.sub_area, labels.neighborhood]
+      .map(readText).filter(Boolean);
+    if (fromLabels.length) return fromLabels.join(' / ');
+  }
+  return [
+    resolveGeoName(unitsById, address?.governorateId ?? address?.governorate ?? submitted?.governorateId),
+    resolveGeoName(unitsById, address?.regionId ?? address?.city_or_area ?? submitted?.regionId),
+    resolveGeoName(unitsById, address?.subdistrictId ?? address?.sub_area ?? submitted?.subdistrictId),
+    resolveGeoName(unitsById, address?.neighborhoodId ?? address?.neighborhood ?? submitted?.neighborhoodId),
+  ].filter(Boolean).join(' / ');
+}
+
 function getMapLocation(request: any): { lat: number; lng: number } | null {
   const raw = request?.serviceAddress?.mapLocation
+    ?? request?.serviceAddress?.location
     ?? request?.submittedPayload?.data?.mapLocation
     ?? request?.beneficiaryExternal?.clientCompatible?.gpsCoordinates
     ?? request?.requesterExternal?.clientCompatible?.gpsCoordinates;
@@ -109,12 +132,7 @@ export default function WaterCheckRequestDetailPanel({
     || readText(address.detailed_address)
     || readText(submitted.detailedAddress);
 
-  const geoPath = [
-    resolveGeoName(unitsById, address.governorateId ?? submitted.governorateId),
-    resolveGeoName(unitsById, address.regionId ?? submitted.regionId),
-    resolveGeoName(unitsById, address.subdistrictId ?? submitted.subdistrictId),
-    resolveGeoName(unitsById, address.neighborhoodId ?? submitted.neighborhoodId),
-  ].filter(Boolean).join(' / ');
+  const geoPath = getGeoPath(address, submitted, unitsById);
 
   const mediator = (request.referrerExternal && typeof request.referrerExternal === 'object') ? request.referrerExternal : null;
   const mediatorName = mediator

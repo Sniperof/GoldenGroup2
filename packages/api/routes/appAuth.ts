@@ -2,15 +2,12 @@ import { Router } from 'express';
 import { requireAppAuth } from '../middleware/appAuth.js';
 import { exchangeLoginHandle, refreshTokens, logout } from '../services/appAccounts/appAuthService.js';
 import { getMyProfile } from '../services/appAccounts/appProfileService.js';
+import { sendAppError } from '../utils/appErrors.js';
 
 const router = Router();
 
-function fail(res: any, err: any, label: string) {
-  if (err?.status) {
-    return res.status(err.status).json({ error: err.message, ...(err.details ? { details: err.details } : {}) });
-  }
-  console.error(`${label} error:`, err);
-  return res.status(500).json({ error: err.message });
+function fail(res: any, err: unknown, label: string) {
+  return sendAppError(res, err, label);
 }
 
 /**
@@ -139,6 +136,13 @@ router.get('/session', requireAppAuth, async (req, res) => {
  *       Resolves the linked client record and returns a data-minimized profile
  *       (name, mobiles, address, classification, account status). Internal CRM
  *       fields are never exposed.
+ *
+ *       The address is returned twice: `address` as display names and
+ *       `addressIds` as geo_units ids for the same four levels, so a cascading
+ *       picker can preselect itself. The client record stores only three geo
+ *       columns and may leave gaps in them; both shapes are reconstructed by
+ *       walking `geo_units.parent_id` up from the deepest stored unit, so the
+ *       chain is always contiguous and always accepted by the request form.
  *     security: [{ bearerAuth: [] }]
  *     responses:
  *       200:
@@ -158,12 +162,28 @@ router.get('/session', requireAppAuth, async (req, res) => {
  *                 classification: { type: string, enum: [OP, FOP, Lead], description: "OP/FOP are promotions; everything else defaults to Lead. Never null." }
  *                 address:
  *                   type: object
+ *                   description: Display names.
  *                   properties:
  *                     governorate: { type: string, nullable: true }
  *                     cityOrArea: { type: string, nullable: true }
  *                     subArea: { type: string, nullable: true }
  *                     neighborhood: { type: string, nullable: true }
  *                     detailedAddress: { type: string, nullable: true }
+ *                 addressIds:
+ *                   type: object
+ *                   description: >
+ *                     The same levels as geo_units ids — pass these to the
+ *                     request form as governorateId / regionId /
+ *                     subdistrictId / neighborhoodId.
+ *                   properties:
+ *                     governorate: { type: integer, nullable: true }
+ *                     cityOrArea: { type: integer, nullable: true }
+ *                     subArea: { type: integer, nullable: true }
+ *                     neighborhood: { type: integer, nullable: true }
+ *                 geoUnitId:
+ *                   type: integer
+ *                   nullable: true
+ *                   description: Deepest level present.
  *       401: { description: Missing/invalid/expired access token }
  *       403: { description: Account suspended }
  *       404: { description: Account or client record not found }

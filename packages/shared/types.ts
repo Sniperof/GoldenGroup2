@@ -1217,6 +1217,9 @@ export interface TaskListItem {
     status: 'pending' | 'called' | 'booked';
     callOutcome?: CallOutcome;
     contactTargetId?: number;
+    contactTargetStatus?: string | null;
+    contactTargetClosingReason?: string | null;
+    contactTargetClosedAt?: string | null;
     lockedByHrUserId?: number | null;
     lockedByHrUserName?: string | null;
     openTaskId: number | null;
@@ -1234,6 +1237,9 @@ export interface TaskList {
     date: string;
     items: TaskListItem[];
     createdAt: string;
+    status?: 'open' | 'closed';
+    closedAt?: string | null;
+    closeReason?: string | null;
 }
 
 export interface CallLog {
@@ -1260,6 +1266,9 @@ export interface Appointment {
     customerName: string;
     customerAddress: string;
     customerMobile: string;
+    workLocationGeoUnitId?: number | null;
+    workLocationName?: string | null;
+    workLocationPath?: string[];
     teamKey: string;
     date: string;
     timeSlot: string;

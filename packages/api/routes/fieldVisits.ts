@@ -1670,7 +1670,11 @@ router.get('/:id', requirePermission('field_visits.view', 'field_visits.my_visit
               c.referrers         AS client_referrers,
               c.referrer_type     AS client_referrer_type,
               c.referrer_name     AS client_referrer_name,
-              c.water_source      AS client_water_source,
+              COALESCE(
+                NULLIF(fv.customer_snapshot->>'waterSource', ''),
+                NULLIF(fv.customer_snapshot->>'water_source', ''),
+                c.water_source
+              ) AS client_water_source,
               c.governorate       AS client_governorate_id,
               c.district          AS client_district_id,
               c.neighborhood      AS client_neighborhood_id,

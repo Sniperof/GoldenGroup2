@@ -25,6 +25,7 @@ export async function loadSessionUserFromToken(tokenUser: Pick<AuthUser, 'id'>):
             u.role,
             u.role_id,
             r.display_name AS role_display_name,
+            r.team_slot_type,
             u.is_active,
             u.is_super_admin,
             u.branch_id,
@@ -49,6 +50,9 @@ export async function loadSessionUserFromToken(tokenUser: Pick<AuthUser, 'id'>):
     role: row.role,
     roleId: row.role_id ?? null,
     roleDisplayName: row.role_display_name ?? null,
+    // Always read from the role, never from the token: the device policy must
+    // follow a role change immediately, not at token expiry (7 days).
+    teamSlotType: row.team_slot_type ?? null,
     isSuperAdmin: row.is_super_admin === true,
     branchId: row.branch_id ?? null,
     employeeId: row.employee_id ?? null,

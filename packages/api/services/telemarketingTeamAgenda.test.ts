@@ -23,3 +23,16 @@ test('service and mixed are valid classifications for telemarketing-booked visit
   assert.equal(classifyVisitTaskFamilies(['service']), 'service');
   assert.equal(classifyVisitTaskFamilies(['marketing', 'service']), 'mixed');
 });
+
+test('team agenda resolves address from modern snapshot, legacy snapshot, task device, then client', () => {
+  assert.match(agendaQuery, /customer_snapshot->>'addressText'/);
+  assert.match(agendaQuery, /customer_snapshot->'address'->>'detailedAddress'/);
+  assert.match(agendaQuery, /inst_source\.installation_address_text/);
+  assert.match(agendaQuery, /c\.detailed_address/);
+});
+
+test('team agenda projects the structured work location for geographic grouping', () => {
+  assert.match(agendaQuery, /workLocationGeoUnitId/);
+  assert.match(agendaQuery, /ct\.work_location_geo_unit_id/);
+  assert.match(agendaQuery, /inst_source\.installation_geo_unit_id/);
+});

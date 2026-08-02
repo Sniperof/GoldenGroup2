@@ -2,6 +2,8 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { JWT_SECRET } from '../config/env.js';
 import { findUserForLogin, getRoleGrants, type RoleGrant } from '../repositories/authRepository.js';
+import type { DeviceClass } from './deviceClass.js';
+import { decideWebDeviceAccess, loadAllowedTeamSlots } from './webDeviceAccessPolicy.js';
 
 export interface LoginResult {
   token: string;
@@ -14,6 +16,7 @@ export interface LoginResult {
     isSuperAdmin: boolean;
     branchId: number | null;
     employeeId: number | null;
+    teamSlotType: string | null;
   };
   permissions: string[];
   grants: RoleGrant[];
@@ -25,7 +28,11 @@ export interface SessionResult {
   grants: RoleGrant[];
 }
 
-export async function loginUser(username: string, password: string): Promise<LoginResult> {
+export async function loginUser(
+  username: string,
+  password: string,
+  deviceClass?: DeviceClass,
+): Promise<LoginResult> {
   const user = await findUserForLogin(username);
 
   if (!user) {
@@ -39,6 +46,26 @@ export async function loginUser(username: string, password: string): Promise<Log
   const match = await bcrypt.compare(password, user.password_hash);
   if (!match) {
     throw Object.assign(new Error('اسم المستخدم أو كلمة المرور غير صحيحة'), { status: 401 });
+  }
+
+  // Device policy. Necessarily AFTER the password check, because the rule keys
+  // on the role and the role is unknown until the user is identified. The cost
+  // is that a wrong password and a blocked device give different messages, so a
+  // valid pair is implicitly confirmed; accepted deliberately — one shared,
+  // vague message would tell a supervisor who mistyped their password to go
+  // find a desktop.
+  if (deviceClass) {
+    const decision = decideWebDeviceAccess({
+      deviceClass,
+      teamSlotType: user.team_slot_type,
+      allowedSlots: await loadAllowedTeamSlots(),
+    });
+    if (decision.blocked) {
+      throw Object.assign(new Error(decision.blocked.message), {
+        status: 403,
+        details: { code: decision.blocked.code, deviceClass },
+      });
+    }
   }
 
   let grants: RoleGrant[] = [];
@@ -57,6 +84,7 @@ export async function loginUser(username: string, password: string): Promise<Log
     isSuperAdmin: user.is_super_admin === true,
     branchId: user.branch_id,
     employeeId: user.employee_id,
+    teamSlotType: user.team_slot_type,
   };
 
   const token = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: '7d' });
@@ -72,6 +100,7 @@ export async function loginUser(username: string, password: string): Promise<Log
       isSuperAdmin: user.is_super_admin === true,
       branchId: user.branch_id,
       employeeId: user.employee_id,
+      teamSlotType: user.team_slot_type,
     },
     permissions,
     grants,
@@ -87,6 +116,7 @@ export async function getCurrentSession(user: {
   isSuperAdmin?: boolean;
   branchId?: number | null;
   employeeId?: number | null;
+  teamSlotType?: string | null;
 }): Promise<SessionResult> {
   let grants: RoleGrant[] = [];
   if (user.roleId) {
@@ -103,6 +133,7 @@ export async function getCurrentSession(user: {
       isSuperAdmin: user.isSuperAdmin === true,
       branchId: user.branchId ?? null,
       employeeId: user.employeeId ?? null,
+      teamSlotType: user.teamSlotType ?? null,
     },
     permissions: derivePermissionsFromGrants(grants),
     grants,

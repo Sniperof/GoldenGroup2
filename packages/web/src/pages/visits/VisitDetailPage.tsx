@@ -530,6 +530,7 @@ export default function VisitDetailPage() {
                         <Field icon={User} label="التيليماركتر" value={visit.telemarketer_name} />
                         <Field icon={Droplets} label="مصدر المياه" value={visit.client_water_source} />
                         <Field icon={MessageSquare} label="ملاحظات التيليماركتر" value={visit.telemarketer_notes} full />
+                        <Field icon={ClipboardList} label="تعليمات للفريق الميداني" value={visit.field_instructions} full />
                     </div>
                 </Section>
 

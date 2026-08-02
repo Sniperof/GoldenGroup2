@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { resolveAndValidateAddress } from './addressValidation.js';
+import { resolveAndValidateAddress } from './administrativeAddress.js';
 
 // A small fixture geo tree: Damascus(1) → Mazzeh(2) → Sheikh Saad(3) → Villa Zone(4).
 const TREE = [

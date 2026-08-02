@@ -16,6 +16,39 @@ import {
 
 type Queryable = Pick<typeof pool, 'query'>;
 
+/**
+ * PostgreSQL DATE values are parsed as local-midnight Date objects by the
+ * project DB adapter. Using toISOString() would move a Damascus date to the
+ * previous UTC day, so preserve the local calendar components instead.
+ */
+export function normalizePlanningDateOnly(value: unknown): string | null {
+  if (value == null) return null;
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null;
+    const year = String(value.getFullYear()).padStart(4, '0');
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    const day = String(value.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+  if (typeof value === 'string') {
+    return value.trim().match(/^(\d{4}-\d{2}-\d{2})/)?.[1] ?? null;
+  }
+  return null;
+}
+
+function normalizePlanningTimestamp(value: unknown): string {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString();
+  }
+  return typeof value === 'string' ? value : String(value ?? '');
+}
+
+export function planningBranchOwnerLabel(branchName: unknown): string {
+  if (typeof branchName !== 'string' || !branchName.trim()) return 'الشركة';
+  const normalized = branchName.trim().replace(/^(?:فرع\s+)+/u, '');
+  return normalized ? `فرع ${normalized}` : 'الشركة';
+}
+
 type RouteCompositionInput = {
   routeId: number;
   startIdx: number;
@@ -662,7 +695,11 @@ export async function getPlanningMarketingTargets(params: {
           -- DEC-009 لبنة 5 — deepest available level: neighborhood, else district.
           ELSE COALESCE(c.neighborhood, c.district)
         END AS "effectiveZoneId",
-        c.detailed_address AS "detailedAddress",
+        CASE
+          WHEN ot.location_basis IN ('contract', 'device')
+            THEN COALESCE(NULLIF(ct_zone.installation_address_text, ''), NULLIF(c.detailed_address, ''), NULLIF(c.referral_address_text, ''))
+          ELSE COALESCE(NULLIF(c.detailed_address, ''), NULLIF(c.referral_address_text, ''))
+        END AS "detailedAddress",
         c.gps_coordinates AS "gpsCoordinates",
         c.gender,
         c.national_id AS "nationalId",
@@ -718,7 +755,7 @@ export async function getPlanningMarketingTargets(params: {
         ot.task_family AS "openTaskFamily",
         ot.reason AS "openTaskReason",
         ot.status AS "openTaskStatus",
-        ot.due_date AS "openTaskDueDate",
+        ot.due_date::text AS "openTaskDueDate",
         ot.priority AS "openTaskPriority",
         ot.notes AS "openTaskNotes",
         ${buildCustomerOwnershipSelectColumns()}
@@ -795,7 +832,7 @@ export async function getPlanningMarketingTargets(params: {
       ) ot ON TRUE
       -- Resolve the installed-device's installation zone for device-basis tasks.
       LEFT JOIN LATERAL (
-        SELECT inst.installation_geo_unit_id
+        SELECT inst.installation_geo_unit_id, inst.installation_address_text
         FROM installed_devices inst
         WHERE inst.id = ot.device_id
           AND inst.installation_geo_unit_id IS NOT NULL
@@ -1036,14 +1073,14 @@ export async function getPlanningWorkScope(params: {
        ot.task_family      AS "taskFamily",
        ot.origin           AS "origin",
        ot.status,
-       ot.due_date         AS "dueDate",
-       ot.expected_date    AS "expectedDate",
+       ot.due_date::text   AS "dueDate",
+       ot.expected_date::text AS "expectedDate",
        ot.created_at       AS "createdAt",
        ot.priority,
        ot.notes,
        ot.attempt_count    AS "attemptCount",
        ot.assigned_team_key AS "assignedTeamKey",
-       ot.assigned_for_date AS "assignedForDate",
+       ot.assigned_for_date::text AS "assignedForDate",
        COALESCE(
          committed_snapshot.work_location_geo_unit_id,
          CASE
@@ -1096,7 +1133,7 @@ export async function getPlanningWorkScope(params: {
        c.neighborhood      AS "clientNeighborhood",
        ${buildClientLifecycleStatusSql('c')} AS "candidateStatus",
        c.do_not_contact    AS "clientDoNotContact",
-       c.cooldown_until    AS "clientCooldownUntil",
+       c.cooldown_until::text AS "clientCooldownUntil",
        work_gu.name        AS "effectiveZoneName",
        b.name              AS "branchName",
        CASE
@@ -1140,19 +1177,22 @@ export async function getPlanningWorkScope(params: {
      LEFT JOIN installed_devices inst
        ON inst.id = ot.device_id
       AND ttc.location_basis IN ('contract', 'device')
+     -- A committed plan is defined by the immutable contact-target/task bridge,
+     -- not by the call-list item's optional task pointer. A call-list row is at
+     -- contact grain and may point at only one task even when the same contact
+     -- target was generated from several tasks. Reading the bridge keeps every
+     -- historical task visible after it is released or assigned to a later day.
      LEFT JOIN LATERAL (
        SELECT
          ct.id,
          ct.work_location_geo_unit_id
-       FROM telemarketing_task_list_items item
-       JOIN telemarketing_task_lists task_list
-         ON task_list.id = item.task_list_id
+       FROM contact_target_open_tasks committed_link
        JOIN contact_targets ct
-         ON ct.id = item.contact_target_id
-       WHERE item.open_task_id = ot.id
-         AND task_list.branch_id = $1
-         AND task_list.date = $4
-         AND task_list.team_key = $6
+         ON ct.id = committed_link.contact_target_id
+       WHERE committed_link.open_task_id = ot.id
+         AND committed_link.branch_id = $1
+         AND committed_link.date = $4::date
+         AND committed_link.team_key = $6
          AND ct.branch_id = $1
          AND ct.date = $4::date
          AND ct.team_key = $6
@@ -1265,23 +1305,23 @@ export async function getPlanningWorkScope(params: {
     taskFamily: r.taskFamily,
     origin: r.origin,
     status: r.status,
-    dueDate: r.dueDate,
-    expectedDate: r.expectedDate,
-    createdAt: r.createdAt,
+    dueDate: normalizePlanningDateOnly(r.dueDate),
+    expectedDate: normalizePlanningDateOnly(r.expectedDate),
+    createdAt: normalizePlanningTimestamp(r.createdAt),
     priority: r.priority,
     notes: r.notes,
     ownershipType: companyOwnedSet.has(r.clientId) ? 'company_branch' : 'personal',
     ownerLabel: companyOwnedSet.has(r.clientId)
-      ? (r.branchName ? `فرع ${r.branchName}` : 'الشركة')
+      ? planningBranchOwnerLabel(r.branchName)
       : r.ownerLabel,
     assignedPersonName: companyOwnedSet.has(r.clientId) ? null : r.ownerLabel,
     effectiveZoneId: r.effectiveZoneId == null ? null : Number(r.effectiveZoneId),
     effectiveZoneName: r.effectiveZoneName ?? null,
     candidateStatus: r.candidateStatus ?? null,
     clientDoNotContact: r.clientDoNotContact === true,
-    clientCooldownUntil: r.clientCooldownUntil ?? null,
+    clientCooldownUntil: normalizePlanningDateOnly(r.clientCooldownUntil),
     assignedTeamKey: r.assignedTeamKey ?? null,
-    assignedForDate: r.assignedForDate ?? null,
+    assignedForDate: normalizePlanningDateOnly(r.assignedForDate),
     attemptCount: Number(r.attemptCount ?? 0),
     exclusionId: r.exclusionId == null ? null : Number(r.exclusionId),
     exclusionScope: r.exclusionScope ?? null,
@@ -1378,7 +1418,11 @@ export async function getAssignedLeadsForTeam(params: {
           -- DEC-009 لبنة 5 — deepest available level: neighborhood, else district.
           ELSE COALESCE(c.neighborhood, c.district)
         END AS "effectiveZoneId",
-        c.detailed_address AS "detailedAddress",
+        CASE
+          WHEN ttc.location_basis IN ('contract', 'device')
+            THEN COALESCE(NULLIF(inst.installation_address_text, ''), NULLIF(c.detailed_address, ''), NULLIF(c.referral_address_text, ''))
+          ELSE COALESCE(NULLIF(c.detailed_address, ''), NULLIF(c.referral_address_text, ''))
+        END AS "detailedAddress",
         c.referral_address_text AS "referralAddressText",
         c.branch_id        AS "branchId",
         c.is_candidate     AS "isCandidate",
@@ -1392,7 +1436,7 @@ export async function getAssignedLeadsForTeam(params: {
         ot.task_family     AS "openTaskFamily",
         ot.reason          AS "openTaskReason",
         ot.status          AS "openTaskStatus",
-        ot.due_date        AS "openTaskDueDate",
+        ot.due_date::text  AS "openTaskDueDate",
         ot.priority        AS "openTaskPriority",
         ot.notes           AS "openTaskNotes",
         COALESCE(ttc.contact_target_visit_type, 'marketing') AS "contactTargetVisitType",

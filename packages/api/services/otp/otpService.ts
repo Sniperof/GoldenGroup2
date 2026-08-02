@@ -20,6 +20,7 @@ import {
   OTP_MAX_ATTEMPTS,
   OTP_CODE_LENGTH,
   OTP_EXPOSE_CODE,
+  OTP_DAILY_CAP_PER_PHONE,
 } from '../../config/env.js';
 import { getOtpSender } from './otpSender.js';
 import { SR_ACTIVE_STATUSES } from '../serviceRequests/_shared.js';
@@ -163,6 +164,27 @@ function generateCode(length: number): string {
 export async function sendOtp(input: SendOtpInput): Promise<SendOtpResult> {
   const { phone, purpose } = assertValid(input.phone, input.purpose);
   await assertPurposePrecondition(phone, purpose);
+
+  // Daily ceiling per number, across ALL purposes. The 60s resend window below
+  // only paces one purpose at a time, so on its own it permits ~1440 messages
+  // a day per number (×5 purposes) — with a paid provider that is a spend
+  // channel, not a UX guard. Counted in the DB so restarts and extra worker
+  // processes cannot widen it.
+  if (OTP_DAILY_CAP_PER_PHONE > 0) {
+    const { rows: sentToday } = await pool.query<{ n: string }>(
+      `SELECT COUNT(*)::text AS n
+         FROM otp_verifications
+        WHERE phone = $1 AND created_at >= NOW() - INTERVAL '24 hours'`,
+      [phone],
+    );
+    if (Number(sentToday[0]?.n ?? 0) >= OTP_DAILY_CAP_PER_PHONE) {
+      throw httpError(429, 'تجاوزت الحد اليومي لرسائل التحقق لهذا الرقم. حاول غداً.', {
+        code: 'daily_cap_reached',
+        limit: OTP_DAILY_CAP_PER_PHONE,
+        windowHours: 24,
+      });
+    }
+  }
 
   // Resend window: block a new code within OTP_RESEND_SECONDS of the last one.
   const { rows: recent } = await pool.query<{ last_sent_at: string }>(

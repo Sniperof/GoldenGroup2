@@ -38,14 +38,23 @@ let cached: OtpSender | null = null;
 /**
  * Returns the configured OTP sender. Add real providers (e.g. 'sms') here;
  * the caller never changes.
+ *
+ * FAIL-CLOSED: no `default` branch. An unrecognised OTP_PROVIDER used to fall
+ * back to the simulator, which boots cleanly, accepts every request, delivers
+ * nothing, and prints live codes to the log — a typo in the deployment env
+ * would look exactly like a healthy server. `config/env.ts` already rejects
+ * unknown values and refuses `simulated` in production at boot; this throw is
+ * the second gate for a provider added to the enum but not wired here.
  */
 export function getOtpSender(): OtpSender {
   if (cached) return cached;
   switch (OTP_PROVIDER) {
     // case 'sms': cached = new SmsOtpSender(); break;   // Phase: production
     case 'simulated':
-    default:
       cached = new SimulatedOtpSender();
+      break;
+    default:
+      throw new Error(`No OTP sender adapter is installed for OTP_PROVIDER="${OTP_PROVIDER}".`);
   }
   return cached;
 }

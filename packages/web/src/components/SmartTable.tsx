@@ -423,13 +423,10 @@ export default function SmartTable<T>({
                     className="w-full border-collapse"
                     style={{ minWidth: `${tableMinWidth}px` }}
                 >
-                    {/* sticky thead — sticks to the top of the scroll area as the page scrolls.
-                        `--st-sticky-top` lets a host page (e.g. a sticky tab bar above) push the
-                        header down so the two don't collide; defaults to 0 when unset. */}
-                    <thead
-                        className="sticky z-20 bg-slate-50 border-b border-slate-200 shadow-[0_1px_0_0_#e2e8f0]"
-                        style={{ top: 'var(--st-sticky-top, 0px)' }}
-                    >
+                    {/* The horizontal overflow wrapper is the sticky containing block.
+                        Keep top at zero; a host-provided offset would move the header
+                        inside the table and cover its first data row. */}
+                    <thead className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 shadow-[0_1px_0_0_#e2e8f0]">
                         <tr>
                             {bulkActions && (
                                 <th className="w-11 px-4 py-3">

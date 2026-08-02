@@ -135,16 +135,12 @@ export default function AccountRequestDetailPage() {
         primary_phone: p.primary_mobile,
         secondary_phone: p.secondary_mobile,
       },
-      serviceAddress: {
-        governorateId: sa.governorate,
-        regionId: sa.city_or_area,
-        subdistrictId: sa.sub_area,
-        neighborhoodId: sa.neighborhood,
-        detailedAddress: sa.detailed_address,
-      },
+      // Passed through as stored. Both mobile intake paths now write the same
+      // `service_address` shape (canonical snake_case + camelCase aliases +
+      // labels), so this page no longer translates one vocabulary into another.
+      serviceAddress: sa,
     }),
-    [p.first_name, p.last_name, p.primary_mobile, p.secondary_mobile,
-     sa.governorate, sa.city_or_area, sa.sub_area, sa.neighborhood, sa.detailed_address],
+    [p.first_name, p.last_name, p.primary_mobile, p.secondary_mobile, sa],
   );
 
   if (loading) {

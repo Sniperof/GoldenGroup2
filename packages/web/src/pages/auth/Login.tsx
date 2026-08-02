@@ -1,4 +1,4 @@
-import { useState, FormEvent } from 'react';
+import { useState, useEffect, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   motion,
@@ -9,6 +9,7 @@ import {
   type MotionStyle,
 } from 'framer-motion';
 import { useAuthStore } from '../../hooks/useAuthStore';
+import { DEVICE_BLOCK_MESSAGE_KEY, deviceClassHeader } from '../../lib/deviceClass';
 import {
   Lock,
   User,
@@ -32,6 +33,17 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [focusedField, setFocusedField] = useState<string | null>(null);
+
+  // A session cut short by the device policy parks its reason before
+  // redirecting here, so the user lands on an explanation rather than a blank
+  // login form they will keep re-submitting.
+  useEffect(() => {
+    const parked = sessionStorage.getItem(DEVICE_BLOCK_MESSAGE_KEY);
+    if (parked) {
+      setError(parked);
+      sessionStorage.removeItem(DEVICE_BLOCK_MESSAGE_KEY);
+    }
+  }, []);
 
   // ── Cursor-reactive 3D parallax for the branding illustration ──
   const reduceMotion = useReducedMotion();
@@ -70,7 +82,10 @@ export default function Login() {
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        // The device header travels with the login too: the server refuses the
+        // sign-in itself, so the user gets one clear message instead of a
+        // session that dies on the first call after it.
+        headers: { 'Content-Type': 'application/json', ...deviceClassHeader() },
         body: JSON.stringify({ username: username.trim(), password }),
       });
       const data = await res.json();

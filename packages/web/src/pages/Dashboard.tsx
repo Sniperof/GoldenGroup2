@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { BarChart3, ClipboardList, LayoutDashboard, LayoutGrid, Sparkles, UsersRound, FileText, HardDrive } from '../components/ui/icons';
+import { BarChart3, Briefcase, ClipboardList, LayoutDashboard, LayoutGrid, Sparkles, UsersRound, FileText, HardDrive } from '../components/ui/icons';
 import { useSearchParams } from 'react-router-dom';
 import { usePermissions } from '../hooks/usePermissions';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
@@ -12,7 +12,7 @@ import { WIDGET_REGISTRY, type ScopeState, type WidgetDef, type TimePreset } fro
 const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.06 } } };
 const item = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } };
 
-type DashboardSection = 'summary' | 'clients' | 'candidates' | 'name-lists' | 'contracts' | 'devices';
+type DashboardSection = 'summary' | 'clients' | 'candidates' | 'name-lists' | 'contracts' | 'devices' | 'recruitment';
 
 const SECTION_META: Record<DashboardSection, {
   label: string;
@@ -56,6 +56,12 @@ const SECTION_META: Record<DashboardSection, {
     description: 'القاعدة المركّبة الحيّة، الكفالات، التوزيع حسب الحالة والموديل والفرع',
     icon: HardDrive,
   },
+  recruitment: {
+    label: 'التوظيف',
+    title: 'تحليلات التوظيف والاستقطاب',
+    description: 'قمع التوظيف، الشواغر والمقاعد، زمن الدورة وأداء المقابلات',
+    icon: Briefcase,
+  },
 };
 
 function isNameListWidget(widget: WidgetDef): boolean {
@@ -69,6 +75,7 @@ function widgetsForSection(section: DashboardSection, widgets: WidgetDef[]): Wid
   if (section === 'name-lists') return widgets.filter(isNameListWidget);
   if (section === 'contracts') return widgets.filter(widget => widget.department === 'العقود');
   if (section === 'devices') return widgets.filter(widget => widget.department === 'الأجهزة');
+  if (section === 'recruitment') return widgets.filter(widget => widget.department === 'التوظيف');
   return widgets.filter(widget => widget.department === 'الأسماء المقترحة' && !isNameListWidget(widget));
 }
 
@@ -115,6 +122,7 @@ export default function Dashboard() {
     if (widgetsForSection('name-lists', visibleWidgets).length > 0) sections.push('name-lists');
     if (widgetsForSection('contracts', visibleWidgets).length > 0) sections.push('contracts');
     if (widgetsForSection('devices', visibleWidgets).length > 0) sections.push('devices');
+    if (widgetsForSection('recruitment', visibleWidgets).length > 0) sections.push('recruitment');
     return sections;
   }, [visibleWidgets]);
 

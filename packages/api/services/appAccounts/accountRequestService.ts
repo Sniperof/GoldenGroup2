@@ -18,7 +18,11 @@
 
 import pool from '../../db.js';
 import { normalizePhone, isValidSyrianMobile } from '../../utils/contactValidation.js';
-import { resolveAndValidateAddress } from './addressValidation.js';
+import { resolveAndValidateAddress } from '../geo/administrativeAddress.js';
+import {
+  buildMobileAddressLabels,
+  buildMobileServiceAddress,
+} from '../geo/mobileServiceAddress.js';
 import { detectAccountRequestDuplicate } from './accountDuplicatePolicy.js';
 import {
   acquireTx,
@@ -407,21 +411,15 @@ export async function createAccountRequest(
       primary_phone: phone,
       secondary_phone: form.secondaryMobile ? normalizePhone(form.secondaryMobile) : null,
     };
-    const addressLabels = {
-      governorate: address.labels.governorate,
-      city_or_area: address.labels.cityOrArea,
-      sub_area: address.labels.subArea,
-      neighborhood: address.labels.neighborhood,
-    };
-    const serviceAddress = {
-      governorate: address.ids.governorate,
-      city_or_area: address.ids.cityOrArea,
-      sub_area: address.ids.subArea,
-      neighborhood: address.ids.neighborhood,
-      detailed_address: detailedAddress,
+    // Same builder as the water_check intake — one `service_address` shape for
+    // every mobile channel, so a reviewer (or a report) reads one vocabulary
+    // regardless of which type the request is.
+    const addressLabels = buildMobileAddressLabels(address);
+    const serviceAddress = buildMobileServiceAddress({
+      resolved: address,
+      detailedAddress,
       location: form.location ?? null,
-      labels: addressLabels,
-    };
+    });
     const submittedPayload = {
       first_name: firstName,
       last_name: lastName,

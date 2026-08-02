@@ -7,10 +7,10 @@ import {
   useState,
 } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { OPEN_TASK_FAMILY_LABELS } from '@golden-crm/shared';
 import {
   AlertTriangle,
   ArrowRight,
-  Ban,
   Calendar,
   CheckCircle2,
   ChevronDown,
@@ -20,7 +20,6 @@ import {
   ExternalLink,
   Filter,
   Info,
-  Layers3,
   ListChecks,
   Loader2,
   Lock,
@@ -30,7 +29,6 @@ import {
   RefreshCw,
   RotateCcw,
   Search,
-  ShieldAlert,
   SlidersHorizontal,
   Target,
   Undo2,
@@ -51,14 +49,15 @@ import {
   type PlanningCurationSelector,
   type PlanningCurationTask,
   type PlanningDashboardFilters,
+  type PlanningDayCycleSummary,
   type PlanningExclusionLayer,
   type PlanningTargetMode,
 } from '../../lib/api';
 
-type LifecycleStatus = 'ready' | 'queued' | 'contacted' | 'closed';
+type LifecycleStatus = 'ready' | 'queued' | 'in_call_list' | 'contacted' | 'closed';
 type SelectionScope = 'TASKS' | 'CONTACTS';
 type SortDir = 'asc' | 'desc';
-type SortKey = 'clientName' | 'clientId' | 'station' | 'taskCount' | 'attemptCount' | 'status';
+type SortKey = 'clientName' | 'clientId' | 'station' | 'status';
 
 type SelectionState = {
   scope: SelectionScope;
@@ -109,6 +108,12 @@ const LIFECYCLE_META: Record<
     badge: 'border-sky-200 bg-sky-50 text-sky-700',
     dot: 'bg-sky-500',
     card: 'border-sky-200 bg-sky-50/70',
+  },
+  in_call_list: {
+    label: 'قيد المعالجة',
+    badge: 'border-cyan-200 bg-cyan-50 text-cyan-700',
+    dot: 'bg-cyan-500',
+    card: 'border-cyan-200 bg-cyan-50/70',
   },
   contacted: {
     label: 'تم التواصل',
@@ -214,9 +219,8 @@ const fromNumberCsv = (value: string | null) => fromCsv(value)
 
 function initialFilters(searchParams: URLSearchParams): PlanningDashboardFilters {
   const lifecycleStatuses = fromCsv(searchParams.get('status'))
-    .filter(value => ['ready', 'queued', 'contacted', 'closed'].includes(value)) as LifecycleStatus[];
+    .filter(value => ['ready', 'queued', 'in_call_list', 'contacted', 'closed'].includes(value)) as LifecycleStatus[];
   const due = searchParams.get('due');
-  const phone = searchParams.get('phone');
   const optionalNonNegativeInteger = (key: string) => {
     const raw = searchParams.get(key);
     if (raw == null || raw.trim() === '') return undefined;
@@ -225,7 +229,6 @@ function initialFilters(searchParams: URLSearchParams): PlanningDashboardFilters
   };
   const minTasks = optionalNonNegativeInteger('minTasks');
   const maxTasks = optionalNonNegativeInteger('maxTasks');
-  const attempts = optionalNonNegativeInteger('attempts');
   return {
     ...(searchParams.get('q') ? { q: searchParams.get('q')! } : {}),
     ...(lifecycleStatuses.length ? { lifecycleStatuses } : {}),
@@ -249,18 +252,11 @@ function initialFilters(searchParams: URLSearchParams): PlanningDashboardFilters
     ...(fromCsv(searchParams.get('families')).length
       ? { taskFamilies: fromCsv(searchParams.get('families')) }
       : {}),
-    ...(fromCsv(searchParams.get('taskStatuses')).length
-      ? { taskStatuses: fromCsv(searchParams.get('taskStatuses')) }
-      : {}),
     ...(fromCsv(searchParams.get('priorities')).length
       ? { priorities: fromCsv(searchParams.get('priorities')) }
       : {}),
     ...(['OVERDUE', 'ON_DATE', 'FUTURE', 'NO_DATE'].includes(due ?? '')
       ? { dueState: due as PlanningDashboardFilters['dueState'] }
-      : {}),
-    ...(attempts != null ? { attemptsMin: attempts } : {}),
-    ...(['VALID', 'MISSING'].includes(phone ?? '')
-      ? { phoneState: phone as PlanningDashboardFilters['phoneState'] }
       : {}),
     ...(fromCsv(searchParams.get('exclusions')).length
       ? {
@@ -294,6 +290,34 @@ function classificationLabel(value: string | null) {
   if (value === 'OP') return 'OP';
   if (value === 'FOP') return 'FOP';
   return 'Lead';
+}
+
+function taskFamilyLabel(value: string): string {
+  return (OPEN_TASK_FAMILY_LABELS as Record<string, string>)[value] ?? value;
+}
+
+function taskCountLabel(count: number): string {
+  if (count === 1) return 'مهمة واحدة';
+  if (count === 2) return 'مهمتان';
+  if (count >= 3 && count <= 10) return `${count} مهام`;
+  return `${count} مهمة`;
+}
+
+function contactAttemptLabel(count: number): string {
+  if (count === 0) return 'لم تبدأ محاولة اتصال';
+  if (count === 1) return 'محاولة اتصال واحدة';
+  if (count === 2) return 'محاولتا اتصال';
+  if (count >= 3 && count <= 10) return `${count} محاولات اتصال`;
+  return `${count} محاولة اتصال`;
+}
+
+function fallbackTeamLabel(teamKey: string): string {
+  const [kind, rawIndex] = teamKey.split('_');
+  const index = Number(rawIndex);
+  const number = Number.isInteger(index) ? index + 1 : null;
+  return kind === 'solo'
+    ? `فريق طوارئ${number == null ? '' : ` رقم ${number}`}`
+    : `الفريق${number == null ? '' : ` رقم ${number}`}`;
 }
 
 function ownershipLabel(value: string, ownerLabel: string) {
@@ -479,12 +503,14 @@ function CurationPreviewModal({
   request,
   date,
   teamKey,
+  teamLabel,
   onClose,
   onApplied,
 }: {
   request: PendingCuration | null;
   date: string;
   teamKey: string;
+  teamLabel: string;
   onClose: () => void;
   onApplied: (result: Awaited<ReturnType<typeof api.planning.applyCuration>>) => Promise<void>;
 }) {
@@ -602,7 +628,7 @@ function CurationPreviewModal({
     >
       <div className={`rounded-xl border px-4 py-3 text-sm ${toneClass}`}>
         <p className="font-bold">{operation.description}</p>
-        <p className="mt-1 text-xs opacity-80">يوم التخطيط: {date} · الفريق: {teamKey}</p>
+        <p className="mt-1 text-xs opacity-80">يوم التخطيط: {date} · {teamLabel}</p>
       </div>
 
       <label className="mt-4 block">
@@ -704,7 +730,7 @@ export default function PlanningContactTargets() {
   const [searchParams, setSearchParams] = useSearchParams();
   const defaultPlanningDate = getPlanningDate();
   const date = searchParams.get('date') || defaultPlanningDate;
-  const teamLabel = searchParams.get('label') || teamKey;
+  const teamLabelFromUrl = searchParams.get('label') || fallbackTeamLabel(teamKey);
   const branchId = useBranchContextStore(state => state.branchId);
   const hasPermission = useAuthStore(state => state.hasPermission);
   const canEditContactControl = hasPermission('clients.contact_control.edit');
@@ -719,7 +745,7 @@ export default function PlanningContactTargets() {
   });
   const [sortKey, setSortKey] = useState<SortKey>(() => {
     const value = searchParams.get('sort');
-    return ['clientName', 'clientId', 'station', 'taskCount', 'attemptCount', 'status'].includes(value ?? '')
+    return ['clientName', 'clientId', 'station', 'status'].includes(value ?? '')
       ? value as SortKey
       : 'clientName';
   });
@@ -729,6 +755,7 @@ export default function PlanningContactTargets() {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [advancedFiltersOpen, setAdvancedFiltersOpen] = useState(false);
   const [data, setData] = useState<PlanningCurationDashboardResponse | null>(null);
+  const teamLabel = data?.teamLabel || teamLabelFromUrl;
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -736,6 +763,10 @@ export default function PlanningContactTargets() {
   const [syncing, setSyncing] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [pendingCuration, setPendingCuration] = useState<PendingCuration | null>(null);
+  const [closePreview, setClosePreview] = useState<PlanningDayCycleSummary | null>(null);
+  const [closePreviewOpen, setClosePreviewOpen] = useState(false);
+  const [loadingClosePreview, setLoadingClosePreview] = useState(false);
+  const [closingCycle, setClosingCycle] = useState(false);
   const requestSequence = useRef(0);
 
   useEffect(() => {
@@ -778,14 +809,16 @@ export default function PlanningContactTargets() {
     put('taskIds', toCsv(filters.taskIds));
     put('taskTypes', toCsv(filters.taskTypes));
     put('families', toCsv(filters.taskFamilies));
-    put('taskStatuses', toCsv(filters.taskStatuses));
     put('priorities', toCsv(filters.priorities));
     put('due', filters.dueState ?? '');
-    put('phone', filters.phoneState ?? '');
     put('exclusions', toCsv(filters.exclusionLayers));
     put('minTasks', filters.minTaskCount == null ? '' : String(filters.minTaskCount));
     put('maxTasks', filters.maxTaskCount == null ? '' : String(filters.maxTaskCount));
-    put('attempts', filters.attemptsMin == null ? '' : String(filters.attemptsMin));
+    // Clear removed controls from legacy/bookmarked URLs so an invisible
+    // filter can never continue narrowing the dashboard results.
+    next.delete('taskStatuses');
+    next.delete('phone');
+    next.delete('attempts');
     next.set('page', String(page));
     next.set('limit', String(limit));
     next.set('sort', sortKey);
@@ -840,6 +873,18 @@ export default function PlanningContactTargets() {
   }, [branchId, date, filtersKey, limit, page, sortDir, sortKey, teamKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    const refreshVisibleDashboard = () => {
+      if (document.visibilityState === 'visible') void loadData();
+    };
+    const intervalId = window.setInterval(refreshVisibleDashboard, 30_000);
+    document.addEventListener('visibilitychange', refreshVisibleDashboard);
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', refreshVisibleDashboard);
+    };
+  }, [loadData]);
+
+  useEffect(() => {
     setSelection(current => EMPTY_SELECTION(current.scope));
   }, [branchId, date, filtersKey, sortDir, sortKey, teamKey]);
 
@@ -847,6 +892,7 @@ export default function PlanningContactTargets() {
   const summary = data?.summary;
   const pagination = data?.pagination;
   const planCommitted = data?.planState === 'COMMITTED';
+  const cycleClosed = data?.cycle?.status === 'closed' || data?.cycle?.status === 'closing';
 
   const totalTasksForMode = useMemo(() => {
     if (!summary) return 0;
@@ -1017,6 +1063,10 @@ export default function PlanningContactTargets() {
   };
 
   const openBulkOperation = (operation: CurationOperation) => {
+    if (cycleClosed) {
+      setMessage({ type: 'warning', text: 'انتهت خطة هذا الفريق واليوم وأصبحت للقراءة فقط.' });
+      return;
+    }
     if (operation.layer === 'CLIENT_DO_NOT_CONTACT' && !canEditContactControl) {
       setMessage({
         type: 'warning',
@@ -1036,6 +1086,10 @@ export default function PlanningContactTargets() {
   };
 
   const openTaskOperation = (task: PlanningCurationTask, operation: CurationOperation) => {
+    if (cycleClosed) {
+      setMessage({ type: 'warning', text: 'انتهت خطة هذا الفريق واليوم وأصبحت للقراءة فقط.' });
+      return;
+    }
     setPendingCuration({
       operation,
       selector: { kind: 'TASK_IDS', taskIds: [task.taskId] },
@@ -1044,6 +1098,10 @@ export default function PlanningContactTargets() {
   };
 
   const openContactOperation = (row: PlanningCurationRow) => {
+    if (cycleClosed) {
+      setMessage({ type: 'warning', text: 'انتهت خطة هذا الفريق واليوم وأصبحت للقراءة فقط.' });
+      return;
+    }
     if (!canEditContactControl) {
       setMessage({
         type: 'warning',
@@ -1110,6 +1168,40 @@ export default function PlanningContactTargets() {
     }
   };
 
+  const openClosePreview = async () => {
+    setClosePreviewOpen(true);
+    setClosePreview(null);
+    setLoadingClosePreview(true);
+    setMessage(null);
+    try {
+      const result = await api.planning.previewClosePlanningDay(date, teamKey);
+      setClosePreview(result.summary);
+    } catch (error) {
+      setClosePreviewOpen(false);
+      setMessage({ type: 'error', text: errorMessage(error, 'تعذر تجهيز معاينة إنهاء الخطة') });
+    } finally {
+      setLoadingClosePreview(false);
+    }
+  };
+
+  const confirmCloseCycle = async () => {
+    setClosingCycle(true);
+    try {
+      const result = await api.planning.closePlanningDay(date, teamKey);
+      setClosePreviewOpen(false);
+      setMessage({
+        type: 'success',
+        text: `تم إنهاء الخطة وحفظ سجلها — أغلقت ${result.summary.contactTargetsClosed} جهة اتصال، وعادت ${result.summary.tasksReleased} مهمة غير مجدولة للانتظار.`,
+      });
+      clearSelection();
+      await loadData();
+    } catch (error) {
+      setMessage({ type: 'error', text: errorMessage(error, 'تعذر إنهاء دورة التخطيط') });
+    } finally {
+      setClosingCycle(false);
+    }
+  };
+
   const handleSort = (key: SortKey) => {
     if (key === sortKey) setSortDir(current => current === 'asc' ? 'desc' : 'asc');
     else {
@@ -1164,6 +1256,19 @@ export default function PlanningContactTargets() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {data?.cycle && (
+              <span className={[
+                'inline-flex h-10 items-center gap-2 rounded-xl border px-3 text-xs font-black',
+                cycleClosed
+                  ? 'border-slate-300 bg-slate-100 text-slate-700'
+                  : data.cycle.status === 'active'
+                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                    : 'border-sky-200 bg-sky-50 text-sky-700',
+              ].join(' ')}>
+                <Lock className="h-4 w-4" />
+                {cycleClosed ? 'الخطة منتهية' : data.cycle.status === 'active' ? 'الخطة فعالة' : 'قيد التخطيط'}
+              </span>
+            )}
             <label className="flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-600">
               <Calendar className="h-4 w-4 text-sky-600" />
               <input
@@ -1182,12 +1287,23 @@ export default function PlanningContactTargets() {
             <button
               type="button"
               onClick={handleSync}
-              disabled={syncing || loading}
+              disabled={syncing || loading || cycleClosed}
               className="inline-flex h-10 items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 text-sm font-bold text-amber-700 hover:bg-amber-100 disabled:opacity-50"
             >
               {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
               تحديث الإسناد
             </button>
+            {!cycleClosed && data && (
+              <button
+                type="button"
+                onClick={openClosePreview}
+                disabled={loading || loadingClosePreview}
+                className="inline-flex h-10 items-center gap-2 rounded-xl border border-red-200 bg-white px-4 text-sm font-bold text-red-700 hover:bg-red-50 disabled:opacity-50"
+              >
+                {loadingClosePreview ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
+                إنهاء الخطة
+              </button>
+            )}
           </div>
         </header>
 
@@ -1233,7 +1349,7 @@ export default function PlanningContactTargets() {
               <button
                 type="button"
                 onClick={handleGenerate}
-                disabled={generating || loading}
+                disabled={generating || loading || cycleClosed}
                 className={[
                   'inline-flex items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-black text-white shadow-sm disabled:opacity-50',
                   planCommitted ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-amber-600 hover:bg-amber-500',
@@ -1258,7 +1374,7 @@ export default function PlanningContactTargets() {
               active={!filters.lifecycleStatuses?.length}
               onClick={() => toggleLifecycle()}
             />
-            {(['ready', 'queued', 'contacted', 'closed'] as LifecycleStatus[]).map(status => (
+            {(['ready', 'queued', 'in_call_list', 'contacted', 'closed'] as LifecycleStatus[]).map(status => (
               <MetricCard
                 key={status}
                 label={LIFECYCLE_META[status].label}
@@ -1314,6 +1430,17 @@ export default function PlanningContactTargets() {
               }))}
               onChange={values => updateFilters({ taskTypes: values })}
             />
+            <MultiChoiceFilter
+              label="حالة جهة الاتصال"
+              values={filters.lifecycleStatuses ?? []}
+              options={(['ready', 'queued', 'in_call_list', 'contacted', 'closed'] as LifecycleStatus[]).map(status => ({
+                value: status,
+                label: LIFECYCLE_META[status].label,
+              }))}
+              onChange={values => updateFilters({
+                lifecycleStatuses: values as LifecycleStatus[],
+              })}
+            />
             <button
               type="button"
               onClick={() => setAdvancedFiltersOpen(current => !current)}
@@ -1349,7 +1476,7 @@ export default function PlanningContactTargets() {
                 values={filters.taskFamilies ?? []}
                 options={(data?.facets.taskFamilies ?? []).map(item => ({
                   value: item.value,
-                  label: item.label,
+                  label: taskFamilyLabel(item.value),
                   count: item.count,
                 }))}
                 onChange={values => updateFilters({ taskFamilies: values })}
@@ -1384,18 +1511,6 @@ export default function PlanningContactTargets() {
                 onChange={values => updateFilters({ ownershipTypes: values })}
               />
               <MultiChoiceFilter
-                label="حالة المهمة"
-                values={filters.taskStatuses ?? []}
-                options={[
-                  { value: 'open', label: 'قيد الانتظار' },
-                  { value: 'needs_follow_up', label: 'تحتاج متابعة' },
-                  { value: 'assigned', label: 'مسندة للتخطيط' },
-                  { value: 'in_scheduling', label: 'قيد الجدولة' },
-                  { value: 'scheduled', label: 'مجدولة' },
-                ]}
-                onChange={values => updateFilters({ taskStatuses: values })}
-              />
-              <MultiChoiceFilter
                 label="طبقة الاستبعاد"
                 values={(filters.exclusionLayers ?? []) as string[]}
                 options={[
@@ -1424,19 +1539,6 @@ export default function PlanningContactTargets() {
                   { value: 'NO_DATE', label: 'بلا تاريخ' },
                 ]}
               />
-              <Select
-                value={filters.phoneState ?? 'all'}
-                onChange={value => updateFilters({
-                  phoneState: value === 'all' ? undefined : value as PlanningDashboardFilters['phoneState'],
-                })}
-                ariaLabel="حالة الهاتف"
-                className="w-full"
-                options={[
-                  { value: 'all', label: 'كل أرقام الهاتف' },
-                  { value: 'VALID', label: 'لديها رقم' },
-                  { value: 'MISSING', label: 'بلا رقم' },
-                ]}
-              />
               <label className="block">
                 <span className="mb-1 block text-[11px] font-bold text-slate-500">أقل عدد مهام</span>
                 <input
@@ -1457,18 +1559,6 @@ export default function PlanningContactTargets() {
                   value={filters.maxTaskCount ?? ''}
                   onChange={event => updateFilters({
                     maxTaskCount: event.target.value === '' ? undefined : Number(event.target.value),
-                  })}
-                  className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm outline-none focus:border-sky-400"
-                />
-              </label>
-              <label className="block">
-                <span className="mb-1 block text-[11px] font-bold text-slate-500">أقل عدد محاولات</span>
-                <input
-                  type="number"
-                  min={0}
-                  value={filters.attemptsMin ?? ''}
-                  onChange={event => updateFilters({
-                    attemptsMin: event.target.value === '' ? undefined : Number(event.target.value),
                   })}
                   className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm outline-none focus:border-sky-400"
                 />
@@ -1699,14 +1789,11 @@ export default function PlanningContactTargets() {
                   <DataTable.Th>
                     <SortButton label="موقع العمل" sortKey="station" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
                   </DataTable.Th>
-                  <DataTable.Th align="center">
-                    <SortButton label="المهام" sortKey="taskCount" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
-                  </DataTable.Th>
-                  <DataTable.Th>
-                    <SortButton label="حالة الجهة" sortKey="status" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
-                  </DataTable.Th>
                   <DataTable.Th>الإسناد والملكية</DataTable.Th>
-                  <DataTable.Th>القرارات الفعالة</DataTable.Th>
+                  <DataTable.Th>القيود الفعالة</DataTable.Th>
+                  <DataTable.Th>
+                    <SortButton label="حالة جهة الاتصال" sortKey="status" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
+                  </DataTable.Th>
                   <DataTable.Th align="center" className="w-20">تفاصيل</DataTable.Th>
                 </DataTable.Row>
               </DataTable.Head>
@@ -1751,6 +1838,13 @@ export default function PlanningContactTargets() {
                                     CT #{row.contactTarget.id}
                                   </span>
                                 )}
+                                <span
+                                  className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-1.5 py-0.5 text-[10px] font-bold text-violet-700"
+                                  title="عدد المهام المرتبطة بجهة الاتصال في موقع العمل هذا"
+                                >
+                                  <ListChecks className="h-3 w-3" />
+                                  {taskCountLabel(row.counts.totalTasks)}
+                                </span>
                               </div>
                               <div className="mt-1 flex items-center gap-2 text-xs text-slate-500">
                                 <Phone className="h-3.5 w-3.5" />
@@ -1776,57 +1870,66 @@ export default function PlanningContactTargets() {
                             <span className="mt-1 block text-[10px] text-slate-400">#{row.workLocationGeoUnitId}</span>
                           )}
                         </DataTable.Td>
-                        <DataTable.Td align="center">
-                          <div className="inline-flex flex-col items-center rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5">
-                            <span className="text-sm font-black text-slate-700">
-                              {row.counts.matchingTasks}/{row.counts.totalTasks}
-                            </span>
-                            <span className="text-[10px] font-bold text-slate-400">مطابق / إجمالي</span>
-                          </div>
-                        </DataTable.Td>
-                        <DataTable.Td>
-                          <StatusBadge status={row.lifecycleStatus} />
-                          <div className="mt-1 text-[10px] text-slate-400">
-                            {row.listState.generated
-                              ? `${row.listState.itemCount} بند قائمة · ${row.listState.committedTaskCount} مهمة معتمدة`
-                              : 'لم تدخل قائمة الاتصال'}
-                          </div>
-                        </DataTable.Td>
                         <DataTable.Td>
                           <p className="max-w-[210px] text-xs font-bold text-slate-700">
                             {ownershipLabel(row.ownershipType, row.ownerLabel)}
                           </p>
                           <p className="mt-1 text-[10px] text-slate-400">
                             {row.tasks.some(task => task.assignment.teamKey)
-                              ? row.tasks.find(task => task.assignment.teamKey)?.assignment.teamKey
+                              ? teamLabel
                               : 'غير مسندة حاليًا'}
                           </p>
                         </DataTable.Td>
                         <DataTable.Td>
-                          <div className="flex max-w-[230px] flex-wrap gap-1">
+                          <div className="flex max-w-[290px] flex-wrap gap-1.5">
                             {row.contactBlocks.doNotContact && (
-                              <span className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-700">
-                                عدم التواصل
+                              <span
+                                className="rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-[11px] font-bold text-red-700"
+                                title="قرار دائم على الزبون كله حتى إلغائه"
+                              >
+                                عدم التواصل · الزبون كله
                               </span>
                             )}
                             {row.contactBlocks.cooldownUntil && (
-                              <span className="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-bold text-violet-700">
-                                تهدئة حتى {row.contactBlocks.cooldownUntil.slice(0, 10)}
-                              </span>
-                            )}
-                            {teamBlocked > 0 && (
-                              <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">
-                                الفريق {teamBlocked}
+                              <span
+                                className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-[11px] font-bold text-violet-700"
+                                title="قيد مؤقت على الزبون كله"
+                              >
+                                تهدئة الزبون · حتى {row.contactBlocks.cooldownUntil.slice(0, 10)}
                               </span>
                             )}
                             {allBlocked > 0 && (
-                              <span className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-700">
-                                كل الفرق {allBlocked}
+                              <span
+                                className="rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-[11px] font-bold text-red-700"
+                                title="استبعاد يومي يشمل جميع الفرق"
+                              >
+                                استبعاد جميع الفرق · {taskCountLabel(allBlocked)}
+                              </span>
+                            )}
+                            {teamBlocked > 0 && (
+                              <span
+                                className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-700"
+                                title={`قيد خاص بـ${teamLabel} في يوم الخطة`}
+                              >
+                                غير مناسبة · {teamLabel} · {taskCountLabel(teamBlocked)}
                               </span>
                             )}
                             {!row.contactBlocks.doNotContact && !row.contactBlocks.cooldownUntil && teamBlocked === 0 && allBlocked === 0 && (
-                              <span className="text-xs text-slate-300">لا قرارات حظر</span>
+                              <span className="text-xs font-bold text-slate-400">لا توجد قيود فعالة</span>
                             )}
+                          </div>
+                        </DataTable.Td>
+                        <DataTable.Td>
+                          <div className="min-w-[170px]">
+                            <StatusBadge status={row.lifecycleStatus} />
+                            <p className="mt-1.5 text-[11px] font-bold text-slate-500">
+                              {contactAttemptLabel(row.contactTarget?.attemptCount ?? 0)}
+                            </p>
+                            <p className="mt-0.5 text-[10px] text-slate-400">
+                              {row.listState.generated
+                                ? `${row.listState.itemCount} بند في القائمة`
+                                : 'لم تدخل قائمة الاتصال'}
+                            </p>
                           </div>
                         </DataTable.Td>
                         <DataTable.Td align="center">
@@ -1848,7 +1951,7 @@ export default function PlanningContactTargets() {
                       </DataTable.Row>
                       {expanded && (
                         <tr>
-                          <td colSpan={8} className="border-t border-sky-100 bg-slate-50/70 px-5 py-4">
+                          <td colSpan={7} className="border-t border-sky-100 bg-slate-50/70 px-5 py-4">
                             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                               <div>
                                 <p className="text-sm font-black text-slate-700">مهام جهة الاتصال في هذا الموقع</p>
@@ -1919,31 +2022,30 @@ export default function PlanningContactTargets() {
                                         </div>
                                         <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-500">
                                           <span>{TASK_STATUS_LABELS[task.status] ?? task.status}</span>
-                                          <span>العائلة: {task.taskFamily}</span>
+                                          <span>العائلة: {taskFamilyLabel(task.taskFamily)}</span>
                                           {task.priority && <span>الأولوية: {PRIORITY_LABELS[task.priority] ?? task.priority}</span>}
                                           {task.dueDate && <span>الاستحقاق: {task.dueDate.slice(0, 10)}</span>}
                                           {task.expectedDate && <span>المتوقع: {task.expectedDate.slice(0, 10)}</span>}
-                                          <span>{task.attemptCount} محاولة</span>
                                         </div>
                                         <div className="mt-2 flex flex-wrap gap-1">
                                           {task.blocks.currentTeamDay && (
                                             <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">
-                                              غير مناسبة للفريق
+                                              غير مناسبة · {teamLabel}
                                             </span>
                                           )}
                                           {task.blocks.allTeamsDay && (
                                             <span className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-700">
-                                              مستبعدة اليوم
+                                              مستبعدة من جميع الفرق اليوم
                                             </span>
                                           )}
                                           {task.blocks.clientDoNotContact && (
                                             <span className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-700">
-                                              حظر الزبون
+                                              عدم التواصل · الزبون كله
                                             </span>
                                           )}
                                           {task.blocks.clientCooldown && (
                                             <span className="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-bold text-violet-700">
-                                              تهدئة
+                                              تهدئة الزبون
                                             </span>
                                           )}
                                         </div>
@@ -2052,38 +2154,61 @@ export default function PlanningContactTargets() {
           </section>
         ) : null}
 
-        <section className="grid gap-3 md:grid-cols-3">
-          <div className="rounded-2xl border border-red-200 bg-white p-4">
-            <div className="flex items-center gap-2 font-black text-red-700">
-              <Ban className="h-4 w-4" />
-              عدم التواصل
-            </div>
-            <p className="mt-2 text-xs leading-5 text-slate-500">قرار على الزبون كله، دائم حتى الإلغاء، ولا يُعرض كأنه استبعاد لمهمة واحدة.</p>
-          </div>
-          <div className="rounded-2xl border border-red-200 bg-white p-4">
-            <div className="flex items-center gap-2 font-black text-red-700">
-              <ShieldAlert className="h-4 w-4" />
-              جميع الفرق اليوم
-            </div>
-            <p className="mt-2 text-xs leading-5 text-slate-500">قرار على المهمة في يوم الخطة فقط، ويمنع جميع الفرق من سحبها في هذا اليوم.</p>
-          </div>
-          <div className="rounded-2xl border border-amber-200 bg-white p-4">
-            <div className="flex items-center gap-2 font-black text-amber-700">
-              <Layers3 className="h-4 w-4" />
-              هذا الفريق اليوم
-            </div>
-            <p className="mt-2 text-xs leading-5 text-slate-500">يحرر المهمة من الفريق الحالي ولا يمنع فريقًا آخر مؤهلًا، مع حفظ القرار للفريق واليوم.</p>
-          </div>
-        </section>
       </div>
 
       <CurationPreviewModal
         request={pendingCuration}
         date={date}
         teamKey={teamKey}
+        teamLabel={teamLabel}
         onClose={() => setPendingCuration(null)}
         onApplied={handleApplied}
       />
+      <Modal
+        isOpen={closePreviewOpen}
+        onClose={() => !closingCycle && setClosePreviewOpen(false)}
+        title="إنهاء خطة الفريق لهذا اليوم"
+        size="md"
+        footer={(
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setClosePreviewOpen(false)}
+              disabled={closingCycle}
+              className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600"
+            >
+              إلغاء
+            </button>
+            <button
+              type="button"
+              onClick={confirmCloseCycle}
+              disabled={!closePreview || closingCycle}
+              className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2 text-sm font-black text-white disabled:opacity-50"
+            >
+              {closingCycle && <Loader2 className="h-4 w-4 animate-spin" />}
+              تأكيد إنهاء الخطة
+            </button>
+          </div>
+        )}
+      >
+        {loadingClosePreview ? (
+          <div className="flex min-h-40 items-center justify-center">
+            <Loader2 className="h-7 w-7 animate-spin text-sky-600" />
+          </div>
+        ) : closePreview ? (
+          <div className="space-y-4 text-sm text-slate-700">
+            <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-800">
+              هذا الإجراء نهائي لهذه الدورة. سيبقى سجل القائمة والاتصالات محفوظاً، ولن يمكن توليد أو إسناد مهام جديدة داخلها.
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-xl border border-slate-200 p-3"><b className="block text-xl">{closePreview.contactTargetsClosed}</b> جهات اتصال ستغلق</div>
+              <div className="rounded-xl border border-slate-200 p-3"><b className="block text-xl">{closePreview.tasksReleased}</b> مهام ستعود للانتظار</div>
+              <div className="rounded-xl border border-slate-200 p-3"><b className="block text-xl">{closePreview.preservedBookings}</b> حجوزات محفوظة</div>
+              <div className="rounded-xl border border-slate-200 p-3"><b className="block text-xl">{closePreview.activeLocks}</b> أقفال معالجة ستنظف</div>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
     </div>
   );
 }

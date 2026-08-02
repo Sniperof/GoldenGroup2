@@ -5711,7 +5711,8 @@ router.post('/:id/schedule-from-expected', requirePermission('telemarketing.appo
       })),
       performedByUserId,
       customerSnapshot: body.customerSnapshot ?? null,
-      telemarketerNotes: body.notes ?? null,
+      telemarketerNotes: body.telemarketerNotes ?? null,
+      fieldInstructions: body.fieldInstructions ?? body.notes ?? null,
     });
 
     if (Number.isInteger(contactTargetId) && contactTargetId > 0) {

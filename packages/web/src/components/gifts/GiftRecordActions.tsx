@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
-import { BadgeCheck, CalendarPlus, CheckCircle2, ClipboardCheck, HandHeart, XCircle } from '../ui/icons';
+import { useNavigate } from 'react-router-dom';
+import { BadgeCheck, CalendarPlus, CheckCircle2, ClipboardCheck, ClipboardList, HandHeart, XCircle } from '../ui/icons';
 import Modal from '../ui/Modal';
 import DateField from '../ui/DateField';
+import Select, { type SelectOption } from '../ui/Select';
 import { api } from '../../lib/api';
 import { usePermissions } from '../../hooks/usePermissions';
 import {
@@ -11,6 +13,7 @@ import {
 } from '../../data/giftsPrototype';
 
 type ActionKind = 'condition' | 'approve' | 'withdraw' | 'task' | 'manual' | 'reopen' | 'cancel';
+type ActionMenuValue = ActionKind | 'contract';
 
 const actionTitles: Record<ActionKind, string> = {
   condition: 'تحديث تحقق الشرط',
@@ -22,29 +25,6 @@ const actionTitles: Record<ActionKind, string> = {
   cancel: 'إلغاء سجل الهدية',
 };
 
-function ActionButton({
-  icon: Icon,
-  label,
-  tone,
-  onClick,
-}: {
-  icon: typeof CheckCircle2;
-  label: string;
-  tone: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`inline-flex w-fit items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-bold ${tone}`}
-    >
-      <Icon className="h-3.5 w-3.5" />
-      {label}
-    </button>
-  );
-}
-
 export default function GiftRecordActions({
   record,
   candidateRecords = [],
@@ -54,6 +34,7 @@ export default function GiftRecordActions({
   candidateRecords?: GiftRecordPrototype[];
   onChanged?: () => void;
 }) {
+  const navigate = useNavigate();
   const { hasPermission } = usePermissions();
   const [action, setAction] = useState<ActionKind | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -87,6 +68,48 @@ export default function GiftRecordActions({
   const canCancel = hasPermission('contract_gifts.cancel') && (status === 'promised' || status === 'approved_for_delivery');
 
   const hasAnyAction = canVerify || canApprove || canWithdraw || canCreateTask || canManual || canReopen || canCancel;
+  const menuOptions: SelectOption<ActionMenuValue>[] = [
+    ...(record.contractId ? [{
+      value: 'contract' as const,
+      label: 'فتح العقد',
+      leading: <ClipboardList className="h-4 w-4 text-slate-500" />,
+    }] : []),
+    ...(canVerify ? [{
+      value: 'condition' as const,
+      label: 'تحقق الشرط',
+      leading: <BadgeCheck className="h-4 w-4 text-slate-500" />,
+    }] : []),
+    ...(canApprove ? [{
+      value: 'approve' as const,
+      label: 'اعتماد للتسليم',
+      leading: <CheckCircle2 className="h-4 w-4 text-sky-600" />,
+    }] : []),
+    ...(canWithdraw ? [{
+      value: 'withdraw' as const,
+      label: 'سحب الاعتماد',
+      leading: <XCircle className="h-4 w-4 text-amber-600" />,
+    }] : []),
+    ...(canCreateTask ? [{
+      value: 'task' as const,
+      label: 'إنشاء مهمة تسليم',
+      leading: <CalendarPlus className="h-4 w-4 text-indigo-600" />,
+    }] : []),
+    ...(canManual ? [{
+      value: 'manual' as const,
+      label: 'تأكيد تسليم يدوي',
+      leading: <HandHeart className="h-4 w-4 text-teal-600" />,
+    }] : []),
+    ...(canReopen ? [{
+      value: 'reopen' as const,
+      label: 'إعادة فتح التسليم',
+      leading: <CalendarPlus className="h-4 w-4 text-amber-600" />,
+    }] : []),
+    ...(canCancel ? [{
+      value: 'cancel' as const,
+      label: 'إلغاء السجل',
+      leading: <XCircle className="h-4 w-4 text-rose-600" />,
+    }] : []),
+  ];
   const taskCompanions = candidateRecords.filter(candidate => (
     candidate.status === 'approved_for_delivery'
     && !candidate.deliveryTaskId
@@ -205,68 +228,27 @@ export default function GiftRecordActions({
     }
   }
 
-  if (!hasAnyAction) return null;
+  if (!hasAnyAction && !record.contractId) return null;
+
+  function chooseMenuAction(value: ActionMenuValue) {
+    if (value === 'contract') {
+      navigate(`/contracts/${record.contractId}`);
+      return;
+    }
+    openAction(value);
+  }
 
   return (
     <>
-      <div className="flex flex-col gap-2">
-        {canVerify && (
-          <ActionButton
-            icon={BadgeCheck}
-            label="تحقق الشرط"
-            tone="border-slate-200 text-slate-700 hover:bg-slate-50"
-            onClick={() => openAction('condition')}
-          />
-        )}
-        {canApprove && (
-          <ActionButton
-            icon={CheckCircle2}
-            label="اعتماد للتسليم"
-            tone="border-sky-200 text-sky-700 hover:bg-sky-50"
-            onClick={() => openAction('approve')}
-          />
-        )}
-        {canWithdraw && (
-          <ActionButton
-            icon={XCircle}
-            label="سحب الاعتماد"
-            tone="border-amber-200 text-amber-700 hover:bg-amber-50"
-            onClick={() => openAction('withdraw')}
-          />
-        )}
-        {canCreateTask && (
-          <ActionButton
-            icon={CalendarPlus}
-            label="إنشاء مهمة تسليم"
-            tone="border-indigo-200 text-indigo-700 hover:bg-indigo-50"
-            onClick={() => openAction('task')}
-          />
-        )}
-        {canManual && (
-          <ActionButton
-            icon={HandHeart}
-            label="تأكيد تسليم يدوي"
-            tone="border-teal-200 text-teal-700 hover:bg-teal-50"
-            onClick={() => openAction('manual')}
-          />
-        )}
-        {canReopen && (
-          <ActionButton
-            icon={CalendarPlus}
-            label="إعادة فتح التسليم"
-            tone="border-amber-200 text-amber-700 hover:bg-amber-50"
-            onClick={() => openAction('reopen')}
-          />
-        )}
-        {canCancel && (
-          <ActionButton
-            icon={XCircle}
-            label="إلغاء"
-            tone="border-rose-200 text-rose-700 hover:bg-rose-50"
-            onClick={() => openAction('cancel')}
-          />
-        )}
-      </div>
+      <Select<ActionMenuValue | ''>
+        value=""
+        onChange={(value) => value && chooseMenuAction(value)}
+        options={menuOptions}
+        placeholder="الإجراءات"
+        ariaLabel="قائمة إجراءات الهدية"
+        size="sm"
+        className="w-36"
+      />
 
       <Modal
         isOpen={action != null}

@@ -14,6 +14,8 @@ export interface LoginUserRecord {
   /** hr_users.employee_id — needed to match the user against team_snapshot in
    *  the Field Team view (DEC-007 D47). */
   employee_id: number | null;
+  /** roles.team_slot_type — read by the web device-access policy. */
+  team_slot_type: string | null;
 }
 
 export async function findUserForLogin(username: string): Promise<LoginUserRecord | null> {
@@ -25,6 +27,7 @@ export async function findUserForLogin(username: string): Promise<LoginUserRecor
             u.role,
             u.role_id,
             r.display_name AS role_display_name,
+            r.team_slot_type,
             u.is_active,
             u.is_super_admin,
             u.branch_id,

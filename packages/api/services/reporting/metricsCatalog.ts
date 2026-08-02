@@ -11,7 +11,7 @@
 // ============================================================
 
 import pool from '../../db.js';
-import { appendCandidateScope, appendClientScope, appendContractScope, appendInstalledDeviceScope, appendReferralSheetScope } from './reportingScope.js';
+import { appendApplicationScope, appendAuditApplicationScope, appendCandidateScope, appendClientScope, appendContractScope, appendInstalledDeviceScope, appendInterviewScope, appendReferralSheetScope, appendVacancyScope } from './reportingScope.js';
 
 export type MetricUnit = 'count' | 'percent';
 export type ScopeMode = 'GLOBAL' | 'BRANCH' | 'ASSIGNED';
@@ -282,6 +282,76 @@ const referralSheetsBehindTarget: MetricDefinition = {
   },
 };
 
+const referralSheetsNewCount: MetricDefinition = {
+  key: 'referral_sheets.new_count',
+  permission: 'candidates.name_lists.view_list',
+  titleAr: 'لوائح أسماء جديدة',
+  unit: 'count',
+  purpose: 'سير عمل: حجم نشاط جمع الأسماء — كم لائحة أُنشئت خلال الفترة على النطاق المختار.',
+  async compute(ctx) {
+    const count = async (from: Date, to: Date) => {
+      const params: unknown[] = [from, to];
+      const sql =
+        `SELECT COUNT(*)::int AS v FROM referral_sheets s
+          WHERE s.created_at >= $1 AND s.created_at < $2` + appendReferralSheetScope(ctx, params);
+      return scalar(sql, params);
+    };
+    return { value: await count(ctx.from, ctx.to), previous: await count(ctx.prevFrom, ctx.prevTo) };
+  },
+};
+
+const referralSheetsInProgressCount: MetricDefinition = {
+  key: 'referral_sheets.in_progress_count',
+  permission: 'candidates.name_lists.view_list',
+  titleAr: 'لوائح قيد الجمع',
+  unit: 'count',
+  purpose: 'سير عمل: كم لائحة ما زالت قيد الجمع الآن — عبء تشغيلي مفتوح (لقطة راهنة).',
+  async compute(ctx) {
+    const params: unknown[] = [];
+    const sql =
+      `SELECT COUNT(*)::int AS v FROM referral_sheets s
+        WHERE s.status = 'In-Progress'` + appendReferralSheetScope(ctx, params);
+    return { value: await scalar(sql, params), previous: null };
+  },
+};
+
+const referralSheetsNamesCollected: MetricDefinition = {
+  key: 'referral_sheets.names_collected',
+  permission: 'candidates.name_lists.view_list',
+  titleAr: 'الأسماء المجمّعة',
+  unit: 'count',
+  purpose: 'إنجاز فريق: الإنتاجية الفعلية — إجمالي الأسماء المجمّعة في لوائح الفترة على النطاق المختار.',
+  async compute(ctx) {
+    const sum = async (from: Date, to: Date) => {
+      const params: unknown[] = [from, to];
+      const sql =
+        `SELECT COALESCE(SUM(s.total_candidates), 0)::int AS v FROM referral_sheets s
+          WHERE s.created_at >= $1 AND s.created_at < $2` + appendReferralSheetScope(ctx, params);
+      return scalar(sql, params);
+    };
+    return { value: await sum(ctx.from, ctx.to), previous: await sum(ctx.prevFrom, ctx.prevTo) };
+  },
+};
+
+const referralSheetsAvgQuality: MetricDefinition = {
+  key: 'referral_sheets.avg_quality',
+  permission: 'candidates.name_lists.view_list',
+  titleAr: 'متوسط جودة اللوائح',
+  unit: 'percent',
+  purpose: 'إنجاز فريق: مؤشر جودة قياسي مكمّل للـ leaderboard — متوسط جودة لوائح الفترة على النطاق.',
+  async compute(ctx) {
+    const avg = async (from: Date, to: Date) => {
+      const params: unknown[] = [from, to];
+      const sql =
+        `SELECT COALESCE(ROUND(AVG(s.quality_percentage)::numeric, 1), 0)::numeric AS v FROM referral_sheets s
+          WHERE s.created_at >= $1 AND s.created_at < $2
+            AND s.quality_percentage IS NOT NULL` + appendReferralSheetScope(ctx, params);
+      return scalar(sql, params);
+    };
+    return { value: await avg(ctx.from, ctx.to), previous: await avg(ctx.prevFrom, ctx.prevTo) };
+  },
+};
+
 // ── العقود والمبيعات (§2.هـ) — فرعية فقط عبر appendContractScope؛ المبيعات تستبعد
 // المسودات (DEC-CT-01)، وقيمة/متوسط المبيعات تستبعد الملغاة أيضاً (إيراد محقّق). ──
 const contractsCount: MetricDefinition = {
@@ -436,6 +506,202 @@ const devicesWarrantyExpiring: MetricDefinition = {
   },
 };
 
+// ── التوظيف (§2.ط) — الطبقة الأولى: القمع/الشواغر/زمن الدورة/المقابلات ──────────
+// النطاق عبر appendApplicationScope/appendVacancyScope/appendInterviewScope، وكلها
+// تعالج ASSIGNED صراحةً (لا توسيع صامت). القرارات النهائية على job_applications.decision.
+
+const applicationsNewCount: MetricDefinition = {
+  key: 'applications.new_count',
+  permission: 'jobs.applications.view_list',
+  titleAr: 'طلبات توظيف جديدة',
+  unit: 'count',
+  purpose: 'سير عمل: حجم التغذية أعلى قمع التوظيف — كم طلباً دخل خلال الفترة على النطاق المختار.',
+  async compute(ctx) {
+    const count = async (from: Date, to: Date) => {
+      const params: unknown[] = [from, to];
+      const sql =
+        `SELECT COUNT(*)::int AS v FROM job_applications ja
+          WHERE ja.created_at >= $1 AND ja.created_at < $2` + appendApplicationScope(ctx, params);
+      return scalar(sql, params);
+    };
+    return { value: await count(ctx.from, ctx.to), previous: await count(ctx.prevFrom, ctx.prevTo) };
+  },
+};
+
+const applicationsInProcessCount: MetricDefinition = {
+  key: 'applications.in_process_count',
+  permission: 'jobs.applications.view_list',
+  titleAr: 'طلبات قيد المعالجة',
+  unit: 'count',
+  purpose: 'سير عمل: عبء التوظيف المفتوح — طلبات لم تُحسم بقرار نهائي ولم تُؤرشف (لقطة راهنة).',
+  async compute(ctx) {
+    const params: unknown[] = [];
+    const sql =
+      `SELECT COUNT(*)::int AS v FROM job_applications ja
+        WHERE ja.decision IS NULL
+          AND ja.is_archived IS NOT TRUE` + appendApplicationScope(ctx, params);
+    return { value: await scalar(sql, params), previous: null };
+  },
+};
+
+const applicationsAcceptanceRate: MetricDefinition = {
+  key: 'applications.acceptance_rate',
+  permission: 'jobs.applications.view_list',
+  titleAr: 'معدّل القبول',
+  unit: 'percent',
+  purpose: 'قرار: فاعلية مسار التوظيف — نسبة المقبولين من الطلبات المحسومة بقرار نهائي خلال الفترة.',
+  async compute(ctx) {
+    const rate = async (from: Date, to: Date): Promise<number> => {
+      const params: unknown[] = [from, to];
+      const sql =
+        `SELECT
+            COUNT(*) FILTER (WHERE ja.decision = 'Hired')::numeric AS hired,
+            COUNT(*)::numeric AS decided
+           FROM job_applications ja
+          WHERE ja.decision IS NOT NULL
+            AND ja.updated_at >= $1 AND ja.updated_at < $2` + appendApplicationScope(ctx, params);
+      const { rows } = await pool.query(sql, params);
+      const decided = Number(rows[0]?.decided ?? 0);
+      const hired = Number(rows[0]?.hired ?? 0);
+      return decided > 0 ? Math.round((hired / decided) * 1000) / 10 : 0;
+    };
+    return { value: await rate(ctx.from, ctx.to), previous: await rate(ctx.prevFrom, ctx.prevTo) };
+  },
+};
+
+const vacanciesOpenCount: MetricDefinition = {
+  key: 'vacancies.open_count',
+  permission: 'jobs.vacancies.view_list',
+  titleAr: 'شواغر مفتوحة',
+  unit: 'count',
+  purpose: 'قرار: عدد الشواغر المتاحة للاستقبال حالياً ضمن النطاق (لقطة راهنة).',
+  async compute(ctx) {
+    const params: unknown[] = [];
+    const sql =
+      `SELECT COUNT(*)::int AS v FROM job_vacancies jv
+        WHERE jv.status = 'Open'` + appendVacancyScope(ctx, params);
+    return { value: await scalar(sql, params), previous: null };
+  },
+};
+
+const vacanciesRemainingSlots: MetricDefinition = {
+  key: 'vacancies.remaining_slots',
+  permission: 'jobs.vacancies.view_list',
+  titleAr: 'المقاعد الشاغرة',
+  unit: 'count',
+  purpose: 'قرار: الطاقة الاستيعابية المفتوحة فعلياً — مجموع المقاعد المطلوبة في الشواغر المفتوحة.',
+  async compute(ctx) {
+    const params: unknown[] = [];
+    const sql =
+      `SELECT COALESCE(SUM(jv.vacancy_count), 0)::int AS v FROM job_vacancies jv
+        WHERE jv.status = 'Open'` + appendVacancyScope(ctx, params);
+    return { value: await scalar(sql, params), previous: null };
+  },
+};
+
+const vacanciesExpiringSoon: MetricDefinition = {
+  key: 'vacancies.expiring_soon',
+  permission: 'jobs.vacancies.view_list',
+  titleAr: 'شواغر توشك على الانتهاء',
+  unit: 'count',
+  purpose: 'سير عمل: شواغر مفتوحة ينتهي تاريخها خلال ١٤ يوماً — تحتاج تمديداً أو إغلاقاً (لقطة راهنة).',
+  async compute(ctx) {
+    // migr 376 يغلق المنتهية تلقائياً؛ هذا المؤشر ينبّه قبل الإغلاق لا بعده.
+    const params: unknown[] = [];
+    const sql =
+      `SELECT COUNT(*)::int AS v FROM job_vacancies jv
+        WHERE jv.status = 'Open'
+          AND jv.end_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '14 days'` + appendVacancyScope(ctx, params);
+    return { value: await scalar(sql, params), previous: null };
+  },
+};
+
+const applicationsAvgTimeToHire: MetricDefinition = {
+  key: 'applications.avg_time_to_hire',
+  permission: 'jobs.applications.view_list',
+  titleAr: 'متوسط زمن التوظيف (أيام)',
+  unit: 'count',
+  purpose: 'قرار: كم يستغرق الطلب من التقديم حتى التوظيف النهائي — يكشف بطء المسار قبل فقدان المرشّح.',
+  async compute(ctx) {
+    // المصدر audit_logs: الفارق بين إنشاء الطلب وحدث «Final Hired» المسجَّل ضمن الفترة.
+    const avg = async (from: Date, to: Date) => {
+      const params: unknown[] = [from, to];
+      const sql =
+        `SELECT COALESCE(ROUND(AVG(EXTRACT(EPOCH FROM (al."timestamp" - ja.created_at)) / 86400)::numeric, 1), 0)::numeric AS v
+           FROM audit_logs al
+           JOIN job_applications ja ON ja.id = al.application_id
+          WHERE al.action_type = 'Final Hired'
+            AND al."timestamp" >= $1 AND al."timestamp" < $2` + appendAuditApplicationScope(ctx, params);
+      return scalar(sql, params);
+    };
+    return { value: await avg(ctx.from, ctx.to), previous: await avg(ctx.prevFrom, ctx.prevTo) };
+  },
+};
+
+const applicationsStalledCount: MetricDefinition = {
+  key: 'applications.stalled_count',
+  permission: 'jobs.applications.view_list',
+  titleAr: 'طلبات عالقة',
+  unit: 'count',
+  purpose: 'سير عمل: طلبات قيد المعالجة بلا أي حركة مسجَّلة منذ ١٤ يوماً فأكثر — تحتاج دفعاً أو إغلاقاً.',
+  async compute(ctx) {
+    // «الحركة» = آخر حدث تدقيق للطلب؛ إن لم يوجد فأي حركة تُقاس من تاريخ الإنشاء.
+    const params: unknown[] = [];
+    const sql =
+      `SELECT COUNT(*)::int AS v FROM job_applications ja
+        WHERE ja.decision IS NULL
+          AND ja.is_archived IS NOT TRUE
+          AND COALESCE(
+                (SELECT MAX(al."timestamp") FROM audit_logs al WHERE al.application_id = ja.id),
+                ja.created_at
+              ) < NOW() - INTERVAL '14 days'` + appendApplicationScope(ctx, params);
+    return { value: await scalar(sql, params), previous: null };
+  },
+};
+
+const interviewsScheduledCount: MetricDefinition = {
+  key: 'interviews.scheduled_count',
+  permission: 'jobs.interviews.view_list',
+  titleAr: 'مقابلات مجدولة',
+  unit: 'count',
+  purpose: 'سير عمل: حجم نشاط المقابلات — كم مقابلة أُنشئت خلال الفترة ضمن النطاق.',
+  async compute(ctx) {
+    const count = async (from: Date, to: Date) => {
+      const params: unknown[] = [from, to];
+      const sql =
+        `SELECT COUNT(*)::int AS v FROM interviews i
+          WHERE i.created_at >= $1 AND i.created_at < $2` + appendInterviewScope(ctx, params);
+      return scalar(sql, params);
+    };
+    return { value: await count(ctx.from, ctx.to), previous: await count(ctx.prevFrom, ctx.prevTo) };
+  },
+};
+
+const interviewsPassRate: MetricDefinition = {
+  key: 'interviews.pass_rate',
+  permission: 'jobs.interviews.view_list',
+  titleAr: 'معدّل نجاح المقابلات',
+  unit: 'percent',
+  purpose: 'قرار: جودة التصفية قبل المقابلة — نسبة المقابلات المكتملة من المحسومة (مكتملة أو راسبة).',
+  async compute(ctx) {
+    const rate = async (from: Date, to: Date): Promise<number> => {
+      const params: unknown[] = [from, to];
+      const sql =
+        `SELECT
+            COUNT(*) FILTER (WHERE i.interview_status = 'Interview Completed')::numeric AS passed,
+            COUNT(*)::numeric AS resolved
+           FROM interviews i
+          WHERE i.interview_status IN ('Interview Completed','Interview Failed')
+            AND i.created_at >= $1 AND i.created_at < $2` + appendInterviewScope(ctx, params);
+      const { rows } = await pool.query(sql, params);
+      const resolved = Number(rows[0]?.resolved ?? 0);
+      const passed = Number(rows[0]?.passed ?? 0);
+      return resolved > 0 ? Math.round((passed / resolved) * 1000) / 10 : 0;
+    };
+    return { value: await rate(ctx.from, ctx.to), previous: await rate(ctx.prevFrom, ctx.prevTo) };
+  },
+};
+
 export const METRIC_CATALOG: MetricDefinition[] = [
   clientsNewCount,
   clientsActiveTotal,
@@ -448,6 +714,10 @@ export const METRIC_CATALOG: MetricDefinition[] = [
   clientsRatingNetChange,
   candidatesDuplicateRate,
   referralSheetsBehindTarget,
+  referralSheetsNewCount,
+  referralSheetsInProgressCount,
+  referralSheetsNamesCollected,
+  referralSheetsAvgQuality,
   contractsCount,
   contractsSalesValue,
   contractsAvgValue,
@@ -457,6 +727,16 @@ export const METRIC_CATALOG: MetricDefinition[] = [
   devicesInstalledInPeriod,
   devicesGoldenActive,
   devicesWarrantyExpiring,
+  applicationsNewCount,
+  applicationsInProcessCount,
+  applicationsAcceptanceRate,
+  applicationsAvgTimeToHire,
+  applicationsStalledCount,
+  vacanciesOpenCount,
+  vacanciesRemainingSlots,
+  vacanciesExpiringSoon,
+  interviewsScheduledCount,
+  interviewsPassRate,
 ];
 
 export function findMetric(key: string): MetricDefinition | undefined {

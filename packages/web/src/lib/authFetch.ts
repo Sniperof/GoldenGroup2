@@ -1,4 +1,5 @@
 import { shouldAttachBranchContextHeader } from './branchContext';
+import { deviceClassHeader } from './deviceClass';
 
 /**
  * Drop-in replacement for fetch() that attaches the JWT Authorization header
@@ -28,6 +29,7 @@ export async function authFetch(url: string, options: RequestInit = {}): Promise
   const branchCtx = getBranchContextHeader();
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
+    ...deviceClassHeader(),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(branchCtx ? { 'X-Branch-Id': branchCtx } : {}),
     ...(options.headers || {}),

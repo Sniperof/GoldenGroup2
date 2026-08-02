@@ -6,6 +6,7 @@ import { JWT_SECRET } from '../config/env.js';
 import { authorize } from './authorizationService.js';
 import {
   getPlanningWorkScope,
+  normalizePlanningDateOnly,
   type WorkScopeTask,
 } from './planningMarketingTargets.js';
 import { resolveAssignmentOwningBranch } from '../policies/routeAssignmentPolicy.js';
@@ -28,7 +29,7 @@ export type PlanningTargetMode =
   | 'ALL_TASKS_OF_MATCHED_CONTACTS'
   | 'NON_MATCHING_TASKS_OF_MATCHED_CONTACTS';
 
-export type PlanningLifecycleStatus = 'ready' | 'queued' | 'contacted' | 'closed';
+export type PlanningLifecycleStatus = 'ready' | 'queued' | 'in_call_list' | 'contacted' | 'closed';
 
 export type PlanningDashboardFilters = {
   q?: string;
@@ -110,6 +111,7 @@ export type PlanningContactRow = {
     id: number;
     status: string;
     closingReason: string | null;
+    attemptCount: number;
   } | null;
   listState: {
     generated: boolean;
@@ -131,6 +133,7 @@ export type PlanningContactRow = {
 export type PlanningDashboardResponse = {
   date: string;
   teamKey: string;
+  teamLabel: string;
   planState: 'PRE_GENERATION' | 'COMMITTED';
   generatedAt: string | null;
   rows: PlanningContactRow[];
@@ -146,8 +149,11 @@ export type PlanningDashboardResponse = {
     matchingTasks: number;
     actionableTasks: number;
     matchingActionableTasks: number;
+    includedTodayTasks: number;
+    excludedTodayTasks: number;
     ready: number;
     queued: number;
+    in_call_list: number;
     contacted: number;
     closed: number;
     excludedTeamDay: number;
@@ -194,6 +200,7 @@ type ContactTargetMeta = {
   closingReason: string | null;
   itemCount: number;
   committedTaskCount: number;
+  attemptCount: number;
 };
 
 type BuiltDashboard = Omit<PlanningDashboardResponse, 'rows' | 'pagination'> & {
@@ -238,6 +245,32 @@ const CURATION_TOKEN_AUDIENCE = 'planning-curation-apply';
 const CURATION_TOKEN_ISSUER = 'golden-crm-planning';
 const DASHBOARD_SCOPE_TASK_LIMIT = 20_000;
 
+export function resolvePlanningTeamLabel(
+  teamKey: string,
+  snapshot: Record<string, unknown>,
+): string {
+  const explicitLabel = typeof snapshot.teamLabel === 'string'
+    ? snapshot.teamLabel.trim()
+    : '';
+  if (explicitLabel) return explicitLabel;
+
+  const isEmergencyTeam = teamKey.startsWith('solo_');
+  const responsibleName = isEmergencyTeam
+    ? snapshot.technicianName
+    : snapshot.supervisorName;
+  if (typeof responsibleName === 'string' && responsibleName.trim()) {
+    return isEmergencyTeam
+      ? `طوارئ: ${responsibleName.trim()}`
+      : `فريق ${responsibleName.trim()}`;
+  }
+
+  const index = Number(teamKey.split('_')[1]);
+  const displayNumber = Number.isInteger(index) ? index + 1 : null;
+  return isEmergencyTeam
+    ? `فريق طوارئ${displayNumber == null ? '' : ` رقم ${displayNumber}`}`
+    : `الفريق${displayNumber == null ? '' : ` رقم ${displayNumber}`}`;
+}
+
 function uniquePositiveIntegers(values: unknown): number[] {
   if (!Array.isArray(values)) return [];
   return Array.from(new Set(
@@ -276,7 +309,7 @@ export function normalizePlanningDashboardFilters(
     ? filters.phoneState
     : undefined;
   const lifecycleStatuses = uniqueStrings(filters.lifecycleStatuses)
-    .filter(value => ['ready', 'queued', 'contacted', 'closed'].includes(value)) as PlanningLifecycleStatus[];
+    .filter(value => ['ready', 'queued', 'in_call_list', 'contacted', 'closed'].includes(value)) as PlanningLifecycleStatus[];
   const exclusionLayers = uniqueStrings(filters.exclusionLayers)
     .filter(value => ['TEAM_DAY', 'ALL_TEAMS_DAY', 'CLIENT_DO_NOT_CONTACT', 'NONE'].includes(value)) as Array<PlanningExclusionLayer | 'NONE'>;
 
@@ -403,11 +436,12 @@ function hashValue(value: unknown): string {
 }
 
 function isCooldownActive(until: string | null, date: string): boolean {
-  return typeof until === 'string' && until.slice(0, 10) >= date;
+  const normalized = normalizePlanningDateOnly(until);
+  return normalized != null && normalized >= date;
 }
 
 function dueState(task: WorkScopeTask, date: string): PlanningDashboardFilters['dueState'] {
-  const effectiveDate = (task.expectedDate ?? task.dueDate)?.slice(0, 10) ?? null;
+  const effectiveDate = normalizePlanningDateOnly(task.expectedDate ?? task.dueDate);
   if (!effectiveDate) return 'NO_DATE';
   if (effectiveDate < date) return 'OVERDUE';
   if (effectiveDate === date) return 'ON_DATE';
@@ -420,7 +454,8 @@ function lifecycleFromTarget(target: ContactTargetMeta | null): PlanningLifecycl
     return 'closed';
   }
   if (target.status === 'contacted') return 'contacted';
-  if (target.status === 'queued' || target.status === 'in_call_list') return 'queued';
+  if (target.status === 'in_call_list') return 'in_call_list';
+  if (target.status === 'queued') return 'queued';
   return 'ready';
 }
 
@@ -430,7 +465,7 @@ function taskStateFingerprint(task: PlanningContactTask) {
     clientId: task.clientId,
     status: task.status,
     teamKey: task.assignment.teamKey,
-    date: task.assignment.date?.slice(0, 10) ?? null,
+    date: normalizePlanningDateOnly(task.assignment.date),
     allTeamsDay: task.blocks.allTeamsDay,
     currentTeamDay: task.blocks.currentTeamDay,
     doNotContact: task.blocks.clientDoNotContact,
@@ -448,7 +483,9 @@ function makeTask(
   const availableActions: PlanningContactTask['availableActions'] = [];
   if (!committed) {
     if (task.currentTeamDayExcluded) availableActions.push('RESTORE_TEAM_DAY');
-    else if (EXCLUDABLE_STATES.has(task.status)) availableActions.push('EXCLUDE_TEAM_DAY');
+    else if (EXCLUDABLE_STATES.has(task.status) && !task.allTeamsDayExcluded) {
+      availableActions.push('EXCLUDE_TEAM_DAY');
+    }
     if (task.allTeamsDayExcluded) availableActions.push('RESTORE_ALL_TEAMS_DAY');
     else if (EXCLUDABLE_STATES.has(task.status)) availableActions.push('EXCLUDE_ALL_TEAMS_DAY');
   }
@@ -501,6 +538,7 @@ async function loadContactTargetMeta(
        ct.status,
        ct.closing_reason AS "closingReason",
        COUNT(DISTINCT tli.id)::int AS "itemCount",
+       COUNT(DISTINCT call_log.id)::int AS "attemptCount",
        COUNT(DISTINCT ctot.open_task_id) FILTER (
          WHERE ot.status IN (
            'in_scheduling', 'scheduled', 'waiting_execution',
@@ -510,6 +548,8 @@ async function loadContactTargetMeta(
      FROM contact_targets ct
      LEFT JOIN telemarketing_task_list_items tli
        ON tli.contact_target_id = ct.id
+     LEFT JOIN telemarketing_call_logs call_log
+       ON call_log.contact_target_id = ct.id
      LEFT JOIN contact_target_open_tasks ctot
        ON ctot.contact_target_id = ct.id
       AND ctot.date = $2::date
@@ -541,6 +581,7 @@ async function loadContactTargetMeta(
       closingReason: row.closingReason ?? null,
       itemCount: Number(row.itemCount ?? 0),
       committedTaskCount: Number(row.committedTaskCount ?? 0),
+      attemptCount: Number(row.attemptCount ?? 0),
     });
   }
   return result;
@@ -618,6 +659,7 @@ async function buildDashboard(params: {
   date: string;
   teamKey: string;
   branchId: number;
+  closedCycle?: boolean;
   filters?: PlanningDashboardFilters;
   sortBy?: string;
   sortDir?: 'asc' | 'desc';
@@ -694,6 +736,11 @@ async function buildDashboard(params: {
     const first = contextTasks[0];
     if (!first) continue;
     const target = targetByContext.get(contextKey(first.clientId, first.effectiveZoneId)) ?? null;
+    // A closed plan is a frozen historical artifact. Tasks released back to
+    // waiting after close may still match the old route dynamically, but they
+    // were not contact targets in that ended cycle and must not reappear as
+    // fresh/ready rows on its dashboard.
+    if (params.closedCycle && target == null) continue;
     const lifecycleStatus = lifecycleFromTarget(target);
     const q = filters.q?.toLocaleLowerCase('ar');
     const contextSearchMatch = !q || [
@@ -724,7 +771,12 @@ async function buildDashboard(params: {
       workLocationName: first.effectiveZoneName ?? first.clientNeighborhood,
       lifecycleStatus,
       contactTarget: target
-        ? { id: target.id, status: target.status, closingReason: target.closingReason }
+        ? {
+            id: target.id,
+            status: target.status,
+            closingReason: target.closingReason,
+            attemptCount: target.attemptCount,
+          }
         : null,
       listState: {
         generated: target != null && target.itemCount > 0,
@@ -818,6 +870,7 @@ async function buildDashboard(params: {
   return {
     date,
     teamKey,
+    teamLabel: resolvePlanningTeamLabel(teamKey, teamSnapshot),
     planState,
     generatedAt,
     allRows,
@@ -833,8 +886,21 @@ async function buildDashboard(params: {
         ).length,
         0,
       ),
+      includedTodayTasks: sortedRows.reduce(
+        (sum, row) => sum + row.tasks.filter(
+          task => !task.blocks.currentTeamDay && !task.blocks.allTeamsDay,
+        ).length,
+        0,
+      ),
+      excludedTodayTasks: sortedRows.reduce(
+        (sum, row) => sum + row.tasks.filter(
+          task => task.blocks.currentTeamDay || task.blocks.allTeamsDay,
+        ).length,
+        0,
+      ),
       ready: sortedRows.filter(row => row.lifecycleStatus === 'ready').length,
       queued: sortedRows.filter(row => row.lifecycleStatus === 'queued').length,
+      in_call_list: sortedRows.filter(row => row.lifecycleStatus === 'in_call_list').length,
       contacted: sortedRows.filter(row => row.lifecycleStatus === 'contacted').length,
       closed: sortedRows.filter(row => row.lifecycleStatus === 'closed').length,
       excludedTeamDay: sortedRows.reduce(
@@ -872,6 +938,7 @@ export async function getPlanningCurationDashboard(params: {
   date: string;
   teamKey: string;
   branchId: number;
+  closedCycle?: boolean;
   filters?: PlanningDashboardFilters;
   page?: number;
   limit?: number;
@@ -889,6 +956,7 @@ export async function getPlanningCurationDashboard(params: {
   return {
     date: built.date,
     teamKey: built.teamKey,
+    teamLabel: built.teamLabel,
     planState: built.planState,
     generatedAt: built.generatedAt,
     rows: built.filteredRows.slice(offset, offset + limit),
@@ -1010,17 +1078,20 @@ async function resolveSelection(params: {
           : row.tasks;
       return candidates.filter(task => !excludedTasks.has(task.taskId));
     });
-    if (params.action && params.layer) {
-      const filtered = filterPlanningCurationTasksForAction(
-        selectedByMode,
-        params.action,
-        params.layer,
-      );
-      tasks = filtered.tasks;
-      skippedUnavailableTasks = filtered.skippedUnavailableTasks;
-    } else {
-      tasks = selectedByMode;
-    }
+    tasks = selectedByMode;
+  }
+
+  // Action availability is a server contract for every selector shape, not a
+  // FILTERED_SET convenience. In particular, an active all-teams exclusion
+  // subsumes TEAM_DAY and must reject a later redundant team-only exclusion.
+  if (params.action && params.layer) {
+    const filtered = filterPlanningCurationTasksForAction(
+      tasks,
+      params.action,
+      params.layer,
+    );
+    tasks = filtered.tasks;
+    skippedUnavailableTasks = filtered.skippedUnavailableTasks;
   }
 
   const uniqueTasks = Array.from(new Map(tasks.map(task => [task.taskId, task])).values())
@@ -1465,9 +1536,9 @@ async function loadLockedSelectionState(
        ot.status,
        ot.last_waiting_status AS "lastWaitingStatus",
        ot.assigned_team_key AS "assignedTeamKey",
-       ot.assigned_for_date AS "assignedForDate",
+       ot.assigned_for_date::text AS "assignedForDate",
        c.do_not_contact AS "clientDoNotContact",
-       c.cooldown_until AS "clientCooldownUntil",
+       c.cooldown_until::text AS "clientCooldownUntil",
        EXISTS (
          SELECT 1
            FROM telemarketing_task_list_items item
@@ -1540,7 +1611,7 @@ function lockedSelectionFingerprint(rows: any[], date: string): string {
     clientId: Number(row.clientId),
     status: row.status,
     teamKey: row.assignedTeamKey ?? null,
-    date: row.assignedForDate == null ? null : String(row.assignedForDate).slice(0, 10),
+    date: normalizePlanningDateOnly(row.assignedForDate),
     allTeamsDay: row.allTeamsDayExcluded === true,
     currentTeamDay: row.currentTeamDayExcluded === true,
     doNotContact: row.clientDoNotContact === true,
@@ -1643,7 +1714,7 @@ async function applyTaskExclusion(
        team_snapshot, reason_code, reason_text, operation_id, excluded_by
      )
      SELECT
-       ot.id, ot.branch_id, $3::date, $4, $5, $6::jsonb, $7, $8, $9, $10
+       ot.id, ot.branch_id, $3::date, $4::varchar, $5::varchar, $6::jsonb, $7, $8, $9, $10
      FROM open_tasks ot
      WHERE ot.id = ANY($1::int[])
        AND ot.branch_id = $2
@@ -1653,8 +1724,8 @@ async function applyTaskExclusion(
           WHERE active.open_task_id = ot.id
             AND active.branch_id = ot.branch_id
             AND active.planning_date = $3::date
-            AND active.exclusion_scope = $4
-            AND active.team_key IS NOT DISTINCT FROM $5
+            AND active.exclusion_scope = $4::varchar
+            AND active.team_key IS NOT DISTINCT FROM $5::varchar
             AND active.revoked_at IS NULL
        )
      RETURNING open_task_id AS id`,
@@ -1674,9 +1745,7 @@ async function applyTaskExclusion(
 
   const releasedRows = lockedRows.filter(row => {
     if (row.status !== 'assigned') return false;
-    const assignedDate = row.assignedForDate == null
-      ? null
-      : String(row.assignedForDate).slice(0, 10);
+    const assignedDate = normalizePlanningDateOnly(row.assignedForDate);
     if (assignedDate !== payload.date) return false;
     return payload.layer === 'ALL_TEAMS_DAY' || row.assignedTeamKey === payload.teamKey;
   });
@@ -2059,6 +2128,18 @@ export async function applyPlanningCuration(params: {
   try {
     await db.query('BEGIN');
     await acquirePlanningMutationLock(db, payload.branchId, payload.date);
+    const { rows: cycleRows } = await db.query(
+      `SELECT status FROM planning_day_cycles
+       WHERE branch_id = $1 AND planning_date = $2::date AND team_key = $3`,
+      [payload.branchId, payload.date, payload.teamKey],
+    );
+    if (cycleRows[0]?.status === 'closing' || cycleRows[0]?.status === 'closed') {
+      throw new PlanningCurationError(
+        'تم إغلاق دورة التخطيط لهذا الفريق واليوم ولا يمكن تعديلها',
+        409,
+        'PLANNING_DAY_CLOSED',
+      );
+    }
     await assertPlanningSubject(
       params.authContext,
       payload.date,

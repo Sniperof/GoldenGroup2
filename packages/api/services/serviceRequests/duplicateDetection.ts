@@ -7,6 +7,14 @@
 //         + 0.25 * device_match
 //         + 0.25 * problem_similarity (pg_trgm)
 //
+// SCOPE: candidates are restricted to the SAME request_type. The section
+// contract's strict isolation (البند الخامس) says a type's permission never
+// touches another type — a cross-type `duplicate_of_request_id` would hand a
+// water_check reviewer a pointer into a family they cannot open. It was also
+// wrong on the facts: account_creation and water_check store the submitter's
+// number in the same field, so one person doing both within the window scored
+// phone_match = 1.0 against themselves.
+//
 //   if score >= threshold and existing.status NOT IN terminals:
 //     duplicate_flag = TRUE, duplicate_of_request_id = best,
 //     review_required_flag = TRUE (SR-R009),
@@ -76,6 +84,7 @@ export async function detectDuplicates(
   // Load the new request's matching fingerprint.
   const { rows: newRows } = await db.query<{
     id: number;
+    request_type: string;
     primary_phone: string | null;
     installed_device_id: number | null;
     external_device_serial: string | null;
@@ -85,6 +94,7 @@ export async function detectDuplicates(
   }>(
     `SELECT
        id,
+       request_type,
        requester_external->>'primary_phone' AS primary_phone,
        installed_device_id,
        external_device_serial,
@@ -130,6 +140,7 @@ export async function detectDuplicates(
                problem_description, requester_external->>'primary_phone' AS c_phone
           FROM service_requests
          WHERE id <> $1
+           AND request_type = $9
            AND status NOT IN ('rejected','cancelled','promoted','resolved_at_intake')
            AND created_at >= $7::timestamptz - ($8 || ' hours')::interval
       ) c`,
@@ -142,6 +153,7 @@ export async function detectDuplicates(
       seed.problem_description,
       seed.created_at,
       settings.windowHours,
+      seed.request_type,
     ],
   );
 

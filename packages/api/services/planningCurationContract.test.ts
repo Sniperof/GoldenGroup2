@@ -12,8 +12,13 @@ import {
   normalizePlanningCurationSelector,
   normalizePlanningDashboardFilters,
   PlanningCurationError,
+  resolvePlanningTeamLabel,
   type PlanningContactTask,
 } from './planningTaskCuration.js';
+import {
+  normalizePlanningDateOnly,
+  planningBranchOwnerLabel,
+} from './planningMarketingTargets.js';
 
 const exclusionMigration = readFileSync(
   new URL('../../../migrations/398_planning_task_exclusion_scopes.sql', import.meta.url),
@@ -41,10 +46,80 @@ const routeAssignmentsSource = readFileSync(
   'utf8',
 );
 
+test('planning DATE normalization preserves the local calendar day and accepts SQL text', () => {
+  const localMidnight = new Date(2026, 7, 1, 0, 0, 0);
+
+  assert.equal(normalizePlanningDateOnly(localMidnight), '2026-08-01');
+  assert.equal(normalizePlanningDateOnly('2026-08-01'), '2026-08-01');
+  assert.equal(
+    normalizePlanningDateOnly('2026-08-01T00:00:00.000Z'),
+    '2026-08-01',
+  );
+  assert.equal(normalizePlanningDateOnly(null), null);
+  assert.equal(normalizePlanningDateOnly('invalid'), null);
+});
+
+test('planning team labels prefer the scheduled responsible person over technical keys', () => {
+  assert.equal(
+    resolvePlanningTeamLabel('team_0', {
+      teamLabel: 'فريق سعاد زيتون',
+      supervisorName: 'سعاد زيتون',
+    }),
+    'فريق سعاد زيتون',
+  );
+  assert.equal(
+    resolvePlanningTeamLabel('team_1', { supervisorName: 'نور أحمد' }),
+    'فريق نور أحمد',
+  );
+  assert.equal(
+    resolvePlanningTeamLabel('solo_0', { technicianName: 'علي خالد' }),
+    'طوارئ: علي خالد',
+  );
+  assert.equal(resolvePlanningTeamLabel('team_2', {}), 'الفريق رقم 3');
+  assert.equal(resolvePlanningTeamLabel('solo_1', {}), 'فريق طوارئ رقم 2');
+});
+
+test('company ownership renders one branch prefix regardless of stored branch name', () => {
+  assert.equal(planningBranchOwnerLabel('دمشق'), 'فرع دمشق');
+  assert.equal(planningBranchOwnerLabel('فرع دمشق'), 'فرع دمشق');
+  assert.equal(planningBranchOwnerLabel('فرع فرع دمشق'), 'فرع دمشق');
+  assert.equal(planningBranchOwnerLabel(null), 'الشركة');
+});
+
+test('planning contact rows preserve the task execution address', () => {
+  assert.match(planningMarketingTargetsSource, /ct_zone\.installation_address_text/);
+  assert.match(planningMarketingTargetsSource, /inst\.installation_address_text/);
+  assert.match(planningMarketingTargetsSource, /AS "detailedAddress"/);
+});
+
+test('committed plan scope preserves every historical task linked to a contact target', () => {
+  const snapshotStart = planningMarketingTargetsSource.indexOf(
+    '-- A committed plan is defined by the immutable contact-target/task bridge',
+  );
+  const snapshotEnd = planningMarketingTargetsSource.indexOf(
+    ') committed_snapshot ON TRUE',
+    snapshotStart,
+  );
+  assert.ok(snapshotStart >= 0 && snapshotEnd > snapshotStart);
+  const snapshotSource = planningMarketingTargetsSource.slice(snapshotStart, snapshotEnd);
+
+  assert.match(snapshotSource, /FROM contact_target_open_tasks committed_link/);
+  assert.match(snapshotSource, /committed_link\.open_task_id = ot\.id/);
+  assert.match(snapshotSource, /committed_link\.branch_id = \$1/);
+  assert.match(snapshotSource, /committed_link\.date = \$4::date/);
+  assert.match(snapshotSource, /committed_link\.team_key = \$6/);
+  assert.doesNotMatch(snapshotSource, /telemarketing_task_list_items/);
+});
+
 test('planning exclusion predicate combines legacy, all-team, and current-team layers for D', () => {
   const predicate = buildPlanningTaskExcludedPredicate('ot', '$3', '$4');
 
   assert.match(predicate, /ot\.excluded_for_date = \$4::date/);
+  assert.match(
+    predicate,
+    /COALESCE\(ot\.excluded_for_date = \$4::date, FALSE\)/,
+    'a nullable legacy date must produce FALSE, not SQL NULL',
+  );
   assert.match(predicate, /planning_exclusion\.open_task_id = ot\.id/);
   assert.match(predicate, /planning_exclusion\.branch_id = ot\.branch_id/);
   assert.match(predicate, /planning_exclusion\.planning_date = \$4::date/);
@@ -101,7 +176,7 @@ test('all planning SQL builders reject unsafe identifiers and parameters', () =>
 test('dashboard filters normalize identifiers, enums, ranges, and ordering deterministically', () => {
   const normalized = normalizePlanningDashboardFilters({
     q: '  أحمد  ',
-    lifecycleStatuses: ['closed', 'ready', 'closed', 'invalid' as never],
+    lifecycleStatuses: ['closed', 'in_call_list', 'ready', 'closed', 'invalid' as never],
     stationIds: [9, 2, 9, -1, 0],
     classifications: ['vip', 'regular', 'vip'],
     ownershipTypes: ['company', 'personal', 'company'],
@@ -125,7 +200,7 @@ test('dashboard filters normalize identifiers, enums, ranges, and ordering deter
 
   assert.deepEqual(normalized, {
     q: 'أحمد',
-    lifecycleStatuses: ['closed', 'ready'],
+    lifecycleStatuses: ['closed', 'in_call_list', 'ready'],
     stationIds: [2, 9],
     classifications: ['regular', 'vip'],
     ownershipTypes: ['company', 'personal'],
@@ -386,7 +461,7 @@ test('generation shares the planning-day lock and claims a task before inserting
 test('cooldown remains active through D in preview, eligibility, generation, and calls', () => {
   assert.match(
     planningTaskCurationSource,
-    /function isCooldownActive[\s\S]*until\.slice\(0, 10\) >= date/,
+    /function isCooldownActive[\s\S]*normalizePlanningDateOnly\(until\)[\s\S]*normalized >= date/,
   );
   assert.match(
     planningMarketingTargetsSource,
@@ -455,6 +530,21 @@ test('planning apply locks selected clients before selected tasks', () => {
   );
 });
 
+test('task exclusion insert pins reused scope parameters to the VARCHAR column contract', () => {
+  assert.match(
+    planningTaskCurationSource,
+    /\$4::varchar, \$5::varchar, \$6::jsonb/,
+  );
+  assert.match(
+    planningTaskCurationSource,
+    /active\.exclusion_scope = \$4::varchar/,
+  );
+  assert.match(
+    planningTaskCurationSource,
+    /active\.team_key IS NOT DISTINCT FROM \$5::varchar/,
+  );
+});
+
 test('FILTERED_SET task actions select actionable delta and count frozen tasks as skipped', () => {
   const resolveStart = planningTaskCurationSource.indexOf('async function resolveSelection');
   const resolveEnd = planningTaskCurationSource.indexOf(
@@ -470,10 +560,15 @@ test('FILTERED_SET task actions select actionable delta and count frozen tasks a
   const makeTaskSource = planningTaskCurationSource.slice(makeTaskStart, makeTaskEnd);
 
   assert.match(makeTaskSource, /const committed = task\.committedArtifact \|\| COMMITTED_STATES\.has\(task\.status\)/);
-  assert.match(makeTaskSource, /if \(!committed\) \{[\s\S]*availableActions\.push\('EXCLUDE_TEAM_DAY'\)/);
+  assert.match(
+    makeTaskSource,
+    /EXCLUDABLE_STATES\.has\(task\.status\) && !task\.allTeamsDayExcluded[\s\S]*availableActions\.push\('EXCLUDE_TEAM_DAY'\)/,
+    'an all-teams exclusion must suppress the narrower team exclusion action',
+  );
   assert.match(
     resolveSource,
-    /selector\.kind === 'FILTERED_SET'[\s\S]*filterPlanningCurationTasksForAction\([\s\S]*selectedByMode/,
+    /selector\.kind === 'FILTERED_SET'[\s\S]*tasks = selectedByMode[\s\S]*if \(params\.action && params\.layer\)[\s\S]*filterPlanningCurationTasksForAction\(/,
+    'the server must enforce action availability for explicit and filtered selectors',
   );
   assert.match(
     planningTaskCurationSource,
@@ -493,20 +588,24 @@ test('FILTERED_SET task actions select actionable delta and count frozen tasks a
     assignment: { teamKey: 'team_0', date: '2026-07-31', committed: true },
     availableActions: [],
   } as PlanningContactTask;
-  const selected = [deltaTeam, deltaAllTeams, committed];
+  const globallyExcluded = {
+    taskId: 4,
+    availableActions: ['RESTORE_ALL_TEAMS_DAY'],
+  } as PlanningContactTask;
+  const selected = [deltaTeam, deltaAllTeams, committed, globallyExcluded];
 
   assert.deepEqual(
     filterPlanningCurationTasksForAction(selected, 'EXCLUDE', 'TEAM_DAY'),
     {
       tasks: [deltaTeam],
-      skippedUnavailableTasks: 2,
+      skippedUnavailableTasks: 3,
     },
   );
   assert.deepEqual(
     filterPlanningCurationTasksForAction(selected, 'RESTORE', 'TEAM_DAY'),
     {
       tasks: [deltaAllTeams],
-      skippedUnavailableTasks: 2,
+      skippedUnavailableTasks: 3,
     },
   );
   assert.deepEqual(

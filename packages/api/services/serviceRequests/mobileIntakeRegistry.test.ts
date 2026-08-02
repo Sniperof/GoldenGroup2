@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { evaluateMobileIntakeAvailability } from './mobileIntakeRegistry.js';
+import { WATER_CHECK_FORM_VERSION } from './waterCheckFormSchema.js';
 import type { ServiceRequestTypeDefinition } from './serviceRequestTypeRegistry.js';
 
 function definition(overrides: Partial<ServiceRequestTypeDefinition> = {}): ServiceRequestTypeDefinition {
@@ -10,7 +11,7 @@ function definition(overrides: Partial<ServiceRequestTypeDefinition> = {}): Serv
     descriptionAr: '',
     isActive: true,
     displayOrder: 10,
-    defaultFormVersion: 'water_check.mobile.v1',
+    defaultFormVersion: WATER_CHECK_FORM_VERSION,
     formSource: 'code_seeded',
     channels: ['mobile_app'],
     submitterTiers: ['visitor', 'customer'],
@@ -29,7 +30,7 @@ test('registry and installed handler jointly enable water check', () => {
     definition: definition(),
     requestType: 'water_check',
     isAuthenticatedCustomer: false,
-    submittedFormVersion: 'water_check.mobile.v1',
+    submittedFormVersion: WATER_CHECK_FORM_VERSION,
     submittedMode: 'for_self',
   });
   assert.equal(result.ok, true);
@@ -46,7 +47,10 @@ test('an active database row without a code handler remains fail-closed', () => 
 
 test('a form-version drift between registry and code disables intake', () => {
   const result = evaluateMobileIntakeAvailability({
-    definition: definition({ defaultFormVersion: 'water_check.mobile.v2' }),
+    // Derived from the live constant rather than hardcoded: this test used to
+    // name the next real version, so shipping that version silently turned the
+    // drift case into the matching case and the assertion stopped testing.
+    definition: definition({ defaultFormVersion: `${WATER_CHECK_FORM_VERSION}.drifted` }),
     requestType: 'water_check',
     isAuthenticatedCustomer: true,
   });

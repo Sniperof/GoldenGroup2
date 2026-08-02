@@ -6,6 +6,7 @@ import {
 } from '../services/appAccounts/accountRequestService.js';
 import { deleteAccountByVerifiedHandle } from '../services/appAccounts/accountDeletionService.js';
 import { requireAppAuth } from '../middleware/appAuth.js';
+import { sendAppError } from '../utils/appErrors.js';
 
 const router = Router();
 
@@ -69,12 +70,8 @@ router.get('/account/status', async (req, res) => {
     if (!phone) return res.status(400).json({ error: 'رقم الموبايل مطلوب' });
     const result = await checkMobileStatus(phone, typeof req.query.ref === 'string' ? req.query.ref : undefined);
     res.json(result);
-  } catch (err: any) {
-    if (err?.status) {
-      return res.status(err.status).json({ error: err.message, ...(err.details ? { details: err.details } : {}) });
-    }
-    console.error('Account status error:', err);
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    sendAppError(res, err, 'account.status');
   }
 });
 
@@ -157,12 +154,8 @@ router.post('/account-requests', async (req, res) => {
     const { handle, form } = req.body ?? {};
     const result = await createAccountRequest({ handle, form });
     res.json(result);
-  } catch (err: any) {
-    if (err?.status) {
-      return res.status(err.status).json({ error: err.message, ...(err.details ? { details: err.details } : {}) });
-    }
-    console.error('Account request error:', err);
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    sendAppError(res, err,'account.create');
   }
 });
 
@@ -195,12 +188,8 @@ router.post('/account/delete', requireAppAuth, async (req, res) => {
       expectedPhone: req.appAccount!.phone,
     });
     res.json(result);
-  } catch (err: any) {
-    if (err?.status) {
-      return res.status(err.status).json({ error: err.message, ...(err.details ? { details: err.details } : {}) });
-    }
-    console.error('Account delete error:', err);
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    sendAppError(res, err,'account.delete');
   }
 });
 
@@ -236,12 +225,8 @@ router.post('/account/deletion-request', async (req, res) => {
       expectedPhone: req.body?.phone,
     });
     res.json(result);
-  } catch (err: any) {
-    if (err?.status) {
-      return res.status(err.status).json({ error: err.message, ...(err.details ? { details: err.details } : {}) });
-    }
-    console.error('Account deletion-request error:', err);
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    sendAppError(res, err,'account.deletionRequest');
   }
 });
 
@@ -321,12 +306,8 @@ router.post('/account-requests/mine', async (req, res) => {
       phone: req.body?.phone,
     });
     res.json(result);
-  } catch (err: any) {
-    if (err?.status) {
-      return res.status(err.status).json({ error: err.message, ...(err.details ? { details: err.details } : {}) });
-    }
-    console.error('Pending account-request lookup error:', err);
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    sendAppError(res, err,'account.mine');
   }
 });
 

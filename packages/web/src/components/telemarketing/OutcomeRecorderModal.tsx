@@ -800,11 +800,11 @@ export default function OutcomeRecorderModal({
                                     </div>
                                 )}
 
-                                {/* Technician notes */}
+                                {/* Pre-visit instructions for the field team */}
                                 <div className="space-y-1.5">
                                     <label className="text-xs font-bold text-emerald-800 flex items-center gap-1">
                                         <FileText className="w-3.5 h-3.5" />
-                                        ملاحظات للفني
+                                        تعليمات للفريق الميداني
                                         <span className="text-emerald-500 font-normal">(اختياري)</span>
                                     </label>
                                     <textarea
