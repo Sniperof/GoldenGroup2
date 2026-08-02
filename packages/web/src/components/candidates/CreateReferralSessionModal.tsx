@@ -539,7 +539,7 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
                             onChange={(e) => setNotes(e.target.value)}
                             rows={3}
                             placeholder="تفاصيل إضافية حول هذه الورقة..."
-                            className="w-full p-3 rounded-xl border border-slate-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 resize-none"
+                            className="mt-4 w-full p-3 rounded-xl border border-slate-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 resize-none"
                         />
                     </div>
                 </div>
