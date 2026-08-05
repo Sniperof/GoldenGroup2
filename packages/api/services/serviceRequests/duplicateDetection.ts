@@ -20,6 +20,20 @@
 //     review_required_flag = TRUE (SR-R009),
 //     audit: duplicate_flag_set.
 //
+// DEC-016 D-WC5/D-WC6 — two gaps the water_check open-request rule used to
+// hide, both surfaced when that rule stopped guarding the beneficiary:
+//
+//   1. `phone_match` compared REQUESTER phones only. Two different senders
+//      filing for the SAME beneficiary scored zero against each other — the
+//      exact case now left to this detector. Both parties are compared now,
+//      role against role.
+//   2. The fuzzy score cannot carry that case anyway. An unverified submitter
+//      has no requester phone, so the 0.50 phone term is structurally zero and
+//      the remaining 0.50 can never reach the 0.75 threshold. A repeated
+//      beneficiary number is therefore a DETERMINISTIC flag, independent of
+//      the score: an exact match inside the window always raises the review
+//      signal. It flags, it never blocks (§٠.١٥.أ).
+//
 // All weights + threshold + window are sourced live from system_settings
 // (٠.١٥.أ "قابلية الضبط") so ops can tune without migrations.
 //
@@ -65,10 +79,16 @@ export interface DuplicateMatch {
   phoneMatch: number;
   deviceMatch: number;
   problemSimilarity: number;
+  /** 1.0 when the beneficiary's number is identical — the deterministic rule. */
+  beneficiaryPhoneMatch: number;
 }
+
+/** Why the flag was raised — carried into the audit trail for the reviewer. */
+export type DuplicateTrigger = 'score_threshold' | 'beneficiary_phone_repeat';
 
 export interface DuplicateDetectionResult {
   flagged: boolean;
+  trigger: DuplicateTrigger | null;
   bestMatch: DuplicateMatch | null;
   consideredCount: number;
 }
@@ -86,6 +106,7 @@ export async function detectDuplicates(
     id: number;
     request_type: string;
     primary_phone: string | null;
+    beneficiary_phone: string | null;
     installed_device_id: number | null;
     external_device_serial: string | null;
     external_device_name: string | null;
@@ -96,6 +117,7 @@ export async function detectDuplicates(
        id,
        request_type,
        requester_external->>'primary_phone' AS primary_phone,
+       beneficiary_external->>'primary_phone' AS beneficiary_phone,
        installed_device_id,
        external_device_serial,
        external_device_name,
@@ -106,7 +128,7 @@ export async function detectDuplicates(
     [newRequestId],
   );
   if (newRows.length === 0) {
-    return { flagged: false, bestMatch: null, consideredCount: 0 };
+    return { flagged: false, trigger: null, bestMatch: null, consideredCount: 0 };
   }
   const seed = newRows[0];
 
@@ -115,18 +137,36 @@ export async function detectDuplicates(
   const { rows: candidates } = await db.query<{
     id: number;
     phone_match: number;
+    beneficiary_phone_match: number;
     device_match: number;
     problem_similarity: number;
   }>(
     `SELECT
         c.id,
+        -- Compared role against role, then the stronger of the two. Cross-role
+        -- comparison is deliberately avoided: in for_self the requester and
+        -- beneficiary snapshots hold the same number, so it would score a
+        -- person against themselves.
+        GREATEST(
+          CASE
+            WHEN $2::text IS NULL OR c_phone IS NULL THEN 0
+            WHEN c_phone = $2 THEN 1.0
+            WHEN RIGHT(c_phone, 7) = RIGHT($2, 7) THEN 0.8
+            WHEN RIGHT(c_phone, 6) = RIGHT($2, 6) THEN 0.5
+            ELSE 0
+          END,
+          CASE
+            WHEN $10::text IS NULL OR c_ben_phone IS NULL THEN 0
+            WHEN c_ben_phone = $10 THEN 1.0
+            WHEN RIGHT(c_ben_phone, 7) = RIGHT($10, 7) THEN 0.8
+            WHEN RIGHT(c_ben_phone, 6) = RIGHT($10, 6) THEN 0.5
+            ELSE 0
+          END
+        ) AS phone_match,
         CASE
-          WHEN $2::text IS NULL OR c_phone IS NULL THEN 0
-          WHEN c_phone = $2 THEN 1.0
-          WHEN RIGHT(c_phone, 7) = RIGHT($2, 7) THEN 0.8
-          WHEN RIGHT(c_phone, 6) = RIGHT($2, 6) THEN 0.5
+          WHEN $10::text IS NOT NULL AND c_ben_phone = $10 THEN 1.0
           ELSE 0
-        END AS phone_match,
+        END AS beneficiary_phone_match,
         CASE
           WHEN $3::int IS NOT NULL AND c.installed_device_id = $3::int THEN 1.0
           WHEN $4::text IS NOT NULL AND c.external_device_serial = $4 THEN 0.9
@@ -137,7 +177,9 @@ export async function detectDuplicates(
         COALESCE(similarity(c.problem_description, $6), 0)::float AS problem_similarity
       FROM (
         SELECT id, installed_device_id, external_device_serial, external_device_name,
-               problem_description, requester_external->>'primary_phone' AS c_phone
+               problem_description,
+               requester_external->>'primary_phone' AS c_phone,
+               beneficiary_external->>'primary_phone' AS c_ben_phone
           FROM service_requests
          WHERE id <> $1
            AND request_type = $9
@@ -154,30 +196,47 @@ export async function detectDuplicates(
       seed.created_at,
       settings.windowHours,
       seed.request_type,
+      seed.beneficiary_phone,
     ],
   );
 
   let best: DuplicateMatch | null = null;
+  let beneficiaryRepeat: DuplicateMatch | null = null;
   for (const c of candidates) {
     const phoneMatch = Number(c.phone_match);
+    const beneficiaryPhoneMatch = Number(c.beneficiary_phone_match);
     const deviceMatch = Number(c.device_match);
     const problemSim = Number(c.problem_similarity);
     const score =
       settings.phoneWeight * phoneMatch +
       settings.deviceWeight * deviceMatch +
       settings.problemWeight * problemSim;
-    if (!best || score > best.score) {
-      best = {
-        candidateId: c.id,
-        score,
-        phoneMatch,
-        deviceMatch,
-        problemSimilarity: problemSim,
-      };
+    const match: DuplicateMatch = {
+      candidateId: c.id,
+      score,
+      phoneMatch,
+      deviceMatch,
+      problemSimilarity: problemSim,
+      beneficiaryPhoneMatch,
+    };
+    if (!best || score > best.score) best = match;
+    // Oldest wins: the reviewer is pointed at the request that came first,
+    // which is the one already being worked on.
+    if (beneficiaryPhoneMatch >= 1
+      && (!beneficiaryRepeat || match.candidateId < beneficiaryRepeat.candidateId)) {
+      beneficiaryRepeat = match;
     }
   }
 
-  const flagged = !!best && best.score >= settings.threshold;
+  // The deterministic rule outranks the fuzzy score: an identical beneficiary
+  // number is a fact, not an estimate, and it is the one signal that survives
+  // an unverified submitter (D-WC5).
+  const scoreFlagged = !!best && best.score >= settings.threshold;
+  const trigger: DuplicateTrigger | null = beneficiaryRepeat
+    ? 'beneficiary_phone_repeat'
+    : scoreFlagged ? 'score_threshold' : null;
+  if (beneficiaryRepeat) best = beneficiaryRepeat;
+  const flagged = trigger !== null;
 
   if (flagged && best) {
     await db.query(
@@ -195,8 +254,10 @@ export async function detectDuplicates(
       actorRole,
       payload: {
         duplicate_of_request_id: best.candidateId,
+        trigger,
         score: best.score,
         phone_match: best.phoneMatch,
+        beneficiary_phone_match: best.beneficiaryPhoneMatch,
         device_match: best.deviceMatch,
         problem_similarity: best.problemSimilarity,
         threshold: settings.threshold,
@@ -207,9 +268,9 @@ export async function detectDuplicates(
       eventType: 'review_required_flag_set',
       actorUserId,
       actorRole,
-      payload: { reason: 'duplicate_detected', auto: true },
+      payload: { reason: 'duplicate_detected', trigger, auto: true },
     });
   }
 
-  return { flagged, bestMatch: best, consideredCount: candidates.length };
+  return { flagged, trigger, bestMatch: best, consideredCount: candidates.length };
 }

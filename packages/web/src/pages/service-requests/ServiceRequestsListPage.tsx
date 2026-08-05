@@ -11,6 +11,7 @@ import RequestsListView, {
   type NormalizedRequestRow,
 } from '../../components/requests/RequestsListView';
 import { usePermissions } from '../../hooks/usePermissions';
+import Button from '../../components/ui/Button';
 
 export default function ServiceRequestsListPage() {
   const navigate = useNavigate();
@@ -20,6 +21,7 @@ export default function ServiceRequestsListPage() {
   return (
     <RequestsListView
       title="طلبات الصيانة"
+      subtitle="استقبال شكاوى الصيانة وفرزها وربطها بالزبون والجهاز وتحويلها إلى مهام تنفيذية"
       icon={ClipboardList}
       permissionFamily="service_requests"
       requestTypeForLabels="emergency_maintenance"
@@ -79,13 +81,13 @@ export default function ServiceRequestsListPage() {
       claim={(id) => api.serviceRequests.claim(id)}
       headerActions={
         canCreate ? (
-          <button
+          <Button
             onClick={() => navigate('/service-requests/new')}
-            className="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded flex items-center gap-1"
+            size="sm"
+            icon={Plus}
           >
-            <Plus className="h-4 w-4" />
             طلب جديد
-          </button>
+          </Button>
         ) : null
       }
       emptyMessage="لا توجد طلبات صيانة مطابقة."

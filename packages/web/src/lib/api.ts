@@ -1672,10 +1672,15 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(data),
       }),
-    suggestedMatches: (id: number, party?: 'beneficiary' | 'referrer') =>
+    suggestedMatches: (id: number, party?: 'beneficiary' | 'requester' | 'referrer') =>
       request<{ clients: any[]; candidates: any[] }>(
         `/service-requests/${id}/suggested-matches${party ? `?party=${party}` : ''}`,
       ),
+    linkRequester: (id: number, requesterClientId: number) =>
+      request<any>(`/service-requests/${id}/link-requester`, {
+        method: 'POST',
+        body: JSON.stringify({ requesterClientId }),
+      }),
     linkReferrer: (id: number, referrerClientId: number) =>
       request<any>(`/service-requests/${id}/link-referrer`, {
         method: 'POST',

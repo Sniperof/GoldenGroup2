@@ -7,6 +7,12 @@ import type { ServiceRequestTypeDefinition } from './serviceRequestTypeRegistry.
 export interface MobileIntakeHandler {
   requestType: string;
   formVersion: string;
+  /**
+   * Accepts a submitter who proved nothing (DEC-016). Opt-in per handler and
+   * absent by default, so a type added later inherits the strict behaviour
+   * rather than the exception granted to water_check.
+   */
+  allowsUnverifiedIntake?: boolean;
   submit: (
     body: Record<string, unknown>,
     identity: MobileIntakeIdentity,
@@ -18,6 +24,7 @@ const handlers: Record<string, MobileIntakeHandler> = {
   water_check: {
     requestType: 'water_check',
     formVersion: WATER_CHECK_FORM_VERSION,
+    allowsUnverifiedIntake: true,
     submit: submitMobileWaterCheck,
   },
 };
@@ -49,8 +56,13 @@ export function evaluateMobileIntakeAvailability(input: {
   if (!definition.channels.includes('mobile_app')) {
     return { ok: false, status: 409, code: 'request_type_not_available_on_mobile' };
   }
-  const requesterTier = input.isAuthenticatedCustomer ? 'customer' : 'visitor';
-  if (!definition.submitterTiers.includes(requesterTier)) {
+  // An unauthenticated caller may land on either unproven tier depending on
+  // whether they carry a handle, and that is only known after identity
+  // resolution — so the gate here asks whether the registry accepts EITHER.
+  const requesterTiers = input.isAuthenticatedCustomer
+    ? ['customer']
+    : handler.allowsUnverifiedIntake ? ['visitor', 'unverified'] : ['visitor'];
+  if (!requesterTiers.some((tier) => definition.submitterTiers.includes(tier))) {
     return { ok: false, status: 403, code: 'request_type_not_available_for_requester' };
   }
   const submissionMode = input.submittedMode === 'for_another' ? 'for_another' : 'for_self';

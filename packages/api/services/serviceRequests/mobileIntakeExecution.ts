@@ -11,6 +11,10 @@ export async function executeMobileIntake(input: {
   handler: MobileIntakeHandler;
   body: Record<string, unknown>;
   appAccount?: AppAccountClaims;
+  /** `X-Device-Id` header — the unverified tier's identifier (DEC-016). */
+  deviceId?: string | null;
+  /** Client address, second layer above the fingerprint. */
+  ip?: string | null;
   db?: PoolClient;
 }) {
   const tx = await acquireTx(input.db);
@@ -19,6 +23,9 @@ export async function executeMobileIntake(input: {
       db: tx.client,
       appAccount: input.appAccount,
       handle: input.body.handle,
+      deviceId: input.deviceId,
+      ip: input.ip,
+      allowUnverified: input.handler.allowsUnverifiedIntake === true,
     });
     const result = await input.handler.submit(input.body, identity, tx.client);
     await consumeMobileIntakeIdentity(tx.client, identity);

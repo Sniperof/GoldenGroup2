@@ -8,6 +8,7 @@ import { Beaker, Send } from 'lucide-react';
 import { api } from '../../lib/api';
 import RequestsListView, { type NormalizedRequestRow } from '../../components/requests/RequestsListView';
 import { usePermissions } from '../../hooks/usePermissions';
+import Button from '../../components/ui/Button';
 
 // Kept only as a tooltip explanation for the "—" (unlinked) branch case.
 const BRANCH_RESOLUTION_LABELS: Record<string, string> = {
@@ -114,14 +115,14 @@ export default function WaterCheckRequestsPage() {
       claim={(id) => api.serviceRequests.claim(id)}
       headerActions={
         canSimulate ? (
-          <button
+          <Button
             type="button"
             onClick={() => navigate('/service-requests/water-check/simulator')}
-            className="inline-flex items-center gap-1.5 rounded bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700"
+            size="sm"
+            icon={Send}
           >
-            <Send className="h-4 w-4" />
             محاكاة إرسال
-          </button>
+          </Button>
         ) : null
       }
       emptyMessage="لا توجد طلبات فحص مياه مطابقة."

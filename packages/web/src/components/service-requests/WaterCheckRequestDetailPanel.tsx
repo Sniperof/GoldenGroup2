@@ -53,9 +53,9 @@ function Field({ label, value }: { label: string; value: unknown }) {
   const empty = value == null || value === '';
   const text = empty ? '—' : String(value);
   return (
-    <div className="rounded-lg bg-slate-50/70 px-3 py-2">
+    <div className="rounded-xl border border-slate-100 bg-slate-50/70 px-3.5 py-3">
       <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{label}</div>
-      <div className={`mt-0.5 text-sm font-bold ${empty ? 'text-slate-300' : 'text-slate-800'}`}>{text}</div>
+      <div className={`mt-1 text-sm font-semibold ${empty ? 'text-slate-300' : 'text-slate-800'}`}>{empty ? 'غير متوفر' : text}</div>
     </div>
   );
 }
@@ -135,6 +135,11 @@ export default function WaterCheckRequestDetailPanel({
   const geoPath = getGeoPath(address, submitted, unitsById);
 
   const mediator = (request.referrerExternal && typeof request.referrerExternal === 'object') ? request.referrerExternal : null;
+  const requester = (request.requesterExternal && typeof request.requesterExternal === 'object') ? request.requesterExternal : {};
+  const requesterName = readText(requester.name)
+    || [readText(requester.firstName), readText(requester.fatherName), readText(requester.lastName)].filter(Boolean).join(' ');
+  const requesterPhone = readText(requester.primary_phone);
+  const requesterSecondaryPhone = readText(requester.secondary_phone);
   const mediatorName = mediator
     ? (readText(mediator.name) || [readText(mediator.firstName), readText(mediator.lastName)].filter(Boolean).join(' '))
     : '';
@@ -153,10 +158,26 @@ export default function WaterCheckRequestDetailPanel({
 
   return (
     <div className="space-y-4">
+      {request.submissionType === 'refer_a_candidate' && (
+        <section className="rounded-2xl border border-sky-200 bg-sky-50/40 p-4 shadow-sm">
+          <div className="mb-4 flex items-center gap-2">
+            <User className="h-5 w-5 text-sky-600" />
+            <h2 className="text-lg font-bold text-slate-800">مقدم الطلب</h2>
+          </div>
+          <div className="grid gap-3 md:grid-cols-3">
+            <Field label="الاسم" value={requesterName} />
+            <Field label="الهاتف الأساسي" value={requesterPhone ? `${requesterPhone}${requester.primaryPhoneHasWhatsapp ? ' · واتساب' : ''}` : ''} />
+            <Field label="الهاتف الثانوي" value={requesterSecondaryPhone ? `${requesterSecondaryPhone}${requester.secondaryPhoneHasWhatsapp ? ' · واتساب' : ''}` : ''} />
+            <Field label="مصدر الهوية" value={requester.name_source === 'client_record' ? 'سجل الزبون' : 'بيانات مقدمة'} />
+            <Field label="مقدم الطلب كزبون" value={request.requesterClientName ?? (request.requesterClientId ? `#${request.requesterClientId}` : 'غير مربوط')} />
+          </div>
+        </section>
+      )}
+
       <section className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
         <div className="mb-4 flex flex-wrap items-center gap-2">
           <Beaker className="h-5 w-5 text-sky-600" />
-          <h2 className="text-lg font-bold text-slate-800">بيانات طلب فحص المياه</h2>
+          <h2 className="text-lg font-bold text-slate-800">المستفيد وبيانات التواصل</h2>
           <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
             request.submissionType === 'refer_a_candidate'
               ? 'bg-amber-100 text-amber-700'
@@ -166,12 +187,9 @@ export default function WaterCheckRequestDetailPanel({
           </span>
         </div>
         <div className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-3">
-            <Field label="صاحب الطلب" value={fullName} />
+          <div className="grid gap-3 md:grid-cols-2">
+            <Field label={request.submissionType === 'refer_a_candidate' ? 'المستفيد من الفحص' : 'الزبون مقدم الطلب'} value={fullName} />
             <Field label="نوع الطلب (لمن؟)" value={request.submissionType === 'refer_a_candidate' ? 'لعنوان شخص آخر' : 'لعنواني'} />
-            <Field label="مصدر الطلب" value={request.channelLabel} />
-            <Field label="حالة الطلب" value={request.statusLabel} />
-            <Field label="المُستلِم" value={request.reviewedByUserName ?? 'لم يتول أحد'} />
           </div>
 
           <div>
@@ -194,12 +212,13 @@ export default function WaterCheckRequestDetailPanel({
         <section className="rounded-2xl border border-amber-200 bg-amber-50/40 p-4 shadow-sm">
           <div className="mb-4 flex items-center gap-2">
             <User className="h-5 w-5 text-amber-600" />
-            <h2 className="text-lg font-bold text-slate-800">الوسيط (مُرسِل الطلب)</h2>
+            <h2 className="text-lg font-bold text-slate-800">الوسيط (المُحيل)</h2>
             <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">طلب لشخص آخر</span>
           </div>
           <div className="grid gap-4 md:grid-cols-3">
             <Field label="اسم الوسيط" value={mediatorName} />
             <Field label="رقم الهاتف" value={readText(mediator.primary_phone)} />
+            <Field label="الهاتف الثانوي" value={readText(mediator.secondary_phone)} />
             <Field label="واتساب" value={mediator.primaryPhoneHasWhatsapp ? 'نعم' : 'لا'} />
             <Field label="المهنة" value={readText(mediator.occupation)} />
             <Field label="المسار الجغرافي" value={mediatorGeoPath} />

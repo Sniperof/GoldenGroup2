@@ -53,6 +53,7 @@ import { suggestRecords } from '../services/serviceRequests/fuzzyMatching.js';
 import { findPeriodicAttachmentCandidate } from '../services/periodicMaintenanceTasks.js';
 import { resolveBranchForServiceGeoUnit } from '../services/serviceRequests/branchResolutionService.js';
 import { getSystemSettingNumber } from '../services/systemSettings.js';
+import { canLinkServiceRequestParty } from '../policies/serviceRequestPartyLinkPolicy.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -145,6 +146,7 @@ function statusFromCode(code: string): number {
     case 'audit_admin_cannot_claim':
     case 'promoted_cannot_be_reopened':
     case 'open_tasks_branch_forbidden':
+    case 'forbidden':
       return 403;
     case 'merge_or_split_required':
     case 'periodic_attachment_candidate_not_available':
@@ -254,6 +256,10 @@ const SR_SELECT = `
   sr.requester_user_id AS "requesterUserId",
   sr.requester_app_account_id AS "requesterAppAccountId",
   sr.requester_client_id AS "requesterClientId",
+  COALESCE(
+    rqc.name,
+    NULLIF(CONCAT_WS(' ', rqc.first_name, rqc.father_name, rqc.last_name), '')
+  ) AS "requesterClientName",
   sr.requester_external AS "requesterExternal",
   sr.beneficiary_client_id AS "beneficiaryClientId",
   COALESCE(
@@ -347,6 +353,7 @@ const SR_DISPLAY_JOINS = `
   LEFT JOIN hr_users escalator ON escalator.id = sr.escalated_by_user_id
   LEFT JOIN hr_users archiver ON archiver.id = sr.archived_by_user_id
   LEFT JOIN clients bc ON bc.id = sr.beneficiary_client_id
+  LEFT JOIN clients rqc ON rqc.id = sr.requester_client_id
   LEFT JOIN clients rc ON rc.id = sr.referrer_client_id
   LEFT JOIN candidates bcan ON bcan.id = sr.beneficiary_candidate_id
   LEFT JOIN open_tasks lot ON lot.id = sr.linked_open_task_id
@@ -823,6 +830,7 @@ async function linkBeneficiary(input: {
   actorRole: ActorRole;
   isChange: boolean;
   changeReason?: string | null;
+  authContext: NonNullable<Request['authContext']>;
 }) {
   const client = await pool.connect();
   try {
@@ -832,14 +840,27 @@ async function linkBeneficiary(input: {
       beneficiary_candidate_id: number | null;
       request_type: string;
       status: string;
+      submission_type: string;
+      branch_id: number | null;
+      reviewed_by_user_id: number | null;
     }>(
-      `SELECT beneficiary_client_id, beneficiary_candidate_id, request_type, status
+      `SELECT beneficiary_client_id, beneficiary_candidate_id, request_type, status,
+              submission_type, branch_id, reviewed_by_user_id
          FROM service_requests WHERE id = $1 FOR UPDATE`,
       [input.serviceRequestId],
     );
     if (rows.length === 0) {
       await client.query('ROLLBACK');
       return { ok: false as const, code: 'not_found' };
+    }
+    const access = canLinkServiceRequestParty(input.authContext, {
+      permission: familyKeyFor(rows[0].request_type, 'review'),
+      branchId: rows[0].branch_id,
+      reviewedByUserId: rows[0].reviewed_by_user_id,
+    });
+    if (!access.allowed) {
+      await client.query('ROLLBACK');
+      return { ok: false as const, code: 'forbidden', details: { reason: access.reason } };
     }
     // SR-LINK-01 — linking is a review decision; it requires the request to be
     // claimed (in_review with an assigned reviewer). No linking before claim.
@@ -883,6 +904,10 @@ async function linkBeneficiary(input: {
       `UPDATE service_requests
           SET beneficiary_client_id = $2,
               beneficiary_candidate_id = $3,
+              requester_client_id = CASE
+                WHEN submission_type = 'apply' AND $2::bigint IS NOT NULL THEN $2
+                ELSE requester_client_id
+              END,
               installed_device_id = COALESCE($4, installed_device_id),
               contract_id = COALESCE($5, contract_id),
               updated_at = NOW()
@@ -944,6 +969,7 @@ router.post('/:id/link', requireTypedPermission('review'), blockIfEscalated, asy
     actorUserId: actor.userId,
     actorRole: 'operator',
     isChange: false,
+    authContext: req.authContext!,
   });
   if (result.ok !== true) return sendErr(res, result);
   res.json({ ok: true });
@@ -961,6 +987,7 @@ router.post('/:id/change-linkage', requireTypedPermission('review'), blockIfEsca
     actorRole: 'operator',
     isChange: true,
     changeReason: req.body.reason ?? null,
+    authContext: req.authContext!,
   });
   if (result.ok !== true) return sendErr(res, result);
   res.json({ ok: true });
@@ -968,14 +995,21 @@ router.post('/:id/change-linkage', requireTypedPermission('review'), blockIfEsca
 
 router.get('/:id/suggested-matches', requireTypedPermission('review'), async (req, res) => {
   // Load name + phone for the requested party and use them as the fuzzy seed.
-  // party=referrer searches by the mediator's snapshot; default is the beneficiary.
-  const party = req.query.party === 'referrer' ? 'referrer' : 'beneficiary';
+  // party=requester/referrer searches by that party snapshot; default is beneficiary.
+  const party = req.query.party === 'referrer'
+    ? 'referrer'
+    : req.query.party === 'requester' ? 'requester' : 'beneficiary';
   const seedSql = party === 'referrer'
     ? `SELECT referrer_external->>'name' AS name,
               referrer_external->>'primary_phone' AS phone,
-              request_type
+              request_type, branch_id, reviewed_by_user_id
          FROM service_requests WHERE id = $1`
-    : `SELECT COALESCE(
+    : party === 'requester'
+      ? `SELECT requester_external->>'name' AS name,
+                requester_external->>'primary_phone' AS phone,
+                request_type, branch_id, reviewed_by_user_id
+           FROM service_requests WHERE id = $1`
+      : `SELECT COALESCE(
                 beneficiary_external->>'name',
                 requester_external->>'name',
                 NULLIF(CONCAT_WS(' ',
@@ -988,16 +1022,30 @@ router.get('/:id/suggested-matches', requireTypedPermission('review'), async (re
                 requester_external->>'primary_phone',
                 submitted_payload #>> '{data,phoneNumber}'
               ) AS phone,
-              request_type
+              request_type, branch_id, reviewed_by_user_id
          FROM service_requests WHERE id = $1`;
-  const { rows } = await pool.query<{ name: string | null; phone: string | null; request_type: string }>(
+  const { rows } = await pool.query<{
+    name: string | null;
+    phone: string | null;
+    request_type: string;
+    branch_id: number | null;
+    reviewed_by_user_id: number | null;
+  }>(
     seedSql,
     [Number(req.params.id)],
   );
   if (rows.length === 0) return res.status(404).json({ error: 'not_found' });
+  const access = canLinkServiceRequestParty(req.authContext!, {
+    permission: familyKeyFor(rows[0].request_type, 'review'),
+    branchId: rows[0].branch_id,
+    reviewedByUserId: rows[0].reviewed_by_user_id,
+  });
+  if (!access.allowed) {
+    return res.status(403).json({ error: 'forbidden', details: { reason: access.reason } });
+  }
   // Mediator (referrer) is always linked to a client entity; water_check
   // beneficiaries likewise link to clients only.
-  const clientsOnly = party === 'referrer' || rows[0].request_type === 'water_check';
+  const clientsOnly = party !== 'beneficiary' || rows[0].request_type === 'water_check';
   const suggestions = await suggestRecords({
     name: rows[0].name,
     phone: rows[0].phone,
@@ -1010,6 +1058,88 @@ router.get('/:id/suggested-matches', requireTypedPermission('review'), async (re
   res.json(suggestions);
 });
 
+// The requester is independent from both beneficiary and mediator on
+// for_another submissions. A same-as-requester mediator is mirrored atomically.
+router.post('/:id/link-requester', requireTypedPermission('review'), blockIfEscalated, async (req, res) => {
+  const actor = getActor(req);
+  const serviceRequestId = Number(req.params.id);
+  const requesterClientId = Number(req.body.requesterClientId);
+  if (!Number.isInteger(requesterClientId) || requesterClientId <= 0) {
+    return res.status(400).json({ error: 'requester_client_id_required' });
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query<{
+      status: string;
+      request_type: string;
+      submission_type: string;
+      branch_id: number | null;
+      reviewed_by_user_id: number | null;
+      referrer_external: Record<string, unknown> | null;
+    }>(
+      `SELECT status, request_type, submission_type, branch_id, reviewed_by_user_id, referrer_external
+         FROM service_requests WHERE id = $1 FOR UPDATE`,
+      [serviceRequestId],
+    );
+    if (rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'not_found' });
+    }
+    const access = canLinkServiceRequestParty(req.authContext!, {
+      permission: familyKeyFor(rows[0].request_type, 'review'),
+      branchId: rows[0].branch_id,
+      reviewedByUserId: rows[0].reviewed_by_user_id,
+    });
+    if (!access.allowed) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'forbidden', details: { reason: access.reason } });
+    }
+    if (rows[0].request_type !== 'water_check') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'wrong_request_type_for_requester_link' });
+    }
+    if (rows[0].status !== 'in_review') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'link_requires_claim', details: { status: rows[0].status } });
+    }
+    const exists = await client.query(`SELECT 1 FROM clients WHERE id = $1 AND deleted_at IS NULL`, [requesterClientId]);
+    if (exists.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'client_not_found' });
+    }
+    const sameAsRequester = rows[0].referrer_external?.same_as_requester === true;
+    await client.query(
+      `UPDATE service_requests
+          SET requester_client_id = $2,
+              beneficiary_client_id = CASE WHEN submission_type = 'apply' THEN $2 ELSE beneficiary_client_id END,
+              referrer_client_id = CASE WHEN $3::boolean THEN $2 ELSE referrer_client_id END,
+              updated_at = NOW()
+        WHERE id = $1`,
+      [serviceRequestId, requesterClientId, sameAsRequester],
+    );
+    await appendAudit(client, {
+      serviceRequestId,
+      eventType: 'party_linked',
+      actorUserId: actor.userId,
+      actorRole: 'operator',
+      payload: {
+        party_role: 'requester', requester_client_id: requesterClientId,
+        beneficiary_mirrored: rows[0].submission_type === 'apply',
+        referrer_mirrored: sameAsRequester,
+      },
+    });
+    if (sameAsRequester) await syncBeneficiaryReferrer(client, serviceRequestId);
+    await client.query('COMMIT');
+    res.json({ ok: true });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+});
+
 // SR-LINK-01 — link the mediator (referrer) to a client, same guard as beneficiary.
 router.post('/:id/link-referrer', requireTypedPermission('review'), blockIfEscalated, async (req, res) => {
   const actor = getActor(req);
@@ -1020,33 +1150,69 @@ router.post('/:id/link-referrer', requireTypedPermission('review'), blockIfEscal
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const { rows } = await client.query<{ status: string }>(
-      `SELECT status FROM service_requests WHERE id = $1 FOR UPDATE`,
+    const { rows } = await client.query<{
+      status: string;
+      request_type: string;
+      branch_id: number | null;
+      reviewed_by_user_id: number | null;
+      requester_client_id: number | null;
+      referrer_external: Record<string, unknown> | null;
+    }>(
+      `SELECT status, request_type, branch_id, reviewed_by_user_id,
+              requester_client_id, referrer_external
+         FROM service_requests WHERE id = $1 FOR UPDATE`,
       [Number(req.params.id)],
     );
     if (rows.length === 0) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'not_found' });
     }
+    const access = canLinkServiceRequestParty(req.authContext!, {
+      permission: familyKeyFor(rows[0].request_type, 'review'),
+      branchId: rows[0].branch_id,
+      reviewedByUserId: rows[0].reviewed_by_user_id,
+    });
+    if (!access.allowed) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'forbidden', details: { reason: access.reason } });
+    }
     if (rows[0].status !== 'in_review') {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'link_requires_claim', details: { status: rows[0].status } });
+    }
+    if (!rows[0].referrer_external) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'request_has_no_referrer' });
+    }
+    if (rows[0].referrer_external.same_as_requester === true
+        && rows[0].requester_client_id != null
+        && rows[0].requester_client_id !== referrerClientId) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'referrer_must_match_requester' });
     }
     const exists = await client.query(`SELECT 1 FROM clients WHERE id = $1 AND deleted_at IS NULL`, [referrerClientId]);
     if (exists.rowCount === 0) {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'client_not_found' });
     }
+    const sameAsRequester = rows[0].referrer_external.same_as_requester === true;
     await client.query(
-      `UPDATE service_requests SET referrer_client_id = $2, updated_at = NOW() WHERE id = $1`,
-      [Number(req.params.id), referrerClientId],
+      `UPDATE service_requests
+          SET referrer_client_id = $2,
+              requester_client_id = CASE WHEN $3::boolean THEN $2 ELSE requester_client_id END,
+              updated_at = NOW()
+        WHERE id = $1`,
+      [Number(req.params.id), referrerClientId, sameAsRequester],
     );
     await appendAudit(client, {
       serviceRequestId: Number(req.params.id),
       eventType: 'party_linked',
       actorUserId: actor.userId,
       actorRole: 'operator',
-      payload: { party_role: 'referrer', referrer_client_id: referrerClientId },
+      payload: {
+        party_role: 'referrer', referrer_client_id: referrerClientId,
+        requester_mirrored: sameAsRequester,
+      },
     });
     await syncBeneficiaryReferrer(client, Number(req.params.id));
     await client.query('COMMIT');

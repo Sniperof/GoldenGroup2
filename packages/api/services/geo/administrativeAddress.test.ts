@@ -4,11 +4,12 @@ import { resolveAndValidateAddress } from './administrativeAddress.js';
 
 // A small fixture geo tree: Damascus(1) → Mazzeh(2) → Sheikh Saad(3) → Villa Zone(4).
 const TREE = [
-  { id: 1, name: 'دمشق', level: 1, parent_id: null },
-  { id: 2, name: 'المزة', level: 2, parent_id: 1 },
-  { id: 3, name: 'الشيخ سعد', level: 3, parent_id: 2 },
-  { id: 4, name: 'منطقة الفلل', level: 4, parent_id: 3 },
-  { id: 9, name: 'حلب', level: 1, parent_id: null }, // unrelated governorate
+  { id: 1, name: 'دمشق', level: 1, parent_id: null, status: 'active' },
+  { id: 2, name: 'المزة', level: 2, parent_id: 1, status: 'active' },
+  { id: 3, name: 'الشيخ سعد', level: 3, parent_id: 2, status: 'active' },
+  { id: 4, name: 'منطقة الفلل', level: 4, parent_id: 3, status: 'active' },
+  { id: 9, name: 'حلب', level: 1, parent_id: null, status: 'active' }, // unrelated governorate
+  { id: 10, name: 'محافظة معطلة', level: 1, parent_id: null, status: 'inactive' },
 ];
 
 function mockDb(rows = TREE) {
@@ -87,5 +88,12 @@ test('broken parent chain (city not under the given governorate) → 400', async
   await assert.rejects(
     () => resolveAndValidateAddress({ governorate: 9, cityOrArea: 2 }, mockDb()),
     (e: any) => e.status === 400,
+  );
+});
+
+test('inactive unit → 400', async () => {
+  await assert.rejects(
+    () => resolveAndValidateAddress({ governorate: 10 }, mockDb()),
+    (e: any) => e.status === 400 && /غير مفعّلة/.test(e.message),
   );
 });

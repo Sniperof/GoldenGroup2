@@ -48,7 +48,9 @@ export interface CreateServiceRequestInput {
   referrerClientId?: number | null;
   referrerExternal?: Record<string, unknown> | null;
   submissionType?: 'apply' | 'refer_a_candidate';
-  submitterTier?: 'visitor' | 'customer' | 'lead' | 'fop' | 'op' | 'staff';
+  // `unverified` mirrors migration 404: a submitter who proved nothing, kept
+  // distinct from `visitor` so an OTP-proven row stays distinguishable.
+  submitterTier?: 'visitor' | 'unverified' | 'customer' | 'lead' | 'fop' | 'op' | 'staff';
 
   // Device
   contractId?: number | null;

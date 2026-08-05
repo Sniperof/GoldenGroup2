@@ -19,6 +19,10 @@ import {
   ShieldAlert,
   XCircle,
   Loader2,
+  MapPin,
+  MessageCircle,
+  Phone,
+  UserRound,
 } from 'lucide-react';
 import { api } from '../../lib/api';
 import Button from '../../components/ui/Button';
@@ -50,9 +54,9 @@ const ACTIVE = ['received', 'in_review', 'awaiting_customer_info'];
 function Field({ label, value }: { label: string; value: any }) {
   const empty = value == null || value === '';
   return (
-    <div className="rounded-lg bg-slate-50/70 px-3 py-2">
-      <div className="text-[11px] text-slate-500">{label}</div>
-      <div className={`text-sm ${empty ? 'text-slate-400' : 'text-slate-800'}`}>{empty ? '—' : value}</div>
+    <div className="rounded-xl border border-slate-100 bg-slate-50/70 px-3.5 py-3">
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{label}</div>
+      <div className={`mt-1 text-sm font-semibold ${empty ? 'text-slate-300' : 'text-slate-800'}`}>{empty ? 'غير متوفر' : value}</div>
     </div>
   );
 }
@@ -131,16 +135,28 @@ export default function AccountRequestDetailPage() {
     () => ({
       requesterExternal: {
         firstName: p.first_name,
+        fatherName: p.father_name,
         lastName: p.last_name,
         primary_phone: p.primary_mobile,
+        primaryPhoneHasWhatsapp: p.primary_mobile_has_whatsapp,
         secondary_phone: p.secondary_mobile,
+        secondaryPhoneHasWhatsapp: p.secondary_mobile_has_whatsapp,
       },
       // Passed through as stored. Both mobile intake paths now write the same
       // `service_address` shape (canonical snake_case + camelCase aliases +
       // labels), so this page no longer translates one vocabulary into another.
       serviceAddress: sa,
     }),
-    [p.first_name, p.last_name, p.primary_mobile, p.secondary_mobile, sa],
+    [
+      p.first_name,
+      p.father_name,
+      p.last_name,
+      p.primary_mobile,
+      p.primary_mobile_has_whatsapp,
+      p.secondary_mobile,
+      p.secondary_mobile_has_whatsapp,
+      sa,
+    ],
   );
 
   if (loading) {
@@ -290,28 +306,74 @@ export default function AccountRequestDetailPage() {
         </>
       }
       submittedData={
-        <>
-          <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-4">
+          <section className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+            <h2 className="mb-3 flex items-center gap-2 text-base font-bold text-slate-800">
+              <UserRound className="h-5 w-5 text-sky-600" />
+              بيانات الهوية
+            </h2>
+            <div className="grid gap-3 md:grid-cols-3">
             <Field label="الاسم الأول" value={p.first_name} />
+            <Field label="اسم الأب" value={p.father_name} />
             <Field label="الكنية" value={p.last_name} />
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+            <h2 className="mb-3 flex items-center gap-2 text-base font-bold text-slate-800">
+              <Phone className="h-5 w-5 text-sky-600" />
+              معلومات التواصل
+            </h2>
+            <div className="grid gap-3 md:grid-cols-2">
             <Field
               label="رقم الموبايل الرئيسي"
-              value={p.primary_mobile ? <span dir="ltr" className="font-mono">{p.primary_mobile}</span> : null}
+              value={p.primary_mobile ? (
+                <span dir="ltr" className="font-mono">
+                  {p.primary_mobile}
+                  {p.primary_mobile_has_whatsapp === true
+                    ? ' · WhatsApp'
+                    : p.primary_mobile_has_whatsapp === false ? ' · بدون WhatsApp' : ''}
+                </span>
+              ) : null}
             />
             <Field
               label="رقم ثانوي"
-              value={p.secondary_mobile ? <span dir="ltr" className="font-mono">{p.secondary_mobile}</span> : null}
+              value={p.secondary_mobile ? (
+                <span dir="ltr" className="font-mono">
+                  {p.secondary_mobile}
+                  {p.secondary_mobile_has_whatsapp === true
+                    ? ' · WhatsApp'
+                    : p.secondary_mobile_has_whatsapp === false ? ' · بدون WhatsApp' : ''}
+                </span>
+              ) : null}
             />
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+            <h2 className="mb-3 flex items-center gap-2 text-base font-bold text-slate-800">
+              <MapPin className="h-5 w-5 text-sky-600" />
+              عنوان الخدمة
+            </h2>
+            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
             <Field label="المحافظة" value={labels.governorate ?? sa.governorate} />
             <Field label="المنطقة" value={labels.city_or_area ?? sa.city_or_area} />
             <Field label="الناحية" value={labels.sub_area ?? sa.sub_area} />
             <Field label="الحي" value={labels.neighborhood ?? sa.neighborhood} />
-          </div>
-          <div className="mt-2 grid grid-cols-1 gap-2">
+            </div>
+            <div className="mt-3">
             <Field label="العنوان التفصيلي" value={sa.detailed_address ?? p.detailed_address} />
-            <Field label="ملاحظات المُرسِل" value={p.notes} />
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+            <h2 className="mb-3 flex items-center gap-2 text-base font-bold text-slate-800">
+              <MessageCircle className="h-5 w-5 text-sky-600" />
+              ملاحظات مقدم الطلب
+            </h2>
+            <Field label="الملاحظة المرسلة مع الطلب" value={p.notes} />
+          </section>
           </div>
-        </>
       }
       linkage={
         r.status === 'received' ? (

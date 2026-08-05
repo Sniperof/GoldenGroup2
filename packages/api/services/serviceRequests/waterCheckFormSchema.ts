@@ -22,17 +22,22 @@
  * registry row in the DB must equal it or the gateway refuses the type with
  * `request_type_configuration_mismatch` (fail-closed by design).
  *
- * v2 (2026-08-02) added the referrer's name to `for_another`. It is a REQUIRED
- * field for visitors, so it is a breaking form change and earns a version bump
- * rather than a silent widening — a v1 client is told it is out of date instead
- * of quietly submitting anonymous referrals.
+ * v3 is the first unreleased contract that separates the three parties:
+ * requester, beneficiary, and optional referrer/mediator. `submissionMode`
+ * says who benefits; `referrerMode` independently says whether a mediator
+ * exists. Because v3 has not reached an app or approved environment, its
+ * contract is corrected in place rather than creating a misleading v4.
  */
-export const WATER_CHECK_FORM_VERSION = 'water_check.mobile.v2';
+export const WATER_CHECK_FORM_VERSION = 'water_check.mobile.v3';
 
-/** Envelope keys the gateway itself consumes — never part of the form. */
+/**
+ * Envelope keys the gateway itself consumes — never part of the form.
+ * `handle` stays declared through the OTP migration window (D-WC10): app
+ * builds that still verify keep working instead of failing on an unknown key.
+ */
 export const WATER_CHECK_ENVELOPE_KEYS = ['requestType', 'formVersion', 'handle'] as const;
 
-type FieldKind = 'string' | 'phone' | 'boolean' | 'geoId' | 'location' | 'mode';
+type FieldKind = 'string' | 'phone' | 'boolean' | 'geoId' | 'location' | 'mode' | 'referrerMode';
 
 interface FieldSpec {
   kind: FieldKind;
@@ -45,18 +50,30 @@ interface FieldSpec {
  */
 export const WATER_CHECK_FIELDS: Record<string, FieldSpec> = {
   submissionMode: { kind: 'mode' },
+  referrerMode: { kind: 'referrerMode' },
 
   // ── The beneficiary: who the water check is for ──
   firstName: { kind: 'string', maxLength: 60 },
   fatherName: { kind: 'string', maxLength: 60 },
   lastName: { kind: 'string', maxLength: 60 },
 
-  // ── The referrer: who is sending on the beneficiary's behalf (v2) ──
-  // Only meaningful in `for_another`, and only submitted by a visitor: a
-  // logged-in customer's own name is derived from their record, never typed.
+  // ── The requester: required separately for an external for_another ──
+  requesterFirstName: { kind: 'string', maxLength: 60 },
+  requesterFatherName: { kind: 'string', maxLength: 60 },
+  requesterLastName: { kind: 'string', maxLength: 60 },
+  requesterPhone: { kind: 'phone', maxLength: 20 },
+  requesterPhoneHasWhatsapp: { kind: 'boolean' },
+  requesterSecondaryPhone: { kind: 'phone', maxLength: 20 },
+  requesterSecondaryPhoneHasWhatsapp: { kind: 'boolean' },
+
+  // ── Optional separate mediator (`referrerMode=separate_person`) ──
   referrerFirstName: { kind: 'string', maxLength: 60 },
   referrerFatherName: { kind: 'string', maxLength: 60 },
   referrerLastName: { kind: 'string', maxLength: 60 },
+  referrerPhone: { kind: 'phone', maxLength: 20 },
+  referrerPhoneHasWhatsapp: { kind: 'boolean' },
+  referrerSecondaryPhone: { kind: 'phone', maxLength: 20 },
+  referrerSecondaryPhoneHasWhatsapp: { kind: 'boolean' },
 
   phoneNumber: { kind: 'phone', maxLength: 20 },
   primaryPhone: { kind: 'phone', maxLength: 20 },
@@ -116,6 +133,13 @@ function checkValue(field: string, spec: FieldSpec, value: unknown): FormValidat
     case 'mode': {
       if (typeof value !== 'string') return { field, rule: 'wrong_type' };
       if (value !== 'for_self' && value !== 'for_another') {
+        return { field, rule: 'out_of_range' };
+      }
+      return null;
+    }
+    case 'referrerMode': {
+      if (typeof value !== 'string') return { field, rule: 'wrong_type' };
+      if (value !== 'none' && value !== 'requester' && value !== 'separate_person') {
         return { field, rule: 'out_of_range' };
       }
       return null;

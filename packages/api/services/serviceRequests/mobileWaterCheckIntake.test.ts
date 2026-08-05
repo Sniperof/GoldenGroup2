@@ -3,133 +3,159 @@ import test from 'node:test';
 import {
   IDENTITY_BODY_KEYS,
   REFERRER_BODY_KEYS,
+  REQUESTER_BODY_KEYS,
+  buildSubmittedPerson,
   resolveMobileRequesterParties,
   sanitizeMobileSubmittedPayload,
+  type PersonSnapshot,
+  withSecondaryContactOverride,
 } from './mobileWaterCheckIntake.js';
 
 const beneficiary = { name: 'Beneficiary', primary_phone: '0999999999' };
 const account = { appAccountId: 7, clientId: 42, phone: '0911111111' };
+const requester: PersonSnapshot = {
+  firstName: 'سالم', fatherName: 'أحمد', lastName: 'الحلبي', name: 'سالم أحمد الحلبي',
+  primaryPhone: '0911111111', primaryPhoneHasWhatsapp: true,
+  secondaryPhone: '0922222222', secondaryPhoneHasWhatsapp: false,
+  source: 'client_record',
+};
+const separateReferrer: PersonSnapshot = {
+  firstName: 'ليلى', fatherName: null, lastName: 'الخطيب', name: 'ليلى الخطيب',
+  primaryPhone: '0933333333', primaryPhoneHasWhatsapp: false,
+  secondaryPhone: null, secondaryPhoneHasWhatsapp: false,
+  source: 'submitted',
+};
 
-test('registered customer for self is linked as requester and beneficiary', () => {
+test('registered self links requester and beneficiary and never creates a mediator', () => {
   const result = resolveMobileRequesterParties({
-    submissionMode: 'for_self',
-    appAccount: account,
-    beneficiaryExternal: beneficiary,
+    submissionMode: 'for_self', referrerMode: 'none', appAccount: account,
+    requesterPerson: requester, beneficiaryExternal: beneficiary,
   });
-  assert.equal(result.requesterAppAccountId, 7);
   assert.equal(result.requesterClientId, 42);
   assert.equal(result.beneficiaryClientId, 42);
   assert.equal(result.referrerClientId, null);
-  assert.equal(result.requesterExternal.primary_phone, account.phone);
+  assert.equal(result.referrerExternal, null);
+  assert.equal((result.requesterExternal as Record<string, unknown>).primary_phone, requester.primaryPhone);
 });
 
-test('registered customer for another is the linked referrer, not the beneficiary', () => {
+test('registered for another supports no mediator', () => {
   const result = resolveMobileRequesterParties({
-    submissionMode: 'for_another',
-    appAccount: account,
-    beneficiaryExternal: beneficiary,
+    submissionMode: 'for_another', referrerMode: 'none', appAccount: account,
+    requesterPerson: requester, beneficiaryExternal: beneficiary,
   });
+  assert.equal(result.requesterClientId, 42);
   assert.equal(result.beneficiaryClientId, null);
-  assert.equal(result.referrerClientId, 42);
-  assert.equal(result.referrerExternal?.primary_phone, account.phone);
-});
-
-test('OTP visitor identity stays external and verified', () => {
-  const result = resolveMobileRequesterParties({
-    submissionMode: 'for_another',
-    verifiedVisitorPhone: '0922222222',
-    beneficiaryExternal: beneficiary,
-  });
-  assert.equal(result.requesterAppAccountId, null);
-  assert.equal(result.requesterClientId, null);
   assert.equal(result.referrerClientId, null);
-  assert.equal(result.requesterExternal.identity_verification, 'otp');
-  assert.equal(result.requesterExternal.primary_phone, '0922222222');
+  assert.equal(result.referrerExternal, null);
 });
 
-const referrerName = {
-  firstName: 'سالم', fatherName: 'أحمد', lastName: 'الحلبي',
-  name: 'سالم أحمد الحلبي', source: 'submitted' as const,
-};
-
-test('the referrer carries a name, not just a verified phone', () => {
+test('registered for another can make the immutable requester the mediator', () => {
   const result = resolveMobileRequesterParties({
-    submissionMode: 'for_another',
-    verifiedVisitorPhone: '0922222222',
-    beneficiaryExternal: beneficiary,
-    referrerName,
+    submissionMode: 'for_another', referrerMode: 'requester', appAccount: account,
+    requesterPerson: requester, beneficiaryExternal: beneficiary, referrerPerson: requester,
   });
-  assert.equal(result.referrerExternal?.name, 'سالم أحمد الحلبي');
-  assert.equal(result.referrerExternal?.firstName, 'سالم');
-  assert.equal(result.referrerExternal?.name_source, 'submitted');
-  // The verified phone still identifies them; the name is additional.
-  assert.equal(result.referrerExternal?.primary_phone, '0922222222');
+  assert.equal(result.requesterClientId, 42);
+  assert.equal(result.referrerClientId, 42);
+  assert.equal(result.referrerExternal?.same_as_requester, true);
+  assert.equal(result.referrerExternal?.primary_phone, requester.primaryPhone);
 });
 
-test('the referrer party declares its own role, not the requester role', () => {
-  const result = resolveMobileRequesterParties({
-    submissionMode: 'for_another',
-    appAccount: account,
-    beneficiaryExternal: beneficiary,
-    referrerName: { ...referrerName, source: 'client_record' },
+test('registered customer cannot introduce a separate mediator', () => {
+  assert.throws(() => resolveMobileRequesterParties({
+    submissionMode: 'for_another', referrerMode: 'separate_person', appAccount: account,
+    requesterPerson: requester, beneficiaryExternal: beneficiary, referrerPerson: separateReferrer,
+  }), /registered_requester_separate_referrer_forbidden/);
+});
+
+for (const identity of [
+  { verifiedVisitorPhone: requester.primaryPhone },
+  { unverifiedDevice: { deviceId: 'device-1', ip: '127.0.0.1' } },
+]) {
+  const tier = 'verifiedVisitorPhone' in identity ? 'OTP visitor' : 'unverified device';
+  test(`${tier} for another supports none, requester, and separate mediator`, () => {
+    for (const mode of ['none', 'requester', 'separate_person'] as const) {
+      const result = resolveMobileRequesterParties({
+        submissionMode: 'for_another', referrerMode: mode, ...identity,
+        requesterPerson: { ...requester, source: 'submitted' },
+        beneficiaryExternal: beneficiary,
+        referrerPerson: mode === 'separate_person'
+          ? separateReferrer
+          : mode === 'requester' ? { ...requester, source: 'submitted' } : null,
+      });
+      assert.equal(result.requesterClientId, null);
+      assert.equal(result.beneficiaryClientId, null);
+      assert.equal(result.referrerExternal == null, mode === 'none');
+      if (mode !== 'none') {
+        assert.equal(result.referrerExternal?.same_as_requester, mode === 'requester');
+      }
+    }
   });
-  assert.equal(result.referrerExternal?.partyRole, 'referrer');
-  assert.equal(result.requesterExternal.partyRole, 'requester');
-  assert.equal(result.referrerExternal?.name_source, 'client_record');
+}
+
+test('for self rejects every mediator mode other than none', () => {
+  assert.throws(() => resolveMobileRequesterParties({
+    submissionMode: 'for_self', referrerMode: 'requester', appAccount: account,
+    requesterPerson: requester, beneficiaryExternal: beneficiary, referrerPerson: requester,
+  }), /for_self_referrer_forbidden/);
 });
 
-test('for_self never grows a referrer, with or without a name supplied', () => {
-  for (const appAccount of [account, undefined]) {
-    const result = resolveMobileRequesterParties({
-      submissionMode: 'for_self',
-      appAccount,
-      verifiedVisitorPhone: appAccount ? undefined : '0922222222',
-      beneficiaryExternal: beneficiary,
-      referrerName,
-    });
-    assert.equal(result.referrerExternal, null);
-    assert.equal(result.referrerClientId, null);
-  }
+test('submitted requester requires WhatsApp facts and binds OTP to primary phone', () => {
+  const body = {
+    requesterFirstName: 'سالم', requesterLastName: 'الحلبي', requesterPhone: '0911111111',
+    requesterPhoneHasWhatsapp: true,
+  };
+  assert.equal(buildSubmittedPerson({ body, role: 'requester', verifiedPrimaryPhone: '0911111111' }).primaryPhone, '0911111111');
+  assert.throws(
+    () => buildSubmittedPerson({ body, role: 'requester', verifiedPrimaryPhone: '0922222222' }),
+    (error: any) => error?.message === 'verified_phone_does_not_match_requester',
+  );
+  const { requesterPhoneHasWhatsapp: _omitted, ...withoutWhatsapp } = body;
+  assert.throws(
+    () => buildSubmittedPerson({ body: withoutWhatsapp, role: 'requester' }),
+    (error: any) => error?.message === 'missing_person_fields',
+  );
 });
 
-test('an absent referrer name leaves the snapshot without name keys', () => {
-  const result = resolveMobileRequesterParties({
-    submissionMode: 'for_another',
-    verifiedVisitorPhone: '0922222222',
-    beneficiaryExternal: beneficiary,
-    referrerName: null,
+test('registered person keeps immutable identity but may override or clear secondary contact', () => {
+  const changed = withSecondaryContactOverride({
+    person: requester,
+    body: { requesterSecondaryPhone: '0944444444', requesterSecondaryPhoneHasWhatsapp: true },
+    phoneField: 'requesterSecondaryPhone', whatsappField: 'requesterSecondaryPhoneHasWhatsapp',
   });
-  assert.equal(result.referrerExternal?.name, undefined);
-  assert.equal(result.referrerExternal?.primary_phone, '0922222222');
+  assert.equal(changed.name, requester.name);
+  assert.equal(changed.primaryPhone, requester.primaryPhone);
+  assert.equal(changed.secondaryPhone, '0944444444');
+  assert.equal(changed.secondaryPhoneHasWhatsapp, true);
+
+  const cleared = withSecondaryContactOverride({
+    person: requester,
+    body: { secondaryPhone: '', secondaryPhoneHasWhatsapp: false },
+    phoneField: 'secondaryPhone', whatsappField: 'secondaryPhoneHasWhatsapp',
+  });
+  assert.equal(cleared.secondaryPhone, null);
+  assert.equal(cleared.secondaryPhoneHasWhatsapp, false);
 });
 
-test('referrer name keys are refusable and distinct from beneficiary keys', () => {
-  for (const key of ['referrerFirstName', 'referrerFatherName', 'referrerLastName']) {
-    assert.ok(REFERRER_BODY_KEYS.includes(key as any), `${key} must be listed`);
-    assert.ok(!IDENTITY_BODY_KEYS.includes(key as any), `${key} must not be a beneficiary key`);
+test('identity key groups remain separate and registered immutable fields are explicit', () => {
+  for (const key of ['requesterFirstName', 'requesterPhone', 'requesterSecondaryPhone']) {
+    assert.ok(REQUESTER_BODY_KEYS.includes(key as any));
+    assert.ok(!IDENTITY_BODY_KEYS.includes(key as any));
   }
-});
-
-test('every field that asserts identity is on the refusal list', () => {
-  // The guard is only as good as this list: a name or phone alias missing from
-  // it would be accepted from the body and silently override the record.
-  for (const key of [
-    'firstName', 'fatherName', 'lastName',
-    'phoneNumber', 'primaryPhone', 'phone',
-    'secondaryPhone', 'secondary_phone',
-    'primaryPhoneHasWhatsapp', 'secondaryPhoneHasWhatsapp',
-  ]) {
-    assert.ok(IDENTITY_BODY_KEYS.includes(key as any), `${key} must be refused when identity is derived`);
+  for (const key of ['referrerFirstName', 'referrerPhone', 'referrerSecondaryPhone']) {
+    assert.ok(REFERRER_BODY_KEYS.includes(key as any));
+    assert.ok(!IDENTITY_BODY_KEYS.includes(key as any));
   }
-  // Address and free-text fields stay the caller's to supply.
-  for (const key of ['governorateId', 'detailedAddress', 'mapLocation', 'notes', 'submissionMode']) {
-    assert.ok(!IDENTITY_BODY_KEYS.includes(key as any), `${key} must remain submittable`);
+  for (const key of ['firstName', 'fatherName', 'lastName', 'phoneNumber', 'primaryPhone', 'phone', 'primaryPhoneHasWhatsapp']) {
+    assert.ok(IDENTITY_BODY_KEYS.includes(key as any), `${key} must be immutable for registered self`);
+  }
+  for (const key of ['secondaryPhone', 'secondaryPhoneHasWhatsapp', 'governorateId', 'detailedAddress']) {
+    assert.ok(!IDENTITY_BODY_KEYS.includes(key as any), `${key} remains request-editable`);
   }
 });
 
 test('OTP handle is never copied to the immutable submitted payload', () => {
   assert.deepEqual(
-    sanitizeMobileSubmittedPayload({ requestType: 'water_check', handle: 'secret-handle', notes: 'x' }),
+    sanitizeMobileSubmittedPayload({ requestType: 'water_check', handle: 'secret', notes: 'x' }),
     { requestType: 'water_check', notes: 'x' },
   );
 });

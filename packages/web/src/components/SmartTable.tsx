@@ -59,6 +59,10 @@ export interface SmartTableProps<T> {
     /** Hide the in-card title/toolbar header (when the page already has a title
      * block + tabs above). The toolbar (reset · export) moves into the filter bar. */
     hideHeader?: boolean;
+    /** Remove the outer card treatment when hosted inside a larger surface. */
+    embedded?: boolean;
+    /** Keep placeholder rows so short pages retain a fixed height. */
+    fillEmptyRows?: boolean;
     tableMinWidth?: number;
     defaultSortKey?: string;
     defaultSortDir?: 'asc' | 'desc';
@@ -135,6 +139,8 @@ export default function SmartTable<T>({
     rowClassName,
     hideFilterBar = false,
     hideHeader = false,
+    embedded = false,
+    fillEmptyRows = true,
     tableMinWidth = 860,
     defaultSortKey,
     defaultSortDir,
@@ -220,7 +226,7 @@ export default function SmartTable<T>({
     }, [sorted, currentPage, itemsPerPage, paginated, isServer]);
 
     // number of empty filler rows to keep the table height fixed (paginated only)
-    const fillerRows = paginated && paginatedData.length > 0
+    const fillerRows = fillEmptyRows && paginated && paginatedData.length > 0
         ? Math.max(0, footerPerPage - paginatedData.length)
         : 0;
 
@@ -395,7 +401,9 @@ export default function SmartTable<T>({
     /*  Render                                                           */
     /* ---------------------------------------------------------------- */
     return (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className={embedded
+            ? 'bg-white overflow-hidden'
+            : 'bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden'}>
 
             {/* ── HEADER (unified section label inside the card) ── */}
             {!hideHeader && (

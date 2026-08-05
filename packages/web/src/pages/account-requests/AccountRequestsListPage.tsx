@@ -11,6 +11,7 @@ export default function AccountRequestsListPage() {
   return (
     <RequestsListView
       title="طلبات إنشاء الحساب"
+      subtitle="مراجعة طلبات التسجيل وربطها بسجلات الزبائن ثم اعتماد تفعيل الحساب"
       icon={UserPlus}
       permissionFamily="account_requests"
       requestTypeForLabels="account_creation"

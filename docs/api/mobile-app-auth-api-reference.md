@@ -180,9 +180,12 @@
 | الحقل | النوع | إلزامي | الوصف / القيود |
 |---|---|:--:|---|
 | `firstName` | `string` | ✅ | الاسم الأول (غير فارغ). |
+| `fatherName` | `string` | ✅ | اسم الأب (غير فارغ). |
 | `lastName` | `string` | ✅ | الكنية (غير فارغة). |
 | `primaryMobile` | `string` | ✅ | رقم الموبايل الرئيسي. **يجب أن يطابق** رقم الـ `handle` المُتحقَّق. |
-| `secondaryMobile` | `string \| null` | ❌ | رقم ثانوي (يُطبَّع إن وُجد). |
+| `primaryMobileHasWhatsapp` | `boolean` | ✅ | هل الرقم الرئيسي متاح عليه واتساب. يقبل Boolean حقيقياً فقط. |
+| `secondaryMobile` | `string \| null` | ❌ | رقم ثانوي (يُطبَّع ويُتحقّق منه إن وُجد، ويجب أن يختلف عن الرئيسي). |
+| `secondaryMobileHasWhatsapp` | `boolean` | شرطي | إلزامي عند وجود `secondaryMobile`؛ ولا يجوز أن يكون `true` من دون رقم ثانوي. |
 | `governorate` | `integer` | ✅ | معرّف وحدة جغرافية من **المستوى 1** (`geo_units.id`). يُنتقى عبر `GET /api/public/areas` (القسم 3.2.1). النص الحر مرفوض (`400`). |
 | `cityOrArea` | `integer \| null` | ❌ | معرّف **مستوى 2**؛ إن وُجد فأبوه هو `governorate`. |
 | `subArea` | `integer \| null` | ❌ | معرّف **مستوى 3**؛ إن وُجد فـ `cityOrArea` إلزامي وأبوه هو `cityOrArea`. |
@@ -199,8 +202,9 @@
 | `requestId` | `integer` | معرّف الطلب الداخلي. |
 | `publicRefNumber` | `string` | مرجع عام بصيغة `SR-YYYYMMDD-NNNN`. |
 | `submittedAt` | `timestamp` | تاريخ الإرسال. |
-| `firstName`, `lastName` | `string \| null` | الاسم كما خُزِّن (مشذّباً). |
+| `firstName`, `fatherName`, `lastName` | `string \| null` | الاسم كما خُزِّن (مشذّباً). |
 | `primaryMobile`, `secondaryMobile` | `string \| null` | الأرقام **مطبَّعة** (`09XXXXXXXX`). |
+| `primaryMobileHasWhatsapp`, `secondaryMobileHasWhatsapp` | `boolean \| null` | حالة واتساب لكل رقم كما خُزّنت في الطلب؛ `null` فقط للسجلات التاريخية التي سبقت هذه الحقول. |
 | `address` | `object` | `{ governorate, cityOrArea, subArea, neighborhood, detailedAddress }` — **أسماءً** لا معرّفات. |
 | `notes` | `string \| null` | الملاحظات. |
 | `location` | `object \| null` | `{ lat, lng }` إن أُرسلت. |
@@ -228,7 +232,7 @@
 | البارامتر | النوع | إلزامي | الوصف / القيود |
 |---|---|:--:|---|
 | `parent_id` | `integer` | ❌ | معرّف الوحدة الأب. حذفه يعيد محافظات المستوى 1. |
-| `activeOnly` | `boolean` | ❌ | `true` أو `1` يقصر النتائج على الوحدات المفعّلة (مُوصى به لقائمة الزبون). |
+| `activeOnly` | `boolean` | ❌ | بارامتر توافق قديم؛ النتائج العامة أصبحت دائماً محصورة بالوحدات المفعّلة. |
 
 **استجابة `200`:** مصفوفة عناصر —
 
@@ -239,7 +243,9 @@
 | `type` | `enum` | `governorate` / `city` / `sub_area` / `neighborhood`. |
 | `parentId` | `integer \| null` | معرّف الأب. |
 
-**تدفّق الاختيار المتتالي:** `GET /api/public/areas?activeOnly=true` (المحافظة) ← `?parent_id={gov}` (المنطقة) ← `?parent_id={city}` (الناحية) ← `?parent_id={sub}` (الحي). يُرسَل معرّف كل مستوى مُختار في `form`.
+**تدفّق الاختيار المتتالي:** `GET /api/public/areas` (المحافظة) ← `?parent_id={gov}` (المنطقة) ← `?parent_id={city}` (الناحية) ← `?parent_id={sub}` (الحي). يُرسَل معرّف كل مستوى مُختار في `form`.
+
+**البحث الذكي:** `GET /api/public/areas/search?q={query}&limit=15`، حيث `q` بين حرفين و80 حرفاً و`limit` بين 1 و20. تعيد الاستجابة `{ items }`؛ كل عنصر يحوي `id`, `name`, `level`, `type`, `parentId` ومصفوفة `path` المرتبة من المحافظة إلى النتيجة. لا تُعاد نتيجة إذا كانت وحدتها أو أي أب في مسارها معطّلاً، ويستطيع التطبيق تحويل `path` مباشرةً إلى اختيار المستويات الأربعة.
 
 ---
 
@@ -267,9 +273,11 @@
 | `requestId` | `integer` | معرّف الطلب. |
 | `publicRefNumber` | `string` | مرجع عام `SR-YYYYMMDD-NNNN`. |
 | `submittedAt` | `timestamp` | تاريخ الإرسال. |
-| `firstName`, `lastName` | `string \| null` | الاسم كما أُرسل. |
+| `firstName`, `fatherName`, `lastName` | `string \| null` | الاسم كما أُرسل. |
 | `primaryMobile` | `string` | الرقم الرئيسي (مطبَّع). |
+| `primaryMobileHasWhatsapp` | `boolean \| null` | حالة واتساب للرقم الرئيسي؛ `null` لطلب تاريخي لم يخزّنها. |
 | `secondaryMobile` | `string \| null` | الرقم الثانوي. |
+| `secondaryMobileHasWhatsapp` | `boolean \| null` | حالة واتساب للرقم الثانوي؛ `false` عند عدمه في الطلب الجديد، و`null` لطلب تاريخي لم يخزّنها. |
 | `address` | `object` | `{ governorate, cityOrArea, subArea, neighborhood, detailedAddress }` — **أسماءً** من لقطة الطلب. |
 | `notes` | `string \| null` | الملاحظات. |
 | `location` | `object \| null` | `{ lat, lng }` إن أُرسلت. |
@@ -367,8 +375,12 @@
 | `accountStatus` | `string` | `"active"`. |
 | `memberSince` | `timestamp` | تاريخ إنشاء الحساب. |
 | `firstName` | `string \| null` | الاسم الأول. |
+| `fatherName` | `string \| null` | اسم الأب. |
 | `lastName` | `string \| null` | الكنية. |
 | `primaryMobile` | `string` | رقم الدخول (مطبَّع). |
+| `primaryMobileHasWhatsapp` | `boolean` | حالة واتساب للرقم الرئيسي من `clients.contacts`. |
+| `secondaryMobile` | `string \| null` | أول رقم ثانوي فعّال مختلف عن الرئيسي. |
+| `secondaryMobileHasWhatsapp` | `boolean` | حالة واتساب للرقم الثانوي المُعاد. |
 | `secondaryMobiles` | `string[]` | أرقام إضافية من `contacts` (مطبَّعة، بلا تكرار، وبلا الرقم الرئيسي). |
 | `classification` | `enum(OP, FOP, Lead)` | تصنيف السجل. `OP`/`FOP` حالتا ترقية؛ وكل ما عداهما `Lead` افتراضاً. **لا يكون `null` أبداً.** |
 | `address` | `object` | العنوان بالأسماء — للعرض (أدناه). |

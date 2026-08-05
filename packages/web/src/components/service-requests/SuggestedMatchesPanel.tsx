@@ -99,15 +99,15 @@ function statusBadge(status: ComparisonStatus) {
   return <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${m[status]}`}>{l[status]}</span>;
 }
 
-function getRequestSnapshot(request: any, party: 'beneficiary' | 'referrer' = 'beneficiary') {
-  if (party === 'referrer') {
-    const ext = asRecord(request?.referrerExternal);
+function getRequestSnapshot(request: any, party: 'beneficiary' | 'requester' | 'referrer' = 'beneficiary') {
+  if (party !== 'beneficiary') {
+    const ext = asRecord(party === 'referrer' ? request?.referrerExternal : request?.requesterExternal);
     const compatible = asRecord(ext.clientCompatible);
     return {
       firstName: readText(ext.firstName) || readText(compatible.firstName),
       lastName: readText(ext.lastName) || readText(compatible.lastName),
       primaryMobile: readText(ext.primary_phone) || readText(compatible.mobile),
-      secondaryMobile: '',
+      secondaryMobile: readText(ext.secondary_phone),
       governorateId: numberValue(ext.governorateId ?? compatible.governorate),
       regionId: numberValue(ext.regionId ?? compatible.district),
       subdistrictId: numberValue(ext.subdistrictId),
@@ -187,7 +187,7 @@ function comparisonRows(
     subdistrictId?: number | null;
     neighborhoodId?: number | null;
   }) => Record<number, number>,
-  party: 'beneficiary' | 'referrer' = 'beneficiary',
+  party: 'beneficiary' | 'requester' | 'referrer' = 'beneficiary',
 ) {
   const snap = getRequestSnapshot(request, party);
   const reqGeo = resolveGeoChain(snap);
@@ -265,7 +265,7 @@ export default function SuggestedMatchesPanel({
   request?: any;
   onLink: (m: { source: 'client' | 'candidate'; id: number }) => Promise<void>;
   sources?: 'all' | 'clients';
-  party?: 'beneficiary' | 'referrer';
+  party?: 'beneficiary' | 'requester' | 'referrer';
   canCreateFromRequest?: boolean;
   createBusy?: boolean;
   onCreateFromRequest?: () => Promise<void>;
@@ -348,7 +348,7 @@ export default function SuggestedMatchesPanel({
     setLoading(true);
     const load = fetchSuggestions
       ? fetchSuggestions()
-      : api.serviceRequests.suggestedMatches(serviceRequestId, party === 'referrer' ? 'referrer' : undefined);
+      : api.serviceRequests.suggestedMatches(serviceRequestId, party === 'beneficiary' ? undefined : party);
     load
       .then((res: { clients: any[]; candidates?: any[] }) => {
         if (cancelled) return;

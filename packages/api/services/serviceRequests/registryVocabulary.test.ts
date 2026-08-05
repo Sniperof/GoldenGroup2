@@ -17,7 +17,7 @@ const CHANNELS = [
   'phone', 'internal_button', 'client_detail_button', 'admin_manual',
   'mobile_app', 'website', 'whatsapp',
 ];
-const SUBMITTER_TIERS = ['visitor', 'customer', 'lead', 'fop', 'op', 'staff'];
+const SUBMITTER_TIERS = ['unverified', 'visitor', 'customer', 'lead', 'fop', 'op', 'staff'];
 
 test('registry vocabularies stay inside the declared sets', { skip: !DATABASE_URL }, async () => {
   const { default: pool } = await import('../../db.js');

@@ -119,13 +119,29 @@ export const APP_RATE_READ = parseInt(process.env.APP_RATE_READ || '120');
 export const APP_RATE_READ_WINDOW_S = parseInt(process.env.APP_RATE_READ_WINDOW_S || '60');
 
 // ── Mobile service-request intake caps (identity level, DB-enforced) ────────
-/** Open (received|in_review) water_check requests allowed per beneficiary phone. */
-export const APP_WATER_CHECK_OPEN_PER_PHONE = parseInt(
-  process.env.APP_WATER_CHECK_OPEN_PER_PHONE || '1',
+/**
+ * Open (received|in_review) water_check requests allowed per SUBMITTER.
+ *
+ * Keyed on the submitter, not the beneficiary, since DEC-016 D-WC4: without
+ * OTP, a beneficiary-keyed rule lets a stranger lock a real customer out.
+ * Falls back to the superseded variable so a deployed .env keeps its tuning.
+ */
+export const APP_WATER_CHECK_OPEN_PER_REQUESTER = parseInt(
+  process.env.APP_WATER_CHECK_OPEN_PER_REQUESTER
+    || process.env.APP_WATER_CHECK_OPEN_PER_PHONE
+    || '1',
 );
 /** Rolling-24h water_check submissions allowed per submitting identity. */
 export const APP_WATER_CHECK_DAILY_PER_REQUESTER = parseInt(
   process.env.APP_WATER_CHECK_DAILY_PER_REQUESTER || '5',
+);
+/**
+ * Rolling-24h water_check submissions allowed per IP, for unverified
+ * submitters only. Looser than the per-device cap on purpose: a household or
+ * office shares one address legitimately (DEC-016 D-WC3).
+ */
+export const APP_WATER_CHECK_DAILY_PER_IP = parseInt(
+  process.env.APP_WATER_CHECK_DAILY_PER_IP || '20',
 );
 /** Hard ceiling on the immutable submitted payload (characters of JSON). */
 export const APP_SUBMITTED_PAYLOAD_MAX_CHARS = parseInt(

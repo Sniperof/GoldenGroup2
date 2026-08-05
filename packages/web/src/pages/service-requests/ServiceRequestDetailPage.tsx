@@ -40,12 +40,20 @@ type PeriodicAttachmentCandidate = {
   attachWindowDays: number;
 };
 
+const PRIORITY_LABELS: Record<string, string> = {
+  high: 'عالية',
+  medium: 'متوسطة',
+  low: 'منخفضة',
+  normal: 'عادية',
+  Normal: 'عادية',
+};
+
 function DetailField({ label, value }: { label: string; value: ReactNode }) {
   const empty = value == null || value === '';
   return (
-    <div className="rounded-lg bg-slate-50/70 px-3 py-2">
+    <div className="rounded-xl border border-slate-100 bg-slate-50/70 px-3.5 py-3">
       <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{label}</div>
-      <div className={`mt-0.5 text-sm font-bold ${empty ? 'text-slate-300' : 'text-slate-800'}`}>{empty ? '—' : value}</div>
+      <div className={`mt-1 text-sm font-semibold ${empty ? 'text-slate-300' : 'text-slate-800'}`}>{empty ? 'غير متوفر' : value}</div>
     </div>
   );
 }
@@ -70,7 +78,10 @@ export default function ServiceRequestDetailPage() {
   const [waterCheckClientDraft, setWaterCheckClientDraft] = useState<any | null>(null);
   const [mediatorClientModalOpen, setMediatorClientModalOpen] = useState(false);
   const [mediatorClientDraft, setMediatorClientDraft] = useState<any | null>(null);
+  const [requesterClientModalOpen, setRequesterClientModalOpen] = useState(false);
+  const [requesterClientDraft, setRequesterClientDraft] = useState<any | null>(null);
   const [beneficiarySnapshot, setBeneficiarySnapshot] = useState<any | null>(null);
+  const [requesterSnapshot, setRequesterSnapshot] = useState<any | null>(null);
   const [referrerSnapshot, setReferrerSnapshot] = useState<any | null>(null);
   const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
   const [waterCheckTaskModalOpen, setWaterCheckTaskModalOpen] = useState(false);
@@ -108,6 +119,7 @@ export default function ServiceRequestDetailPage() {
 
   // Level-2 snapshots for linked beneficiary / mediator (shown in the linkage tab).
   const beneficiaryClientId = data?.request?.beneficiaryClientId ?? null;
+  const requesterClientId = data?.request?.requesterClientId ?? null;
   const referrerClientId = data?.request?.referrerClientId ?? null;
 
   useEffect(() => {
@@ -118,6 +130,15 @@ export default function ServiceRequestDetailPage() {
       .catch(() => { if (active) setBeneficiarySnapshot(null); });
     return () => { active = false; };
   }, [beneficiaryClientId]);
+
+  useEffect(() => {
+    if (!requesterClientId) { setRequesterSnapshot(null); return; }
+    let active = true;
+    api.clients.snapshot(Number(requesterClientId))
+      .then((r) => { if (active) setRequesterSnapshot(r.snapshot); })
+      .catch(() => { if (active) setRequesterSnapshot(null); });
+    return () => { active = false; };
+  }, [requesterClientId]);
 
   useEffect(() => {
     if (!referrerClientId) { setReferrerSnapshot(null); return; }
@@ -144,7 +165,7 @@ export default function ServiceRequestDetailPage() {
   }, [waterCheckTaskModalOpen, deviceDemoReasons.length]);
 
   useEffect(() => {
-    if ((!waterCheckClientModalOpen && !mediatorClientModalOpen) || geoUnits.length > 0) return;
+    if ((!waterCheckClientModalOpen && !mediatorClientModalOpen && !requesterClientModalOpen) || geoUnits.length > 0) return;
     let active = true;
     api.geoUnits.names()
       .then((rows) => {
@@ -156,7 +177,7 @@ export default function ServiceRequestDetailPage() {
     return () => {
       active = false;
     };
-  }, [waterCheckClientModalOpen, mediatorClientModalOpen, geoUnits.length]);
+  }, [waterCheckClientModalOpen, mediatorClientModalOpen, requesterClientModalOpen, geoUnits.length]);
 
   if (loading || !data) {
     return (
@@ -196,6 +217,13 @@ export default function ServiceRequestDetailPage() {
     && !req.beneficiaryCandidateId
     && hasPermission('candidates.create');
   const hasMediator = !!req.referrerExternal;
+  const hasIndependentRequester = isWaterCheck && req.submissionType === 'refer_a_candidate';
+  const canCreateRequesterClient =
+    hasIndependentRequester
+    && canLink
+    && !req.requesterClientId
+    && !!req.branchId
+    && hasPermission('clients.create');
   const canCreateMediatorClient =
     isWaterCheck
     && canLink
@@ -430,6 +458,62 @@ export default function ServiceRequestDetailPage() {
     }
   }
 
+  function getPartyClientPayload(party: any, roleLabel: string) {
+    const firstName = String(party?.firstName || '').trim();
+    const fatherName = String(party?.fatherName || '').trim();
+    const lastName = String(party?.lastName || '').trim();
+    const primaryPhone = String(party?.primary_phone || '').trim();
+    const secondaryPhone = String(party?.secondary_phone || '').trim();
+    const contacts = [
+      primaryPhone ? {
+        id: `${roleLabel}-primary`, type: 'mobile', number: primaryPhone,
+        hasWhatsApp: Boolean(party?.primaryPhoneHasWhatsapp), isPrimary: true, status: 'active',
+      } : null,
+      secondaryPhone ? {
+        id: `${roleLabel}-secondary`, type: 'mobile', number: secondaryPhone,
+        hasWhatsApp: Boolean(party?.secondaryPhoneHasWhatsapp), isPrimary: false, status: 'active',
+      } : null,
+    ].filter(Boolean);
+    return {
+      firstName, fatherName, lastName,
+      name: [firstName, fatherName, lastName].filter(Boolean).join(' '),
+      mobile: primaryPhone,
+      primaryPhoneHasWhatsapp: Boolean(party?.primaryPhoneHasWhatsapp),
+      contacts,
+      branchId: req.branchId,
+      referrerType: 'Unknown',
+      sourceChannel: 'App',
+      referralReason: `${roleLabel} طلب فحص المياه ${req.publicRefNumber ?? requestId}`,
+      notes: `تم إنشاء هذا السجل من ${roleLabel} طلب فحص المياه ${req.publicRefNumber ?? requestId}.`,
+      isCandidate: false,
+    };
+  }
+
+  async function createRequesterClientFromRequest() {
+    setRequesterClientDraft(getPartyClientPayload(req.requesterExternal ?? {}, 'مقدم'));
+    setRequesterClientModalOpen(true);
+  }
+
+  async function submitRequesterClientFromRequest(clientData: Client) {
+    const payload = { ...clientData, branchId: clientData.branchId ?? req.branchId, isCandidate: false };
+    if (!payload.firstName || !payload.lastName || !payload.mobile || !payload.branchId) {
+      showToast('الاسم الأول والكنية والهاتف الأساسي والفرع مطلوبة لإنشاء مقدم الطلب.', 'error');
+      return;
+    }
+    setBusy(true);
+    try {
+      const created = await api.clients.create(payload);
+      await api.serviceRequests.linkRequester(requestId, created.id);
+      setRequesterClientModalOpen(false);
+      showToast('تم إنشاء سجل مقدم الطلب وربطه', 'success');
+      await reload();
+    } catch (e: any) {
+      showToast(e?.message ?? 'تعذر إنشاء سجل مقدم الطلب', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   // ── Mediator (referrer) → its own client record, same mechanism as beneficiary ──
   function getMediatorClientPayload() {
     const m = (req.referrerExternal && typeof req.referrerExternal === 'object') ? req.referrerExternal : {};
@@ -617,6 +701,15 @@ export default function ServiceRequestDetailPage() {
     await reload();
   }
 
+  async function linkRequesterSuggested(match: { source: 'client' | 'candidate'; id: number }) {
+    if (match.source !== 'client') {
+      showToast('مقدم الطلب يُربط بزبون فقط.', 'error');
+      return;
+    }
+    await api.serviceRequests.linkRequester(requestId, match.id);
+    await reload();
+  }
+
   const modalInputClass = 'w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-100 disabled:bg-slate-50';
   const modalLabelClass = 'space-y-1 text-sm font-semibold text-slate-700';
 
@@ -640,7 +733,7 @@ export default function ServiceRequestDetailPage() {
       }}
       infoTiles={[
         { label: 'القناة', value: req.channelLabel ?? req.channel },
-        { label: 'الأولوية', value: req.priority ?? '—' },
+        { label: 'الأولوية', value: PRIORITY_LABELS[req.priority] ?? req.priority ?? '—' },
         { label: 'الفرع', value: req.branchName ?? 'غير محدد' },
         { label: 'المهمة المرتبطة', value: req.linkedOpenTaskId ? `#${req.linkedOpenTaskId}` : '—' },
       ]}
@@ -901,7 +994,9 @@ export default function ServiceRequestDetailPage() {
               <ClipboardCheck className="h-4 w-4 text-slate-400" />
               شكوى الزبون
             </h3>
-            <p className="whitespace-pre-wrap text-sm text-slate-700">{req.problemDescription}</p>
+            <p className={`whitespace-pre-wrap text-sm ${req.problemDescription ? 'text-slate-700' : 'text-slate-400'}`}>
+              {req.problemDescription || 'لم يرفق مقدم الطلب وصفاً للمشكلة.'}
+            </p>
           </div>
 
           <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
@@ -918,7 +1013,10 @@ export default function ServiceRequestDetailPage() {
               />
               <DetailField label="الزبون المربوط" value={req.beneficiaryClientId ? `#${req.beneficiaryClientId}` : ''} />
               <DetailField label="الجهاز المربوط" value={req.installedDeviceId ? `#${req.installedDeviceId}` : ''} />
-              <DetailField label="الأولوية" value={req.priority} />
+              <DetailField
+                label="الأولوية"
+                value={PRIORITY_LABELS[req.priority] ?? req.priority}
+              />
             </div>
           </div>
 
@@ -932,7 +1030,7 @@ export default function ServiceRequestDetailPage() {
                 }}
                 className="text-sm font-semibold text-purple-700 hover:underline"
               >
-                open_task #{req.linkedOpenTaskId} ←
+                فتح المهمة رقم {req.linkedOpenTaskId} ←
               </button>
             </div>
           )}
@@ -956,6 +1054,40 @@ export default function ServiceRequestDetailPage() {
         <div>
           {isWaterCheck && (
         <div className="space-y-3">
+          {hasIndependentRequester && (
+            <div className="rounded-lg border border-sky-200 bg-sky-50/40 p-3">
+              <h3 className="mb-2 flex items-center gap-1.5 text-sm font-bold text-slate-700">
+                <UserCheck className="h-4 w-4 text-sky-600" />
+                ربط مقدم الطلب بسجل زبون (اختياري)
+              </h3>
+              {req.requesterClientId ? (
+                <>
+                  <div className="rounded border border-green-200 bg-green-50 p-2 text-sm text-green-800">
+                    مقدم الطلب مربوط بالزبون: {req.requesterClientName ?? `#${req.requesterClientId}`}
+                  </div>
+                  {requesterSnapshot && (
+                    <div className="mt-3 rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
+                      <ClientSnapshot data={requesterSnapshot} />
+                    </div>
+                  )}
+                </>
+              ) : canReview && canLink ? (
+                <SuggestedMatchesPanel
+                  serviceRequestId={requestId}
+                  request={req}
+                  party="requester"
+                  sources="clients"
+                  onLink={linkRequesterSuggested}
+                  canCreateFromRequest={!!canCreateRequesterClient}
+                  createBusy={busy}
+                  onCreateFromRequest={createRequesterClientFromRequest}
+                />
+              ) : canReview && isActive && !canLink ? (
+                <div className="text-sm text-sky-800">تولَّ الطلب أولاً لربط مقدم الطلب.</div>
+              ) : null}
+            </div>
+          )}
+
           {req.beneficiaryClientId ? (
             <div className="rounded border border-green-200 bg-green-50 p-3 text-sm text-green-800">
               <UserCheck className="ml-1 inline h-4 w-4 text-green-700" />
@@ -1118,6 +1250,16 @@ export default function ServiceRequestDetailPage() {
         }}
         onSave={submitMediatorClientFromRequest}
         initialData={mediatorClientDraft as Client | null}
+        geoUnits={geoUnits}
+      />
+
+      <ClientModal
+        isOpen={requesterClientModalOpen}
+        onClose={() => {
+          if (!busy) setRequesterClientModalOpen(false);
+        }}
+        onSave={submitRequesterClientFromRequest}
+        initialData={requesterClientDraft as Client | null}
         geoUnits={geoUnits}
       />
 

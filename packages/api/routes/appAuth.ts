@@ -156,8 +156,12 @@ router.get('/session', requireAppAuth, async (req, res) => {
  *                 accountStatus: { type: string, example: active }
  *                 memberSince: { type: string, format: date-time }
  *                 firstName: { type: string, nullable: true }
+ *                 fatherName: { type: string, nullable: true }
  *                 lastName: { type: string, nullable: true }
  *                 primaryMobile: { type: string }
+ *                 primaryMobileHasWhatsapp: { type: boolean }
+ *                 secondaryMobile: { type: string, nullable: true }
+ *                 secondaryMobileHasWhatsapp: { type: boolean }
  *                 secondaryMobiles: { type: array, items: { type: string } }
  *                 classification: { type: string, enum: [OP, FOP, Lead], description: "OP/FOP are promotions; everything else defaults to Lead. Never null." }
  *                 address:

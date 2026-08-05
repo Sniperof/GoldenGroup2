@@ -106,7 +106,7 @@ export default function RequestDetailLayout(props: RequestDetailLayoutProps) {
   const current = tabs.find((t) => t.id === activeTab) ?? tabs[0];
 
   return (
-    <div className="max-w-6xl mx-auto p-6" dir="rtl">
+    <div className="mx-auto max-w-6xl p-4 md:p-6" dir="rtl">
       <button
         onClick={() => (props.backPath ? navigate(props.backPath) : navigate(-1))}
         className="text-sm text-slate-500 hover:text-blue-600 flex items-center gap-1 mb-3"
@@ -168,48 +168,54 @@ export default function RequestDetailLayout(props: RequestDetailLayoutProps) {
 
       {props.banners}
 
-      {/* Ownership bar (المتولّي) */}
-      <div className="bg-white border border-slate-100 rounded-2xl p-3 mb-4 flex items-center justify-between gap-3 flex-wrap shadow-sm">
-        <div className="text-sm text-slate-600 flex items-center gap-2">
-          <Clock className="h-4 w-4 text-slate-400" />
-          {props.reviewerId != null ? (
-            <span>
-              المتولّي: <span className="font-medium text-slate-800">{props.reviewerName ?? `#${props.reviewerId}`}</span>
+      {/* One workflow surface: ownership and decisions belong to the same step. */}
+      <section className="mb-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3.5 md:px-5">
+          <div className="flex items-center gap-3 text-sm text-slate-600">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-slate-500">
+              <Clock className="h-4 w-4" />
             </span>
-          ) : (
-            <span className="text-amber-700">غير مُستلَم — تولَّ الطلب قبل اتخاذ أي قرار</span>
-          )}
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">مسؤول المراجعة</div>
+              {props.reviewerId != null ? (
+                <span className="font-semibold text-slate-800">{props.reviewerName ?? `المستخدم #${props.reviewerId}`}</span>
+              ) : (
+                <span className="font-semibold text-amber-700">غير مُستلَم — يجب تولّي الطلب أولاً</span>
+              )}
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">{props.ownershipActions}</div>
         </div>
-        <div className="flex gap-2 flex-wrap">{props.ownershipActions}</div>
-      </div>
+        {props.decision && (
+          <div className="border-t border-sky-100 bg-sky-50/60 px-4 py-3.5 md:px-5">
+            <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-sky-700">إجراءات الطلب</div>
+            {props.decision}
+          </div>
+        )}
+      </section>
 
-      {/* Region 4 — decision bar */}
-      {props.decision && (
-        <div className="mb-4 rounded-2xl border border-sky-100 bg-sky-50/60 p-3.5 shadow-sm">
-          {props.decision}
-        </div>
-      )}
-
-      {/* Tab nav (water-check visual model) */}
-      <div className="mb-4">
-        <nav className="inline-flex flex-wrap gap-1 rounded-xl border border-slate-100 bg-slate-50 p-1">
+      {/* Tabs and content are one continuous detail workspace. */}
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-100 bg-slate-50/70 px-3 py-2.5 md:px-4">
+        <nav className="flex flex-wrap gap-1" aria-label="أقسام تفاصيل الطلب">
           {tabs.map((t) => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              className={`rounded-lg px-4 py-1.5 text-sm font-semibold transition-colors ${
+              className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${
                 current.id === t.id
-                  ? 'bg-white text-sky-700 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700'
+                  ? 'bg-white text-sky-700 shadow-sm ring-1 ring-slate-100'
+                  : 'text-slate-500 hover:bg-white/70 hover:text-slate-700'
               }`}
+              aria-current={current.id === t.id ? 'page' : undefined}
             >
               {t.label}
             </button>
           ))}
         </nav>
-      </div>
-
-      {current.content}
+        </div>
+        <div className="bg-slate-50/35 p-4 md:p-5">{current.content}</div>
+      </section>
 
       {props.overlays}
     </div>

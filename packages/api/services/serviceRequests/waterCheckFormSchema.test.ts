@@ -65,6 +65,18 @@ test('submissionMode only accepts the declared vocabulary', () => {
   assert.equal(validateWaterCheckForm({ ...valid, submissionMode: 'for_another' }).ok, true);
 });
 
+test('v3 declares the independent requester and mediator vocabulary', () => {
+  assert.equal(validateWaterCheckForm({ ...valid, referrerMode: 'none' }).ok, true);
+  assert.equal(validateWaterCheckForm({ ...valid, referrerMode: 'requester' }).ok, true);
+  assert.equal(validateWaterCheckForm({ ...valid, referrerMode: 'separate_person' }).ok, true);
+  assert.equal(validateWaterCheckForm({ ...valid, referrerMode: 'sender' }).ok, false);
+  assert.equal(validateWaterCheckForm({
+    ...valid,
+    requesterFirstName: 'سالم', requesterPhone: '0911111111', requesterPhoneHasWhatsapp: true,
+    referrerFirstName: 'نور', referrerPhone: '0922222222', referrerPhoneHasWhatsapp: false,
+  }).ok, true);
+});
+
 test('null and absent optional fields are accepted', () => {
   const result = validateWaterCheckForm({ ...valid, fatherName: null, notes: undefined });
   assert.equal(result.ok, true);

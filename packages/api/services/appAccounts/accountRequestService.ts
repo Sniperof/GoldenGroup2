@@ -42,9 +42,12 @@ export type MobileStatus = 'visitor' | 'pending' | 'active' | 'suspended' | 'rej
 
 export interface AccountRequestForm {
   firstName: string;
+  fatherName: string;
   lastName: string;
   primaryMobile: string;
+  primaryMobileHasWhatsapp: boolean;
   secondaryMobile?: string | null;
+  secondaryMobileHasWhatsapp?: boolean;
   governorate: number | string;
   cityOrArea?: number | string | null;
   subArea?: number | string | null;
@@ -175,9 +178,12 @@ export interface PendingRequestSnapshot {
   /** Present only when status = 'rejected'. */
   rejection?: { code: string; label: string; rejectedAt: string | null } | null;
   firstName: string | null;
+  fatherName: string | null;
   lastName: string | null;
   primaryMobile: string;
+  primaryMobileHasWhatsapp: boolean | null;
   secondaryMobile: string | null;
+  secondaryMobileHasWhatsapp: boolean | null;
   address: {
     governorate: string | null;
     cityOrArea: string | null;
@@ -195,7 +201,7 @@ export interface PendingRequestSnapshot {
  * resolved geo labels) — so the customer's screen and the admin's screen never
  * drift, and the app never has to track the picker labels itself.
  */
-function buildSnapshot(
+export function buildSnapshot(
   requestId: number | string,
   publicRefNumber: string,
   submittedAt: string,
@@ -214,9 +220,16 @@ function buildSnapshot(
     publicRefNumber,
     submittedAt,
     firstName: p.first_name ?? null,
+    fatherName: p.father_name ?? null,
     lastName: p.last_name ?? null,
     primaryMobile: p.primary_mobile ?? fallbackPhone,
+    primaryMobileHasWhatsapp: typeof p.primary_mobile_has_whatsapp === 'boolean'
+      ? p.primary_mobile_has_whatsapp
+      : null,
     secondaryMobile: p.secondary_mobile ?? null,
+    secondaryMobileHasWhatsapp: typeof p.secondary_mobile_has_whatsapp === 'boolean'
+      ? p.secondary_mobile_has_whatsapp
+      : null,
     address: {
       governorate: labels.governorate ?? null,
       cityOrArea: labels.city_or_area ?? null,
@@ -336,10 +349,34 @@ export async function createAccountRequest(
   if (!handle) throw httpError(400, 'مُعرّف التحقق مطلوب');
 
   const firstName = requireText(form.firstName, 'الاسم الأول');
+  const fatherName = requireText(form.fatherName, 'اسم الأب');
   const lastName = requireText(form.lastName, 'الكنية');
   const detailedAddress = requireText(form.detailedAddress, 'العنوان التفصيلي');
   const phone = normalizePhone(form.primaryMobile);
   if (!isValidSyrianMobile(phone)) throw httpError(400, 'رقم الموبايل الرئيسي غير صالح');
+  if (typeof form.primaryMobileHasWhatsapp !== 'boolean') {
+    throw httpError(400, 'خصيصة واتساب للرقم الرئيسي مطلوبة');
+  }
+
+  const rawSecondaryMobile = typeof form.secondaryMobile === 'string'
+    ? form.secondaryMobile.trim()
+    : '';
+  const secondaryMobile = rawSecondaryMobile ? normalizePhone(rawSecondaryMobile) : null;
+  if (secondaryMobile && !isValidSyrianMobile(secondaryMobile)) {
+    throw httpError(400, 'رقم الموبايل الثانوي غير صالح');
+  }
+  if (secondaryMobile === phone) {
+    throw httpError(400, 'رقم الموبايل الثانوي يجب أن يختلف عن الرقم الرئيسي');
+  }
+  if (secondaryMobile && typeof form.secondaryMobileHasWhatsapp !== 'boolean') {
+    throw httpError(400, 'خصيصة واتساب للرقم الثانوي مطلوبة عند وجود الرقم');
+  }
+  if (!secondaryMobile && form.secondaryMobileHasWhatsapp === true) {
+    throw httpError(400, 'لا يمكن تفعيل واتساب لرقم ثانوي غير موجود');
+  }
+  const secondaryMobileHasWhatsapp = secondaryMobile
+    ? form.secondaryMobileHasWhatsapp === true
+    : false;
 
   // Administrative address must be canonical geo_units IDs (picked via
   // GET /api/public/areas), validated for level + parent chain. We keep both the
@@ -405,11 +442,14 @@ export async function createAccountRequest(
     // 4. Insert the request (received = Pending to the user).
     const ref = await generatePublicRefNumber(tx.client);
     const requesterExternal = {
-      name: `${firstName} ${lastName}`.trim(),
+      name: `${firstName} ${fatherName} ${lastName}`.trim(),
       first_name: firstName,
+      father_name: fatherName,
       last_name: lastName,
       primary_phone: phone,
-      secondary_phone: form.secondaryMobile ? normalizePhone(form.secondaryMobile) : null,
+      primary_phone_has_whatsapp: form.primaryMobileHasWhatsapp,
+      secondary_phone: secondaryMobile,
+      secondary_phone_has_whatsapp: secondaryMobileHasWhatsapp,
     };
     // Same builder as the water_check intake — one `service_address` shape for
     // every mobile channel, so a reviewer (or a report) reads one vocabulary
@@ -422,9 +462,12 @@ export async function createAccountRequest(
     });
     const submittedPayload = {
       first_name: firstName,
+      father_name: fatherName,
       last_name: lastName,
       primary_mobile: phone,
+      primary_mobile_has_whatsapp: form.primaryMobileHasWhatsapp,
       secondary_mobile: requesterExternal.secondary_phone,
+      secondary_mobile_has_whatsapp: secondaryMobileHasWhatsapp,
       governorate: address.ids.governorate,
       city_or_area: address.ids.cityOrArea,
       sub_area: address.ids.subArea,

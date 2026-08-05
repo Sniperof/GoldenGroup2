@@ -58,6 +58,7 @@ interface GeoRow {
   name: string;
   level: number;
   parent_id: number | null;
+  status: string;
 }
 
 const LABEL_AR: Record<string, string> = {
@@ -121,7 +122,7 @@ export async function resolveAndValidateAddress(
   ].filter((x) => x.id != null);
 
   const { rows } = await db.query(
-    `SELECT id, name, level, parent_id FROM geo_units WHERE id = ANY($1)`,
+    `SELECT id, name, level, parent_id, status FROM geo_units WHERE id = ANY($1)`,
     [wanted.map((w) => w.id)],
   );
   const byId = new Map((rows as GeoRow[]).map((r) => [Number(r.id), r]));
@@ -130,6 +131,9 @@ export async function resolveAndValidateAddress(
   for (const w of wanted) {
     const unit = byId.get(w.id);
     if (!unit) throw httpError(400, `${LABEL_AR[w.key]}: الوحدة الجغرافية غير موجودة`);
+    if (unit.status !== 'active') {
+      throw httpError(400, `${LABEL_AR[w.key]}: الوحدة الجغرافية غير مفعّلة`);
+    }
     if (Number(unit.level) !== w.level) {
       throw httpError(400, `${LABEL_AR[w.key]}: المستوى الإداري غير مطابق`);
     }

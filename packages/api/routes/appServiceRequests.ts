@@ -64,14 +64,15 @@ router.get('/types', async (_req, res) => {
 
 /**
  * Mobile intake gateway. A valid app bearer token identifies a registered
- * customer. With no token, the request must carry a one-time visitor OTP
- * handle (purpose=service_request). Invalid bearer tokens never fall back.
+ * customer. With no token, water_check accepts either the migration-period OTP
+ * visitor handle or an unverified stable X-Device-Id. Invalid bearer tokens
+ * never fall back to a weaker tier.
  *
  * @swagger
  * /api/app/service-requests:
  *   post:
  *     tags: [App - Service Requests]
- *     summary: Submit a mobile service request as a verified visitor or customer
+ *     summary: Submit a water-check request as customer, OTP visitor, or unverified device
  *     description: >
  *       The body is validated against the DECLARED form of the active version:
  *       undeclared keys are rejected, not dropped, because the submitted payload
@@ -84,23 +85,27 @@ router.get('/types', async (_req, res) => {
  *         application/json:
  *           schema:
  *             type: object
- *             required: [requestType, submissionMode]
+ *             required: [requestType, formVersion, submissionMode]
  *             properties:
  *               requestType: { type: string, example: water_check }
- *               formVersion: { type: string, example: water_check.mobile.v2 }
+ *               formVersion: { type: string, example: water_check.mobile.v3 }
  *               submissionMode: { type: string, enum: [for_self, for_another] }
- *               handle: { type: string, format: uuid, description: Visitor only }
- *               referrerFirstName:
+ *               referrerMode:
  *                 type: string
- *                 description: >
- *                   The sender's own name. Required for a VISITOR sending
- *                   for_another; refused otherwise (a customer's name is
- *                   derived from their record, and for_self has no referrer).
+ *                 enum: [none, requester, separate_person]
+ *                 description: Required only for for_another. Registered customers may use none or requester.
+ *               handle: { type: string, format: uuid, description: Visitor only }
+ *               requesterFirstName: { type: string, description: External for_another requester only }
+ *               requesterPhone: { type: string }
+ *               requesterPhoneHasWhatsapp: { type: boolean }
+ *               referrerFirstName: { type: string, description: Required with separate_person }
  *               referrerLastName: { type: string }
  *               referrerFatherName: { type: string, nullable: true }
+ *               referrerPhone: { type: string }
+ *               referrerPhoneHasWhatsapp: { type: boolean }
  *     responses:
  *       201: { description: Request created }
- *       400: { description: "Invalid type, mode, or form payload. Named codes: invalid_form_payload (details.issues[]), identity_fields_not_accepted, referrer_fields_not_accepted, missing_referrer_name" }
+ *       400: { description: "Invalid form or party model. See the mobile API reference for named codes." }
  *       401: { description: Invalid app bearer token }
  *       403: { description: Suspended account, or tier not allowed for this type }
  *       404: { description: Unknown request type }
@@ -131,10 +136,17 @@ router.post('/', optionalAppAuth, async (req, res) => {
         ...(availability.details ? { details: availability.details } : {}),
       });
     }
+    const deviceIdHeader = req.get('X-Device-Id');
     const result = await executeMobileIntake({
       handler: availability.handler,
       body,
       appAccount: req.appAccount,
+      deviceId: deviceIdHeader ?? null,
+      // `req.ip` is only trustworthy when TRUST_PROXY is set behind nginx —
+      // without it every submission looks like 127.0.0.1 and the IP layer
+      // collapses into one shared bucket (see the deployment table in the
+      // mobile API reference).
+      ip: req.ip ?? null,
     });
     return res.status(201).json(result);
   } catch (err) {

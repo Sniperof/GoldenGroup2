@@ -97,12 +97,15 @@ router.get('/account/status', async (req, res) => {
  *               handle: { type: string, format: uuid, description: From OTP verify (purpose account_creation) }
  *               form:
  *                 type: object
- *                 required: [firstName, lastName, primaryMobile, governorate, detailedAddress]
+ *                 required: [firstName, fatherName, lastName, primaryMobile, primaryMobileHasWhatsapp, governorate, detailedAddress]
  *                 properties:
  *                   firstName: { type: string }
+ *                   fatherName: { type: string }
  *                   lastName: { type: string }
  *                   primaryMobile: { type: string, example: "0912345678" }
+ *                   primaryMobileHasWhatsapp: { type: boolean }
  *                   secondaryMobile: { type: string, nullable: true }
+ *                   secondaryMobileHasWhatsapp: { type: boolean, description: Required when secondaryMobile is present; must be false or omitted otherwise. }
  *                   governorate: { oneOf: [{ type: integer }, { type: string }] }
  *                   cityOrArea: { nullable: true }
  *                   subArea: { nullable: true }
@@ -133,9 +136,12 @@ router.get('/account/status', async (req, res) => {
  *                 publicRefNumber: { type: string, example: "SR-20260718-0001" }
  *                 submittedAt: { type: string, format: date-time }
  *                 firstName: { type: string, nullable: true }
+ *                 fatherName: { type: string, nullable: true }
  *                 lastName: { type: string, nullable: true }
  *                 primaryMobile: { type: string }
+ *                 primaryMobileHasWhatsapp: { type: boolean, nullable: true }
  *                 secondaryMobile: { type: string, nullable: true }
+ *                 secondaryMobileHasWhatsapp: { type: boolean, nullable: true }
  *                 address:
  *                   type: object
  *                   properties:
@@ -238,7 +244,7 @@ router.post('/account/deletion-request', async (req, res) => {
  *     summary: Recover the caller's own pending account request
  *     description: >
  *       Returns the request exactly as the customer submitted it (name, phones,
- *       address labels, notes) so the profile screen can be rebuilt after the
+ *       WhatsApp flags, address labels, notes) so the profile screen can be rebuilt after the
  *       app's local copy is lost (reinstall / new device). The payload is
  *       personal data, so it is NOT served by the public phone-keyed
  *       `/account/status` route — ownership of the number must be proven with an
@@ -282,9 +288,12 @@ router.post('/account/deletion-request', async (req, res) => {
  *                 publicRefNumber: { type: string, example: SR-20260721-0007 }
  *                 submittedAt: { type: string, format: date-time }
  *                 firstName: { type: string, nullable: true }
+ *                 fatherName: { type: string, nullable: true }
  *                 lastName: { type: string, nullable: true }
  *                 primaryMobile: { type: string }
+ *                 primaryMobileHasWhatsapp: { type: boolean, nullable: true }
  *                 secondaryMobile: { type: string, nullable: true }
+ *                 secondaryMobileHasWhatsapp: { type: boolean, nullable: true }
  *                 address:
  *                   type: object
  *                   properties:

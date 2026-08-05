@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildProfileAddress } from './appProfileService.js';
+import { pickContactDetails } from '../customerIdentity/identitySnapshot.js';
 
 // The ancestor walk returns rows in no guaranteed order — a recursive CTE
 // yields the deepest unit first — so the builder must key off `level`, never
@@ -69,4 +70,20 @@ test('an out-of-range level is ignored rather than mismapped', () => {
   const r = buildProfileAddress([...FULL_PATH, { id: 999, level: 5, name: 'x' }], null);
   assert.equal(r.geoUnitId, 402);
   assert.ok(!Object.values(r.addressIds).includes(999));
+});
+
+test('profile contact projection exposes the WhatsApp flags used by mobile forms', () => {
+  const result = pickContactDetails(
+    [
+      { number: '0912345678', isPrimary: true, status: 'active', hasWhatsApp: true },
+      { number: '0998765432', isPrimary: false, status: 'active', hasWhatsApp: false },
+    ],
+    '0912345678',
+  );
+
+  assert.deepEqual(result, {
+    primaryHasWhatsapp: true,
+    secondaryPhone: '0998765432',
+    secondaryHasWhatsapp: false,
+  });
 });

@@ -11,6 +11,7 @@ import pool from '../../db.js';
 import { normalizePhone } from '../../utils/contactValidation.js';
 import { deriveClientClassification, type ClientClassification } from '../../lib/clientClassification.js';
 import type { AppAccountClaims } from './appAuthService.js';
+import { pickContactDetails } from '../customerIdentity/identitySnapshot.js';
 
 function httpError(status: number, message: string) {
   return Object.assign(new Error(message), { status });
@@ -21,8 +22,12 @@ export interface MyProfile {
   accountStatus: string;
   memberSince: string | null;
   firstName: string | null;
+  fatherName: string | null;
   lastName: string | null;
   primaryMobile: string;
+  primaryMobileHasWhatsapp: boolean;
+  secondaryMobile: string | null;
+  secondaryMobileHasWhatsapp: boolean;
   secondaryMobiles: string[];
   classification: ClientClassification;
   address: {
@@ -100,13 +105,14 @@ export async function getMyProfile(claims: AppAccountClaims): Promise<MyProfile>
 
   const { rows: cliRows } = await pool.query<{
     first_name: string | null;
+    father_name: string | null;
     last_name: string | null;
     contacts: unknown;
     detailed_address: string | null;
     candidate_status: string | null;
     deepest_geo: number | null;
   }>(
-    `SELECT first_name, last_name, contacts, detailed_address, candidate_status,
+    `SELECT first_name, father_name, last_name, contacts, detailed_address, candidate_status,
             COALESCE(neighborhood, district, governorate) AS deepest_geo
        FROM clients
       WHERE id = $1 AND deleted_at IS NULL`,
@@ -133,6 +139,7 @@ export async function getMyProfile(claims: AppAccountClaims): Promise<MyProfile>
 
   // Extra numbers from contacts, normalized, excluding the primary + duplicates.
   const primaryNorm = normalizePhone(claims.phone);
+  const contactDetails = pickContactDetails(c.contacts, primaryNorm);
   const secondaryMobiles = Array.isArray(c.contacts)
     ? [...new Set(
         (c.contacts as any[])
@@ -146,8 +153,12 @@ export async function getMyProfile(claims: AppAccountClaims): Promise<MyProfile>
     accountStatus: accRows[0].status,
     memberSince: accRows[0].created_at ?? null,
     firstName: c.first_name,
+    fatherName: c.father_name,
     lastName: c.last_name,
     primaryMobile: claims.phone,
+    primaryMobileHasWhatsapp: contactDetails.primaryHasWhatsapp,
+    secondaryMobile: contactDetails.secondaryPhone,
+    secondaryMobileHasWhatsapp: contactDetails.secondaryHasWhatsapp,
     secondaryMobiles,
     classification: deriveClientClassification(c.candidate_status),
     address,

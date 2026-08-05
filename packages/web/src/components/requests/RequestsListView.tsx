@@ -11,11 +11,26 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { LucideIcon } from 'lucide-react';
-import { Filter, Hash, Loader2, Phone, RefreshCw, Search, User } from 'lucide-react';
+import {
+  AlertTriangle,
+  Archive,
+  Clock3,
+  Copy,
+  Filter,
+  Hash,
+  Loader2,
+  Phone,
+  RefreshCw,
+  Search,
+  ShieldAlert,
+  User,
+} from 'lucide-react';
 import SmartTable, { type ColumnDef } from '../SmartTable';
 import Select from '../ui/Select';
 import Checkbox from '../ui/Checkbox';
 import PageHeader from '../ui/PageHeader';
+import Button from '../ui/Button';
+import Input from '../ui/Input';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { usePermissions } from '../../hooks/usePermissions';
 
@@ -63,33 +78,35 @@ export function requestStatusLabel(status: string, requestType?: string | null):
 
 export function RequestStatusBadge({ status, requestType }: { status: string; requestType?: string | null }) {
   return (
-    <span className={`w-fit rounded px-2 py-0.5 text-xs ${REQUEST_STATUS_COLORS[status] ?? 'bg-slate-100 text-slate-600'}`}>
+    <span className={`inline-flex w-fit items-center rounded-full px-2.5 py-1 text-xs font-semibold ${REQUEST_STATUS_COLORS[status] ?? 'bg-slate-100 text-slate-600'}`}>
       {requestStatusLabel(status, requestType)}
     </span>
   );
 }
 
 // ------------------------------------------------------------
-// §6 — one visual flag language: letter + color + tooltip.
+// §6 — one explicit visual flag language. Never rely on initials: every
+// state remains understandable without a tooltip or memorised legend.
 // ------------------------------------------------------------
 export function RequestFlags({ row }: { row: NormalizedRequestRow }) {
+  const flags = [
+    row.duplicateFlag && { label: 'طلب مكرّر', icon: Copy, className: 'border-orange-200 bg-orange-50 text-orange-700' },
+    row.reviewRequiredFlag && { label: 'مراجعة مطلوبة', icon: ShieldAlert, className: 'border-yellow-200 bg-yellow-50 text-yellow-800' },
+    row.escalated && { label: 'طلب مصعّد', icon: AlertTriangle, className: 'border-red-200 bg-red-50 text-red-700' },
+    row.stale && { label: 'طلب متأخر', icon: Clock3, className: 'border-amber-200 bg-amber-50 text-amber-800' },
+    row.archived && { label: 'طلب مؤرشف', icon: Archive, className: 'border-slate-200 bg-slate-100 text-slate-600' },
+  ].filter(Boolean) as { label: string; icon: typeof Copy; className: string }[];
+
+  if (flags.length === 0) return <span className="text-xs text-slate-400">لا توجد علامات</span>;
+
   return (
-    <div className="flex gap-1">
-      {row.duplicateFlag && (
-        <span className="text-xs px-1.5 py-0.5 bg-orange-100 text-orange-700 rounded" title="مُكرَّر">د</span>
-      )}
-      {row.reviewRequiredFlag && (
-        <span className="text-xs px-1.5 py-0.5 bg-yellow-100 text-yellow-700 rounded" title="يَحتاج مراجعة مدقّق">م</span>
-      )}
-      {row.escalated && (
-        <span className="text-xs px-1.5 py-0.5 bg-red-600 text-white rounded font-semibold" title="مُصعَّد — وضع مقيَّد">ص</span>
-      )}
-      {row.stale && (
-        <span className="text-xs px-1.5 py-0.5 bg-amber-200 text-amber-800 rounded" title="راكد — قيد المراجعة بلا حركة أطول من العتبة الإدارية (تنبيه فقط)">ر</span>
-      )}
-      {row.archived && (
-        <span className="text-xs px-1.5 py-0.5 bg-slate-200 text-slate-600 rounded" title="مُؤرشَف">أ</span>
-      )}
+    <div className="flex max-w-[260px] flex-wrap gap-1.5">
+      {flags.map(({ label, icon: Icon, className }) => (
+        <span key={label} className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold ${className}`}>
+          <Icon className="h-3 w-3" aria-hidden="true" />
+          {label}
+        </span>
+      ))}
     </div>
   );
 }
@@ -243,9 +260,13 @@ export default function RequestsListView(props: RequestsListViewProps) {
       getValue: (r) => r.reviewerName ?? '',
       render: (r) =>
         r.reviewerId ? (
-          <span className="flex items-center gap-1 text-xs text-slate-700">
-            <User className="h-3 w-3" />
-            {r.reviewerId === user?.id ? 'أنا' : r.reviewerName ?? `#${r.reviewerId}`}
+          <span className="flex items-center gap-1.5 text-xs text-slate-700">
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-slate-500">
+              <User className="h-3.5 w-3.5" />
+            </span>
+            {r.reviewerId === user?.id
+              ? `أنا${r.reviewerName ? ` · ${r.reviewerName}` : ''}`
+              : r.reviewerName ?? `المستخدم #${r.reviewerId}`}
           </span>
         ) : (
           <span className="text-slate-400 text-xs">—</span>
@@ -268,29 +289,38 @@ export default function RequestsListView(props: RequestsListViewProps) {
   const columns = [...coreColumns, ...(props.extraColumns ?? [])];
 
   return (
-    <div className="max-w-7xl mx-auto p-4" dir="rtl">
-      <div className="flex items-center justify-between mb-4">
+    <div className="mx-auto max-w-[1500px] p-4 md:p-6" dir="rtl">
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="border-b border-slate-100 bg-gradient-to-l from-sky-50/70 via-white to-white px-5 py-5 md:px-6">
         <PageHeader
           title={props.title}
           subtitle={props.subtitle}
-          icon={<props.icon className="h-6 w-6 text-blue-600" />}
+          icon={
+            <span className="flex h-11 w-11 items-center justify-center rounded-xl border border-sky-100 bg-sky-50">
+              <props.icon className="h-5 w-5 text-sky-600" />
+            </span>
+          }
+          actions={
+            <>
+              <Button variant="secondary" size="sm" icon={RefreshCw} onClick={() => void load()}>
+                تحديث البيانات
+              </Button>
+              {props.headerActions}
+            </>
+          }
         />
-        <div className="flex gap-2">
-          <button
-            onClick={() => void load()}
-            className="text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded flex items-center gap-1"
-          >
-            <RefreshCw className="h-4 w-4" />
-            تحديث
-          </button>
-          {props.headerActions}
-        </div>
       </div>
 
       {/* §6 unified filter bar */}
-      <div className="bg-white border border-slate-200 rounded p-3 mb-4 flex items-center gap-3 flex-wrap">
-        <Filter className="h-4 w-4 text-slate-500" />
-        <Select
+      <div className="border-b border-slate-100 bg-slate-50/70 px-5 py-4 md:px-6">
+        <div className="mb-3 flex items-center gap-2 text-sm font-bold text-slate-700">
+          <Filter className="h-4 w-4 text-sky-600" />
+          تصفية الطلبات
+          <span className="text-xs font-normal text-slate-400">اختر حالة أو علامة لتضييق النتائج</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2.5">
+        <div className="min-w-[180px]">
+          <Select
           value={filters.status ?? ''}
           onChange={(v) => setFilters((f) => ({ ...f, status: v || undefined }))}
           size="sm"
@@ -302,70 +332,77 @@ export default function RequestsListView(props: RequestsListViewProps) {
               label: requestStatusLabel(s, props.requestTypeForLabels),
             })),
           ]}
-        />
-        <Checkbox
-          checked={!!filters.mine}
-          onCheckedChange={(v) => setFilters((f) => ({ ...f, mine: v }))}
-          className="text-sm"
-        >
-          طلباتي
-        </Checkbox>
-        <Checkbox
-          checked={!!filters.escalatedOnly}
-          onCheckedChange={(v) => setFilters((f) => ({ ...f, escalatedOnly: v }))}
-          className="text-sm"
-        >
-          مُصعَّد فقط
-        </Checkbox>
-        <Checkbox
-          checked={!!filters.staleOnly}
-          onCheckedChange={(v) => setFilters((f) => ({ ...f, staleOnly: v }))}
-          className="text-sm"
-        >
-          راكد فقط
-        </Checkbox>
-        <Checkbox
-          checked={!!filters.duplicateOnly}
-          onCheckedChange={(v) => setFilters((f) => ({ ...f, duplicateOnly: v }))}
-          className="text-sm"
-        >
-          مكرَّر فقط
-        </Checkbox>
-        <Checkbox
-          checked={!!filters.reviewRequired}
-          onCheckedChange={(v) => setFilters((f) => ({ ...f, reviewRequired: v }))}
-          className="text-sm"
-        >
-          يَحتاج مراجعة مدقّق
-        </Checkbox>
+          />
+        </div>
         <Select<'true' | 'false' | 'all'>
           value={filters.archived}
           onChange={(v) => setFilters((f) => ({ ...f, archived: v }))}
           size="sm"
           ariaLabel="الأرشفة"
           options={[
-            { value: 'false', label: 'غير المُؤرشَفة' },
-            { value: 'true', label: 'المُؤرشَفة فقط' },
-            { value: 'all', label: 'الكلّ' },
+            { value: 'false', label: 'الطلبات النشطة' },
+            { value: 'true', label: 'الطلبات المؤرشفة' },
+            { value: 'all', label: 'كل الطلبات' },
           ]}
         />
+        <span className="mx-1 hidden h-6 w-px bg-slate-200 lg:block" />
+        <Checkbox
+          checked={!!filters.mine}
+          onCheckedChange={(v) => setFilters((f) => ({ ...f, mine: v }))}
+          className="text-sm"
+        >
+          الطلبات المسندة لي
+        </Checkbox>
+        <Checkbox
+          checked={!!filters.escalatedOnly}
+          onCheckedChange={(v) => setFilters((f) => ({ ...f, escalatedOnly: v }))}
+          className="text-sm"
+        >
+          الطلبات المصعّدة
+        </Checkbox>
+        <Checkbox
+          checked={!!filters.staleOnly}
+          onCheckedChange={(v) => setFilters((f) => ({ ...f, staleOnly: v }))}
+          className="text-sm"
+        >
+          الطلبات المتأخرة
+        </Checkbox>
+        <Checkbox
+          checked={!!filters.duplicateOnly}
+          onCheckedChange={(v) => setFilters((f) => ({ ...f, duplicateOnly: v }))}
+          className="text-sm"
+        >
+          الطلبات المكررة
+        </Checkbox>
+        <Checkbox
+          checked={!!filters.reviewRequired}
+          onCheckedChange={(v) => setFilters((f) => ({ ...f, reviewRequired: v }))}
+          className="text-sm"
+        >
+          تحتاج مراجعة مدقق
+        </Checkbox>
         <form
-          className="flex items-center gap-1 mr-auto"
+          className="mr-auto w-full min-w-[240px] sm:w-auto"
           onSubmit={(e) => {
             e.preventDefault();
             setFilters((f) => ({ ...f, search: searchInput.trim() || undefined }));
           }}
         >
-          <input
+          <Input
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             placeholder="بحث: اسم / رقم / مرجع"
-            className="text-sm border border-slate-200 rounded px-2 py-1 w-52"
+            inputSize="sm"
+            className="sm:w-72"
+            leading={<Search className="h-4 w-4" />}
+            trailing={
+              <button type="submit" className="rounded-full p-1 text-slate-500 hover:bg-sky-50 hover:text-sky-600" aria-label="تنفيذ البحث">
+                <Search className="h-4 w-4" />
+              </button>
+            }
           />
-          <button type="submit" className="text-slate-600 hover:text-blue-600 p-1" aria-label="بحث">
-            <Search className="h-4 w-4" />
-          </button>
         </form>
+        </div>
       </div>
 
       {loading ? (
@@ -380,6 +417,9 @@ export default function RequestsListView(props: RequestsListViewProps) {
           columns={columns}
           getId={(r) => r.id}
           hideFilterBar
+          hideHeader
+          embedded
+          fillEmptyRows={false}
           defaultSortKey="createdAt"
           defaultSortDir="desc"
           onRowClick={(r) => navigate(props.detailPath(r))}
@@ -393,7 +433,7 @@ export default function RequestsListView(props: RequestsListViewProps) {
                   e.stopPropagation();
                   void quickClaim(r.id);
                 }}
-                className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded"
+                className="rounded-full bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-700"
               >
                 تَولّي
               </button>
@@ -401,6 +441,7 @@ export default function RequestsListView(props: RequestsListViewProps) {
           }
         />
       )}
+      </section>
     </div>
   );
 }

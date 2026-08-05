@@ -11,6 +11,7 @@
 - `DEC-013-account-creation-and-app-auth.md` — إنشاء الحساب ومصادقة تطبيق الزبائن: نوع طلب على `service_requests` + OTP + app_accounts (2026-07-17)
 - `DEC-014-contract-tradein-statistics.md` — إحصاءات الاستبدال التجاري في العقود (2026-07-30)
 - `DEC-015-layered-planning-curation.md` — طبقات تنقية التخطيط وعقد الفلاتر والمعاينة والتطبيق (2026-07-30)
+- `DEC-016-water-check-unverified-intake.md` — استقبال طلب فحص المياه بلا تحقّق من الرقم: طبقة `unverified` + بصمة جهاز بدل OTP (2026-08-03)
 
 ## القاعدة
 - أي قرار جديد يضاف كملف مستقل بهذا المجلد.

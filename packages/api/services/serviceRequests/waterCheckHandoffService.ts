@@ -17,6 +17,8 @@ import {
 } from './_shared.js';
 import { persistOpenTaskSnapshots } from '../../routes/openTasks.js';
 
+export const WATER_CHECK_DEVICE_DEMO_CREATION_ORIGIN = 'manual_creation' as const;
+
 type Queryable = {
   query: (text: string, params?: any[]) => Promise<{ rows: any[]; rowCount?: number | null }>;
 };
@@ -353,7 +355,7 @@ export async function handoffWaterCheckToDeviceDemo(
       buildWaterCheckTaskNote(sr, input.operatorNote),
       input.operatorUserId,
       'service_request',
-      'service_request_call',
+      WATER_CHECK_DEVICE_DEMO_CREATION_ORIGIN,
     ];
 
     const addOptionalColumn = async (columnName: string, value: unknown) => {
