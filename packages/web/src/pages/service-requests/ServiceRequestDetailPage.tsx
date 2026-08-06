@@ -31,6 +31,7 @@ import TerminalTransitionModal, { type ModalMode } from '../../components/servic
 import WaterCheckRequestDetailPanel from '../../components/service-requests/WaterCheckRequestDetailPanel';
 import RequestDetailLayout from '../../components/requests/RequestDetailLayout';
 import type { Client, GeoUnit } from '../../lib/types';
+import { reviewRequiredReasons } from '../../lib/serviceRequestDisplay';
 
 type PeriodicAttachmentCandidate = {
   taskId: number;
@@ -200,6 +201,7 @@ export default function ServiceRequestDetailPage() {
   const isTerminal = !isActive;
   // SR-ESC-01 — restricted mode: while escalated, only reject + de-escalate are allowed.
   const isEscalated = !!req.escalatedAt;
+  const reviewReasons = reviewRequiredReasons(data.auditLog);
   const canReject = req.status === 'in_review'
     && req.reviewedByUserId != null
     && (req.reviewRequiredFlag || isEscalated)
@@ -786,6 +788,18 @@ export default function ServiceRequestDetailPage() {
       }
       banners={
         <>
+          {req.reviewRequiredFlag && (
+            <div className="mb-3 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              <div className="font-bold">سبب طلب المراجعة</div>
+              {reviewReasons.length > 0 ? (
+                <ul className="mt-1 list-disc space-y-1 pe-5">
+                  {reviewReasons.map((reason) => <li key={reason}>{reason}</li>)}
+                </ul>
+              ) : (
+                <div className="mt-1">لم يُسجّل سبب تفصيلي لهذا الوسم.</div>
+              )}
+            </div>
+          )}
           {/* SR-ESC-01 — escalation (restricted mode) banner */}
           {isEscalated && (
             <div className="bg-red-50 border border-red-300 rounded p-3 mb-4">

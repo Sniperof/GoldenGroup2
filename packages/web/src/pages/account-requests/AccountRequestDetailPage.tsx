@@ -32,6 +32,7 @@ import { useAuthStore } from '../../hooks/useAuthStore';
 import AuditLogTimeline from '../../components/service-requests/AuditLogTimeline';
 import SuggestedMatchesPanel from '../../components/service-requests/SuggestedMatchesPanel';
 import RequestDetailLayout from '../../components/requests/RequestDetailLayout';
+import { reviewRequiredReasons } from '../../lib/serviceRequestDisplay';
 
 // Shared reject outcomes (state machine TRIAGE_OUTCOMES_BY_TERMINAL.rejected).
 const REJECT_REASONS = [
@@ -174,6 +175,7 @@ export default function AccountRequestDetailPage() {
   const isEscalated = r.escalated_at != null;
   const dupEvent = (data?.audit ?? []).find((a: any) => a.event_type === 'duplicate_flag_set');
   const dup = dupEvent?.event_payload ?? null;
+  const reviewReasons = reviewRequiredReasons(data?.audit);
 
   return (
     <RequestDetailLayout
@@ -257,8 +259,18 @@ export default function AccountRequestDetailPage() {
             </div>
           )}
           {!r.duplicate_flag && r.review_required_flag && (
-            <div className="bg-amber-50 border border-amber-200 rounded p-3 mb-3 text-sm text-amber-800 flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4" /> مراجعة إلزامية قبل الاعتماد.
+            <div className="bg-amber-50 border border-amber-200 rounded p-3 mb-3 text-sm text-amber-800 flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+              <div>
+                <div className="font-bold">مراجعة إلزامية قبل الاعتماد</div>
+                {reviewReasons.length > 0 ? (
+                  <ul className="mt-1 list-disc space-y-1 pe-5">
+                    {reviewReasons.map((reason) => <li key={reason}>{reason}</li>)}
+                  </ul>
+                ) : (
+                  <div className="mt-1">لم يُسجّل سبب تفصيلي لهذا الوسم.</div>
+                )}
+              </div>
             </div>
           )}
         </>

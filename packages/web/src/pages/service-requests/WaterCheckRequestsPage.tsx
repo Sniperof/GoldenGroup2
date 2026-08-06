@@ -9,6 +9,7 @@ import { api } from '../../lib/api';
 import RequestsListView, { type NormalizedRequestRow } from '../../components/requests/RequestsListView';
 import { usePermissions } from '../../hooks/usePermissions';
 import Button from '../../components/ui/Button';
+import { deepestAdministrativeArea } from '../../lib/serviceRequestDisplay';
 
 // Kept only as a tooltip explanation for the "—" (unlinked) branch case.
 const BRANCH_RESOLUTION_LABELS: Record<string, string> = {
@@ -18,11 +19,6 @@ const BRANCH_RESOLUTION_LABELS: Record<string, string> = {
   missing_geo: 'موقع ناقص',
   not_applicable: 'غير مطبق',
 };
-
-function getAddress(raw: any): string {
-  const address = raw.serviceAddress ?? {};
-  return address.detailedAddress ?? address.detailed_address ?? '—';
-}
 
 export default function WaterCheckRequestsPage() {
   const navigate = useNavigate();
@@ -105,9 +101,9 @@ export default function WaterCheckRequestsPage() {
           key: 'address',
           label: 'العنوان',
           minWidth: '220px',
-          getValue: (r) => getAddress(r.raw),
+          getValue: (r) => deepestAdministrativeArea(r.raw),
           render: (r) => (
-            <span className="block max-w-[300px] truncate text-sm text-slate-600">{getAddress(r.raw)}</span>
+            <span className="block max-w-[300px] truncate text-sm text-slate-600">{deepestAdministrativeArea(r.raw)}</span>
           ),
         },
       ]}
