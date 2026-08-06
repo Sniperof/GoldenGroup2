@@ -234,7 +234,7 @@ received           ────→  in_review                  (Operator فَت�
 | **SR-R004** | الانتقال إلى `promoted` يستلزم: (١) ربط الـ request بـ client أو candidate (`beneficiary_client_id` أو `beneficiary_candidate_id` غير NULL)، (٢) توفير `installed_device_id` — موجود لـ `company_device`، أو يُنشأ ضمن transaction لـ `external_device` (راجع ٠.١٣)، (٣) إنشاء صف في `open_tasks` ضمن نفس transaction، (٤) حفظ `linked_open_task_id` على الـ request |
 | **SR-R005** | الانتقال إلى `resolved_at_intake` يستلزم: (١) أن يكون الطلب **مُتولّىً** — أي في `in_review` مع مُراجِعٍ مُسنَد (`reviewed_by_user_id` غير NULL) — **بصرف النظر عن قناة الدخول**؛ القصد أن يكون قد فُرِز بشرياً فعلاً لا أن تكون قناته triager-present فحسب (يسمح هذا لطلبات `mobile_app`/`website`/`whatsapp` بالحلّ عند الاستلام بعد تولّيها). (٢) تسجيل `triage_notes` غير فارغة، (٣) `triage_outcome` يحدّد سبب الحلّ |
 | **SR-R006** | كل حالة terminal تُلزم `triage_outcome` غير NULL — يُحدّد المخرج التفصيلي ضمن نوع الحالة |
-| **SR-R007** | `rejected` تستلزم صلاحية `service_requests.reject` (Request Audit Admin حصراً) — راجع ٠.١٦. الـ Operator لا يستطيع الرفض مباشرةً |
+| **SR-R007** | `rejected` تستلزم أن يكون الطلب مُتولّىً أولاً (`in_review` مع `reviewed_by_user_id` غير NULL)، وصلاحية `service_requests.reject` (Request Audit Admin حصراً) — راجع ٠.١٦. المدقّق هو صاحب قرار الرفض ولا يستبدل المالك التشغيلي المسجّل على الطلب |
 | **SR-R008** | بيانات الزبون المُدخَلة (الاسم، الهاتف، الوصف، المرفقات) **immutable بعد `received`** — لا تعديل من admin أبداً. التصحيحات تُسجَّل كـ internal notes منفصلة (راجع ٠.١٨) |
 | **SR-R009** | تفعيل `duplicate_flag` آلياً يُفعِّل `review_required_flag` تلقائياً ويُلزم Audit Admin قبل الرفض |
 | **SR-R010** | لا حذف فيزيائي للطلبات. الإقفال يكون عبر terminal state ثم أرشفة ناعمة عبر `archived_at` (راجع ٠.١٨) |
@@ -736,13 +736,13 @@ IF score >= 0.75 AND existing_request.status NOT IN (terminal) THEN
 
 | الرمز | القاعدة |
 |---|---|
-| **SR-AUTH-01** | الرفض المباشر ممنوع ما لم يكن الطلب إمّا **مُصعَّداً** (`escalated_at IS NOT NULL`) أو عليه `review_required_flag = TRUE` (يُضبط آلياً عبر duplicate / تعذّر الفرع / reopen). التصعيد وعلم المراجعة **مفهومان منفصلان** (SR-ESC-02): التصعيد لا يلمس `review_required_flag`، وكلاهما يفتح باب الرفض |
+| **SR-AUTH-01** | الرفض المباشر ممنوع قبل **تولّي الطلب** (`in_review` مع `reviewed_by_user_id` غير NULL)، وبعد التولّي لا يُفتح باب الرفض ما لم يكن الطلب إمّا **مُصعَّداً** (`escalated_at IS NOT NULL`) أو عليه `review_required_flag = TRUE` (يُضبط آلياً عبر duplicate / تعذّر الفرع / reopen). التصعيد وعلم المراجعة **مفهومان منفصلان** (SR-ESC-02): التصعيد لا يلمس `review_required_flag`، وكلاهما يفتح باب الرفض |
 | **SR-AUTH-02** | `Operator` يستطيع `promote` فقط بعد اكتمال: (أ) ربط الـ beneficiary، (ب) توفير `installed_device_id` (موجود أو يُنشأ كـ external — راجع ٠.١٣) |
 | **SR-AUTH-03** | `Audit Admin` يستطيع تجاوز قرار Operator (مثلاً إلغاء `awaiting_customer_info` بـ `rejected` مباشرة بعد review) |
 | **SR-AUTH-04** | لا أحد يستطيع تعديل بيانات الزبون المُرسَلة (`problem_description`، الأسماء، الهواتف، المرفقات) — إن وجد خطأ يُسجَّل كـ internal note منفصل |
 | **SR-AUTH-05** | الإلغاء (`cancelled`) متاح لـ Operator و Audit Admin، لكن يستلزم سبباً مهيكلاً من قائمة معتمدة |
 | **SR-AUTH-06** | عند `promote`، يُحسَب `open_tasks.branch_id` آلياً من `beneficiary_client.branch_id` — لا اختيار يدوي للفرع. هذا يحفظ مبدأ "الطلب مركزي، المهمة فرع-محلية" |
-| **SR-LINK-01** | ربط الطلب بزبون/مرشح (وكذلك إنشاء زبون/مرشح من الطلب) **قرار مراجعة** يتطلّب أن يكون الطلب **مُتولّىً** (`in_review`) — لا ربط في `received` قبل التولّي. الخلفية ترفض بـ `link_requires_claim`، والواجهة تُخفي لوحة الربط وتعرض تلميح «تولَّ الطلب أولاً». **ينطبق ذات الحارس على ربط الوسيط** (`referrer_client_id` عبر `/link-referrer`): يُربط الوسيط بزبون بنفس آلية المستفيد، ثم يصبح مُحيلاً رسمياً (`referrer_type='Client'`) على سجل المستفيد؛ وإن لم يُربَط يبقى مُحيلاً بالاسم فقط (`Personal`) |
+| **SR-LINK-01** | ربط الطلب بزبون/مرشح (وكذلك إنشاء زبون/مرشح من الطلب) **قرار مراجعة** يتطلّب أن يكون الطلب **مُتولّىً** (`in_review`) — لا ربط في `received` قبل التولّي. الخلفية ترفض بـ `link_requires_claim`، والواجهة تُخفي لوحة الربط وتعرض تلميح «تولَّ الطلب أولاً». **ينطبق ذات الحارس على ربط الوسيط** (`referrer_client_id` عبر `/link-referrer`): عند اكتمال ربط الوسيط والمستفيد يُنشأ إسناد ثابت في `client_referral_attributions` بمصدر `water_check`، ويُلحَق الوسيط بقائمة وسطاء المستفيد دون حذف وسيط سابق. الوسيط غير المربوط يبقى snapshot على الطلب ولا يتحول إلى `Personal` باسم المستخدم الإداري. |
 
 ### ٠.١٧ Audit Log المُهيكَل
 

@@ -474,8 +474,17 @@ const clientsReferrerTypeDistribution: BreakdownDefinition = {
   async compute(ctx) {
     const params: unknown[] = [ctx.from, ctx.to];
     const sql =
-      `SELECT COALESCE(NULLIF(TRIM(c.referrer_type), ''), 'غير محدد') AS k, COUNT(*)::int AS v
+      `SELECT COALESCE(NULLIF(TRIM(primary_attribution.referrer_type), ''), NULLIF(TRIM(c.referrer_type), ''), 'غير محدد') AS k,
+              COUNT(*)::int AS v
          FROM clients c
+         LEFT JOIN LATERAL (
+           SELECT a.referrer_type
+             FROM client_referral_attributions a
+            WHERE a.beneficiary_client_id = c.id
+              AND a.is_primary
+            ORDER BY a.attributed_at, a.id
+            LIMIT 1
+         ) primary_attribution ON TRUE
         WHERE c.deleted_at IS NULL
           AND c.created_at >= $1 AND c.created_at < $2` + appendClientScope(ctx, params) +
       ` GROUP BY 1 ORDER BY v DESC LIMIT 8`;
@@ -544,14 +553,40 @@ const clientsTopReferrers: BreakdownDefinition = {
   async compute(ctx) {
     const params: unknown[] = [ctx.from, ctx.to];
     const sql =
-      `SELECT COALESCE(NULLIF(TRIM(c.referrer_name), ''), 'غير محدد') AS k, COUNT(*)::int AS v
-         FROM clients c
-        WHERE c.deleted_at IS NULL
-          AND c.referrer_name IS NOT NULL AND TRIM(c.referrer_name) <> ''
-          AND c.created_at >= $1 AND c.created_at < $2` + appendClientScope(ctx, params) +
-      ` GROUP BY 1 ORDER BY v DESC LIMIT 10`;
+      `WITH eligible_clients AS (
+         SELECT c.id, c.referrer_type, c.referrer_id, c.referrer_name
+           FROM clients c
+          WHERE c.deleted_at IS NULL
+            AND c.created_at >= $1 AND c.created_at < $2` + appendClientScope(ctx, params) +
+      `), referral_rows AS (
+         SELECT c.id AS beneficiary_client_id,
+                a.referrer_type,
+                COALESCE(a.referrer_client_id::text, a.referrer_employee_id::text, LOWER(TRIM(a.referrer_name))) AS identity_key,
+                a.referrer_name
+           FROM eligible_clients c
+           JOIN client_referral_attributions a ON a.beneficiary_client_id = c.id
+         UNION ALL
+         SELECT c.id,
+                COALESCE(NULLIF(TRIM(c.referrer_type), ''), 'Unknown'),
+                COALESCE(c.referrer_id::text, LOWER(TRIM(c.referrer_name))),
+                c.referrer_name
+           FROM eligible_clients c
+          WHERE c.referrer_name IS NOT NULL
+            AND TRIM(c.referrer_name) <> ''
+            AND NOT EXISTS (
+              SELECT 1 FROM client_referral_attributions a
+               WHERE a.beneficiary_client_id = c.id
+            )
+       )
+       SELECT referrer_type || ':' || identity_key AS k,
+              referrer_name AS label,
+              COUNT(DISTINCT beneficiary_client_id)::int AS v
+         FROM referral_rows
+        GROUP BY referrer_type, identity_key, referrer_name
+        ORDER BY v DESC, referrer_name
+        LIMIT 10`;
     const { rows } = await pool.query(sql, params);
-    return rows.map(r => ({ key: String(r.k), label: String(r.k), value: Number(r.v ?? 0) }));
+    return rows.map(r => ({ key: String(r.k), label: String(r.label), value: Number(r.v ?? 0) }));
   },
 };
 

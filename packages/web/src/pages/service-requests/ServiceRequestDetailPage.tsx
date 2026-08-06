@@ -200,6 +200,10 @@ export default function ServiceRequestDetailPage() {
   const isTerminal = !isActive;
   // SR-ESC-01 — restricted mode: while escalated, only reject + de-escalate are allowed.
   const isEscalated = !!req.escalatedAt;
+  const canReject = req.status === 'in_review'
+    && req.reviewedByUserId != null
+    && (req.reviewRequiredFlag || isEscalated)
+    && canDecide;
   // SR-LINK-01 — linking (and create-from-request) requires the request to be
   // claimed first. Only available in_review and while not escalated.
   const canLink = req.status === 'in_review' && !isEscalated;
@@ -396,9 +400,12 @@ export default function ServiceRequestDetailPage() {
       neighborhood: Number(address.neighborhoodId ?? submitted.neighborhoodId ?? address.subdistrictId ?? submitted.subdistrictId) || null,
       detailedAddress,
       gpsCoordinates: mapLocation,
-      referrerType: req.referrerClientId ? 'Client' : (mediatorName ? 'Personal' : 'Unknown'),
+      // An unlinked request mediator is preserved on the request snapshot and
+      // notes only. `Personal` means the acting user in the clients domain, so
+      // using it here would incorrectly attribute the beneficiary to the admin.
+      referrerType: req.referrerClientId ? 'Client' : null,
       referrerId: req.referrerClientId ?? null,
-      referrerName: req.referrerClientId ? (req.referrerClientName || mediatorName || null) : (mediatorName || null),
+      referrerName: req.referrerClientId ? (req.referrerClientName || mediatorName || null) : null,
       sourceChannel: 'App',
       referralReason: `طلب فحص المياه ${req.publicRefNumber ?? requestId}`,
       referralNotes: mediatorName
@@ -439,8 +446,10 @@ export default function ServiceRequestDetailPage() {
     }
     setBusy(true);
     try {
-      const created = await api.clients.create(payload);
-      await api.serviceRequests.link(requestId, { beneficiaryClientId: created.id });
+      await api.clients.create({
+        ...payload,
+        serviceRequestLink: { serviceRequestId: requestId, party: 'beneficiary' },
+      });
       setWaterCheckClientModalOpen(false);
       showToast('تم إنشاء سجل جديد وربطه بطلب فحص المياه', 'success');
       await reload();
@@ -502,8 +511,10 @@ export default function ServiceRequestDetailPage() {
     }
     setBusy(true);
     try {
-      const created = await api.clients.create(payload);
-      await api.serviceRequests.linkRequester(requestId, created.id);
+      await api.clients.create({
+        ...payload,
+        serviceRequestLink: { serviceRequestId: requestId, party: 'requester' },
+      });
       setRequesterClientModalOpen(false);
       showToast('تم إنشاء سجل مقدم الطلب وربطه', 'success');
       await reload();
@@ -576,8 +587,10 @@ export default function ServiceRequestDetailPage() {
     }
     setBusy(true);
     try {
-      const created = await api.clients.create(payload);
-      await api.serviceRequests.linkReferrer(requestId, created.id);
+      await api.clients.create({
+        ...payload,
+        serviceRequestLink: { serviceRequestId: requestId, party: 'referrer' },
+      });
       setMediatorClientModalOpen(false);
       showToast('تم إنشاء سجل الوسيط وربطه بالطلب كمُحيل', 'success');
       await reload();
@@ -886,7 +899,7 @@ export default function ServiceRequestDetailPage() {
               </Button>
             </>
           )}
-          {(req.reviewRequiredFlag || isEscalated) && canDecide && (
+          {canReject && (
             <Button
               variant="danger"
               size="sm"
@@ -1053,17 +1066,49 @@ export default function ServiceRequestDetailPage() {
       linkage={
         <div>
           {isWaterCheck && (
-        <div className="space-y-3">
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <h2 className="text-base font-bold text-slate-800">أطراف طلب فحص المياه</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              يعرض كل قسم الطرف المقصود وحالة ربطه. ربط المستفيد مطلوب قبل تحويل الطلب إلى مهمة، أما ربط مقدم الطلب والوسيط فاختياري.
+            </p>
+            <div className="mt-3 grid gap-2 md:grid-cols-3">
+              {hasIndependentRequester && (
+                <div className={`rounded-xl border p-3 ${req.requesterClientId ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-slate-50'}`}>
+                  <div className="text-xs font-semibold text-slate-500">مقدم الطلب</div>
+                  <div className={`mt-1 text-sm font-bold ${req.requesterClientId ? 'text-emerald-800' : 'text-slate-700'}`}>
+                    {req.requesterClientId ? `مرتبط: ${req.requesterClientName ?? `#${req.requesterClientId}`}` : 'غير مرتبط · اختياري'}
+                  </div>
+                </div>
+              )}
+              <div className={`rounded-xl border p-3 ${req.beneficiaryClientId ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
+                <div className="text-xs font-semibold text-slate-500">المستفيد</div>
+                <div className={`mt-1 text-sm font-bold ${req.beneficiaryClientId ? 'text-emerald-800' : 'text-amber-800'}`}>
+                  {req.beneficiaryClientId ? `مرتبط: ${req.beneficiaryClientName ?? `#${req.beneficiaryClientId}`}` : 'غير مرتبط · مطلوب'}
+                </div>
+              </div>
+              {hasMediator && (
+                <div className={`rounded-xl border p-3 ${req.referrerClientId ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-slate-50'}`}>
+                  <div className="text-xs font-semibold text-slate-500">الوسيط (المُحيل)</div>
+                  <div className={`mt-1 text-sm font-bold ${req.referrerClientId ? 'text-emerald-800' : 'text-slate-700'}`}>
+                    {req.referrerClientId ? `مرتبط: ${req.referrerClientName ?? `#${req.referrerClientId}`}` : 'غير مرتبط · اختياري'}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
           {hasIndependentRequester && (
-            <div className="rounded-lg border border-sky-200 bg-sky-50/40 p-3">
-              <h3 className="mb-2 flex items-center gap-1.5 text-sm font-bold text-slate-700">
+            <section className="rounded-2xl border border-sky-200 bg-sky-50/40 p-4">
+              <h3 className="flex items-center gap-1.5 text-base font-bold text-slate-800">
                 <UserCheck className="h-4 w-4 text-sky-600" />
-                ربط مقدم الطلب بسجل زبون (اختياري)
+                مقدم الطلب
               </h3>
+              <p className="mb-3 mt-1 text-sm text-slate-500">الشخص الذي أرسل الطلب. ربطه بسجل زبون اختياري ولا يغني عن ربط المستفيد.</p>
               {req.requesterClientId ? (
                 <>
-                  <div className="rounded border border-green-200 bg-green-50 p-2 text-sm text-green-800">
-                    مقدم الطلب مربوط بالزبون: {req.requesterClientName ?? `#${req.requesterClientId}`}
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">
+                    مقدم الطلب مرتبط بسجل الزبون: {req.requesterClientName ?? `#${req.requesterClientId}`}
                   </div>
                   {requesterSnapshot && (
                     <div className="mt-3 rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
@@ -1081,51 +1126,69 @@ export default function ServiceRequestDetailPage() {
                   canCreateFromRequest={!!canCreateRequesterClient}
                   createBusy={busy}
                   onCreateFromRequest={createRequesterClientFromRequest}
+                  heading="سجلات زبائن مقترحة لمقدم الطلب"
+                  createLabel="إنشاء سجل زبون جديد لمقدم الطلب"
                 />
               ) : canReview && isActive && !canLink ? (
                 <div className="text-sm text-sky-800">تولَّ الطلب أولاً لربط مقدم الطلب.</div>
               ) : null}
-            </div>
+            </section>
           )}
 
-          {req.beneficiaryClientId ? (
-            <div className="rounded border border-green-200 bg-green-50 p-3 text-sm text-green-800">
-              <UserCheck className="ml-1 inline h-4 w-4 text-green-700" />
-              مربوط بالزبون: {req.beneficiaryClientName ?? `#${req.beneficiaryClientId}`}
-            </div>
-          ) : (
-            <div className="rounded border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800">
-              لا يوجد زبون مرتبط بعد. طلب فحص المياه لا يرتبط بمرشح، ويجب ربطه بزبون قبل التحويل إلى مهمة.
-            </div>
-          )}
-          {req.beneficiaryClientId && beneficiarySnapshot && (
-            <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
-              <ClientSnapshot data={beneficiarySnapshot} />
-            </div>
-          )}
-          {canReview && isActive && !canLink && (
-            <div className="rounded border border-sky-200 bg-sky-50 p-3 text-sm text-sky-800">
-              تولَّ الطلب أولاً (زر «تَولّي الطلب») قبل ربطه بزبون.
-            </div>
-          )}
-          {canReview && canLink && (
-            <SuggestedMatchesPanel
-              serviceRequestId={requestId}
-              request={req}
-              onLink={linkSuggested}
-              sources="clients"
-              canCreateFromRequest={!!canCreateWaterCheckClient}
-              createBusy={busy}
-              onCreateFromRequest={createWaterCheckClientFromRequest}
-            />
-          )}
+          <section className={`rounded-2xl border p-4 ${req.beneficiaryClientId ? 'border-emerald-200 bg-emerald-50/40' : 'border-amber-300 bg-amber-50/60'}`}>
+            <h3 className="flex items-center gap-1.5 text-base font-bold text-slate-800">
+              <UserCheck className={`h-4 w-4 ${req.beneficiaryClientId ? 'text-emerald-600' : 'text-amber-600'}`} />
+              المستفيد من فحص المياه
+              {!req.beneficiaryClientId && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800">مطلوب الربط</span>}
+            </h3>
+            <p className="mb-3 mt-1 text-sm text-slate-500">الشخص الذي سيستفيد من الفحص وفي عنوانه ستُنفذ الخدمة.</p>
+            {req.beneficiaryClientId ? (
+              <>
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">
+                  المستفيد مرتبط بسجل الزبون: {req.beneficiaryClientName ?? `#${req.beneficiaryClientId}`}
+                </div>
+                {beneficiarySnapshot && (
+                  <div className="mt-3 rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
+                    <ClientSnapshot data={beneficiarySnapshot} />
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                  الطرف المطلوب ربطه الآن هو <strong>المستفيد</strong>، وليس مقدم الطلب. اختر سجله أدناه أو أنشئ له سجل زبون جديداً.
+                </div>
+                {canReview && isActive && !canLink && (
+                  <div className="mt-3 rounded border border-sky-200 bg-sky-50 p-3 text-sm text-sky-800">
+                    تولَّ الطلب أولاً (زر «تَولّي الطلب») قبل ربط المستفيد.
+                  </div>
+                )}
+                {canReview && canLink && (
+                  <div className="mt-3">
+                    <SuggestedMatchesPanel
+                      serviceRequestId={requestId}
+                      request={req}
+                      onLink={linkSuggested}
+                      sources="clients"
+                      canCreateFromRequest={!!canCreateWaterCheckClient}
+                      createBusy={busy}
+                      onCreateFromRequest={createWaterCheckClientFromRequest}
+                      heading="سجلات زبائن مقترحة للمستفيد"
+                      createLabel="إنشاء سجل زبون جديد للمستفيد"
+                    />
+                  </div>
+                )}
+              </>
+            )}
+          </section>
 
           {hasMediator && (
-            <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50/40 p-3">
-              <h3 className="mb-2 flex items-center gap-1.5 text-sm font-bold text-slate-700">
+            <section className="rounded-2xl border border-violet-200 bg-violet-50/40 p-4">
+              <h3 className="flex items-center gap-1.5 text-base font-bold text-slate-800">
                 <UserCheck className="h-4 w-4 text-amber-600" />
-                ربط الوسيط (المُحيل) بسجل زبون
+                الوسيط (المُحيل)
               </h3>
+              <p className="mb-3 mt-1 text-sm text-slate-500">الشخص الذي عرّفنا بالمستفيد. ربطه اختياري ويسجله كمُحيل رسمي.</p>
               {req.referrerClientId ? (
                 <>
                   <div className="rounded border border-green-200 bg-green-50 p-2 text-sm text-green-800">
@@ -1148,11 +1211,13 @@ export default function ServiceRequestDetailPage() {
                   canCreateFromRequest={!!canCreateMediatorClient}
                   createBusy={busy}
                   onCreateFromRequest={createMediatorClientFromRequest}
+                  heading="سجلات زبائن مقترحة للوسيط"
+                  createLabel="إنشاء سجل زبون جديد للوسيط"
                 />
               ) : canReview && isActive && !canLink ? (
                 <div className="text-sm text-sky-800">تولَّ الطلب أولاً لربط الوسيط.</div>
               ) : null}
-            </div>
+            </section>
           )}
         </div>
           )}

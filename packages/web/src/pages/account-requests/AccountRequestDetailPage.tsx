@@ -404,7 +404,7 @@ export default function AccountRequestDetailPage() {
           {r.status === 'received' && (
             <p className="text-sm text-slate-500">لا حسم قبل تولّي الطلب.</p>
           )}
-          {r.status === 'in_review' && canDecide && (
+          {r.status === 'in_review' && isClaimed && canDecide && (
             <div className="flex items-end gap-2 flex-wrap">
               <div className="w-56">
                 <label className="text-[11px] text-slate-500 block mb-1">سبب الرفض</label>

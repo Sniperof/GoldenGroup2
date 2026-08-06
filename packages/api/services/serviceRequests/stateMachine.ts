@@ -20,10 +20,10 @@
 //   - apply auth/role     → endpoint layer (Phase 3)
 //
 // All terminal transitions require a triage_outcome from the per-terminal
-// list (٠.٤ table). SR-R005: resolved_at_intake additionally requires the
-// request to be claimed (in_review with reviewed_by_user_id set — i.e. a
-// human triager is present regardless of the intake channel) and non-empty
-// triage_notes. The old channel-based gate wrongly blocked mobile_app.
+// list (٠.٤ table). Human terminal decisions require the request to be claimed
+// (in_review with reviewed_by_user_id set — i.e. a human triager is present
+// regardless of the intake channel). resolved_at_intake additionally requires
+// non-empty triage_notes. The old channel-based gate wrongly blocked mobile_app.
 // ============================================================
 
 import type { PoolClient } from 'pg';
@@ -213,17 +213,21 @@ export async function transitionStatus(
     }
 
     // 4. Per-target validation.
-    // SR-R005: a human-triage terminal decision requires the request to be
-    // claimed first (reviewed_by_user_id set — true for any channel once an
-    // operator claims). Applies to resolved_at_intake AND completed (the
-    // link-and-activate decision in account_creation).
-    if (input.toStatus === 'resolved_at_intake' || input.toStatus === 'completed') {
+    // A human-triage terminal decision requires the request to be claimed
+    // first (reviewed_by_user_id set — true for any channel once an operator
+    // claims). The audit admin who rejects remains a separate decision actor;
+    // this guard does not replace the operational reviewer (SR-CLAIM-06).
+    if (
+      input.toStatus === 'resolved_at_intake'
+      || input.toStatus === 'completed'
+      || input.toStatus === 'rejected'
+    ) {
       if (row.reviewed_by_user_id == null) {
         await rollbackTx(tx);
         return {
           ok: false,
           code: `${input.toStatus}_requires_claim`,
-          message: 'SR-R005: claim the request (assign a reviewer) before this decision',
+          message: `${input.toStatus === 'rejected' ? 'SR-R007' : 'SR-R005'}: claim the request (assign a reviewer) before this decision`,
         };
       }
     }

@@ -260,6 +260,8 @@ export default function SuggestedMatchesPanel({
   createBusy = false,
   onCreateFromRequest,
   fetchSuggestions,
+  heading = 'سجلات مقترحة',
+  createLabel = 'إنشاء سجل جديد من بيانات الطلب',
 }: {
   serviceRequestId: number;
   request?: any;
@@ -269,6 +271,8 @@ export default function SuggestedMatchesPanel({
   canCreateFromRequest?: boolean;
   createBusy?: boolean;
   onCreateFromRequest?: () => Promise<void>;
+  heading?: string;
+  createLabel?: string;
   /** Optional fetcher so other request families (e.g. account_creation, which
    *  is guarded by its own permission keys) can feed this panel from their own
    *  endpoint. Defaults to the generic service-requests suggested-matches call. */
@@ -392,7 +396,7 @@ export default function SuggestedMatchesPanel({
     <div className="space-y-3">
       <h3 className="flex items-center gap-1 text-base font-bold text-slate-800">
         <Search className="h-4 w-4" />
-        سجلات مقترحة
+        {heading}
       </h3>
 
       {allEmpty && (
@@ -406,7 +410,7 @@ export default function SuggestedMatchesPanel({
                 loading={createBusy}
                 onClick={requestCreate}
               >
-                إنشاء سجل جديد من بيانات الطلب
+                {createLabel}
               </Button>
             </div>
           )}
@@ -523,7 +527,7 @@ export default function SuggestedMatchesPanel({
             loading={createBusy}
             onClick={requestCreate}
           >
-            لا توجد نتيجة مناسبة، إنشاء سجل جديد
+            لا توجد نتيجة مناسبة، {createLabel}
           </Button>
         </div>
       )}

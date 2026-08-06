@@ -44,3 +44,29 @@ test('an escalated request cannot transition except through the reject exit', as
   }));
   assert.deepEqual(result, { ok: false, code: 'request_is_escalated_actions_blocked' });
 });
+
+test('an escalated request cannot be rejected before it has been claimed', async () => {
+  const result = await transitionStatus({
+    serviceRequestId: 10,
+    toStatus: 'rejected',
+    actorUserId: 9,
+    actorRole: 'audit_admin',
+    triageOutcome: 'invalid_request',
+  }, fakeDb({
+    id: 10,
+    status: 'in_review',
+    channel: 'mobile_app',
+    request_type: 'water_check',
+    reviewed_by_user_id: null,
+    reopen_count: 0,
+    review_required_flag: false,
+    escalated_at: new Date().toISOString(),
+    duplicate_flag: false,
+    archived_at: null,
+  }));
+  assert.deepEqual(result, {
+    ok: false,
+    code: 'rejected_requires_claim',
+    message: 'SR-R007: claim the request (assign a reviewer) before this decision',
+  });
+});

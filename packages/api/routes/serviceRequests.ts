@@ -54,6 +54,7 @@ import { findPeriodicAttachmentCandidate } from '../services/periodicMaintenance
 import { resolveBranchForServiceGeoUnit } from '../services/serviceRequests/branchResolutionService.js';
 import { getSystemSettingNumber } from '../services/systemSettings.js';
 import { canLinkServiceRequestParty } from '../policies/serviceRequestPartyLinkPolicy.js';
+import { syncWaterCheckBeneficiaryReferrer } from '../services/serviceRequests/atomicClientLink.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -784,42 +785,6 @@ router.post('/:id/take-over', requireTypedPermission('review'), blockIfEscalated
 // Inline service: validates target, updates row, writes audit.
 // ------------------------------------------------------------
 
-/**
- * The request's mediator is the beneficiary's referrer. Once both the
- * beneficiary and the mediator are linked to clients, stamp the beneficiary
- * client's referrer with the mediator client (referrer_type='Client'). Safe:
- * only fills when the beneficiary has no real referrer yet (referrer_id NULL),
- * so it never clobbers an existing referral and is order-independent.
- */
-async function syncBeneficiaryReferrer(db: PoolClientLike, serviceRequestId: number): Promise<void> {
-  await db.query(
-    `UPDATE clients b
-        SET referrer_type = 'Client',
-            referrer_id = sr.referrer_client_id,
-            referrer_name = rcn.name,
-            referrers = jsonb_build_array(jsonb_build_object(
-              'type', 'Client',
-              'referrerType', 'Client',
-              'referrerId', sr.referrer_client_id,
-              'name', rcn.name,
-              'referrerName', rcn.name
-            ))
-       FROM service_requests sr
-       CROSS JOIN LATERAL (
-         SELECT COALESCE(rc.name, NULLIF(CONCAT_WS(' ', rc.first_name, rc.father_name, rc.last_name), '')) AS name
-           FROM clients rc WHERE rc.id = sr.referrer_client_id
-       ) rcn
-      WHERE sr.id = $1
-        AND sr.beneficiary_client_id = b.id
-        AND sr.referrer_client_id IS NOT NULL
-        AND sr.referrer_client_id <> b.id
-        AND b.referrer_id IS NULL`,
-    [serviceRequestId],
-  );
-}
-
-type PoolClientLike = { query: (text: string, params?: any[]) => Promise<{ rows: any[]; rowCount?: number | null }> };
-
 async function linkBeneficiary(input: {
   serviceRequestId: number;
   beneficiaryClientId?: number | null;
@@ -946,7 +911,7 @@ async function linkBeneficiary(input: {
           },
     });
 
-    await syncBeneficiaryReferrer(client, input.serviceRequestId);
+    await syncWaterCheckBeneficiaryReferrer(client, input.serviceRequestId, input.actorUserId);
 
     await client.query('COMMIT');
     return { ok: true as const };
@@ -1129,7 +1094,7 @@ router.post('/:id/link-requester', requireTypedPermission('review'), blockIfEsca
         referrer_mirrored: sameAsRequester,
       },
     });
-    if (sameAsRequester) await syncBeneficiaryReferrer(client, serviceRequestId);
+    if (sameAsRequester) await syncWaterCheckBeneficiaryReferrer(client, serviceRequestId, actor.userId);
     await client.query('COMMIT');
     res.json({ ok: true });
   } catch (err) {
@@ -1214,7 +1179,7 @@ router.post('/:id/link-referrer', requireTypedPermission('review'), blockIfEscal
         requester_mirrored: sameAsRequester,
       },
     });
-    await syncBeneficiaryReferrer(client, Number(req.params.id));
+    await syncWaterCheckBeneficiaryReferrer(client, Number(req.params.id), actor.userId);
     await client.query('COMMIT');
     res.json({ ok: true });
   } catch (err) {

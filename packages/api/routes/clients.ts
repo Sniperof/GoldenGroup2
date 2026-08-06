@@ -5,6 +5,10 @@ import { getOrBuildAuthContext, requirePermission } from '../middleware/permissi
 import { authorize, resolveActingBranch } from '../services/authorizationService.js';
 import { assertGeoUnitInScope } from '../services/geoScopeService.js';
 import {
+  linkNewClientToWaterCheckParty,
+  type WaterCheckClientParty,
+} from '../services/serviceRequests/atomicClientLink.js';
+import {
   canCreateClient,
   canDeleteClient,
   canEditClient,
@@ -169,6 +173,23 @@ const CLIENT_MUTATION_RETURNING = `
 `;
 
 const toJson = (value: unknown, fallback: unknown) => JSON.stringify(value ?? fallback);
+
+function readAtomicServiceRequestLink(body: any): {
+  serviceRequestId: number;
+  party: WaterCheckClientParty;
+} | null {
+  if (body?.serviceRequestLink == null) return null;
+  const serviceRequestId = Number(body.serviceRequestLink.serviceRequestId);
+  const party = body.serviceRequestLink.party;
+  if (!Number.isInteger(serviceRequestId) || serviceRequestId <= 0
+      || !['beneficiary', 'requester', 'referrer'].includes(party)) {
+    throw Object.assign(new Error('بيانات ربط طلب فحص المياه غير صالحة'), {
+      status: 400,
+      code: 'invalid_service_request_client_link',
+    });
+  }
+  return { serviceRequestId, party };
+}
 
 function mapClientRow(row: any) {
   // Many clients still carry their (single) referrer only in the legacy scalar
@@ -390,12 +411,22 @@ function normalizeReferrerItem(raw: any): Record<string, any> | null {
 }
 
 function buildLegacyReferrerFromPayload(payload: Record<string, any>): Record<string, any> | null {
+  const referrerType = normalizeTextValue(payload.referrerType);
+  const referrerName = normalizeTextValue(payload.referrerName);
+  const referrerId = normalizeNullableNumber(payload.referrerId);
+  const referralEntityId = normalizeNullableNumber(payload.referralEntityId);
+  // Channel/reason describe acquisition context, not a referrer identity.
+  // Without this guard an ordinary App-created client becomes a fake
+  // referrer row, and `Personal` enforcement may attribute it to the admin.
+  if (!referrerType && !referrerName && referrerId == null && referralEntityId == null) {
+    return null;
+  }
   return normalizeReferrerItem({
-    referrerType: payload.referrerType,
-    referrerId: payload.referrerId,
-    referrerName: payload.referrerName,
+    referrerType,
+    referrerId,
+    referrerName,
     sourceChannel: payload.sourceChannel,
-    referralEntityId: payload.referralEntityId,
+    referralEntityId,
     referralDate: payload.referralDate,
     referralReason: payload.referralReason,
     referralSheetId: payload.referralSheetId,
@@ -459,10 +490,10 @@ function reconcileClientReferrers<T extends Record<string, any>>(
     referrerType: primary?.referrerType ?? null,
     referrerId: primary?.referrerId ?? null,
     referrerName: primary?.referrerName ?? null,
-    sourceChannel: primary?.sourceChannel ?? null,
+    sourceChannel: primary?.sourceChannel ?? normalizeTextValue(payload.sourceChannel),
     referralEntityId: primary?.referralEntityId ?? null,
     referralDate: primary?.referralDate ?? null,
-    referralReason: primary?.referralReason ?? null,
+    referralReason: primary?.referralReason ?? normalizeTextValue(payload.referralReason),
     referralSheetId: primary?.referralSheetId ?? null,
     referralAddressText: primary?.referralAddressText ?? null,
   };
@@ -2039,6 +2070,7 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
   const db = await pool.connect();
   try {
     const authContext = getRequiredAuthContext(req);
+    const serviceRequestLink = readAtomicServiceRequestLink(req.body);
     const targetBranchId = resolveClientTargetBranch(req, req.body?.branchId);
     if (targetBranchId == null) {
       return res.status(400).json({ error: 'يجب تحديد الفرع المستهدف لهذه العملية' });
@@ -2223,6 +2255,17 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
       [inserted.id, 'التقييم الابتدائي عند إنشاء الزبون', authContext.userId],
     );
 
+    if (serviceRequestLink) {
+      await linkNewClientToWaterCheckParty({
+        db,
+        authContext,
+        serviceRequestId: serviceRequestLink.serviceRequestId,
+        clientId: Number(inserted.id),
+        clientBranchId: targetBranchId,
+        party: serviceRequestLink.party,
+      });
+    }
+
     if (hasSourceCandidate) {
       await db.query(
         `UPDATE candidates
@@ -2235,8 +2278,9 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
     }
 
     const { rows } = await db.query(`${CLIENT_SELECT} WHERE c.id = $1`, [inserted.id]);
+    const response = mapClientRow(rows[0]);
     await db.query('COMMIT');
-    res.json(mapClientRow(rows[0]));
+    res.json(response);
   } catch (err: any) {
     await db.query('ROLLBACK').catch(() => undefined);
     res.status(err.status || 500).json({ error: err.message, code: err.code });

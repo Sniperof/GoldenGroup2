@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowUpCircle, Beaker, Building2, CheckCircle2, ExternalLink, MapPin, User, AlertTriangle } from 'lucide-react';
+import { ArrowUpCircle, Beaker, CheckCircle2, ExternalLink, Link2, MapPin, User, AlertTriangle } from 'lucide-react';
 import type { GeoUnit } from '@golden-crm/shared';
 import { api } from '../../lib/api';
 import Button from '../ui/Button';
@@ -56,6 +56,39 @@ function Field({ label, value }: { label: string; value: unknown }) {
     <div className="rounded-xl border border-slate-100 bg-slate-50/70 px-3.5 py-3">
       <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{label}</div>
       <div className={`mt-1 text-sm font-semibold ${empty ? 'text-slate-300' : 'text-slate-800'}`}>{empty ? 'غير متوفر' : text}</div>
+    </div>
+  );
+}
+
+function LinkStatus({
+  clientId,
+  clientName,
+  required = false,
+}: {
+  clientId: number | null | undefined;
+  clientName?: string | null;
+  required?: boolean;
+}) {
+  const linked = !!clientId;
+  return (
+    <div className={`flex flex-wrap items-center gap-2 rounded-xl border px-3.5 py-3 ${
+      linked
+        ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+        : required
+          ? 'border-amber-200 bg-amber-50 text-amber-800'
+          : 'border-slate-200 bg-slate-50 text-slate-600'
+    }`}>
+      {linked ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <Link2 className="h-4 w-4 shrink-0" />}
+      <div>
+        <div className="text-[11px] font-bold uppercase tracking-wide opacity-75">حالة الربط بسجل زبون</div>
+        <div className="mt-0.5 text-sm font-bold">
+          {linked
+            ? `مرتبط: ${clientName ?? `الزبون #${clientId}`}`
+            : required
+              ? 'غير مرتبط — الربط مطلوب قبل التحويل إلى مهمة'
+              : 'غير مرتبط — الربط اختياري'}
+        </div>
+      </div>
     </div>
   );
 }
@@ -164,12 +197,14 @@ export default function WaterCheckRequestDetailPanel({
             <User className="h-5 w-5 text-sky-600" />
             <h2 className="text-lg font-bold text-slate-800">مقدم الطلب</h2>
           </div>
+          <div className="mb-3">
+            <LinkStatus clientId={request.requesterClientId} clientName={request.requesterClientName} />
+          </div>
           <div className="grid gap-3 md:grid-cols-3">
             <Field label="الاسم" value={requesterName} />
             <Field label="الهاتف الأساسي" value={requesterPhone ? `${requesterPhone}${requester.primaryPhoneHasWhatsapp ? ' · واتساب' : ''}` : ''} />
             <Field label="الهاتف الثانوي" value={requesterSecondaryPhone ? `${requesterSecondaryPhone}${requester.secondaryPhoneHasWhatsapp ? ' · واتساب' : ''}` : ''} />
             <Field label="مصدر الهوية" value={requester.name_source === 'client_record' ? 'سجل الزبون' : 'بيانات مقدمة'} />
-            <Field label="مقدم الطلب كزبون" value={request.requesterClientName ?? (request.requesterClientId ? `#${request.requesterClientId}` : 'غير مربوط')} />
           </div>
         </section>
       )}
@@ -177,7 +212,9 @@ export default function WaterCheckRequestDetailPanel({
       <section className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
         <div className="mb-4 flex flex-wrap items-center gap-2">
           <Beaker className="h-5 w-5 text-sky-600" />
-          <h2 className="text-lg font-bold text-slate-800">المستفيد وبيانات التواصل</h2>
+          <h2 className="text-lg font-bold text-slate-800">
+            {request.submissionType === 'refer_a_candidate' ? 'المستفيد وبيانات التواصل' : 'مقدم الطلب والمستفيد'}
+          </h2>
           <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
             request.submissionType === 'refer_a_candidate'
               ? 'bg-amber-100 text-amber-700'
@@ -187,6 +224,11 @@ export default function WaterCheckRequestDetailPanel({
           </span>
         </div>
         <div className="space-y-4">
+          <LinkStatus
+            clientId={request.beneficiaryClientId}
+            clientName={request.beneficiaryClientName}
+            required
+          />
           <div className="grid gap-3 md:grid-cols-2">
             <Field label={request.submissionType === 'refer_a_candidate' ? 'المستفيد من الفحص' : 'الزبون مقدم الطلب'} value={fullName} />
             <Field label="نوع الطلب (لمن؟)" value={request.submissionType === 'refer_a_candidate' ? 'لعنوان شخص آخر' : 'لعنواني'} />
@@ -203,6 +245,7 @@ export default function WaterCheckRequestDetailPanel({
                 label="رقم ثانوي"
                 value={secondaryPhone ? `${secondaryPhone}${external.secondaryPhoneHasWhatsapp ? ' · واتساب' : ''}` : ''}
               />
+              <Field label="ملاحظات الطلب" value={notes} />
             </div>
           </div>
         </div>
@@ -215,6 +258,9 @@ export default function WaterCheckRequestDetailPanel({
             <h2 className="text-lg font-bold text-slate-800">الوسيط (المُحيل)</h2>
             <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">طلب لشخص آخر</span>
           </div>
+          <div className="mb-3">
+            <LinkStatus clientId={request.referrerClientId} clientName={request.referrerClientName} />
+          </div>
           <div className="grid gap-4 md:grid-cols-3">
             <Field label="اسم الوسيط" value={mediatorName} />
             <Field label="رقم الهاتف" value={readText(mediator.primary_phone)} />
@@ -225,12 +271,6 @@ export default function WaterCheckRequestDetailPanel({
             <Field label="العنوان التفصيلي" value={readText(mediator.detailedAddress)} />
             <Field label="ملاحظات الوسيط" value={readText(mediator.notes)} />
             <Field label="وافق على مشاركة بياناته" value={mediator.awarenessOrConsent ? 'نعم' : 'لا'} />
-            <Field
-              label="الوسيط كزبون"
-              value={request.referrerClientId
-                ? (request.referrerClientName ?? `#${request.referrerClientId}`)
-                : 'غير مربوط بعد'}
-            />
           </div>
           <div className="mt-3 rounded bg-white/60 p-2 text-xs text-amber-800">
             {request.referrerClientId
@@ -338,22 +378,6 @@ export default function WaterCheckRequestDetailPanel({
         </section>
       )}
 
-      <section className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
-        <div className="mb-4 flex items-center gap-2">
-          <User className="h-5 w-5 text-sky-600" />
-          <h2 className="text-lg font-bold text-slate-800">الربط</h2>
-        </div>
-        <div className="grid gap-4 md:grid-cols-2">
-          <Field label="الزبون المرتبط" value={request.beneficiaryClientName ?? (request.beneficiaryClientId ? `#${request.beneficiaryClientId}` : 'غير مربوط بعد')} />
-          <Field label="ملاحظات الطلب" value={notes || '-'} />
-        </div>
-        {!request.beneficiaryClientId && (
-          <div className="mt-4 flex items-start gap-2 rounded bg-slate-50 p-3 text-sm text-slate-700">
-            <Building2 className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" />
-            <span>قبل تحويل الطلب إلى مهمة يجب ربطه بزبون وفرع واضحين.</span>
-          </div>
-        )}
-      </section>
     </div>
   );
 }
