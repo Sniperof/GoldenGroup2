@@ -48,6 +48,12 @@ import {
 const router = Router();
 router.use(requireAuth);
 
+const CLIENT_REQUEST_VIEW_PERMISSION_BY_TYPE: Record<string, string> = {
+  emergency_maintenance: 'service_requests.view',
+  water_check: 'water_check.view',
+  account_creation: 'account_requests.view',
+};
+
 const CLIENT_SELECT = `
   SELECT
     c.id,
@@ -1659,6 +1665,64 @@ router.post('/:id/rating-history', requirePermission('clients.rating.edit'), asy
   } catch (err: any) {
     res.status(err.status || 500).json({ error: err.message });
   }
+});
+
+// All request appearances for one authorized client subject. Request-family
+// capabilities are applied per type so access to a client never widens access
+// to service/account requests.
+router.get('/:id/service-requests', requirePermission('clients.view'), async (req, res) => {
+  const authContext = getRequiredAuthContext(req);
+  const clientId = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
+  if (!Number.isInteger(clientId) || clientId <= 0) {
+    return res.status(400).json({ error: 'invalid_client_id' });
+  }
+
+  const subject = await loadClientSubject(clientId);
+  if (!subject) return res.status(404).json({ error: 'client_not_found' });
+
+  const access = canViewClient(authContext, subject);
+  if (!access.allowed) {
+    const branchIdsForRelatedAccess = authContext.actingBranchId != null
+      ? [authContext.actingBranchId]
+      : authContext.allowedBranchIds;
+    const canReadViaRelatedBranch =
+      hasBranchScopedClientGrant(authContext, 'clients.view')
+      && await hasClientDeviceOrContractInBranches(clientId, branchIdsForRelatedAccess);
+    if (!canReadViaRelatedBranch) return forbidClientAccess(res, access.reason);
+  }
+
+  const viewableTypes = Object.entries(CLIENT_REQUEST_VIEW_PERMISSION_BY_TYPE)
+    .filter(([, permission]) => authContext.isSuperAdmin || authorize(authContext, { permission }).allowed)
+    .map(([requestType]) => requestType);
+  if (viewableTypes.length === 0) return res.json({ items: [] });
+
+  const { rows } = await pool.query(
+    `SELECT sr.id,
+            sr.public_ref_number AS "publicRefNumber",
+            sr.request_type AS "requestType",
+            sr.status,
+            sr.created_at AS "createdAt",
+            sr.closed_at AS "closedAt",
+            sr.reviewed_by_user_id AS "reviewedByUserId",
+            reviewer.name AS "reviewedByUserName",
+            sr.branch_id AS "branchId",
+            branch.name AS "branchName",
+            ARRAY_REMOVE(ARRAY[
+              CASE WHEN sr.requester_client_id = $1 THEN 'requester'::text END,
+              CASE WHEN sr.beneficiary_client_id = $1 THEN 'beneficiary'::text END,
+              CASE WHEN sr.referrer_client_id = $1 THEN 'referrer'::text END
+            ], NULL) AS roles
+       FROM service_requests sr
+       LEFT JOIN hr_users reviewer ON reviewer.id = sr.reviewed_by_user_id
+       LEFT JOIN branches branch ON branch.id = sr.branch_id
+      WHERE sr.request_type = ANY($2::text[])
+        AND ($1 = sr.requester_client_id
+          OR $1 = sr.beneficiary_client_id
+          OR $1 = sr.referrer_client_id)
+      ORDER BY sr.created_at DESC, sr.id DESC`,
+    [clientId, viewableTypes],
+  );
+  return res.json({ items: rows });
 });
 
 // Level-2 client snapshot (docs/.../client-snapshot.md). Reused to render a

@@ -156,6 +156,7 @@ export async function transitionStatus(
       status: ServiceRequestStatus;
       channel: ServiceRequestChannel;
       request_type: string | null;
+      beneficiary_client_id: number | null;
       reviewed_by_user_id: number | null;
       reopen_count: number;
       review_required_flag: boolean;
@@ -163,7 +164,8 @@ export async function transitionStatus(
       duplicate_flag: boolean;
       archived_at: string | null;
     }>(
-      `SELECT id, status, channel, request_type, reviewed_by_user_id, reopen_count,
+      `SELECT id, status, channel, request_type, beneficiary_client_id,
+              reviewed_by_user_id, reopen_count,
               review_required_flag, escalated_at, duplicate_flag, archived_at
          FROM service_requests
         WHERE id = $1
@@ -230,6 +232,22 @@ export async function transitionStatus(
           message: `${input.toStatus === 'rejected' ? 'SR-R007' : 'SR-R005'}: claim the request (assign a reviewer) before this decision`,
         };
       }
+    }
+    // Operational service requests cannot be closed by rejection or an
+    // intake-resolution until their beneficiary is an identified client.
+    // account_creation is structurally different: linking is the approval
+    // side-effect itself, so its reject path cannot depend on that link.
+    if (
+      row.request_type !== 'account_creation'
+      && (input.toStatus === 'resolved_at_intake' || input.toStatus === 'rejected')
+      && row.beneficiary_client_id == null
+    ) {
+      await rollbackTx(tx);
+      return {
+        ok: false,
+        code: `${input.toStatus}_requires_beneficiary_client`,
+        message: 'Link the beneficiary to a client record before this decision',
+      };
     }
     if (input.toStatus === 'resolved_at_intake') {
       if (!input.triageNotes || input.triageNotes.trim().length === 0) {

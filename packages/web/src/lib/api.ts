@@ -637,6 +637,7 @@ export const api = {
     },
     get: (id: number) => request<any>(`/clients/${id}`),
     snapshot: (id: number) => request<{ snapshot: any }>(`/clients/${id}/snapshot`),
+    listServiceRequests: (id: number) => request<{ items: any[] }>(`/clients/${id}/service-requests`),
     getNetwork: (id: number) => request<any>(`/clients/${id}/network`),
     getRatingHistory: (id: number) => request<any[]>(`/clients/${id}/rating-history`),
     updateRating: (id: number, data: { rating: 'Committed' | 'NotCommitted' | 'Undefined'; notes?: string | null }) =>

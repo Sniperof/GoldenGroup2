@@ -201,11 +201,13 @@ export default function ServiceRequestDetailPage() {
   const isTerminal = !isActive;
   // SR-ESC-01 — restricted mode: while escalated, only reject + de-escalate are allowed.
   const isEscalated = !!req.escalatedAt;
+  const hasBeneficiaryClient = req.beneficiaryClientId != null;
   const reviewReasons = reviewRequiredReasons(data.auditLog);
-  const canReject = req.status === 'in_review'
+  const canOfferReject = req.status === 'in_review'
     && req.reviewedByUserId != null
     && (req.reviewRequiredFlag || isEscalated)
     && canDecide;
+  const canReject = canOfferReject && hasBeneficiaryClient;
   // SR-LINK-01 — linking (and create-from-request) requires the request to be
   // claimed first. Only available in_review and while not escalated.
   const canLink = req.status === 'in_review' && !isEscalated;
@@ -906,23 +908,28 @@ export default function ServiceRequestDetailPage() {
               <Button
                 size="sm"
                 icon={ClipboardCheck}
-                disabled={busy}
+                disabled={busy || !hasBeneficiaryClient}
                 onClick={() => setActionModal('resolveAtIntake')}
+                title={hasBeneficiaryClient ? 'حل الطلب عند الاستلام' : 'اربط المستفيد بسجل زبون أولاً'}
               >
                 حُلَّ في الاستلام
               </Button>
             </>
           )}
-          {canReject && (
+          {canOfferReject && (
             <Button
               variant="danger"
               size="sm"
               icon={X}
-              disabled={busy}
+              disabled={busy || !canReject}
               onClick={() => setActionModal('reject')}
+              title={hasBeneficiaryClient ? 'رفض الطلب' : 'اربط المستفيد بسجل زبون أولاً'}
             >
               رَفض (مدقّق)
             </Button>
+          )}
+          {req.status === 'in_review' && canDecide && !hasBeneficiaryClient && (
+            <span className="text-xs font-semibold text-amber-700">اربط المستفيد بسجل زبون قبل الرفض أو الحل عند الاستلام.</span>
           )}
           {isActive && canDecide && req.status !== 'received' && !isEscalated && (
             <Button

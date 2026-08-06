@@ -70,3 +70,58 @@ test('an escalated request cannot be rejected before it has been claimed', async
     message: 'SR-R007: claim the request (assign a reviewer) before this decision',
   });
 });
+
+test('a claimed service request cannot be rejected before linking a beneficiary client', async () => {
+  const result = await transitionStatus({
+    serviceRequestId: 10,
+    toStatus: 'rejected',
+    actorUserId: 9,
+    actorRole: 'audit_admin',
+    triageOutcome: 'invalid_request',
+  }, fakeDb({
+    id: 10,
+    status: 'in_review',
+    channel: 'mobile_app',
+    request_type: 'water_check',
+    beneficiary_client_id: null,
+    reviewed_by_user_id: 5,
+    reopen_count: 0,
+    review_required_flag: true,
+    escalated_at: null,
+    duplicate_flag: false,
+    archived_at: null,
+  }));
+  assert.deepEqual(result, {
+    ok: false,
+    code: 'rejected_requires_beneficiary_client',
+    message: 'Link the beneficiary to a client record before this decision',
+  });
+});
+
+test('a claimed service request cannot be resolved at intake before linking a beneficiary client', async () => {
+  const result = await transitionStatus({
+    serviceRequestId: 10,
+    toStatus: 'resolved_at_intake',
+    actorUserId: 5,
+    actorRole: 'operator',
+    triageOutcome: 'handled_by_phone',
+    triageNotes: 'تم الحل',
+  }, fakeDb({
+    id: 10,
+    status: 'in_review',
+    channel: 'mobile_app',
+    request_type: 'emergency_maintenance',
+    beneficiary_client_id: null,
+    reviewed_by_user_id: 5,
+    reopen_count: 0,
+    review_required_flag: false,
+    escalated_at: null,
+    duplicate_flag: false,
+    archived_at: null,
+  }));
+  assert.deepEqual(result, {
+    ok: false,
+    code: 'resolved_at_intake_requires_beneficiary_client',
+    message: 'Link the beneficiary to a client record before this decision',
+  });
+});

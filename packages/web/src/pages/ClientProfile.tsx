@@ -35,6 +35,7 @@ import DeviceOfferModal from '../components/clients/DeviceOfferModal';
 import NewServiceRequestModal from '../components/service-requests/NewServiceRequestModal';
 import { usePermissions } from '../hooks/usePermissions';
 import ClientAppAccountCard from '../components/appAccounts/ClientAppAccountCard';
+import ServiceRequestsTab from './clientProfile/ServiceRequestsTab';
 
 type ClientProfileTabId =
     | 'overview'
@@ -47,6 +48,7 @@ type ClientProfileTabId =
     | 'parts_stock'
     | 'pre_offers'
     | 'gifts'
+    | 'service_requests'
     | 'rating'
     | 'account_statement';
 
@@ -599,6 +601,7 @@ export default function ClientProfile() {
     const canViewNetwork = hasPermission('clients.network.view');
     const canViewAccountStatement = hasPermission('clients.account_statement.view');
     const canViewRating = hasPermission('clients.rating.view');
+    const canViewServiceRequests = hasAnyPermission('service_requests.view', 'water_check.view', 'account_requests.view');
     const canEditRating = hasPermission('clients.rating.edit');
     const canEditContactControl = hasPermission('clients.contact_control.edit') || hasPermission('clients.cooldown_unlock');
     const [activeTab, setActiveTab] = useState<ClientProfileTabId>('overview');
@@ -673,6 +676,7 @@ export default function ClientProfile() {
         ...(canViewPartsStock ? [{ id: 'parts_stock' as const, label: 'ط§ظ„ظ…ط®ط²ظˆظ†', icon: Package }] : []),
         ...(canViewPreOffers ? [{ id: 'pre_offers' as const, label: 'ط§ظ„ط¹ط±ظˆط¶ ط§ظ„ظ…ط³ط¨ظ‚ط©', icon: Sparkles }] : []),
         { id: 'gifts' as const, label: 'الهدايا', icon: Gift },
+        ...(canViewServiceRequests ? [{ id: 'service_requests' as const, label: 'الطلبات', icon: FileText }] : []),
         ...(canViewRating ? [{ id: 'rating' as const, label: 'تقييم الالتزام', icon: Star }] : []),
         ...(canViewNetwork ? [{ id: 'network' as const, label: 'ط§ظ„ط´ط¨ظƒط©', icon: Share2 }] : []),
         ...(canViewAccountStatement ? [{ id: 'account_statement' as const, label: 'ظƒط´ظپ ط§ظ„ط­ط³ط§ط¨', icon: FileText }] : []),
@@ -714,6 +718,7 @@ export default function ClientProfile() {
                                         { id: 'parts_stock', label: 'المخزون', icon: Package },
                                         { id: 'pre_offers', label: 'العروض المسبقة', icon: Sparkles },
                                         { id: 'gifts', label: 'الهدايا', icon: Gift },
+                                        { id: 'service_requests', label: 'الطلبات', icon: FileText },
                                         { id: 'rating', label: 'تقييم الالتزام', icon: Star },
                                         { id: 'network', label: 'الشبكة', icon: Share2 },
                                         { id: 'account_statement', label: 'كشف الحساب', icon: FileText },
@@ -763,6 +768,7 @@ export default function ClientProfile() {
                                 {safeActiveTab === 'parts_stock' && <PartsStockTab client={client} />}
                                 {safeActiveTab === 'pre_offers' && <PreOffersTab client={client} />}
                                 {safeActiveTab === 'gifts' && <GiftsTab client={client} />}
+                                {safeActiveTab === 'service_requests' && <ServiceRequestsTab clientId={client.id} />}
                                 {safeActiveTab === 'rating' && (
                                     <ClientRatingTab
                                         client={client}
