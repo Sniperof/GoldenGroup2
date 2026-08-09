@@ -292,6 +292,12 @@ export interface BranchContact {
   label?: string;        // optional extra note
 }
 
+export interface BranchImage {
+  id: string;
+  name: string;
+  url: string;
+}
+
 export interface Branch {
     id: number;
     name: string;
@@ -300,6 +306,13 @@ export interface Branch {
     detailedAddress?: string | null;
     coveredGeoIds: number[];
     contactInfo: BranchContact[];
+    mobileVisible?: boolean;
+    mobileDisplayOrder?: number;
+    publicDescription?: string | null;
+    images?: BranchImage[];
+    primaryImageId?: string | null;
+    latitude?: number | null;
+    longitude?: number | null;
     status: 'active' | 'inactive';
     createdAt: string;
 }

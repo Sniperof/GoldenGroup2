@@ -20,6 +20,7 @@
 // ============================================================
 
 import { Router, type NextFunction, type Request, type Response } from 'express';
+import crypto from 'node:crypto';
 import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
@@ -45,12 +46,10 @@ import {
 import {
   promote,
   mergeIntoExistingTask,
-  attachToPeriodicTask,
 } from '../services/serviceRequests/promoteService.js';
 import { handoffWaterCheckToDeviceDemo } from '../services/serviceRequests/waterCheckHandoffService.js';
 import { reopen } from '../services/serviceRequests/reopenService.js';
 import { suggestRecords } from '../services/serviceRequests/fuzzyMatching.js';
-import { findPeriodicAttachmentCandidate } from '../services/periodicMaintenanceTasks.js';
 import { resolveBranchForServiceGeoUnit } from '../services/serviceRequests/branchResolutionService.js';
 import { getSystemSettingNumber } from '../services/systemSettings.js';
 import { canLinkServiceRequestParty } from '../policies/serviceRequestPartyLinkPolicy.js';
@@ -133,6 +132,61 @@ function requireTypedPermission(action: FamilyAction) {
 function getActor(req: Request): { userId: number; isSuperAdmin: boolean } {
   const ctx = req.authContext!;
   return { userId: ctx.userId, isSuperAdmin: ctx.isSuperAdmin };
+}
+
+async function authorizeCreateSubject(
+  req: Request,
+  res: Response,
+  input: Record<string, unknown> = req.body ?? {},
+): Promise<boolean> {
+  const beneficiaryClientId = Number(input.beneficiaryClientId) || null;
+  const installedDeviceId = Number(input.installedDeviceId) || null;
+  if (beneficiaryClientId == null && installedDeviceId == null) {
+    const branchId = Number(input.branchId ?? req.authContext?.actingBranchId) || null;
+    const access = authorize(req.authContext!, { permission: 'service_requests.create', branchId });
+    if (!access.allowed) {
+      res.status(403).json({ error: 'service_request_subject_forbidden', details: { reason: access.reason } });
+      return false;
+    }
+    return true;
+  }
+  const { rows } = await pool.query<{
+    client_id: number | null;
+    client_branch_id: number | null;
+    device_customer_id: number | null;
+    device_branch_id: number | null;
+  }>(
+    `SELECT c.id AS client_id, c.branch_id AS client_branch_id,
+            d.customer_id AS device_customer_id, d.branch_id AS device_branch_id
+       FROM (SELECT $1::bigint AS beneficiary_client_id, $2::bigint AS installed_device_id) input
+       LEFT JOIN clients c ON c.id = input.beneficiary_client_id AND c.deleted_at IS NULL
+       LEFT JOIN installed_devices d ON d.id = input.installed_device_id`,
+    [beneficiaryClientId, installedDeviceId],
+  );
+  const subject = rows[0];
+  if (beneficiaryClientId != null && subject?.client_id == null) {
+    res.status(404).json({ error: 'beneficiary_client_not_found' });
+    return false;
+  }
+  if (installedDeviceId != null && subject?.device_customer_id == null) {
+    res.status(404).json({ error: 'installed_device_not_found' });
+    return false;
+  }
+  if (
+    installedDeviceId != null
+    && beneficiaryClientId != null
+    && subject.device_customer_id !== beneficiaryClientId
+  ) {
+    res.status(400).json({ error: 'installed_device_beneficiary_mismatch' });
+    return false;
+  }
+  const branchId = subject.client_branch_id ?? subject.device_branch_id;
+  const access = authorize(req.authContext!, { permission: 'service_requests.create', branchId });
+  if (!access.allowed) {
+    res.status(403).json({ error: 'service_request_subject_forbidden', details: { reason: access.reason } });
+    return false;
+  }
+  return true;
 }
 
 /** Maps a service-result error code to an HTTP status. */
@@ -284,6 +338,14 @@ const SR_SELECT = `
   sr.installed_device_id AS "installedDeviceId",
   sr.external_device_name AS "externalDeviceName",
   sr.external_device_serial AS "externalDeviceSerial",
+  sr.reported_device_selection AS "reportedDeviceSelection",
+  sr.reported_device_model_id AS "reportedDeviceModelId",
+  sr.reported_device_snapshot AS "reportedDeviceSnapshot",
+  sr.safety_indicator_codes AS "safetyIndicatorCodes",
+  sr.source_call_log_id AS "sourceCallLogId",
+  sr.device_location_decision AS "deviceLocationDecision",
+  sr.device_location_decided_by_user_id AS "deviceLocationDecidedByUserId",
+  sr.device_location_decided_at AS "deviceLocationDecidedAt",
   sr.problem_description AS "problemDescription",
   sr.requested_action_type_id AS "requestedActionTypeId",
   sr.attachments,
@@ -365,9 +427,15 @@ const SR_DISPLAY_JOINS = `
 // ------------------------------------------------------------
 
 router.post('/', requirePermission('service_requests.create'), async (req, res) => {
+  const allowedChannels = new Set(['phone', 'internal_button', 'client_detail_button', 'admin_manual']);
+  if (!allowedChannels.has(String(req.body?.channel ?? ''))) {
+    return res.status(400).json({ error: 'invalid_internal_service_request_channel' });
+  }
+  if (!await authorizeCreateSubject(req, res)) return;
   const actor = getActor(req);
   const result = await createServiceRequest({
     ...req.body,
+    requestType: 'emergency_maintenance',
     actorUserId: actor.userId,
     actorRole: 'operator',
     branchId: req.body.branchId ?? req.authContext!.actingBranchId ?? null,
@@ -378,9 +446,11 @@ router.post('/', requirePermission('service_requests.create'), async (req, res) 
 
 // Convenience: same as POST / but forces channel='admin_manual' + in_review.
 router.post('/internal', requirePermission('service_requests.create'), async (req, res) => {
+  if (!await authorizeCreateSubject(req, res)) return;
   const actor = getActor(req);
   const result = await createServiceRequest({
     ...req.body,
+    requestType: 'emergency_maintenance',
     channel: 'admin_manual',
     actorUserId: actor.userId,
     actorRole: 'operator',
@@ -389,6 +459,130 @@ router.post('/internal', requirePermission('service_requests.create'), async (re
   if (result.ok !== true) return sendErr(res, result);
   res.status(201).json(result.data);
 });
+
+// Telemarketing/service-call gateway. The customer call log and the emergency
+// service request either both commit or neither does.
+router.post(
+  '/internal-with-call',
+  requirePermission('telemarketing.calls.create'),
+  requirePermission('service_requests.create'),
+  async (req, res) => {
+    const actor = getActor(req);
+    const call = (req.body?.call ?? {}) as Record<string, unknown>;
+    const request = (req.body?.request ?? {}) as Record<string, unknown>;
+    const requesterClientId = Number(request.requesterClientId ?? call.customerId);
+    const beneficiaryClientId = Number(request.beneficiaryClientId) || null;
+    if (!Number.isInteger(requesterClientId) || requesterClientId <= 0) {
+      return res.status(400).json({ error: 'requester_client_id_required' });
+    }
+    const { rows: partyRows } = await pool.query<{
+      id: number;
+      branch_id: number | null;
+    }>(
+      `SELECT id, branch_id FROM clients WHERE id = ANY($1::bigint[]) AND deleted_at IS NULL`,
+      [[requesterClientId, ...(beneficiaryClientId ? [beneficiaryClientId] : [])]],
+    );
+    const requester = partyRows.find((row) => Number(row.id) === requesterClientId);
+    const beneficiary = beneficiaryClientId
+      ? partyRows.find((row) => Number(row.id) === beneficiaryClientId)
+      : null;
+    if (!requester) return res.status(404).json({ error: 'requester_client_not_found' });
+    if (beneficiaryClientId && !beneficiary) return res.status(404).json({ error: 'beneficiary_client_not_found' });
+    for (const branchId of new Set([requester.branch_id, beneficiary?.branch_id].filter((id): id is number => id != null))) {
+      const access = authorize(req.authContext!, { permission: 'service_requests.create', branchId });
+      if (!access.allowed) {
+        return res.status(403).json({ error: 'service_request_subject_forbidden', details: { branchId, reason: access.reason } });
+      }
+    }
+    if (!await authorizeCreateSubject(req, res, request)) return;
+
+    const callLogId = crypto.randomUUID();
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        `INSERT INTO customer_call_logs (
+           id, customer_id, contact_id, contact_number, contact_label,
+           caller_id, caller_role, call_date, outcome, source_type, source_id,
+           notes, branch_id, action_log, answered_by, communication_channel, status
+         ) VALUES (
+           $1, $2, $3, $4, $5,
+           $6, 'telemarketer', COALESCE($7::timestamptz, NOW()), 'service_request',
+           'telemarketing_task', $8,
+           $9, $10, '{}'::jsonb, $11, $12, 'completed'
+         )`,
+        [
+          callLogId,
+          requesterClientId,
+          call.contactId ?? null,
+          call.contactNumber ?? null,
+          call.contactLabel ?? null,
+          actor.userId,
+          call.callDate ?? null,
+          call.taskListItemId ?? null,
+          call.notes ?? null,
+          requester.branch_id,
+          call.answeredBy ?? null,
+          call.communicationChannel ?? null,
+        ],
+      );
+      const result = await createServiceRequest({
+        requestType: 'emergency_maintenance',
+        channel: 'phone',
+        applicationSource: 'telemarketing_service_request',
+        submittedPayload: {
+          formVersion: 'emergency_maintenance.internal.v1',
+          capturedAt: new Date().toISOString(),
+          call: { contactNumber: call.contactNumber ?? null, notes: call.notes ?? null },
+        },
+        requesterClientId,
+        beneficiaryClientId,
+        beneficiaryExternal: request.beneficiaryExternal as Record<string, unknown> | null | undefined,
+        referrerClientId: Number(request.referrerClientId) || null,
+        referrerExternal: request.referrerExternal as Record<string, unknown> | null | undefined,
+        submissionType: request.submissionType === 'refer_a_candidate' ? 'refer_a_candidate' : 'apply',
+        submitterTier: 'staff',
+        contractId: Number(request.contractId) || null,
+        deviceSource: request.deviceSource === 'external_device' ? 'external_device' : 'company_device',
+        installedDeviceId: Number(request.installedDeviceId) || null,
+        externalDeviceName: typeof request.externalDeviceName === 'string' ? request.externalDeviceName : null,
+        externalDeviceSerial: typeof request.externalDeviceSerial === 'string' ? request.externalDeviceSerial : null,
+        reportedDeviceSelection: request.reportedDeviceSelection === 'catalog_model'
+          || request.reportedDeviceSelection === 'other'
+          || request.reportedDeviceSelection === 'registered_device'
+          ? request.reportedDeviceSelection
+          : null,
+        reportedDeviceModelId: Number(request.reportedDeviceModelId) || null,
+        reportedDeviceSnapshot: request.reportedDeviceSnapshot as Record<string, unknown> | null | undefined,
+        problemDescription: String(request.problemDescription ?? '').trim(),
+        attachments: [],
+        safetyIndicatorCodes: Array.isArray(request.safetyIndicatorCodes)
+          ? request.safetyIndicatorCodes.map(String)
+          : [],
+        serviceAddress: request.serviceAddress as Record<string, unknown> | null | undefined,
+        priority: ['Critical', 'High', 'Normal', 'Low'].includes(String(request.priority))
+          ? request.priority as 'Critical' | 'High' | 'Normal' | 'Low'
+          : 'Normal',
+        branchId: beneficiary?.branch_id ?? requester.branch_id,
+        branchResolutionStatus: 'not_applicable',
+        sourceCallLogId: callLogId,
+        actorUserId: actor.userId,
+        actorRole: 'operator',
+      }, client);
+      if (result.ok !== true) {
+        await client.query('ROLLBACK');
+        return sendErr(res, result);
+      }
+      await client.query('COMMIT');
+      return res.status(201).json({ ...result.data, callLogId });
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  },
+);
 
 // ------------------------------------------------------------
 // LIST + DETAIL (٠.١٦ — view is GLOBAL only; SR-08)
@@ -864,6 +1058,31 @@ async function linkBeneficiary(input: {
         return { ok: false as const, code: 'candidate_not_found' };
       }
     }
+    if (input.installedDeviceId != null) {
+      const beneficiaryClientId = input.beneficiaryClientId ?? rows[0].beneficiary_client_id;
+      if (beneficiaryClientId == null) {
+        await client.query('ROLLBACK');
+        return { ok: false as const, code: 'beneficiary_client_required_for_device_link' };
+      }
+      const device = await client.query<{ customer_id: number | null; contract_id: number | null }>(
+        `SELECT customer_id, contract_id
+           FROM installed_devices
+          WHERE id = $1`,
+        [input.installedDeviceId],
+      );
+      if (device.rowCount === 0) {
+        await client.query('ROLLBACK');
+        return { ok: false as const, code: 'installed_device_not_found' };
+      }
+      if (device.rows[0].customer_id !== beneficiaryClientId) {
+        await client.query('ROLLBACK');
+        return { ok: false as const, code: 'installed_device_beneficiary_mismatch' };
+      }
+      if (input.contractId != null && device.rows[0].contract_id !== input.contractId) {
+        await client.query('ROLLBACK');
+        return { ok: false as const, code: 'installed_device_contract_mismatch' };
+      }
+    }
 
     await client.query(
       `UPDATE service_requests
@@ -1190,19 +1409,6 @@ router.post('/:id/link-referrer', requireTypedPermission('review'), blockIfEscal
   }
 });
 
-router.get('/:id/periodic-attachment-candidate', requireTypedPermission('review'), async (req, res) => {
-  const { rows } = await pool.query<{ installed_device_id: number | null }>(
-    `SELECT installed_device_id
-       FROM service_requests
-      WHERE id = $1`,
-    [Number(req.params.id)],
-  );
-  if (rows.length === 0) return res.status(404).json({ error: 'not_found' });
-
-  const candidate = await findPeriodicAttachmentCandidate(pool, rows[0].installed_device_id);
-  res.json({ candidate });
-});
-
 // ------------------------------------------------------------
 // LIFECYCLE TRANSITIONS via stateMachine
 // ------------------------------------------------------------
@@ -1378,12 +1584,82 @@ router.post('/:id/reopen', requireTypedPermission('decide'), async (req, res) =>
 // ------------------------------------------------------------
 
 router.post('/:id/promote', requireTypedPermission('decide'), blockIfEscalated, async (req, res) => {
+  const serviceRequestId = Number(req.params.id);
+  const { rows: subjectRows } = await pool.query<{
+    request_type: string;
+    device_source: string | null;
+    target_branch_id: number | null;
+  }>(
+    `SELECT sr.request_type, sr.device_source,
+            COALESCE(c.branch_id, d.branch_id, sr.branch_id) AS target_branch_id
+       FROM service_requests sr
+       LEFT JOIN clients c ON c.id = sr.beneficiary_client_id
+       LEFT JOIN installed_devices d ON d.id = sr.installed_device_id
+      WHERE sr.id = $1`,
+    [serviceRequestId],
+  );
+  const subject = subjectRows[0];
+  if (!subject) return res.status(404).json({ error: 'not_found' });
+  if (subject.request_type !== 'emergency_maintenance') {
+    return res.status(400).json({ error: 'wrong_request_type_for_emergency_handoff' });
+  }
+  if (subject.target_branch_id == null) {
+    return res.status(400).json({ error: 'target_branch_required' });
+  }
+  const targetAccess = authorize(req.authContext!, {
+    permission: 'open_tasks.edit',
+    branchId: Number(subject.target_branch_id),
+  });
+  if (!targetAccess.allowed) {
+    return sendErr(res, {
+      code: 'open_tasks_branch_forbidden',
+      details: { reason: targetAccess.reason },
+    });
+  }
+  if (subject.device_source === 'external_device') {
+    const externalAccess = authorize(req.authContext!, {
+      permission: 'installed_devices.create_external',
+      branchId: Number(subject.target_branch_id),
+    });
+    if (!externalAccess.allowed) {
+      return sendErr(res, {
+        code: 'external_device_create_forbidden',
+        details: { reason: externalAccess.reason },
+      });
+    }
+  }
+
+  const splitAuthorized = req.body?.splitAuthorized === true;
+  const splitReason = typeof req.body?.splitReason === 'string' ? req.body.splitReason.trim() : '';
+  if (splitAuthorized) {
+    const splitAccess = authorize(req.authContext!, {
+      permission: 'service_requests.override_active_emergency',
+    });
+    if (!splitAccess.allowed) {
+      return sendErr(res, { code: 'active_emergency_override_forbidden' });
+    }
+    if (!splitReason) return res.status(400).json({ error: 'split_reason_required' });
+    const { rowCount } = await pool.query(
+      `SELECT 1
+         FROM system_lists
+        WHERE category = 'emergency_uniqueness_override_reasons'
+          AND is_active = TRUE
+          AND COALESCE(metadata->>'code', value) = $1`,
+      [splitReason],
+    );
+    if (rowCount === 0) return res.status(400).json({ error: 'invalid_split_reason' });
+  }
+
   const actor = getActor(req);
   const result = await promote({
-    serviceRequestId: Number(req.params.id),
+    serviceRequestId,
     operatorUserId: actor.userId,
-    splitAuthorized: !!req.body.splitAuthorized,
-    splitReason: req.body.splitReason ?? null,
+    splitAuthorized,
+    splitReason: splitReason || null,
+    splitNote: typeof req.body?.splitNote === 'string' ? req.body.splitNote.trim() || null : null,
+    deviceLocationDecision: req.body?.deviceLocationDecision === 'registered_location_confirmed'
+      ? 'registered_location_confirmed'
+      : null,
     externalDeviceModelId: req.body.externalDeviceModelId ?? null,
   });
   if (result.ok !== true) {
@@ -1467,26 +1743,26 @@ router.post('/:id/merge', requireTypedPermission('decide'), blockIfEscalated, as
   if (!req.body.existingOpenTaskId) {
     return res.status(400).json({ error: 'existingOpenTaskId_required' });
   }
+  const { rows: targetRows } = await pool.query<{ branch_id: number }>(
+    `SELECT branch_id FROM open_tasks WHERE id = $1`,
+    [Number(req.body.existingOpenTaskId)],
+  );
+  if (!targetRows[0]) return res.status(404).json({ error: 'existing_open_task_not_found' });
+  const targetAccess = authorize(req.authContext!, {
+    permission: 'open_tasks.edit',
+    branchId: Number(targetRows[0].branch_id),
+  });
+  if (!targetAccess.allowed) {
+    return sendErr(res, {
+      code: 'open_tasks_branch_forbidden',
+      details: { reason: targetAccess.reason },
+    });
+  }
   const result = await mergeIntoExistingTask({
     serviceRequestId: Number(req.params.id),
     existingOpenTaskId: Number(req.body.existingOpenTaskId),
     operatorUserId: actor.userId,
     mergeNote: req.body.note ?? null,
-  });
-  if (result.ok !== true) return sendErr(res, result);
-  res.json(result.data);
-});
-
-router.post('/:id/attach-periodic', requireTypedPermission('decide'), blockIfEscalated, async (req, res) => {
-  const actor = getActor(req);
-  if (!req.body.periodicOpenTaskId) {
-    return res.status(400).json({ error: 'periodicOpenTaskId_required' });
-  }
-  const result = await attachToPeriodicTask({
-    serviceRequestId: Number(req.params.id),
-    periodicOpenTaskId: Number(req.body.periodicOpenTaskId),
-    operatorUserId: actor.userId,
-    note: req.body.note ?? null,
   });
   if (result.ok !== true) return sendErr(res, result);
   res.json(result.data);

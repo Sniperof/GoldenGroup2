@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { evaluateMobileIntakeAvailability } from './mobileIntakeRegistry.js';
 import { WATER_CHECK_FORM_VERSION } from './waterCheckFormSchema.js';
+import { EMERGENCY_MAINTENANCE_FORM_VERSION } from './emergencyMaintenanceFormSchema.js';
 import type { ServiceRequestTypeDefinition } from './serviceRequestTypeRegistry.js';
 
 function definition(overrides: Partial<ServiceRequestTypeDefinition> = {}): ServiceRequestTypeDefinition {
@@ -36,10 +37,23 @@ test('registry and installed handler jointly enable water check', () => {
   assert.equal(result.ok, true);
 });
 
+test('registry and installed handler jointly enable emergency maintenance', () => {
+  const result = evaluateMobileIntakeAvailability({
+    definition: definition({
+      requestType: 'emergency_maintenance',
+      defaultFormVersion: EMERGENCY_MAINTENANCE_FORM_VERSION,
+    }),
+    requestType: 'emergency_maintenance',
+    isAuthenticatedCustomer: false,
+    submittedFormVersion: EMERGENCY_MAINTENANCE_FORM_VERSION,
+  });
+  assert.equal(result.ok, true);
+});
+
 test('an active database row without a code handler remains fail-closed', () => {
   const result = evaluateMobileIntakeAvailability({
-    definition: definition({ requestType: 'emergency_maintenance' }),
-    requestType: 'emergency_maintenance',
+    definition: definition({ requestType: 'future_request' }),
+    requestType: 'future_request',
     isAuthenticatedCustomer: false,
   });
   assert.deepEqual(result, { ok: false, status: 501, code: 'request_type_not_implemented' });

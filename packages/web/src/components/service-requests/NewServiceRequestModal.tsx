@@ -23,6 +23,19 @@ interface Props {
   contractId?: number | null;
   /** Preselected device (used when opened from a device page). */
   installedDeviceId?: number | null;
+  requesterClientId?: number | null;
+  requesterClientName?: string | null;
+  callContext?: {
+    customerId: number;
+    contactId?: string | null;
+    contactNumber?: string | null;
+    contactLabel?: string | null;
+    callDate?: string | null;
+    taskListItemId?: string | number | null;
+    answeredBy?: string | null;
+    communicationChannel?: string | null;
+    notes?: string | null;
+  } | null;
   onClose: () => void;
   onCreated?: (serviceRequestId: number) => void;
 }
@@ -49,16 +62,35 @@ interface DeviceLite {
   status?: string | null;
 }
 
+interface CatalogModelLite {
+  id: number;
+  name?: string;
+  nameAr?: string;
+  name_ar?: string;
+}
+
+interface GeoLite {
+  id: number;
+  name: string;
+  level: number;
+  parentId?: number | null;
+  parent_id?: number | null;
+}
+
 export default function NewServiceRequestModal({
   channel,
   beneficiaryClientId: initialClientId = null,
   beneficiaryClientName: initialClientName = null,
   contractId = null,
   installedDeviceId: initialDeviceId = null,
+  requesterClientId = null,
+  requesterClientName = null,
+  callContext = null,
   onClose,
   onCreated,
 }: Props) {
   const navigate = useNavigate();
+  const [submissionMode, setSubmissionMode] = useState<'for_self' | 'for_another'>('for_self');
 
   // Linked client (mandatory)
   const [clientId, setClientId] = useState<number | null>(initialClientId);
@@ -73,6 +105,17 @@ export default function NewServiceRequestModal({
   const [deviceId, setDeviceId] = useState<number | null>(initialDeviceId);
   const [devices, setDevices] = useState<DeviceLite[]>([]);
   const [loadingDevices, setLoadingDevices] = useState(false);
+  const [deviceSelection, setDeviceSelection] = useState<'registered_device' | 'catalog_model' | 'other'>('registered_device');
+  const [catalogModels, setCatalogModels] = useState<CatalogModelLite[]>([]);
+  const [catalogModelId, setCatalogModelId] = useState<number | null>(null);
+  const [otherDeviceName, setOtherDeviceName] = useState('');
+  const [externalSerial, setExternalSerial] = useState('');
+  const [geoUnits, setGeoUnits] = useState<GeoLite[]>([]);
+  const [governorateId, setGovernorateId] = useState<number | null>(null);
+  const [regionId, setRegionId] = useState<number | null>(null);
+  const [subdistrictId, setSubdistrictId] = useState<number | null>(null);
+  const [neighborhoodId, setNeighborhoodId] = useState<number | null>(null);
+  const [detailedAddress, setDetailedAddress] = useState('');
 
   // Form fields
   const [problemDescription, setProblemDescription] = useState('');
@@ -85,6 +128,15 @@ export default function NewServiceRequestModal({
   useEffect(() => {
     setError(null);
   }, [clientId, deviceId, problemDescription]);
+
+  useEffect(() => {
+    Promise.all([api.deviceModels.list(), api.geoUnits.listReference()])
+      .then(([models, units]) => {
+        setCatalogModels((models as CatalogModelLite[]) ?? []);
+        setGeoUnits((units as GeoLite[]) ?? []);
+      })
+      .catch(() => undefined);
+  }, []);
 
   // -------- Client search (debounced) --------
   useEffect(() => {
@@ -152,7 +204,7 @@ export default function NewServiceRequestModal({
   }
 
   function clearClient() {
-    if (initialClientId != null) return; // preselected — locked
+    if (initialClientId != null && submissionMode === 'for_self') return;
     setClientId(null);
     setClientName(null);
     setDeviceId(null);
@@ -161,7 +213,12 @@ export default function NewServiceRequestModal({
 
   function validate(): string | null {
     if (clientId == null) return 'اختيار زبون موجود إلزامي';
-    if (deviceId == null) return 'اختيار جهاز للزبون إلزامي';
+    if (deviceSelection === 'registered_device' && deviceId == null) return 'اختيار جهاز للزبون إلزامي';
+    if (deviceSelection === 'catalog_model' && catalogModelId == null) return 'اختيار طراز الجهاز إلزامي';
+    if (deviceSelection === 'other' && !otherDeviceName.trim()) return 'اسم الجهاز الآخر إلزامي';
+    if (deviceSelection !== 'registered_device' && (!governorateId || !detailedAddress.trim())) {
+      return 'المحافظة والعنوان التفصيلي مطلوبان للجهاز الخارجي';
+    }
     if (!problemDescription.trim()) return 'وصف المشكلة إلزامي';
     return null;
   }
@@ -179,24 +236,49 @@ export default function NewServiceRequestModal({
       // serviceAddress is omitted; the backend / promote step will derive it
       // from the device's installation address.
       const payload = {
+        requestType: 'emergency_maintenance',
         channel,
         problemDescription: problemDescription.trim(),
         priority,
         beneficiaryClientId: clientId,
         contractId,
-        installedDeviceId: deviceId,
-        deviceSource: 'company_device' as const,
-        submissionType: 'apply' as const,
+        installedDeviceId: deviceSelection === 'registered_device' ? deviceId : null,
+        deviceSource: deviceSelection === 'registered_device' ? 'company_device' as const : 'external_device' as const,
+        reportedDeviceSelection: deviceSelection,
+        reportedDeviceModelId: deviceSelection === 'catalog_model' ? catalogModelId : null,
+        externalDeviceName: deviceSelection === 'catalog_model'
+          ? (catalogModels.find((model) => model.id === catalogModelId)?.nameAr
+            ?? catalogModels.find((model) => model.id === catalogModelId)?.name_ar
+            ?? catalogModels.find((model) => model.id === catalogModelId)?.name
+            ?? null)
+          : deviceSelection === 'other' ? otherDeviceName.trim() : null,
+        externalDeviceSerial: deviceSelection === 'registered_device' ? null : externalSerial.trim() || null,
+        serviceAddress: deviceSelection === 'registered_device' ? null : {
+          governorate: String(governorateId),
+          governorateId,
+          regionId,
+          subdistrictId,
+          neighborhoodId,
+          geo_unit_id: neighborhoodId ?? subdistrictId ?? regionId ?? governorateId,
+          detailed_address: detailedAddress.trim(),
+          detailedAddress: detailedAddress.trim(),
+        },
+        requesterClientId: requesterClientId ?? clientId,
+        submissionType: submissionMode === 'for_another' ? 'refer_a_candidate' as const : 'apply' as const,
         submitterTier: 'staff' as const,
       };
-      const res =
-        channel === 'admin_manual'
+      const res = callContext
+        ? await api.serviceRequests.createInternalWithCall(
+          { ...callContext, notes: callNotes.trim() || callContext.notes || null },
+          payload,
+        )
+        : channel === 'admin_manual'
           ? await api.serviceRequests.createInternal(payload)
           : await api.serviceRequests.create(payload);
 
       // Capture optional call notes as the first internal note on the request.
       const note = callNotes.trim();
-      if (note && (res as { id?: number })?.id) {
+      if (note && !callContext && (res as { id?: number })?.id) {
         try {
           await fetch(
             `${(window as any).__API_BASE__ ?? '/api'}/service-requests/${(res as any).id}/notes`,
@@ -224,7 +306,21 @@ export default function NewServiceRequestModal({
     }
   }
 
-  const isClientLocked = initialClientId != null;
+  const isClientLocked = initialClientId != null && submissionMode === 'for_self';
+
+  function changeSubmissionMode(mode: 'for_self' | 'for_another') {
+    setSubmissionMode(mode);
+    if (mode === 'for_self') {
+      const selfId = requesterClientId ?? initialClientId;
+      setClientId(selfId ?? null);
+      setClientName(requesterClientName ?? initialClientName ?? null);
+    } else {
+      setClientId(null);
+      setClientName(null);
+      setDeviceId(null);
+      setDevices([]);
+    }
+  }
 
   return (
     <Modal
@@ -260,10 +356,35 @@ export default function NewServiceRequestModal({
             </div>
           )}
 
+          {requesterClientId != null && (
+            <section className="space-y-2">
+              <h3 className="text-base font-bold text-slate-800">مقدم الطلب</h3>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm">
+                {requesterClientName ?? `#${requesterClientId}`}
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => changeSubmissionMode('for_self')}
+                  className={`rounded-xl border p-2 text-sm ${submissionMode === 'for_self' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-200'}`}
+                >
+                  الصيانة لمقدم الطلب
+                </button>
+                <button
+                  type="button"
+                  onClick={() => changeSubmissionMode('for_another')}
+                  className={`rounded-xl border p-2 text-sm ${submissionMode === 'for_another' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-200'}`}
+                >
+                  الصيانة لشخص آخر
+                </button>
+              </div>
+            </section>
+          )}
+
           {/* (1) Client — mandatory, from existing only (V1.0) */}
           <section className="space-y-2">
             <h3 className="text-base font-bold text-slate-800">
-              الزبون <span className="text-xs text-red-600">*</span>
+              {submissionMode === 'for_another' ? 'المستفيد' : 'الزبون'} <span className="text-xs text-red-600">*</span>
             </h3>
             {clientId != null ? (
               <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded p-2 text-sm">
@@ -321,12 +442,28 @@ export default function NewServiceRequestModal({
             )}
           </section>
 
-          {/* (2) Device — mandatory, from client devices */}
+          {/* (2) Device — registered, catalog, or another reported device */}
           <section className="space-y-2">
             <h3 className="text-base font-bold text-slate-800">
               الجهاز <span className="text-xs text-red-600">*</span>
             </h3>
-            {clientId == null ? (
+            <div className="grid grid-cols-3 gap-2">
+              {([
+                ['registered_device', 'جهاز مسجل'],
+                ['catalog_model', 'من أجهزة الشركة'],
+                ['other', 'جهاز آخر'],
+              ] as const).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => { setDeviceSelection(value); setDeviceId(null); }}
+                  className={`rounded-xl border p-2 text-xs ${deviceSelection === value ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-200'}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {deviceSelection === 'registered_device' && (clientId == null ? (
               <div className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded p-2">
                 اختر الزبون أولاً لرؤية أجهزته.
               </div>
@@ -335,8 +472,8 @@ export default function NewServiceRequestModal({
                 <Loader2 className="h-3 w-3 animate-spin" /> جارٍ تَحميل الأجهزة...
               </div>
             ) : devices.length === 0 ? (
-              <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2">
-                لا أجهزة مُسجَّلة لهذا الزبون. لا يُمكن إنشاء طلب صيانة بدون جهاز (V1.0).
+              <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+                لا أجهزة مُسجَّلة لهذا الزبون. اختر «من أجهزة الشركة» أو «جهاز آخر».
               </div>
             ) : (
               <Select
@@ -352,6 +489,74 @@ export default function NewServiceRequestModal({
                     + (d.status ? ` · ${d.status}` : ''),
                 }))}
               />
+            ))}
+            {deviceSelection === 'catalog_model' && (
+              <Select
+                value={catalogModelId == null ? '' : String(catalogModelId)}
+                onChange={(value) => setCatalogModelId(value ? Number(value) : null)}
+                placeholder="اختر طراز الجهاز"
+                ariaLabel="طراز الجهاز"
+                className="w-full"
+                options={catalogModels.map((model) => ({
+                  value: String(model.id),
+                  label: model.nameAr ?? model.name_ar ?? model.name ?? `#${model.id}`,
+                }))}
+              />
+            )}
+            {deviceSelection === 'other' && (
+              <input
+                value={otherDeviceName}
+                onChange={(event) => setOtherDeviceName(event.target.value)}
+                placeholder="اكتب اسم الجهاز الموجود لدى المستفيد"
+                className="w-full rounded-xl border border-slate-300 p-2 text-sm"
+              />
+            )}
+            {deviceSelection !== 'registered_device' && (
+              <>
+                <input
+                  value={externalSerial}
+                  onChange={(event) => setExternalSerial(event.target.value)}
+                  placeholder="الرقم التسلسلي إن وجد"
+                  className="w-full rounded-xl border border-slate-300 p-2 text-sm"
+                />
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                  <Select
+                    value={governorateId == null ? '' : String(governorateId)}
+                    onChange={(value) => { setGovernorateId(value ? Number(value) : null); setRegionId(null); setSubdistrictId(null); setNeighborhoodId(null); }}
+                    placeholder="المحافظة"
+                    ariaLabel="المحافظة"
+                    options={geoUnits.filter((unit) => unit.level === 1).map((unit) => ({ value: String(unit.id), label: unit.name }))}
+                  />
+                  <Select
+                    value={regionId == null ? '' : String(regionId)}
+                    onChange={(value) => { setRegionId(value ? Number(value) : null); setSubdistrictId(null); setNeighborhoodId(null); }}
+                    placeholder="المدينة أو المنطقة"
+                    ariaLabel="المدينة أو المنطقة"
+                    options={geoUnits.filter((unit) => unit.level === 2 && Number(unit.parentId ?? unit.parent_id) === governorateId).map((unit) => ({ value: String(unit.id), label: unit.name }))}
+                  />
+                  <Select
+                    value={subdistrictId == null ? '' : String(subdistrictId)}
+                    onChange={(value) => { setSubdistrictId(value ? Number(value) : null); setNeighborhoodId(null); }}
+                    placeholder="الناحية"
+                    ariaLabel="الناحية"
+                    options={geoUnits.filter((unit) => unit.level === 3 && Number(unit.parentId ?? unit.parent_id) === regionId).map((unit) => ({ value: String(unit.id), label: unit.name }))}
+                  />
+                  <Select
+                    value={neighborhoodId == null ? '' : String(neighborhoodId)}
+                    onChange={(value) => setNeighborhoodId(value ? Number(value) : null)}
+                    placeholder="الحي"
+                    ariaLabel="الحي"
+                    options={geoUnits.filter((unit) => unit.level === 4 && Number(unit.parentId ?? unit.parent_id) === subdistrictId).map((unit) => ({ value: String(unit.id), label: unit.name }))}
+                  />
+                </div>
+                <textarea
+                  value={detailedAddress}
+                  onChange={(event) => setDetailedAddress(event.target.value)}
+                  placeholder="العنوان التفصيلي لموقع الجهاز المبلّغ عنه"
+                  rows={2}
+                  className="w-full rounded-xl border border-slate-300 p-2 text-sm"
+                />
+              </>
             )}
           </section>
 

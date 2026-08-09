@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
     Plus, Wrench, PenTool, GraduationCap, Truck, Package, Cog, X, Save,
     RefreshCw, Gem, Loader2, Image, Video, FileText, Star, ChevronRight,
-    AlertCircle, Pencil, Tag, ToggleLeft, ToggleRight,
+    AlertCircle, Pencil, Tag, ToggleLeft, ToggleRight, MapPin,
 } from '../components/ui/icons';
 import IconButton from '../components/ui/IconButton';
 import Modal from '../components/ui/Modal';
@@ -809,6 +809,117 @@ function SparePartPricesModal({ part, onClose, onSaved }: {
 /*  Component                                                           */
 /* ------------------------------------------------------------------ */
 
+interface SalesBranchOption {
+    id: number;
+    name: string;
+    detailedAddress: string | null;
+    locationGeoName: string | null;
+    isSelected: boolean;
+}
+
+function DeviceSalesBranchesModal({ device, onClose }: {
+    device: DeviceModel;
+    onClose: () => void;
+}) {
+    const [branches, setBranches] = useState<SalesBranchOption[]>([]);
+    const [selectedIds, setSelectedIds] = useState<number[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+        let active = true;
+        setLoading(true);
+        setError(null);
+        api.deviceModels.getSalesBranches(device.id)
+            .then((result) => {
+                if (!active) return;
+                setBranches(result.branches);
+                setSelectedIds(result.branches.filter(branch => branch.isSelected).map(branch => branch.id));
+            })
+            .catch((err) => {
+                if (active) setError(err instanceof Error ? err.message : 'تعذر تحميل فروع البيع');
+            })
+            .finally(() => { if (active) setLoading(false); });
+        return () => { active = false; };
+    }, [device.id]);
+
+    const toggleBranch = (branchId: number, checked: boolean) => {
+        setSelectedIds(current => checked
+            ? [...new Set([...current, branchId])]
+            : current.filter(id => id !== branchId));
+    };
+
+    const save = async () => {
+        setSaving(true);
+        setError(null);
+        try {
+            await api.deviceModels.updateSalesBranches(device.id, selectedIds);
+            onClose();
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'تعذر حفظ فروع البيع');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <Modal
+            isOpen
+            onClose={onClose}
+            title="فروع البيع"
+            subtitle={device.nameAr || device.name}
+            size="md"
+            closeOnBackdrop={!saving}
+            closeOnEsc={!saving}
+            footer={(
+                <>
+                    <button type="button" onClick={onClose} disabled={saving} className="px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-100 rounded-xl disabled:opacity-50">
+                        إلغاء
+                    </button>
+                    <button type="button" onClick={save} disabled={loading || saving} className="flex items-center gap-2 px-5 py-2 bg-sky-600 hover:bg-sky-700 text-white text-sm font-bold rounded-xl disabled:opacity-50">
+                        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                        حفظ
+                    </button>
+                </>
+            )}
+        >
+            <div className="p-5 space-y-3" dir="rtl">
+                <p className="text-sm text-slate-500">حدد الفروع المعتمدة لبيع هذا الجهاز. هذا الإعداد لا يمثل كمية المخزون.</p>
+                {error && (
+                    <div className="flex items-center gap-2 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">
+                        <AlertCircle className="w-4 h-4 shrink-0" /> {error}
+                    </div>
+                )}
+                {loading ? (
+                    <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-sky-500" /></div>
+                ) : branches.length === 0 ? (
+                    <p className="py-8 text-center text-sm text-slate-400">لا توجد فروع نشطة</p>
+                ) : branches.map(branch => (
+                    <label key={branch.id} className="flex items-start gap-3 rounded-xl border border-slate-200 p-3 hover:bg-slate-50 cursor-pointer">
+                        <Checkbox
+                            bare
+                            checked={selectedIds.includes(branch.id)}
+                            onCheckedChange={checked => toggleBranch(branch.id, checked)}
+                            label={`اختيار ${branch.name}`}
+                            className="mt-1"
+                        />
+                        <span className="min-w-0">
+                            <span className="block text-sm font-bold text-slate-700">{branch.name}</span>
+                            {(branch.detailedAddress || branch.locationGeoName) && (
+                                <span className="mt-1 flex items-center gap-1 text-xs text-slate-500">
+                                    <MapPin className="w-3.5 h-3.5 shrink-0" />
+                                    {branch.detailedAddress || branch.locationGeoName}
+                                </span>
+                            )}
+                        </span>
+                    </label>
+                ))}
+            </div>
+        </Modal>
+    );
+}
+
 const DeviceManagement = () => {
     const navigate = useNavigate();
     const { hasAnyPermission } = usePermissions();
@@ -821,6 +932,7 @@ const DeviceManagement = () => {
     const [devices, setDevices] = useState<DeviceModel[]>([]);
     const [isAddingDevice, setIsAddingDevice] = useState(false);
     const [editingDevice, setEditingDevice] = useState<DeviceModel | null>(null);
+    const [salesBranchesDevice, setSalesBranchesDevice] = useState<DeviceModel | null>(null);
 
     const [parts, setParts] = useState<SparePart[]>([]);
     const [isAddingPart, setIsAddingPart] = useState(false);
@@ -1172,14 +1284,24 @@ const DeviceManagement = () => {
                         emptyIcon={Package}
                         emptyMessage="لا توجد أجهزة"
                         actions={canManageDeviceModels ? (d) => (
-                            <button
-                                type="button"
-                                onClick={() => openEditDevice(d)}
-                                className="p-1.5 rounded-lg hover:bg-sky-50 text-slate-400 hover:text-sky-600 transition-colors"
-                                title="تعديل الجهاز"
-                            >
-                                <Pencil className="w-4 h-4" />
-                            </button>
+                            <div className="flex items-center gap-1">
+                                <button
+                                    type="button"
+                                    onClick={(event) => { event.stopPropagation(); setSalesBranchesDevice(d); }}
+                                    className="p-1.5 rounded-lg hover:bg-sky-50 text-slate-400 hover:text-sky-600 transition-colors"
+                                    title="فروع البيع"
+                                >
+                                    <MapPin className="w-4 h-4" />
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={(event) => { event.stopPropagation(); openEditDevice(d); }}
+                                    className="p-1.5 rounded-lg hover:bg-sky-50 text-slate-400 hover:text-sky-600 transition-colors"
+                                    title="تعديل الجهاز"
+                                >
+                                    <Pencil className="w-4 h-4" />
+                                </button>
+                            </div>
                         ) : undefined}
                     />
                 ) : (
@@ -1230,6 +1352,13 @@ const DeviceManagement = () => {
                     part={pricingPart}
                     onClose={() => setPricingPart(null)}
                     onSaved={fetchData}
+                />
+            )}
+
+            {salesBranchesDevice && (
+                <DeviceSalesBranchesModal
+                    device={salesBranchesDevice}
+                    onClose={() => setSalesBranchesDevice(null)}
                 />
             )}
 

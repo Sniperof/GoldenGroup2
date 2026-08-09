@@ -157,6 +157,8 @@ export async function transitionStatus(
       channel: ServiceRequestChannel;
       request_type: string | null;
       beneficiary_client_id: number | null;
+      installed_device_id: number | null;
+      has_structured_problem: boolean;
       reviewed_by_user_id: number | null;
       reopen_count: number;
       review_required_flag: boolean;
@@ -165,6 +167,12 @@ export async function transitionStatus(
       archived_at: string | null;
     }>(
       `SELECT id, status, channel, request_type, beneficiary_client_id,
+              installed_device_id,
+              EXISTS (
+                SELECT 1 FROM service_request_problems problem
+                 WHERE problem.service_request_id = service_requests.id
+                   AND problem.deleted_at IS NULL
+              ) AS has_structured_problem,
               reviewed_by_user_id, reopen_count,
               review_required_flag, escalated_at, duplicate_flag, archived_at
          FROM service_requests
@@ -250,6 +258,14 @@ export async function transitionStatus(
       };
     }
     if (input.toStatus === 'resolved_at_intake') {
+      if (row.request_type === 'emergency_maintenance' && row.installed_device_id == null) {
+        await rollbackTx(tx);
+        return { ok: false, code: 'resolved_at_intake_requires_installed_device' };
+      }
+      if (row.request_type === 'emergency_maintenance' && !row.has_structured_problem) {
+        await rollbackTx(tx);
+        return { ok: false, code: 'resolved_at_intake_requires_structured_problem' };
+      }
       if (!input.triageNotes || input.triageNotes.trim().length === 0) {
         await rollbackTx(tx);
         return { ok: false, code: 'triage_notes_required' };

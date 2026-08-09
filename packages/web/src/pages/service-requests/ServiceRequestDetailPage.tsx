@@ -7,7 +7,6 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   ArrowUpCircle,
-  CalendarClock,
   ClipboardCheck,
   Loader2,
   UserCheck,
@@ -32,14 +31,6 @@ import WaterCheckRequestDetailPanel from '../../components/service-requests/Wate
 import RequestDetailLayout from '../../components/requests/RequestDetailLayout';
 import type { Client, GeoUnit } from '../../lib/types';
 import { reviewRequiredReasons } from '../../lib/serviceRequestDisplay';
-
-type PeriodicAttachmentCandidate = {
-  taskId: number;
-  status: string;
-  dueDate: string;
-  daysUntilDue: number;
-  attachWindowDays: number;
-};
 
 const PRIORITY_LABELS: Record<string, string> = {
   high: 'عالية',
@@ -70,7 +61,6 @@ export default function ServiceRequestDetailPage() {
   const [tab, setTab] = useState('overview');
   const [internalNote, setInternalNote] = useState('');
   const [data, setData] = useState<{ request: any; auditLog: any[]; problems: any[] } | null>(null);
-  const [periodicCandidate, setPeriodicCandidate] = useState<PeriodicAttachmentCandidate | null>(null);
   const [collision, setCollision] = useState<{ existingOpenTaskId: number; installedDeviceId: number } | null>(null);
   const [busy, setBusy] = useState(false);
   // Phase 4 polish — modal for the 4 in_review actions; toasts via sonner
@@ -93,22 +83,16 @@ export default function ServiceRequestDetailPage() {
     creationReason: string;
   }>({ priority: 'medium', operatorNote: '', dueDate: '', creationReason: '' });
   const [deviceDemoReasons, setDeviceDemoReasons] = useState<{ value: string; label: string }[]>([]);
+  const [beneficiaryDevices, setBeneficiaryDevices] = useState<any[]>([]);
+  const [deviceLinkChoice, setDeviceLinkChoice] = useState('');
+  const [deviceModels, setDeviceModels] = useState<any[]>([]);
+  const [externalModelChoice, setExternalModelChoice] = useState('');
 
   const reload = useCallback(async () => {
     setLoading(true);
     try {
       const res = await api.serviceRequests.get(requestId);
-      let candidate: PeriodicAttachmentCandidate | null = null;
-      if (res.request?.installedDeviceId) {
-        try {
-          const candidateRes = await api.serviceRequests.periodicAttachmentCandidate(requestId);
-          candidate = candidateRes.candidate;
-        } catch {
-          candidate = null;
-        }
-      }
       setData(res);
-      setPeriodicCandidate(candidate);
     } finally {
       setLoading(false);
     }
@@ -140,6 +124,23 @@ export default function ServiceRequestDetailPage() {
       .catch(() => { if (active) setRequesterSnapshot(null); });
     return () => { active = false; };
   }, [requesterClientId]);
+
+  useEffect(() => {
+    if (!beneficiaryClientId) {
+      setBeneficiaryDevices([]);
+      return;
+    }
+    api.installedDevices.list({ customerId: Number(beneficiaryClientId) })
+      .then((rows) => setBeneficiaryDevices(Array.isArray(rows) ? rows : []))
+      .catch(() => setBeneficiaryDevices([]));
+  }, [beneficiaryClientId]);
+
+  useEffect(() => {
+    if (data?.request?.deviceSource !== 'external_device') return;
+    api.deviceModels.list()
+      .then((rows) => setDeviceModels(Array.isArray(rows) ? rows : []))
+      .catch(() => setDeviceModels([]));
+  }, [data?.request?.deviceSource]);
 
   useEffect(() => {
     if (!referrerClientId) { setReferrerSnapshot(null); return; }
@@ -244,7 +245,9 @@ export default function ServiceRequestDetailPage() {
   const activeProblems = data.problems.filter((p) => p.deletedAt == null);
   const promoteMissing: string[] = [];
   if (!req.beneficiaryClientId) promoteMissing.push('ربط زبون');
-  if (!req.installedDeviceId) promoteMissing.push('ربط جهاز');
+  if (req.deviceSource === 'external_device') {
+    if (!req.reportedDeviceModelId && !externalModelChoice) promoteMissing.push('ربط الجهاز الآخر بطراز مسجل');
+  } else if (!req.installedDeviceId) promoteMissing.push('ربط جهاز من أجهزة المستفيد');
   if (activeProblems.length === 0) promoteMissing.push('عطل واحد على الأقل في اللائحة');
   const canDoPromote = !isWaterCheck && promoteMissing.length === 0;
   const waterCheckHandoffMissing: string[] = [];
@@ -306,7 +309,23 @@ export default function ServiceRequestDetailPage() {
   async function doPromote() {
     setBusy(true);
     try {
-      const res = await api.serviceRequests.promote(requestId);
+      const promoteBody = {
+        ...(externalModelChoice ? { externalDeviceModelId: Number(externalModelChoice) } : {}),
+      };
+      let res;
+      try {
+        res = await api.serviceRequests.promote(requestId, promoteBody);
+      } catch (error: any) {
+        if (error?.code !== 'device_location_decision_required') throw error;
+        const useRegisteredLocation = window.confirm(
+          'الموقع المبلّغ عنه يختلف عن موقع الجهاز المسجل. اضغط موافق لاعتماد موقع الجهاز المسجل للمهمة، أو إلغاء للعودة وإنشاء مهمة نقل جهاز منفصلة.',
+        );
+        if (!useRegisteredLocation) return;
+        res = await api.serviceRequests.promote(requestId, {
+          ...promoteBody,
+          deviceLocationDecision: 'registered_location_confirmed',
+        });
+      }
       if ('collision' in res && res.collision) {
         setCollision(res.collision);
       } else {
@@ -692,21 +711,6 @@ export default function ServiceRequestDetailPage() {
     }
   }
 
-  async function attachToPeriodicCandidate() {
-    if (!periodicCandidate) return;
-    const note = prompt('ملاحظة الإلحاق بالدورية (اختياري):') ?? null;
-    setBusy(true);
-    try {
-      await api.serviceRequests.attachPeriodic(requestId, periodicCandidate.taskId, note);
-      showToast(`تم ربط البلاغ بالدورية #${periodicCandidate.taskId}`, 'success');
-      await reload();
-    } catch (e: any) {
-      showToast(e?.message ?? 'فشل ربط البلاغ بالدورية', 'error');
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function linkSuggested(m: { source: 'client' | 'candidate'; id: number }) {
     if (isWaterCheck && m.source !== 'client') {
       showToast('طلب فحص المياه يمكن ربطه بزبون فقط.', 'error');
@@ -830,39 +834,6 @@ export default function ServiceRequestDetailPage() {
               </div>
             </div>
           )}
-          {!isWaterCheck && req.status === 'in_review' && canDecide && periodicCandidate && (
-            <div className="bg-emerald-50 border border-emerald-200 rounded p-3 mb-4">
-              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                <div className="text-sm text-emerald-900">
-                  <div className="font-bold flex items-center gap-2">
-                    <CalendarClock className="h-4 w-4" />
-                    توجد صيانة دورية قريبة لهذا الجهاز
-                  </div>
-                  <div className="mt-1 text-emerald-800">
-                    المهمة #{periodicCandidate.taskId}، تاريخها {periodicCandidate.dueDate}،
-                    الفارق {periodicCandidate.daysUntilDue} يوم ضمن نافذة {periodicCandidate.attachWindowDays} يوم.
-                  </div>
-                </div>
-                <div className="flex gap-2 flex-wrap">
-                  <Button
-                    size="sm"
-                    disabled={busy}
-                    onClick={attachToPeriodicCandidate}
-                  >
-                    الاكتفاء بالدورية وربط البلاغ
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    disabled={busy || !canDoPromote}
-                    onClick={doPromote}
-                  >
-                    إنشاء طارئة مستقلة
-                  </Button>
-                </div>
-              </div>
-            </div>
-          )}
         </>
       }
       decision={
@@ -980,6 +951,31 @@ export default function ServiceRequestDetailPage() {
         />
       ) : (
         <div className="space-y-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <DetailField
+              label="الجهاز كما أبلغ عنه مقدم الطلب"
+              value={req.reportedDeviceSnapshot?.deviceName
+                ?? req.reportedDeviceSnapshot?.modelName
+                ?? req.externalDeviceName
+                ?? (req.installedDeviceId ? `جهاز مسجل #${req.installedDeviceId}` : null)}
+            />
+            <DetailField
+              label="مصدر الطلب الهاتفي"
+              value={req.sourceCallLogId ? `سجل اتصال ${req.sourceCallLogId}` : null}
+            />
+            <DetailField
+              label="مؤشرات السلامة"
+              value={Array.isArray(req.safetyIndicatorCodes) && req.safetyIndicatorCodes.length
+                ? req.safetyIndicatorCodes.join('، ')
+                : null}
+            />
+            <DetailField
+              label="قرار موقع تنفيذ المهمة"
+              value={req.deviceLocationDecision === 'registered_location_confirmed'
+                ? 'اعتماد موقع الجهاز المسجل'
+                : req.deviceLocationDecision}
+            />
+          </div>
           {/* V1.0 §١٢ — promote readiness checklist (visible in in_review only). */}
           {!isWaterCheck && req.status === 'in_review' && !canDoPromote && (
             <div className="bg-yellow-50 border border-yellow-200 rounded p-3 text-sm">
@@ -997,22 +993,48 @@ export default function ServiceRequestDetailPage() {
                     اذهب إلى الربط ←
                   </Button>
                 )}
-                {req.beneficiaryClientId && !req.installedDeviceId && canReview && (
-                  <Button
-                    variant="gold"
-                    size="sm"
-                    onClick={async () => {
-                      const idStr = prompt('أَدخِل installed_device_id من أجهزة الزبون:');
-                      const did = Number(idStr);
-                      if (!Number.isFinite(did) || did <= 0) return;
-                      await safeRun(
-                        () => api.serviceRequests.link(requestId, { installedDeviceId: did }),
-                        '✓ تَمَّ ربط الجهاز',
-                      );
-                    }}
-                  >
-                    ربط جهاز
-                  </Button>
+                {req.deviceSource !== 'external_device' && req.beneficiaryClientId && !req.installedDeviceId && canReview && (
+                  <div className="flex min-w-[280px] items-center gap-2">
+                    <Select
+                      value={deviceLinkChoice}
+                      onChange={setDeviceLinkChoice}
+                      placeholder="اختر جهاز المستفيد"
+                      ariaLabel="جهاز المستفيد"
+                      className="flex-1"
+                      options={beneficiaryDevices.map((device) => ({
+                        value: String(device.id),
+                        label: `${device.deviceModelName ?? device.externalDeviceName ?? 'جهاز'}${device.serialNumber ? ` — ${device.serialNumber}` : ` — #${device.id}`}`,
+                      }))}
+                    />
+                    <Button
+                      variant="gold"
+                      size="sm"
+                      disabled={!deviceLinkChoice}
+                      onClick={() => safeRun(
+                        () => api.serviceRequests.link(requestId, { installedDeviceId: Number(deviceLinkChoice) }),
+                        '✓ تَمَّ ربط جهاز المستفيد',
+                      )}
+                    >
+                      ربط
+                    </Button>
+                  </div>
+                )}
+                {req.deviceSource === 'external_device' && !req.reportedDeviceModelId && canReview && (
+                  <div className="min-w-[320px] space-y-1">
+                    <Select
+                      value={externalModelChoice}
+                      onChange={setExternalModelChoice}
+                      placeholder="اختر الطراز بعد إضافته في قسم الأجهزة"
+                      ariaLabel="طراز الجهاز الخارجي"
+                      options={deviceModels.map((model) => ({
+                        value: String(model.id),
+                        label: model.nameAr ?? model.name_ar ?? model.name ?? `#${model.id}`,
+                      }))}
+                    />
+                    <div className="text-xs text-yellow-800">
+                      إن كان الجهاز فريداً، أضف طرازه أولاً في قسم الأجهزة ثم عد لاختياره هنا.
+                    </div>
+                  </div>
                 )}
                 {activeProblems.length === 0 && (
                   <Button variant="gold" size="sm" onClick={() => setTab('problems')}>
@@ -1311,6 +1333,7 @@ export default function ServiceRequestDetailPage() {
           serviceRequestId={requestId}
           existingOpenTaskId={collision.existingOpenTaskId}
           installedDeviceId={collision.installedDeviceId}
+          canSplit={hasPermission('service_requests.override_active_emergency')}
           onClose={() => setCollision(null)}
           onResolved={async () => {
             setCollision(null);

@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { optionalAppAuth } from '../middleware/appAuth.js';
+import { optionalAppAuth, requireAppAuth } from '../middleware/appAuth.js';
+import pool from '../db.js';
 import {
   evaluateMobileIntakeAvailability,
   getMobileIntakeHandler,
@@ -10,6 +11,10 @@ import {
 } from '../services/serviceRequests/serviceRequestTypeRegistry.js';
 import { executeMobileIntake } from '../services/serviceRequests/mobileIntakeExecution.js';
 import { sendAppError } from '../utils/appErrors.js';
+import {
+  mobileServiceRequestMediaUpload,
+  uploadMobileServiceRequestMedia,
+} from './mobileServiceRequestMedia.js';
 
 const router = Router();
 
@@ -62,9 +67,73 @@ router.get('/types', async (_req, res) => {
   }
 });
 
+/** Returns only devices owned by the authenticated app account's client. */
+router.get('/emergency-maintenance/devices', requireAppAuth, async (req, res) => {
+  const clientId = req.appAccount!.clientId;
+  const { rows } = await pool.query(
+    `SELECT d.id,
+            d.device_model_id AS "deviceModelId",
+            COALESCE(NULLIF(d.device_model_name, ''), dm.name_ar, dm.name, d.external_device_name) AS "deviceName",
+            d.serial_number AS "serialNumber",
+            d.status,
+            d.installation_geo_unit_id AS "installationGeoUnitId",
+            gu.name AS "installationGeoUnitName",
+            d.installation_address_text AS "installationAddressText",
+            d.installation_lat AS "installationLat",
+            d.installation_lng AS "installationLng"
+       FROM installed_devices d
+       LEFT JOIN device_models dm ON dm.id = d.device_model_id
+       LEFT JOIN geo_units gu ON gu.id = d.installation_geo_unit_id
+      WHERE d.customer_id = $1
+        AND d.status NOT IN ('returned', 'disposed')
+      ORDER BY d.created_at DESC, d.id DESC`,
+    [clientId],
+  );
+  return res.json({ items: rows });
+});
+
+/** Visitor-safe, admin-managed vocabularies used by the emergency form. */
+router.get('/emergency-maintenance/options', async (_req, res) => {
+  const { rows } = await pool.query<{
+    category: string;
+    value: string;
+    display_order: number;
+    metadata: Record<string, unknown> | null;
+  }>(
+    `SELECT category, value, display_order, metadata
+       FROM system_lists
+      WHERE category = ANY($1::text[])
+        AND is_active = TRUE
+      ORDER BY category, display_order, id`,
+    [[
+      'emergency_maintenance_safety_indicators',
+      'emergency_maintenance_attachment_categories',
+    ]],
+  );
+  const toOption = (row: typeof rows[number]) => ({
+    code: String(row.metadata?.code ?? row.value),
+    label: row.value,
+  });
+  return res.json({
+    safetyIndicators: rows
+      .filter((row) => row.category === 'emergency_maintenance_safety_indicators')
+      .map(toOption),
+    attachmentCategories: rows
+      .filter((row) => row.category === 'emergency_maintenance_attachment_categories')
+      .map(toOption),
+  });
+});
+
+router.post(
+  '/media',
+  optionalAppAuth,
+  mobileServiceRequestMediaUpload,
+  uploadMobileServiceRequestMedia,
+);
+
 /**
  * Mobile intake gateway. A valid app bearer token identifies a registered
- * customer. With no token, water_check accepts either the migration-period OTP
+ * customer. With no token, enabled request types accept either the migration-period OTP
  * visitor handle or an unverified stable X-Device-Id. Invalid bearer tokens
  * never fall back to a weaker tier.
  *
@@ -72,7 +141,7 @@ router.get('/types', async (_req, res) => {
  * /api/app/service-requests:
  *   post:
  *     tags: [App - Service Requests]
- *     summary: Submit a water-check request as customer, OTP visitor, or unverified device
+ *     summary: Submit an enabled service request as customer, OTP visitor, or unverified device
  *     description: >
  *       The body is validated against the DECLARED form of the active version:
  *       undeclared keys are rejected, not dropped, because the submitted payload
@@ -87,8 +156,8 @@ router.get('/types', async (_req, res) => {
  *             type: object
  *             required: [requestType, formVersion, submissionMode]
  *             properties:
- *               requestType: { type: string, example: water_check }
- *               formVersion: { type: string, example: water_check.mobile.v3 }
+ *               requestType: { type: string, example: emergency_maintenance }
+ *               formVersion: { type: string, example: emergency_maintenance.mobile.v1 }
  *               submissionMode: { type: string, enum: [for_self, for_another] }
  *               referrerMode:
  *                 type: string
@@ -126,6 +195,9 @@ router.post('/', optionalAppAuth, async (req, res) => {
     if (!requestType) {
       return res.status(400).json({ error: 'request_type_required' });
     }
+    if (requestType === 'emergency_maintenance' && !req.get('Idempotency-Key')) {
+      return res.status(400).json({ error: 'idempotency_key_required' });
+    }
     const definition = await getServiceRequestTypeDefinition(requestType);
     const availability = evaluateMobileIntakeAvailability({
       definition,
@@ -151,6 +223,7 @@ router.post('/', optionalAppAuth, async (req, res) => {
       // collapses into one shared bucket (see the deployment table in the
       // mobile API reference).
       ip: req.ip ?? null,
+      idempotencyKey: req.get('Idempotency-Key') ?? null,
     });
     return res.status(201).json(result);
   } catch (err) {

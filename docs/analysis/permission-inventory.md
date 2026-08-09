@@ -55,6 +55,7 @@
 - `sales.can_close` - ط§ظ„ظ‚ط¯ط±ط© ط¹ظ„ظ‰ طھط³ظƒظٹط± ط§ظ„ط¹ط±ظˆط¶ ظˆط§ظ„ظ…ط¨ظٹط¹ط§طھ
 - `service_requests.archive` - أرشفة طلب صيانة
 - `service_requests.decide` - حسم طلب صيانة (رفض/حل/ترقية/إعادة فتح)
+- `service_requests.override_active_emergency` - فتح طلب صيانة طارئة منفصل رغم وجود مهمة طارئة نشطة للجهاز
 - `service_requests.promote` - ترقية طلب صيانة إلى مهمة
 - `service_requests.reject` - رفض طلب صيانة (مدقّق فقط)
 - `service_requests.resolve_escalation` - فكّ تصعيد طلب خدمة (مدقّق)

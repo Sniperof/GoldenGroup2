@@ -67,7 +67,7 @@ export interface PersonSnapshot {
   source: 'client_record' | 'submitted';
 }
 
-function text(source: Record<string, unknown>, ...keys: string[]): string {
+export function text(source: Record<string, unknown>, ...keys: string[]): string {
   for (const key of keys) {
     const value = source[key];
     if (typeof value === 'string' && value.trim()) return value.trim();
@@ -75,7 +75,7 @@ function text(source: Record<string, unknown>, ...keys: string[]): string {
   return '';
 }
 
-function positiveInt(source: Record<string, unknown>, ...keys: string[]): number | null {
+export function positiveInt(source: Record<string, unknown>, ...keys: string[]): number | null {
   for (const key of keys) {
     const raw = source[key];
     const value = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : NaN;
@@ -84,7 +84,7 @@ function positiveInt(source: Record<string, unknown>, ...keys: string[]): number
   return null;
 }
 
-function bool(source: Record<string, unknown>, key: string): boolean {
+export function bool(source: Record<string, unknown>, key: string): boolean {
   const value = source[key];
   return value === true || value === 'true' || value === '1';
 }
@@ -98,7 +98,7 @@ export function readWaterCheckAddressIds(body: Record<string, unknown>) {
   };
 }
 
-function hasOwn(source: Record<string, unknown>, key: string): boolean {
+export function hasOwn(source: Record<string, unknown>, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(source, key);
 }
 
@@ -106,7 +106,7 @@ function hasProvidedValue(source: Record<string, unknown>, key: string): boolean
   return hasOwn(source, key) && source[key] !== undefined && source[key] !== null;
 }
 
-function suppliedKeys(source: Record<string, unknown>, keys: readonly string[]): string[] {
+export function suppliedKeys(source: Record<string, unknown>, keys: readonly string[]): string[] {
   return keys.filter((key) => source[key] !== undefined && source[key] !== null);
 }
 
@@ -190,7 +190,7 @@ export function buildSubmittedPerson(input: {
   };
 }
 
-function personFromCustomerSnapshot(
+export function personFromCustomerSnapshot(
   snapshot: Awaited<ReturnType<typeof resolveCustomerIdentitySnapshot>>,
 ): PersonSnapshot {
   return {
@@ -244,7 +244,7 @@ export function withSecondaryContactOverride(input: {
   };
 }
 
-function mapLocation(source: Record<string, unknown>): { lat: number; lng: number } | null {
+export function mapLocation(source: Record<string, unknown>): { lat: number; lng: number } | null {
   const raw = source.mapLocation ?? source.map_location ?? source.location;
   if (!raw || typeof raw !== 'object') return null;
   const value = raw as Record<string, unknown>;

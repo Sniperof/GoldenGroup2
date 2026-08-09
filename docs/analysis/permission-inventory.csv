@@ -171,6 +171,7 @@
 "service_requests.archive","yes","service_requests","service_requests","archive","GLOBAL","1","0","0","0",""
 "service_requests.create","yes","service_requests","service_requests","create","GLOBAL|BRANCH","1","2","1","0","packages/api/routes/serviceRequests.ts|packages/web/src/pages/service-requests/ServiceRequestsListPage.tsx"
 "service_requests.decide","yes","service_requests","service_requests","decide","GLOBAL","1","0","0","0",""
+"service_requests.override_active_emergency","yes","service_requests","service_requests","override_active_emergency","GLOBAL","1","1","1","0","packages/api/routes/serviceRequests.ts|packages/web/src/components/service-requests/MergeOrSplitModal.tsx"
 "service_requests.promote","yes","service_requests","service_requests","promote","GLOBAL","1","0","0","0",""
 "service_requests.reject","yes","service_requests","service_requests","reject","GLOBAL","1","0","0","0",""
 "service_requests.resolve_escalation","yes","service_requests","service_requests","resolve_escalation","GLOBAL","1","0","0","0",""

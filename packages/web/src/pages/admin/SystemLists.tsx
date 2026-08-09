@@ -436,6 +436,24 @@ const CATEGORIES: CategoryMeta[] = [
     ],
   },
   {
+    id: 'emergency_maintenance_safety_indicators',
+    label: 'مؤشرات السلامة لطلب الصيانة الطارئة',
+    description: 'المؤشرات التي يستطيع مقدم الطلب تحديدها. يمكن للبيانات الوصفية رفع أولوية المراجعة تلقائياً.',
+    impact: 'high',
+    usedIn: [
+      { label: 'نموذج طلب الصيانة الطارئة', route: 'الموبايل ← طلب خدمة', icon: <ShieldCheck className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'emergency_maintenance_attachment_categories',
+    label: 'تصنيفات مرفقات الصيانة الطارئة',
+    description: 'تصنيفات الصور والفيديو القصير المرفقة بطلب الصيانة الطارئة.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مرفقات طلب الصيانة', route: 'الموبايل ← طلب صيانة طارئة', icon: <FileText className="w-3 h-3" /> },
+    ],
+  },
+  {
     id: 'part_no_retrieval_reason',
     label: 'أسباب عَدم استرجاع القطعة المُستَبدَلة',
     description: 'الأسباب المعتمدة عند استبدال قطعة بدون استرجاع القطعة القديمة من الزبون (تَلِفت كاملاً، رَفض الزبون، ...).',
@@ -1020,7 +1038,10 @@ const CATEGORY_GROUP: Record<string, string> = {
   emergency_maintenance_reschedule_reasons: 'emergency',
   emergency_cancelled_reason: 'emergency', service_unresolved_reasons: 'emergency',
   service_partial_reasons: 'emergency', reopen_reasons: 'emergency',
-  emergency_uniqueness_override_reasons: 'emergency', part_no_retrieval_reason: 'emergency',
+  emergency_uniqueness_override_reasons: 'emergency',
+  emergency_maintenance_safety_indicators: 'emergency',
+  emergency_maintenance_attachment_categories: 'emergency',
+  part_no_retrieval_reason: 'emergency',
 
   periodic_manual_creation_reasons: 'periodic',
   periodic_maintenance_reschedule_reasons: 'periodic',

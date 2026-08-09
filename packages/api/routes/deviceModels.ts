@@ -3,6 +3,10 @@ import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
 import { resolveAuthorizedDeviceModelIds } from '../services/deviceScopeService.js';
+import {
+  getDeviceModelSalesBranches,
+  replaceDeviceModelSalesBranches,
+} from '../services/deviceModelSalesBranchesService.js';
 
 const router = Router();
 const CATALOG_NOW_SQL = `(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Damascus')`;
@@ -319,6 +323,44 @@ router.get(
   const { rows } = await pool.query(query, params);
   res.json(rows.map(serializeDevice));
 });
+
+router.get(
+  '/:id/sales-branches',
+  requirePermission('device_models.manage', 'catalog.manage'),
+  async (req, res) => {
+    const deviceModelId = Number(req.params.id);
+    if (!Number.isInteger(deviceModelId) || deviceModelId <= 0) {
+      return res.status(400).json({ code: 'INVALID_DEVICE_MODEL_ID', error: 'رقم الجهاز غير صالح' });
+    }
+
+    try {
+      return res.json(await getDeviceModelSalesBranches(deviceModelId));
+    } catch (error: any) {
+      return res.status(error.status ?? 500).json({ code: error.code, error: error.message, ...error.details });
+    }
+  },
+);
+
+router.put(
+  '/:id/sales-branches',
+  requirePermission('device_models.manage', 'catalog.manage'),
+  async (req, res) => {
+    const deviceModelId = Number(req.params.id);
+    if (!Number.isInteger(deviceModelId) || deviceModelId <= 0) {
+      return res.status(400).json({ code: 'INVALID_DEVICE_MODEL_ID', error: 'رقم الجهاز غير صالح' });
+    }
+
+    try {
+      return res.json(await replaceDeviceModelSalesBranches(
+        deviceModelId,
+        req.body?.branchIds,
+        req.user?.id ?? null,
+      ));
+    } catch (error: any) {
+      return res.status(error.status ?? 500).json({ code: error.code, error: error.message, ...error.details });
+    }
+  },
+);
 
 /**
  * @swagger

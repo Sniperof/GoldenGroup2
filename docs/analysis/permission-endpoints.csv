@@ -319,3 +319,5 @@
 "POST","/refresh","planning.zone_study.manage","packages/api/routes/zoneStudy.ts","60"
 "POST","/manual/pick","planning.zone_study.manage","packages/api/routes/zoneStudy.ts","80"
 "DELETE","/manual/pick/:zoneId","planning.zone_study.manage","packages/api/routes/zoneStudy.ts","102"
+"POST","/internal-with-call","telemarketing.calls.create|service_requests.create","packages/api/routes/serviceRequests.ts","456"
+"POST","/:id/promote","service_requests.decide|open_tasks.edit|installed_devices.create_external|service_requests.override_active_emergency","packages/api/routes/serviceRequests.ts","1574"

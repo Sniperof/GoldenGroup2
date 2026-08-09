@@ -23,6 +23,73 @@ function validateContactInfo(contactInfo: unknown): string | null {
   return null;
 }
 
+export function validateBranchImages(images: unknown, primaryImageId: unknown): string | null {
+  if (!Array.isArray(images)) return 'images يجب أن يكون مصفوفة';
+  if (images.length > 20) return 'لا يمكن إضافة أكثر من 20 صورة للفرع';
+  const ids = new Set<string>();
+  for (const image of images) {
+    if (!image || typeof image !== 'object') return 'كل عنصر في images يجب أن يكون كائناً';
+    const id = typeof (image as any).id === 'string' ? (image as any).id.trim() : '';
+    const name = typeof (image as any).name === 'string' ? (image as any).name.trim() : '';
+    const url = typeof (image as any).url === 'string' ? (image as any).url.trim() : '';
+    if (!id || !name || !url) return 'كل صورة يجب أن تحتوي id و name و url';
+    if (ids.has(id)) return 'معرفات الصور يجب أن تكون فريدة';
+    ids.add(id);
+  }
+  const primary = typeof primaryImageId === 'string' ? primaryImageId.trim() : '';
+  if (primary && !ids.has(primary)) return 'الصورة الرئيسية يجب أن تكون ضمن صور الفرع';
+  return null;
+}
+
+export function normalizeMapLocation(latitudeValue: unknown, longitudeValue: unknown) {
+  const latitudeMissing = latitudeValue == null || (typeof latitudeValue === 'string' && !latitudeValue.trim());
+  const longitudeMissing = longitudeValue == null || (typeof longitudeValue === 'string' && !longitudeValue.trim());
+  if (latitudeMissing && longitudeMissing) return { latitude: null, longitude: null, error: null };
+  if (latitudeMissing !== longitudeMissing) {
+    return { latitude: null, longitude: null, error: 'يجب إدخال خط العرض وخط الطول معاً' };
+  }
+  const latitude = Number(latitudeValue);
+  const longitude = Number(longitudeValue);
+  if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90) {
+    return { latitude: null, longitude: null, error: 'خط العرض يجب أن يكون بين -90 و 90' };
+  }
+  if (!Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+    return { latitude: null, longitude: null, error: 'خط الطول يجب أن يكون بين -180 و 180' };
+  }
+  return { latitude, longitude, error: null };
+}
+
+export function validateMobileProfile(body: any, partial = false) {
+  if (Object.prototype.hasOwnProperty.call(body, 'mobileVisible') && typeof body.mobileVisible !== 'boolean') {
+    return 'mobileVisible يجب أن تكون قيمة منطقية';
+  }
+  const hasImages = Object.prototype.hasOwnProperty.call(body, 'images');
+  const hasPrimaryImage = Object.prototype.hasOwnProperty.call(body, 'primaryImageId');
+  if (!partial || hasImages || hasPrimaryImage) {
+    if (partial && hasImages !== hasPrimaryImage) return 'يجب إرسال images و primaryImageId معاً';
+    const imageError = validateBranchImages(body.images ?? [], body.primaryImageId);
+    if (imageError) return imageError;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, 'publicDescription')) {
+    const description = String(body.publicDescription ?? '').trim();
+    if (description.length > 2000) return 'وصف الفرع العام يجب ألا يتجاوز 2000 محرف';
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, 'mobileDisplayOrder')) {
+    const order = Number(body.mobileDisplayOrder);
+    if (!Number.isInteger(order) || order < 0) return 'ترتيب ظهور الفرع يجب أن يكون عدداً صحيحاً غير سالب';
+  }
+
+  const hasLatitude = Object.prototype.hasOwnProperty.call(body, 'latitude');
+  const hasLongitude = Object.prototype.hasOwnProperty.call(body, 'longitude');
+  if (!partial || hasLatitude || hasLongitude) {
+    if (partial && hasLatitude !== hasLongitude) return 'يجب إرسال latitude و longitude معاً';
+    return normalizeMapLocation(body.latitude, body.longitude).error;
+  }
+  return null;
+}
+
 // Helper: sync branch_geo_coverage rows within an open transaction client
 async function syncBranchGeoCoverage(
   client: typeof pool,
@@ -127,6 +194,13 @@ router.get('/', requirePermission('branches.view', 'branches.lookup', 'reference
                WHERE branch_id = b.id ORDER BY geo_unit_id
              ) AS "coveredGeoIds",
              COALESCE(b.contact_info, '[]'::jsonb) AS "contactInfo",
+             b.mobile_visible AS "mobileVisible",
+             b.mobile_display_order AS "mobileDisplayOrder",
+             b.public_description AS "publicDescription",
+             COALESCE(b.images, '[]'::jsonb) AS images,
+             b.primary_image_id AS "primaryImageId",
+             b.latitude,
+             b.longitude,
              b.status,
              b.created_at      AS "createdAt",
              g.name            AS "locationGeoName"
@@ -189,6 +263,13 @@ router.get('/:id', requirePermission('branches.view', 'branches.lookup', 'refere
                 WHERE branch_id = b.id ORDER BY geo_unit_id
               ) AS "coveredGeoIds",
               COALESCE(b.contact_info, '[]'::jsonb) AS "contactInfo",
+              b.mobile_visible AS "mobileVisible",
+              b.mobile_display_order AS "mobileDisplayOrder",
+              b.public_description AS "publicDescription",
+              COALESCE(b.images, '[]'::jsonb) AS images,
+              b.primary_image_id AS "primaryImageId",
+              b.latitude,
+              b.longitude,
               b.status,
               b.created_at      AS "createdAt",
               g.name            AS "locationGeoName"
@@ -256,26 +337,40 @@ router.post('/', requirePermission('branches.manage'), async (req, res) => {
     const { name, locationGeoId, detailedAddress, coveredGeoIds, contactInfo, status } = req.body;
 
     if (!name || typeof name !== 'string' || !name.trim()) {
-      client.release();
       return res.status(400).json({ error: 'اسم الفرع مطلوب' });
     }
     const contactErr = validateContactInfo(contactInfo ?? []);
     if (contactErr) {
-      client.release();
       return res.status(400).json({ error: contactErr });
     }
+    const mobileProfileErr = validateMobileProfile(req.body);
+    if (mobileProfileErr) {
+      return res.status(400).json({ error: mobileProfileErr });
+    }
+    const mapLocation = normalizeMapLocation(req.body.latitude, req.body.longitude);
 
     const ids: number[] = Array.isArray(coveredGeoIds) ? coveredGeoIds.map(Number).filter(Boolean) : [];
 
     await client.query('BEGIN');
 
     const { rows } = await client.query(
-      `INSERT INTO branches (name, location_geo_id, detailed_address, contact_info, status)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO branches (
+         name, location_geo_id, detailed_address, contact_info, status,
+         mobile_visible, mobile_display_order, public_description,
+         images, primary_image_id, latitude, longitude
+       )
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
        RETURNING id, name,
                  location_geo_id AS "locationGeoId",
                  detailed_address AS "detailedAddress",
                  COALESCE(contact_info, '[]'::jsonb) AS "contactInfo",
+                 mobile_visible AS "mobileVisible",
+                 mobile_display_order AS "mobileDisplayOrder",
+                 public_description AS "publicDescription",
+                 COALESCE(images, '[]'::jsonb) AS images,
+                 primary_image_id AS "primaryImageId",
+                 latitude,
+                 longitude,
                  status,
                  created_at AS "createdAt"`,
       [
@@ -284,6 +379,13 @@ router.post('/', requirePermission('branches.manage'), async (req, res) => {
         detailedAddress || null,
         JSON.stringify(contactInfo || []),
         status || 'active',
+        req.body.mobileVisible === true,
+        Number(req.body.mobileDisplayOrder ?? 0),
+        String(req.body.publicDescription ?? '').trim() || null,
+        JSON.stringify(req.body.images ?? []),
+        req.body.primaryImageId || null,
+        mapLocation.latitude,
+        mapLocation.longitude,
       ]
     );
     const newBranch = rows[0];
@@ -361,13 +463,16 @@ router.put('/:id', requirePermission('branches.edit', 'branches.manage'), async 
 
     // coveredGeoIds and status are security-sensitive (affect data scoping / operations).
     // branches.edit is insufficient — branches.manage is required.
-    const sensitiveFieldsPresent = coveredGeoIds !== undefined || status !== undefined;
+    const sensitiveFieldsPresent = coveredGeoIds !== undefined
+      || status !== undefined
+      || req.body.mobileVisible !== undefined
+      || req.body.mobileDisplayOrder !== undefined;
     const canManageThisBranch = hasBranchPermission(req.authContext!, 'branches.manage', branchId);
     const canEditThisBranch = hasBranchPermission(req.authContext!, 'branches.edit', branchId);
     if (sensitiveFieldsPresent ? !canManageThisBranch : (!canManageThisBranch && !canEditThisBranch)) {
       return res.status(403).json({
         error: sensitiveFieldsPresent
-          ? 'Updating branch status or coverage requires branches.manage on this branch'
+          ? 'Updating branch status, coverage, publication, or mobile ordering requires branches.manage on this branch'
           : 'Updating branch details requires branches.edit or branches.manage on this branch',
       });
     }
@@ -375,22 +480,27 @@ router.put('/:id', requirePermission('branches.edit', 'branches.manage'), async 
     if (sensitiveFieldsPresent && req.authContext) {
       const manageCheck = authorize(req.authContext, { permission: 'branches.manage', branchId });
       if (!manageCheck.allowed) {
-        client.release();
         return res.status(403).json({
-          error: 'غير مسموح: تعديل نطاق التغطية الجغرافية أو حالة الفرع يتطلب صلاحية branches.manage',
+          error: 'غير مسموح: تعديل التغطية أو الحالة أو نشر الفرع للموبايل يتطلب صلاحية branches.manage',
         });
       }
     }
 
     if (!name || typeof name !== 'string' || !name.trim()) {
-      client.release();
       return res.status(400).json({ error: 'اسم الفرع مطلوب' });
     }
     const contactErr = validateContactInfo(contactInfo ?? []);
     if (contactErr) {
-      client.release();
       return res.status(400).json({ error: contactErr });
     }
+    const mobileProfileErr = validateMobileProfile(req.body, true);
+    if (mobileProfileErr) {
+      return res.status(400).json({ error: mobileProfileErr });
+    }
+    const hasMapLocation = Object.prototype.hasOwnProperty.call(req.body, 'latitude');
+    const mapLocation = hasMapLocation
+      ? normalizeMapLocation(req.body.latitude, req.body.longitude)
+      : { latitude: null, longitude: null };
 
     const ids: number[] = Array.isArray(coveredGeoIds) ? coveredGeoIds.map(Number).filter(Boolean) : [];
 
@@ -402,12 +512,26 @@ router.put('/:id', requirePermission('branches.edit', 'branches.manage'), async 
          location_geo_id  = $2,
          detailed_address = $3,
          contact_info     = $4,
-         status           = COALESCE($5, status)
-       WHERE id = $6
+         status           = COALESCE($5, status),
+         mobile_visible   = CASE WHEN $6 THEN $7 ELSE mobile_visible END,
+         mobile_display_order = CASE WHEN $8 THEN $9 ELSE mobile_display_order END,
+         public_description = CASE WHEN $10 THEN $11 ELSE public_description END,
+         images           = CASE WHEN $12 THEN $13 ELSE images END,
+         primary_image_id = CASE WHEN $12 THEN $14 ELSE primary_image_id END,
+         latitude         = CASE WHEN $15 THEN $16 ELSE latitude END,
+         longitude        = CASE WHEN $15 THEN $17 ELSE longitude END
+       WHERE id = $18
        RETURNING id, name,
                  location_geo_id AS "locationGeoId",
                  detailed_address AS "detailedAddress",
                  COALESCE(contact_info, '[]'::jsonb) AS "contactInfo",
+                 mobile_visible AS "mobileVisible",
+                 mobile_display_order AS "mobileDisplayOrder",
+                 public_description AS "publicDescription",
+                 COALESCE(images, '[]'::jsonb) AS images,
+                 primary_image_id AS "primaryImageId",
+                 latitude,
+                 longitude,
                  status,
                  created_at AS "createdAt"`,
       [
@@ -416,6 +540,18 @@ router.put('/:id', requirePermission('branches.edit', 'branches.manage'), async 
         detailedAddress || null,
         JSON.stringify(contactInfo || []),
         status ?? null,
+        Object.prototype.hasOwnProperty.call(req.body, 'mobileVisible'),
+        req.body.mobileVisible === true,
+        Object.prototype.hasOwnProperty.call(req.body, 'mobileDisplayOrder'),
+        Number(req.body.mobileDisplayOrder ?? 0),
+        Object.prototype.hasOwnProperty.call(req.body, 'publicDescription'),
+        String(req.body.publicDescription ?? '').trim() || null,
+        Object.prototype.hasOwnProperty.call(req.body, 'images'),
+        JSON.stringify(req.body.images ?? []),
+        req.body.primaryImageId || null,
+        hasMapLocation,
+        mapLocation.latitude,
+        mapLocation.longitude,
         branchId,
       ]
     );

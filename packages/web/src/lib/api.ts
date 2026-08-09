@@ -876,6 +876,14 @@ export const api = {
     create: (data: any) => request<any>('/device-models', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/device-models/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id: number) => request<any>(`/device-models/${id}`, { method: 'DELETE' }),
+    getSalesBranches: (id: number) => request<{
+      deviceModelId: number;
+      branches: Array<{ id: number; name: string; detailedAddress: string | null; locationGeoName: string | null; isSelected: boolean }>;
+    }>(`/device-models/${id}/sales-branches`),
+    updateSalesBranches: (id: number, branchIds: number[]) => request<{
+      deviceModelId: number;
+      branches: Array<{ id: number; name: string; detailedAddress: string | null; locationGeoName: string | null; isSelected: boolean }>;
+    }>(`/device-models/${id}/sales-branches`, { method: 'PUT', body: JSON.stringify({ branchIds }) }),
     getDiscounts: (deviceModelId: number) => request<any[]>(`/device-models/${deviceModelId}/discounts`),
     getAllDiscounts: (deviceModelId: number) => request<any[]>(`/device-models/${deviceModelId}/discounts/all`),
     createDiscount: (deviceModelId: number, data: any) => request<any>(`/device-models/${deviceModelId}/discounts`, { method: 'POST', body: JSON.stringify(data) }),
@@ -1646,6 +1654,11 @@ export const api = {
       request<any>('/service-requests/water-check', { method: 'POST', body: JSON.stringify(data) }),
     createInternal: (data: any) =>
       request<any>('/service-requests/internal', { method: 'POST', body: JSON.stringify(data) }),
+    createInternalWithCall: (call: any, serviceRequest: any) =>
+      request<any>('/service-requests/internal-with-call', {
+        method: 'POST',
+        body: JSON.stringify({ call, request: serviceRequest }),
+      }),
     list: (params: Record<string, string | number | boolean | undefined> = {}) => {
       const qs = Object.entries(params)
         .filter(([, v]) => v !== undefined && v !== '' && v !== null)
@@ -1657,8 +1670,6 @@ export const api = {
     },
     get: (id: number) =>
       request<{ request: any; auditLog: any[]; problems: any[] }>(`/service-requests/${id}`),
-    periodicAttachmentCandidate: (id: number) =>
-      request<{ candidate: any | null }>(`/service-requests/${id}/periodic-attachment-candidate`),
     claim: (id: number) =>
       request<any>(`/service-requests/${id}/claim`, { method: 'POST', body: '{}' }),
     takeOver: (id: number, reason?: string | null) =>
@@ -1736,18 +1747,20 @@ export const api = {
       if (res.status === 409 && data?.error === 'merge_or_split_required') {
         return { collision: data as { existingOpenTaskId: number; installedDeviceId: number } };
       }
-      if (!res.ok) throw new Error(data?.message || `API Error ${res.status}`);
+      if (!res.ok) {
+        const error = Object.assign(new Error(data?.message || data?.error || `API Error ${res.status}`), {
+          code: data?.error,
+          details: data?.details,
+          status: res.status,
+        });
+        throw error;
+      }
       return { ok: data };
     },
     merge: (id: number, existingOpenTaskId: number, note?: string | null) =>
       request<any>(`/service-requests/${id}/merge`, {
         method: 'POST',
         body: JSON.stringify({ existingOpenTaskId, note: note ?? null }),
-      }),
-    attachPeriodic: (id: number, periodicOpenTaskId: number, note?: string | null) =>
-      request<any>(`/service-requests/${id}/attach-periodic`, {
-        method: 'POST',
-        body: JSON.stringify({ periodicOpenTaskId, note: note ?? null }),
       }),
     handoffWaterCheck: (
       id: number,

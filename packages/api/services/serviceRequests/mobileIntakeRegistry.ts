@@ -2,6 +2,8 @@ import type { PoolClient } from 'pg';
 import type { MobileIntakeIdentity } from './mobileIntakeIdentity.js';
 import { submitMobileWaterCheck } from './mobileWaterCheckIntake.js';
 import { WATER_CHECK_FORM_VERSION } from './waterCheckFormSchema.js';
+import { submitMobileEmergencyMaintenance } from './mobileEmergencyMaintenanceIntake.js';
+import { EMERGENCY_MAINTENANCE_FORM_VERSION } from './emergencyMaintenanceFormSchema.js';
 import type { ServiceRequestTypeDefinition } from './serviceRequestTypeRegistry.js';
 
 export interface MobileIntakeHandler {
@@ -26,6 +28,12 @@ const handlers: Record<string, MobileIntakeHandler> = {
     formVersion: WATER_CHECK_FORM_VERSION,
     allowsUnverifiedIntake: true,
     submit: submitMobileWaterCheck,
+  },
+  emergency_maintenance: {
+    requestType: 'emergency_maintenance',
+    formVersion: EMERGENCY_MAINTENANCE_FORM_VERSION,
+    allowsUnverifiedIntake: true,
+    submit: submitMobileEmergencyMaintenance,
   },
 };
 

@@ -10,6 +10,7 @@ export interface PublicCatalogFilters {
   featured?: boolean;
   category?: string;
   search?: string;
+  salesBranchId?: number;
 }
 
 interface CatalogAttachment {
@@ -23,6 +24,28 @@ interface WarrantyPeriod {
   label: string;
   visits?: number;
 }
+
+interface ActiveDiscount {
+  label: string;
+  percentage: number;
+  validUntil: string;
+}
+
+interface PurchaseBenefit {
+  code: 'delivery' | 'installation' | 'training' | 'maintenance';
+  labelAr: string;
+  included: true;
+}
+
+const PURCHASE_BENEFITS: Array<{
+  service: PublicDeviceService;
+  benefit: PurchaseBenefit;
+}> = [
+  { service: 'تسليم', benefit: { code: 'delivery', labelAr: 'توصيل الجهاز إلى مكان التركيب', included: true } },
+  { service: 'تركيب', benefit: { code: 'installation', labelAr: 'تركيب الجهاز', included: true } },
+  { service: 'تعليم', benefit: { code: 'training', labelAr: 'تدريب على استخدام الجهاز', included: true } },
+  { service: 'صيانة', benefit: { code: 'maintenance', labelAr: 'صيانة حسب العرض المقدم', included: true } },
+];
 
 const PUBLIC_DEVICE_SERVICES = ['تسليم', 'تركيب', 'صيانة', 'تعليم'] as const;
 type PublicDeviceService = typeof PUBLIC_DEVICE_SERVICES[number];
@@ -45,6 +68,57 @@ const PUBLIC_DEVICE_COLUMNS = `
   images,
   primary_image_id AS "primaryImageId",
   videos
+`;
+
+const PUBLIC_DEVICE_LIST_COLUMNS = `${PUBLIC_DEVICE_COLUMNS},
+  (
+    SELECT jsonb_build_object(
+      'label', discount.label,
+      'percentage', discount.percentage,
+      'validUntil', discount.end_date
+    )
+    FROM device_discounts discount
+    WHERE discount.device_model_id = device_models.id
+      AND discount.is_active = TRUE
+      AND discount.start_date <= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Damascus')::date
+      AND discount.end_date >= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Damascus')::date
+    ORDER BY discount.end_date ASC, discount.id ASC
+    LIMIT 1
+  ) AS "activeDiscount"
+`;
+
+const PUBLIC_DEVICE_DETAILS_COLUMNS = `${PUBLIC_DEVICE_LIST_COLUMNS},
+  documents,
+  COALESCE((
+    SELECT jsonb_agg(jsonb_build_object(
+      'id', branch.id,
+      'name', branch.name,
+      'address', COALESCE(NULLIF(branch.detailed_address, ''), geo.name),
+      'locationName', geo.name,
+      'images', COALESCE(branch.images, '[]'::jsonb),
+      'primaryImageId', branch.primary_image_id
+    ) ORDER BY link.display_order, branch.name, branch.id)
+    FROM device_model_sales_branches link
+    JOIN branches branch
+      ON branch.id = link.branch_id
+     AND branch.status = 'active'
+     AND branch.mobile_visible = TRUE
+    LEFT JOIN geo_units geo ON geo.id = branch.location_geo_id
+    WHERE link.device_model_id = device_models.id
+      AND link.is_active = TRUE
+  ), '[]'::jsonb) AS "availableBranches",
+  COALESCE((
+    SELECT jsonb_agg(jsonb_build_object(
+      'id', part.id,
+      'name', part.name,
+      'code', part.code
+    ) ORDER BY part.name, part.id)
+    FROM spare_parts part
+    WHERE part.deleted_at IS NULL
+      AND part.is_active = TRUE
+      AND part.maintenance_type = 'Accessory'
+      AND COALESCE(part.compatible_device_ids, '[]'::jsonb) @> jsonb_build_array(device_models.id)
+  ), '[]'::jsonb) AS accessories
 `;
 
 function nullableText(value: unknown): string | null {
@@ -99,6 +173,64 @@ function serializeServices(value: unknown): PublicDeviceService[] {
   );
 }
 
+function serializeActiveDiscount(value: unknown): ActiveDiscount | null {
+  if (!value || typeof value !== 'object') return null;
+
+  const record = value as Record<string, unknown>;
+  const label = nullableText(record.label);
+  const percentage = Number(record.percentage);
+  const validUntil = nullableText(record.validUntil);
+  if (!label || !Number.isFinite(percentage) || percentage < 0 || percentage > 100 || !validUntil) {
+    return null;
+  }
+
+  return { label, percentage, validUntil };
+}
+
+function serializePurchaseBenefits(value: unknown): PurchaseBenefit[] {
+  const services = new Set(serializeServices(value));
+  return PURCHASE_BENEFITS
+    .filter(({ service }) => services.has(service))
+    .map(({ benefit }) => benefit);
+}
+
+function serializeIdNameItems(value: unknown, includeAddress: boolean) {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object') return [];
+    const record = item as Record<string, unknown>;
+    const id = Number(record.id);
+    const name = nullableText(record.name);
+    if (!Number.isInteger(id) || id <= 0 || !name) return [];
+    return [{
+      id,
+      name,
+      ...(includeAddress
+        ? { address: nullableText(record.address) }
+        : { code: nullableText(record.code) }),
+    }];
+  });
+}
+
+function serializeAvailableBranches(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object') return [];
+    const record = item as Record<string, unknown>;
+    const id = Number(record.id);
+    const name = nullableText(record.name);
+    if (!Number.isInteger(id) || id <= 0 || !name) return [];
+    const images = serializeAttachments(record.images);
+    return [{
+      id,
+      name,
+      locationName: nullableText(record.locationName),
+      address: nullableText(record.address),
+      primaryImage: publicPrimaryImage({ primaryImageId: record.primaryImageId }, images),
+    }];
+  });
+}
+
 function publicNames(row: any) {
   return {
     nameAr: nullableText(row.nameAr) ?? nullableText(row.name) ?? '',
@@ -121,6 +253,8 @@ export function serializePublicDeviceListItem(row: any) {
     summary: nullableText(row.descriptionAr),
     primaryImage: publicPrimaryImage(row, images),
     services: serializeServices(row.supportedVisitTypes),
+    goldenWarrantyAvailable: row.isGoldenWarranty === true,
+    activeDiscount: serializeActiveDiscount(row.activeDiscount),
     isFeatured: row.isFeatured === true,
   };
 }
@@ -137,8 +271,13 @@ export function serializePublicDeviceDetails(row: any) {
     primaryImage: publicPrimaryImage(row, images),
     images,
     videos: serializeAttachments(row.videos),
+    catalogs: serializeAttachments(row.documents),
     maintenanceInterval: nullableText(row.maintenanceInterval),
     services: serializeServices(row.supportedVisitTypes),
+    purchaseBenefits: serializePurchaseBenefits(row.supportedVisitTypes),
+    availableBranches: serializeAvailableBranches(row.availableBranches),
+    accessories: serializeIdNameItems(row.accessories, false),
+    activeDiscount: serializeActiveDiscount(row.activeDiscount),
     warranty: {
       standardPeriods: serializeWarrantyPeriods(row.warrantyPeriods, true),
       goldenAvailable: row.isGoldenWarranty === true,
@@ -179,8 +318,23 @@ export async function listPublicDeviceCatalog(
     )`);
   }
 
+  if (filters.salesBranchId != null) {
+    params.push(filters.salesBranchId);
+    conditions.push(`EXISTS (
+      SELECT 1
+      FROM device_model_sales_branches sales_link
+      JOIN branches sales_branch
+        ON sales_branch.id = sales_link.branch_id
+       AND sales_branch.status = 'active'
+       AND sales_branch.mobile_visible = TRUE
+      WHERE sales_link.device_model_id = device_models.id
+        AND sales_link.branch_id = $${params.length}
+        AND sales_link.is_active = TRUE
+    )`);
+  }
+
   const { rows } = await db.query(
-    `SELECT ${PUBLIC_DEVICE_COLUMNS}
+    `SELECT ${PUBLIC_DEVICE_LIST_COLUMNS}
        FROM device_models
       WHERE ${conditions.join(' AND ')}
       ORDER BY is_featured DESC, COALESCE(name_ar, name) ASC, id ASC`,
@@ -195,7 +349,7 @@ export async function getPublicDeviceCatalogDetails(
   db: DeviceCatalogQueryable = pool,
 ) {
   const { rows } = await db.query(
-    `SELECT ${PUBLIC_DEVICE_COLUMNS}
+    `SELECT ${PUBLIC_DEVICE_DETAILS_COLUMNS}
        FROM device_models
       WHERE id = $1
         AND deleted_at IS NULL

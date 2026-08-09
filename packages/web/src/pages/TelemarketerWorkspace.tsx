@@ -43,6 +43,7 @@ import { OUTCOME_MAP, getOutcomeMeta, normaliseOutcomeCode, PHONE_STATUS_TO_CONT
 import { buildGeoHierarchyLabel } from '../utils/addressUtils';
 import { getEntityContacts } from '../lib/contactUtils';
 import { useAuthStore } from '../hooks/useAuthStore';
+import NewServiceRequestModal from '../components/service-requests/NewServiceRequestModal';
 
 // ─── Date helpers ─────────────────────────────────────────────────────────────
 
@@ -696,6 +697,14 @@ export default function TelemarketerWorkspace() {
     const [serviceTaskDeviceId, setServiceTaskDeviceId] = useState('');
     const [serviceTaskDevicesLoading, setServiceTaskDevicesLoading] = useState(false);
     const [serviceTaskDeviceError, setServiceTaskDeviceError] = useState('');
+    const [pendingEmergencyCall, setPendingEmergencyCall] = useState<{
+        contactId: string;
+        contactNumber: string | null;
+        contactLabel: string | null;
+        notes: string;
+        communicationMethod: 'phone' | 'cellular_text' | 'whatsapp_text' | 'whatsapp_voice';
+        extras?: SaveExtras;
+    } | null>(null);
     // Pre-selected contact — set when user picks a number in the contact picker
     const [preselectedContactId, setPreselectedContactId] = useState<string>('');
     // Contact picker modal (step 1 before outcome modal)
@@ -1016,6 +1025,22 @@ export default function TelemarketerWorkspace() {
         else if (ch === 'whatsapp_call') communicationMethod = 'whatsapp_voice';
         else if (ch === 'cellular_text') communicationMethod = 'cellular_text';
         else communicationMethod = 'phone';
+
+        if (outcome === 'service_request' && extras?.serviceTaskType === 'emergency_maintenance') {
+            if (selectedCustomer.entityType !== 'client') {
+                throw new Error('طلب الصيانة الطارئة من هذه البوابة يتطلب زبوناً مسجلاً.');
+            }
+            setPendingEmergencyCall({
+                contactId,
+                contactNumber: selectedContact?.number ?? null,
+                contactLabel: selectedContact?.label ?? null,
+                notes,
+                communicationMethod,
+                extras,
+            });
+            setIsOutcomeModalOpen(false);
+            return;
+        }
 
         // Log the call — failure is surfaced to the user rather than swallowed.
         setCallLogSaveError(null);
@@ -2340,6 +2365,57 @@ export default function TelemarketerWorkspace() {
                 bookedTimes={bookedTimes}
                 onSave={handleSaveOutcome}
             />
+
+            {pendingEmergencyCall && selectedCustomer?.entityType === 'client' && activeTaskList && (
+                <NewServiceRequestModal
+                    channel="phone"
+                    requesterClientId={selectedCustomer.entityId}
+                    requesterClientName={selectedCustomer.name}
+                    beneficiaryClientId={selectedCustomer.entityId}
+                    beneficiaryClientName={selectedCustomer.name}
+                    callContext={{
+                        customerId: selectedCustomer.entityId,
+                        contactId: pendingEmergencyCall.contactId,
+                        contactNumber: pendingEmergencyCall.contactNumber,
+                        contactLabel: pendingEmergencyCall.contactLabel,
+                        callDate: pendingEmergencyCall.extras?.callDateTime ?? null,
+                        taskListItemId: selectedCustomer.primaryItem.id,
+                        answeredBy: pendingEmergencyCall.extras?.answeredBy ?? null,
+                        communicationChannel: pendingEmergencyCall.extras?.communicationChannel ?? null,
+                        notes: pendingEmergencyCall.notes || null,
+                    }}
+                    onClose={() => setPendingEmergencyCall(null)}
+                    onCreated={async () => {
+                        const pending = pendingEmergencyCall;
+                        setPendingEmergencyCall(null);
+                        try {
+                            await addCallLog({
+                                entityType: selectedCustomer.entityType,
+                                entityId: selectedCustomer.entityId,
+                                taskListId: activeTaskList.id,
+                                taskListItemId: selectedCustomer.primaryItem.id,
+                                teamKey: selectedTeamKey,
+                                outcome: 'service_request',
+                                contactLabel: pending.contactLabel ?? undefined,
+                                contactNumber: pending.contactNumber ?? undefined,
+                                notes: pending.notes,
+                                communicationMethod: pending.communicationMethod,
+                            });
+                            await Promise.all(selectedCustomer.allItems.map(item =>
+                                updateTaskListItemStatus(
+                                    activeTaskList.id,
+                                    item.id,
+                                    OUTCOME_MAP.service_request.itemStatusAfterSave,
+                                    'service_request',
+                                )
+                            ));
+                            await loadData(date, appointmentDate);
+                        } catch {
+                            setCallLogSaveError('تم إنشاء طلب الصيانة، لكن تعذر تحديث سجل قائمة اتصالات التيلماركتر.');
+                        }
+                    }}
+                />
+            )}
 
             <AppointmentSchedulerModal
                 isOpen={isAppointmentModalOpen}
