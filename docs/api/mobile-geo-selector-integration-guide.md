@@ -259,14 +259,15 @@ GET /api/app/service-requests/types
 
 Display the form only when `water_check` is returned as active and its form version is `water_check.mobile.v3`.
 
-Map the normalized selection directly to the water-check fields:
+Map the normalized selection to either accepted water-check vocabulary. Prefer
+the shared account-form names when the same SmartGeo form model is reused:
 
-| Mobile selection | Water-check field |
-|---|---|
-| `governorateId` | `governorateId` |
-| `regionId` | `regionId` |
-| `subdistrictId` | `subdistrictId` |
-| `neighborhoodId` | `neighborhoodId` |
+| Mobile selection | Shared field (preferred) | Legacy alias |
+|---|---|---|
+| `governorateId` | `governorate` | `governorateId` |
+| `regionId` | `cityOrArea` | `regionId` |
+| `subdistrictId` | `subArea` | `subdistrictId` |
+| `neighborhoodId` | `neighborhood` | `neighborhoodId` |
 
 ### 6.1 Unregistered user requesting for self
 
@@ -288,10 +289,10 @@ X-Device-Id: 550e8400-e29b-41d4-a716-446655440000
   "lastName": "Al-Khatib",
   "phoneNumber": "0933333333",
   "primaryPhoneHasWhatsapp": true,
-  "governorateId": 248,
-  "regionId": 2,
-  "subdistrictId": 35,
-  "neighborhoodId": 137,
+  "governorate": 248,
+  "cityOrArea": 2,
+  "subArea": 35,
+  "neighborhood": 137,
   "detailedAddress": "Street, building, floor, and nearest landmark",
   "mapLocation": {
     "lat": 33.5138,
@@ -320,10 +321,10 @@ Content-Type: application/json
   "submissionMode": "for_self",
   "secondaryPhone": "0944444444",
   "secondaryPhoneHasWhatsapp": false,
-  "governorateId": 248,
-  "regionId": 2,
-  "subdistrictId": 35,
-  "neighborhoodId": 137,
+  "governorate": 248,
+  "cityOrArea": 2,
+  "subArea": 35,
+  "neighborhood": 137,
   "detailedAddress": "Service location address",
   "mapLocation": null,
   "notes": null

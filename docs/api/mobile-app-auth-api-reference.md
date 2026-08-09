@@ -401,10 +401,10 @@
 
 | الحقل | النوع | يقابل في استمارة الطلب |
 |---|---|---|
-| `governorate` | `integer \| null` | `governorateId` |
-| `cityOrArea` | `integer \| null` | `regionId` |
-| `subArea` | `integer \| null` | `subdistrictId` |
-| `neighborhood` | `integer \| null` | `neighborhoodId` |
+| `governorate` | `integer \| null` | `governorate` (ويُقبل `governorateId`) |
+| `cityOrArea` | `integer \| null` | `cityOrArea` (ويُقبل `regionId`) |
+| `subArea` | `integer \| null` | `subArea` (ويُقبل `subdistrictId`) |
+| `neighborhood` | `integer \| null` | `neighborhood` (ويُقبل `neighborhoodId`) |
 
 استعمل `addressIds` لضبط المنتقي التتالي مسبقاً، ثم مرّرها كما هي إلى
 `POST /api/app/service-requests` حسب جدول المقابلة أعلاه. **لا تطابق بالأسماء**:

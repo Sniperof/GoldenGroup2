@@ -87,8 +87,12 @@ export const WATER_CHECK_FIELDS: Record<string, FieldSpec> = {
   governorate: { kind: 'geoId' },
   regionId: { kind: 'geoId' },
   region: { kind: 'geoId' },
+  // Shared SmartGeo/account-form vocabulary. Kept beside the older
+  // water-check aliases so mobile clients do not need two address mappers.
+  cityOrArea: { kind: 'geoId' },
   subdistrictId: { kind: 'geoId' },
   subdistrict: { kind: 'geoId' },
+  subArea: { kind: 'geoId' },
   neighborhoodId: { kind: 'geoId' },
   neighborhood: { kind: 'geoId' },
 

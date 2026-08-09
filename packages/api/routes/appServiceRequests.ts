@@ -103,6 +103,10 @@ router.get('/types', async (_req, res) => {
  *               referrerFatherName: { type: string, nullable: true }
  *               referrerPhone: { type: string }
  *               referrerPhoneHasWhatsapp: { type: boolean }
+ *               governorate: { type: integer, description: SmartGeo level 1; governorateId is also accepted }
+ *               cityOrArea: { type: integer, nullable: true, description: SmartGeo level 2; regionId is also accepted }
+ *               subArea: { type: integer, nullable: true, description: SmartGeo level 3; subdistrictId is also accepted }
+ *               neighborhood: { type: integer, nullable: true, description: SmartGeo level 4; neighborhoodId is also accepted }
  *     responses:
  *       201: { description: Request created }
  *       400: { description: "Invalid form or party model. See the mobile API reference for named codes." }

@@ -89,6 +89,15 @@ function bool(source: Record<string, unknown>, key: string): boolean {
   return value === true || value === 'true' || value === '1';
 }
 
+export function readWaterCheckAddressIds(body: Record<string, unknown>) {
+  return {
+    governorateId: positiveInt(body, 'governorateId', 'governorate'),
+    regionId: positiveInt(body, 'regionId', 'region', 'cityOrArea'),
+    subdistrictId: positiveInt(body, 'subdistrictId', 'subdistrict', 'subArea'),
+    neighborhoodId: positiveInt(body, 'neighborhoodId', 'neighborhood'),
+  };
+}
+
 function hasOwn(source: Record<string, unknown>, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(source, key);
 }
@@ -374,10 +383,7 @@ export async function submitMobileWaterCheck(
     : undefined;
   const detailedAddress = text(body, 'detailedAddress', 'detailed_address');
   const notes = text(body, 'notes');
-  const governorateId = positiveInt(body, 'governorateId', 'governorate');
-  const regionId = positiveInt(body, 'regionId', 'region');
-  const subdistrictId = positiveInt(body, 'subdistrictId', 'subdistrict');
-  const neighborhoodId = positiveInt(body, 'neighborhoodId', 'neighborhood');
+  const { governorateId, regionId, subdistrictId, neighborhoodId } = readWaterCheckAddressIds(body);
   const rawSubmissionMode = text(body, 'submissionMode');
   if (!rawSubmissionMode) throw httpError(400, 'submission_mode_required');
   const submissionMode = rawSubmissionMode === 'for_another' ? 'for_another' : 'for_self';

@@ -43,8 +43,10 @@ Every submission is based on the following envelope:
   "requestType": "water_check",
   "formVersion": "water_check.mobile.v3",
   "submissionMode": "for_self",
-  "governorateId": 1,
-  "regionId": 12,
+  "governorate": 1,
+  "cityOrArea": 12,
+  "subArea": 35,
+  "neighborhood": 137,
   "detailedAddress": "Street, building, and floor",
   "mapLocation": {
     "lat": 33.5138,
@@ -62,6 +64,7 @@ Every submission is based on the following envelope:
   - `requester`: The requester is also the referrer.
   - `separate_person`: The referrer is an independent third person.
 - `detailedAddress` is required and remains editable for registered customers because it represents the service location, not a profile update.
+- The complete SmartGeo selection may be sent with the shared account-form vocabulary: `governorate`, `cityOrArea`, `subArea`, and `neighborhood`. The older water-check aliases `governorateId`, `regionId`, `subdistrictId`, and `neighborhoodId` remain accepted for backward compatibility. Values are numeric `geo_units.id` identifiers, not display names.
 - `mapLocation` is optional. The application must not submit `(0, 0)` as a location.
 - The father's name is optional for externally submitted water-check parties. It remains required in the account-creation contract.
 - A Boolean WhatsApp value is required for every submitted primary phone number.
@@ -153,8 +156,10 @@ The client must remove all `referrer*` fields when the selected mode is `none` o
   "submissionMode": "for_self",
   "secondaryPhone": "0944444444",
   "secondaryPhoneHasWhatsapp": true,
-  "governorateId": 1,
-  "regionId": 12,
+  "governorate": 1,
+  "cityOrArea": 12,
+  "subArea": 35,
+  "neighborhood": 137,
   "detailedAddress": "Updated service address"
 }
 ```
@@ -349,6 +354,22 @@ For a registered customer, the mobile water-check form must:
 - Display the service address as editable.
 - Display the secondary mobile and its WhatsApp status as editable request-level values.
 - Avoid interpreting an editable secondary phone as permission to update the customer's CRM profile.
+
+Populate the four selector levels from `GET /api/app/me.addressIds`, not from
+the display-name object `address`:
+
+```ts
+const ids = profile.addressIds;
+const requestAddress = {
+  governorate: ids.governorate,
+  cityOrArea: ids.cityOrArea,
+  subArea: ids.subArea,
+  neighborhood: ids.neighborhood,
+};
+```
+
+Submit every non-null level selected by SmartGeo. The server validates the
+complete parent chain and persists all four resolved labels and identifiers.
 
 For the complete account API contract, see [`mobile-app-auth-api-reference.md`](./mobile-app-auth-api-reference.md).
 

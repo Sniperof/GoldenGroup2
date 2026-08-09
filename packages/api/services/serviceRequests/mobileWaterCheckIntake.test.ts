@@ -6,10 +6,25 @@ import {
   REQUESTER_BODY_KEYS,
   buildSubmittedPerson,
   resolveMobileRequesterParties,
+  readWaterCheckAddressIds,
   sanitizeMobileSubmittedPayload,
   type PersonSnapshot,
   withSecondaryContactOverride,
 } from './mobileWaterCheckIntake.js';
+
+test('SmartGeo account-style address keys map to every water-check level', () => {
+  assert.deepEqual(readWaterCheckAddressIds({
+    governorate: 1,
+    cityOrArea: 2,
+    subArea: 3,
+    neighborhood: 4,
+  }), {
+    governorateId: 1,
+    regionId: 2,
+    subdistrictId: 3,
+    neighborhoodId: 4,
+  });
+});
 
 const beneficiary = { name: 'Beneficiary', primary_phone: '0999999999' };
 const account = { appAccountId: 7, clientId: 42, phone: '0911111111' };

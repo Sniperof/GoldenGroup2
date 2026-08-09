@@ -177,8 +177,8 @@ router.get('/session', requireAppAuth, async (req, res) => {
  *                   type: object
  *                   description: >
  *                     The same levels as geo_units ids — pass these to the
- *                     request form as governorateId / regionId /
- *                     subdistrictId / neighborhoodId.
+ *                     request form as governorate / cityOrArea / subArea /
+ *                     neighborhood. The older *Id aliases remain accepted.
  *                   properties:
  *                     governorate: { type: integer, nullable: true }
  *                     cityOrArea: { type: integer, nullable: true }

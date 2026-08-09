@@ -51,6 +51,19 @@ test('geo ids must be positive integers within INTEGER range', () => {
   assert.equal(validateWaterCheckForm({ ...valid, governorateId: '3' }).ok, true);
 });
 
+test('the shared SmartGeo address vocabulary accepts all four administrative levels', () => {
+  const result = validateWaterCheckForm({
+    ...valid,
+    governorateId: undefined,
+    governorate: 1,
+    cityOrArea: 2,
+    subArea: 3,
+    neighborhood: 4,
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.issues, []);
+});
+
 test('coordinates are bounded and carry no extra keys', () => {
   assert.equal(validateWaterCheckForm({ ...valid, mapLocation: { lat: 91, lng: 0 } }).ok, false);
   assert.equal(validateWaterCheckForm({ ...valid, mapLocation: { lat: 0, lng: 181 } }).ok, false);
