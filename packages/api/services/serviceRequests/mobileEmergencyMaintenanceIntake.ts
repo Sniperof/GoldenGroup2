@@ -125,6 +125,7 @@ async function resolvePeople(input: {
       requesterPerson = buildSubmittedPerson({
         body,
         role: 'requester',
+        requireName: referrerMode !== 'none',
         ...(verifiedVisitorPhone ? { verifiedPrimaryPhone: verifiedVisitorPhone } : {}),
       });
     }

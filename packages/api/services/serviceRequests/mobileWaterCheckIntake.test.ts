@@ -131,6 +131,59 @@ test('submitted requester requires WhatsApp facts and binds OTP to primary phone
   );
 });
 
+test('visitor for another without a referrer may omit requester name but not contact facts', () => {
+  const anonymousRequester = buildSubmittedPerson({
+    body: { requesterPhone: '0911111111', requesterPhoneHasWhatsapp: false },
+    role: 'requester',
+    verifiedPrimaryPhone: '0911111111',
+    requireName: false,
+  });
+  assert.equal(anonymousRequester.name, '');
+
+  const result = resolveMobileRequesterParties({
+    submissionMode: 'for_another',
+    referrerMode: 'none',
+    verifiedVisitorPhone: '0911111111',
+    requesterPerson: anonymousRequester,
+    beneficiaryExternal: beneficiary,
+  });
+  const requesterExternal = result.requesterExternal as Record<string, unknown>;
+  assert.equal(requesterExternal.name, null);
+  assert.equal(requesterExternal.firstName, null);
+  assert.equal(requesterExternal.lastName, null);
+  assert.equal(requesterExternal.name_source, 'not_provided');
+  assert.equal(requesterExternal.primary_phone, '0911111111');
+  assert.equal(result.referrerExternal, null);
+
+  assert.throws(
+    () => buildSubmittedPerson({
+      body: { requesterPhone: '0911111111' },
+      role: 'requester',
+      requireName: false,
+    }),
+    (error: any) => error?.message === 'missing_person_fields',
+  );
+  assert.throws(
+    () => buildSubmittedPerson({
+      body: {
+        requesterFirstName: 'سالم',
+        requesterPhone: '0911111111',
+        requesterPhoneHasWhatsapp: false,
+      },
+      role: 'requester',
+      requireName: false,
+    }),
+    (error: any) => error?.message === 'missing_person_fields',
+  );
+  assert.throws(
+    () => buildSubmittedPerson({
+      body: { requesterPhone: '0911111111', requesterPhoneHasWhatsapp: false },
+      role: 'requester',
+    }),
+    (error: any) => error?.message === 'missing_person_fields',
+  );
+});
+
 test('registered person keeps immutable identity but may override or clear secondary contact', () => {
   const changed = withSecondaryContactOverride({
     person: requester,

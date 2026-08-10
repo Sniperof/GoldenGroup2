@@ -134,6 +134,8 @@ export function buildSubmittedPerson(input: {
   body: Record<string, unknown>;
   role: 'beneficiary' | 'requester' | 'referrer';
   verifiedPrimaryPhone?: string;
+  /** Only the anonymous requester of a for_another/no-referrer mobile request may omit a name. */
+  requireName?: boolean;
 }): PersonSnapshot {
   const fields = personFieldNames(input.role);
   const firstName = text(input.body, fields.first);
@@ -143,9 +145,11 @@ export function buildSubmittedPerson(input: {
   const primaryPhone = input.verifiedPrimaryPhone
     ? normalizePhone(input.verifiedPrimaryPhone)
     : submittedPrimary;
+  const requireName = input.requireName !== false;
+  const hasAnyNamePart = !!(firstName || fatherName || lastName);
   const missing = [
-    !firstName && fields.first,
-    !lastName && fields.last,
+    (requireName || hasAnyNamePart) && !firstName && fields.first,
+    (requireName || hasAnyNamePart) && !lastName && fields.last,
     !primaryPhone && fields.phone,
     !hasProvidedValue(input.body, fields.phoneWhatsapp) && fields.phoneWhatsapp,
   ].filter(Boolean) as string[];
@@ -317,15 +321,15 @@ export function resolveMobileRequesterParties(input: {
   const requesterExternal: Record<string, unknown> = {
     partyRole: 'requester',
     snapshotSchemaVersion: 2,
-    firstName: input.requesterPerson.firstName,
+    firstName: input.requesterPerson.firstName || null,
     fatherName: input.requesterPerson.fatherName,
-    lastName: input.requesterPerson.lastName,
-    name: input.requesterPerson.name,
+    lastName: input.requesterPerson.lastName || null,
+    name: input.requesterPerson.name || null,
     primary_phone: input.requesterPerson.primaryPhone,
     primaryPhoneHasWhatsapp: input.requesterPerson.primaryPhoneHasWhatsapp,
     secondary_phone: input.requesterPerson.secondaryPhone,
     secondaryPhoneHasWhatsapp: input.requesterPerson.secondaryPhoneHasWhatsapp,
-    name_source: input.requesterPerson.source,
+    name_source: input.requesterPerson.name ? input.requesterPerson.source : 'not_provided',
     ...senderIdentity,
   };
   const requesterForSelf = {
@@ -461,6 +465,7 @@ export async function submitMobileWaterCheck(
       requesterPerson = buildSubmittedPerson({
         body,
         role: 'requester',
+        requireName: referrerMode !== 'none',
         ...(verifiedVisitorPhone ? { verifiedPrimaryPhone: verifiedVisitorPhone } : {}),
       });
     }

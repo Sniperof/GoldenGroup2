@@ -120,7 +120,7 @@ Customer identity is derived from the account. Do not send editable first name, 
 }
 ```
 
-An unauthenticated `for_another` request also requires `requesterFirstName`, `requesterLastName`, `requesterPhone`, and its WhatsApp flag. A registered requester uses server-side identity and may choose only `referrerMode: "none"` or `"requester"`.
+An unauthenticated `for_another` request requires `requesterPhone` and its WhatsApp flag. With `referrerMode: "none"`, requester first and last name may both be omitted; the stored requester name is then explicitly `null`. If the requester is also the referrer, requester first and last name remain required. A registered requester uses server-side identity and may choose only `referrerMode: "none"` or `"requester"`.
 
 ## Visitor with an unlisted device
 

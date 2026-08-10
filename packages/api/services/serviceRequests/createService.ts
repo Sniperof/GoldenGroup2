@@ -95,7 +95,8 @@ export interface CreatedServiceRequest {
 /**
  * §٠.١٧.أ — walk-in mandatory fields:
  *   - When neither beneficiary_client_id nor beneficiary_candidate_id is set,
- *     requester_external.name + requester_external.primary_phone are required.
+ *     requester_external.primary_phone is required. The requester name may be
+ *     absent only for an identified mobile for_another request with no referrer.
  *   - service_address.governorate + .detailed_address required for ALL inserts
  *     (SR-WALKIN-03).
  */
@@ -116,11 +117,19 @@ function validateMandatory(
   if (isWalkIn) {
     const ext = input.requesterExternal ?? {};
     const isOtpVerifiedVisitor = ext['identity_verification'] === 'otp';
-    if (!ext['primary_phone'] || (!ext['name'] && !isOtpVerifiedVisitor)) {
+    const isNamelessMobileForAnotherWithoutReferrer =
+      input.channel === 'mobile_app' &&
+      input.submissionType === 'refer_a_candidate' &&
+      input.referrerUserId == null &&
+      input.referrerClientId == null &&
+      input.referrerExternal == null &&
+      ext['name_source'] === 'not_provided' &&
+      (ext['identity_source'] === 'visitor_otp' || ext['identity_source'] === 'unverified_device');
+    if (!ext['primary_phone'] || (!ext['name'] && !isOtpVerifiedVisitor && !isNamelessMobileForAnotherWithoutReferrer)) {
       return {
         ok: false,
         code: 'walkin_requester_external_required',
-        message: 'SR-WALKIN-02: requester_external.name + .primary_phone required',
+        message: 'SR-WALKIN-02: requester_external primary phone is required; name may be omitted only for an identified mobile for_another request without a referrer',
       };
     }
   }

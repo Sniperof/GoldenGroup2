@@ -108,7 +108,7 @@ Use the `requester` prefix when the requester is distinct from the beneficiary:
 }
 ```
 
-Required fields for a submitted requester are `requesterFirstName`, `requesterLastName`, `requesterPhone`, and `requesterPhoneHasWhatsapp`.
+`requesterPhone` and `requesterPhoneHasWhatsapp` are always required for a submitted requester. `requesterFirstName` and `requesterLastName` are optional only for a visitor submitting `for_another` with `referrerMode: "none"`; if either name part is sent, both are required. The stored requester snapshot then has `name: null` and `name_source: "not_provided"`.
 
 For an OTP-verified visitor, `requesterPhone` must match the verified number. For a self-request, the beneficiary's `phoneNumber` must match the verified number.
 

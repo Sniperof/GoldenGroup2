@@ -164,7 +164,7 @@ router.post(
  *                 enum: [none, requester, separate_person]
  *                 description: Required only for for_another. Registered customers may use none or requester.
  *               handle: { type: string, format: uuid, description: Visitor only }
- *               requesterFirstName: { type: string, description: External for_another requester only }
+ *               requesterFirstName: { type: string, description: External for_another requester; optional with referrerMode none }
  *               requesterPhone: { type: string }
  *               requesterPhoneHasWhatsapp: { type: boolean }
  *               referrerFirstName: { type: string, description: Required with separate_person }
