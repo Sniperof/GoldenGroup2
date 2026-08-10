@@ -141,7 +141,7 @@ function validateMandatory(
   // robust for future channels that may still send the address explicitly.
   const addr = input.serviceAddress ?? {};
   const hasAddr = !!(addr['governorate'] && addr['detailed_address']);
-  if (!hasAddr && !input.installedDeviceId) {
+  if (!hasAddr && !input.installedDeviceId && input.requestType !== 'device_request') {
     return {
       ok: false,
       code: 'service_address_required',

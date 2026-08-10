@@ -16,10 +16,14 @@ export default function NewServiceRequestPage() {
       | 'admin_manual'
       | 'phone'
       | null) ?? 'admin_manual';
+  const initialRequestType = searchParams.get('type') === 'device_request'
+    ? 'device_request' as const
+    : 'emergency_maintenance' as const;
 
   return (
     <NewServiceRequestModal
       channel={channel}
+      initialRequestType={initialRequestType}
       onClose={() => navigate('/service-requests')}
       onCreated={(id) => navigate(`/service-requests/${id}`)}
     />

@@ -3,6 +3,7 @@ import test from 'node:test';
 import { evaluateMobileIntakeAvailability } from './mobileIntakeRegistry.js';
 import { WATER_CHECK_FORM_VERSION } from './waterCheckFormSchema.js';
 import { EMERGENCY_MAINTENANCE_FORM_VERSION } from './emergencyMaintenanceFormSchema.js';
+import { DEVICE_REQUEST_FORM_VERSION } from './deviceRequestFormSchema.js';
 import type { ServiceRequestTypeDefinition } from './serviceRequestTypeRegistry.js';
 
 function definition(overrides: Partial<ServiceRequestTypeDefinition> = {}): ServiceRequestTypeDefinition {
@@ -46,6 +47,21 @@ test('registry and installed handler jointly enable emergency maintenance', () =
     requestType: 'emergency_maintenance',
     isAuthenticatedCustomer: false,
     submittedFormVersion: EMERGENCY_MAINTENANCE_FORM_VERSION,
+  });
+  assert.equal(result.ok, true);
+});
+
+test('registry and installed handler jointly enable device request', () => {
+  const result = evaluateMobileIntakeAvailability({
+    definition: definition({
+      requestType: 'device_request',
+      defaultFormVersion: DEVICE_REQUEST_FORM_VERSION,
+      submitterTiers: ['staff', 'unverified', 'visitor', 'customer'],
+    }),
+    requestType: 'device_request',
+    isAuthenticatedCustomer: false,
+    submittedFormVersion: DEVICE_REQUEST_FORM_VERSION,
+    submittedMode: 'for_another',
   });
   assert.equal(result.ok, true);
 });

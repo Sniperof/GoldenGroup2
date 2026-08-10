@@ -17,7 +17,7 @@ import {
     Briefcase, Calendar, AlertTriangle, DollarSign, RefreshCw, RotateCcw, PhoneCall,
     FileText, FilePlus2, Headset, Settings, UserPlus, Menu, X as CloseIcon,
     ChevronLeft, ChevronRight, BadgeCheck, GraduationCap, Mic2, LogOut, Building2, SlidersHorizontal, ShieldCheck, ListChecks, Shield, Monitor, Settings2,
-    Bell, Wrench, Gift, Inbox, LayoutGrid, UserCheck, CalendarCheck, Layers, HardDrive, Unplug, Beaker,
+    Bell, Wrench, Gift, Inbox, LayoutGrid, UserCheck, CalendarCheck, Layers, HardDrive, Unplug, Beaker, Package,
 } from '../components/ui/icons';
 
 const navItems = [
@@ -74,6 +74,7 @@ const operationsChildren = [
 const requestsChildren = [
     { path: '/account-requests',                label: 'طلبات إنشاء الحساب',     icon: UserPlus, permission: 'account_requests.view' },
     { path: '/service-requests/water-check',    label: 'طلبات فحص المياه',       icon: Beaker,   permission: 'water_check.view' },
+    { path: '/service-requests/device-requests', label: 'طلبات الأجهزة', icon: Package, permission: 'service_requests.view' },
     { path: '/service-requests/water-check/simulator', label: 'محاكاة فحص المياه', icon: FilePlus2, permission: 'water_check.create' },
     { path: '/service-requests',                label: 'طلبات الصيانة',          icon: Wrench,   permission: 'service_requests.view' },
 ];

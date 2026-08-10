@@ -183,6 +183,15 @@ const CATEGORIES: CategoryMeta[] = [
   // قوائم الطلبات
   // ══════════════════════════════════════════════════════════════
   {
+    id: 'device_request_purpose',
+    label: 'أغراض طلب الجهاز',
+    description: 'الأغراض التجارية المتاحة لمقدم طلب الجهاز. تظهر في الموبايل والإدخال الداخلي، وتُحفظ لقطتها عند الإرسال.',
+    impact: 'high',
+    usedIn: [
+      { label: 'إنشاء طلب جهاز', route: 'الطلبات → طلبات الأجهزة', icon: <Package className="w-3 h-3" /> },
+    ],
+  },
+  {
     id: 'service_request_resolve_at_intake_emergency_maintenance',
     label: 'أسباب حل طلب الصيانة في الاستلام',
     description: 'الخيارات المعتمدة عند إغلاق طلب صيانة مباشرة من الاستلام بدون إنشاء مهمة. تستخدم في زر "حُلَّ في الاستلام" داخل تفاصيل الطلب.',
@@ -1031,6 +1040,7 @@ const CATEGORY_GROUP: Record<string, string> = {
 
   service_request_resolve_at_intake_emergency_maintenance: 'service_requests',
   service_request_resolve_at_intake_water_check: 'service_requests',
+  device_request_purpose: 'service_requests',
   service_request_completed_account_creation: 'service_requests',
 
   diagnosis_problem_types: 'emergency', emergency_resolved_reason: 'emergency',

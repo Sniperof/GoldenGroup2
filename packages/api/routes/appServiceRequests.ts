@@ -195,7 +195,7 @@ router.post('/', optionalAppAuth, async (req, res) => {
     if (!requestType) {
       return res.status(400).json({ error: 'request_type_required' });
     }
-    if (requestType === 'emergency_maintenance' && !req.get('Idempotency-Key')) {
+    if ((requestType === 'emergency_maintenance' || requestType === 'device_request') && !req.get('Idempotency-Key')) {
       return res.status(400).json({ error: 'idempotency_key_required' });
     }
     const definition = await getServiceRequestTypeDefinition(requestType);

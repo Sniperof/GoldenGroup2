@@ -126,3 +126,24 @@ test('requester and same-person referrer mirrors stay inside the same transactio
   assert.match(update.text, /referrer_client_id = CASE/);
   assert.equal(update.params?.[2], true);
 });
+
+test('device-request beneficiary creation adopts the newly created client branch', async () => {
+  const { db, statements } = fakeDb(requestRow({ request_type: 'device_request', branch_id: null }));
+  const auth: AuthContext = {
+    ...context(undefined, { superAdmin: true }),
+    grants: [],
+  };
+  await linkNewClientToWaterCheckParty({
+    db,
+    authContext: auth,
+    serviceRequestId: 103,
+    clientId: 51,
+    clientBranchId: 7,
+    party: 'beneficiary',
+  });
+  const update = statements.find(({ text }) => text.includes('SET beneficiary_client_id = $2'));
+  assert.ok(update);
+  assert.match(update.text, /branch_id = CASE WHEN request_type = 'device_request' THEN \$3/);
+  assert.equal(update.params?.[2], 7);
+  assert.equal(statements.some(({ text }) => text.includes('client_referral_attributions')), false);
+});

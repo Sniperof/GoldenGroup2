@@ -28,6 +28,7 @@ import ClientSnapshot from '../../components/ClientSnapshot';
 import MergeOrSplitModal from '../../components/service-requests/MergeOrSplitModal';
 import TerminalTransitionModal, { type ModalMode } from '../../components/service-requests/TerminalTransitionModal';
 import WaterCheckRequestDetailPanel from '../../components/service-requests/WaterCheckRequestDetailPanel';
+import { DeviceRequestDetailPanel, DeviceRequestHandoffModal } from '../../components/service-requests/DeviceRequestPanel';
 import RequestDetailLayout from '../../components/requests/RequestDetailLayout';
 import type { Client, GeoUnit } from '../../lib/types';
 import { reviewRequiredReasons } from '../../lib/serviceRequestDisplay';
@@ -76,6 +77,7 @@ export default function ServiceRequestDetailPage() {
   const [referrerSnapshot, setReferrerSnapshot] = useState<any | null>(null);
   const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
   const [waterCheckTaskModalOpen, setWaterCheckTaskModalOpen] = useState(false);
+  const [deviceRequestTaskModalOpen, setDeviceRequestTaskModalOpen] = useState(false);
   const [waterCheckTaskDraft, setWaterCheckTaskDraft] = useState<{
     priority: 'high' | 'medium' | 'low';
     operatorNote: string;
@@ -136,7 +138,7 @@ export default function ServiceRequestDetailPage() {
   }, [beneficiaryClientId]);
 
   useEffect(() => {
-    if (data?.request?.deviceSource !== 'external_device') return;
+  if (data?.request?.deviceSource !== 'external_device' && data?.request?.requestType !== 'device_request') return;
     api.deviceModels.list()
       .then((rows) => setDeviceModels(Array.isArray(rows) ? rows : []))
       .catch(() => setDeviceModels([]));
@@ -191,6 +193,7 @@ export default function ServiceRequestDetailPage() {
 
   const req = data.request;
   const isWaterCheck = req.requestType === 'water_check';
+  const isDeviceRequest = req.requestType === 'device_request';
   const isOwner = req.reviewedByUserId === user?.id;
   // Permission family per request type (request-section-contract.md §5).
   const permFamily = isWaterCheck ? 'water_check' : 'service_requests';
@@ -213,32 +216,31 @@ export default function ServiceRequestDetailPage() {
   // claimed first. Only available in_review and while not escalated.
   const canLink = req.status === 'in_review' && !isEscalated;
   const canCreateWaterCheckClient =
-    isWaterCheck
+    (isWaterCheck || isDeviceRequest)
     && canLink
     && !req.beneficiaryClientId
-    && req.branchId
-    && req.branchResolutionStatus === 'resolved'
+    && (isDeviceRequest || (req.branchId && req.branchResolutionStatus === 'resolved'))
     && hasPermission('clients.create');
   const canCreateCandidateFromRequest =
-    !isWaterCheck
+    !isWaterCheck && !isDeviceRequest
     && canLink
     && !req.beneficiaryClientId
     && !req.beneficiaryCandidateId
     && hasPermission('candidates.create');
   const hasMediator = !!req.referrerExternal;
-  const hasIndependentRequester = isWaterCheck && req.submissionType === 'refer_a_candidate';
+  const hasIndependentRequester = (isWaterCheck || isDeviceRequest) && req.submissionType === 'refer_a_candidate';
   const canCreateRequesterClient =
     hasIndependentRequester
     && canLink
     && !req.requesterClientId
-    && !!req.branchId
+    && (isDeviceRequest || !!req.branchId)
     && hasPermission('clients.create');
   const canCreateMediatorClient =
-    isWaterCheck
+    (isWaterCheck || isDeviceRequest)
     && canLink
     && hasMediator
     && !req.referrerClientId
-    && !!req.branchId
+    && (isDeviceRequest || !!req.branchId)
     && hasPermission('clients.create');
 
   // V1.0 promote pre-conditions (maintenance-v1.md §١٢)
@@ -249,7 +251,7 @@ export default function ServiceRequestDetailPage() {
     if (!req.reportedDeviceModelId && !externalModelChoice) promoteMissing.push('ربط الجهاز الآخر بطراز مسجل');
   } else if (!req.installedDeviceId) promoteMissing.push('ربط جهاز من أجهزة المستفيد');
   if (activeProblems.length === 0) promoteMissing.push('عطل واحد على الأقل في اللائحة');
-  const canDoPromote = !isWaterCheck && promoteMissing.length === 0;
+  const canDoPromote = !isWaterCheck && !isDeviceRequest && promoteMissing.length === 0;
   const waterCheckHandoffMissing: string[] = [];
   if (isWaterCheck && !req.linkedOpenTaskId) {
     if (req.status !== 'in_review') waterCheckHandoffMissing.push('استلام الطلب ونقله إلى قيد المراجعة');
@@ -263,6 +265,17 @@ export default function ServiceRequestDetailPage() {
     && !req.linkedOpenTaskId
     && canWaterCheckHandoffByPermission
     && waterCheckHandoffMissing.length === 0;
+  const deviceRequestHandoffMissing: string[] = [];
+  if (isDeviceRequest && !req.linkedOpenTaskId) {
+    if (req.status !== 'in_review') deviceRequestHandoffMissing.push('تولي الطلب');
+    if (!req.beneficiaryClientId) deviceRequestHandoffMissing.push('ربط المستفيد بزبون');
+    if (!req.branchId || req.branchResolutionStatus !== 'resolved') deviceRequestHandoffMissing.push('اعتماد فرع المستفيد');
+    if (req.activeDeviceDemo) deviceRequestHandoffMissing.push('توجد مهمة عرض نشطة');
+  }
+  const canDoDeviceRequestHandoff = isDeviceRequest
+    && canDecide
+    && hasPermission('open_tasks.edit')
+    && deviceRequestHandoffMissing.length === 0;
 
   function showToast(message: string, kind: 'success' | 'error' = 'success') {
     if (kind === 'error') toast.error(message);
@@ -369,6 +382,7 @@ export default function ServiceRequestDetailPage() {
   }
 
   function getWaterCheckClientPayload() {
+    const sourceLabel = isDeviceRequest ? 'طلب جهاز' : 'طلب فحص المياه';
     const external = req.beneficiaryExternal ?? req.requesterExternal ?? {};
     const submitted = req.submittedPayload?.data ?? {};
     const address = req.serviceAddress ?? {};
@@ -430,12 +444,12 @@ export default function ServiceRequestDetailPage() {
       referrerId: req.referrerClientId ?? null,
       referrerName: req.referrerClientId ? (req.referrerClientName || mediatorName || null) : null,
       sourceChannel: 'App',
-      referralReason: `طلب فحص المياه ${req.publicRefNumber ?? requestId}`,
+      referralReason: `${sourceLabel} ${req.publicRefNumber ?? requestId}`,
       referralNotes: mediatorName
-        ? `طلب فحص المياه ${req.publicRefNumber ?? requestId} من تطبيق الموبايل — وسيط: ${mediatorName}${mediatorPhone ? ` (${mediatorPhone})` : ''}.`
-        : `طلب فحص المياه ${req.publicRefNumber ?? requestId} من تطبيق الموبايل.`,
+        ? `${sourceLabel} ${req.publicRefNumber ?? requestId} من تطبيق الموبايل — وسيط: ${mediatorName}${mediatorPhone ? ` (${mediatorPhone})` : ''}.`
+        : `${sourceLabel} ${req.publicRefNumber ?? requestId} من تطبيق الموبايل.`,
       notes: [
-        `تم إنشاء السجل من طلب فحص المياه ${req.publicRefNumber ?? requestId}.`,
+        `تم إنشاء السجل من ${sourceLabel} ${req.publicRefNumber ?? requestId}.`,
         mediatorName ? `الوسيط: ${mediatorName}${mediatorPhone ? ` - ${mediatorPhone}` : ''}.` : null,
         external.notes || submitted.notes || null,
       ].filter(Boolean).join('\n'),
@@ -457,7 +471,7 @@ export default function ServiceRequestDetailPage() {
       ...clientData,
       branchId: clientData.branchId ?? req.branchId,
       isCandidate: false,
-      referralReason: (clientData as any).referralReason ?? `طلب فحص المياه ${req.publicRefNumber ?? requestId}`,
+      referralReason: (clientData as any).referralReason ?? `${isDeviceRequest ? 'طلب جهاز' : 'طلب فحص المياه'} ${req.publicRefNumber ?? requestId}`,
     };
     if (!payload.firstName || !payload.lastName || !payload.mobile) {
       showToast('الاسم الأول والكنية ورقم الموبايل الأساسي حقول مطلوبة قبل إنشاء الزبون.', 'error');
@@ -474,7 +488,7 @@ export default function ServiceRequestDetailPage() {
         serviceRequestLink: { serviceRequestId: requestId, party: 'beneficiary' },
       });
       setWaterCheckClientModalOpen(false);
-      showToast('تم إنشاء سجل جديد وربطه بطلب فحص المياه', 'success');
+      showToast(`تم إنشاء سجل جديد وربطه بـ${isDeviceRequest ? 'طلب الجهاز' : 'طلب فحص المياه'}`, 'success');
       await reload();
     } catch (e: any) {
       const payload = getApiPayload(e);
@@ -712,7 +726,7 @@ export default function ServiceRequestDetailPage() {
   }
 
   async function linkSuggested(m: { source: 'client' | 'candidate'; id: number }) {
-    if (isWaterCheck && m.source !== 'client') {
+    if ((isWaterCheck || isDeviceRequest) && m.source !== 'client') {
       showToast('طلب فحص المياه يمكن ربطه بزبون فقط.', 'error');
       return;
     }
@@ -734,7 +748,8 @@ export default function ServiceRequestDetailPage() {
   const modalInputClass = 'w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-100 disabled:bg-slate-50';
   const modalLabelClass = 'space-y-1 text-sm font-semibold text-slate-700';
 
-  const backPath = isWaterCheck ? '/service-requests/water-check' : '/service-requests';
+  const backPath = isWaterCheck ? '/service-requests/water-check'
+    : isDeviceRequest ? '/service-requests/device-requests' : '/service-requests';
 
   return (
     <RequestDetailLayout
@@ -844,7 +859,7 @@ export default function ServiceRequestDetailPage() {
           )}
           {req.status === 'in_review' && !isEscalated && canDecide && (
             <>
-              {!isWaterCheck && (
+              {!isWaterCheck && !isDeviceRequest && (
                 <Button
                   size="sm"
                   icon={ArrowUpCircle}
@@ -874,6 +889,19 @@ export default function ServiceRequestDetailPage() {
                   }
                 >
                   إنشاء مهمة عرض جهاز{!canDoWaterCheckHandoff && waterCheckHandoffMissing.length > 0 && ` (${waterCheckHandoffMissing.length} ينقص)`}
+                </Button>
+              )}
+              {isDeviceRequest && (
+                <Button
+                  size="sm"
+                  icon={ArrowUpCircle}
+                  disabled={busy || !canDoDeviceRequestHandoff}
+                  onClick={() => setDeviceRequestTaskModalOpen(true)}
+                  title={canDoDeviceRequestHandoff
+                    ? 'إنشاء مهمة عرض جهاز'
+                    : `ينقصك: ${deviceRequestHandoffMissing.join(' + ')}`}
+                >
+                  إنشاء مهمة عرض جهاز
                 </Button>
               )}
               <Button
@@ -949,6 +977,14 @@ export default function ServiceRequestDetailPage() {
             },
           }}
         />
+      ) : isDeviceRequest ? (
+        <DeviceRequestDetailPanel
+          request={req}
+          onOpenTask={(taskId) => {
+            const detailPath = getOpenTaskDetailPath('device_demo', taskId);
+            if (detailPath) navigate(detailPath);
+          }}
+        />
       ) : (
         <div className="space-y-3">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -977,7 +1013,7 @@ export default function ServiceRequestDetailPage() {
             />
           </div>
           {/* V1.0 §١٢ — promote readiness checklist (visible in in_review only). */}
-          {!isWaterCheck && req.status === 'in_review' && !canDoPromote && (
+          {!isWaterCheck && !isDeviceRequest && req.status === 'in_review' && !canDoPromote && (
             <div className="bg-yellow-50 border border-yellow-200 rounded p-3 text-sm">
               <div className="font-semibold text-yellow-900 mb-1">
                 للترقية إلى مهمة، ينقصك:
@@ -1092,7 +1128,7 @@ export default function ServiceRequestDetailPage() {
           )}
         </div>
       )}
-      extraTabs={!isWaterCheck ? [{
+      extraTabs={!isWaterCheck && !isDeviceRequest ? [{
         id: 'problems',
         label: `الأعطال (${data.problems.filter((p) => p.deletedAt == null).length})`,
         content: (
@@ -1108,10 +1144,10 @@ export default function ServiceRequestDetailPage() {
       audit={<AuditLogTimeline events={data.auditLog} />}
       linkage={
         <div>
-          {isWaterCheck && (
+          {(isWaterCheck || isDeviceRequest) && (
         <div className="space-y-4">
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h2 className="text-base font-bold text-slate-800">أطراف طلب فحص المياه</h2>
+            <h2 className="text-base font-bold text-slate-800">أطراف {isDeviceRequest ? 'طلب الجهاز' : 'طلب فحص المياه'}</h2>
             <p className="mt-1 text-sm text-slate-500">
               يعرض كل قسم الطرف المقصود وحالة ربطه. ربط المستفيد مطلوب قبل تحويل الطلب إلى مهمة، أما ربط مقدم الطلب والوسيط فاختياري.
             </p>
@@ -1181,10 +1217,12 @@ export default function ServiceRequestDetailPage() {
           <section className={`rounded-2xl border p-4 ${req.beneficiaryClientId ? 'border-emerald-200 bg-emerald-50/40' : 'border-amber-300 bg-amber-50/60'}`}>
             <h3 className="flex items-center gap-1.5 text-base font-bold text-slate-800">
               <UserCheck className={`h-4 w-4 ${req.beneficiaryClientId ? 'text-emerald-600' : 'text-amber-600'}`} />
-              المستفيد من فحص المياه
+              {isDeviceRequest ? 'المستفيد من طلب الجهاز' : 'المستفيد من فحص المياه'}
               {!req.beneficiaryClientId && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800">مطلوب الربط</span>}
             </h3>
-            <p className="mb-3 mt-1 text-sm text-slate-500">الشخص الذي سيستفيد من الفحص وفي عنوانه ستُنفذ الخدمة.</p>
+            <p className="mb-3 mt-1 text-sm text-slate-500">{isDeviceRequest
+              ? 'الشخص المعني بالاستفسار أو العرض أو الشراء، ومن فرعه يُعتمد فرع الطلب.'
+              : 'الشخص الذي سيستفيد من الفحص وفي عنوانه ستُنفذ الخدمة.'}</p>
             {req.beneficiaryClientId ? (
               <>
                 <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">
@@ -1264,7 +1302,7 @@ export default function ServiceRequestDetailPage() {
           )}
         </div>
           )}
-          {!isWaterCheck && (
+          {!isWaterCheck && !isDeviceRequest && (
         <div className="space-y-3">
           {req.beneficiaryClientId ? (
             <div className="bg-green-50 border border-green-200 rounded p-3 text-sm">
@@ -1337,6 +1375,18 @@ export default function ServiceRequestDetailPage() {
           onClose={() => setCollision(null)}
           onResolved={async () => {
             setCollision(null);
+            await reload();
+          }}
+        />
+      )}
+
+      {deviceRequestTaskModalOpen && (
+        <DeviceRequestHandoffModal
+          request={req}
+          onClose={() => setDeviceRequestTaskModalOpen(false)}
+          onCompleted={async () => {
+            setDeviceRequestTaskModalOpen(false);
+            showToast('تم إنشاء مهمة عرض الجهاز', 'success');
             await reload();
           }}
         />

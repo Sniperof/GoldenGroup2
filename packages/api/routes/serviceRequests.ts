@@ -48,6 +48,8 @@ import {
   mergeIntoExistingTask,
 } from '../services/serviceRequests/promoteService.js';
 import { handoffWaterCheckToDeviceDemo } from '../services/serviceRequests/waterCheckHandoffService.js';
+import { handoffDeviceRequestToDemo } from '../services/serviceRequests/deviceRequestHandoffService.js';
+import { createInternalDeviceRequest } from '../services/serviceRequests/internalDeviceRequestService.js';
 import { reopen } from '../services/serviceRequests/reopenService.js';
 import { suggestRecords } from '../services/serviceRequests/fuzzyMatching.js';
 import { resolveBranchForServiceGeoUnit } from '../services/serviceRequests/branchResolutionService.js';
@@ -104,6 +106,7 @@ router.param('id', async (req, res, next, value) => {
 const PERMISSION_FAMILY_BY_TYPE: Record<string, string> = {
   emergency_maintenance: 'service_requests',
   water_check: 'water_check',
+  device_request: 'service_requests',
 };
 
 type FamilyAction = 'view' | 'review' | 'decide' | 'resolve_escalation' | 'archive';
@@ -293,6 +296,7 @@ const SR_SELECT = `
   CASE sr.request_type
     WHEN 'water_check' THEN 'طلب فحص المياه'
     WHEN 'emergency_maintenance' THEN 'طلب صيانة'
+    WHEN 'device_request' THEN 'طلب جهاز'
     ELSE sr.request_type
   END AS "requestTypeLabel",
   sr.channel,
@@ -342,6 +346,28 @@ const SR_SELECT = `
   sr.reported_device_model_id AS "reportedDeviceModelId",
   sr.reported_device_snapshot AS "reportedDeviceSnapshot",
   sr.safety_indicator_codes AS "safetyIndicatorCodes",
+  sr.device_request_purpose_id AS "deviceRequestPurposeId",
+  sr.device_request_purpose_snapshot AS "deviceRequestPurposeSnapshot",
+  COALESCE((
+    SELECT jsonb_agg(jsonb_build_object(
+      'deviceModelId', interest.device_model_id,
+      'snapshot', interest.device_snapshot,
+      'selectionOrder', interest.selection_order,
+      'currentActive', model.is_active
+    ) ORDER BY interest.selection_order)
+    FROM service_request_device_interests interest
+    LEFT JOIN device_models model ON model.id = interest.device_model_id
+    WHERE interest.service_request_id = sr.id
+  ), '[]'::jsonb) AS "deviceInterests",
+  (
+    SELECT jsonb_build_object('id', active_demo.id, 'status', active_demo.status, 'createdAt', active_demo.created_at)
+      FROM open_tasks active_demo
+     WHERE active_demo.client_id = sr.beneficiary_client_id
+       AND active_demo.task_type = 'device_demo'
+       AND active_demo.status NOT IN ('completed', 'closed', 'cancelled')
+     ORDER BY active_demo.created_at DESC
+     LIMIT 1
+  ) AS "activeDeviceDemo",
   sr.source_call_log_id AS "sourceCallLogId",
   sr.device_location_decision AS "deviceLocationDecision",
   sr.device_location_decided_by_user_id AS "deviceLocationDecidedByUserId",
@@ -433,6 +459,31 @@ router.post('/', requirePermission('service_requests.create'), async (req, res) 
   }
   if (!await authorizeCreateSubject(req, res)) return;
   const actor = getActor(req);
+  if (req.body?.requestType === 'device_request') {
+    const beneficiaryClientId = Number(req.body.beneficiaryClientId);
+    if (!Number.isInteger(beneficiaryClientId) || beneficiaryClientId <= 0) {
+      return res.status(400).json({ error: 'beneficiary_client_id_required' });
+    }
+    const result = await createInternalDeviceRequest({
+      channel: req.body.channel,
+      applicationSource: req.body.applicationSource,
+      requesterClientId: Number(req.body.requesterClientId) || null,
+      requesterExternal: req.body.requesterExternal,
+      beneficiaryClientId,
+      beneficiaryExternal: req.body.beneficiaryExternal,
+      referrerClientId: Number(req.body.referrerClientId) || null,
+      referrerExternal: req.body.referrerExternal,
+      submissionType: req.body.submissionType,
+      purposeId: Number(req.body.purposeId),
+      deviceModelIds: Array.isArray(req.body.deviceModelIds) ? req.body.deviceModelIds : [],
+      notes: req.body.notes,
+      serviceAddress: req.body.serviceAddress,
+      actorUserId: actor.userId,
+      actorRole: 'operator',
+    });
+    if (result.ok !== true) return sendErr(res, result);
+    return res.status(201).json(result.data);
+  }
   const result = await createServiceRequest({
     ...req.body,
     requestType: 'emergency_maintenance',
@@ -448,6 +499,31 @@ router.post('/', requirePermission('service_requests.create'), async (req, res) 
 router.post('/internal', requirePermission('service_requests.create'), async (req, res) => {
   if (!await authorizeCreateSubject(req, res)) return;
   const actor = getActor(req);
+  if (req.body?.requestType === 'device_request') {
+    const beneficiaryClientId = Number(req.body.beneficiaryClientId);
+    if (!Number.isInteger(beneficiaryClientId) || beneficiaryClientId <= 0) {
+      return res.status(400).json({ error: 'beneficiary_client_id_required' });
+    }
+    const result = await createInternalDeviceRequest({
+      channel: 'admin_manual',
+      applicationSource: req.body.applicationSource,
+      requesterClientId: Number(req.body.requesterClientId) || null,
+      requesterExternal: req.body.requesterExternal,
+      beneficiaryClientId,
+      beneficiaryExternal: req.body.beneficiaryExternal,
+      referrerClientId: Number(req.body.referrerClientId) || null,
+      referrerExternal: req.body.referrerExternal,
+      submissionType: req.body.submissionType,
+      purposeId: Number(req.body.purposeId),
+      deviceModelIds: Array.isArray(req.body.deviceModelIds) ? req.body.deviceModelIds : [],
+      notes: req.body.notes,
+      serviceAddress: req.body.serviceAddress,
+      actorUserId: actor.userId,
+      actorRole: 'operator',
+    });
+    if (result.ok !== true) return sendErr(res, result);
+    return res.status(201).json(result.data);
+  }
   const result = await createServiceRequest({
     ...req.body,
     requestType: 'emergency_maintenance',
@@ -488,7 +564,11 @@ router.post(
       : null;
     if (!requester) return res.status(404).json({ error: 'requester_client_not_found' });
     if (beneficiaryClientId && !beneficiary) return res.status(404).json({ error: 'beneficiary_client_not_found' });
-    for (const branchId of new Set([requester.branch_id, beneficiary?.branch_id].filter((id): id is number => id != null))) {
+    const isDeviceRequest = request.requestType === 'device_request';
+    const subjectBranchIds = isDeviceRequest
+      ? [beneficiary?.branch_id ?? requester.branch_id]
+      : [requester.branch_id, beneficiary?.branch_id];
+    for (const branchId of new Set(subjectBranchIds.filter((id): id is number => id != null))) {
       const access = authorize(req.authContext!, { permission: 'service_requests.create', branchId });
       if (!access.allowed) {
         return res.status(403).json({ error: 'service_request_subject_forbidden', details: { branchId, reason: access.reason } });
@@ -526,7 +606,25 @@ router.post(
           call.communicationChannel ?? null,
         ],
       );
-      const result = await createServiceRequest({
+      const result = isDeviceRequest
+        ? await createInternalDeviceRequest({
+          channel: 'phone',
+          applicationSource: 'telemarketing_service_request',
+          requesterClientId,
+          beneficiaryClientId: beneficiaryClientId ?? requesterClientId,
+          beneficiaryExternal: request.beneficiaryExternal as Record<string, unknown> | null | undefined,
+          referrerClientId: Number(request.referrerClientId) || null,
+          referrerExternal: request.referrerExternal as Record<string, unknown> | null | undefined,
+          submissionType: request.submissionType === 'refer_a_candidate' ? 'refer_a_candidate' : 'apply',
+          purposeId: Number(request.purposeId),
+          deviceModelIds: Array.isArray(request.deviceModelIds) ? request.deviceModelIds.map(Number) : [],
+          notes: typeof request.notes === 'string' ? request.notes : null,
+          serviceAddress: request.serviceAddress as Record<string, unknown> | null | undefined,
+          sourceCallLogId: callLogId,
+          actorUserId: actor.userId,
+          actorRole: 'operator',
+        }, client)
+        : await createServiceRequest({
         requestType: 'emergency_maintenance',
         channel: 'phone',
         applicationSource: 'telemarketing_service_request',
@@ -568,7 +666,7 @@ router.post(
         sourceCallLogId: callLogId,
         actorUserId: actor.userId,
         actorRole: 'operator',
-      }, client);
+        }, client);
       if (result.ok !== true) {
         await client.query('ROLLBACK');
         return sendErr(res, result);
@@ -1036,19 +1134,38 @@ async function linkBeneficiary(input: {
       await client.query('ROLLBACK');
       return { ok: false as const, code: 'nothing_to_change_use_link' };
     }
-    if (rows[0].request_type === 'water_check' && input.beneficiaryCandidateId != null) {
+    if ((rows[0].request_type === 'water_check' || rows[0].request_type === 'device_request') && input.beneficiaryCandidateId != null) {
       await client.query('ROLLBACK');
       return {
         ok: false as const,
-        code: 'candidate_link_forbidden_for_water_check',
-        message: 'Water check requests can only be linked to clients, not candidates.',
+        code: 'candidate_link_forbidden_for_request_type',
+        message: 'This request type can only be linked to clients, not candidates.',
       };
     }
+    let linkedClientBranchId: number | null = null;
     if (input.beneficiaryClientId != null) {
-      const exists = await client.query(`SELECT 1 FROM clients WHERE id = $1`, [input.beneficiaryClientId]);
+      const exists = await client.query<{ branch_id: number | null }>(
+        `SELECT branch_id FROM clients WHERE id = $1 AND deleted_at IS NULL`,
+        [input.beneficiaryClientId],
+      );
       if (exists.rowCount === 0) {
         await client.query('ROLLBACK');
         return { ok: false as const, code: 'client_not_found' };
+      }
+      linkedClientBranchId = exists.rows[0].branch_id == null ? null : Number(exists.rows[0].branch_id);
+      if (rows[0].request_type === 'device_request') {
+        if (linkedClientBranchId == null) {
+          await client.query('ROLLBACK');
+          return { ok: false as const, code: 'beneficiary_branch_required' };
+        }
+        const targetAccess = authorize(input.authContext, {
+          permission: familyKeyFor(rows[0].request_type, 'review'),
+          branchId: linkedClientBranchId,
+        });
+        if (!targetAccess.allowed) {
+          await client.query('ROLLBACK');
+          return { ok: false as const, code: 'forbidden', details: { reason: targetAccess.reason } };
+        }
       }
     }
     if (input.beneficiaryCandidateId != null) {
@@ -1094,6 +1211,9 @@ async function linkBeneficiary(input: {
               END,
               installed_device_id = COALESCE($4, installed_device_id),
               contract_id = COALESCE($5, contract_id),
+              branch_id = CASE WHEN request_type = 'device_request' AND $2::bigint IS NOT NULL THEN $6 ELSE branch_id END,
+              branch_resolution_status = CASE WHEN request_type = 'device_request' AND $2::bigint IS NOT NULL THEN 'resolved' ELSE branch_resolution_status END,
+              branch_resolution_reason = CASE WHEN request_type = 'device_request' AND $2::bigint IS NOT NULL THEN 'beneficiary_client_branch' ELSE branch_resolution_reason END,
               updated_at = NOW()
         WHERE id = $1`,
       [
@@ -1102,6 +1222,7 @@ async function linkBeneficiary(input: {
         input.beneficiaryCandidateId ?? null,
         input.installedDeviceId ?? null,
         input.contractId ?? null,
+        linkedClientBranchId,
       ],
     );
 
@@ -1279,7 +1400,7 @@ router.post('/:id/link-requester', requireTypedPermission('review'), blockIfEsca
       await client.query('ROLLBACK');
       return res.status(403).json({ error: 'forbidden', details: { reason: access.reason } });
     }
-    if (rows[0].request_type !== 'water_check') {
+    if (rows[0].request_type !== 'water_check' && rows[0].request_type !== 'device_request') {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'wrong_request_type_for_requester_link' });
     }
@@ -1287,10 +1408,28 @@ router.post('/:id/link-requester', requireTypedPermission('review'), blockIfEsca
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'link_requires_claim', details: { status: rows[0].status } });
     }
-    const exists = await client.query(`SELECT 1 FROM clients WHERE id = $1 AND deleted_at IS NULL`, [requesterClientId]);
+    const exists = await client.query<{ branch_id: number | null }>(
+      `SELECT branch_id FROM clients WHERE id = $1 AND deleted_at IS NULL`,
+      [requesterClientId],
+    );
     if (exists.rowCount === 0) {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'client_not_found' });
+    }
+    const requesterBranchId = exists.rows[0].branch_id == null ? null : Number(exists.rows[0].branch_id);
+    if (rows[0].request_type === 'device_request' && rows[0].submission_type === 'apply') {
+      if (requesterBranchId == null) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'beneficiary_branch_required' });
+      }
+      const targetAccess = authorize(req.authContext!, {
+        permission: familyKeyFor(rows[0].request_type, 'review'),
+        branchId: requesterBranchId,
+      });
+      if (!targetAccess.allowed) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: 'forbidden', details: { reason: targetAccess.reason } });
+      }
     }
     const sameAsRequester = rows[0].referrer_external?.same_as_requester === true;
     await client.query(
@@ -1298,9 +1437,12 @@ router.post('/:id/link-requester', requireTypedPermission('review'), blockIfEsca
           SET requester_client_id = $2,
               beneficiary_client_id = CASE WHEN submission_type = 'apply' THEN $2 ELSE beneficiary_client_id END,
               referrer_client_id = CASE WHEN $3::boolean THEN $2 ELSE referrer_client_id END,
+              branch_id = CASE WHEN request_type = 'device_request' AND submission_type = 'apply' THEN $4 ELSE branch_id END,
+              branch_resolution_status = CASE WHEN request_type = 'device_request' AND submission_type = 'apply' THEN 'resolved' ELSE branch_resolution_status END,
+              branch_resolution_reason = CASE WHEN request_type = 'device_request' AND submission_type = 'apply' THEN 'beneficiary_client_branch' ELSE branch_resolution_reason END,
               updated_at = NOW()
         WHERE id = $1`,
-      [serviceRequestId, requesterClientId, sameAsRequester],
+      [serviceRequestId, requesterClientId, sameAsRequester, requesterBranchId],
     );
     await appendAudit(client, {
       serviceRequestId,
@@ -1313,7 +1455,9 @@ router.post('/:id/link-requester', requireTypedPermission('review'), blockIfEsca
         referrer_mirrored: sameAsRequester,
       },
     });
-    if (sameAsRequester) await syncWaterCheckBeneficiaryReferrer(client, serviceRequestId, actor.userId);
+    if (sameAsRequester && rows[0].request_type === 'water_check') {
+      await syncWaterCheckBeneficiaryReferrer(client, serviceRequestId, actor.userId);
+    }
     await client.query('COMMIT');
     res.json({ ok: true });
   } catch (err) {
@@ -1766,6 +1910,50 @@ router.post('/:id/merge', requireTypedPermission('decide'), blockIfEscalated, as
   });
   if (result.ok !== true) return sendErr(res, result);
   res.json(result.data);
+});
+
+router.post('/:id/handoff-device-request', requireTypedPermission('decide'), blockIfEscalated, async (req, res) => {
+  const serviceRequestId = Number(req.params.id);
+  const employeeId = Number(req.body?.employeeId);
+  const deviceModelIds = Array.isArray(req.body?.deviceModelIds)
+    ? req.body.deviceModelIds.map(Number)
+    : [];
+  if (!Number.isInteger(employeeId) || employeeId <= 0) {
+    return res.status(400).json({ error: 'employee_id_required' });
+  }
+  const { rows } = await pool.query<{ request_type: string; branch_id: number | null }>(
+    `SELECT request_type, branch_id FROM service_requests WHERE id = $1 LIMIT 1`,
+    [serviceRequestId],
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'not_found' });
+  if (rows[0].request_type !== 'device_request') {
+    return res.status(400).json({ error: 'wrong_request_type_for_device_request_handoff' });
+  }
+  if (rows[0].branch_id == null) return res.status(400).json({ error: 'device_request_branch_required' });
+  const taskAccess = authorize(req.authContext!, {
+    permission: 'open_tasks.edit',
+    branchId: Number(rows[0].branch_id),
+  });
+  if (!taskAccess.allowed) {
+    return sendErr(res, { code: 'open_tasks_branch_forbidden', details: { reason: taskAccess.reason } });
+  }
+  const priority = ['high', 'medium', 'low'].includes(String(req.body?.priority))
+    ? req.body.priority as 'high' | 'medium' | 'low'
+    : null;
+  const dueDate = typeof req.body?.dueDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.body.dueDate.trim())
+    ? req.body.dueDate.trim() : null;
+  const result = await handoffDeviceRequestToDemo({
+    serviceRequestId,
+    operatorUserId: getActor(req).userId,
+    employeeId,
+    deviceModelIds,
+    inactiveModelsConfirmed: req.body?.inactiveModelsConfirmed === true,
+    priority,
+    dueDate,
+    operatorNote: typeof req.body?.operatorNote === 'string' ? req.body.operatorNote.trim() || null : null,
+  });
+  if (result.ok !== true) return sendErr(res, result);
+  return res.json(result.data);
 });
 
 // ------------------------------------------------------------

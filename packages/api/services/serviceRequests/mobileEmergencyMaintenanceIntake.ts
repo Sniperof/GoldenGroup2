@@ -50,7 +50,7 @@ function externalPerson(person: PersonSnapshot, role: 'beneficiary'): Record<str
   };
 }
 
-async function resolvePeople(input: {
+export async function resolveMobileRequestPeople(input: {
   body: Record<string, unknown>;
   identity: MobileIntakeIdentity;
   db: PoolClient;
@@ -346,7 +346,7 @@ export async function submitMobileEmergencyMaintenance(
     });
   }
 
-  const people = await resolvePeople({ body, identity, db });
+  const people = await resolveMobileRequestPeople({ body, identity, db });
   const reportedDevice = await resolveReportedDevice({ body, identity, submissionMode: people.submissionMode, db });
   const resolvedAddress = await resolveAndValidateAddress({ governorate, cityOrArea, subArea, neighborhood }, db);
   const deepestGeoUnitId = resolvedAddress.ids.neighborhood ?? resolvedAddress.ids.subArea

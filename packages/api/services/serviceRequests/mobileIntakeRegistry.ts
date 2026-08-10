@@ -4,6 +4,8 @@ import { submitMobileWaterCheck } from './mobileWaterCheckIntake.js';
 import { WATER_CHECK_FORM_VERSION } from './waterCheckFormSchema.js';
 import { submitMobileEmergencyMaintenance } from './mobileEmergencyMaintenanceIntake.js';
 import { EMERGENCY_MAINTENANCE_FORM_VERSION } from './emergencyMaintenanceFormSchema.js';
+import { submitMobileDeviceRequest } from './mobileDeviceRequestIntake.js';
+import { DEVICE_REQUEST_FORM_VERSION } from './deviceRequestFormSchema.js';
 import type { ServiceRequestTypeDefinition } from './serviceRequestTypeRegistry.js';
 
 export interface MobileIntakeHandler {
@@ -34,6 +36,12 @@ const handlers: Record<string, MobileIntakeHandler> = {
     formVersion: EMERGENCY_MAINTENANCE_FORM_VERSION,
     allowsUnverifiedIntake: true,
     submit: submitMobileEmergencyMaintenance,
+  },
+  device_request: {
+    requestType: 'device_request',
+    formVersion: DEVICE_REQUEST_FORM_VERSION,
+    allowsUnverifiedIntake: true,
+    submit: submitMobileDeviceRequest,
   },
 };
 

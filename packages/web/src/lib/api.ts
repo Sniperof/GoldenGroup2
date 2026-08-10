@@ -1775,6 +1775,17 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(data),
       }),
+    handoffDeviceRequest: (id: number, data: {
+      employeeId: number;
+      deviceModelIds: number[];
+      inactiveModelsConfirmed?: boolean;
+      priority?: 'high' | 'medium' | 'low';
+      dueDate?: string | null;
+      operatorNote?: string | null;
+    }) => request<any>(`/service-requests/${id}/handoff-device-request`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
     archive: (id: number, reason?: string | null) =>
       request<any>(`/service-requests/${id}/archive`, {
         method: 'POST',

@@ -17,6 +17,7 @@ type Channel = 'internal_button' | 'client_detail_button' | 'admin_manual' | 'ph
 
 interface Props {
   channel: Channel;
+  initialRequestType?: 'emergency_maintenance' | 'device_request';
   /** Preselected beneficiary client (used by client_detail_button). */
   beneficiaryClientId?: number | null;
   beneficiaryClientName?: string | null;
@@ -69,6 +70,13 @@ interface CatalogModelLite {
   name_ar?: string;
 }
 
+interface PurposeLite {
+  id: number;
+  value: string;
+  isActive?: boolean;
+  metadata?: { code?: string } | null;
+}
+
 interface GeoLite {
   id: number;
   name: string;
@@ -79,6 +87,7 @@ interface GeoLite {
 
 export default function NewServiceRequestModal({
   channel,
+  initialRequestType = 'emergency_maintenance',
   beneficiaryClientId: initialClientId = null,
   beneficiaryClientName: initialClientName = null,
   contractId = null,
@@ -90,6 +99,7 @@ export default function NewServiceRequestModal({
   onCreated,
 }: Props) {
   const navigate = useNavigate();
+  const [requestType, setRequestType] = useState<'emergency_maintenance' | 'device_request'>(initialRequestType);
   const [submissionMode, setSubmissionMode] = useState<'for_self' | 'for_another'>('for_self');
 
   // Linked client (mandatory)
@@ -121,6 +131,10 @@ export default function NewServiceRequestModal({
   const [problemDescription, setProblemDescription] = useState('');
   const [callNotes, setCallNotes] = useState('');
   const [priority, setPriority] = useState<'Critical' | 'High' | 'Normal' | 'Low'>('Normal');
+  const [deviceRequestPurposes, setDeviceRequestPurposes] = useState<PurposeLite[]>([]);
+  const [purposeId, setPurposeId] = useState<number | null>(null);
+  const [requestedDeviceModelIds, setRequestedDeviceModelIds] = useState<number[]>([]);
+  const [deviceRequestNotes, setDeviceRequestNotes] = useState('');
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -130,10 +144,15 @@ export default function NewServiceRequestModal({
   }, [clientId, deviceId, problemDescription]);
 
   useEffect(() => {
-    Promise.all([api.deviceModels.list(), api.geoUnits.listReference()])
-      .then(([models, units]) => {
+    Promise.all([
+      api.deviceModels.list(),
+      api.geoUnits.listReference(),
+      api.systemLists.getItemsByCode('device_request_purpose'),
+    ])
+      .then(([models, units, purposes]) => {
         setCatalogModels((models as CatalogModelLite[]) ?? []);
         setGeoUnits((units as GeoLite[]) ?? []);
+        setDeviceRequestPurposes(((purposes as PurposeLite[]) ?? []).filter((item) => item.isActive !== false));
       })
       .catch(() => undefined);
   }, []);
@@ -213,6 +232,14 @@ export default function NewServiceRequestModal({
 
   function validate(): string | null {
     if (clientId == null) return 'اختيار زبون موجود إلزامي';
+    if (requestType === 'device_request') {
+      if (purposeId == null) return 'اختيار غرض الطلب إلزامي';
+      const purpose = deviceRequestPurposes.find((item) => Number(item.id) === purposeId);
+      if ((requestedDeviceModelIds.length === 0 || purpose?.metadata?.code === 'other') && !deviceRequestNotes.trim()) {
+        return 'الملاحظات إلزامية عند عدم اختيار جهاز أو عند اختيار غرض آخر';
+      }
+      return null;
+    }
     if (deviceSelection === 'registered_device' && deviceId == null) return 'اختيار جهاز للزبون إلزامي';
     if (deviceSelection === 'catalog_model' && catalogModelId == null) return 'اختيار طراز الجهاز إلزامي';
     if (deviceSelection === 'other' && !otherDeviceName.trim()) return 'اسم الجهاز الآخر إلزامي';
@@ -235,7 +262,16 @@ export default function NewServiceRequestModal({
       // V1.0 payload — no walk-in, no service_address, no requesterExternal.
       // serviceAddress is omitted; the backend / promote step will derive it
       // from the device's installation address.
-      const payload = {
+      const payload = requestType === 'device_request' ? {
+        requestType,
+        channel,
+        beneficiaryClientId: clientId,
+        requesterClientId: requesterClientId ?? clientId,
+        submissionType: submissionMode === 'for_another' ? 'refer_a_candidate' as const : 'apply' as const,
+        purposeId,
+        deviceModelIds: requestedDeviceModelIds,
+        notes: deviceRequestNotes.trim() || null,
+      } : {
         requestType: 'emergency_maintenance',
         channel,
         problemDescription: problemDescription.trim(),
@@ -327,7 +363,7 @@ export default function NewServiceRequestModal({
       isOpen
       onClose={onClose}
       size="2xl"
-      title={CHANNEL_TITLES[channel]}
+      title={requestType === 'device_request' ? 'طلب جهاز جديد' : CHANNEL_TITLES[channel]}
       subtitle={<>قناة: <span className="font-medium">{channel}</span></>}
       footer={
         <>
@@ -356,6 +392,22 @@ export default function NewServiceRequestModal({
             </div>
           )}
 
+          <section className="space-y-2">
+            <h3 className="text-base font-bold text-slate-800">نوع الطلب</h3>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setRequestType('emergency_maintenance')}
+                className={`rounded-xl border p-2 text-sm ${requestType === 'emergency_maintenance' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-200'}`}
+              >صيانة طارئة</button>
+              <button
+                type="button"
+                onClick={() => setRequestType('device_request')}
+                className={`rounded-xl border p-2 text-sm ${requestType === 'device_request' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-200'}`}
+              >طلب جهاز</button>
+            </div>
+          </section>
+
           {requesterClientId != null && (
             <section className="space-y-2">
               <h3 className="text-base font-bold text-slate-800">مقدم الطلب</h3>
@@ -368,14 +420,14 @@ export default function NewServiceRequestModal({
                   onClick={() => changeSubmissionMode('for_self')}
                   className={`rounded-xl border p-2 text-sm ${submissionMode === 'for_self' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-200'}`}
                 >
-                  الصيانة لمقدم الطلب
+                  الخدمة لمقدم الطلب
                 </button>
                 <button
                   type="button"
                   onClick={() => changeSubmissionMode('for_another')}
                   className={`rounded-xl border p-2 text-sm ${submissionMode === 'for_another' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-200'}`}
                 >
-                  الصيانة لشخص آخر
+                  الخدمة لشخص آخر
                 </button>
               </div>
             </section>
@@ -442,6 +494,53 @@ export default function NewServiceRequestModal({
             )}
           </section>
 
+          {requestType === 'device_request' && (
+            <section className="space-y-4 rounded-2xl border border-sky-200 bg-sky-50/40 p-4">
+              <div className="space-y-2">
+                <h3 className="text-base font-bold text-slate-800">غرض الطلب <span className="text-xs text-red-600">*</span></h3>
+                <Select
+                  value={purposeId == null ? '' : String(purposeId)}
+                  onChange={(value) => setPurposeId(value ? Number(value) : null)}
+                  placeholder="اختر غرض الطلب"
+                  ariaLabel="غرض طلب الجهاز"
+                  options={deviceRequestPurposes.map((purpose) => ({ value: String(purpose.id), label: purpose.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-base font-bold text-slate-800">الأجهزة المهتم بها <span className="text-xs font-normal text-slate-500">(اختياري)</span></h3>
+                <div className="grid max-h-48 grid-cols-1 gap-2 overflow-auto rounded-xl border border-slate-200 bg-white p-2 md:grid-cols-2">
+                  {catalogModels.map((model) => {
+                    const checked = requestedDeviceModelIds.includes(model.id);
+                    const label = model.nameAr ?? model.name_ar ?? model.name ?? `#${model.id}`;
+                    return (
+                      <label key={model.id} className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-sm hover:bg-slate-50">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => setRequestedDeviceModelIds((current) => checked
+                            ? current.filter((id) => id !== model.id)
+                            : [...current, model.id])}
+                        />
+                        <span>{label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-base font-bold text-slate-800">ملاحظات</h3>
+                <textarea
+                  value={deviceRequestNotes}
+                  onChange={(event) => setDeviceRequestNotes(event.target.value)}
+                  placeholder="إلزامية عند عدم اختيار جهاز أو عند اختيار غرض آخر"
+                  rows={3}
+                  className="w-full rounded-xl border border-slate-300 p-2 text-sm"
+                />
+              </div>
+            </section>
+          )}
+
+          {requestType === 'emergency_maintenance' && <>
           {/* (2) Device — registered, catalog, or another reported device */}
           <section className="space-y-2">
             <h3 className="text-base font-bold text-slate-800">
@@ -574,6 +673,8 @@ export default function NewServiceRequestModal({
             />
           </section>
 
+          </>}
+
           {/* (4) Call notes — optional (stored as first internal note) */}
           <section className="space-y-2">
             <h3 className="text-base font-bold text-slate-800">ملاحظات على المكالمة</h3>
@@ -587,7 +688,7 @@ export default function NewServiceRequestModal({
           </section>
 
           {/* (5) Priority */}
-          <section className="flex items-center gap-2">
+          {requestType === 'emergency_maintenance' && <section className="flex items-center gap-2">
             <span className="text-xs text-slate-500">الأولوية:</span>
             <Select<'Critical' | 'High' | 'Normal' | 'Low'>
               value={priority}
@@ -601,10 +702,12 @@ export default function NewServiceRequestModal({
                 { value: 'Low', label: 'منخفضة' },
               ]}
             />
-          </section>
+          </section>}
 
           <p className="text-xs text-slate-500 bg-slate-50 p-2 rounded">
-            💡 المرفقات وقائمة الأعطال تُضاف من شاشة تفاصيل الطلب بعد الإنشاء.
+            {requestType === 'device_request'
+              ? 'طلب الجهاز لا يقبل صوراً أو فيديو أو مرفقات.'
+              : '💡 المرفقات وقائمة الأعطال تُضاف من شاشة تفاصيل الطلب بعد الإنشاء.'}
           </p>
         </div>
     </Modal>

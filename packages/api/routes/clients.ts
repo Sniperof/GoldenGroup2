@@ -189,7 +189,7 @@ function readAtomicServiceRequestLink(body: any): {
   const party = body.serviceRequestLink.party;
   if (!Number.isInteger(serviceRequestId) || serviceRequestId <= 0
       || !['beneficiary', 'requester', 'referrer'].includes(party)) {
-    throw Object.assign(new Error('بيانات ربط طلب فحص المياه غير صالحة'), {
+    throw Object.assign(new Error('بيانات ربط طلب الخدمة غير صالحة'), {
       status: 400,
       code: 'invalid_service_request_client_link',
     });

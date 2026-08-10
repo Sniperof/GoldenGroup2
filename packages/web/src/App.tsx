@@ -67,6 +67,7 @@ import ServiceRequestDetailPage from './pages/service-requests/ServiceRequestDet
 import NewServiceRequestPage from './pages/service-requests/NewServiceRequestPage';
 import WaterCheckRequestsPage from './pages/service-requests/WaterCheckRequestsPage';
 import WaterCheckSimulatorPage from './pages/service-requests/WaterCheckSimulatorPage';
+import DeviceRequestsPage from './pages/service-requests/DeviceRequestsPage';
 import AccountRequestsListPage from './pages/account-requests/AccountRequestsListPage';
 import AccountRequestDetailPage from './pages/account-requests/AccountRequestDetailPage';
 
@@ -152,6 +153,7 @@ export default function App() {
                         <Route path="/service-requests/new" element={<NewServiceRequestPage />} />
                         <Route path="/service-requests/water-check" element={<WaterCheckRequestsPage />} />
                         <Route path="/service-requests/water-check/simulator" element={<WaterCheckSimulatorPage />} />
+                        <Route path="/service-requests/device-requests" element={<DeviceRequestsPage />} />
                         <Route path="/service-requests/:id" element={<ServiceRequestDetailPage />} />
                         <Route path="/account-requests" element={<AccountRequestsListPage />} />
                         <Route path="/account-requests/:id" element={<AccountRequestDetailPage />} />

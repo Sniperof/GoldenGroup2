@@ -87,7 +87,8 @@ export async function syncWaterCheckBeneficiaryReferrer(
 }
 
 /**
- * Links a client created in the caller's open transaction to one water-check
+ * Links a client created in the caller's open transaction to a supported
+ * service-request party (water check or device request).
  * party. The caller owns BEGIN/COMMIT/ROLLBACK, so client creation and linkage
  * either become visible together or are both discarded.
  */
@@ -119,11 +120,12 @@ export async function linkNewClientToWaterCheckParty(input: {
   );
   const request = rows[0];
   if (!request) throw serviceError(404, 'service_request_not_found');
-  if (request.request_type !== 'water_check') {
+  if (request.request_type !== 'water_check' && request.request_type !== 'device_request') {
     throw serviceError(400, 'wrong_request_type_for_atomic_client_link');
   }
+  const permission = request.request_type === 'water_check' ? 'water_check.review' : 'service_requests.review';
   const access = canLinkServiceRequestParty(authContext, {
-    permission: 'water_check.review',
+    permission,
     branchId: request.branch_id,
     reviewedByUserId: request.reviewed_by_user_id,
   });
@@ -134,8 +136,19 @@ export async function linkNewClientToWaterCheckParty(input: {
   if (request.escalated_at != null) {
     throw serviceError(423, 'request_is_escalated_actions_blocked');
   }
-  if (request.branch_id == null || Number(request.branch_id) !== clientBranchId) {
+  if (request.request_type === 'water_check'
+      && (request.branch_id == null || Number(request.branch_id) !== clientBranchId)) {
     throw serviceError(400, 'service_request_client_branch_mismatch');
+  }
+  const branchAffectingLink = party === 'beneficiary'
+    || (party === 'requester' && request.submission_type === 'apply');
+  if (request.request_type === 'device_request' && branchAffectingLink) {
+    const targetAccess = canLinkServiceRequestParty(authContext, {
+      permission,
+      branchId: clientBranchId,
+      reviewedByUserId: request.reviewed_by_user_id,
+    });
+    if (!targetAccess.allowed) throw serviceError(403, 'forbidden', targetAccess.reason);
   }
   if (party === 'referrer' && !request.referrer_external) {
     throw serviceError(400, 'request_has_no_referrer');
@@ -158,9 +171,12 @@ export async function linkNewClientToWaterCheckParty(input: {
                 WHEN submission_type = 'apply' THEN $2
                 ELSE requester_client_id
               END,
+              branch_id = CASE WHEN request_type = 'device_request' THEN $3 ELSE branch_id END,
+              branch_resolution_status = CASE WHEN request_type = 'device_request' THEN 'resolved' ELSE branch_resolution_status END,
+              branch_resolution_reason = CASE WHEN request_type = 'device_request' THEN 'beneficiary_client_branch' ELSE branch_resolution_reason END,
               updated_at = NOW()
         WHERE id = $1`,
-      [serviceRequestId, clientId],
+      [serviceRequestId, clientId, clientBranchId],
     );
   } else if (party === 'requester') {
     await db.query(
@@ -168,9 +184,12 @@ export async function linkNewClientToWaterCheckParty(input: {
           SET requester_client_id = $2,
               beneficiary_client_id = CASE WHEN submission_type = 'apply' THEN $2 ELSE beneficiary_client_id END,
               referrer_client_id = CASE WHEN $3::boolean THEN $2 ELSE referrer_client_id END,
+              branch_id = CASE WHEN request_type = 'device_request' AND submission_type = 'apply' THEN $4 ELSE branch_id END,
+              branch_resolution_status = CASE WHEN request_type = 'device_request' AND submission_type = 'apply' THEN 'resolved' ELSE branch_resolution_status END,
+              branch_resolution_reason = CASE WHEN request_type = 'device_request' AND submission_type = 'apply' THEN 'beneficiary_client_branch' ELSE branch_resolution_reason END,
               updated_at = NOW()
         WHERE id = $1`,
-      [serviceRequestId, clientId, sameAsRequester],
+      [serviceRequestId, clientId, sameAsRequester, clientBranchId],
     );
   } else {
     await db.query(
@@ -200,7 +219,7 @@ export async function linkNewClientToWaterCheckParty(input: {
     },
   });
 
-  if (party === 'beneficiary' || party === 'referrer' || sameAsRequester) {
+  if (request.request_type === 'water_check' && (party === 'beneficiary' || party === 'referrer' || sameAsRequester)) {
     await syncWaterCheckBeneficiaryReferrer(db, serviceRequestId, authContext.userId);
   }
 }
