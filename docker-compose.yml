@@ -15,7 +15,7 @@ services:
         max-file: "5"
     env_file: .env
     environment:
-      NODE_ENV: production
+      NODE_ENV: qa
       PORT: "3000"
     volumes:
       - uploads:/app/uploads

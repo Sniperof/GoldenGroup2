@@ -35,6 +35,7 @@ import DeviceOfferModal from '../components/clients/DeviceOfferModal';
 import NewServiceRequestModal from '../components/service-requests/NewServiceRequestModal';
 import { usePermissions } from '../hooks/usePermissions';
 import ClientAppAccountCard from '../components/appAccounts/ClientAppAccountCard';
+import ServiceRequestsTab from './clientProfile/ServiceRequestsTab';
 
 type ClientProfileTabId =
     | 'overview'
@@ -47,6 +48,7 @@ type ClientProfileTabId =
     | 'parts_stock'
     | 'pre_offers'
     | 'gifts'
+    | 'service_requests'
     | 'rating'
     | 'account_statement';
 
@@ -599,6 +601,13 @@ export default function ClientProfile() {
     const canViewNetwork = hasPermission('clients.network.view');
     const canViewAccountStatement = hasPermission('clients.account_statement.view');
     const canViewRating = hasPermission('clients.rating.view');
+    const canViewServiceRequests = hasAnyPermission(
+      'service_requests.view',
+      'water_check.view',
+      'periodic_maintenance.view',
+      'golden_warranty.view',
+      'account_requests.view',
+    );
     const canEditRating = hasPermission('clients.rating.edit');
     const canEditContactControl = hasPermission('clients.contact_control.edit') || hasPermission('clients.cooldown_unlock');
     const [activeTab, setActiveTab] = useState<ClientProfileTabId>('overview');
@@ -606,21 +615,6 @@ export default function ClientProfile() {
     const [client, setClient] = useState<Client | null>(null);
     const [allGeoUnits, setAllGeoUnits] = useState<GeoUnit[]>([]);
     const [loading, setLoading] = useState(true);
-    // The tab bar is sticky at the top of the scroll area. Tables inside a tab
-    // (SmartTable) also have a sticky header — measure the bar so those headers
-    // can stick just below it instead of colliding at top:0.
-    const tabsBarRef = useRef<HTMLDivElement>(null);
-    const [tabsBarH, setTabsBarH] = useState(0);
-    useEffect(() => {
-        const el = tabsBarRef.current;
-        if (!el) return;
-        const update = () => setTabsBarH(el.getBoundingClientRect().height);
-        update();
-        const ro = new ResizeObserver(update);
-        ro.observe(el);
-        return () => ro.disconnect();
-    }, [client]);
-
     useEffect(() => {
         const clientId = Number(id);
         if (!clientId) {
@@ -688,6 +682,7 @@ export default function ClientProfile() {
         ...(canViewPartsStock ? [{ id: 'parts_stock' as const, label: 'ط§ظ„ظ…ط®ط²ظˆظ†', icon: Package }] : []),
         ...(canViewPreOffers ? [{ id: 'pre_offers' as const, label: 'ط§ظ„ط¹ط±ظˆط¶ ط§ظ„ظ…ط³ط¨ظ‚ط©', icon: Sparkles }] : []),
         { id: 'gifts' as const, label: 'الهدايا', icon: Gift },
+        ...(canViewServiceRequests ? [{ id: 'service_requests' as const, label: 'الطلبات', icon: FileText }] : []),
         ...(canViewRating ? [{ id: 'rating' as const, label: 'تقييم الالتزام', icon: Star }] : []),
         ...(canViewNetwork ? [{ id: 'network' as const, label: 'ط§ظ„ط´ط¨ظƒط©', icon: Share2 }] : []),
         ...(canViewAccountStatement ? [{ id: 'account_statement' as const, label: 'ظƒط´ظپ ط§ظ„ط­ط³ط§ط¨', icon: FileText }] : []),
@@ -717,7 +712,7 @@ export default function ClientProfile() {
                         </div>
 
                         <main className="min-w-0">
-                            <div ref={tabsBarRef} className="sticky top-0 z-30 mb-4 border-b border-slate-200 bg-slate-50/95 backdrop-blur">
+                            <div className="sticky top-0 z-30 mb-4 border-b border-slate-200 bg-slate-50/95 backdrop-blur">
                                 <ProfileTabsBar
                                     tabs={[
                                         { id: 'overview', label: 'نظرة عامة', icon: LayoutDashboard },
@@ -729,6 +724,7 @@ export default function ClientProfile() {
                                         { id: 'parts_stock', label: 'المخزون', icon: Package },
                                         { id: 'pre_offers', label: 'العروض المسبقة', icon: Sparkles },
                                         { id: 'gifts', label: 'الهدايا', icon: Gift },
+                                        { id: 'service_requests', label: 'الطلبات', icon: FileText },
                                         { id: 'rating', label: 'تقييم الالتزام', icon: Star },
                                         { id: 'network', label: 'الشبكة', icon: Share2 },
                                         { id: 'account_statement', label: 'كشف الحساب', icon: FileText },
@@ -738,7 +734,7 @@ export default function ClientProfile() {
                                 />
                             </div>
 
-                            <div className="pt-1" style={{ ['--st-sticky-top' as any]: `${tabsBarH}px` }}>
+                            <div className="pt-1">
                         <AnimatePresence mode="wait">
                             <motion.div
                                 key={safeActiveTab}
@@ -778,6 +774,7 @@ export default function ClientProfile() {
                                 {safeActiveTab === 'parts_stock' && <PartsStockTab client={client} />}
                                 {safeActiveTab === 'pre_offers' && <PreOffersTab client={client} />}
                                 {safeActiveTab === 'gifts' && <GiftsTab client={client} />}
+                                {safeActiveTab === 'service_requests' && <ServiceRequestsTab clientId={client.id} />}
                                 {safeActiveTab === 'rating' && (
                                     <ClientRatingTab
                                         client={client}
@@ -1225,6 +1222,9 @@ function ContactsTab({
                             setModalContact(null);
                         } catch (err: any) {
                             console.error('Failed to save call:', err);
+                            throw err instanceof Error
+                                ? err
+                                : new Error('تعذر حفظ نتيجة التواصل. تحقق من البيانات وحاول مجدداً.');
                         }
                     }}
                 />

@@ -6,6 +6,7 @@
 > الأولوية حرجة
 > يكمل DEC-003 و DEC-004
 > الكيانات المتأثرة contact_targets, open_tasks, clients, telemarketing_call_logs, route_assignments
+> يستكمله DEC-009 (مرساة يوم التخطيط وهوية المهمة) وDEC-015 (طبقات التنقية وعدم تقسيم الحبيبة)
 
 ## 1 الملخص التنفيذي
 
@@ -117,7 +118,7 @@ cooldown يطبق على مستوى الزبون كاملاً، يحجبه من 
 
 فك Cooldown اليدوي. من شاشة تفاصيل الزبون، زر "إلغاء فترة التهدئة" يحتاج صلاحية مشرف أو أعلى.
 
-انتهاء Cooldown آلياً. لا CRON خاص. الفلتر في syncAssignedTasks يفحص الشرط cooldown_until IS NULL OR cooldown_until < CURRENT_DATE. بعد فوات التاريخ، الزبون مؤهل تلقائياً.
+انتهاء Cooldown آلياً. لا CRON خاص. في سياق التخطيط ليوم `D` يفحص النظام `cooldown_until IS NULL OR cooldown_until < D`. التاريخ المكتوب نفسه ما زال محظوراً، وبعد فواته يصبح الزبون مؤهلاً تلقائياً. `CURRENT_DATE` يستخدم فقط عندما تكون العملية الحالية نفسها هي المرساة ولا يوجد يوم تخطيط مستقل.
 
 الدمج مع do_not_contact. الحقل clients.do_not_contact (BOOLEAN) يُعامل كحظر دائم. الفلتر يفحص الاثنين معاً، أي منهما يحجب يحجب. شاشة تفاصيل الزبون تعرض الحالتين في قسم موحد بعنوان "حالة التواصل" مع زرين منفصلين لإدارة كل واحد.
 
@@ -133,7 +134,7 @@ cooldown يطبق على مستوى الزبون كاملاً، يحجبه من 
 
 ### D-customer-filters: فلاتر الزبون المحدودة
 
-في syncAssignedTasks الفلاتر على مستوى الزبون تقتصر على الحالات التي تعكس "غير قابل للتواصل". do_not_contact = TRUE. is_archived = TRUE (إن وُجد الحقل). is_candidate = TRUE. cooldown_until > CURRENT_DATE.
+في `syncAssignedTasks` فلاتر الزبون تقتصر على الحالات التي تعكس «غير قابل للتواصل»: `do_not_contact = TRUE`، و`is_archived = TRUE` إن وُجد الحقل، و`cooldown_until >= D`. لا يفحص `clients.is_candidate`: المرشح البنيوي في جدول `candidates` ولا يملك مهمة، أما العلم الموجود على `clients` فليس بوابة أهلية.
 
 ما لا يطبق. NOT EXISTS contracts (يُحذف، الفلتر السابق الخاطئ). NOT EXISTS visits (يُحذف، الـ legacy bug). أي فلتر آخر يفترض حالة معينة للزبون مبني على وجود مهمة أو عدمها.
 

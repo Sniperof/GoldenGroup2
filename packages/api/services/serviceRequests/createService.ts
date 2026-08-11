@@ -25,10 +25,6 @@ import {
   type ServiceRequestChannel,
 } from './_shared.js';
 import { detectDuplicates } from './duplicateDetection.js';
-import {
-  findPeriodicAttachmentCandidate,
-  type PeriodicAttachmentCandidate,
-} from '../periodicMaintenanceTasks.js';
 
 export interface CreateServiceRequestInput {
   requestType?: string | null;
@@ -48,7 +44,9 @@ export interface CreateServiceRequestInput {
   referrerClientId?: number | null;
   referrerExternal?: Record<string, unknown> | null;
   submissionType?: 'apply' | 'refer_a_candidate';
-  submitterTier?: 'visitor' | 'customer' | 'lead' | 'fop' | 'op' | 'staff';
+  // `unverified` mirrors migration 404: a submitter who proved nothing, kept
+  // distinct from `visitor` so an OTP-proven row stays distinguishable.
+  submitterTier?: 'visitor' | 'unverified' | 'customer' | 'lead' | 'fop' | 'op' | 'staff';
 
   // Device
   contractId?: number | null;
@@ -56,11 +54,15 @@ export interface CreateServiceRequestInput {
   installedDeviceId?: number | null;
   externalDeviceName?: string | null;
   externalDeviceSerial?: string | null;
+  reportedDeviceSelection?: 'registered_device' | 'catalog_model' | 'other' | null;
+  reportedDeviceModelId?: number | null;
+  reportedDeviceSnapshot?: Record<string, unknown> | null;
 
   // Customer-submitted (immutable, SR-R008)
   problemDescription: string;
   requestedActionTypeId?: number | null;
   attachments?: unknown[];
+  safetyIndicatorCodes?: string[];
 
   // Address (٠.١٤ + ٠.١٧.أ)
   serviceAddress?: Record<string, unknown> | null;
@@ -73,6 +75,7 @@ export interface CreateServiceRequestInput {
   branchResolutionStatus?: 'not_applicable' | 'resolved' | 'ambiguous' | 'no_coverage' | 'missing_geo' | null;
   branchResolutionReason?: string | null;
   branchResolutionGeoUnitId?: number | null;
+  sourceCallLogId?: string | null;
 
   // Actor context
   actorUserId: number | null;
@@ -87,13 +90,13 @@ export interface CreatedServiceRequest {
   duplicateFlag: boolean;
   duplicateOfRequestId: number | null;
   reviewRequiredFlag: boolean;
-  periodicAttachmentCandidate: PeriodicAttachmentCandidate | null;
 }
 
 /**
  * §٠.١٧.أ — walk-in mandatory fields:
  *   - When neither beneficiary_client_id nor beneficiary_candidate_id is set,
- *     requester_external.name + requester_external.primary_phone are required.
+ *     requester_external.primary_phone is required. The requester name may be
+ *     absent only for an identified mobile for_another request with no referrer.
  *   - service_address.governorate + .detailed_address required for ALL inserts
  *     (SR-WALKIN-03).
  */
@@ -114,11 +117,19 @@ function validateMandatory(
   if (isWalkIn) {
     const ext = input.requesterExternal ?? {};
     const isOtpVerifiedVisitor = ext['identity_verification'] === 'otp';
-    if (!ext['primary_phone'] || (!ext['name'] && !isOtpVerifiedVisitor)) {
+    const isNamelessMobileForAnotherWithoutReferrer =
+      input.channel === 'mobile_app' &&
+      input.submissionType === 'refer_a_candidate' &&
+      input.referrerUserId == null &&
+      input.referrerClientId == null &&
+      input.referrerExternal == null &&
+      ext['name_source'] === 'not_provided' &&
+      (ext['identity_source'] === 'visitor_otp' || ext['identity_source'] === 'unverified_device');
+    if (!ext['primary_phone'] || (!ext['name'] && !isOtpVerifiedVisitor && !isNamelessMobileForAnotherWithoutReferrer)) {
       return {
         ok: false,
         code: 'walkin_requester_external_required',
-        message: 'SR-WALKIN-02: requester_external.name + .primary_phone required',
+        message: 'SR-WALKIN-02: requester_external primary phone is required; name may be omitted only for an identified mobile for_another request without a referrer',
       };
     }
   }
@@ -130,7 +141,7 @@ function validateMandatory(
   // robust for future channels that may still send the address explicitly.
   const addr = input.serviceAddress ?? {};
   const hasAddr = !!(addr['governorate'] && addr['detailed_address']);
-  if (!hasAddr && !input.installedDeviceId) {
+  if (!hasAddr && !input.installedDeviceId && input.requestType !== 'device_request') {
     return {
       ok: false,
       code: 'service_address_required',
@@ -182,7 +193,10 @@ export async function createServiceRequest(
              priority, status,
              reviewed_by_user_id, claimed_at,
              branch_id, branch_resolution_status, branch_resolution_reason,
-             branch_resolution_geo_unit_id
+             branch_resolution_geo_unit_id,
+             source_call_log_id, reported_device_selection,
+             reported_device_model_id, reported_device_snapshot,
+             safety_indicator_codes
            ) VALUES (
              $1, $2, $3, $4, $5::jsonb,
              $6, $7, $8, $9::jsonb,
@@ -196,7 +210,10 @@ export async function createServiceRequest(
              $27, $28,
              $29, ${claimedAt},
              $30, $31, $32,
-             $33
+             $33,
+             $34, $35,
+             $36, $37::jsonb,
+             $38::jsonb
            )
            RETURNING id`,
           [
@@ -233,6 +250,11 @@ export async function createServiceRequest(
             input.branchResolutionStatus ?? 'not_applicable',
             input.branchResolutionReason ?? null,
             input.branchResolutionGeoUnitId ?? null,
+            input.sourceCallLogId ?? null,
+            input.reportedDeviceSelection ?? null,
+            input.reportedDeviceModelId ?? null,
+            JSON.stringify(input.reportedDeviceSnapshot ?? null),
+            JSON.stringify(input.safetyIndicatorCodes ?? []),
           ],
         );
         inserted = { id: rows[0].id, ref };
@@ -291,11 +313,6 @@ export async function createServiceRequest(
       input.actorRole,
     );
 
-    const periodicAttachmentCandidate = await findPeriodicAttachmentCandidate(
-      tx.client,
-      input.installedDeviceId ?? null,
-    );
-
     await commitTx(tx);
 
     return {
@@ -306,9 +323,11 @@ export async function createServiceRequest(
         requestType: input.requestType ?? 'emergency_maintenance',
         status: initialStatus,
         duplicateFlag: dup.flagged,
-        duplicateOfRequestId: dup.bestMatch?.candidateId ?? null,
+        // service_requests.id is BIGINT — node-pg returns it as a string, so
+        // without this the field contradicts its own declared `number | null`
+        // and reaches JSON clients quoted. Same boundary coercion as `id`.
+        duplicateOfRequestId: dup.bestMatch ? Number(dup.bestMatch.candidateId) : null,
         reviewRequiredFlag: dup.flagged,
-        periodicAttachmentCandidate,
       },
     };
   } catch (err) {

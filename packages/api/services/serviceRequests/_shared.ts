@@ -17,10 +17,11 @@ import pool from '../../db.js';
 
 // ---------------- canonical enums (mirror DB CHECK constraints) ----------------
 
+// 'awaiting_customer_info' dropped per request-section-contract.md §3 —
+// still a valid DB value for historical rows/audit, no longer reachable.
 export const SR_STATUSES = [
   'received',
   'in_review',
-  'awaiting_customer_info',
   'resolved_at_intake',
   'rejected',
   'promoted',
@@ -43,7 +44,6 @@ export const SR_TERMINAL_STATUSES: ServiceRequestStatus[] = [
 export const SR_ACTIVE_STATUSES: ServiceRequestStatus[] = [
   'received',
   'in_review',
-  'awaiting_customer_info',
 ];
 
 export const SR_CHANNELS = [

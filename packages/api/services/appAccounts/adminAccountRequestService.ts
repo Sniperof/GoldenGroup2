@@ -28,7 +28,9 @@ import { suggestRecords } from '../serviceRequests/fuzzyMatching.js';
 import { transitionStatus } from '../serviceRequests/stateMachine.js';
 import { claimOrTakeOver } from '../serviceRequests/claimService.js';
 import type { ServiceRequestStatus } from '../serviceRequests/_shared.js';
+import { getSystemSettingNumber } from '../systemSettings.js';
 
+// awaiting_customer_info kept only for legacy rows (contract §3 dropped it).
 const ACTIVE_STATUSES = ['received', 'in_review', 'awaiting_customer_info'];
 
 function httpError(status: number, message: string, details?: Record<string, unknown>) {
@@ -47,24 +49,54 @@ function deriveSegment(candidateStatus: string | null): 'op' | 'fop' | 'lead' | 
 export interface ListFilters {
   status?: string | null;
   duplicate?: boolean | null;
+  reviewRequired?: boolean | null;
+  escalatedOnly?: boolean | null;
+  /** Contract §3 — advisory stale flag filter («راكد فقط»). */
+  staleOnly?: boolean | null;
+  /** Filter to requests claimed by this user (contract §6 «طلباتي»). */
+  mineUserId?: number | null;
+  /** 'true' → archived only, 'all' → both, anything else → non-archived. */
+  archived?: string | null;
   search?: string | null;
   limit?: number;
   offset?: number;
 }
 
 export async function listAccountRequests(filters: ListFilters) {
-  const where: string[] = [`request_type = 'account_creation'`, `archived_at IS NULL`];
+  const where: string[] = [`sr.request_type = 'account_creation'`];
   const params: unknown[] = [];
   let i = 1;
 
+  // Contract §3 stale safety net (advisory only). 0 disables.
+  const staleDays = Math.max(0, Math.floor(
+    await getSystemSettingNumber('service_request_stale_after_days', 14),
+  ));
+  const staleCondition = staleDays > 0
+    ? `(sr.status = 'in_review' AND COALESCE(
+         (SELECT MAX(a.created_at) FROM service_request_audit_log a
+           WHERE a.service_request_id = sr.id),
+         sr.created_at
+       ) < NOW() - (${staleDays} * INTERVAL '1 day'))`
+    : 'FALSE';
+  if (filters.staleOnly === true) where.push(staleCondition);
+
+  if (filters.archived === 'true') where.push(`sr.archived_at IS NOT NULL`);
+  else if (filters.archived !== 'all') where.push(`sr.archived_at IS NULL`);
+
   if (filters.status) {
-    where.push(`status = $${i++}`);
+    where.push(`sr.status = $${i++}`);
     params.push(filters.status);
   }
-  if (filters.duplicate === true) where.push(`duplicate_flag = TRUE`);
+  if (filters.duplicate === true) where.push(`sr.duplicate_flag = TRUE`);
+  if (filters.reviewRequired === true) where.push(`sr.review_required_flag = TRUE`);
+  if (filters.escalatedOnly === true) where.push(`sr.escalated_at IS NOT NULL`);
+  if (filters.mineUserId != null) {
+    where.push(`sr.reviewed_by_user_id = $${i++}`);
+    params.push(filters.mineUserId);
+  }
   if (filters.search) {
     where.push(
-      `(requester_external->>'primary_phone' ILIKE $${i} OR requester_external->>'name' ILIKE $${i} OR public_ref_number ILIKE $${i})`,
+      `(sr.requester_external->>'primary_phone' ILIKE $${i} OR sr.requester_external->>'name' ILIKE $${i} OR sr.public_ref_number ILIKE $${i})`,
     );
     params.push(`%${filters.search}%`);
     i += 1;
@@ -74,16 +106,20 @@ export async function listAccountRequests(filters: ListFilters) {
   const offset = Math.max(filters.offset ?? 0, 0);
 
   const { rows } = await pool.query(
-    `SELECT id, public_ref_number, status,
-            requester_external->>'name'          AS full_name,
-            requester_external->>'primary_phone' AS primary_phone,
-            COALESCE(service_address->'labels'->>'governorate',
-                     service_address->>'governorate')  AS governorate,
-            duplicate_flag, review_required_flag, escalated_at,
-            beneficiary_client_id, created_at
-       FROM service_requests
+    `SELECT sr.id, sr.public_ref_number, sr.status,
+            sr.requester_external->>'name'          AS full_name,
+            sr.requester_external->>'primary_phone' AS primary_phone,
+            COALESCE(sr.service_address->'labels'->>'governorate',
+                     sr.service_address->>'governorate')  AS governorate,
+            sr.duplicate_flag, sr.review_required_flag, sr.escalated_at, sr.archived_at,
+            sr.beneficiary_client_id, sr.created_at,
+            sr.reviewed_by_user_id,
+            reviewer.name AS reviewed_by_name,
+            ${staleCondition} AS stale_flag
+       FROM service_requests sr
+       LEFT JOIN hr_users reviewer ON reviewer.id = sr.reviewed_by_user_id
       WHERE ${where.join(' AND ')}
-      ORDER BY created_at DESC
+      ORDER BY sr.created_at DESC
       LIMIT ${limit} OFFSET ${offset}`,
     params,
   );
@@ -98,7 +134,7 @@ export async function getAccountRequestDetails(id: number) {
             sr.escalated_at, sr.escalated_by_user_id, sr.escalation_reason,
             sr.beneficiary_client_id, sr.rejected_by_user_id, sr.rejection_reason,
             sr.reviewed_by_user_id, sr.claimed_at, sr.triage_outcome, sr.reopen_count,
-            sr.created_at, sr.closed_at,
+            sr.created_at, sr.closed_at, sr.archived_at,
             reviewer.name AS reviewed_by_name
        FROM service_requests sr
        LEFT JOIN hr_users reviewer ON reviewer.id = sr.reviewed_by_user_id

@@ -15,6 +15,20 @@ const PERIODIC_STATUS_OPTIONS = [
     { value: 'waiting_execution', label: 'بانتظار التنفيذ' },
 ];
 
+const TEAM_SLOT_OPTIONS = [
+    { value: 'SUPERVISOR', label: 'المشرف', description: 'المشرف الميداني للفريق' },
+    { value: 'TECHNICIAN', label: 'الفني', description: 'الفني المنفذ للزيارات' },
+    { value: 'TRAINEE', label: 'المتدرب', description: 'المتدرب المرافق للفريق' },
+    { value: 'TELEMARKETER', label: 'التيلماركتر', description: 'موظف الاتصالات' },
+] as const;
+
+type TeamSlot = typeof TEAM_SLOT_OPTIONS[number]['value'];
+
+function parseTeamSlots(raw: string): TeamSlot[] {
+    const configured = new Set(raw.split(',').map(value => value.trim().toUpperCase()).filter(Boolean));
+    return TEAM_SLOT_OPTIONS.map(option => option.value).filter(slot => configured.has(slot));
+}
+
 const DEFAULT_PERIODIC_SETTINGS = {
     periodic_auto_generate_enabled: 'true',
     periodic_manual_creation_enabled: 'true',
@@ -44,6 +58,11 @@ export default function SystemSettings() {
     const [savedVisitJobInterval, setSavedVisitJobInterval] = useState('15');
     const [visitJobSaving, setVisitJobSaving] = useState(false);
     const [visitJobMsg, setVisitJobMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+    const [webLoginSlots, setWebLoginSlots] = useState<TeamSlot[]>([]);
+    const [savedWebLoginSlots, setSavedWebLoginSlots] = useState<TeamSlot[]>([]);
+    const [webLoginSaving, setWebLoginSaving] = useState(false);
+    const [webLoginMsg, setWebLoginMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+    const [showDeveloperSettings, setShowDeveloperSettings] = useState(false);
 
     useEffect(() => {
         let cancelled = false;
@@ -63,6 +82,11 @@ export default function SystemSettings() {
                 const visitInterval = res.settings.find((s) => s.key === 'visit_escalation_job_interval_minutes')?.value ?? '15';
                 setVisitJobInterval(visitInterval);
                 setSavedVisitJobInterval(visitInterval);
+                const allowedWebSlots = parseTeamSlots(
+                    res.settings.find((s) => s.key === 'web_login_allowed_team_slots')?.value ?? '',
+                );
+                setWebLoginSlots(allowedWebSlots);
+                setSavedWebLoginSlots(allowedWebSlots);
             })
             .catch(() => { if (!cancelled) setCleanupMsg({ type: 'err', text: 'تعذّر تحميل الإعداد.' }); })
             .finally(() => { if (!cancelled) setCleanupLoading(false); });
@@ -140,6 +164,36 @@ export default function SystemSettings() {
         }
     };
 
+    const setWebLoginSlot = (slot: TeamSlot, checked: boolean) => {
+        setWebLoginMsg(null);
+        setWebLoginSlots(current => {
+            const selected = new Set(current);
+            if (checked) selected.add(slot); else selected.delete(slot);
+            return TEAM_SLOT_OPTIONS.map(option => option.value).filter(value => selected.has(value));
+        });
+    };
+
+    const saveWebLoginSlots = async () => {
+        setWebLoginSaving(true);
+        setWebLoginMsg(null);
+        try {
+            const res = await api.systemSettings.update('web_login_allowed_team_slots', webLoginSlots);
+            const normalized = parseTeamSlots(res.value);
+            setWebLoginSlots(normalized);
+            setSavedWebLoginSlots(normalized);
+            setWebLoginMsg({
+                type: 'ok',
+                text: normalized.length === 0
+                    ? 'تم إيقاف تقييد الدخول من الهاتف والجهاز اللوحي.'
+                    : 'تم حفظ السياسة. ستُطبَّق على طلبات الويب التالية مباشرةً.',
+            });
+        } catch (err: any) {
+            setWebLoginMsg({ type: 'err', text: err?.message ?? 'فشل حفظ سياسة أجهزة الدخول.' });
+        } finally {
+            setWebLoginSaving(false);
+        }
+    };
+
     if (!hasPermission('settings.view')) {
         return <Navigate to="/" replace />;
     }
@@ -158,9 +212,15 @@ export default function SystemSettings() {
                 title="إعدادات النظام"
                 subtitle="تحكم ببيانات النظام والخيارات المتقدمة"
                 icon={
-                    <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center">
+                    <button
+                        type="button"
+                        aria-label="تبديل إعدادات المطور"
+                        aria-pressed={showDeveloperSettings}
+                        onClick={() => setShowDeveloperSettings(visible => !visible)}
+                        className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center"
+                    >
                         <Settings className="w-6 h-6 text-slate-600" />
-                    </div>
+                    </button>
                 }
             />
 
@@ -361,6 +421,92 @@ export default function SystemSettings() {
                         )}
                     </div>
                 </motion.div>
+
+                {/* Web login device policy */}
+                {showDeveloperSettings && <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm"
+                >
+                    <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between gap-3 flex-wrap">
+                        <div className="flex items-center gap-3">
+                            <Settings className="w-5 h-5 text-sky-600" />
+                            <div>
+                                <h2 className="text-lg font-bold text-slate-800">الدخول إلى الويب من الهاتف والأجهزة اللوحية</h2>
+                                <p className="text-xs text-slate-500 mt-1">الحاسوب مسموح دائماً؛ التقييد يخص الهاتف والجهاز اللوحي فقط.</p>
+                            </div>
+                        </div>
+                        <span className={`px-2.5 py-1 rounded-full border text-xs font-bold ${webLoginSlots.length > 0
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+                            {webLoginSlots.length > 0 ? 'التقييد مفعّل' : 'التقييد متوقف'}
+                        </span>
+                    </div>
+
+                    <div className="p-6 space-y-5">
+                        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3">
+                            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                            <div className="text-xs text-amber-800 leading-relaxed">
+                                <p className="font-bold mb-1">اختر خانات الفريق المسموح لها باستخدام الهاتف أو الجهاز اللوحي.</p>
+                                <p>
+                                    عند اختيار أي خانة سيُمنع جميع من لا يملكون إحدى الخانات المختارة، دون استثناء لمدير النظام.
+                                    إزالة جميع الاختيارات توقف التقييد وتسمح بالدخول من كل الأجهزة.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="grid sm:grid-cols-2 gap-3">
+                            {TEAM_SLOT_OPTIONS.map(option => (
+                                <label
+                                    key={option.value}
+                                    className={`flex items-start gap-3 rounded-xl border p-4 transition-colors ${webLoginSlots.includes(option.value)
+                                        ? 'border-sky-200 bg-sky-50'
+                                        : 'border-slate-200 bg-white hover:bg-slate-50'}`}
+                                >
+                                    <input
+                                        type="checkbox"
+                                        checked={webLoginSlots.includes(option.value)}
+                                        disabled={!canManageSettings || cleanupLoading || webLoginSaving}
+                                        onChange={(event) => setWebLoginSlot(option.value, event.target.checked)}
+                                        className="h-4 w-4 mt-0.5 rounded border-slate-300 text-sky-600 focus:ring-sky-200"
+                                    />
+                                    <span>
+                                        <span className="block text-sm font-bold text-slate-700">{option.label}</span>
+                                        <span className="block text-xs text-slate-500 mt-0.5">{option.description}</span>
+                                    </span>
+                                </label>
+                            ))}
+                        </div>
+
+                        <div className="flex items-center gap-3 flex-wrap">
+                            <Button
+                                variant="primary"
+                                icon={Save}
+                                onClick={saveWebLoginSlots}
+                                loading={webLoginSaving}
+                                disabled={
+                                    !canManageSettings
+                                    || cleanupLoading
+                                    || webLoginSlots.join(',') === savedWebLoginSlots.join(',')
+                                }
+                            >
+                                حفظ سياسة الدخول
+                            </Button>
+                            {webLoginSlots.length === 0 && (
+                                <span className="text-xs font-bold text-slate-500">لا يوجد تقييد فعّال حالياً.</span>
+                            )}
+                        </div>
+
+                        {webLoginMsg && (
+                            <p className={`text-xs font-bold ${webLoginMsg.type === 'ok' ? 'text-emerald-600' : 'text-red-600'}`}>
+                                {webLoginMsg.text}
+                            </p>
+                        )}
+                        {!canManageSettings && (
+                            <p className="text-xs text-slate-400">للعرض فقط — تعديل السياسة يحتاج صلاحية «تعديل إعدادات النظام».</p>
+                        )}
+                    </div>
+                </motion.div>}
 
                 {/* Data Management Section */}
                 <motion.div

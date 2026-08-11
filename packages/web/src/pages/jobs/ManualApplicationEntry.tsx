@@ -6,7 +6,7 @@ import { uploadFile } from '../../lib/uploadFile';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { useSystemListsStore } from '../../hooks/useSystemLists';
 import { api } from '../../lib/api';
-import { findEmployeeByNumber, formatEmployeeMediatorLabel, toMediatorEmployee, MediatorEmployee } from '../../lib/employeeMediatorLookup';
+import { findEmployeeByNumber, formatEmployeeMediatorLabel, resolveEmployeeMediatorReference, toMediatorEmployee, MediatorEmployee } from '../../lib/employeeMediatorLookup';
 import GeoSmartSearch, { GeoSelection } from '../../components/GeoSmartSearch';
 import {
   ArrowRight, Send, AlertTriangle, CheckCircle, UserPlus,
@@ -383,7 +383,9 @@ export default function ManualApplicationEntry() {
 
       if (referrer.type === 'Employee') {
         if (!referrer.employeeId.trim()) e.referrer_employeeId = 'رقم الموظف مطلوب';
-        if (!employeeFound) e.referrer_employeeId = 'لم يتم العثور على الموظف';
+        if (!resolveEmployeeMediatorReference(referrer.employeeId, employeeFound)) {
+          e.referrer_employeeId = 'لم يتم العثور على الموظف';
+        }
       } else if (referrer.type === 'Client') {
         if (!selectedClientId) e.referrer_fullName = 'الرجاء اختيار الزبون الوسيط';
       }
@@ -396,6 +398,9 @@ export default function ManualApplicationEntry() {
 
   const handleSubmit = async () => {
     if (!validate()) return;
+    const employeeReference = referrer.type === 'Employee'
+      ? resolveEmployeeMediatorReference(referrer.employeeId, employeeFound)
+      : null;
     setSubmitResult(null);
     setSubmitting(true);
     try {
@@ -444,11 +449,11 @@ export default function ManualApplicationEntry() {
         payload.referrer = {
           type: referrer.type,
           sourceChannel: referrer.sourceChannel,
-          employeeId: referrer.employeeId ? parseInt(referrer.employeeId) : null,
+          employeeId: employeeReference?.employeeId ?? null,
           referralEntityId: referrer.type === 'Employee'
-            ? (referrer.employeeId ? parseInt(referrer.employeeId) : null)
+            ? (employeeReference?.referralEntityId ?? null)
             : (selectedClientId ?? null),
-          fullName: referrer.fullName.trim() || null, lastName: referrer.lastName.trim() || null,
+          fullName: employeeReference?.fullName ?? (referrer.fullName.trim() || null), lastName: referrer.lastName.trim() || null,
           governorate: getGeoName(referrer.geoSelection.govId) || null,
           cityOrArea: getGeoName(referrer.geoSelection.regionId) || null,
           subArea: getGeoName(referrer.geoSelection.subId) || null,
@@ -822,7 +827,16 @@ export default function ManualApplicationEntry() {
                   <>
                     <Field label="رقم الموظف" required error={fieldErrors.referrer_employeeId}>
                       <div className="flex gap-2">
-                        <input value={referrer.employeeId} onChange={e => setR('employeeId', e.target.value)} className={inputCls(!!fieldErrors.referrer_employeeId)} placeholder="Emp-ID" />
+                        <input
+                          value={referrer.employeeId}
+                          onChange={e => {
+                            setR('employeeId', e.target.value);
+                            setEmployeeFound(null);
+                            setR('fullName', '');
+                          }}
+                          className={inputCls(!!fieldErrors.referrer_employeeId)}
+                          placeholder="Emp-ID"
+                        />
                         <button type="button" onClick={handleEmployeeLookup} className="px-4 bg-sky-500 hover:bg-sky-600 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5">
                           <Search className="w-3.5 h-3.5" /> جلب
                         </button>

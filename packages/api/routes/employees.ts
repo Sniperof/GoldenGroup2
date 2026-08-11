@@ -11,6 +11,7 @@ import {
   getEmployeeManagerCandidates,
   getEmployees,
   saveEmployeeSystemAccount,
+  transferEmployeeBranch,
   updateEmployeeRecord,
 } from '../services/employeeService.js';
 
@@ -532,20 +533,10 @@ router.put('/:id', requirePermission('employees.edit'), async (req, res) => {
       return forbidBranchAccess(res, ownerAccess.reason);
     }
 
-    const targetBranchId = req.body?.branchId != null
-      ? resolveEmployeeTargetBranch(req, req.body?.branchId)
-      : ownerBranch;
-    if (targetBranchId == null) {
-      return res.status(400).json({ error: 'يجب تحديد الفرع المستهدف لهذه العملية' });
-    }
-
-    const targetAccess = authorize(authContext, {
-      permission: 'employees.edit',
-      branchId: targetBranchId,
-    });
-    if (!targetAccess.allowed) {
-      return forbidBranchAccess(res, targetAccess.reason);
-    }
+    // Branch is immutable on edit: moving a branch is a distinct, explicit
+    // operation (POST /:id/transfer-branch) that also moves the account and
+    // reconciles manager links. Any branchId in the edit body is ignored.
+    const targetBranchId = ownerBranch;
 
     const employee = await updateEmployeeRecord(employeeId, req.body, targetBranchId);
     res.json(employee);
@@ -583,6 +574,50 @@ router.put('/:id/system-account', requirePermission('admin.roles.users.manage'),
     }
 
     const result = await saveEmployeeSystemAccount(Number(employeeIdParam), req.body);
+    res.json(result);
+  } catch (err: any) {
+    if (err?.status) {
+      return res.status(err.status).json(err.payload ?? { error: err.message });
+    }
+    throw err;
+  }
+});
+
+// Explicit branch transfer: moves the employee record + linked account(s)
+// together, leaving owned/created data as a footprint in the old branch.
+// Requires employees.edit authorization on BOTH the source and the target branch.
+router.post('/:id/transfer-branch', requirePermission('employees.edit'), async (req, res) => {
+  try {
+    const authContext = getRequiredAuthContext(req);
+    const employeeIdParam = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const employeeId = Number(employeeIdParam);
+    const toBranchId = Number(req.body?.toBranchId);
+
+    if (!Number.isInteger(toBranchId) || toBranchId <= 0) {
+      return res.status(400).json({ error: 'يجب تحديد الفرع الهدف للنقل' });
+    }
+
+    const fromBranch = await getEmployeeBranchId(employeeIdParam!);
+    if (fromBranch == null) {
+      return res.status(404).json({ error: 'الموظف غير موجود' });
+    }
+
+    const sourceAccess = authorize(authContext, { permission: 'employees.edit', branchId: fromBranch });
+    if (!sourceAccess.allowed) {
+      return forbidBranchAccess(res, sourceAccess.reason);
+    }
+
+    const targetAccess = authorize(authContext, { permission: 'employees.edit', branchId: toBranchId });
+    if (!targetAccess.allowed) {
+      return forbidBranchAccess(res, targetAccess.reason);
+    }
+
+    const result = await transferEmployeeBranch({
+      employeeId,
+      toBranchId,
+      actorUserId: authContext.userId,
+      note: typeof req.body?.note === 'string' ? req.body.note : null,
+    });
     res.json(result);
   } catch (err: any) {
     if (err?.status) {

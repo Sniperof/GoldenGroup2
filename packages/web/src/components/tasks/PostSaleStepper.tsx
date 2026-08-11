@@ -6,18 +6,10 @@ import {
   PlayCircle,
   Check,
   Plus,
-  FileText,
   AlertCircle,
-  MapPin,
-  Calendar,
-  Layers,
-  ChevronLeft,
   ExternalLink
 } from '../ui/icons';
 import { api } from '../../lib/api';
-import Select from '../ui/Select';
-import Modal from '../ui/Modal';
-import DateField from '../ui/DateField';
 
 interface PostSaleStepperProps {
   contract: any;
@@ -27,17 +19,8 @@ interface PostSaleStepperProps {
 
 export const PostSaleStepper: React.FC<PostSaleStepperProps> = ({ contract, tasks, onRefresh }) => {
   const navigate = useNavigate();
-  const [showDeliveryModal, setShowDeliveryModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  
-  // Delivery Form State
-  const [outcome, setOutcome] = useState<'delivered_successfully' | 'customer_not_available' | 'wrong_address' | 'refused_delivery'>('delivered_successfully');
-  const [serialNumber, setSerialNumber] = useState('');
-  const [deliveryAddress, setDeliveryAddress] = useState(contract.installationAddress || '');
-  const [actualDeliveryDate, setActualDeliveryDate] = useState(new Date().toISOString().split('T')[0]);
-  const [deliveryCondition, setDeliveryCondition] = useState<'perfect' | 'minor_damage' | 'missing_accessories'>('perfect');
-  const [notes, setNotes] = useState('');
 
   // Find linked tasks for this contract
   const deliveryTask = tasks.find(t => t.contractId === contract.id && t.taskType === 'device_delivery');
@@ -131,18 +114,19 @@ export const PostSaleStepper: React.FC<PostSaleStepperProps> = ({ contract, task
     }
   };
 
-  const handleSubmitDeliveryResult = async () => {
+  const openDeliveryVisit = () => {
     if (!deliveryTask) {
       setError('لا توجد مهمة تسليم جهاز مرتبطة لتسجيل نتيجتها');
       return;
     }
-    const visitId = deliveryTask.fieldVisitId || deliveryTask.marketingVisitId || null;
+    const visitId = deliveryTask.fieldVisitId
+      || deliveryTask.marketingVisitId
+      || deliveryTask.activeVisit?.id
+      || null;
     if (!visitId) {
       setError('يجب ربط مهمة التسليم بزيارة ميدانية أولاً لتسجيل النتيجة');
       return;
     }
-    // Delivery results are recorded from the field visit detail page
-    setShowDeliveryModal(false);
     navigate(`/field-visits/${visitId}`);
   };
 
@@ -270,17 +254,11 @@ export const PostSaleStepper: React.FC<PostSaleStepperProps> = ({ contract, task
               <div className="pt-2">
                 {step.id === 'delivery' && (
                   <button
-                    onClick={() => {
-                      if (!deliveryTask?.marketingVisitId) {
-                        setError('يرجى جدولة زيارة تسليم لهذه المهمة أولاً لتتمكن من تسجيل نتيجتها');
-                        return;
-                      }
-                      setShowDeliveryModal(true);
-                    }}
+                    onClick={openDeliveryVisit}
                     className="w-full flex items-center justify-center gap-2 bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs py-2 px-3 rounded-lg transition duration-200 shadow-sm"
                   >
-                    <FileText className="w-3.5 h-3.5" />
-                    تسجيل نتيجة التسليم
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    فتح الزيارة لتسجيل النتيجة
                   </button>
                 )}
 
@@ -311,110 +289,6 @@ export const PostSaleStepper: React.FC<PostSaleStepperProps> = ({ contract, task
         ))}
       </div>
 
-      {/* Recording Delivery Result Dialog */}
-      <Modal
-        isOpen={showDeliveryModal}
-        onClose={() => setShowDeliveryModal(false)}
-        size="lg"
-        title={<span className="flex items-center gap-2"><Truck className="w-5 h-5 text-sky-600" />تسجيل نتيجة تسليم الجهاز</span>}
-        footer={
-          <div className="w-full flex gap-3">
-            <button type="button" onClick={handleSubmitDeliveryResult} disabled={loading || (outcome === 'delivered_successfully' && !serialNumber.trim())}
-              className="flex-1 bg-sky-600 hover:bg-sky-500 text-white font-bold py-2.5 rounded-xl transition duration-200 disabled:opacity-50 shadow-sm">
-              {loading ? 'جاري الحفظ...' : 'تأكيد وحفظ النتيجة'}
-            </button>
-            <button type="button" onClick={() => setShowDeliveryModal(false)}
-              className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl transition duration-200">
-              إلغاء
-            </button>
-          </div>
-        }
-      >
-            <div className="p-6 space-y-3">
-              {/* Outcome Selection */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1.5">نتيجة عملية التوصيل</label>
-                <Select
-                  value={outcome}
-                  onChange={v => setOutcome(v as any)}
-                  ariaLabel="نتيجة التوصيل"
-                  className="w-full"
-                  options={[
-                    { value: 'delivered_successfully', label: 'تم التسليم بنجاح للعميل' },
-                    { value: 'customer_not_available', label: 'العميل غير متوفر في المنزل' },
-                    { value: 'wrong_address', label: 'العنوان المسجل خاطئ' },
-                    { value: 'refused_delivery', label: 'رفض العميل استلام الجهاز' },
-                  ]}
-                />
-              </div>
-
-              {outcome === 'delivered_successfully' && (
-                <>
-                  {/* Serial Number */}
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">الرقم التسلسلي للجهاز (Serial Number)</label>
-                    <input
-                      type="text"
-                      placeholder="أدخل الرقم التسلسلي المكتوب على الجهاز"
-                      value={serialNumber}
-                      onChange={(e) => setSerialNumber(e.target.value)}
-                      className="w-full bg-white border border-slate-200 text-slate-900 rounded-lg p-2.5 text-sm focus:outline-none focus:border-sky-500"
-                      required
-                    />
-                  </div>
-
-                  {/* Operational Condition */}
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">الحالة التشغيلية عند الاستلام</label>
-                    <Select
-                      value={deliveryCondition}
-                      onChange={v => setDeliveryCondition(v as any)}
-                      ariaLabel="الحالة التشغيلية"
-                      className="w-full"
-                      options={[
-                        { value: 'perfect', label: 'سليم وممتاز (Perfect)' },
-                        { value: 'minor_damage', label: 'ضرر خارجي طفيف (Minor Damage)' },
-                        { value: 'missing_accessories', label: 'نقص في بعض الملحقات (Missing Accessories)' },
-                      ]}
-                    />
-                  </div>
-                </>
-              )}
-
-              {/* Delivery Address */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1.5">عنوان التسليم الفعلي</label>
-                <textarea
-                  rows={2}
-                  value={deliveryAddress}
-                  onChange={(e) => setDeliveryAddress(e.target.value)}
-                  className="w-full bg-white border border-slate-200 text-slate-900 rounded-lg p-2.5 text-sm focus:outline-none focus:border-sky-500 resize-none"
-                />
-              </div>
-
-              {/* Date */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1.5">تاريخ التسليم الفعلي</label>
-                <DateField
-                  value={actualDeliveryDate}
-                  onChange={setActualDeliveryDate}
-                  className="w-full bg-white border border-slate-200 text-slate-900 rounded-lg p-2.5 text-sm focus:outline-none focus:border-sky-500"
-                />
-              </div>
-
-              {/* Notes */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1.5">ملاحظات إضافية</label>
-                <textarea
-                  rows={3}
-                  placeholder="أية تفاصيل إضافية حول التوصيل أو حالة الاستلام..."
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  className="w-full bg-white border border-slate-200 text-slate-900 rounded-lg p-2.5 text-sm focus:outline-none focus:border-sky-500 resize-none"
-                />
-              </div>
-            </div>
-      </Modal>
     </div>
   );
 };

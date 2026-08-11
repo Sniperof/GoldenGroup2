@@ -6,6 +6,7 @@ import {
 } from '../services/appAccounts/accountRequestService.js';
 import { deleteAccountByVerifiedHandle } from '../services/appAccounts/accountDeletionService.js';
 import { requireAppAuth } from '../middleware/appAuth.js';
+import { sendAppError } from '../utils/appErrors.js';
 
 const router = Router();
 
@@ -26,11 +27,22 @@ const router = Router();
  *       Returns the single computed mode the app should render, keyed by the
  *       (normalized) phone: `visitor`, `pending`, `active`, or `suspended`.
  *       The app never sees internal request/account states.
+ *
+ *       Optional `ref` — the request's publicRefNumber the app stored from the
+ *       create response. When it matches the number's rejected non-archived
+ *       request, the response adds `rejection {code, label, rejectedAt}` so the
+ *       fate + reason surface in the SAME boot call, with no OTP round. The ref
+ *       is the capability: phone alone keeps answering a silent `visitor`.
+ *       Reason only — never personal data. Archiving the request ends it.
  *     parameters:
  *       - in: query
  *         name: phone
  *         required: true
  *         schema: { type: string, example: "0912345678" }
+ *       - in: query
+ *         name: ref
+ *         required: false
+ *         schema: { type: string, example: "SR-20260718-0004" }
  *     responses:
  *       200:
  *         description: Derived status
@@ -42,20 +54,24 @@ const router = Router();
  *                 status:
  *                   type: string
  *                   enum: [visitor, pending, active, suspended]
+ *                 rejection:
+ *                   type: object
+ *                   nullable: true
+ *                   description: Only when a valid `ref` matches a rejected request.
+ *                   properties:
+ *                     code: { type: string, example: duplicate }
+ *                     label: { type: string, example: "طلب مكرّر — يوجد طلب أو حساب سابق لهذا الرقم" }
+ *                     rejectedAt: { type: string, format: date-time, nullable: true }
  *       400: { description: Missing or invalid phone }
  */
 router.get('/account/status', async (req, res) => {
   try {
     const phone = String(req.query.phone ?? '');
     if (!phone) return res.status(400).json({ error: 'رقم الموبايل مطلوب' });
-    const result = await checkMobileStatus(phone);
+    const result = await checkMobileStatus(phone, typeof req.query.ref === 'string' ? req.query.ref : undefined);
     res.json(result);
-  } catch (err: any) {
-    if (err?.status) {
-      return res.status(err.status).json({ error: err.message, ...(err.details ? { details: err.details } : {}) });
-    }
-    console.error('Account status error:', err);
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    sendAppError(res, err, 'account.status');
   }
 });
 
@@ -81,12 +97,15 @@ router.get('/account/status', async (req, res) => {
  *               handle: { type: string, format: uuid, description: From OTP verify (purpose account_creation) }
  *               form:
  *                 type: object
- *                 required: [firstName, lastName, primaryMobile, governorate, detailedAddress]
+ *                 required: [firstName, fatherName, lastName, primaryMobile, primaryMobileHasWhatsapp, governorate, detailedAddress]
  *                 properties:
  *                   firstName: { type: string }
+ *                   fatherName: { type: string }
  *                   lastName: { type: string }
  *                   primaryMobile: { type: string, example: "0912345678" }
+ *                   primaryMobileHasWhatsapp: { type: boolean }
  *                   secondaryMobile: { type: string, nullable: true }
+ *                   secondaryMobileHasWhatsapp: { type: boolean, description: Required when secondaryMobile is present; must be false or omitted otherwise. }
  *                   governorate: { oneOf: [{ type: integer }, { type: string }] }
  *                   cityOrArea: { nullable: true }
  *                   subArea: { nullable: true }
@@ -117,9 +136,12 @@ router.get('/account/status', async (req, res) => {
  *                 publicRefNumber: { type: string, example: "SR-20260718-0001" }
  *                 submittedAt: { type: string, format: date-time }
  *                 firstName: { type: string, nullable: true }
+ *                 fatherName: { type: string, nullable: true }
  *                 lastName: { type: string, nullable: true }
  *                 primaryMobile: { type: string }
+ *                 primaryMobileHasWhatsapp: { type: boolean, nullable: true }
  *                 secondaryMobile: { type: string, nullable: true }
+ *                 secondaryMobileHasWhatsapp: { type: boolean, nullable: true }
  *                 address:
  *                   type: object
  *                   properties:
@@ -138,12 +160,8 @@ router.post('/account-requests', async (req, res) => {
     const { handle, form } = req.body ?? {};
     const result = await createAccountRequest({ handle, form });
     res.json(result);
-  } catch (err: any) {
-    if (err?.status) {
-      return res.status(err.status).json({ error: err.message, ...(err.details ? { details: err.details } : {}) });
-    }
-    console.error('Account request error:', err);
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    sendAppError(res, err,'account.create');
   }
 });
 
@@ -176,12 +194,8 @@ router.post('/account/delete', requireAppAuth, async (req, res) => {
       expectedPhone: req.appAccount!.phone,
     });
     res.json(result);
-  } catch (err: any) {
-    if (err?.status) {
-      return res.status(err.status).json({ error: err.message, ...(err.details ? { details: err.details } : {}) });
-    }
-    console.error('Account delete error:', err);
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    sendAppError(res, err,'account.delete');
   }
 });
 
@@ -217,12 +231,8 @@ router.post('/account/deletion-request', async (req, res) => {
       expectedPhone: req.body?.phone,
     });
     res.json(result);
-  } catch (err: any) {
-    if (err?.status) {
-      return res.status(err.status).json({ error: err.message, ...(err.details ? { details: err.details } : {}) });
-    }
-    console.error('Account deletion-request error:', err);
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    sendAppError(res, err,'account.deletionRequest');
   }
 });
 
@@ -234,13 +244,19 @@ router.post('/account/deletion-request', async (req, res) => {
  *     summary: Recover the caller's own pending account request
  *     description: >
  *       Returns the request exactly as the customer submitted it (name, phones,
- *       address labels, notes) so the profile screen can be rebuilt after the
+ *       WhatsApp flags, address labels, notes) so the profile screen can be rebuilt after the
  *       app's local copy is lost (reinstall / new device). The payload is
  *       personal data, so it is NOT served by the public phone-keyed
  *       `/account/status` route — ownership of the number must be proven with an
  *       OTP handle of purpose `request_status`, which is consumed here.
  *       After the admin links and activates, this data comes from
  *       `GET /api/app/me` instead (source: client record, values may differ).
+ *
+ *       If the latest non-archived request was REJECTED, returns the same
+ *       snapshot with `status: "rejected"` plus `rejection {code, label,
+ *       rejectedAt}` — disclosed only to the proven owner; the public status
+ *       route keeps answering `visitor`. Archiving the request closes this
+ *       window. A live pending request always wins over an older rejected one.
  *     requestBody:
  *       required: true
  *       content:
@@ -259,14 +275,25 @@ router.post('/account/deletion-request', async (req, res) => {
  *             schema:
  *               type: object
  *               properties:
- *                 status: { type: string, example: pending }
+ *                 status: { type: string, enum: [pending, rejected] }
+ *                 rejection:
+ *                   type: object
+ *                   nullable: true
+ *                   description: Present only when status = rejected.
+ *                   properties:
+ *                     code: { type: string, example: duplicate }
+ *                     label: { type: string, example: "طلب مكرّر — يوجد طلب أو حساب سابق لهذا الرقم" }
+ *                     rejectedAt: { type: string, format: date-time, nullable: true }
  *                 requestId: { type: integer }
  *                 publicRefNumber: { type: string, example: SR-20260721-0007 }
  *                 submittedAt: { type: string, format: date-time }
  *                 firstName: { type: string, nullable: true }
+ *                 fatherName: { type: string, nullable: true }
  *                 lastName: { type: string, nullable: true }
  *                 primaryMobile: { type: string }
+ *                 primaryMobileHasWhatsapp: { type: boolean, nullable: true }
  *                 secondaryMobile: { type: string, nullable: true }
+ *                 secondaryMobileHasWhatsapp: { type: boolean, nullable: true }
  *                 address:
  *                   type: object
  *                   properties:
@@ -288,12 +315,8 @@ router.post('/account-requests/mine', async (req, res) => {
       phone: req.body?.phone,
     });
     res.json(result);
-  } catch (err: any) {
-    if (err?.status) {
-      return res.status(err.status).json({ error: err.message, ...(err.details ? { details: err.details } : {}) });
-    }
-    console.error('Pending account-request lookup error:', err);
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    sendAppError(res, err,'account.mine');
   }
 });
 

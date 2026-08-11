@@ -29,6 +29,8 @@ interface DeviceRow {
   deviceModelName: string;
   serialNumber: string | null;
   activeGoldenWarrantyId: number | null;
+  requestedWarrantyMonths: number | null;
+  requestedWarrantyPeriodSnapshot: { months?: number; label?: string } | null;
   selected: boolean;
   months: string;
   totalValue: string;
@@ -70,8 +72,10 @@ export default function GoldenWarrantyOfferModal({ visitId, taskId, task, onClos
           deviceModelName: r.deviceModelName,
           serialNumber: r.serialNumber ?? null,
           activeGoldenWarrantyId: r.activeGoldenWarrantyId ?? null,
+          requestedWarrantyMonths: r.requestedWarrantyMonths == null ? null : Number(r.requestedWarrantyMonths),
+          requestedWarrantyPeriodSnapshot: r.requestedWarrantyPeriodSnapshot ?? null,
           selected: !r.activeGoldenWarrantyId,
-          months: '12',
+          months: String(r.requestedWarrantyMonths ?? 12),
           totalValue: '',
           expanded: false,
           paymentType: 'cash' as PaymentType,
@@ -226,7 +230,15 @@ export default function GoldenWarrantyOfferModal({ visitId, taskId, task, onClos
                         : (
                           <>
                             <span className="text-slate-500">المدة:</span>
-                            <input type="number" min="1" value={d.months} onChange={(e) => updateDevice(i, { months: e.target.value })} className="w-16 rounded border border-slate-200 px-2 py-1 text-sm" />
+                            <input type="number" min="1" value={d.months}
+                              disabled={d.requestedWarrantyMonths != null}
+                              onChange={(e) => updateDevice(i, { months: e.target.value })}
+                              className="w-16 rounded border border-slate-200 px-2 py-1 text-sm disabled:bg-amber-50 disabled:text-amber-800" />
+                            {d.requestedWarrantyMonths != null && (
+                              <span className="text-xs font-bold text-amber-700">
+                                {d.requestedWarrantyPeriodSnapshot?.label ?? 'مقفلة من الطلب'}
+                              </span>
+                            )}
                             <span className="text-slate-500">القيمة:</span>
                             <input type="number" min="0" value={d.totalValue} onChange={(e) => updateDevice(i, { totalValue: e.target.value })} placeholder="—" className="w-24 rounded border border-slate-200 px-2 py-1 text-sm" />
                             <span className="text-xs text-slate-400">النهاية: {Number(d.months) > 0 ? addMonths(receiptDate, Number(d.months)) : '—'}</span>

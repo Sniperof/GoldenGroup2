@@ -30,9 +30,11 @@ export default function ContactControlCard({ client, onChange }: Props) {
   const canUnlock = hasPermission('clients.cooldown_unlock'); // DEC-006 D32
 
   const [busy, setBusy] = useState(false);
+  const [showDoNotContactForm, setShowDoNotContactForm] = useState(false);
+  const [doNotContactReason, setDoNotContactReason] = useState('');
   const [showCooldownForm, setShowCooldownForm] = useState(false);
   const [days, setDays] = useState(7);
-  const [reason, setReason] = useState('');
+  const [cooldownReasonDraft, setCooldownReasonDraft] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const cooldownUntil = client.cooldownUntil ?? null;
@@ -43,7 +45,7 @@ export default function ContactControlCard({ client, onChange }: Props) {
   async function activateCooldown() {
     if (!canEdit) return;
     setError(null);
-    if (!reason.trim()) {
+    if (!cooldownReasonDraft.trim()) {
       setError('السبب مطلوب');
       return;
     }
@@ -53,9 +55,9 @@ export default function ContactControlCard({ client, onChange }: Props) {
     }
     setBusy(true);
     try {
-      await api.clients.setCooldown(client.id, { days, reason: reason.trim() });
+      await api.clients.setCooldown(client.id, { days, reason: cooldownReasonDraft.trim() });
       setShowCooldownForm(false);
-      setReason('');
+      setCooldownReasonDraft('');
       setDays(7);
       onChange();
     } catch (e: any) {
@@ -78,12 +80,19 @@ export default function ContactControlCard({ client, onChange }: Props) {
     }
   }
 
-  async function toggleDoNotContact() {
+  async function submitDoNotContactChange() {
     if (!canEdit) return;
+    const reason = doNotContactReason.trim();
+    if (!reason) {
+      setError(`سبب ${doNotContact ? 'إلغاء' : 'تفعيل'} عدم التواصل مطلوب`);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      await api.clients.setDoNotContact(client.id, !doNotContact);
+      await api.clients.setDoNotContact(client.id, !doNotContact, reason);
+      setShowDoNotContactForm(false);
+      setDoNotContactReason('');
       onChange();
     } catch (e: any) {
       setError(e?.message ?? 'فشل تحديث حالة التواصل');
@@ -106,7 +115,7 @@ export default function ContactControlCard({ client, onChange }: Props) {
       )}
 
       {/* ── do_not_contact (permanent) ─────────────────────────── */}
-      <div className="rounded-lg border border-slate-200 p-3">
+      <div className="rounded-lg border border-slate-200 p-3 space-y-3">
         <div className="flex items-start justify-between gap-3">
           <div className="space-y-1">
             <div className="flex items-center gap-1.5 text-sm font-bold text-slate-800">
@@ -117,16 +126,69 @@ export default function ContactControlCard({ client, onChange }: Props) {
               عند تفعيله، يُحجب الزبون من كل قوائم التواصل بشكل دائم.
             </p>
           </div>
-          <Button
-            variant={doNotContact ? 'danger' : 'secondary'}
-            size="sm"
-            disabled={busy}
-            onClick={toggleDoNotContact}
-            className="shrink-0"
-          >
-            {doNotContact ? 'مُفعَّل — اضغط للإلغاء' : 'تفعيل الحظر'}
-          </Button>
+          {!showDoNotContactForm && (
+            <Button
+              variant={doNotContact ? 'danger' : 'secondary'}
+              size="sm"
+              disabled={busy || !canEdit}
+              onClick={() => {
+                setShowDoNotContactForm(true);
+                setDoNotContactReason('');
+                setError(null);
+              }}
+              className="shrink-0"
+            >
+              {doNotContact ? 'إلغاء الحظر' : 'تفعيل الحظر'}
+            </Button>
+          )}
         </div>
+
+        {!canEdit && (
+          <div className="inline-flex items-center gap-1 text-xs text-slate-500">
+            <Lock className="h-3 w-3" />
+            يتطلب تغيير عدم التواصل صلاحية التحكم بحالة تواصل الزبون.
+          </div>
+        )}
+
+        {showDoNotContactForm && canEdit && (
+          <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-2.5">
+            <Input
+              label={`سبب ${doNotContact ? 'إلغاء' : 'تفعيل'} عدم التواصل`}
+              value={doNotContactReason}
+              onChange={(event) => setDoNotContactReason(event.target.value)}
+              placeholder={doNotContact
+                ? 'مثال: وافق الزبون صراحة على استئناف التواصل'
+                : 'مثال: طلب الزبون عدم التواصل مجددًا'}
+              maxLength={500}
+              inputSize="sm"
+            />
+            <p className="text-[11px] text-slate-500">
+              هذا السبب يسجّل مع القرار الدائم وهو مستقل عن سبب فترة التهدئة.
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                variant={doNotContact ? 'gold' : 'danger'}
+                size="sm"
+                disabled={busy || !doNotContactReason.trim()}
+                onClick={submitDoNotContactChange}
+              >
+                {doNotContact ? 'تأكيد إلغاء الحظر' : 'تأكيد تفعيل الحظر'}
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={busy}
+                onClick={() => {
+                  setShowDoNotContactForm(false);
+                  setDoNotContactReason('');
+                  setError(null);
+                }}
+              >
+                إلغاء
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── cooldown (temporary) ───────────────────────────────── */}
@@ -176,8 +238,8 @@ export default function ContactControlCard({ client, onChange }: Props) {
               <div className="col-span-2">
                 <Input
                   label="السبب"
-                  value={reason}
-                  onChange={(e) => setReason(e.target.value)}
+                  value={cooldownReasonDraft}
+                  onChange={(e) => setCooldownReasonDraft(e.target.value)}
                   placeholder="مثال: عدم اهتمام متكرر"
                   inputSize="sm"
                 />
@@ -196,7 +258,11 @@ export default function ContactControlCard({ client, onChange }: Props) {
                 variant="secondary"
                 size="sm"
                 disabled={busy}
-                onClick={() => { setShowCooldownForm(false); setError(null); setReason(''); }}
+                onClick={() => {
+                  setShowCooldownForm(false);
+                  setError(null);
+                  setCooldownReasonDraft('');
+                }}
               >
                 إلغاء
               </Button>

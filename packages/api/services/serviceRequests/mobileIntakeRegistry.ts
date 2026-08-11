@@ -1,11 +1,26 @@
 import type { PoolClient } from 'pg';
 import type { MobileIntakeIdentity } from './mobileIntakeIdentity.js';
 import { submitMobileWaterCheck } from './mobileWaterCheckIntake.js';
+import { WATER_CHECK_FORM_VERSION } from './waterCheckFormSchema.js';
+import { submitMobileEmergencyMaintenance } from './mobileEmergencyMaintenanceIntake.js';
+import { EMERGENCY_MAINTENANCE_FORM_VERSION } from './emergencyMaintenanceFormSchema.js';
+import { submitMobileDeviceRequest } from './mobileDeviceRequestIntake.js';
+import { DEVICE_REQUEST_FORM_VERSION } from './deviceRequestFormSchema.js';
+import { submitMobilePeriodicMaintenance } from './mobilePeriodicMaintenanceIntake.js';
+import { PERIODIC_MAINTENANCE_FORM_VERSION } from './periodicMaintenanceFormSchema.js';
+import { submitMobileGoldenWarranty } from './mobileGoldenWarrantyIntake.js';
+import { GOLDEN_WARRANTY_FORM_VERSION } from './goldenWarrantyFormSchema.js';
 import type { ServiceRequestTypeDefinition } from './serviceRequestTypeRegistry.js';
 
 export interface MobileIntakeHandler {
   requestType: string;
   formVersion: string;
+  /**
+   * Accepts a submitter who proved nothing (DEC-016). Opt-in per handler and
+   * absent by default, so a type added later inherits the strict behaviour
+   * rather than the exception granted to water_check.
+   */
+  allowsUnverifiedIntake?: boolean;
   submit: (
     body: Record<string, unknown>,
     identity: MobileIntakeIdentity,
@@ -16,8 +31,33 @@ export interface MobileIntakeHandler {
 const handlers: Record<string, MobileIntakeHandler> = {
   water_check: {
     requestType: 'water_check',
-    formVersion: 'water_check.mobile.v1',
+    formVersion: WATER_CHECK_FORM_VERSION,
+    allowsUnverifiedIntake: true,
     submit: submitMobileWaterCheck,
+  },
+  emergency_maintenance: {
+    requestType: 'emergency_maintenance',
+    formVersion: EMERGENCY_MAINTENANCE_FORM_VERSION,
+    allowsUnverifiedIntake: true,
+    submit: submitMobileEmergencyMaintenance,
+  },
+  device_request: {
+    requestType: 'device_request',
+    formVersion: DEVICE_REQUEST_FORM_VERSION,
+    allowsUnverifiedIntake: true,
+    submit: submitMobileDeviceRequest,
+  },
+  periodic_maintenance: {
+    requestType: 'periodic_maintenance',
+    formVersion: PERIODIC_MAINTENANCE_FORM_VERSION,
+    allowsUnverifiedIntake: true,
+    submit: submitMobilePeriodicMaintenance,
+  },
+  golden_warranty: {
+    requestType: 'golden_warranty',
+    formVersion: GOLDEN_WARRANTY_FORM_VERSION,
+    allowsUnverifiedIntake: true,
+    submit: submitMobileGoldenWarranty,
   },
 };
 
@@ -48,8 +88,13 @@ export function evaluateMobileIntakeAvailability(input: {
   if (!definition.channels.includes('mobile_app')) {
     return { ok: false, status: 409, code: 'request_type_not_available_on_mobile' };
   }
-  const requesterTier = input.isAuthenticatedCustomer ? 'customer' : 'visitor';
-  if (!definition.submitterTiers.includes(requesterTier)) {
+  // An unauthenticated caller may land on either unproven tier depending on
+  // whether they carry a handle, and that is only known after identity
+  // resolution — so the gate here asks whether the registry accepts EITHER.
+  const requesterTiers = input.isAuthenticatedCustomer
+    ? ['customer']
+    : handler.allowsUnverifiedIntake ? ['visitor', 'unverified'] : ['visitor'];
+  if (!requesterTiers.some((tier) => definition.submitterTiers.includes(tier))) {
     return { ok: false, status: 403, code: 'request_type_not_available_for_requester' };
   }
   const submissionMode = input.submittedMode === 'for_another' ? 'for_another' : 'for_self';

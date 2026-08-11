@@ -4,7 +4,6 @@ import { FileText, Zap, Wrench } from '../../components/ui/icons';
 import TaskDetailLayout from '../../components/tasks/TaskDetailLayout';
 import type { TaskTypeExtension, TaskDetailData } from '../../components/tasks/types';
 import EmergencyDetailsTab from '../../taskTypes/emergency_maintenance/EmergencyDetailsTab';
-import EmergencyResultRenderer from '../../taskTypes/emergency_maintenance/EmergencyResultRenderer';
 import MaintenanceReceiptModal from '../../components/emergency/MaintenanceReceiptModal';
 import Button from '../../components/ui/Button';
 
@@ -34,7 +33,6 @@ export default function EmergencyTaskDetail() {
         render: (data: TaskDetailData) => <EmergencyDetailsTab data={data} />,
       },
     ],
-    ResultRenderer: EmergencyResultRenderer,
     tabBarActions: () => (
       <Button
         variant="secondary"

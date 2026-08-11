@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { evaluateMobileIntakeAvailability } from './mobileIntakeRegistry.js';
+import { WATER_CHECK_FORM_VERSION } from './waterCheckFormSchema.js';
+import { EMERGENCY_MAINTENANCE_FORM_VERSION } from './emergencyMaintenanceFormSchema.js';
+import { DEVICE_REQUEST_FORM_VERSION } from './deviceRequestFormSchema.js';
+import { PERIODIC_MAINTENANCE_FORM_VERSION } from './periodicMaintenanceFormSchema.js';
+import { GOLDEN_WARRANTY_FORM_VERSION } from './goldenWarrantyFormSchema.js';
 import type { ServiceRequestTypeDefinition } from './serviceRequestTypeRegistry.js';
 
 function definition(overrides: Partial<ServiceRequestTypeDefinition> = {}): ServiceRequestTypeDefinition {
@@ -10,7 +15,7 @@ function definition(overrides: Partial<ServiceRequestTypeDefinition> = {}): Serv
     descriptionAr: '',
     isActive: true,
     displayOrder: 10,
-    defaultFormVersion: 'water_check.mobile.v1',
+    defaultFormVersion: WATER_CHECK_FORM_VERSION,
     formSource: 'code_seeded',
     channels: ['mobile_app'],
     submitterTiers: ['visitor', 'customer'],
@@ -29,16 +34,80 @@ test('registry and installed handler jointly enable water check', () => {
     definition: definition(),
     requestType: 'water_check',
     isAuthenticatedCustomer: false,
-    submittedFormVersion: 'water_check.mobile.v1',
+    submittedFormVersion: WATER_CHECK_FORM_VERSION,
     submittedMode: 'for_self',
   });
   assert.equal(result.ok, true);
 });
 
+test('registry and installed handler jointly enable emergency maintenance', () => {
+  const result = evaluateMobileIntakeAvailability({
+    definition: definition({
+      requestType: 'emergency_maintenance',
+      defaultFormVersion: EMERGENCY_MAINTENANCE_FORM_VERSION,
+    }),
+    requestType: 'emergency_maintenance',
+    isAuthenticatedCustomer: false,
+    submittedFormVersion: EMERGENCY_MAINTENANCE_FORM_VERSION,
+  });
+  assert.equal(result.ok, true);
+});
+
+test('registry and installed handler jointly enable device request', () => {
+  const result = evaluateMobileIntakeAvailability({
+    definition: definition({
+      requestType: 'device_request',
+      defaultFormVersion: DEVICE_REQUEST_FORM_VERSION,
+      submitterTiers: ['staff', 'unverified', 'visitor', 'customer'],
+    }),
+    requestType: 'device_request',
+    isAuthenticatedCustomer: false,
+    submittedFormVersion: DEVICE_REQUEST_FORM_VERSION,
+    submittedMode: 'for_another',
+  });
+  assert.equal(result.ok, true);
+});
+
+test('registry and installed handler jointly enable periodic maintenance for visitors and customers', () => {
+  for (const isAuthenticatedCustomer of [false, true]) {
+    const result = evaluateMobileIntakeAvailability({
+      definition: definition({
+        requestType: 'periodic_maintenance',
+        defaultFormVersion: PERIODIC_MAINTENANCE_FORM_VERSION,
+        submitterTiers: ['staff', 'unverified', 'visitor', 'customer'],
+      }),
+      requestType: 'periodic_maintenance',
+      isAuthenticatedCustomer,
+      submittedFormVersion: PERIODIC_MAINTENANCE_FORM_VERSION,
+      submittedMode: 'for_self',
+    });
+    assert.equal(result.ok, true);
+  }
+});
+
+test('registry and installed handler jointly enable golden warranty for every public tier and both modes', () => {
+  for (const isAuthenticatedCustomer of [false, true]) {
+    for (const submittedMode of ['for_self', 'for_another'] as const) {
+      const result = evaluateMobileIntakeAvailability({
+        definition: definition({
+          requestType: 'golden_warranty',
+          defaultFormVersion: GOLDEN_WARRANTY_FORM_VERSION,
+          submitterTiers: ['staff', 'unverified', 'visitor', 'customer'],
+        }),
+        requestType: 'golden_warranty',
+        isAuthenticatedCustomer,
+        submittedFormVersion: GOLDEN_WARRANTY_FORM_VERSION,
+        submittedMode,
+      });
+      assert.equal(result.ok, true);
+    }
+  }
+});
+
 test('an active database row without a code handler remains fail-closed', () => {
   const result = evaluateMobileIntakeAvailability({
-    definition: definition({ requestType: 'emergency_maintenance' }),
-    requestType: 'emergency_maintenance',
+    definition: definition({ requestType: 'future_request' }),
+    requestType: 'future_request',
     isAuthenticatedCustomer: false,
   });
   assert.deepEqual(result, { ok: false, status: 501, code: 'request_type_not_implemented' });
@@ -46,7 +115,10 @@ test('an active database row without a code handler remains fail-closed', () => 
 
 test('a form-version drift between registry and code disables intake', () => {
   const result = evaluateMobileIntakeAvailability({
-    definition: definition({ defaultFormVersion: 'water_check.mobile.v2' }),
+    // Derived from the live constant rather than hardcoded: this test used to
+    // name the next real version, so shipping that version silently turned the
+    // drift case into the matching case and the assertion stopped testing.
+    definition: definition({ defaultFormVersion: `${WATER_CHECK_FORM_VERSION}.drifted` }),
     requestType: 'water_check',
     isAuthenticatedCustomer: true,
   });

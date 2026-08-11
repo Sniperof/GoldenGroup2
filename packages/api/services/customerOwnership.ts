@@ -41,9 +41,8 @@ export function buildClientLifecycleStatusSql(clientAlias: string): string {
         THEN 'OP'
       WHEN EXISTS (
         SELECT 1
-          FROM installed_devices lifecycle_external_device
-         WHERE lifecycle_external_device.customer_id = ${clientAlias}.id
-           AND lifecycle_external_device.device_source = 'external'
+          FROM installed_devices lifecycle_device
+         WHERE lifecycle_device.customer_id = ${clientAlias}.id
       )
         THEN 'OP'
       WHEN EXISTS (

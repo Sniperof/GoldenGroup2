@@ -86,11 +86,13 @@ interface LineItem {
 
 interface ContractGiftPromiseDraft {
     giftDefinitionId: string;
-    beneficiaryKind: 'contract_customer' | 'customer_referrer';
+    beneficiaryKind: 'contract_customer' | 'customer_referrer' | 'employee_referrer' | 'personal_referrer';
     referrerId: string;
     conditionLabel: string;
     conditionStatus: GiftConditionStatus;
     quantity: number;
+    similarPromiseWarningAcknowledged?: boolean;
+    similarGiftRecordIds?: number[];
 }
 
 interface ContractGiftPromisePreview extends ContractGiftPromiseDraft {
@@ -220,10 +222,14 @@ function referrerTypeLabel(type?: string | null): string {
     }
 }
 
-function isReferralPromiseSource(referrer?: ClientReferrer | null): boolean {
-    if (!referrer) return false;
-    const reason = String(referrer.referralReason ?? '').trim().toLowerCase();
-    return Boolean(referrer.referralSheetId) || reason === 'direct referral' || reason === 'part of sheet';
+function giftBeneficiaryKindForReferrer(
+    referrer?: ClientReferrer | null,
+): Exclude<ContractGiftPromiseDraft['beneficiaryKind'], 'contract_customer'> | null {
+    const type = String(referrer?.referrerType ?? '').toLowerCase();
+    if (type === 'client' || type === 'customer') return 'customer_referrer';
+    if (type === 'employee') return 'employee_referrer';
+    if (type === 'personal' || type === 'person') return 'personal_referrer';
+    return null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -333,6 +339,8 @@ export default function ContractForm() {
                     }
                     setSaleSubtype(c.saleSubtype || 'definitive');
                     setSaleType(c.saleType || 'direct');
+                    setOldContractNumber(c.oldContractNumber || '');
+                    setOldDeviceCondition(c.oldDeviceCondition === 'damaged' ? 'damaged' : 'good');
                     setContractDate(c.contractDate?.slice(0, 10) || new Date().toISOString().slice(0, 10));
                     setDeliveryDate(c.deliveryDate?.slice(0, 10) || '');
                     setInstallationDate(c.installationDate?.slice(0, 10) || '');
@@ -443,11 +451,17 @@ export default function ContractForm() {
                         setGiftPromises(c.draftGiftPromises.map((p: any, idx: number) => ({
                             id: `GP-EDIT-${idx}`,
                             giftDefinitionId: p.giftDefinitionId != null ? String(p.giftDefinitionId) : '',
-                            beneficiaryKind: p.beneficiaryKind === 'customer_referrer' ? 'customer_referrer' : 'contract_customer',
+                            beneficiaryKind: ['customer_referrer', 'employee_referrer', 'personal_referrer'].includes(p.beneficiaryKind)
+                                ? p.beneficiaryKind
+                                : 'contract_customer',
                             referrerId: p.referrerId != null ? String(p.referrerId) : '',
                             conditionLabel: p.conditionLabel ?? '',
                             conditionStatus: (p.conditionStatus ?? 'pending') as GiftConditionStatus,
                             quantity: Math.max(1, Number(p.quantity) || 1),
+                            similarPromiseWarningAcknowledged: p.similarPromiseWarningAcknowledged === true,
+                            similarGiftRecordIds: Array.isArray(p.similarGiftRecordIds)
+                                ? p.similarGiftRecordIds.map(Number).filter(Number.isInteger)
+                                : [],
                         })));
                     }
                     if (c.paymentType) setPaymentType(c.paymentType);
@@ -589,15 +603,11 @@ export default function ContractForm() {
     const selectedCustomerReferrers = useMemo(() => {
         const referrers = selectedCustomer?.referrers ?? [];
         return referrers.filter(referrer => {
-            const type = String(referrer.referrerType ?? '').toLowerCase();
-            return selectedReferrerIds.includes(String(referrer.id)) && (type === 'client' || type === 'customer');
+            return selectedReferrerIds.includes(String(referrer.id)) && giftBeneficiaryKindForReferrer(referrer) != null;
         });
     }, [selectedCustomer, selectedReferrerIds]);
     const contractGiftEligibleReferrers = useMemo(() => (
-        selectedCustomerReferrers.filter(referrer => !isReferralPromiseSource(referrer))
-    ), [selectedCustomerReferrers]);
-    const selectedReferralPromiseSourceReferrers = useMemo(() => (
-        selectedCustomerReferrers.filter(isReferralPromiseSource)
+        selectedCustomerReferrers
     ), [selectedCustomerReferrers]);
     const selectedGiftDefinition = useMemo(() => (
         activeGiftDefinitions.find(definition => String(definition.id) === giftPromiseDraft.giftDefinitionId)
@@ -1038,19 +1048,59 @@ export default function ContractForm() {
             beneficiaryKind: 'contract_customer',
             referrerId: contractGiftEligibleReferrers[0]?.id ? String(contractGiftEligibleReferrers[0].id) : '',
             conditionLabel: isGiftContract ? 'عقد هدية معتمد' : 'توقيع عقد نقدي',
-            conditionStatus: isGiftContract ? 'met' : 'pending',
+            conditionStatus: 'pending',
             quantity: 1,
         });
         setShowGiftPromiseModal(true);
     }
 
-    function addGiftPromise() {
+    async function addGiftPromise() {
         if (!selectedGiftDefinition) return;
-        if (giftPromiseDraft.beneficiaryKind === 'customer_referrer' && contractGiftEligibleReferrers.length === 0) return;
+        const selectedReferrer = giftPromiseDraft.beneficiaryKind === 'contract_customer'
+            ? null
+            : contractGiftEligibleReferrers.find(referrer => String(referrer.id) === giftPromiseDraft.referrerId) ?? null;
+        if (giftPromiseDraft.beneficiaryKind !== 'contract_customer' && !selectedReferrer) return;
+
+        let similarPromiseWarningAcknowledged = false;
+        let similarGiftRecordIds: number[] = [];
+        if (contextBranchId && selectedCustomer) {
+            try {
+                const similar = await api.gifts.records.similar({
+                    giftDefinitionId: Number(selectedGiftDefinition.id),
+                    beneficiaryType: giftPromiseDraft.beneficiaryKind,
+                    beneficiaryClientId: giftPromiseDraft.beneficiaryKind === 'contract_customer'
+                        ? selectedCustomer.id
+                        : giftPromiseDraft.beneficiaryKind === 'customer_referrer'
+                            ? selectedReferrer?.referralEntityId
+                            : null,
+                    beneficiaryEmployeeId: giftPromiseDraft.beneficiaryKind === 'employee_referrer'
+                        ? selectedReferrer?.referralEntityId
+                        : null,
+                    beneficiaryName: giftPromiseDraft.beneficiaryKind === 'contract_customer'
+                        ? selectedCustomer.name
+                        : selectedReferrer?.referrerName,
+                    sourceBranchId: contextBranchId,
+                    responsibleBranchId: contextBranchId,
+                });
+                if (similar.count > 0) {
+                    const proceed = window.confirm(
+                        `تنبيه: يوجد ${similar.count} وعد/وعود غير منتهية مشابهة لهذا المستفيد. لا يمنع ذلك إنشاء وعد جديد. هل تريد المتابعة؟`,
+                    );
+                    if (!proceed) return;
+                    similarPromiseWarningAcknowledged = true;
+                }
+            } catch (error: any) {
+                window.alert(error?.message ?? 'تعذر فحص الوعود المشابهة قبل الحفظ');
+                return;
+            }
+        }
         setGiftPromises(prev => [{
             ...giftPromiseDraft,
             id: `gift-promise-${Date.now()}`,
+            conditionStatus: 'pending',
             quantity: Math.max(1, Number(giftPromiseDraft.quantity) || 1),
+            similarPromiseWarningAcknowledged,
+            similarGiftRecordIds,
         }, ...prev]);
         setShowGiftPromiseModal(false);
     }
@@ -1078,12 +1128,10 @@ export default function ContractForm() {
             .slice(0, 25);
     }, [customerSearch, customers, showCustomerDropdown]);
 
-    // Plan 2026-06-10 §1 — mirror backend deriveContractStatus:
-    // a contract with no closing employee is saved as a draft, which DEC-CT-01
-    // declares to have zero side effects. Drafts therefore need only the minimal
-    // fields required to identify the deal; full validation kicks in only for
-    // active contracts.
-    const isDraftMode = !closingEmployeeId;
+    // ContractForm only creates/edits drafts. Selecting a closer records the
+    // proposed closer but does not activate the contract; full activation
+    // validation runs in the explicit approval flow.
+    const isDraftMode = true;
 
     // Plan 2026-06-10 §3 — legal info constraint is governed by payment type:
     //   • cash (active)    → documentary only, all 9 optional
@@ -1144,6 +1192,9 @@ export default function ContractForm() {
         if (!serialNumber.trim()) issues.push('أدخل الرقم التسلسلي للجهاز');
         if (!geoSelection.govId) issues.push('اختر المحافظة في عنوان التركيب');
         else if (!geoSelection.neighborhoodId) issues.push('اختر الحي (الموقع التفصيلي) في عنوان التركيب');
+        if (saleType === 'tradein' && !oldContractNumber.trim()) {
+            issues.push('أدخل رقم العقد القديم المستبدل');
+        }
 
         // National ID format applies always when entered (even in draft).
         if (!nidIsValid) issues.push('الرقم الوطني يجب أن يكون 11 رقم بالضبط');
@@ -1210,7 +1261,7 @@ export default function ContractForm() {
         buyerNationalIdIssueDate, buyerNationalIdBox, saleSubtype, saleSource,
         sourceTaskId, paymentType, paymentEntries, confirmedEntries,
         totalPaidSyp, grandTotal, hasDownPayment, installmentsConfirmed,
-        totalInstallmentSyp,
+        totalInstallmentSyp, saleType, oldContractNumber,
     ]);
     const isValid = validationIssues.length === 0;
 
@@ -1222,8 +1273,6 @@ export default function ContractForm() {
             const isTemporarySale = saleSubtype === 'temporary';
             const isNoFinancialObligations = isFreeSale;
             const isNoInitialPayments = isFreeSale || isTemporarySale;
-            const nextContractStatus = closingEmployeeId ? 'active' : 'draft';
-
             const finalBasePrice = isNoFinancialObligations ? 0 : (selectedDevice?.basePrice || 0);
             const finalPriceVal = isNoFinancialObligations ? 0 : grandTotal;
             const finalPaymentType = isNoInitialPayments ? 'cash' : paymentType;
@@ -1242,6 +1291,8 @@ export default function ContractForm() {
                 warrantyMonths: warrantyMonths > 0 ? warrantyMonths : 0,
                 warrantyVisits: (warrantyMonths > 0 && warrantyVisits > 0) ? warrantyVisits : null,
                 saleType,
+                oldContractNumber: saleType === 'tradein' ? oldContractNumber.trim() : null,
+                oldDeviceCondition: saleType === 'tradein' ? oldDeviceCondition : null,
                 saleSource: saleSource || null,
                 sourceVisit: saleSource === 'device_demo_task' ? (sourceTaskId.trim() || null) : null,
                 discountId: (isNoFinancialObligations || !selectedDiscountId) ? null : Number(selectedDiscountId),
@@ -1268,10 +1319,10 @@ export default function ContractForm() {
                 invoiceNotes: invoiceNotes.trim() || null,
                 contractType,
                 saleSubtype,
-                // DEC-CT-01: `temporary` is no longer a status; it's a saleSubtype.
-                // Status follows draft→active rule: active iff a closing_employee_id
-                // is assigned at creation, otherwise draft.
-                status: nextContractStatus,
+                // Saving from ContractForm is always a draft write. A selected
+                // closer is only a proposal; activation is exclusively the
+                // explicit approve endpoint after server-side re-validation.
+                status: 'draft',
                 sourceOpenTaskId: sourceOpenTaskId || null,
                 sourceTaskOfferId: sourceTaskOfferId || null,
                 saleReferenceNumber: saleReferenceNumber || null,
@@ -1311,10 +1362,12 @@ export default function ContractForm() {
                 giftPromises: giftPromises.map(p => ({
                     giftDefinitionId: Number(p.giftDefinitionId) || null,
                     beneficiaryKind: p.beneficiaryKind,
-                    referrerId: p.beneficiaryKind === 'customer_referrer' ? (p.referrerId || null) : null,
+                    referrerId: p.beneficiaryKind !== 'contract_customer' ? (p.referrerId || null) : null,
                     conditionLabel: p.conditionLabel,
-                    conditionStatus: p.conditionStatus,
+                    conditionStatus: 'pending',
                     quantity: Math.max(1, Number(p.quantity) || 1),
+                    similarPromiseWarningAcknowledged: p.similarPromiseWarningAcknowledged === true,
+                    similarGiftRecordIds: p.similarGiftRecordIds ?? [],
                 })),
             };
 
@@ -1357,7 +1410,7 @@ export default function ContractForm() {
         }
     }, [
         isValid, saving, isEdit, editId, isDraftMode, selectedCustomer, deviceModelId, selectedDevice, serialNumber,
-        contractDate, saleType, saleSource, sourceTaskId, selectedDiscountId,
+        contractDate, saleType, oldContractNumber, oldDeviceCondition, saleSource, sourceTaskId, selectedDiscountId,
         paymentType, grandTotal, basePrice, installmentDrafts, installmentsConfirmed,
         persistedInstallmentsConfirmed, paymentEntries, closingEmployeeId,
         invoiceNotes, lineItems, geoSelection, detailedAddress, mapPosition, fatherNameOverride,
@@ -1866,7 +1919,7 @@ export default function ContractForm() {
                                                 <div className="text-xs leading-6">
                                                     <div className="font-bold text-slate-800">{definition?.name ?? 'تعريف هدية'}</div>
                                                     <div className="text-slate-500">
-                                                        المستفيد: {promise.beneficiaryKind === 'customer_referrer' ? (referrer?.referrerName ?? 'وسيط زبون') : selectedCustomer.name}
+                                                        المستفيد: {promise.beneficiaryKind !== 'contract_customer' ? (referrer?.referrerName ?? 'وسيط العقد') : selectedCustomer.name}
                                                     </div>
                                                     <div className="text-slate-500">
                                                         الشرط: {promise.conditionLabel} - {giftConditionStatusLabels[promise.conditionStatus]} - العدد: {promise.quantity}
@@ -2850,7 +2903,15 @@ export default function ContractForm() {
                         <button
                             type="button"
                             onClick={addGiftPromise}
-                            disabled={!selectedGiftDefinition || (giftPromiseDraft.beneficiaryKind === 'customer_referrer' && contractGiftEligibleReferrers.length === 0)}
+                            disabled={
+                                !selectedGiftDefinition
+                                || (
+                                    giftPromiseDraft.beneficiaryKind !== 'contract_customer'
+                                    && !contractGiftEligibleReferrers.some(referrer => (
+                                        giftBeneficiaryKindForReferrer(referrer) === giftPromiseDraft.beneficiaryKind
+                                    ))
+                                )
+                            }
                             className="inline-flex h-9 items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-xs font-bold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                             <Save className="h-4 w-4" />
@@ -2880,32 +2941,41 @@ export default function ContractForm() {
                             onChange={value => setGiftPromiseDraft(prev => ({
                                 ...prev,
                                 beneficiaryKind: value as ContractGiftPromiseDraft['beneficiaryKind'],
-                                conditionLabel: value === 'customer_referrer' ? 'وسيط بيعة من نوع زبون' : prev.conditionLabel,
+                                referrerId: value === 'contract_customer'
+                                    ? ''
+                                    : String(contractGiftEligibleReferrers.find(referrer => (
+                                        giftBeneficiaryKindForReferrer(referrer) === value
+                                    ))?.id ?? ''),
+                                conditionLabel: value === 'customer_referrer'
+                                    ? 'وسيط بيعة من نوع زبون'
+                                    : value === 'employee_referrer'
+                                        ? 'وسيط بيعة من نوع موظف'
+                                        : value === 'personal_referrer'
+                                            ? 'وسيط بيعة شخصي'
+                                            : prev.conditionLabel,
                             }))}
                             ariaLabel="المستفيد"
                             options={[
                                 { value: 'contract_customer', label: `زبون العقد: ${selectedCustomer?.name ?? 'الزبون'}` },
-                                { value: 'customer_referrer', label: 'وسيط بيعة من نوع زبون', disabled: contractGiftEligibleReferrers.length === 0 },
+                                { value: 'customer_referrer', label: 'وسيط بيعة من نوع زبون', disabled: !contractGiftEligibleReferrers.some(r => giftBeneficiaryKindForReferrer(r) === 'customer_referrer') },
+                                { value: 'employee_referrer', label: 'وسيط بيعة من نوع موظف', disabled: !contractGiftEligibleReferrers.some(r => giftBeneficiaryKindForReferrer(r) === 'employee_referrer') },
+                                { value: 'personal_referrer', label: 'وسيط بيعة شخصي', disabled: !contractGiftEligibleReferrers.some(r => giftBeneficiaryKindForReferrer(r) === 'personal_referrer') },
                             ]}
                         />
                     </div>
 
-                    {giftPromiseDraft.beneficiaryKind === 'customer_referrer' && (
+                    {giftPromiseDraft.beneficiaryKind !== 'contract_customer' && (
                         <div className="text-xs font-bold text-slate-500 md:col-span-2">
-                            وسيط البيع الزبون
+                            وسيط البيع
                             <Select<string>
                                 className="mt-1 w-full"
                                 value={giftPromiseDraft.referrerId}
                                 onChange={value => setGiftPromiseDraft(prev => ({ ...prev, referrerId: value }))}
-                                ariaLabel="وسيط البيع الزبون"
-                                options={contractGiftEligibleReferrers.map(referrer => ({ value: String(referrer.id), label: referrer.referrerName }))}
+                                ariaLabel="وسيط البيع"
+                                options={contractGiftEligibleReferrers
+                                    .filter(referrer => giftBeneficiaryKindForReferrer(referrer) === giftPromiseDraft.beneficiaryKind)
+                                    .map(referrer => ({ value: String(referrer.id), label: referrer.referrerName }))}
                             />
-                        </div>
-                    )}
-
-                    {selectedReferralPromiseSourceReferrers.length > 0 && (
-                        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-6 text-amber-800 md:col-span-2">
-                            وسيط الزبون المحدد مصدره لائحة أسماء أو اقتراح مباشر، لذلك لا يأخذ وعد هدية إضافي من العقد. يتم إنشاء الوعد من مصدر الترشيح نفسه، والعقد يستخدم لاحقا كإثبات تحقق الشرط.
                         </div>
                     )}
 
@@ -2922,13 +2992,9 @@ export default function ContractForm() {
 
                     <div className="text-xs font-bold text-slate-500">
                         حالة تحقق الشرط
-                        <Select<string>
-                            className="mt-1 w-full"
-                            value={giftPromiseDraft.conditionStatus}
-                            onChange={value => setGiftPromiseDraft(prev => ({ ...prev, conditionStatus: value as GiftConditionStatus }))}
-                            ariaLabel="حالة تحقق الشرط"
-                            options={Object.entries(giftConditionStatusLabels).map(([value, label]) => ({ value, label }))}
-                        />
+                        <div className="mt-1 flex h-10 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700">
+                            بانتظار التحقق
+                        </div>
                     </div>
 
                     <label className="text-xs font-bold text-slate-500">

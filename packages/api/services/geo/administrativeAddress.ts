@@ -1,8 +1,11 @@
 // ============================================================
-// services/appAccounts/addressValidation.ts
+// services/geo/administrativeAddress.ts
 // ============================================================
-// DEC-013 — validate the administrative address on an account-creation
-// submission. The mobile app must send canonical geo_units IDs (picked via
+// THE validator for an administrative address arriving from a public channel.
+// Every mobile intake path must go through it — it is the single definition of
+// "this address is real".
+//
+// The mobile app must send canonical geo_units IDs (picked via
 // GET /api/public/areas), NOT free text. We verify every provided id exists at
 // its expected level and that the chain is contiguous (each child's parent is
 // the level above), then return both the canonical integer ids AND a resolved
@@ -11,8 +14,14 @@
 //
 //   Level map:  1 = governorate · 2 = city/area · 3 = sub-area · 4 = neighborhood
 //
-// Kept in its own module (pure + single query) so it is unit-testable in
-// isolation from the request-insert transaction.
+// History: this started life as `services/appAccounts/addressValidation.ts`,
+// serving account_creation only, while water_check accepted any positive
+// integer as a geo id — same app, same picker, two standards. Moved here (a
+// neutral module, no appAccounts↔serviceRequests dependency) so reuse is the
+// path of least resistance for the next request type too.
+//
+// Kept pure + single-query so it is unit-testable in isolation from any
+// request-insert transaction.
 // ============================================================
 
 import pool from '../../db.js';
@@ -49,6 +58,7 @@ interface GeoRow {
   name: string;
   level: number;
   parent_id: number | null;
+  status: string;
 }
 
 const LABEL_AR: Record<string, string> = {
@@ -112,7 +122,7 @@ export async function resolveAndValidateAddress(
   ].filter((x) => x.id != null);
 
   const { rows } = await db.query(
-    `SELECT id, name, level, parent_id FROM geo_units WHERE id = ANY($1)`,
+    `SELECT id, name, level, parent_id, status FROM geo_units WHERE id = ANY($1)`,
     [wanted.map((w) => w.id)],
   );
   const byId = new Map((rows as GeoRow[]).map((r) => [Number(r.id), r]));
@@ -121,6 +131,9 @@ export async function resolveAndValidateAddress(
   for (const w of wanted) {
     const unit = byId.get(w.id);
     if (!unit) throw httpError(400, `${LABEL_AR[w.key]}: الوحدة الجغرافية غير موجودة`);
+    if (unit.status !== 'active') {
+      throw httpError(400, `${LABEL_AR[w.key]}: الوحدة الجغرافية غير مفعّلة`);
+    }
     if (Number(unit.level) !== w.level) {
       throw httpError(400, `${LABEL_AR[w.key]}: المستوى الإداري غير مطابق`);
     }

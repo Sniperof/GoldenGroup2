@@ -1,35 +1,21 @@
 // ============================================================
-// ScopeFilterBar — شريط النطاق العام (reporting-analytics §1.1 / §6.5)
+// ScopeFilterBar — شريط النطاق الزمني للداشبورد (reporting-analytics §1.1 / §6.5)
 // ============================================================
-// يطبّق البُعد الزمني + الفرع على كل widgets الداشبورد دفعةً واحدة. منتقي الفرع
-// يظهر فقط لمن يملك اتساع GLOBAL (يقدر يتنقّل بين كل الفروع وفرع بعينه)؛ صاحب
-// BRANCH/ASSIGNED مُقيّد بنطاقه على الخادم فلا يُعرض له المنتقي.
+// يطبّق البُعد الزمني على كل widgets الداشبورد دفعةً واحدة. بُعد الفرع لم يعد
+// هنا: مصدره الوحيد هو مبدّل الفروع الخارجي (سياق الفرع)، فلا ازدواج ضوابط على
+// صفحة واحدة. صاحب BRANCH/ASSIGNED مُقيّد بنطاقه على الخادم تلقائياً.
 // ============================================================
 
 import Select from '../ui/Select';
-import { Clock, Building2 } from 'lucide-react';
-import { TIME_PRESET_OPTIONS, type ScopeState, type TimePreset } from './widgetRegistry';
-
-export interface BranchOption {
-  id: number;
-  name: string;
-}
+import { Clock } from 'lucide-react';
+import { TIME_PRESET_OPTIONS, type TimePreset } from './widgetRegistry';
 
 interface Props {
-  value: ScopeState;
-  onChange: (next: ScopeState) => void;
-  canPickBranch: boolean;
-  branches: BranchOption[];
+  preset: TimePreset;
+  onPresetChange: (next: TimePreset) => void;
 }
 
-const ALL_BRANCHES = 0;
-
-export default function ScopeFilterBar({ value, onChange, canPickBranch, branches }: Props) {
-  const branchOptions = [
-    { value: ALL_BRANCHES, label: 'كل الفروع' },
-    ...branches.map(b => ({ value: b.id, label: b.name })),
-  ];
-
+export default function ScopeFilterBar({ preset, onPresetChange }: Props) {
   return (
     // Mobile: each filter is a full-width row whose Select fills the line (no
     // dead space beside a shrunk pill). ≥md: filters sit inline with a fixed
@@ -42,29 +28,13 @@ export default function ScopeFilterBar({ value, onChange, canPickBranch, branche
           </span>
           <span className="w-12 shrink-0 text-xs font-bold">الفترة</span>
           <Select<TimePreset>
-            value={value.preset}
-            onChange={preset => onChange({ ...value, preset })}
+            value={preset}
+            onChange={onPresetChange}
             options={TIME_PRESET_OPTIONS}
             variant="filled"
             className="flex-1 md:w-44 md:flex-none"
           />
         </div>
-
-        {canPickBranch && (
-          <div className="flex items-center gap-2.5 text-slate-600 md:mr-1">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
-              <Building2 className="h-4 w-4" />
-            </span>
-            <span className="w-12 shrink-0 text-xs font-bold">النطاق</span>
-            <Select<number>
-              value={value.branchId ?? ALL_BRANCHES}
-              onChange={branchId => onChange({ ...value, branchId: branchId === ALL_BRANCHES ? null : branchId })}
-              options={branchOptions}
-              variant="filled"
-              className="flex-1 md:w-56 md:flex-none"
-            />
-          </div>
-        )}
       </div>
     </div>
   );

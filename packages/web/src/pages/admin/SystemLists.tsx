@@ -183,6 +183,42 @@ const CATEGORIES: CategoryMeta[] = [
   // قوائم الطلبات
   // ══════════════════════════════════════════════════════════════
   {
+    id: 'device_request_purpose',
+    label: 'أغراض طلب الجهاز',
+    description: 'الأغراض التجارية المتاحة لمقدم طلب الجهاز. تظهر في الموبايل والإدخال الداخلي، وتُحفظ لقطتها عند الإرسال.',
+    impact: 'high',
+    usedIn: [
+      { label: 'إنشاء طلب جهاز', route: 'الطلبات → طلبات الأجهزة', icon: <Package className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'periodic_maintenance_request_reasons',
+    label: 'أسباب طلب الصيانة الدورية',
+    description: 'يختار منشئ الطلب عنصراً واحداً منها في الموبايل أو تسجيل نتيجة اتصال، وتُحفظ لقطة تاريخية للاختيار.',
+    impact: 'high',
+    usedIn: [
+      { label: 'إنشاء طلب صيانة دورية', route: 'الطلبات → الصيانة الدورية', icon: <ClipboardList className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'service_request_resolve_at_intake_periodic_maintenance',
+    label: 'أسباب حل طلب الصيانة الدورية عند الاستلام',
+    description: 'أسباب الحل عندما توجد مهمة صيانة دورية نشطة ولا يلزم إنشاء مهمة جديدة.',
+    impact: 'high',
+    usedIn: [
+      { label: 'حل طلب الصيانة الدورية', route: 'الطلبات → الصيانة الدورية → التفاصيل', icon: <ClipboardList className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'service_request_rejection_periodic_maintenance',
+    label: 'أسباب رفض طلب الصيانة الدورية',
+    description: 'أسباب الرفض المنظمة الخاصة بطلبات الصيانة الدورية، منفصلة عن أسباب الأنواع الأخرى.',
+    impact: 'high',
+    usedIn: [
+      { label: 'رفض طلب الصيانة الدورية', route: 'الطلبات → الصيانة الدورية → التفاصيل', icon: <ClipboardList className="w-3 h-3" /> },
+    ],
+  },
+  {
     id: 'service_request_resolve_at_intake_emergency_maintenance',
     label: 'أسباب حل طلب الصيانة في الاستلام',
     description: 'الخيارات المعتمدة عند إغلاق طلب صيانة مباشرة من الاستلام بدون إنشاء مهمة. تستخدم في زر "حُلَّ في الاستلام" داخل تفاصيل الطلب.',
@@ -436,6 +472,42 @@ const CATEGORIES: CategoryMeta[] = [
     ],
   },
   {
+    id: 'service_request_resolve_at_intake_golden_warranty',
+    label: 'أسباب حل طلب الكفالة الذهبية عند الاستلام',
+    description: 'أسباب عدم إنشاء مهمة عرض، مثل وجود كفالة أو مهمة عرض فعالة أو عدم أهلية الجهاز.',
+    impact: 'high',
+    usedIn: [
+      { label: 'حل طلب الكفالة الذهبية', route: 'الطلبات → الكفالة الذهبية → التفاصيل', icon: <ClipboardList className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'service_request_rejection_golden_warranty',
+    label: 'أسباب رفض طلب الكفالة الذهبية',
+    description: 'أسباب الرفض المتعلقة بالهوية والاحتيال والبيانات المضللة أو تعذر استكمال المعلومات.',
+    impact: 'high',
+    usedIn: [
+      { label: 'رفض طلب الكفالة الذهبية', route: 'الطلبات → الكفالة الذهبية → التفاصيل', icon: <ClipboardList className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'emergency_maintenance_safety_indicators',
+    label: 'مؤشرات السلامة لطلب الصيانة الطارئة',
+    description: 'المؤشرات التي يستطيع مقدم الطلب تحديدها. يمكن للبيانات الوصفية رفع أولوية المراجعة تلقائياً.',
+    impact: 'high',
+    usedIn: [
+      { label: 'نموذج طلب الصيانة الطارئة', route: 'الموبايل ← طلب خدمة', icon: <ShieldCheck className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'emergency_maintenance_attachment_categories',
+    label: 'تصنيفات مرفقات الصيانة الطارئة',
+    description: 'تصنيفات الصور والفيديو القصير المرفقة بطلب الصيانة الطارئة.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'مرفقات طلب الصيانة', route: 'الموبايل ← طلب صيانة طارئة', icon: <FileText className="w-3 h-3" /> },
+    ],
+  },
+  {
     id: 'part_no_retrieval_reason',
     label: 'أسباب عَدم استرجاع القطعة المُستَبدَلة',
     description: 'الأسباب المعتمدة عند استبدال قطعة بدون استرجاع القطعة القديمة من الزبون (تَلِفت كاملاً، رَفض الزبون، ...).',
@@ -491,6 +563,15 @@ const CATEGORIES: CategoryMeta[] = [
     impact: 'medium',
     usedIn: [
       { label: 'نَموذج إنشاء/تَعديل عَقد', route: 'العقود ← نَموذج العَقد', icon: <Receipt className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'contract_cancellation_reasons',
+    label: 'أسباب إلغاء العَقد',
+    description: 'أسباب إلغاء عَقد نشِط غير مُستوفى المبالغ. تُسَجَّل على `contracts.cancellation_reason` وتُغَذّي إحصائية «العقود المُلغاة حَسب السبب».',
+    impact: 'medium',
+    usedIn: [
+      { label: 'نافذة إلغاء العَقد', route: 'العقود ← تفاصيل العَقد ← إلغاء العَقد', icon: <Ban className="w-3 h-3" /> },
     ],
   },
   {
@@ -858,6 +939,24 @@ const CATEGORIES: CategoryMeta[] = [
     ],
   },
   {
+    id: 'gift_delivery_task_cancellation_reasons',
+    label: 'أسباب إلغاء مهمة تسليم الهدية',
+    description: 'أسباب إلغاء مهمة تسليم هدية قبل الجدولة. الإلغاء يعيد سجلات الهدية إلى حالة معتمدة للتسليم ولا يسجل رفضاً.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'إلغاء المهمة قبل الجدولة', route: 'المهام ← تسليم هدية ← إلغاء', icon: <Ban className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'gift_manual_delivery_methods',
+    label: 'طرق التسليم اليدوي للهدايا',
+    description: 'الطرق المعتمدة لتوثيق استلام الهدية في الشركة أو بالتسليم المباشر أو ضمن منفعة عقد.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'تأكيد تسليم يدوي', route: 'الهدايا ← تأكيد تسليم يدوي', icon: <ClipboardList className="w-3 h-3" /> },
+    ],
+  },
+  {
     id: 'gift_promise_conditions',
     label: 'شُروط وَعد الهَدية',
     description: 'الشروط المعتمدة التي يجب تحقّقها لاستحقاق الزبون هدية — تُستخدم عند ربط وعد هدية بعقد.',
@@ -986,6 +1085,12 @@ const CATEGORY_GROUP: Record<string, string> = {
 
   service_request_resolve_at_intake_emergency_maintenance: 'service_requests',
   service_request_resolve_at_intake_water_check: 'service_requests',
+  service_request_resolve_at_intake_periodic_maintenance: 'service_requests',
+  service_request_rejection_periodic_maintenance: 'service_requests',
+  service_request_resolve_at_intake_golden_warranty: 'service_requests',
+  service_request_rejection_golden_warranty: 'service_requests',
+  periodic_maintenance_request_reasons: 'service_requests',
+  device_request_purpose: 'service_requests',
   service_request_completed_account_creation: 'service_requests',
 
   diagnosis_problem_types: 'emergency', emergency_resolved_reason: 'emergency',
@@ -993,7 +1098,10 @@ const CATEGORY_GROUP: Record<string, string> = {
   emergency_maintenance_reschedule_reasons: 'emergency',
   emergency_cancelled_reason: 'emergency', service_unresolved_reasons: 'emergency',
   service_partial_reasons: 'emergency', reopen_reasons: 'emergency',
-  emergency_uniqueness_override_reasons: 'emergency', part_no_retrieval_reason: 'emergency',
+  emergency_uniqueness_override_reasons: 'emergency',
+  emergency_maintenance_safety_indicators: 'emergency',
+  emergency_maintenance_attachment_categories: 'emergency',
+  part_no_retrieval_reason: 'emergency',
 
   periodic_manual_creation_reasons: 'periodic',
   periodic_maintenance_reschedule_reasons: 'periodic',
@@ -1001,7 +1109,7 @@ const CATEGORY_GROUP: Record<string, string> = {
   periodic_not_performed_reason: 'periodic',
 
   contract_sale_source: 'contracts', discount_reason: 'contracts',
-  transfer_company: 'contracts',
+  transfer_company: 'contracts', contract_cancellation_reasons: 'contracts',
 
   device_demo_creation_reasons: 'device_demo',
   device_demo_reschedule_reasons: 'device_demo',
@@ -1036,6 +1144,8 @@ const CATEGORY_GROUP: Record<string, string> = {
   gift_delivery_creation_reasons: 'gifts',
   gift_delivery_refusal_reasons: 'gifts',
   gift_delivery_reschedule_reasons: 'gifts',
+  gift_delivery_task_cancellation_reasons: 'gifts',
+  gift_manual_delivery_methods: 'gifts',
   gift_promise_conditions: 'gifts',
 
   golden_offer_creation_reasons: 'golden',

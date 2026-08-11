@@ -63,6 +63,7 @@ export interface ReferralSheet {
 export type CandidateStatus = 'Prospect' | 'Suggested' | 'FollowUp' | 'Contacted' | 'Qualified' | 'Junk';
 export type ReferralConfirmationStatus = 'Pending' | 'Confirmed' | 'Rejected';
 export type DuplicateType = 'Candidate' | 'Client' | 'Both';
+export type CandidateOwnershipType = 'PERSONAL' | 'BRANCH';
 
 export interface Candidate {
     id: number;
@@ -74,7 +75,11 @@ export interface Candidate {
     contacts?: ContactEntry[];
     addressText: string;
     geoUnitId: number | null;
-    ownerUserId: number;
+    /** Legacy mirror. New ownership decisions use ownershipType + candidate_assignments. */
+    ownerUserId?: number | null;
+    ownershipType: CandidateOwnershipType;
+    responsibleUserId?: number | null;
+    ownershipLabel?: string | null;
     status: CandidateStatus;
     referralSheetId: number | null;
     referralDate: string;
@@ -97,6 +102,93 @@ export interface Candidate {
     branchName?: string | null;
     createdAt: string;
     createdBy: number;
+}
+
+export interface CandidateDetailGeoUnit {
+    id: number;
+    name: string;
+    level: number;
+    active: boolean;
+}
+
+export interface CandidateDetail {
+    id: number;
+    firstName: string | null;
+    lastName: string | null;
+    nickname: string | null;
+    phoneNumbers: Array<{
+        number: string;
+        type: ContactType | null;
+        label: string | null;
+        hasWhatsApp: boolean | null;
+        isPrimary: boolean;
+        status: ContactStatus | null;
+    }>;
+    status: 'New' | 'Suggested' | 'FollowUp' | 'Contacted' | 'Qualified' | 'Junk';
+    branch: { id: number | null; name: string | null };
+    ownership: {
+        type: CandidateOwnershipType;
+        responsibleUserId: number | null;
+        responsibleUserName: string | null;
+        roleDisplayName: string | null;
+        label: string;
+    };
+    createdAt: string | null;
+    address: {
+        geoUnitId: number | null;
+        geoPath: CandidateDetailGeoUnit[];
+        text: string | null;
+    };
+    referral: {
+        entryMode: 'DIRECT' | 'NAME_LIST';
+        type: ReferralType | null;
+        nameSnapshot: string | null;
+        originChannel: ReferralOriginChannel | null;
+        date: string | null;
+        reason: string | null;
+    };
+    occupation: { value: string | null; active: boolean | null };
+    candidateNotes: string | null;
+    duplicate: {
+        flagged: boolean;
+        type: DuplicateType | null;
+        match: null | {
+            visible: boolean;
+            entityType: 'Candidate' | 'Client' | 'Both' | null;
+            id?: number;
+            name?: string;
+            message?: string;
+        };
+    };
+    conversion: null | {
+        mode: 'CREATED_NEW_CLIENT' | 'LINKED_EXISTING_CLIENT' | null;
+        visible: boolean;
+        client?: { id: number; name: string; lifecycleStage: 'LEAD' | 'FOP' | 'OP' };
+        message?: string;
+    };
+    sourceSheet: null | {
+        visible: boolean;
+        message?: string;
+        id?: number;
+        status?: ReferralSheet['status'];
+        referralDate?: string | null;
+        branchName?: string | null;
+        origin?: 'MANUAL' | 'FIELD_VISIT';
+        ownerUserName?: string | null;
+        assignedHrUserName?: string | null;
+        teamResponsibleUserName?: string | null;
+        createdByUserName?: string | null;
+        actualCandidates?: number;
+        targetCandidates?: number;
+        qualityPercentage?: number;
+        conversionPercentage?: number;
+        notes?: string | null;
+    };
+    permissions: {
+        canEdit: boolean;
+        canQualify: boolean;
+        canLinkClient: boolean;
+    };
 }
 
 export type EmployeeRole = 'supervisor' | 'technician' | 'telemarketer' | 'trainee';
@@ -200,6 +292,12 @@ export interface BranchContact {
   label?: string;        // optional extra note
 }
 
+export interface BranchImage {
+  id: string;
+  name: string;
+  url: string;
+}
+
 export interface Branch {
     id: number;
     name: string;
@@ -208,6 +306,13 @@ export interface Branch {
     detailedAddress?: string | null;
     coveredGeoIds: number[];
     contactInfo: BranchContact[];
+    mobileVisible?: boolean;
+    mobileDisplayOrder?: number;
+    publicDescription?: string | null;
+    images?: BranchImage[];
+    primaryImageId?: string | null;
+    latitude?: number | null;
+    longitude?: number | null;
     status: 'active' | 'inactive';
     createdAt: string;
 }
@@ -619,9 +724,9 @@ export interface MarketingVisitTaskOfferInput {
     extensionReasonId?: number | null;
     extensionDueDate?: string | null;
     saleReferenceNumber?: string | null;
-    sourceCustomerPreOfferId?: number | null;
+    sourceCustomerPreOfferId?: number | string | null;
     /** Existing open_task_pre_offers.id when this offer was loaded from the task. */
-    openTaskPreOfferId?: number | null;
+    openTaskPreOfferId?: number | string | null;
     contractId?: number | null;
 }
 
@@ -780,6 +885,7 @@ export interface CatalogPriceHistoryEntry {
 export type ContractStatus = 'draft' | 'active' | 'cancelled' | 'completed' | 'discarded';
 export type SaleSubtype = 'definitive' | 'temporary' | 'free';
 export type SaleType = 'tradein' | 'retention' | 'direct';
+export type OldDeviceCondition = 'good' | 'damaged';
 // DEC-CT-02: `maintenance_contract` has been extracted into the independent
 // `service_agreements` entity. The literal is retained in this union for
 // backward compatibility with existing web state and read paths only —
@@ -801,7 +907,8 @@ export type DeviceStatus =
   | 'in_workshop'
   | 'ready'
   | 'out_of_service'
-  | 'retrieved';
+  | 'retrieved'
+  | 'contract_cancelled';
 
 // Warranty status — per DEC-CT-05 (replaces is_active).
 export type WarrantyStatus = 'pending' | 'active' | 'cancelled' | 'expired';
@@ -838,13 +945,15 @@ export interface ServiceAgreement {
 // DEC-CT-09: device possession ledger.
 export type PossessionHolderType = 'warehouse' | 'technician' | 'customer' | 'workshop' | 'supplier';
 export type PossessionReason     = 'sale_delivery' | 'repair_pickup' | 'temporary_swap'
-                                  | 'retrieval' | 'cancellation' | 'transfer';
+                                  | 'retrieval' | 'cancellation' | 'transfer'
+                                  | 'external_registration';
 
 export interface DevicePossessionEntry {
   id: number;
   deviceId: number;
   holderType: PossessionHolderType;
   holderId: number | null;
+  holderName: string | null;
   startAt: string;
   endAt: string | null;
   reason: PossessionReason;
@@ -960,6 +1069,10 @@ export interface Contract {
     installationDate: string;
     status: ContractStatus;
     saleType?: SaleType | null;
+    /** Statistical snapshot only; it does not link to or mutate another contract. */
+    oldContractNumber?: string | null;
+    /** Statistical condition of the old device for trade-in sales. */
+    oldDeviceCondition?: OldDeviceCondition | null;
     saleSource?: SaleSource | null;
     discountId?: number | null;
     discount?: ContractDiscountSnapshot | null;
@@ -1117,6 +1230,9 @@ export interface TaskListItem {
     status: 'pending' | 'called' | 'booked';
     callOutcome?: CallOutcome;
     contactTargetId?: number;
+    contactTargetStatus?: string | null;
+    contactTargetClosingReason?: string | null;
+    contactTargetClosedAt?: string | null;
     lockedByHrUserId?: number | null;
     lockedByHrUserName?: string | null;
     openTaskId: number | null;
@@ -1134,6 +1250,9 @@ export interface TaskList {
     date: string;
     items: TaskListItem[];
     createdAt: string;
+    status?: 'open' | 'closed';
+    closedAt?: string | null;
+    closeReason?: string | null;
 }
 
 export interface CallLog {
@@ -1160,6 +1279,9 @@ export interface Appointment {
     customerName: string;
     customerAddress: string;
     customerMobile: string;
+    workLocationGeoUnitId?: number | null;
+    workLocationName?: string | null;
+    workLocationPath?: string[];
     teamKey: string;
     date: string;
     timeSlot: string;

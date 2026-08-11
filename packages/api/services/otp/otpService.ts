@@ -20,6 +20,7 @@ import {
   OTP_MAX_ATTEMPTS,
   OTP_CODE_LENGTH,
   OTP_EXPOSE_CODE,
+  OTP_DAILY_CAP_PER_PHONE,
 } from '../../config/env.js';
 import { getOtpSender } from './otpSender.js';
 import { SR_ACTIVE_STATUSES } from '../serviceRequests/_shared.js';
@@ -112,11 +113,11 @@ async function assertPurposePrecondition(phone: string, purpose: OtpPurpose): Pr
         status: rows[0].status,
       });
     }
-    // Mirror the create endpoint's one-pending-per-number rule. Without this,
-    // a reinstalling user whose request is still pending gets an
-    // account_creation handle that /mine rejects and /account-requests 409s —
-    // a dead-end journey paid for with an SMS. The right purpose for this
-    // number is `request_status`.
+    // One-pending-per-number rule (a rejected request does NOT block: the user
+    // may freely re-apply after a rejection). Blocking pending here means the
+    // single "create account" button fails fast at send, before an SMS, when a
+    // request is already in review — the right purpose for that number is
+    // `request_status`.
     const { rows: pending } = await pool.query(
       `SELECT 1 FROM service_requests
         WHERE request_type = 'account_creation'
@@ -136,11 +137,14 @@ async function assertPurposePrecondition(phone: string, purpose: OtpPurpose): Pr
   }
 
   if (purpose === 'request_status') {
+    // Pending OR rejected (non-archived): the proven owner may also recover
+    // their request's fate + rejection reason through /mine. Archiving closes
+    // that window.
     const { rows } = await pool.query(
       `SELECT 1 FROM service_requests
         WHERE request_type = 'account_creation'
           AND requester_external->>'primary_phone' = $1
-          AND status = ANY($2)
+          AND (status = ANY($2) OR status = 'rejected')
           AND archived_at IS NULL
         LIMIT 1`,
       [phone, SR_ACTIVE_STATUSES],
@@ -160,6 +164,27 @@ function generateCode(length: number): string {
 export async function sendOtp(input: SendOtpInput): Promise<SendOtpResult> {
   const { phone, purpose } = assertValid(input.phone, input.purpose);
   await assertPurposePrecondition(phone, purpose);
+
+  // Daily ceiling per number, across ALL purposes. The 60s resend window below
+  // only paces one purpose at a time, so on its own it permits ~1440 messages
+  // a day per number (×5 purposes) — with a paid provider that is a spend
+  // channel, not a UX guard. Counted in the DB so restarts and extra worker
+  // processes cannot widen it.
+  if (OTP_DAILY_CAP_PER_PHONE > 0) {
+    const { rows: sentToday } = await pool.query<{ n: string }>(
+      `SELECT COUNT(*)::text AS n
+         FROM otp_verifications
+        WHERE phone = $1 AND created_at >= NOW() - INTERVAL '24 hours'`,
+      [phone],
+    );
+    if (Number(sentToday[0]?.n ?? 0) >= OTP_DAILY_CAP_PER_PHONE) {
+      throw httpError(429, 'تجاوزت الحد اليومي لرسائل التحقق لهذا الرقم. حاول غداً.', {
+        code: 'daily_cap_reached',
+        limit: OTP_DAILY_CAP_PER_PHONE,
+        windowHours: 24,
+      });
+    }
+  }
 
   // Resend window: block a new code within OTP_RESEND_SECONDS of the last one.
   const { rows: recent } = await pool.query<{ last_sent_at: string }>(

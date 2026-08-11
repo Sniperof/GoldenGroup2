@@ -210,7 +210,12 @@ export default function CandidatesEntry() {
 
     // Derived: unique supervisors and branches for filter dropdowns
     const candidateSupervisors = useMemo(() =>
-        [...new Set(candidates.flatMap(c => (c.assignments || []).map(a => a.userName)))].sort(),
+        [...new Set(candidates.flatMap(c => {
+            if (c.ownershipType === 'BRANCH') {
+                return [c.ownershipLabel || c.branchName || 'غير محدد'];
+            }
+            return (c.assignments || []).map(a => a.userName);
+        }))].sort(),
         [candidates]
     );
     const candidateBranches = useMemo(() =>
@@ -272,7 +277,11 @@ export default function CandidatesEntry() {
                 const fullStr = `${c.firstName || ''} ${c.nickname || ''} ${c.lastName || ''} ${c.mobile} ${c.referralNameSnapshot || ''}`.toLowerCase();
                 if (searchQuery && !fullStr.includes(searchQuery.toLowerCase())) return false;
                 if (candidateStatusFilter && c.status !== candidateStatusFilter) return false;
-                if (candidateSupervisorFilter && !(c.assignments || []).some(a => a.userName === candidateSupervisorFilter)) return false;
+                if (
+                    candidateSupervisorFilter &&
+                    c.ownershipLabel !== candidateSupervisorFilter &&
+                    !(c.assignments || []).some(a => a.userName === candidateSupervisorFilter)
+                ) return false;
                 if (candidateBranchFilter && c.branchName !== candidateBranchFilter) return false;
                 if (candidateConvertedFilter === 'converted' && c.convertedToLeadId == null) return false;
                 if (candidateConvertedFilter === 'unconverted' && c.convertedToLeadId != null) return false;
@@ -818,7 +827,6 @@ export default function CandidatesEntry() {
                                         const nameStr = c.firstName
                                             ? `${c.firstName} ${c.lastName || ''} ${c.nickname ? `(${c.nickname})` : ''}`.trim()
                                             : `${c.nickname || ''} ${c.lastName || ''}`.trim();
-
                                         const primaryPhone = c.contacts?.find(con => con.isPrimary)?.number || c.contacts?.[0]?.number || c.mobile;
                                         const extraCount = Math.max(0, (c.contacts?.length || 0) - 1);
                                         const allPhones = c.contacts?.map(con => con.number).join('\n') || '';
@@ -830,7 +838,9 @@ export default function CandidatesEntry() {
                                                     {c.createdAt ? new Date(c.createdAt).toLocaleDateString('ar-SY') : '--'}
                                                 </td>
                                                 <td className="px-5 py-2">
-                                                    <div className="font-bold text-slate-800">{nameStr}</div>
+                                                    <Link to={`/candidates/${c.id}`} className="font-bold text-slate-800 hover:text-sky-700 hover:underline">
+                                                        {nameStr || 'اسم غير مكتمل'}
+                                                    </Link>
                                                 </td>
                                                 <td className="px-5 py-2 text-right" dir="ltr">
                                                     <div className="flex items-center justify-end gap-1.5 font-mono text-xs text-slate-700">
@@ -849,13 +859,7 @@ export default function CandidatesEntry() {
                                                     </span>
                                                 </td>
                                                 <td className="px-5 py-2 text-xs font-medium text-slate-700">
-                                                    {c.referralType === 'Client' && c.referralEntityId ? (
-                                                        <Link to={`/clients/${c.referralEntityId}`} className="text-sky-600 hover:text-sky-800 hover:underline">
-                                                            {c.referralNameSnapshot || 'زبون مجهول'}
-                                                        </Link>
-                                                    ) : (
-                                                        <span>{c.referralNameSnapshot || '--'}</span>
-                                                    )}
+                                                    <span>{c.referralNameSnapshot || '--'}</span>
                                                 </td>
                                                 <td className="px-5 py-2 text-xs">
                                                     {c.referralSheetId ? (
@@ -869,7 +873,14 @@ export default function CandidatesEntry() {
                                                 <td className="px-5 py-2 text-xs">
                                                     {(() => {
                                                         const list = c.assignments || [];
-                                                        if (list.length === 0) return <span className="text-slate-400">--</span>;
+                                                        if (c.ownershipType === 'BRANCH' || list.length === 0) {
+                                                            return (
+                                                                <span className="inline-flex items-center gap-1 font-bold text-indigo-700">
+                                                                    <Building2 className="w-3.5 h-3.5" />
+                                                                    {c.ownershipLabel || c.branchName || 'غير محدد'}
+                                                                </span>
+                                                            );
+                                                        }
                                                         const visible = list.slice(0, 2);
                                                         const extra = list.length - visible.length;
                                                         return (
@@ -901,6 +912,13 @@ export default function CandidatesEntry() {
                                                 </td>
                                                 <td className="px-5 py-2">
                                                     <div className="flex items-center justify-center gap-2">
+                                                        <Link
+                                                            to={`/candidates/${c.id}`}
+                                                            className="flex h-8 w-8 items-center justify-center rounded-lg border border-sky-100 bg-sky-50 text-sky-600 transition-all hover:bg-sky-600 hover:text-white"
+                                                            title="عرض التفاصيل"
+                                                        >
+                                                            <Info className="h-4 w-4" />
+                                                        </Link>
                                                         {canEditCandidates && c.status !== 'Qualified' && c.status !== 'Junk' && c.convertedToLeadId == null && (
                                                             <button
                                                                 onClick={() => {

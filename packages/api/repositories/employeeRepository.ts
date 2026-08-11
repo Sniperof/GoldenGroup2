@@ -1,4 +1,5 @@
 import pool from '../db.js';
+import { buildScopedEmployeeManagerCandidatesQuery } from './employeeManagerCandidateQuery.js';
 
 const HIRED_APPLICATION_JOINS = `
   FROM employees e
@@ -488,33 +489,8 @@ export async function listEmployeeManagerCandidates(branchId: number, department
 }
 
 export async function listScopedEmployeeManagerCandidates(branchId: number, departmentId?: number | null) {
-  const { rows } = await pool.query(
-    `SELECT
-      e.id,
-      e.name,
-      COALESCE(NULLIF(e.job_title, ''), r.display_name) AS "jobTitle",
-      e.department_id AS "departmentId",
-      d.name AS "departmentName",
-      r.display_name AS "roleDisplayName",
-      ($2::int IS NOT NULL AND e.department_id = $2) AS "isRecommendedManager"
-    FROM employees e
-    JOIN hr_users u ON u.employee_id = e.id AND u.is_active = TRUE
-    LEFT JOIN roles r ON r.id = u.role_id
-    LEFT JOIN departments d ON d.id = e.department_id
-    WHERE e.branch_id = $1
-      AND e.status = 'active'
-      AND (
-        COALESCE(r.display_name, '') ILIKE '%مدير%'
-        OR COALESCE(r.name, '') ILIKE '%manager%'
-        OR COALESCE(e.job_title, '') ILIKE '%مدير%'
-        OR COALESCE(e.job_title, '') ILIKE '%manager%'
-      )
-      AND ($2::int IS NULL OR e.department_id = $2)
-    ORDER BY
-      "isRecommendedManager" DESC,
-      e.name ASC`,
-    [branchId, departmentId ?? null]
-  );
+  const query = buildScopedEmployeeManagerCandidatesQuery(branchId, departmentId);
+  const { rows } = await pool.query(query.text, query.values);
   return rows;
 }
 

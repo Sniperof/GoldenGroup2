@@ -1,10 +1,13 @@
 import { useState, useEffect, type ReactNode } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import type { LucideIcon } from '../ui/icons';
-import { Loader2, AlertCircle, ChevronRight } from '../ui/icons';
+import { Loader2, AlertCircle, Ban, ChevronRight } from '../ui/icons';
 import { api } from '../../lib/api';
+import { canCancelOpenTaskBeforeScheduling } from '@golden-crm/shared';
+import { useAuthStore } from '../../hooks/useAuthStore';
 import ClientCardPopup from '../ClientCardPopup';
 import Button from '../ui/Button';
+import CancelOpenTaskModal from './CancelOpenTaskModal';
 import TaskHeader from './TaskHeader';
 import TaskOverviewTab from './tabs/TaskOverviewTab';
 import TaskClientTab from './tabs/TaskClientTab';
@@ -79,6 +82,8 @@ export default function TaskDetailLayout({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [clientPopupId, setClientPopupId] = useState<number | null>(null);
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const canEditOpenTasks = useAuthStore(state => state.hasPermission('open_tasks.edit'));
 
   const [searchParams] = useSearchParams();
   const initialTab = searchParams.get('tab') ?? 'overview';
@@ -178,6 +183,8 @@ export default function TaskDetailLayout({
 
   const hasResult = hasResultFor ? hasResultFor(data) : Boolean(task.outcome || task.result);
   const issues = overviewIssuesFor ? overviewIssuesFor(data) : [];
+  const canCancelTask = canEditOpenTasks
+    && canCancelOpenTaskBeforeScheduling(task.status, Boolean(task.activeVisit));
 
   return (
     <div className="h-full flex flex-col bg-slate-50/50 overflow-hidden" dir="rtl">
@@ -188,6 +195,11 @@ export default function TaskDetailLayout({
         backLabel={backLabel}
         backHref={backHref}
         onBack={() => navigate(backHref)}
+        actions={canCancelTask ? (
+          <Button variant="danger" size="sm" icon={Ban} onClick={() => setCancelOpen(true)}>
+            إلغاء المهمة
+          </Button>
+        ) : undefined}
       />
 
       {/* Tabs — underline pattern */}
@@ -254,8 +266,6 @@ export default function TaskDetailLayout({
               task={task}
               hasResult={hasResult}
               ResultRenderer={extension?.ResultRenderer}
-              ResultModal={extension?.ResultModal}
-              canRecordResultFor={extension?.canRecordResultFor}
               attempts={attempts}
               rendererProps={{ preOffers }}
             />
@@ -269,6 +279,18 @@ export default function TaskDetailLayout({
           onClose={() => setClientPopupId(null)}
         />
       )}
+      <CancelOpenTaskModal
+        open={cancelOpen}
+        task={task}
+        onClose={() => setCancelOpen(false)}
+        onCancelled={(updatedTask) => {
+          setTask(updatedTask);
+          setCancelOpen(false);
+          api.openTasks.getActivity(taskId)
+            .then(setActivity)
+            .catch(() => {});
+        }}
+      />
     </div>
   );
 }

@@ -36,7 +36,7 @@ import type {
   GeoUnit,
   SystemList,
 } from '../../lib/types';
-import { findEmployeeByNumber, formatEmployeeMediatorLabel, MediatorEmployee, toMediatorEmployee } from '../../lib/employeeMediatorLookup';
+import { findEmployeeByNumber, formatEmployeeMediatorLabel, MediatorEmployee, resolveEmployeeMediatorReference, toMediatorEmployee } from '../../lib/employeeMediatorLookup';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import {
   CONTACT_STATUS_CONFIG,
@@ -641,6 +641,12 @@ export default function EmployeeFormModal({
         if (!form.jobTitle) return 'المسمى الوظيفي مطلوب.';
         return null;
       case 'referral':
+        if (
+          form.referrerType === 'Employee'
+          && !resolveEmployeeMediatorReference(employeeIdInput, employeeFound)
+        ) {
+          return 'يجب اختيار موظف صالح كوسيط.';
+        }
         return null;
       default:
         return null;
@@ -700,6 +706,9 @@ export default function EmployeeFormModal({
     }
 
     const requestContacts = toRequestContacts(form.contacts);
+    const employeeReference = form.referrerType === 'Employee'
+      ? resolveEmployeeMediatorReference(employeeIdInput, employeeFound)
+      : null;
     setLocalError('');
 
     await onSubmit({
@@ -733,9 +742,9 @@ export default function EmployeeFormModal({
       jobTitle: form.jobTitle,
       referrerType: form.referrerType || null,
       sourceChannel: form.sourceChannel || null,
-      referrerName: form.referrerName.trim() || null,
+      referrerName: employeeReference?.fullName ?? (form.referrerName.trim() || null),
       referralNotes: form.referralNotes.trim() || null,
-      referralEntityId: form.referralEntityId ?? null,
+      referralEntityId: employeeReference?.referralEntityId ?? form.referralEntityId ?? null,
     });
   }
 
@@ -1421,7 +1430,16 @@ export default function EmployeeFormModal({
               <input
                 type="text"
                 value={employeeIdInput}
-                onChange={(e) => setEmployeeIdInput(e.target.value)}
+                onChange={(e) => {
+                  setEmployeeIdInput(e.target.value);
+                  setEmployeeFound(null);
+                  setEmployeeSearchError('');
+                  setForm((current) => ({
+                    ...current,
+                    referrerName: '',
+                    referralEntityId: null,
+                  }));
+                }}
                 onBlur={handleEmployeeBlur}
                 placeholder="أدخل الرقم الوظيفي..."
                 className="w-1/2 p-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:border-sky-500 focus:outline-none"

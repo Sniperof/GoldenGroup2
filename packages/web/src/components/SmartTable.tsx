@@ -1,10 +1,11 @@
-import { useState, useMemo, useCallback, useEffect, type ReactNode } from 'react';
+import { isValidElement, useState, useMemo, useCallback, useEffect, type ReactNode } from 'react';
 import { motion } from 'framer-motion';
-import { Search, Download, RotateCcw, ChevronUp, ChevronDown, ChevronsUpDown } from './ui/icons';
+import { Search, Download, Loader2, RotateCcw, ChevronUp, ChevronDown, ChevronsUpDown } from './ui/icons';
 import type { LucideIcon } from './ui/icons';
 import Select from './ui/Select';
 import Input from './ui/Input';
 import Checkbox from './ui/Checkbox';
+import { buildCsv, downloadCsv } from './tableExport';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -18,6 +19,8 @@ export interface ColumnDef<T> {
     width?: string;
     minWidth?: string;
     getValue?: (item: T) => string | number;
+    /** Plain value used by CSV export when the visible cell is rendered JSX. */
+    exportValue?: (item: T) => unknown;
 }
 
 export interface FilterDef {
@@ -62,15 +65,39 @@ export interface SmartTableProps<T> {
      * set `false` to keep the horizontal-scroll table on mobile too.
      */
     mobileCards?: boolean;
+    /** Remove the outer card treatment when hosted inside a larger surface. */
+    embedded?: boolean;
+    /** Keep placeholder rows so short pages retain a fixed height. */
+    fillEmptyRows?: boolean;
     tableMinWidth?: number;
     defaultSortKey?: string;
     defaultSortDir?: 'asc' | 'desc';
+    /** Loads the complete filtered result for export (required in server mode). */
+    exportRows?: () => Promise<T[]> | T[];
+    exportFileName?: string;
     /**
      * Client-side pagination. Default `true` (10/page with footer nav).
      * Set `false` to render ALL rows on one page — no page navigation and no
      * filler rows — for tables whose source showed every row.
      */
     paginated?: boolean;
+    /**
+     * Server-driven mode (controlled). When provided, the table STOPS doing its
+     * own filtering/sorting/pagination: `data` is treated as the current page
+     * exactly as returned by the server, and sort clicks / page changes are
+     * reported back via callbacks. Used by the Clients records page. Omit for the
+     * default fully-client-side behaviour (every other caller is unaffected).
+     */
+    server?: {
+        totalCount: number;
+        page: number;
+        itemsPerPage: number;
+        onPageChange: (page: number) => void;
+        onItemsPerPageChange: (n: number) => void;
+        sortKey: string | null;
+        sortDir: 'asc' | 'desc' | null;
+        onSortChange: (key: string, dir: 'asc' | 'desc' | null) => void;
+    };
 }
 
 /* ------------------------------------------------------------------ */
@@ -86,24 +113,12 @@ const ROW_HEIGHT = 56; // px — fixed row height for visual consistency
 
 type SortDir = 'asc' | 'desc' | null;
 
-function exportCSV<T>(columns: ColumnDef<T>[], data: T[], title: string) {
-    const header = columns.map(c => c.label).join(',');
-    const rows = data.map(item =>
-        columns.map(c => {
-            const val = c.getValue ? c.getValue(item) : (item as any)[c.key];
-            const str = String(val ?? '').replace(/"/g, '""');
-            return `"${str}"`;
-        }).join(',')
-    );
-    const bom = '\uFEFF';
-    const csv = bom + [header, ...rows].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${title}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+function reactNodeText(node: ReactNode): string {
+    if (node == null || typeof node === 'boolean') return '';
+    if (typeof node === 'string' || typeof node === 'number') return String(node);
+    if (Array.isArray(node)) return node.map(reactNodeText).filter(Boolean).join(' ');
+    if (isValidElement<{ children?: ReactNode }>(node)) return reactNodeText(node.props.children);
+    return '';
 }
 
 /* ------------------------------------------------------------------ */
@@ -131,11 +146,18 @@ export default function SmartTable<T>({
     hideFilterBar = false,
     hideHeader = false,
     mobileCards = true,
+    embedded = false,
+    fillEmptyRows = true,
     tableMinWidth = 860,
     defaultSortKey,
     defaultSortDir,
+    exportRows,
+    exportFileName,
     paginated = true,
+    server,
 }: SmartTableProps<T> & { rowClassName?: (item: T) => string }) {
+
+    const isServer = !!server;
 
     /* ---------- state ---------- */
     const [search, setSearch] = useState('');
@@ -147,6 +169,7 @@ export default function SmartTable<T>({
     const [selected, setSelected] = useState<Set<string | number>>(new Set());
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(10);
+    const [isExporting, setIsExporting] = useState(false);
 
     /* ---------- filtering ---------- */
     const filtered = useMemo(() => {
@@ -168,6 +191,8 @@ export default function SmartTable<T>({
 
     /* ---------- sorting ---------- */
     const sorted = useMemo(() => {
+        // Server mode: `data` is already the sorted, filtered current page.
+        if (isServer) return data;
         if (!sortKey || !sortDir) return filtered;
         const col = columns.find(c => c.key === sortKey);
         if (!col) return filtered;
@@ -184,22 +209,32 @@ export default function SmartTable<T>({
                 : String(bv).localeCompare(String(av), 'ar');
         });
         return arr;
-    }, [filtered, sortKey, sortDir, columns]);
+    }, [filtered, sortKey, sortDir, columns, isServer, data]);
 
     /* ---------- pagination ---------- */
     // When pagination is off, every row renders on a single page.
     const effectivePerPage = paginated ? itemsPerPage : Math.max(1, sorted.length);
     const totalPages = Math.max(1, Math.ceil(sorted.length / effectivePerPage));
 
+    // Footer values: server-controlled when in server mode, else derived locally.
+    const footerPerPage = isServer ? server!.itemsPerPage : effectivePerPage;
+    const footerTotal = isServer ? server!.totalCount : sorted.length;
+    const footerCurrentPage = isServer ? server!.page : currentPage;
+    const footerTotalPages = Math.max(1, Math.ceil(footerTotal / Math.max(1, footerPerPage)));
+    const goToPage = (p: number) => isServer ? server!.onPageChange(p) : setCurrentPage(p);
+    const changePerPage = (n: number) => isServer ? server!.onItemsPerPageChange(n) : setItemsPerPage(n);
+
     const paginatedData = useMemo(() => {
+        // Server mode: `data` IS the current page — render it verbatim.
+        if (isServer) return sorted;
         if (!paginated) return sorted;
         const start = (currentPage - 1) * itemsPerPage;
         return sorted.slice(start, start + itemsPerPage);
-    }, [sorted, currentPage, itemsPerPage, paginated]);
+    }, [sorted, currentPage, itemsPerPage, paginated, isServer]);
 
     // number of empty filler rows to keep the table height fixed (paginated only)
-    const fillerRows = paginated && paginatedData.length > 0
-        ? Math.max(0, itemsPerPage - paginatedData.length)
+    const fillerRows = fillEmptyRows && paginated && paginatedData.length > 0
+        ? Math.max(0, footerPerPage - paginatedData.length)
         : 0;
 
     useEffect(() => {
@@ -226,8 +261,27 @@ export default function SmartTable<T>({
         });
     }, []);
 
+    // External filters can replace `data` while selections are active. Keep only
+    // ids that are still visible so the counter and bulk payload cannot include
+    // stale rows from a previous filter result.
+    useEffect(() => {
+        const visibleIds = new Set(data.map(item => getId(item)));
+        setSelected(prev => {
+            const next = new Set([...prev].filter(id => visibleIds.has(id)));
+            return next.size === prev.size ? prev : next;
+        });
+    }, [data, getId]);
+
     /* ---------- sort handler ---------- */
     const handleSort = useCallback((key: string) => {
+        if (isServer) {
+            // Same cycle (asc → desc → none), reported to the host instead of local state.
+            const nextDir: SortDir = server!.sortKey === key
+                ? (server!.sortDir === 'asc' ? 'desc' : server!.sortDir === 'desc' ? null : 'asc')
+                : 'asc';
+            server!.onSortChange(key, nextDir);
+            return;
+        }
         if (sortKey === key) {
             if (sortDir === 'asc') setSortDir('desc');
             else if (sortDir === 'desc') { setSortKey(null); setSortDir(null); }
@@ -235,7 +289,39 @@ export default function SmartTable<T>({
             setSortKey(key);
             setSortDir('asc');
         }
-    }, [sortKey, sortDir]);
+    }, [isServer, server, sortKey, sortDir]);
+
+    // Sort indicators reflect the effective (server or local) sort state.
+    const shownSortKey = isServer ? server!.sortKey : sortKey;
+    const shownSortDir = isServer ? server!.sortDir : sortDir;
+
+    const handleExport = useCallback(async () => {
+        if (isServer && !exportRows) return;
+        setIsExporting(true);
+        try {
+            const rows = exportRows ? await exportRows() : sorted;
+            const csv = buildCsv(
+                columns.map(column => ({
+                    label: column.label,
+                    getValue: (item: T) => {
+                        if (column.exportValue) return column.exportValue(item);
+                        if (column.render) {
+                            const rendered = reactNodeText(column.render(item)).replace(/\s+/g, ' ').trim();
+                            if (rendered) return rendered;
+                        }
+                        return column.getValue ? column.getValue(item) : (item as Record<string, unknown>)[column.key];
+                    },
+                })),
+                rows,
+            );
+            downloadCsv(csv, exportFileName ?? title);
+        } catch (error) {
+            console.error('Failed to export table:', error);
+            window.alert('تعذر توليد التقرير كاملاً. يرجى إعادة المحاولة.');
+        } finally {
+            setIsExporting(false);
+        }
+    }, [isServer, exportRows, sorted, columns, exportFileName, title]);
 
     /* ---------- reset ---------- */
     const resetFilters = useCallback(() => {
@@ -251,13 +337,15 @@ export default function SmartTable<T>({
     const hasActiveFilters = search.trim() !== '' || Object.values(filterValues).some(v => v !== 'all');
 
     const colSpanTotal = columns.length + (bulkActions ? 1 : 0) + (actions ? 1 : 0);
-    const startRecord = sorted.length === 0 ? 0 : (currentPage - 1) * effectivePerPage + 1;
-    const endRecord   = Math.min(sorted.length, currentPage * effectivePerPage);
+    const startRecord = footerTotal === 0 ? 0 : (footerCurrentPage - 1) * footerPerPage + 1;
+    const endRecord   = Math.min(footerTotal, footerCurrentPage * footerPerPage);
 
     /* Record-count line (used as the default subtitle). */
-    const countNode = hasActiveFilters
-        ? <><span className="text-sky-600 font-semibold">{sorted.length}</span> نتيجة من أصل {data.length}</>
-        : <><span className="font-semibold text-slate-600">{data.length}</span> سجل إجمالاً</>;
+    const countNode = isServer
+        ? <><span className="font-semibold text-slate-600">{footerTotal}</span> سجل إجمالاً</>
+        : hasActiveFilters
+            ? <><span className="text-sky-600 font-semibold">{sorted.length}</span> نتيجة من أصل {data.length}</>
+            : <><span className="font-semibold text-slate-600">{data.length}</span> سجل إجمالاً</>;
 
     /* Header toolbar (reset filters · export · custom header actions). */
     const toolbar = (
@@ -272,21 +360,57 @@ export default function SmartTable<T>({
                 </button>
             )}
             <button
-                onClick={() => exportCSV(columns, sorted, title)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 text-xs font-medium transition-colors whitespace-nowrap"
+                onClick={handleExport}
+                disabled={isExporting || (isServer && !exportRows)}
+                title={isServer && !exportRows ? 'التصدير الكامل غير مهيأ لهذا الجدول' : undefined}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 text-xs font-medium transition-colors whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
             >
-                <Download className="w-3 h-3" />
-                توليد تقرير
+                {isExporting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+                {isExporting ? 'جاري تجهيز التقرير…' : 'توليد تقرير'}
             </button>
             {headerActions}
         </>
     );
 
+    const activeToolbar = bulkActions && selected.size > 0 ? (
+        <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="flex min-h-8 items-center gap-2 flex-wrap"
+        >
+            <span className="text-xs text-sky-700 font-semibold whitespace-nowrap">
+                تم تحديد {selected.size} عنصر
+            </span>
+            {bulkActions.map((bulkAction, index) => (
+                <button
+                    key={`${bulkAction.label}-${index}`}
+                    onClick={() => bulkAction.onClick(selectedItems)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
+                        bulkAction.variant === 'danger'
+                            ? 'bg-red-600 hover:bg-red-500 text-white'
+                            : 'bg-sky-600 hover:bg-sky-500 text-white'
+                    }`}
+                >
+                    <bulkAction.icon className="w-3.5 h-3.5" />
+                    {bulkAction.label}
+                </button>
+            ))}
+            <button
+                onClick={() => setSelected(new Set())}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium text-sky-600 hover:bg-sky-100 transition-colors whitespace-nowrap"
+            >
+                إلغاء
+            </button>
+        </motion.div>
+    ) : toolbar;
+
     /* ---------------------------------------------------------------- */
     /*  Render                                                           */
     /* ---------------------------------------------------------------- */
     return (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className={embedded
+            ? 'bg-white overflow-hidden'
+            : 'bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden'}>
 
             {/* ── HEADER (unified section label inside the card) ── */}
             {!hideHeader && (
@@ -302,7 +426,7 @@ export default function SmartTable<T>({
                         {scopeIndicator}
                     </div>
 
-                    <div className="flex items-center gap-2">{toolbar}</div>
+                    <div className="flex min-h-8 items-center gap-2">{activeToolbar}</div>
                 </div>
             )}
 
@@ -331,7 +455,7 @@ export default function SmartTable<T>({
                         />
                     ))}
                     {/* When the card header is hidden, keep its toolbar (reset · export) here. */}
-                    {hideHeader && <div className="flex items-center gap-2 shrink-0">{toolbar}</div>}
+                    {hideHeader && <div className="flex min-h-8 items-center gap-2 shrink-0">{activeToolbar}</div>}
                 </div>
             )}
 
@@ -431,13 +555,10 @@ export default function SmartTable<T>({
                     className="w-full border-collapse"
                     style={{ minWidth: `${tableMinWidth}px` }}
                 >
-                    {/* sticky thead — sticks to the top of the scroll area as the page scrolls.
-                        `--st-sticky-top` lets a host page (e.g. a sticky tab bar above) push the
-                        header down so the two don't collide; defaults to 0 when unset. */}
-                    <thead
-                        className="sticky z-20 bg-slate-50 border-b border-slate-200 shadow-[0_1px_0_0_#e2e8f0]"
-                        style={{ top: 'var(--st-sticky-top, 0px)' }}
-                    >
+                    {/* The horizontal overflow wrapper is the sticky containing block.
+                        Keep top at zero; a host-provided offset would move the header
+                        inside the table and cover its first data row. */}
+                    <thead className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 shadow-[0_1px_0_0_#e2e8f0]">
                         <tr>
                             {bulkActions && (
                                 <th className="w-11 px-4 py-3">
@@ -462,8 +583,8 @@ export default function SmartTable<T>({
                                         {col.label}
                                         {col.sortable && (
                                             <span className="flex-shrink-0 text-slate-400">
-                                                {sortKey === col.key && sortDir === 'asc'  ? <ChevronUp   className="w-3.5 h-3.5 text-sky-500" /> :
-                                                 sortKey === col.key && sortDir === 'desc' ? <ChevronDown className="w-3.5 h-3.5 text-sky-500" /> :
+                                                {shownSortKey === col.key && shownSortDir === 'asc'  ? <ChevronUp   className="w-3.5 h-3.5 text-sky-500" /> :
+                                                 shownSortKey === col.key && shownSortDir === 'desc' ? <ChevronDown className="w-3.5 h-3.5 text-sky-500" /> :
                                                                                              <ChevronsUpDown className="w-3 h-3 opacity-40" />}
                                             </span>
                                         )}
@@ -487,7 +608,7 @@ export default function SmartTable<T>({
                                     colSpan={colSpanTotal}
                                     // Paginated tables keep a fixed body height for visual
                                     // consistency; un-paginated ones stay compact (dynamic).
-                                    style={paginated ? { height: `${itemsPerPage * ROW_HEIGHT}px` } : undefined}
+                                    style={paginated ? { height: `${footerPerPage * ROW_HEIGHT}px` } : undefined}
                                     className={`text-center align-middle ${paginated ? '' : 'py-12'}`}
                                 >
                                     {EmptyIcon && <EmptyIcon className="w-10 h-10 mx-auto mb-3 text-slate-200" />}
@@ -576,16 +697,16 @@ export default function SmartTable<T>({
                 {/* Record info + page size selector */}
                 <div className="flex items-center gap-3 text-xs text-slate-500">
                     <span>
-                        {sorted.length === 0
+                        {footerTotal === 0
                             ? 'لا توجد سجلات'
-                            : <>عرض <span className="font-bold text-slate-700">{startRecord}–{endRecord}</span> من <span className="font-bold text-slate-700">{sorted.length}</span> سجل</>}
+                            : <>عرض <span className="font-bold text-slate-700">{startRecord}–{endRecord}</span> من <span className="font-bold text-slate-700">{footerTotal}</span> سجل</>}
                     </span>
                     <span className="h-4 w-px bg-slate-200" />
                     <label className="flex items-center gap-1.5">
                         <span>صفوف الصفحة</span>
                         <Select
-                            value={itemsPerPage}
-                            onChange={n => setItemsPerPage(Number(n))}
+                            value={footerPerPage}
+                            onChange={n => changePerPage(Number(n))}
                             ariaLabel="عدد صفوف الصفحة"
                             options={PAGE_SIZE_OPTIONS.map(n => ({ value: n, label: String(n) }))}
                         />
@@ -593,32 +714,32 @@ export default function SmartTable<T>({
                 </div>
 
                 {/* Page navigation */}
-                {totalPages > 1 && (
+                {footerTotalPages > 1 && (
                     <div className="flex items-center gap-1 bg-white border border-slate-200 p-1 rounded-xl">
                         <button
-                            disabled={currentPage === 1}
-                            onClick={() => setCurrentPage(1)}
+                            disabled={footerCurrentPage === 1}
+                            onClick={() => goToPage(1)}
                             className="px-2 py-1 text-xs font-bold rounded-lg no-pill transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-100 text-slate-600"
                             title="الأولى"
                         >«</button>
                         <button
-                            disabled={currentPage === 1}
-                            onClick={() => setCurrentPage(p => p - 1)}
+                            disabled={footerCurrentPage === 1}
+                            onClick={() => goToPage(footerCurrentPage - 1)}
                             className="px-2.5 py-1 text-xs font-bold rounded-lg no-pill transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-100 text-slate-600"
                         >السابق</button>
 
                         <div className="flex items-center gap-0.5 px-1">
-                            {Array.from({ length: totalPages }, (_, i) => i + 1)
-                                .filter(p => p === 1 || p === totalPages || Math.abs(p - currentPage) <= 1)
+                            {Array.from({ length: footerTotalPages }, (_, i) => i + 1)
+                                .filter(p => p === 1 || p === footerTotalPages || Math.abs(p - footerCurrentPage) <= 1)
                                 .map((p, i, arr) => (
                                     <div key={p} className="flex items-center gap-0.5">
                                         {i > 0 && arr[i - 1] !== p - 1 && (
                                             <span className="text-slate-300 text-xs px-0.5">…</span>
                                         )}
                                         <button
-                                            onClick={() => setCurrentPage(p)}
+                                            onClick={() => goToPage(p)}
                                             className={`w-7 h-7 flex items-center justify-center text-xs font-bold rounded-lg no-pill transition-all ${
-                                                currentPage === p
+                                                footerCurrentPage === p
                                                     ? 'bg-sky-600 text-white shadow-sm'
                                                     : 'text-slate-500 hover:bg-slate-100'
                                             }`}
@@ -628,13 +749,13 @@ export default function SmartTable<T>({
                         </div>
 
                         <button
-                            disabled={currentPage === totalPages}
-                            onClick={() => setCurrentPage(p => p + 1)}
+                            disabled={footerCurrentPage === footerTotalPages}
+                            onClick={() => goToPage(footerCurrentPage + 1)}
                             className="px-2.5 py-1 text-xs font-bold rounded-lg no-pill transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-100 text-slate-600"
                         >التالي</button>
                         <button
-                            disabled={currentPage === totalPages}
-                            onClick={() => setCurrentPage(totalPages)}
+                            disabled={footerCurrentPage === footerTotalPages}
+                            onClick={() => goToPage(footerTotalPages)}
                             className="px-2 py-1 text-xs font-bold rounded-lg no-pill transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-100 text-slate-600"
                             title="الأخيرة"
                         >»</button>

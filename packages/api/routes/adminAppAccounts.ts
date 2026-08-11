@@ -121,6 +121,7 @@ router.post('/clients/:id/app-account', requirePermission('app_accounts.create_d
  *                 skippedConflictCount: { type: integer }
  *                 skippedInvalidCount: { type: integer }
  *                 skippedMissingCount: { type: integer }
+ *                 failedCount: { type: integer }
  *                 truncated: { type: boolean }
  *       400: { description: Bad mode or missing id list }
  */

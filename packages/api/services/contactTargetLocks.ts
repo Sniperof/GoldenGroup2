@@ -22,6 +22,7 @@ export async function claimContactTarget(
     `UPDATE contact_targets
         SET locked_by_hr_user_id = COALESCE(locked_by_hr_user_id, $2),
             locked_at = COALESCE(locked_at, NOW()),
+            status = CASE WHEN status = 'queued' THEN 'in_call_list' ELSE status END,
             updated_at = NOW()
       WHERE id = $1
         AND (locked_by_hr_user_id IS NULL OR locked_by_hr_user_id = $2)

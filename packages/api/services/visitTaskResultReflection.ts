@@ -33,6 +33,17 @@ import { recordContractPaymentMovement, recordMovement } from './financialMoveme
 import { createInstallmentCollectionTask } from './installmentCollectionTasks.js';
 import { findUnavailableDeviceModelsForNewCommercialUse } from './catalogActiveStateService.js';
 import { assertCanRecordSuccessfulDeviceTaskResult } from './deviceTaskEligibilityGuard.js';
+import {
+  assertActiveGoldenWarrantyCardLinks,
+  cancelGoldenWarrantyCardLinks,
+  deliverGoldenWarrantyCardLinks,
+} from './goldenWarrantyCardDelivery.js';
+import {
+  cancelUpcomingPeriodicMaintenanceForTransfer,
+  generateFirstPeriodicMaintenanceTask,
+  PeriodicMaintenanceTransferError,
+  type PeriodicMaintenanceGenerationResult,
+} from './periodicMaintenanceTasks.js';
 
 export type DeviceDemoFinalDecision =
   | 'offer_presented'
@@ -84,6 +95,19 @@ export type GiftDeliveryFinalDecision =
   | 'refused_gift'
   | 'rescheduled';
 
+export function giftDeliveryDecisionTransition(decision: GiftDeliveryFinalDecision): {
+  giftStatus: 'delivered' | 'refused' | 'delivery_task_created';
+  openTaskStatus: 'completed' | 'cancelled' | 'needs_follow_up';
+} {
+  if (decision === 'delivered_successfully') {
+    return { giftStatus: 'delivered', openTaskStatus: 'completed' };
+  }
+  if (decision === 'refused_gift') {
+    return { giftStatus: 'refused', openTaskStatus: 'cancelled' };
+  }
+  return { giftStatus: 'delivery_task_created', openTaskStatus: 'needs_follow_up' };
+}
+
 export type DeviceDisconnectionFinalDecision =
   | 'disconnected_successfully'
   | 'rescheduled'
@@ -117,14 +141,14 @@ export interface OfferInput {
   /** Free-text refusal reason. Required when customer_response='rejected'. */
   no_closing_reason?: string | null;
   sale_reference_number?: string | null;
-  source_customer_pre_offer_id?: number | null;
+  source_customer_pre_offer_id?: number | string | null;
   /**
    * Existing open_task_pre_offers.id when the offer was loaded from the task.
    * Used as the primary UPDATE key so result recording mutates the existing
    * row instead of inserting a duplicate when source_customer_pre_offer_id
    * is NULL (e.g. offers authored manually in DeviceOfferModal pre migration).
    */
-  open_task_pre_offer_id?: number | null;
+  open_task_pre_offer_id?: number | string | null;
 }
 
 export interface DeviceDemoResultBody {
@@ -283,6 +307,7 @@ export interface DeviceActivationReflectionResult {
   deviceActivationResultId: number;
   openTaskNewStatus: 'completed' | 'needs_follow_up';
   deviceNewStatus: 'active' | 'installed';
+  firstPeriodicMaintenanceTask: PeriodicMaintenanceGenerationResult | null;
   visitCompleted: boolean;
 }
 
@@ -375,6 +400,7 @@ export interface DeviceTransferReflectionResult {
   openTaskNewStatus: 'completed' | 'needs_follow_up' | 'cancelled';
   deviceNewStatus: 'delivered' | 'unchanged';
   ownershipTransferred: boolean;
+  cancelledPeriodicTaskIds: number[];
   visitCompleted: boolean;
 }
 
@@ -527,6 +553,57 @@ function isPositiveNumber(v: any): boolean {
 
 function isPositiveInteger(v: any): boolean {
   return Number.isInteger(Number(v)) && Number(v) > 0;
+}
+
+export function normalizePositiveDbId(value: unknown): number | null {
+  if (typeof value === 'number') {
+    return Number.isSafeInteger(value) && value > 0 ? value : null;
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim();
+    if (!/^[1-9]\d*$/.test(normalized)) return null;
+    const parsed = Number(normalized);
+    return Number.isSafeInteger(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+export function normalizeDeviceDemoOfferLinkIds(
+  offer: Pick<OfferInput, 'open_task_pre_offer_id' | 'source_customer_pre_offer_id'>,
+): {
+  openTaskPreOfferId: number | null;
+  sourceCustomerPreOfferId: number | null;
+} {
+  const rawOpenTaskPreOfferId = offer.open_task_pre_offer_id;
+  const rawSourceCustomerPreOfferId = offer.source_customer_pre_offer_id;
+  const openTaskPreOfferId = normalizePositiveDbId(rawOpenTaskPreOfferId);
+  const sourceCustomerPreOfferId = normalizePositiveDbId(rawSourceCustomerPreOfferId);
+
+  if (rawOpenTaskPreOfferId != null && openTaskPreOfferId == null) {
+    throw new ResultValidationError('open_task_pre_offer_id غير صالح');
+  }
+  if (rawSourceCustomerPreOfferId != null && sourceCustomerPreOfferId == null) {
+    throw new ResultValidationError('source_customer_pre_offer_id غير صالح');
+  }
+
+  return { openTaskPreOfferId, sourceCustomerPreOfferId };
+}
+
+export function resolveStoredDeviceDemoOfferSourceId(
+  storedSourceCustomerPreOfferId: unknown,
+  suppliedSourceCustomerPreOfferId: number | null,
+): number | null {
+  const storedSourceId = normalizePositiveDbId(storedSourceCustomerPreOfferId);
+  if (storedSourceCustomerPreOfferId != null && storedSourceId == null) {
+    throw new ResultValidationError('معرف العرض المرتبط المستعاد غير صالح');
+  }
+  if (
+    suppliedSourceCustomerPreOfferId != null
+    && suppliedSourceCustomerPreOfferId !== storedSourceId
+  ) {
+    throw new ResultValidationError('هوية العرض المسبق لا تطابق رابط عرض الزبون المحفوظ');
+  }
+  return storedSourceId;
 }
 
 function optionalText(value: unknown): string | null {
@@ -1184,6 +1261,85 @@ function deriveReflectionForOfferPresented(offers: OfferInput[]): {
   return { openTaskNewStatus: 'completed', acceptedCount, extensionCount };
 }
 
+type OpenTaskPreOfferWriteResult = 'updated_by_id' | 'updated_by_source' | 'inserted';
+
+export async function persistOpenTaskPreOfferResult(
+  db: Pick<PoolClient, 'query'>,
+  input: {
+    values: any[];
+    openTaskPreOfferId: number | null;
+    sourceCustomerPreOfferId: number | null;
+  },
+): Promise<OpenTaskPreOfferWriteResult> {
+  const { values, openTaskPreOfferId, sourceCustomerPreOfferId } = input;
+
+  if (openTaskPreOfferId != null) {
+    const { rowCount } = await db.query(
+      `UPDATE open_task_pre_offers
+          SET device_model_id = $2,
+              offer_type = $3,
+              quantity = $4,
+              total_amount = $5,
+              first_payment_amount = $6,
+              installment_months = $7,
+              currency = $8,
+              discount_percentage = $9,
+              applied_device_discount_id = $10,
+              closed_by_employee_id = $11,
+              no_closing_reason = $12,
+              source_customer_pre_offer_id = $13,
+              sale_reference_number = $14,
+              updated_at = NOW()
+        WHERE id = $15
+          AND open_task_id = $1`,
+      [...values, openTaskPreOfferId],
+    );
+    if ((rowCount ?? 0) === 0) {
+      throw new ResultValidationError('العرض المسبق المحدد غير موجود ضمن مهمة عرض الجهاز');
+    }
+    return 'updated_by_id';
+  }
+
+  if (sourceCustomerPreOfferId != null) {
+    const { rowCount } = await db.query(
+      `UPDATE open_task_pre_offers
+          SET device_model_id = $2,
+              offer_type = $3,
+              quantity = $4,
+              total_amount = $5,
+              first_payment_amount = $6,
+              installment_months = $7,
+              currency = $8,
+              discount_percentage = $9,
+              applied_device_discount_id = $10,
+              closed_by_employee_id = $11,
+              no_closing_reason = $12,
+              source_customer_pre_offer_id = $13,
+              sale_reference_number = $14,
+              updated_at = NOW()
+        WHERE open_task_id = $1
+          AND source_customer_pre_offer_id = $15`,
+      [...values, sourceCustomerPreOfferId],
+    );
+    if ((rowCount ?? 0) === 0) {
+      throw new ResultValidationError('العرض المرتبط المحدد غير موجود ضمن مهمة عرض الجهاز');
+    }
+    return 'updated_by_source';
+  }
+
+  await db.query(
+    `INSERT INTO open_task_pre_offers
+       (open_task_id, device_model_id, offer_type, quantity,
+        total_amount, first_payment_amount, installment_months, currency,
+        discount_percentage, applied_device_discount_id,
+        closed_by_employee_id, no_closing_reason,
+        source_customer_pre_offer_id, sale_reference_number, created_at, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW(),NOW())`,
+    values,
+  );
+  return 'inserted';
+}
+
 // ────────────────────────────────────────────────────────────
 // Main entry
 // ────────────────────────────────────────────────────────────
@@ -1379,19 +1535,15 @@ export async function applyDeviceDemoResult(
       // Linked standalone offers keep their identity: result recording updates
       // customer_device_pre_offers instead of creating a duplicate history row.
       for (const offer of body.offers!) {
-        let sourceCustomerPreOfferId = isPositiveNumber(offer.source_customer_pre_offer_id)
-          ? Number(offer.source_customer_pre_offer_id)
-          : null;
-        const openTaskPreOfferId = isPositiveNumber(offer.open_task_pre_offer_id)
-          ? Number(offer.open_task_pre_offer_id)
-          : null;
+        const normalizedLinkIds = normalizeDeviceDemoOfferLinkIds(offer);
+        let sourceCustomerPreOfferId = normalizedLinkIds.sourceCustomerPreOfferId;
+        const openTaskPreOfferId = normalizedLinkIds.openTaskPreOfferId;
 
-        // When the offer came from an existing task row but no longer carries
-        // a source_customer_pre_offer_id (e.g. authored manually pre-migration),
-        // we still need to UPDATE the row instead of inserting a duplicate.
-        // Recover the CDPO link, if any, from the existing row so the CDPO
-        // UPDATE path below can hit its target as well.
-        if (openTaskPreOfferId != null && sourceCustomerPreOfferId == null && vt.source_open_task_id) {
+        // An echoed task-row id is authoritative. Resolve its stored CDPO link
+        // before writing, and reject a payload that tries to pair two unrelated
+        // existing identities. A NULL stored link is valid: result recording
+        // will create the CDPO row and attach it to this same task offer.
+        if (openTaskPreOfferId != null && vt.source_open_task_id) {
           const { rows: existingRows } = await db.query(
             `SELECT source_customer_pre_offer_id AS "cdpoId"
                FROM open_task_pre_offers
@@ -1400,9 +1552,13 @@ export async function applyDeviceDemoResult(
               LIMIT 1`,
             [openTaskPreOfferId, vt.source_open_task_id],
           );
-          if (existingRows.length > 0 && isPositiveNumber(existingRows[0].cdpoId)) {
-            sourceCustomerPreOfferId = Number(existingRows[0].cdpoId);
+          if (existingRows.length === 0) {
+            throw new ResultValidationError('العرض المسبق المحدد غير موجود ضمن مهمة عرض الجهاز');
           }
+          sourceCustomerPreOfferId = resolveStoredDeviceDemoOfferSourceId(
+            existingRows[0].cdpoId,
+            sourceCustomerPreOfferId,
+          );
         }
         const offerCloserId = offer.closed_by_employee_id ?? body.closed_by_employee_id ?? null;
         const offerNoClosingReason = typeof offer.no_closing_reason === 'string'
@@ -1458,7 +1614,13 @@ export async function applyDeviceDemoResult(
               vt.client_id,
             ],
           );
-          cdpoId = updatedRows.length > 0 ? Number(updatedRows[0].id) : null;
+          if (updatedRows.length === 0) {
+            throw new ResultValidationError('العرض المرتبط المحدد غير موجود لهذا الزبون');
+          }
+          cdpoId = normalizePositiveDbId(updatedRows[0].id);
+          if (cdpoId == null) {
+            throw new ResultValidationError('معرف العرض المرتبط المحفوظ غير صالح');
+          }
         }
 
         if (cdpoId == null) {
@@ -1491,7 +1653,10 @@ export async function applyDeviceDemoResult(
               performedByUserId,
             ],
           );
-          cdpoId = Number(cdpoRows[0].id);
+          cdpoId = normalizePositiveDbId(cdpoRows[0].id);
+          if (cdpoId == null) {
+            throw new ResultValidationError('معرف العرض الجديد المحفوظ غير صالح');
+          }
         }
 
         if (vt.source_open_task_id) {
@@ -1512,79 +1677,18 @@ export async function applyDeviceDemoResult(
             offerSaleReference,
           ];
 
-          // Preferred path: update by primary key when the client echoed back
-          // the original open_task_pre_offers.id. This works regardless of
-          // whether source_customer_pre_offer_id was populated on the row.
-          let updated = false;
-          if (openTaskPreOfferId != null) {
-            const { rowCount } = await db.query(
-              `UPDATE open_task_pre_offers
-                  SET device_model_id = $2,
-                      offer_type = $3,
-                      quantity = $4,
-                      total_amount = $5,
-                      first_payment_amount = $6,
-                      installment_months = $7,
-                      currency = $8,
-                      discount_percentage = $9,
-                      applied_device_discount_id = $10,
-                      closed_by_employee_id = $11,
-                      no_closing_reason = $12,
-                      source_customer_pre_offer_id = $13,
-                      sale_reference_number = $14,
-                      updated_at = NOW()
-                WHERE id = $15
-                  AND open_task_id = $1`,
-              [...openTaskOfferValues, openTaskPreOfferId],
-            );
-            updated = (rowCount ?? 0) > 0;
-          }
-
-          // Fallback: legacy path keyed on source_customer_pre_offer_id. This
-          // remains correct for offers imported from a standalone CDPO where
-          // the row was created with that link already in place.
-          if (!updated && sourceCustomerPreOfferId != null) {
-            const { rowCount } = await db.query(
-              `UPDATE open_task_pre_offers
-                  SET device_model_id = $2,
-                      offer_type = $3,
-                      quantity = $4,
-                      total_amount = $5,
-                      first_payment_amount = $6,
-                      installment_months = $7,
-                      currency = $8,
-                      discount_percentage = $9,
-                      applied_device_discount_id = $10,
-                      closed_by_employee_id = $11,
-                      no_closing_reason = $12,
-                      source_customer_pre_offer_id = $13,
-                      sale_reference_number = $14,
-                      updated_at = NOW()
-                WHERE open_task_id = $1
-                  AND source_customer_pre_offer_id = $13`,
-              openTaskOfferValues,
-            );
-            updated = (rowCount ?? 0) > 0;
-          }
-
-          if (updated) {
+          const writeResult = await persistOpenTaskPreOfferResult(db, {
+            values: openTaskOfferValues,
+            openTaskPreOfferId,
+            sourceCustomerPreOfferId,
+          });
+          if (writeResult !== 'inserted') {
             if (offer.customer_response === 'accepted' && acceptedPreOfferId == null) {
               acceptedPreOfferId = cdpoId;
               acceptedOfferData = offer;
             }
             continue;
           }
-
-          await db.query(
-            `INSERT INTO open_task_pre_offers
-               (open_task_id, device_model_id, offer_type, quantity,
-                total_amount, first_payment_amount, installment_months, currency,
-                discount_percentage, applied_device_discount_id,
-                closed_by_employee_id, no_closing_reason,
-                source_customer_pre_offer_id, sale_reference_number, created_at, updated_at)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW(),NOW())`,
-            openTaskOfferValues,
-          );
         }
 
         if (offer.customer_response === 'accepted' && acceptedPreOfferId == null) {
@@ -1742,6 +1846,53 @@ interface GiftDeliveryResultBody {
   closing_notes?: string | null;
 }
 
+export const INSERT_GIFT_DELIVERY_RESULT_EVENTS_SQL = `
+  INSERT INTO gift_record_events (
+    gift_record_id, event_type, actor_user_id, previous_status, new_status, reason,
+    metadata
+  )
+  SELECT record_id,
+         'delivery_result_recorded',
+         $3,
+         previous_status,
+         $4,
+         $5,
+         jsonb_build_object(
+           'visitTaskId', $1::bigint,
+           'visitTaskResultId', $2::bigint,
+           'finalDecision', $6::text
+         )
+    FROM unnest($7::int[], $8::text[]) AS previous(record_id, previous_status)
+`;
+
+export async function insertGiftDeliveryResultEvents(
+  db: Pick<PoolClient, 'query'>,
+  input: {
+    visitTaskId: number;
+    visitTaskResultId: number;
+    performedByUserId: number;
+    newGiftStatus: string;
+    closingNotes: string | null;
+    decision: GiftDeliveryFinalDecision;
+    giftRecordIds: number[];
+    previousGiftStatuses: string[];
+  },
+) {
+  await db.query(
+    INSERT_GIFT_DELIVERY_RESULT_EVENTS_SQL,
+    [
+      input.visitTaskId,
+      input.visitTaskResultId,
+      input.performedByUserId,
+      input.newGiftStatus,
+      input.closingNotes,
+      input.decision,
+      input.giftRecordIds,
+      input.previousGiftStatuses,
+    ],
+  );
+}
+
 export async function applyGiftDeliveryResult(
   visitTaskId: number,
   body: GiftDeliveryResultBody,
@@ -1800,11 +1951,14 @@ export async function applyGiftDeliveryResult(
       `SELECT gr.id,
               gr.gift_definition_id,
               gr.approved_quantity,
+              gr.status,
               gd.default_unit_label
-         FROM gift_records gr
+         FROM gift_delivery_task_records gift_link
+         JOIN gift_records gr ON gr.id = gift_link.gift_record_id
          JOIN gift_definitions gd ON gd.id = gr.gift_definition_id
-        WHERE gr.delivery_task_id = $1
-          AND gr.status = 'delivery_task_created'
+        WHERE gift_link.open_task_id = $1
+          AND gift_link.is_active = TRUE
+          AND gr.status IN ('delivery_task_created', 'delivered', 'refused')
         ORDER BY gr.id`,
       [vt.source_open_task_id],
     );
@@ -1812,6 +1966,7 @@ export async function applyGiftDeliveryResult(
       throw new ResultValidationError('لا توجد سجلات هدايا نشطة مرتبطة بمهمة التسليم');
     }
     const giftRecordIds = recordRows.map((row: any) => Number(row.id));
+    const previousGiftStatuses = recordRows.map((row: any) => String(row.status));
     const closingNotes = optionalText(body.closing_notes) ?? optionalText(body.notes);
 
     const { rows: vtrRows } = await db.query(
@@ -1876,9 +2031,10 @@ export async function applyGiftDeliveryResult(
       ],
     );
 
+    const transition = giftDeliveryDecisionTransition(decision);
     let openTaskNewStatus: 'completed' | 'cancelled' | 'needs_follow_up';
     if (decision === 'delivered_successfully') {
-      openTaskNewStatus = 'completed';
+      openTaskNewStatus = transition.openTaskStatus;
       await db.query(
         `UPDATE gift_records
             SET status = 'delivered', updated_by = $2, updated_at = NOW()
@@ -1886,7 +2042,7 @@ export async function applyGiftDeliveryResult(
         [giftRecordIds, performedByUserId],
       );
     } else if (decision === 'refused_gift') {
-      openTaskNewStatus = 'cancelled';
+      openTaskNewStatus = transition.openTaskStatus;
       await db.query(
         `UPDATE gift_records
             SET status = 'refused', updated_by = $2, updated_at = NOW()
@@ -1894,8 +2050,26 @@ export async function applyGiftDeliveryResult(
         [giftRecordIds, performedByUserId],
       );
     } else {
-      openTaskNewStatus = 'needs_follow_up';
+      openTaskNewStatus = transition.openTaskStatus;
+      await db.query(
+        `UPDATE gift_records
+            SET status = 'delivery_task_created', updated_by = $2, updated_at = NOW()
+          WHERE id = ANY($1::int[])`,
+        [giftRecordIds, performedByUserId],
+      );
     }
+
+    const newGiftStatus = transition.giftStatus;
+    await insertGiftDeliveryResultEvents(db, {
+      visitTaskId,
+      visitTaskResultId,
+      performedByUserId,
+      newGiftStatus,
+      closingNotes,
+      decision,
+      giftRecordIds,
+      previousGiftStatuses,
+    });
 
     await db.query(
       `UPDATE visit_tasks
@@ -1959,10 +2133,15 @@ export async function applyGoldenWarrantyOfferResult(
 
     const { rows: vtRows } = await db.query(
       `SELECT vt.id, vt.field_visit_id, vt.source_open_task_id, vt.task_type, vt.status,
-              fv.status AS visit_status, fv.branch_id, ot.contract_id
+              fv.status AS visit_status, fv.branch_id, ot.contract_id,
+              ot.source_service_request_id,
+              sr.request_type AS source_request_type,
+              sr.installed_device_id AS requested_installed_device_id,
+              sr.requested_warranty_months
          FROM visit_tasks vt
          JOIN field_visits fv ON fv.id = vt.field_visit_id
          LEFT JOIN open_tasks ot ON ot.id = vt.source_open_task_id
+         LEFT JOIN service_requests sr ON sr.id = ot.source_service_request_id
         WHERE vt.id = $1 LIMIT 1`,
       [visitTaskId],
     );
@@ -1997,6 +2176,19 @@ export async function applyGoldenWarrantyOfferResult(
     } else {
       if (!Array.isArray(body.devices) || body.devices.length === 0) {
         throw new ResultValidationError('يجب تحديد جهاز واحد على الأقل للتفعيل');
+      }
+      if (vt.source_request_type === 'golden_warranty') {
+        if (body.devices.length !== 1) {
+          throw new ResultValidationError('طلب الكفالة الذهبية يسمح بتفعيل جهاز واحد فقط');
+        }
+        const lockedDeviceId = Number(vt.requested_installed_device_id);
+        const lockedMonths = Number(vt.requested_warranty_months);
+        if (
+          Number(body.devices[0].installedDeviceId) !== lockedDeviceId
+          || Number(body.devices[0].months) !== lockedMonths
+        ) {
+          throw new ResultValidationError('لا يمكن تغيير الجهاز أو مدة الكفالة المقفلة في الطلب');
+        }
       }
     }
 
@@ -2223,25 +2415,13 @@ export async function applyGoldenWarrantyCardDeliveryResult(
 
     let deliveredCount = 0;
     if (decision === 'delivered') {
-      // The task may combine several cards — stamp every linked device's active
-      // golden warranty (fallback to the single open_tasks.device_id).
-      const { rows: devRows } = await db.query(
-        `SELECT installed_device_id FROM open_task_installed_devices WHERE task_id = $1`,
-        [vt.source_open_task_id],
-      );
-      const deviceIds: number[] = devRows.length > 0
-        ? devRows.map((r: any) => Number(r.installed_device_id))
-        : (vt.device_id ? [Number(vt.device_id)] : []);
-      for (const did of deviceIds) {
-        const upd = await db.query(
-          `UPDATE device_warranties SET card_delivery_task_id = $1, updated_at = now()
-            WHERE id = (SELECT id FROM device_warranties
-                         WHERE device_id = $2 AND warranty_type='golden' AND status='active'
-                         ORDER BY end_date DESC LIMIT 1)`,
-          [vt.source_open_task_id, did],
-        );
-        deliveredCount += upd.rowCount ?? 0;
-      }
+      deliveredCount = await deliverGoldenWarrantyCardLinks(db, Number(vt.source_open_task_id));
+    } else if (decision === 'cancelled') {
+      await assertActiveGoldenWarrantyCardLinks(db, Number(vt.source_open_task_id));
+      await cancelGoldenWarrantyCardLinks(db, Number(vt.source_open_task_id));
+    } else {
+      // Rescheduling continues this exact attempt and preserves its links.
+      await assertActiveGoldenWarrantyCardLinks(db, Number(vt.source_open_task_id));
     }
 
     const deliveryIssue = getGoldenWarrantyDeliveryResultIssue(decision, deliveredCount);
@@ -2944,6 +3124,60 @@ export async function applyDeviceInstallationResult(
 // Records the field outcome that turns an installed device into an
 // active device, or keeps the same activation task alive for follow-up.
 // ════════════════════════════════════════════════════════════════
+type FirstPeriodicMaintenanceGenerator = (
+  db: Pick<PoolClient, 'query'>,
+  installedDeviceId: number,
+  createdByUserId: number | null,
+) => Promise<PeriodicMaintenanceGenerationResult>;
+
+export async function activateDeviceAndBootstrapPeriodicMaintenance(
+  db: Pick<PoolClient, 'query'>,
+  input: {
+    installedDeviceId: number;
+    contractId: number | null;
+    performedByUserId: number;
+  },
+  generateFirstTask: FirstPeriodicMaintenanceGenerator = generateFirstPeriodicMaintenanceTask,
+): Promise<PeriodicMaintenanceGenerationResult> {
+  await db.query(
+    `UPDATE installed_devices
+        SET status = 'active',
+            updated_at = NOW()
+      WHERE id = $1`,
+    [input.installedDeviceId],
+  );
+
+  if (input.contractId != null) {
+    // NOTE: contracts has no updated_at column (only created_at).
+    await db.query(
+      `UPDATE contracts
+          SET status = 'active'
+        WHERE id = $1
+          AND status NOT IN ('cancelled', 'discarded')`,
+      [input.contractId],
+    );
+  }
+
+  // Keep first-task creation in the activation transaction. The device trigger
+  // has already stamped activated_at, which anchors the first periodic due date.
+  const generation = await generateFirstTask(
+    db,
+    input.installedDeviceId,
+    input.performedByUserId,
+  );
+  if ([
+    'device_not_found',
+    'device_not_active',
+    'missing_customer_or_branch',
+    'missing_activation_timestamp',
+  ].includes(String(generation.skippedReason))) {
+    throw new Error(
+      `Periodic maintenance bootstrap failed after device activation: ${generation.skippedReason}`,
+    );
+  }
+  return generation;
+}
+
 export async function applyDeviceActivationResult(
   visitTaskId: number,
   body: DeviceActivationResultBody,
@@ -3023,26 +3257,13 @@ export async function applyDeviceActivationResult(
     );
     const visitTaskResultId = Number(vtrRows[0].id);
 
-    if (shape.decision === 'activated_successfully') {
-      await db.query(
-        `UPDATE installed_devices
-            SET status = 'active',
-                updated_at = NOW()
-          WHERE id = $1`,
-        [Number(vt.device_id)],
-      );
-
-      if (vt.contract_id) {
-        // NOTE: contracts has no updated_at column (only created_at).
-        await db.query(
-          `UPDATE contracts
-              SET status = 'active'
-            WHERE id = $1
-              AND status NOT IN ('cancelled', 'discarded')`,
-          [Number(vt.contract_id)],
-        );
-      }
-    }
+    const firstPeriodicMaintenanceTask = shape.decision === 'activated_successfully'
+      ? await activateDeviceAndBootstrapPeriodicMaintenance(db, {
+        installedDeviceId: Number(vt.device_id),
+        contractId: vt.contract_id != null ? Number(vt.contract_id) : null,
+        performedByUserId,
+      })
+      : null;
 
     const photos = Array.isArray(body.activation_photos) ? body.activation_photos : [];
     // Technical measurements moved to device_technical_states (constitution 01i);
@@ -3130,6 +3351,7 @@ export async function applyDeviceActivationResult(
       deviceActivationResultId,
       openTaskNewStatus: shape.openTaskNewStatus,
       deviceNewStatus: shape.deviceNewStatus,
+      firstPeriodicMaintenanceTask,
       visitCompleted: completion.completed,
     };
   } catch (err) {
@@ -4339,6 +4561,23 @@ export async function applyDeviceTransferResult(
 
     const ownershipTransferred = shape.decision === 'transferred_successfully' && shape.transferKind === 'another_customer';
     const toClientId = shape.transferKind === 'another_customer' ? shape.targetClientId : Number(vt.from_client_id);
+    let cancelledPeriodicTaskIds: number[] = [];
+
+    if (ownershipTransferred) {
+      try {
+        cancelledPeriodicTaskIds = await cancelUpcomingPeriodicMaintenanceForTransfer(db, {
+          installedDeviceId: Number(vt.device_id),
+          fromClientId: Number(vt.from_client_id),
+          toClientId: Number(toClientId),
+          performedByUserId,
+        });
+      } catch (error) {
+        if (error instanceof PeriodicMaintenanceTransferError) {
+          throw new ResultValidationError(error.message);
+        }
+        throw error;
+      }
+    }
 
     const { rows: transferRows } = await db.query(
       `INSERT INTO visit_task_device_transfer_results
@@ -4503,6 +4742,7 @@ export async function applyDeviceTransferResult(
       openTaskNewStatus: shape.openTaskNewStatus,
       deviceNewStatus: shape.deviceNewStatus,
       ownershipTransferred,
+      cancelledPeriodicTaskIds,
       visitCompleted: completion.completed,
     };
   } catch (err) {

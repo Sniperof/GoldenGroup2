@@ -20,4 +20,8 @@ export interface AuthUser {
   /** Optional link to `employees.id` — used by the Field Team view to match
    *  the logged-in user against `team_snapshot` employee IDs. */
   employeeId?: number | null;
+  /** `roles.team_slot_type` — SUPERVISOR / TECHNICIAN / TRAINEE / TELEMARKETER,
+   *  or null for roles that fill no field-team slot. Resolved from the role on
+   *  every request; the device-access policy reads it. */
+  teamSlotType?: string | null;
 }

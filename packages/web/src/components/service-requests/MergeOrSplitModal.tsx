@@ -12,6 +12,7 @@ interface Props {
   serviceRequestId: number;
   existingOpenTaskId: number;
   installedDeviceId: number;
+  canSplit: boolean;
   onClose: () => void;
   onResolved: () => void;
 }
@@ -19,12 +20,14 @@ interface Props {
 interface OverrideReason {
   id: number;
   value: string;
+  metadata?: { code?: string } | null;
 }
 
 export default function MergeOrSplitModal({
   serviceRequestId,
   existingOpenTaskId,
   installedDeviceId,
+  canSplit,
   onClose,
   onResolved,
 }: Props) {
@@ -70,6 +73,8 @@ export default function MergeOrSplitModal({
       const result = await api.serviceRequests.promote(serviceRequestId, {
         splitAuthorized: true,
         splitReason,
+        splitNote: splitNote.trim() || null,
+        deviceLocationDecision: 'registered_location_confirmed',
       });
       if ('collision' in result) {
         setError('حدث collision آخر — راجع البيانات');
@@ -150,25 +155,32 @@ export default function MergeOrSplitModal({
             <Select
               value={splitReason}
               onChange={setSplitReason}
+              disabled={!canSplit}
               placeholder="— اختر السبب —"
               ariaLabel="السبب"
               className="w-full mb-2"
-              options={reasons.map(r => ({ value: r.value, label: r.value }))}
+              options={reasons.map(r => ({ value: r.metadata?.code ?? r.value, label: r.value }))}
             />
             <textarea
               value={splitNote}
               onChange={(e) => setSplitNote(e.target.value)}
+              disabled={!canSplit}
               placeholder="ملاحظة إضافية"
               className="w-full text-sm border border-slate-300 rounded p-2 mb-2"
               rows={2}
             />
             <button
-              disabled={mode !== 'idle' || !splitReason}
+              disabled={!canSplit || mode !== 'idle' || !splitReason}
               onClick={doSplit}
               className="bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white text-sm px-4 py-2 rounded"
             >
               {mode === 'splitting' ? 'جاري الـ split...' : 'فَتح طلب منفصل'}
             </button>
+            {!canSplit && (
+              <p className="mt-2 text-xs text-orange-800">
+                هذا الاستثناء يحتاج صلاحية فتح طلب طارئ منفصل رغم وجود مهمة نشطة.
+              </p>
+            )}
           </section>
         </div>
     </Modal>

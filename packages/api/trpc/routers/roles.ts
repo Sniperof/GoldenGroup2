@@ -103,6 +103,7 @@ function toHrUser(u: Record<string, unknown>): z.infer<typeof HrUserSchema> {
     createdAt: u.created_at as string,
     branchId: (u.branch_id as number) ?? null,
     branchName: (u.branch_name as string) ?? null,
+    employeeId: (u.employee_id as number) ?? null,
   };
 }
 
@@ -174,6 +175,8 @@ function toUserBranchAssignmentError(err: unknown): TRPCError {
       return new TRPCError({ code: 'NOT_FOUND', message: err.message });
     case 'PRIMARY_BRANCH_REQUIRES_ACTIVE_ASSIGNMENT':
       return new TRPCError({ code: 'BAD_REQUEST', message: err.message });
+    case 'MANAGED_BY_EMPLOYEE':
+      return new TRPCError({ code: 'FORBIDDEN', message: err.message });
     default:
       return new TRPCError({ code: 'BAD_REQUEST', message: err.message });
   }
@@ -433,7 +436,7 @@ export const rolesRouter = router({
       const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
       const { rows } = await pool.query(
         `SELECT u.id, u.name, u.username, u.is_active, u.created_at, u.role_id,
-          u.branch_id, b.name AS branch_name,
+          u.branch_id, b.name AS branch_name, u.employee_id,
           r.display_name AS role_display_name
          FROM hr_users u
          LEFT JOIN roles r ON r.id = u.role_id

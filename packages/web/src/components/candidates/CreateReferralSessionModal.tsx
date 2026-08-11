@@ -5,7 +5,7 @@ import { useCandidateStore } from '../../hooks/useCandidateStore';
 import { api } from '../../lib/api';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { useBranchContextStore } from '../../hooks/useBranchContextStore';
-import { findEmployeeByNumber, formatEmployeeMediatorLabel, MediatorEmployee, toMediatorEmployee } from '../../lib/employeeMediatorLookup';
+import { findEmployeeByNumber, formatEmployeeMediatorLabel, MediatorEmployee, resolveEmployeeMediatorReference, toMediatorEmployee } from '../../lib/employeeMediatorLookup';
 import Select from '../ui/Select';
 import Input from '../ui/Input';
 import Modal from '../ui/Modal';
@@ -250,11 +250,14 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
     };
 
     const handleSave = async () => {
+        const employeeReference = referralType === 'Employee'
+            ? resolveEmployeeMediatorReference(employeeIdInput, employeeFound)
+            : null;
         if (!nameSnapshot.trim()) {
             setError('الرجاء تعبئة جميع الحقول الإلزامية.');
             return;
         }
-        if (referralType === 'Employee' && !employeeFound) {
+        if (referralType === 'Employee' && !employeeReference) {
             setError('الرجاء اختيار موظف صالح كوسيط.');
             return;
         }
@@ -273,8 +276,8 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
         }
 
         let entityId: number | null = null;
-        if (referralType === 'Employee' && employeeFound) {
-            entityId = employeeFound.id;
+        if (referralType === 'Employee' && employeeReference) {
+            entityId = employeeReference.referralEntityId;
         } else if (referralType === 'Client' && selectedClientId) {
             entityId = selectedClientId;
         }
@@ -285,7 +288,7 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
             const newId = await addReferralSheet({
                 referralType,
                 referralOriginChannel: originChannel,
-                referralNameSnapshot: nameSnapshot,
+                referralNameSnapshot: employeeReference?.fullName ?? nameSnapshot,
                 referralAddressText: '',
                 referralEntityId: entityId,
                 referralDate: new Date().toISOString(),
@@ -448,7 +451,12 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
                                 <div className="w-1/2">
                                     <Input
                                         value={employeeIdInput}
-                                        onChange={(e) => setEmployeeIdInput(e.target.value)}
+                                        onChange={(e) => {
+                                            setEmployeeIdInput(e.target.value);
+                                            setEmployeeFound(null);
+                                            setEmployeeSearchError('');
+                                            setNameSnapshot('');
+                                        }}
                                         onBlur={handleEmployeeBlur}
                                         placeholder="أدخل رقم الموظف..."
                                     />

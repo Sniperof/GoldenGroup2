@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
     Headset, Phone, FileText, CheckCircle2, History, CreditCard,
     AlertTriangle, Calendar, Send, Zap, User, Clock, CheckCircle,
@@ -15,7 +15,8 @@ import { useClientStore } from '../hooks/useClientStore';
 import { OPEN_TASK_TYPE_LABELS, OPEN_TASK_REASON_LABELS, isHiddenOperationalTaskType, taskRequiresInstalledDevice } from '@golden-crm/shared';
 import type { OpenTask, OpenTaskType, OpenTaskReason } from '@golden-crm/shared';
 import { useTelemarketingStore } from '../hooks/useTelemarketingStore';
-import TeamAgendaPanel from '../components/telemarketing/TeamAgendaPanel';
+import TeamAgendaPanel, { getAppointmentDisplayKey } from '../components/telemarketing/TeamAgendaPanel';
+import AppointmentsWorkspacePanel from '../components/telemarketing/AppointmentsWorkspacePanel';
 import OutcomeRecorderModal, { SaveExtras } from '../components/telemarketing/OutcomeRecorderModal';
 import MessageReplyOutcomeModal from '../components/customers/MessageReplyOutcomeModal';
 import { useSystemList } from '../hooks/useSystemList';
@@ -42,6 +43,7 @@ import { OUTCOME_MAP, getOutcomeMeta, normaliseOutcomeCode, PHONE_STATUS_TO_CONT
 import { buildGeoHierarchyLabel } from '../utils/addressUtils';
 import { getEntityContacts } from '../lib/contactUtils';
 import { useAuthStore } from '../hooks/useAuthStore';
+import NewServiceRequestModal from '../components/service-requests/NewServiceRequestModal';
 
 // ─── Date helpers ─────────────────────────────────────────────────────────────
 
@@ -69,6 +71,9 @@ interface CustomerGroup {
     addressText: string;
     geoUnitId: number | null;
     contactTargetId: number | undefined;
+    contactTargetStatus?: string | null;
+    contactTargetClosingReason?: string | null;
+    contactTargetClosedAt?: string | null;
     lockedByHrUserId?: number | null;
     lockedByHrUserName?: string | null;
     /** The first item is used as the primary item for call-log linkage. */
@@ -127,6 +132,9 @@ function groupByCustomer(items: TaskListItem[]): CustomerGroup[] {
                 addressText: item.addressText,
                 geoUnitId: item.geoUnitId,
                 contactTargetId: item.contactTargetId,
+                contactTargetStatus: item.contactTargetStatus ?? null,
+                contactTargetClosingReason: item.contactTargetClosingReason ?? null,
+                contactTargetClosedAt: item.contactTargetClosedAt ?? null,
                 lockedByHrUserId: item.lockedByHrUserId ?? null,
                 lockedByHrUserName: item.lockedByHrUserName ?? null,
                 primaryItem: item,
@@ -178,6 +186,7 @@ const statusFilterConfig: Record<StatusFilter, { label: string; activeBg: string
 
 /** Returns true if the contact target is closed for any reason. */
 const isContactTargetClosed = (cg: CustomerGroup, hasAppointment: boolean): boolean => {
+    if (cg.contactTargetStatus === 'closed') return true;
     if (cg.status === 'booked' || hasAppointment) return true;
     if (cg.callOutcome) {
         if (cg.callOutcome === 'manual_close') return true;
@@ -272,6 +281,8 @@ export default function TelemarketerWorkspace() {
         api.telemarketing.taskTypeOptions().then(setTaskTypeOptions).catch(() => {});
     }, []);
     const navigate = useNavigate();
+    const [searchParams, setSearchParams] = useSearchParams();
+    const workspaceView = searchParams.get('view') === 'appointments' ? 'appointments' : 'contacts';
 
     const [contracts, setContracts] = useState<Contract[]>([]);
     const [visits, setVisits] = useState<Visit[]>([]);
@@ -320,6 +331,21 @@ export default function TelemarketerWorkspace() {
         setVisits([]); // reset while a new date/customer set is loading
     }, [loadClients, loadData, date, appointmentDate, branchId]);
 
+    // A branch manager may end the plan while this workspace is already open.
+    // Refresh the operational snapshot so list/target closure becomes visible
+    // before the telemarketer attempts another action.
+    useEffect(() => {
+        const refreshSnapshot = () => {
+            if (document.visibilityState === 'visible') void loadData(date, appointmentDate);
+        };
+        const timer = window.setInterval(refreshSnapshot, 30_000);
+        document.addEventListener('visibilitychange', refreshSnapshot);
+        return () => {
+            window.clearInterval(timer);
+            document.removeEventListener('visibilitychange', refreshSnapshot);
+        };
+    }, [loadData, date, appointmentDate, branchId]);
+
     useEffect(() => {
         setCurrentSchedule({ teams: [], solos: [] });
         api.schedules.get(appointmentDate)
@@ -357,8 +383,41 @@ export default function TelemarketerWorkspace() {
         return () => mq.removeEventListener('change', handler);
     }, []);
 
+    const pendingTeamSelectionRef = useRef<string | null>(null);
+    const [lastBookedAppointment, setLastBookedAppointment] = useState<{
+        key: string;
+        customerName: string;
+        teamKey: string;
+        date: string;
+        timeSlot: string;
+    } | null>(null);
+
+    const setWorkspaceView = useCallback((view: 'contacts' | 'appointments') => {
+        const next = new URLSearchParams(searchParams);
+        if (view === 'contacts') next.delete('view');
+        else next.set('view', view);
+        setSearchParams(next);
+    }, [searchParams, setSearchParams]);
+
+    const showBookedAppointment = useCallback(() => {
+        if (!lastBookedAppointment) return;
+        pendingTeamSelectionRef.current = lastBookedAppointment.teamKey;
+        setDate(lastBookedAppointment.date);
+        setSelectedTeamKey(lastBookedAppointment.teamKey);
+        setWorkspaceView('appointments');
+    }, [lastBookedAppointment, setWorkspaceView]);
+
     useEffect(() => {
         const validKeys = availableTeams.map(t => t.key);
+        const pendingTeamKey = pendingTeamSelectionRef.current;
+        if (pendingTeamKey && validKeys.includes(pendingTeamKey)) {
+            pendingTeamSelectionRef.current = null;
+            setSelectedTeamKey(pendingTeamKey);
+            return;
+        }
+        if (pendingTeamKey && validKeys.length > 0) {
+            pendingTeamSelectionRef.current = null;
+        }
         if (!validKeys.includes(selectedTeamKey)) {
             setSelectedTeamKey(validKeys[0] || '');
             setSelectedCustomerKey(null);
@@ -657,6 +716,14 @@ export default function TelemarketerWorkspace() {
     const [serviceTaskDeviceId, setServiceTaskDeviceId] = useState('');
     const [serviceTaskDevicesLoading, setServiceTaskDevicesLoading] = useState(false);
     const [serviceTaskDeviceError, setServiceTaskDeviceError] = useState('');
+    const [pendingEmergencyCall, setPendingEmergencyCall] = useState<{
+        contactId: string;
+        contactNumber: string | null;
+        contactLabel: string | null;
+        notes: string;
+        communicationMethod: 'phone' | 'cellular_text' | 'whatsapp_text' | 'whatsapp_voice';
+        extras?: SaveExtras;
+    } | null>(null);
     // Pre-selected contact — set when user picks a number in the contact picker
     const [preselectedContactId, setPreselectedContactId] = useState<string>('');
     // Contact picker modal (step 1 before outcome modal)
@@ -821,8 +888,10 @@ export default function TelemarketerWorkspace() {
     /** True when the contact target is closed for ANY reason — disables call/close actions. */
     const isCtClosedForSelected = useMemo(() => {
         if (!selectedCustomer) return false;
-        return isContactTargetClosed(selectedCustomer, !!selectedAppointment);
-    }, [selectedCustomer, selectedAppointment]);
+        return activeTaskList?.status === 'closed'
+            || isContactTargetClosed(selectedCustomer, !!selectedAppointment);
+    }, [selectedCustomer, selectedAppointment, activeTaskList?.status]);
+    const isSelectedPlanEnded = activeTaskList?.status === 'closed';
 
     const isLockedByOtherForSelected = useMemo(() => {
         if (!selectedCustomer?.lockedByHrUserId || !authUser?.id) return false;
@@ -851,7 +920,8 @@ export default function TelemarketerWorkspace() {
         }
     }, [selectedCustomer, loadData, date, appointmentDate]);
 
-    const canDirectBookSelected = !!canBook && !!selectedCustomer && !isBookedForSelected && !isLockedByOtherForSelected && !!directBookingTask;
+    const canDirectBookSelected = !!canBook && !!selectedCustomer && !isBookedForSelected
+        && !isCtClosedForSelected && !isLockedByOtherForSelected && !!directBookingTask;
 
     const entityDetails = useMemo(() => {
         if (!selectedCustomer) return null;
@@ -960,7 +1030,9 @@ export default function TelemarketerWorkspace() {
     // ── Call outcome handler ──────────────────────────────────────────────────
 
     const handleSaveOutcome = async (contactId: string, outcome: TelemarketingOutcomeCode, notes: string, extras?: SaveExtras) => {
-        if (!selectedCustomer || !activeTaskList) return;
+        if (!selectedCustomer || !activeTaskList) {
+            throw new Error('تعذر حفظ النتيجة لأن سياق جهة الاتصال لم يعد متاحاً. أعد فتح النافذة وحاول مجدداً.');
+        }
 
         const meta = OUTCOME_MAP[outcome] ?? OUTCOME_MAP['no_answer'];
         const entityContacts = getEntityContacts(entityDetails as any);
@@ -973,10 +1045,30 @@ export default function TelemarketerWorkspace() {
         else if (ch === 'cellular_text') communicationMethod = 'cellular_text';
         else communicationMethod = 'phone';
 
+        if (outcome === 'service_request'
+            && (extras?.serviceTaskType === 'emergency_maintenance'
+                || extras?.serviceTaskType === 'periodic_maintenance'
+                || extras?.serviceTaskType === 'golden_warranty_offer')) {
+            if (selectedCustomer.entityType !== 'client') {
+                throw new Error('طلب الصيانة من هذه البوابة يتطلب زبوناً مسجلاً.');
+            }
+            setPendingEmergencyCall({
+                contactId,
+                contactNumber: selectedContact?.number ?? null,
+                contactLabel: selectedContact?.label ?? null,
+                notes,
+                communicationMethod,
+                extras,
+            });
+            setIsOutcomeModalOpen(false);
+            return;
+        }
+
         // Log the call — failure is surfaced to the user rather than swallowed.
         setCallLogSaveError(null);
+        let bookingCallLogId: string | null = null;
         try {
-            await addCallLog({
+            const savedCallLog = await addCallLog({
                 entityType: selectedCustomer.entityType,
                 entityId: selectedCustomer.entityId,
                 taskListId: activeTaskList.id,
@@ -988,9 +1080,9 @@ export default function TelemarketerWorkspace() {
                 notes,
                 communicationMethod,
             });
+            bookingCallLogId = savedCallLog.id;
         } catch {
-            setCallLogSaveError('فشل حفظ سجل الاتصال — تحقق من الاتصال وحاول مجدداً');
-            return;
+            throw new Error('فشل حفظ سجل الاتصال — تحقق من الاتصال وحاول مجدداً');
         }
 
         // Also save to customer_call_logs for client entities.
@@ -1041,6 +1133,7 @@ export default function TelemarketerWorkspace() {
                     .filter(ot => ot.openTaskId != null)
                     .map(ot => api.openTasks.update(ot.openTaskId!, {
                         status: 'cancelled',
+                        cancellationReason: reasonNote,
                         notes: reasonNote,
                     }).catch(() => {}))
             );
@@ -1076,6 +1169,13 @@ export default function TelemarketerWorkspace() {
                     taskType: t.openTaskType || 'device_demo',
                 }));
 
+            const bookedAppointment = {
+                entityId: selectedCustomer.entityId,
+                teamKey: selectedTeamKey,
+                date: extras.visitDate,
+                timeSlot: extras.visitTime,
+            };
+
             try {
                 await addAppointment({
                     entityType: selectedCustomer.entityType,
@@ -1086,7 +1186,7 @@ export default function TelemarketerWorkspace() {
                     teamKey: selectedTeamKey,
                     taskListItemId: selectedCustomer.primaryItem.id,
                     taskListId: activeTaskList.id,
-                    date: appointmentDate,
+                    date: bookedAppointment.date,
                     timeSlot: extras.visitTime,
                     occupation: '',
                     waterSource: extras.waterSource || '',
@@ -1094,19 +1194,40 @@ export default function TelemarketerWorkspace() {
                     visitTasks: selectedTaskEntries.map(t => t.taskType),
                     requestedDeviceModelId: null,
                     requestedDeviceName: '',
-                }, selectedTaskEntries.length > 0 ? selectedTaskEntries : undefined);
-
-                if (selectedCustomer.entityType === 'client' && extras.waterSource) {
-                    await updateWorkspaceClient(selectedCustomer.entityId, { waterSource: extras.waterSource });
-                }
-                // Mark as booked AFTER appointment is confirmed
-                await Promise.all(selectedCustomer.allItems.map(item =>
-                    updateTaskListItemStatus(activeTaskList.id, item.id, 'booked', outcome)
-                ));
-                setIsOutcomeModalOpen(false);
-                await loadData(date, appointmentDate);
+                }, selectedTaskEntries.length > 0 ? selectedTaskEntries : undefined, {
+                    callLogId: bookingCallLogId,
+                    telemarketerNotes: notes || null,
+                    answeredBy: extras?.answeredBy ?? null,
+                    fieldInstructions: extras?.technicianNotes ?? null,
+                });
             } catch (err: any) {
-                setCallLogSaveError(err.message || 'فشل حجز الموعد — تحقق من التفاصيل وحاول مجدداً');
+                throw new Error(err?.message || 'فشل حجز الموعد — تحقق من التفاصيل وحاول مجدداً');
+            }
+
+            // The visit is committed. Leave the editable validation state before
+            // secondary synchronization can publish the new slot back to the modal.
+            setIsOutcomeModalOpen(false);
+
+            let clientSyncFailed = false;
+            if (selectedCustomer.entityType === 'client' && extras.waterSource) {
+                try {
+                    await updateWorkspaceClient(selectedCustomer.entityId, { waterSource: extras.waterSource });
+                } catch {
+                    clientSyncFailed = true;
+                }
+            }
+            // Mark as booked AFTER appointment is confirmed.
+            await Promise.all(selectedCustomer.allItems.map(item =>
+                updateTaskListItemStatus(activeTaskList.id, item.id, 'booked', outcome)
+            ));
+            await loadData(date, appointmentDate);
+            setLastBookedAppointment({
+                ...bookedAppointment,
+                key: getAppointmentDisplayKey(bookedAppointment),
+                customerName: selectedCustomer.name,
+            });
+            if (clientSyncFailed) {
+                setCallLogSaveError('تم حجز الموعد بنجاح، لكن تعذر تحديث مصدر المياه في بيانات الزبون.');
             }
             return;
         }
@@ -1159,6 +1280,7 @@ export default function TelemarketerWorkspace() {
         if (!selectedCustomer || !activeTaskList) return;
 
         const visitTaskTypes = data.selectedTaskEntries.map(t => t.taskType);
+        const bookedDate = data.visitDate || appointmentDate;
         const appointmentPayload = {
             entityType: selectedCustomer.entityType,
             entityId: selectedCustomer.entityId,
@@ -1168,7 +1290,7 @@ export default function TelemarketerWorkspace() {
             teamKey: selectedTeamKey,
             taskListItemId: selectedCustomer.primaryItem.id,
             taskListId: activeTaskList.id,
-            date: appointmentDate,
+            date: bookedDate,
             timeSlot: data.visitTime,
             occupation: '',
             waterSource: data.waterSource,
@@ -1185,8 +1307,18 @@ export default function TelemarketerWorkspace() {
             await addAppointment(appointmentPayload, data.selectedTaskEntries);
         }
 
+        // Booking succeeded; close immediately before live appointments update
+        // can make the submitted slot collide with itself in the open modal.
+        setIsAppointmentModalOpen(false);
+        setAppointmentMode('call_result');
+
+        let clientSyncFailed = false;
         if (selectedCustomer.entityType === 'client' && data.waterSource) {
-            await updateWorkspaceClient(selectedCustomer.entityId, { waterSource: data.waterSource });
+            try {
+                await updateWorkspaceClient(selectedCustomer.entityId, { waterSource: data.waterSource });
+            } catch {
+                clientSyncFailed = true;
+            }
         }
 
         // Update ALL items for this customer as booked in the store.
@@ -1195,6 +1327,21 @@ export default function TelemarketerWorkspace() {
         ));
 
         await loadData(date, appointmentDate);
+        setLastBookedAppointment({
+            key: getAppointmentDisplayKey({
+                entityId: selectedCustomer.entityId,
+                teamKey: selectedTeamKey,
+                date: bookedDate,
+                timeSlot: data.visitTime,
+            }),
+            customerName: selectedCustomer.name,
+            teamKey: selectedTeamKey,
+            date: bookedDate,
+            timeSlot: data.visitTime,
+        });
+        if (clientSyncFailed) {
+            setCallLogSaveError('تم حجز الموعد بنجاح، لكن تعذر تحديث مصدر المياه في بيانات الزبون.');
+        }
     };
 
     // ── Manual close handler ─────────────────────────────────────────────────
@@ -1462,7 +1609,57 @@ export default function TelemarketerWorkspace() {
                 </button>
             </div>
 
-            {/* 3-COLUMN LAYOUT */}
+            {/* Page-level modes — both stay under /telemarketer. */}
+            <div className="shrink-0 border-b border-slate-200 bg-white px-4">
+                <div className="flex items-center gap-2" role="tablist" aria-label="أقسام إدارة المواعيد">
+                    <button
+                        type="button"
+                        role="tab"
+                        aria-selected={workspaceView === 'contacts'}
+                        onClick={() => setWorkspaceView('contacts')}
+                        className={`relative inline-flex items-center gap-2 px-4 py-3 text-sm font-black transition-colors ${workspaceView === 'contacts'
+                            ? 'text-violet-700 after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:rounded-t after:bg-violet-600'
+                            : 'text-slate-500 hover:text-slate-800'}`}
+                    >
+                        <Phone className="h-4 w-4" />
+                        جهات الاتصال
+                    </button>
+                    <button
+                        type="button"
+                        role="tab"
+                        aria-selected={workspaceView === 'appointments'}
+                        onClick={() => setWorkspaceView('appointments')}
+                        className={`relative inline-flex items-center gap-2 px-4 py-3 text-sm font-black transition-colors ${workspaceView === 'appointments'
+                            ? 'text-violet-700 after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:rounded-t after:bg-violet-600'
+                            : 'text-slate-500 hover:text-slate-800'}`}
+                    >
+                        <Calendar className="h-4 w-4" />
+                        جدول المواعيد
+                        {appointments.length > 0 && (
+                            <span className={`rounded-md px-1.5 py-0.5 text-xs font-black ${workspaceView === 'appointments' ? 'bg-violet-100 text-violet-700' : 'bg-slate-100 text-slate-600'}`}>
+                                {appointments.length}
+                            </span>
+                        )}
+                    </button>
+                </div>
+            </div>
+            {lastBookedAppointment && workspaceView === 'contacts' && (
+                <div className="mx-3 mt-3 shrink-0 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 flex items-center justify-between gap-4">
+                    <div className="min-w-0">
+                        <p className="text-sm font-black text-emerald-800">تم حجز موعد {lastBookedAppointment.customerName} بنجاح</p>
+                        <p className="mt-0.5 text-xs font-bold text-emerald-600" dir="ltr">{lastBookedAppointment.date} · {lastBookedAppointment.timeSlot}</p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                        <Button type="button" size="sm" icon={Calendar} onClick={showBookedAppointment} className="bg-emerald-700 hover:bg-emerald-800">
+                            عرض في الجدول
+                        </Button>
+                        <IconButton icon={X} label="إخفاء التنبيه" size="sm" onClick={() => setLastBookedAppointment(null)} className="text-emerald-700 hover:bg-emerald-100" />
+                    </div>
+                </div>
+            )}
+
+            {workspaceView === 'contacts' ? (
+            /* CONTACTS WORKSPACE */
             <div className="flex-1 flex overflow-hidden p-3 gap-3">
 
                 {/* COLUMN 1: Customer queue (20%). On mobile it's full-width and hides
@@ -1544,6 +1741,15 @@ export default function TelemarketerWorkspace() {
                         <span className="px-2 py-0.5 rounded-lg text-xs font-bold bg-violet-100 text-violet-700 border border-violet-200">{inListCount} ضمن القائمة</span>
                     </div>
 
+                    {activeTaskList?.status === 'closed' && (
+                        <div className="mx-3 mt-3 rounded-xl border border-slate-300 bg-slate-100 px-3 py-2.5 text-xs font-bold text-slate-700">
+                            <span className="flex items-center gap-2">
+                                <CheckCircle2 className="h-4 w-4 shrink-0" />
+                                انتهت خطة هذا الفريق. القائمة محفوظة للسجل ولا يمكن تسجيل اتصالات أو نتائج جديدة.
+                            </span>
+                        </div>
+                    )}
+
                     {/* Customer list */}
                     <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-1 custom-scroll">
                         {availableTeams.length === 0 && renderEmptyState(<AlertTriangle className="w-10 h-10 text-slate-300" />, 'لا يوجد جدول فرق لهذا التاريخ')}
@@ -1570,6 +1776,7 @@ export default function TelemarketerWorkspace() {
                                         manualClose: cg.callOutcome === 'manual_close',
                                         apptTime: cgAppt?.timeSlot,
                                         contactedCount: cgLogs.length,
+                                        planEnded: activeTaskList?.status === 'closed',
                                     }}
                                     isActive={cg.key === selectedCustomerKey}
                                     otherTeamsCount={getOtherTeamsCount(cg)}
@@ -1943,20 +2150,34 @@ export default function TelemarketerWorkspace() {
                                         <Send className={`w-3.5 h-3.5 ${isCtClosedForSelected || isLockedByOtherForSelected ? 'text-slate-400' : 'text-white'}`} />
                                     </div>
                                     <div className="text-right overflow-hidden">
-                                        <p className={`font-black text-xs leading-tight truncate ${isCtClosedForSelected ? 'text-slate-500' : 'text-white'}`}>{isCtClosedForSelected ? 'جهة الاتصال مغلقة' : 'تسجيل نتيجة التواصل'}</p>
-                                        <p className={`text-xs font-bold opacity-70 truncate ${isCtClosedForSelected ? 'text-slate-400' : 'text-violet-100'}`}>{isCtClosedForSelected ? 'لا يمكن تسجيل نتيجة' : 'تحديث الحالة'}</p>
+                                        <p className={`font-black text-xs leading-tight truncate ${isCtClosedForSelected ? 'text-slate-500' : 'text-white'}`}>{isSelectedPlanEnded ? 'انتهت الخطة' : isCtClosedForSelected ? 'جهة الاتصال مغلقة' : 'تسجيل نتيجة التواصل'}</p>
+                                        <p className={`text-xs font-bold opacity-70 truncate ${isCtClosedForSelected ? 'text-slate-400' : 'text-violet-100'}`}>{isSelectedPlanEnded ? 'القائمة للقراءة فقط' : isCtClosedForSelected ? 'لا يمكن تسجيل نتيجة' : 'تحديث الحالة'}</p>
                                     </div>
                                 </button>
 
                                 {/* Appointment badge — shown when visit is confirmed */}
                                 {selectedAppointment && (
-                                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 shrink-0">
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setLastBookedAppointment({
+                                                key: getAppointmentDisplayKey(selectedAppointment),
+                                                customerName: selectedAppointment.customerName,
+                                                teamKey: selectedAppointment.teamKey,
+                                                date: selectedAppointment.date,
+                                                timeSlot: selectedAppointment.timeSlot,
+                                            });
+                                            setWorkspaceView('appointments');
+                                        }}
+                                        className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 transition-colors shrink-0"
+                                        title="عرض الموعد في جدول الفريق"
+                                    >
                                         <Calendar className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                                         <div className="text-right">
                                             <p className="font-black text-xs text-emerald-700 leading-tight">موعد مؤكد</p>
                                             <p className="text-xs font-bold text-emerald-500" dir="ltr">{selectedAppointment.date} {selectedAppointment.timeSlot}</p>
                                         </div>
-                                    </div>
+                                    </button>
                                 )}
 
                                 {isLockedByOtherForSelected && (
@@ -2055,6 +2276,9 @@ export default function TelemarketerWorkspace() {
                             <Headset className="w-16 h-16 mb-3 text-sky-100" />
                             <p className="font-bold text-slate-500">يرجى اختيار زبون من قائمة الفريق</p>
                             <p className="text-xs text-slate-400 mt-1">اختر زبوناً لعرض تفاصيله وتسجيل نتيجة التواصل</p>
+                            <button type="button" onClick={() => setWorkspaceView('appointments')} className="mt-2 text-xs font-bold text-violet-600 hover:text-violet-800">
+                                الانتقال إلى جدول المواعيد
+                            </button>
                         </div>
                     )}
                 </div>
@@ -2081,6 +2305,21 @@ export default function TelemarketerWorkspace() {
                 </div>
 
             </div>
+            ) : (
+                <AppointmentsWorkspacePanel
+                    appointments={appointments}
+                    date={appointmentDate}
+                    teams={availableTeams}
+                    selectedTeamKey={selectedTeamKey}
+                    onSelectTeam={(teamKey) => {
+                        setSelectedTeamKey(teamKey);
+                        setSelectedCustomerKey(null);
+                    }}
+                    highlightedAppointmentKey={lastBookedAppointment?.date === appointmentDate
+                        ? lastBookedAppointment.key
+                        : null}
+                />
+            )}
 
             {/* Mobile/tablet team-agenda drawer — desktop uses the persistent rail. */}
             {agendaDrawerOpen && (
@@ -2251,6 +2490,62 @@ export default function TelemarketerWorkspace() {
                 bookedTimes={bookedTimes}
                 onSave={handleSaveOutcome}
             />
+
+            {pendingEmergencyCall && selectedCustomer?.entityType === 'client' && activeTaskList && (
+                <NewServiceRequestModal
+                    channel="phone"
+                    initialRequestType={pendingEmergencyCall.extras?.serviceTaskType === 'periodic_maintenance'
+                        ? 'periodic_maintenance'
+                        : pendingEmergencyCall.extras?.serviceTaskType === 'golden_warranty_offer'
+                          ? 'golden_warranty'
+                          : 'emergency_maintenance'}
+                    requesterClientId={selectedCustomer.entityId}
+                    requesterClientName={selectedCustomer.name}
+                    beneficiaryClientId={selectedCustomer.entityId}
+                    beneficiaryClientName={selectedCustomer.name}
+                    callContext={{
+                        customerId: selectedCustomer.entityId,
+                        contactId: pendingEmergencyCall.contactId,
+                        contactNumber: pendingEmergencyCall.contactNumber,
+                        contactLabel: pendingEmergencyCall.contactLabel,
+                        callDate: pendingEmergencyCall.extras?.callDateTime ?? null,
+                        taskListItemId: selectedCustomer.primaryItem.id,
+                        answeredBy: pendingEmergencyCall.extras?.answeredBy ?? null,
+                        communicationChannel: pendingEmergencyCall.extras?.communicationChannel ?? null,
+                        notes: pendingEmergencyCall.notes || null,
+                    }}
+                    onClose={() => setPendingEmergencyCall(null)}
+                    onCreated={async () => {
+                        const pending = pendingEmergencyCall;
+                        setPendingEmergencyCall(null);
+                        try {
+                            await addCallLog({
+                                entityType: selectedCustomer.entityType,
+                                entityId: selectedCustomer.entityId,
+                                taskListId: activeTaskList.id,
+                                taskListItemId: selectedCustomer.primaryItem.id,
+                                teamKey: selectedTeamKey,
+                                outcome: 'service_request',
+                                contactLabel: pending.contactLabel ?? undefined,
+                                contactNumber: pending.contactNumber ?? undefined,
+                                notes: pending.notes,
+                                communicationMethod: pending.communicationMethod,
+                            });
+                            await Promise.all(selectedCustomer.allItems.map(item =>
+                                updateTaskListItemStatus(
+                                    activeTaskList.id,
+                                    item.id,
+                                    OUTCOME_MAP.service_request.itemStatusAfterSave,
+                                    'service_request',
+                                )
+                            ));
+                            await loadData(date, appointmentDate);
+                        } catch {
+                            setCallLogSaveError('تم إنشاء طلب الصيانة، لكن تعذر تحديث سجل قائمة اتصالات التيلماركتر.');
+                        }
+                    }}
+                />
+            )}
 
             <AppointmentSchedulerModal
                 isOpen={isAppointmentModalOpen}

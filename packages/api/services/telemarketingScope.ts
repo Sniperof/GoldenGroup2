@@ -1,4 +1,7 @@
 import pool from '../db.js';
+import type { AuthContext } from '@golden-crm/shared';
+import { authorize } from './authorizationService.js';
+import { resolveAssignmentOwningBranch } from '../policies/routeAssignmentPolicy.js';
 
 export interface TeamSlot {
   supervisor: number | null;
@@ -11,8 +14,6 @@ export interface ScopeResult {
   allowed: boolean;
   reason?: string;
 }
-
-const GENERATE_ALLOWED_SYSTEM_ROLES = new Set(['SYSTEM_ADMIN', 'ADMIN', 'BRANCH_MANAGER']);
 
 function normalizeSystemRoleName(roleName: string | null | undefined): string | null {
   if (typeof roleName !== 'string') return null;
@@ -224,34 +225,29 @@ export async function canAccessTaskList(
  * Telemarketers, supervisors, and customer service supervisors cannot.
  */
 export async function canGenerateForTeam(
-  authContext: { userId: number; roleId: number | null; isSuperAdmin: boolean; actingBranchId: number | null; grants: any[] },
+  authContext: AuthContext,
   date: string,
   teamKey: string,
 ): Promise<ScopeResult> {
-  if (authContext.isSuperAdmin) return { allowed: true };
-  const hasGlobalScope = authContext.grants.some(
-    (g: any) => g.permission === 'telemarketing.lists.generate' && g.scope === 'GLOBAL',
-  );
-  if (hasGlobalScope) return { allowed: true };
-
-  // Branch scope: acting branch must be set
-  if (authContext.actingBranchId == null) {
-    return { allowed: false, reason: 'Branch context required' };
+  const owningBranchId = await resolveAssignmentOwningBranch(date, teamKey);
+  if (owningBranchId == null) {
+    return { allowed: false, reason: 'Team not found in schedule for this date' };
   }
-
-  // Check system role for ADMIN / BRANCH_MANAGER
-  const systemRole = await getSystemRoleName(authContext.roleId);
-
-  // Only ADMIN and BRANCH_MANAGER can generate
-  if (systemRole && GENERATE_ALLOWED_SYSTEM_ROLES.has(systemRole)) {
-    // Verify the team exists in the schedule
-    const schedule = await loadDaySchedule(date);
-    if (!schedule) return { allowed: false, reason: 'No schedule found for this date' };
-    const team = getTeamFromSchedule(date, schedule, teamKey);
-    if (!team) return { allowed: false, reason: 'Team not found in schedule for this date' };
-    return { allowed: true };
+  const access = authorize(authContext, {
+    permission: 'telemarketing.lists.generate',
+    branchId: owningBranchId,
+  });
+  if (!access.allowed) {
+    return { allowed: false, reason: access.reason || 'Not authorized for this team branch' };
   }
-
-  // Telemarketers, supervisors, technicians, customer service supervisors: denied
-  return { allowed: false, reason: 'Only branch managers and admins can generate task lists' };
+  if (
+    authContext.actingBranchId != null
+    && authContext.actingBranchId !== owningBranchId
+    && !authContext.isSuperAdmin
+    && !authContext.grants.some(grant =>
+      grant.permission === 'telemarketing.lists.generate' && grant.scope === 'GLOBAL')
+  ) {
+    return { allowed: false, reason: 'The selected team belongs to another branch' };
+  }
+  return { allowed: true };
 }

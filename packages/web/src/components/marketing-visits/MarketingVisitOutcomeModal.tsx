@@ -49,7 +49,7 @@ interface DeviceOffer {
   // `openTaskPreOfferId` survives the trip from API → wizard → submit so the
   // backend can update the existing open_task_pre_offers row by primary key
   // instead of creating a duplicate when `source_customer_pre_offer_id` is NULL.
-  openTaskPreOfferId?: number | null;
+  openTaskPreOfferId?: number | string | null;
   offerType: OfferType;
   quantity: number;
   totalAmount: number;
@@ -64,7 +64,7 @@ interface DeviceOffer {
   extensionReasonId: number | null;
   extensionDueDate: string | null;
   saleReferenceNumber: string | null;
-  sourceCustomerPreOfferId?: number | null;
+  sourceCustomerPreOfferId?: number | string | null;
 }
 
 interface DeviceOfferGroup {
@@ -107,7 +107,7 @@ interface VisitDeviceLike {
 }
 
 interface PreOfferLike {
-  openTaskPreOfferId?: number | null;
+  openTaskPreOfferId?: number | string | null;
   deviceModelId: number;
   offerType: OfferType;
   quantity?: number | null;
@@ -120,7 +120,7 @@ interface PreOfferLike {
   noClosingReason?: string | null;
   customerResponse?: CustomerResponse;
   saleReferenceNumber?: string | null;
-  sourceCustomerPreOfferId?: number | null;
+  sourceCustomerPreOfferId?: number | string | null;
 }
 
 const OUTCOME_OPTIONS: Array<{

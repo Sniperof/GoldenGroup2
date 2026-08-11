@@ -257,9 +257,12 @@ GPS مطلوب عند البدء والإنهاء. مهلة 30 ثانية. عن�
 | الشاشة | المحتوى |
 |---|---|
 | قائمة الزيارات (`VisitsListPage`) | كل الزيارات بكل أنواعها مع فلاتر type/team/date/status |
-| تفاصيل الزيارة (`VisitDetailPage`) | الأقسام السبعة (راجع `features/visit-detail-page-constitution.md`) |
-| نموذج النتيجة (`VisitTaskResultModal`) | conditional rendering حسب `task_type`، POST لـ unified endpoint |
+| تفاصيل الزيارة (`VisitDetailPage`) | الأقسام السبعة، وهي السطح الوحيد لتسجيل أو تعديل نتيجة `visit_task` |
+| تفاصيل المهمة (`TaskDetailLayout`) | عرض النتيجة والمحاولات فقط؛ لا تسجيل نتيجة. قبل الجدولة فقط يمكن إلغاء `open_task` بسبب معتمد |
+| نموذج النتيجة (`VisitTaskResultModal`) | يُحل من سجل مركزي حسب `task_type`، ثم POST إلى الـ unified endpoint |
 | سير عمل التيليماركتر | يستدعي `POST /telemarketing/book-visit` → ينشئ `field_visit` |
+
+كل نوع مهمة تشغيلي ظاهر يجب أن يكون مسجلاً في `VISIT_RESULT_TASK_TYPES` وفي سجل نوافذ صفحة الزيارة. يمنع إنشاء قائمة دعم يدوية مستقلة في صفحة أخرى، لأن ذلك يسمح بانحراف نوع بين مسار تفاصيل المهمة ومسار الزيارة.
 
 ---
 

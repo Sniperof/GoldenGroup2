@@ -165,7 +165,7 @@ SELECT COUNT(*) FROM visit_surveys WHERE is_skipped = TRUE AND skip_reason IS NU
 -- grep -r "FROM marketing_visit" packages/api/  → يجب أن يعطي 0 نتائج
 
 -- 5. cooldown يعمل
-SELECT COUNT(*) FROM clients WHERE cooldown_until > CURRENT_DATE;
+SELECT COUNT(*) FROM clients WHERE cooldown_until >= CURRENT_DATE;
 
 -- 6. CRON تصعيد يحفظ alerts
 SELECT tier, COUNT(*) FROM visit_escalation_alerts GROUP BY tier;

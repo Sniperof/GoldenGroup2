@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useBranchStore } from '../hooks/useBranchStore';
 import { api } from '../lib/api';
-import type { Branch, BranchContact, BranchContactType, BranchDepartment, GeoUnit } from '../lib/types';
+import type { Branch, BranchContact, BranchContactType, BranchDepartment, BranchImage, GeoUnit } from '../lib/types';
 import { usePermissions } from '../hooks/usePermissions';
 import SmartTable from '../components/SmartTable';
 import type { ColumnDef } from '../components/SmartTable';
@@ -10,11 +10,13 @@ import Button from '../components/ui/Button';
 import Select from '../components/ui/Select';
 import PageHeader from '../components/ui/PageHeader';
 import Modal from '../components/ui/Modal';
+import IconButton from '../components/ui/IconButton';
+import Checkbox from '../components/ui/Checkbox';
 import GeoSmartSearch, { GeoSelection, getLocationBadgeProps, LocationBadge } from '../components/GeoSmartSearch';
 import {
   MapPin, Building2, Plus, Edit, Trash2, Network,
   Mail, Phone, Smartphone, Globe, Users, Briefcase,
-  CircleUser, BadgeDollarSign, ChevronDown,
+  CircleUser, BadgeDollarSign, ChevronDown, Image, Star, X, Eye, EyeOff,
 } from '../components/ui/icons';
 
 // ─── Contact metadata ────────────────────────────────────────────────────────
@@ -58,6 +60,19 @@ function newContact(): BranchContact {
   };
 }
 
+function makeImageId() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function readImageAsDataUrl(file: File): Promise<BranchImage> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve({ id: makeImageId(), name: file.name, url: String(reader.result || '') });
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
 function buildGeoSelectionFromId(geoUnits: GeoUnit[], id?: number | null): GeoSelection {
   const path: GeoUnit[] = [];
   let cursor = id ? geoUnits.find(unit => unit.id === id) : undefined;
@@ -90,6 +105,13 @@ export default function Branches() {
   const [locationSelection, setLocationSelection] = useState<GeoSelection>({ govId: '', regionId: '', subId: '', neighborhoodId: '' });
   const [coveredSelections, setCoveredSelections] = useState<GeoSelection[]>([]);
   const [contacts, setContacts] = useState<BranchContact[]>([]);
+  const [mobileVisible, setMobileVisible] = useState(false);
+  const [mobileDisplayOrder, setMobileDisplayOrder] = useState('0');
+  const [publicDescription, setPublicDescription] = useState('');
+  const [images, setImages] = useState<BranchImage[]>([]);
+  const [primaryImageId, setPrimaryImageId] = useState<string | null>(null);
+  const [latitude, setLatitude] = useState('');
+  const [longitude, setLongitude] = useState('');
 
   useEffect(() => {
     fetchBranches();
@@ -107,6 +129,13 @@ export default function Branches() {
       setDetailedAddress(branch.detailedAddress || '');
       setStatus(branch.status);
       setContacts(branch.contactInfo || []);
+      setMobileVisible(branch.mobileVisible === true);
+      setMobileDisplayOrder(String(branch.mobileDisplayOrder ?? 0));
+      setPublicDescription(branch.publicDescription || '');
+      setImages(branch.images || []);
+      setPrimaryImageId(branch.primaryImageId || null);
+      setLatitude(branch.latitude == null ? '' : String(branch.latitude));
+      setLongitude(branch.longitude == null ? '' : String(branch.longitude));
       setLocationSelection(buildGeoSelectionFromId(geoUnits, branch.locationGeoId));
       const covered: GeoSelection[] = (branch.coveredGeoIds || []).map(id => ({
         govId: '', regionId: '', subId: '', neighborhoodId: id.toString()
@@ -120,6 +149,13 @@ export default function Branches() {
       setLocationSelection({ govId: '', regionId: '', subId: '', neighborhoodId: '' });
       setCoveredSelections([]);
       setContacts([]);
+      setMobileVisible(false);
+      setMobileDisplayOrder('0');
+      setPublicDescription('');
+      setImages([]);
+      setPrimaryImageId(null);
+      setLatitude('');
+      setLongitude('');
     }
     setIsModalOpen(true);
   };
@@ -141,10 +177,24 @@ export default function Branches() {
     // Validate contacts have values
     const validContacts = contacts.filter(c => c.value.trim());
 
-    const basePayload = { name, locationGeoId, detailedAddress: detailedAddress.trim() || null, contactInfo: validContacts };
+    if ((latitude === '') !== (longitude === '')) {
+      alert('يجب إدخال خط العرض وخط الطول معاً.');
+      return;
+    }
+    const basePayload = {
+      name,
+      locationGeoId,
+      detailedAddress: detailedAddress.trim() || null,
+      contactInfo: validContacts,
+      publicDescription: publicDescription.trim() || null,
+      images,
+      primaryImageId,
+      latitude: latitude === '' ? null : Number(latitude),
+      longitude: longitude === '' ? null : Number(longitude),
+    };
     const payload = editingBranch && !canManageBranchStructure
       ? basePayload
-      : { ...basePayload, status, coveredGeoIds };
+      : { ...basePayload, status, coveredGeoIds, mobileVisible, mobileDisplayOrder: Number(mobileDisplayOrder) || 0 };
     try {
       if (editingBranch) {
         await updateBranch(editingBranch.id, payload);
@@ -162,6 +212,25 @@ export default function Branches() {
   const removeContact = (id: string) => setContacts(c => c.filter(x => x.id !== id));
   const updateContact = (id: string, patch: Partial<BranchContact>) => {
     setContacts(c => c.map(x => x.id === id ? { ...x, ...patch } : x));
+  };
+
+  const addImages = async (files: FileList | null) => {
+    if (!files?.length) return;
+    if (images.length + files.length > 20) {
+      alert('لا يمكن إضافة أكثر من 20 صورة للفرع.');
+      return;
+    }
+    const added = await Promise.all(Array.from(files).map(readImageAsDataUrl));
+    setImages(current => [...current, ...added]);
+    if (!primaryImageId && added[0]) setPrimaryImageId(added[0].id);
+  };
+
+  const removeImage = (id: string) => {
+    setImages(current => {
+      const next = current.filter(image => image.id !== id);
+      if (primaryImageId === id) setPrimaryImageId(next[0]?.id ?? null);
+      return next;
+    });
   };
 
   const handleDelete = async (id: number) => {
@@ -205,6 +274,12 @@ export default function Branches() {
           </div>
         );
       }
+    },
+    {
+      key: 'mobileVisible', label: 'الموبايل', sortable: true,
+      render: (b) => b.mobileVisible
+        ? <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700"><Eye className="w-3.5 h-3.5" /> منشور</span>
+        : <span className="inline-flex items-center gap-1 text-xs font-bold text-slate-400"><EyeOff className="w-3.5 h-3.5" /> مخفي</span>,
     },
     {
       key: 'status', label: 'الحالة', sortable: true,
@@ -325,6 +400,130 @@ export default function Branches() {
                       className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:border-sky-500 focus:ring-2 focus:ring-sky-200 outline-none resize-none disabled:bg-slate-50"
                     />
                   </div>
+                </div>
+
+                {/* Public mobile profile */}
+                <div className="border border-cyan-100 bg-cyan-50/30 rounded-2xl p-5 space-y-5">
+                  <div className="flex items-center justify-between border-b border-cyan-100 pb-3">
+                    <h4 className="text-sm font-bold text-slate-700 flex items-center gap-2">
+                      <Smartphone className="w-4 h-4 text-cyan-600" /> الملف العام للموبايل
+                    </h4>
+                    <Checkbox
+                      checked={mobileVisible}
+                      onCheckedChange={setMobileVisible}
+                      disabled={!canManageBranchStructure}
+                    >
+                      <span className="text-sm font-bold text-cyan-700">إظهار الفرع في التطبيق</span>
+                    </Checkbox>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-semibold text-slate-700">الوصف العام</label>
+                    <textarea
+                      value={publicDescription}
+                      onChange={event => setPublicDescription(event.target.value)}
+                      disabled={!canEditCurrentBranchDetails}
+                      maxLength={2000}
+                      rows={3}
+                      placeholder="وصف مختصر يظهر في صفحة الفرع ضمن تطبيق الموبايل..."
+                      className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100 outline-none resize-none disabled:bg-slate-50"
+                    />
+                    <p className="text-xs text-slate-400 text-left">{publicDescription.length}/2000</p>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-semibold text-slate-700">ترتيب الظهور</label>
+                      <input
+                        type="number"
+                        min={0}
+                        step={1}
+                        value={mobileDisplayOrder}
+                        onChange={event => setMobileDisplayOrder(event.target.value)}
+                        disabled={!canManageBranchStructure}
+                        className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100 disabled:bg-slate-50"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-semibold text-slate-700">خط العرض</label>
+                      <input
+                        type="number"
+                        min={-90}
+                        max={90}
+                        step="any"
+                        value={latitude}
+                        onChange={event => setLatitude(event.target.value)}
+                        disabled={!canEditCurrentBranchDetails}
+                        dir="ltr"
+                        placeholder="33.5138"
+                        className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100 disabled:bg-slate-50"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-semibold text-slate-700">خط الطول</label>
+                      <input
+                        type="number"
+                        min={-180}
+                        max={180}
+                        step="any"
+                        value={longitude}
+                        onChange={event => setLongitude(event.target.value)}
+                        disabled={!canEditCurrentBranchDetails}
+                        dir="ltr"
+                        placeholder="36.2765"
+                        className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100 disabled:bg-slate-50"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h5 className="text-sm font-semibold text-slate-700">صور الفرع</h5>
+                        <p className="text-xs text-slate-400">حتى 20 صورة، وحدد صورة واحدة رئيسية.</p>
+                      </div>
+                      <label className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold border transition-colors ${canEditCurrentBranchDetails ? 'cursor-pointer bg-white border-cyan-200 text-cyan-700 hover:bg-cyan-50' : 'cursor-not-allowed bg-slate-50 border-slate-200 text-slate-400'}`}>
+                        <Image className="w-4 h-4" /> إضافة صور
+                        <input
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          disabled={!canEditCurrentBranchDetails}
+                          onChange={event => { void addImages(event.target.files); event.currentTarget.value = ''; }}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
+
+                    {images.length === 0 ? (
+                      <div className="py-7 text-center text-sm text-slate-400 bg-white border border-dashed border-cyan-200 rounded-xl">
+                        لم تُضف صور للفرع بعد
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        {images.map(image => (
+                          <div key={image.id} className={`relative group rounded-xl overflow-hidden border-2 ${image.id === primaryImageId ? 'border-amber-400' : 'border-slate-200'}`}>
+                            <img src={image.url} alt={image.name} className="w-full h-28 object-cover" />
+                            {image.id === primaryImageId && (
+                              <span className="absolute top-1.5 right-1.5 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold text-white">رئيسية</span>
+                            )}
+                            {canEditCurrentBranchDetails && (
+                              <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
+                                <button type="button" onClick={() => setPrimaryImageId(image.id)} className="p-2 rounded-full bg-white/90 text-amber-500" title="تعيين كصورة رئيسية">
+                                  <Star className="w-4 h-4" />
+                                </button>
+                                <IconButton icon={X} label="حذف الصورة" variant="danger" size="sm" shape="circle" onClick={() => removeImage(image.id)} />
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <p className="text-xs text-slate-500">
+                    لن يظهر سوى وسائل التواصل المصنفة ضمن خدمة العملاء في واجهة الموبايل.
+                  </p>
                 </div>
 
                 {/* ── Contact Info ── */}

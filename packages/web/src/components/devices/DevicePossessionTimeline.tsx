@@ -8,7 +8,6 @@ import type { DevicePossessionEntry } from '@golden-crm/shared';
 
 interface Props {
   entries: DevicePossessionEntry[];
-  resolveHolderName?: (entry: DevicePossessionEntry) => string | null;
 }
 
 function fmt(d?: string | null) {
@@ -20,7 +19,7 @@ function fmt(d?: string | null) {
   }
 }
 
-export function DevicePossessionTimeline({ entries, resolveHolderName }: Props) {
+export function DevicePossessionTimeline({ entries }: Props) {
   if (!entries?.length) {
     return (
       <div className="text-xs text-slate-400 italic py-4 text-center">
@@ -43,7 +42,7 @@ export function DevicePossessionTimeline({ entries, resolveHolderName }: Props) 
               <div className="flex-1 min-w-0">
                 <PossessionHolderChip
                   holderType={e.holderType}
-                  holderName={resolveHolderName?.(e) ?? null}
+                  holderName={e.holderName}
                   reason={e.reason}
                   showReason
                 />

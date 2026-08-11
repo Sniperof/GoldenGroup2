@@ -15,7 +15,11 @@ export type GiftRecordStatus =
   | 'cancelled'
   | 'refused';
 
-export type GiftBeneficiaryType = 'contract_customer' | 'customer_referrer' | 'employee_or_personal';
+export type GiftBeneficiaryType =
+  | 'contract_customer'
+  | 'customer_referrer'
+  | 'employee_referrer'
+  | 'personal_referrer';
 export type GiftDefinitionKind = 'standard_gift' | 'gift_contract';
 
 export interface GiftDefinitionPrototype {
@@ -33,10 +37,12 @@ export interface GiftDefinitionPrototype {
 
 export interface GiftRecordSource {
   id: string | number;
-  sourceType: 'contract' | 'name_list' | 'direct_referral';
+  sourceType: 'contract' | 'name_list' | 'direct_referral' | 'candidate';
   label: string;
   contractId?: string | number | null;
   contractNumber?: string | null;
+  referralSheetId?: string | number | null;
+  candidateId?: string | number | null;
   quantity?: number;
   notes?: string | null;
 }
@@ -47,7 +53,8 @@ export interface GiftRecordPrototype {
   giftDefinitionId?: string | number;
   giftDefinitionKind?: GiftDefinitionKind;
   unitLabel: string;
-  approvedQuantity: number;
+  promisedQuantity: number;
+  approvedQuantity: number | null;
   beneficiaryName: string;
   beneficiaryType: GiftBeneficiaryType;
   beneficiaryClientId?: string | number | null;
@@ -59,7 +66,13 @@ export interface GiftRecordPrototype {
   conditionId?: string | number | null;
   conditionLabel: string;
   conditionStatus: GiftConditionStatus;
+  conditionNotes?: string | null;
+  conditionVerifiedBy?: string | number | null;
+  conditionVerifiedAt?: string | null;
   status: GiftRecordStatus;
+  approvedBy?: string | number | null;
+  approvedAt?: string | null;
+  approvalNotes?: string | null;
   sourceBranchId?: string | number | null;
   sourceBranchName?: string | null;
   responsibleBranchId?: string | number | null;
@@ -69,6 +82,12 @@ export interface GiftRecordPrototype {
   beneficiaryOwnershipLabel?: string;
   createdAt: string;
   deliveryTaskId?: string | null;
+  manualDeliveredAt?: string | null;
+  manualDeliveredBy?: string | number | null;
+  manualDeliveryMethodId?: string | number | null;
+  manualDeliveryAcknowledged?: boolean;
+  manualDeliveryBranchId?: string | number | null;
+  manualDeliveryNotes?: string | null;
   sources: GiftRecordSource[];
 }
 
@@ -91,7 +110,8 @@ export const giftConditionStatusLabels: Record<GiftConditionStatus, string> = {
 export const giftBeneficiaryTypeLabels: Record<GiftBeneficiaryType, string> = {
   contract_customer: 'زبون العقد',
   customer_referrer: 'وسيط زبون',
-  employee_or_personal: 'وسيط موظف/شخصي',
+  employee_referrer: 'وسيط موظف',
+  personal_referrer: 'وسيط شخصي',
 };
 
 export const giftDefinitionKindLabels: Record<GiftDefinitionKind, string> = {

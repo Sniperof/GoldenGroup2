@@ -3,7 +3,6 @@ import { Gift } from '../../components/ui/icons';
 import TaskDetailLayout from '../../components/tasks/TaskDetailLayout';
 import { InfoLine } from '../../components/tasks/shared';
 import type { TaskDetailData, TaskTypeExtension } from '../../components/tasks/types';
-import GiftDeliveryResultModal from '../../taskTypes/gift_delivery/GiftDeliveryResultModal';
 
 type DisplayValue = string | number;
 
@@ -53,15 +52,14 @@ function giftOverviewCard(data: TaskDetailData) {
         <InfoLine label="الهدية" value={giftName} />
         <InfoLine label="المستفيد" value={beneficiaryName} />
         <InfoLine label="الكمية المعتمدة" value={formatApprovedQuantity(task)} />
-        <InfoLine label="سجل الهدية" value={formatGiftRecordId(task)} />
+        <InfoLine label="عدد سجلات الهدية" value={firstPresent(task.giftRecordsCount, task.gift_records_count) ?? 1} />
+        <InfoLine label="أول سجل في المجموعة" value={formatGiftRecordId(task)} />
       </div>
     </div>
   );
 }
 
 const giftExtension: TaskTypeExtension = {
-  ResultModal: GiftDeliveryResultModal,
-  canRecordResultFor: (task) => (task?.taskType ?? task?.task_type) === 'gift_delivery',
   overviewExtraCards: giftOverviewCard,
 };
 

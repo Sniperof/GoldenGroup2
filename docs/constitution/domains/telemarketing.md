@@ -317,8 +317,9 @@ contact_target = (زبون + موقع عمل + يوم).
 
 - `clients.do_not_contact = TRUE` — حظر دائم.
 - `clients.is_archived = TRUE` (إن وُجد).
-- `clients.is_candidate = TRUE` — المرشحون مسار منفصل.
-- `clients.cooldown_until > CURRENT_DATE` — حظر مؤقت.
+- `clients.cooldown_until >= D` — حظر مؤقت يشمل يوم الانتهاء نفسه، و`D` هو يوم القائمة/التخطيط.
+
+لا يفحص `clients.is_candidate`: المرشح البنيوي في جدول `candidates` ولا يملك `open_task`، أما العلم الموجود على سجل `clients` فليس بوابة أهلية.
 
 لا فلتر `NOT EXISTS contracts` (يُحذف من الكود). لا فلتر `NOT EXISTS visits` legacy (يُحذف).
 
@@ -355,11 +356,13 @@ cooldown يحجب الزبون من كل contact_targets بغض النظر عن 
 
 ### انتهاء آلي
 
-الفلتر في `syncAssignedTasks` يفحص `cooldown_until IS NULL OR cooldown_until < CURRENT_DATE`. بعد فوات التاريخ الزبون مؤهل تلقائياً، الحقل يبقى محفوظاً للتاريخ.
+الفلتر في `syncAssignedTasks` يفحص `cooldown_until IS NULL OR cooldown_until < D`. عند تنفيذ اتصال من قائمة، `D` هو تاريخ القائمة نفسه؛ بعد فوات التاريخ الزبون مؤهل تلقائياً، والحقل يبقى محفوظاً للتاريخ.
 
 ### الدمج مع do_not_contact
 
 `clients.do_not_contact` (BOOLEAN) حظر دائم. الفلتر يفحص الاثنين معاً، أي منهما يحجب يحجب. شاشة تفاصيل الزبون تجمعهما في قسم "حالة التواصل" مع زرين منفصلين لإدارة كل واحد.
+
+يُعاد فحص عدم التواصل والتهدئة عند claim وتحديث عنصر القائمة وتسجيل المكالمة. تفعيل DNC يحرر مهام `assigned` فقط؛ لا يعيد `in_scheduling` أو ما بعدها إلى قيد الانتظار، ولا يحذف سجل القائمة أو المكالمات.
 
 ### التفاعل مع expected_date
 

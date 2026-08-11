@@ -152,7 +152,7 @@
 | 2 | `clients.active_total` | إجمالي المحفظة الفعّالة | `COUNT(clients WHERE deleted_at IS NULL AND is_active IS NOT FALSE)` — تراكمي لا يتقيّد بالفترة | لحظي لكل نطاق | قرار: تخطيط الطاقة الاستيعابية (فنيون/مسارات لكل زبون) | رقم مجرّد (بلا دلتا) | ✅ منفّذ (P1) |
 | 3 | `clients.committed_ratio` | نسبة الزبائن الملتزمين | آخر `rating` لكل زبون؛ `Committed / (Committed+NotCommitted)` | لحظي لكل نطاق | قرار + إنجاز فريق: جودة المحفظة والتحصيل المتوقّع | Donut (Committed/NotCommitted/Undefined) | ✅ منفّذ (P0) |
 | 4 | `clients.acquisition_by_channel` | الاكتساب حسب القناة | `COUNT(*) GROUP BY source_channel` ضمن الفترة | لكل فترة/نطاق × قناة | قرار تسويقي: أي قناة الأجدى للاستثمار فيها | Bar أفقي مرتّب تنازليًا | ✅ منفّذ (P1) |
-| 5 | `clients.acquisition_by_referrer_type` | الاكتساب حسب نوع المُحيل | `COUNT(*) GROUP BY referrer_type` (`Personal/Client/Employee`) ضمن الفترة | لكل فترة/نطاق × نوع | قرار: تقييم برنامج الإحالة مقابل التسويق المباشر | Donut | ⏳ Tier 2 |
+| 5 | `clients.acquisition_by_referrer_type` | الاكتساب حسب نوع المُحيل | `COUNT(clients)` حسب الإسناد الأساسي الثابت في `client_referral_attributions`، مع fallback إلى `clients.referrer_type` للسجلات القديمة | لكل فترة/نطاق × نوع | قرار: تقييم برنامج الإحالة مقابل التسويق المباشر | Donut | ⏳ Tier 2 |
 | 6 | `clients.rating_net_change` | صافي تغيّر الالتزام | `COUNT(upgrades) − COUNT(downgrades)` من `client_rating_history` ضمن الفترة | لكل فترة/نطاق | قرار + سير عمل: هل جودة المحفظة تتحسّن أم تتدهور | رقم بإشارة + خط زمني تراكمي | ⏳ Tier 2 |
 | 7 | `clients.unowned_count` | زبائن بلا مالك فردي | `COUNT` سجلات Lead حيث لا يوجد صف في `client_assignments`؛ لا يشمل `OP/FOP` ذوي ملكية الفرع | لحظي لكل نطاق | سير عمل: فجوة تعيين تحتاج إغلاقًا تشغيليًا | رقم؛ drill-down مؤجّل إلى فلاتر جدول الزبائن | ✅ منفّذ (P1) |
 | 8 | `clients.top_geo_areas` | أعلى المناطق كثافة زبائن | `COUNT(*) GROUP BY governorate/district` أعلى N | لحظي لكل نطاق | قرار: تخطيط تغطية ميدانية/فتح فرع | Bar أفقي مرتّب (Top 10) | ⏳ Tier 2 |
@@ -160,7 +160,7 @@
 | 10 | `clients.water_source_distribution` | توزيع مصادر المياه | `COUNT(*) GROUP BY water_source` | لحظي لكل نطاق | قرار: تصميم عروض المنتج حسب واقع مصدر المياه السائد بكل منطقة | Donut | ✅ منفّذ (P1) |
 | 11 | `clients.top_occupations` | أعلى المهن تكرارًا | `COUNT(*) GROUP BY occupation` أعلى N | لحظي لكل نطاق | قرار تسويقي: استهداف شرائح مهنية بعينها بحملات مخصّصة | Bar أفقي مرتّب (Top 10) | ⏳ Tier 3 |
 | 12 | `clients.classification_distribution` | توزيع التصنيف (LEAD/OP/FOP) | `COUNT(*) GROUP BY` (`candidate_status IS NULL`→`LEAD`, `'OP'`, `'FOP'`) | لحظي لكل نطاق | قرار: مرآة دورة الحياة التشغيلية — كم من المحفظة ما زال Lead ولم يُصنَّف بعد | Donut (٣ فئات) | ✅ منفّذ (P1) |
-| 13 | `clients.top_referrers` | أفضل المُحيلين فرديًا | `COUNT(*) GROUP BY (referrer_type, referrer_id, referrer_name)` أعلى N ضمن الفترة | لكل فترة/نطاق × محيل | قرار + إنجاز فريق: من فعليًا يُحضر أكثر الزبائن (شخص/موظف/زبون بعينه) — أساس أي برنامج حوافز إحالة | Bar أفقي مرتّب (Leaderboard) | ⏳ Tier 2 |
+| 13 | `clients.top_referrers` | أفضل المُحيلين فرديًا | `COUNT(DISTINCT beneficiary_client_id)` حسب `(referrer_type + stable identity)` من `client_referral_attributions`، مع fallback legacy للزبائن بلا إسناد ثابت | لكل فترة/نطاق × محيل | قرار + إنجاز فريق: من فعليًا يُحضر أكثر الزبائن (شخص/موظف/زبون بعينه) — أساس أي برنامج حوافز إحالة | Bar أفقي مرتّب (Leaderboard) | ⏳ Tier 2 |
 | 14 | `clients.acquisition_trend` | تطور اكتساب الزبائن | `COUNT(*)` حسب bucket زمني تلقائي (ساعة/يوم/أسبوع/شهر) ضمن الفترة | لكل فترة/نطاق × bucket | قرار: هل اكتساب الزبائن يتحسن أم يتراجع عبر الزمن؟ | Area/Line بعرض القسم | ✅ منفّذ (P1) |
 | 15 | `clients.data_quality_distribution` | جودة بيانات الزبائن | `COUNT(*) GROUP BY data_quality` للمحفظة الفعالة | لحظي لكل نطاق | سير عمل: تقدير حجم السجلات التي تحتاج استكمال بيانات | Donut | ✅ منفّذ (P1) |
 
@@ -356,7 +356,7 @@
 - **تعريف «النشاط» لمؤشر #9 §3.2 (`clients.inactive_count`) مفتوح** — أي نافذة زمنية وأي أحداث (زيارة/مهمة/عقد/اتصال) تُحتسب؟ محجوب حتى يُحسم (قرار §5.1).
 - **مستوى `candidates.geo_unit_id` غير مؤكَّد** — لا عمود `level` مرافق (خلافًا لـ `route_points`)؛ افتراضنا أنه يُلتقَط عادة على مستوى الحي (`level=4`) مثل خطوط السير، لكن يلزم تحقّق فعلي على بيانات الإنتاج قبل اعتماد `candidates.by_route` (§3.7 #2).
 - **`clients.governorate/district/neighborhood` مخزّنة كـ `VARCHAR`** لا `INTEGER` (خلافًا لـ `geo_units.id` و`route_points.geo_unit_id`) — أي join جغرافي (`by_route`, `by_geo_area`) يتطلّب `cast` صريحًا؛ نفس الملاحظة الموثّقة أصلًا في `clients.md`.
-- **`occupation` حقل نصّي حرّ لا قائمة نظام (system list)** — مؤشر `clients.top_occupations` (#11 §3.2) سيُظهر تشتّتًا (نفس المهنة بصياغات مختلفة) ما لم تُطبَّع القيم أو تُحوَّل مستقبلًا لقائمة إدارية موحّدة.
+- **`occupation` مخزّن كنص لكنه يُقرأ تشغيلياً من قائمة النظام `occupation` المشتركة للزبائن والأسماء المقترحة (قرار 2026-07-29).** الفجوة المتبقية هي فرض المطابقة خادمياً وتوحيد resolver للحالة الفعالة/التاريخية؛ وإلا يمكن لطلب ملفق أن يعيد إدخال قيم حرة ويشتّت مؤشر `clients.top_occupations`.
 
 ---
 
@@ -382,7 +382,7 @@
 6. **إنشاء `candidate_status_history`** — جدول تاريخي نظير `client_rating_history` (migr 343) لتسجيل كل تغيّر حالة مرشّح بتاريخه؛ شرط بناء ضروري لمؤشر `candidates.avg_time_in_stage` (§3.4، الصف الأخير) وأي تحليل زمني لاحق للقمع.
 7. **توحيد `direct_suggestions` مع `candidates`** — مرتبط بمهمة الدستور المعلّقة «بيانات الأسماء المقترحة ولوائح الأسماء» (`INDEX.md`)؛ إلى حين حسمها يبقى `direct_suggestions.mini_funnel` (§3.4 #10) مؤشرًا مستقلًا لا يُدمج مع `candidates.stage_funnel`.
 8. **التحقّق من مستوى `candidates.geo_unit_id`** (§3.10) — تأكيد أنه يُلتقَط دومًا على مستوى الحي (`level=4`) قبل اعتماد `candidates.by_route` (§3.7 #2).
-9. **تطبيع/تحويل `occupation` لقائمة نظام** (§3.10) — شرط دقّة لمؤشر `clients.top_occupations` (§3.2 #11) قبل تفعيله، وإلا ظهرت نفس المهنة كفئات متعدّدة بسبب الإدخال الحرّ.
+9. **إكمال إنفاذ عقد `occupation` الموحّد** (§3.10) — الواجهة تقرأ حالياً من قائمة النظام المشتركة؛ المتبقي هو resolver/validation خادمي واحد للزبائن والأسماء المقترحة، مع إبقاء القيم التاريخية المعطلة مقروءة، قبل اعتماد `clients.top_occupations` (§3.2 #11).
 
 ---
 

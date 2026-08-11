@@ -17,11 +17,10 @@ import { getSystemSettingNumber } from '../systemSettings.js';
 import { findMetric, type MetricComputeContext, type ScopeMode } from './metricsCatalog.js';
 import { resolveTimeWindow } from './timeWindow.js';
 
-export class ReportingError extends Error {
-  constructor(public status: number, message: string) {
-    super(message);
-  }
-}
+// معرَّف في وحدة مستقلة (reportingError) ليستعمله reportingScope دون دورة استيراد؛
+// يُعاد تصديره هنا فتبقى مواضع الاستيراد القائمة (reports.ts, breakdownService) كما هي.
+export { ReportingError } from './reportingError.js';
+import { ReportingError } from './reportingError.js';
 
 export interface GetMetricParams {
   preset?: string;

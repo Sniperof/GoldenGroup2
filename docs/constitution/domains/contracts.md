@@ -191,7 +191,7 @@
 - عمليات الفلترة والاستعلام لقائمة العقود (`GET /api/contracts`) لمسؤولي فروع محددين يتم تصفيتها بصرامة بناءً على `contracts.branch_id` ولا تقرأ فرع الزبون الموثق.
 
 #### BR-5: ترقيات العملاء لدورة الحياة (Lifecycle Promotion Hook)
-عند إنشاء أول عقد مبيعات صحيح وحفظه للعميل بنجاح، يقوم الـ API تلقائياً باستدعاء دالة الترقية (`promoteClientToLifecycleStatus`) لترقية وضع الزبون في قاعدة البيانات إلى عميل نشط يملك أجهزة ومبيعات (`OP`).
+عند **اعتماد** أول عقد مبيعات وتحويله إلى `active`، يقوم الـ API ضمن معاملة الاعتماد باستدعاء دالة الترقية (`promoteClientToLifecycleStatus`) لترقية وضع الزبون في قاعدة البيانات إلى عميل نشط يملك أجهزة ومبيعات (`OP`). حفظ العقد كمسودة لا يرقّي دورة حياة الزبون ولا ينشئ جهازاً مركباً أو مهاماً تشغيلية.
 
 #### BR-6: تأكيد الأقساط الجماعي (Mass Installment Confirmation)
 عند إنشاء مصفوفة أقساط غير مؤكدة، يظل بإمكان المشرف تعديل قيمها وإعادتها. بمجرد استدعاء مسار التأكيد (`POST /api/contracts/:id/installments/confirm`):
@@ -565,8 +565,8 @@ erDiagram
 ### GAP-081: تجاوز قدرة التسكير عبر `contracts.edit` ✅ محلول
 - **التضارب:** `deriveContractStatus(status, closingEmployeeId)` كان يعيد `'active'` بمجرد وجود `closingEmployeeId`، ومعالجا `POST /` و`PUT /:id` (المحكومان بـ`contracts.create`/`contracts.edit`) يكتبان هذه الحالة. أي أن **التسكير (التفعيل) — أخطر فعل — كان منجَزاً عبر `edit` وحدها**، متجاوزاً قدرة `contracts.close`/`approve` وإعادة تحقّق `collectApprovalIssues` والقفل التشاؤمي في مسار `/approve`.
 - **الأثر التشغيلي:** صاحب `contracts.edit` فقط (مثل المشرف) يستطيع تفعيل عقد بحقن `closingEmployeeId` — كسر الفصل المقصود لقدرة التسكير، وتفعيل بلا توليد رقم عقد ولا تحقّق اكتمال.
-- **الحل المطبق (2026-06-17):** `deriveContractStatus` لم يعد يُنتج `'active'` إطلاقاً في `create/edit` (يبقى `draft` ما لم تكن حالة منتهية صريحة)؛ التفعيل صار **حصراً** عبر `POST /:id/approve`. المُسكِّر المُقترَح يبقى مخزَّناً دون تغيير الحالة. تحقّق ذاتي: `deriveContractStatus` مستعمَلة فقط في POST/PUT، والكتابة الوحيدة لـ`status='active'` في `/approve`.
-- **الملف:** `contracts.ts` (`deriveContractStatus`).
+- **الحل المطبق (2026-06-17؛ عُزل كخدمة قابلة للاختبار في 2026-07-27):** `deriveContractWriteStatus` لا يُنتج `'active'` إطلاقاً في `create/edit` (يبقى `draft` ما لم تكن حالة منتهية صريحة)؛ التفعيل صار **حصراً** عبر `POST /:id/approve`. المُسكِّر المُقترَح يبقى مخزَّناً دون تغيير الحالة. تحقّق ذاتي: الدالة مستعمَلة فقط في POST/PUT، والكتابة الصريحة الوحيدة لـ`status='active'` في `/approve`.
+- **الملف:** `contractLifecycle.ts` (`deriveContractWriteStatus`) و`contracts.ts`.
 
 ### GAP-082: البيع المزدوج — قراءة العرض المُباع ناقصة + غياب حارس تفرّد ✅ محلول
 - **التضارب:** فلتر أهلية العرض في `ContractForm` (`isAcceptedUnlinkedOffer = accepted && contractId == null`) يعتمد على `contractId`، لكن `openTasks.get` كان يحسبه فقط عبر `source_task_offer_id = otpo.id` — **يُسقط تطابق `sale_reference_number`** الذي يستعمله المنطق المرجعي `customerPreOffers.ts`. كما أن `POST /contracts` لا يملك أي حارس تفرّد على الخادم.
@@ -599,6 +599,11 @@ erDiagram
 - **التضارب:** منحة GLOBAL لا تُمرَّر ترويسة `X-Branch-Id` لغير السوبر أدمن (`getBranchContextHeader` محصور به في `api.ts`/`authFetch.ts`)، والمبدّل الجانبي مخفيّ للعامل GLOBAL بالتصميم → مدير الشركة لا يملك أي وسيلة لاختيار فرع، فالإنشاء يقع في فرعه الأساسي صامتاً. مثال حيّ لبندَي التحصين **SH-3/SH-4**.
 - **الحل المطبق (2026-06-17):** (1) إزالة حصر السوبر-أدمن من ترويسة سياق الفرع (الخادم يبقى الحارس عبر `allowedBranchIds`)؛ (2) فلتر إدارة داخل صفحة العقود للعامل GLOBAL؛ (3) **حارس صريح:** تعطيل «عقد جديد» وحجب شاشة النموذج عند «كل الفروع» — لا سقوط صامت للفرع الأساسي (تماثلاً مع `resolveTargetBranchId` للسوبر أدمن).
 - **الملفات:** `api.ts`، `authFetch.ts`، `ContractList.tsx`، `ContractForm.tsx`.
+
+### GAP-088: عرض جهاز المسودة كجهاز مركب وغياب حارس نزاهة DB ✅ محلول
+- **التضارب:** تفاصيل العقد كانت تعرض القيم المدمجة من `draft_device_payload` تحت عنوان وحالة الجهاز الفعلي، بينما كانت الواجهة ترسل `status='active'` عند اختيار موظف تسكير وتعتمد على الخادم وحده لإعادتها إلى `draft`. لم يوجد حارس داخل PostgreSQL يمنع كاتباً قديماً أو مباشراً من إنشاء `installed_devices` عقدي لمسودة.
+- **الحل المطبق (2026-07-27):** حفظ `ContractForm` صار يرسل `draft` دائماً، واستجابة العقد تميز `deviceRecordState` و`hasInstalledDevice`، وتفاصيل المسودة تسمي البيانات صراحةً «بيانات الجهاز المخطط». أضيفت هجرة `390_draft_contract_device_integrity.sql` لمنع إنشاء جهاز `company_contract` إلا عندما يكون العقد `active`، ومنع إعادة عقد ذي جهاز فعلي إلى `draft`.
+- **الملفات:** `ContractForm.tsx`، `ContractDetail.tsx`، `contracts.ts`، `contractLifecycle.ts`، وهجرة 390.
 
 ### ⚠️ 9.2 الثغرة الثانية: تعارض حالة الأحرف لحالات السداد بين جدول الأقساط والديون (Casing Mismatch in Payments Statuses)
 - **التضارب:** يفرض جدول الأقساط `contract_installments` قيد تحقق بحروف صغيرة كلياً:
@@ -713,7 +718,8 @@ erDiagram
 | **2026-05-26** | `192_sync_installed_device_trigger.sql` | **Phase 2B (انتقالي):** AFTER UPDATE على `contracts` → مزامنة الحقول الفيزيائية الـ8 إلى `installed_devices`. يُزال في Phase 2C بعد تحويل الكتابات مباشرةً. |
 | **2026-05-26** | *(كود فقط)* | **Phase 2B:** تحويل `contractSelect` + جميع queries في `contracts.ts`, `openTasks.ts`, `customerCalls.ts` لقراءة الحقول الفيزيائية من `installed_devices d` عبر LEFT JOIN. إضافة `/api/installed-devices` endpoint جديد. |
 | **2026-05-26** | `193_drop_sync_trigger.sql` | **Phase 2C:** حذف trigger المزامنة `trg_sync_installed_device` — الكتابات الآن تذهب مباشرةً لـ `installed_devices` في POST و PUT بدون الحاجة للـ trigger. الحقول الفيزيائية حُذفت من contracts INSERT/UPDATE. |
-| **2026-06-17** | *(كود فقط — لا هجرة)* | **تدقيق نزاهة العقد (إضافة/تعديل/تسكير) — قبل ضبط الصلاحيات الجديدة.** **GAP-080:** توحيد فضاء معرّف منشئ البيعة على `hr_users.id` (`hrUserId` في حمولة الموظفين + `ContractForm`) + عرض «صاحب البيعة» في `ContractDetail`. *(لاحقاً أُلغي بـ GAP-083 — الاتجاه الصحيح هو `employees`).* **GAP-081:** منع التسكير عبر `edit` — التفعيل حصراً في `/approve` (`deriveContractStatus` لا يُنتج `active`). **GAP-082:** حارس تفرّد خادمي ضد البيع المزدوج (409 على تكرار `source_task_offer_id`/`sale_reference_number`) + إصلاح قراءة العرض المُباع في `openTasks.get`. |
+| **2026-06-17** | *(كود فقط — لا هجرة)* | **تدقيق نزاهة العقد (إضافة/تعديل/تسكير) — قبل ضبط الصلاحيات الجديدة.** **GAP-080:** توحيد فضاء معرّف منشئ البيعة على `hr_users.id` (`hrUserId` في حمولة الموظفين + `ContractForm`) + عرض «صاحب البيعة» في `ContractDetail`. *(لاحقاً أُلغي بـ GAP-083 — الاتجاه الصحيح هو `employees`).* **GAP-081:** منع التسكير عبر `edit` — التفعيل حصراً في `/approve` (`deriveContractWriteStatus` لا يُنتج `active`). **GAP-082:** حارس تفرّد خادمي ضد البيع المزدوج (409 على تكرار `source_task_offer_id`/`sale_reference_number`) + إصلاح قراءة العرض المُباع في `openTasks.get`. |
 | **2026-06-17** | `298_contracts_sale_owner_to_employees.sql` | **GAP-083:** تصحيح نموذج نسبة البيعة — إعادة توجيه FK `sale_owner_id` من `hr_users(id)` إلى **`employees(id)` ON DELETE SET NULL** مع نقل البيانات عبر `hr_users.employee_id`. يلغي علاج GAP-080 (المنسدل يعرض كل الموظفين النشطين بـ`employees.id`) ويُذيب خطأ فضاء المعرّفات في التعبئة التلقائية. التسكير يبقى على `hr_users`. |
 | **2026-06-17** | `299_contracts_permission_baseline.sql` | **أساس صلاحيات العقود + تنظيف:** مدير الشركة←كل القدرات GLOBAL؛ المشرفة←إزالة `assign_sale_owner`؛ **GAP-085:** حذف `contracts.approve` المكرّر (توحيد التسكير على `contracts.close`)؛ **GAP-084:** حذف `sales.can_close` الميت (وإعادة `/closers` إليه على `contracts.close`)؛ تنظيف الدور 2 (CASCADE يزيل المنح). |
 | **2026-06-17** | *(كود فقط — لا هجرة)* | **GAP-086:** حارس تسليح في `ContractForm` يمنع مسح بنود العقد المستعادة عند فتح التعديل (الإجمالي 0). **GAP-087:** تمكين العامل GLOBAL عبر الفروع — إزالة حصر السوبر-أدمن من ترويسة سياق الفرع (`api.ts`/`authFetch.ts`) + فلتر إدارة داخل صفحة العقود + حارس صريح يمنع الإنشاء الصامت في الفرع الأساسي عند «كل الفروع». توحيد `/approve`+`/reject`+`canApproveDraft` على `contracts.close`. |
+| **2026-07-27** | `390_draft_contract_device_integrity.sql` + كود | **GAP-088:** تثبيت قاعدة «المسودة بلا جهاز تشغيلي» في الواجهة والخادم وقاعدة البيانات؛ تمييز بيانات الجهاز المخطط عن سجل `installed_devices`، ومنع ربط أي جهاز بعقد غير نشط أو إعادة عقد ذي جهاز إلى `draft`. |

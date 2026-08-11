@@ -84,6 +84,8 @@ export default function EmergencyResultModal({
           {mode === 'apply' && (
             <EmergencyResultWizard
               taskId={taskId}
+              visitId={visitId}
+              visitTaskId={visitTaskId}
               contractId={contractId}
               maintenanceKind={maintenanceKind}
               readOnly={readOnly}

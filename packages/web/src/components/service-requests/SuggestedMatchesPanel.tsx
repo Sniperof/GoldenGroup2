@@ -99,15 +99,15 @@ function statusBadge(status: ComparisonStatus) {
   return <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${m[status]}`}>{l[status]}</span>;
 }
 
-function getRequestSnapshot(request: any, party: 'beneficiary' | 'referrer' = 'beneficiary') {
-  if (party === 'referrer') {
-    const ext = asRecord(request?.referrerExternal);
+function getRequestSnapshot(request: any, party: 'beneficiary' | 'requester' | 'referrer' = 'beneficiary') {
+  if (party !== 'beneficiary') {
+    const ext = asRecord(party === 'referrer' ? request?.referrerExternal : request?.requesterExternal);
     const compatible = asRecord(ext.clientCompatible);
     return {
       firstName: readText(ext.firstName) || readText(compatible.firstName),
       lastName: readText(ext.lastName) || readText(compatible.lastName),
       primaryMobile: readText(ext.primary_phone) || readText(compatible.mobile),
-      secondaryMobile: '',
+      secondaryMobile: readText(ext.secondary_phone),
       governorateId: numberValue(ext.governorateId ?? compatible.governorate),
       regionId: numberValue(ext.regionId ?? compatible.district),
       subdistrictId: numberValue(ext.subdistrictId),
@@ -187,7 +187,7 @@ function comparisonRows(
     subdistrictId?: number | null;
     neighborhoodId?: number | null;
   }) => Record<number, number>,
-  party: 'beneficiary' | 'referrer' = 'beneficiary',
+  party: 'beneficiary' | 'requester' | 'referrer' = 'beneficiary',
 ) {
   const snap = getRequestSnapshot(request, party);
   const reqGeo = resolveGeoChain(snap);
@@ -260,15 +260,19 @@ export default function SuggestedMatchesPanel({
   createBusy = false,
   onCreateFromRequest,
   fetchSuggestions,
+  heading = 'سجلات مقترحة',
+  createLabel = 'إنشاء سجل جديد من بيانات الطلب',
 }: {
   serviceRequestId: number;
   request?: any;
   onLink: (m: { source: 'client' | 'candidate'; id: number }) => Promise<void>;
   sources?: 'all' | 'clients';
-  party?: 'beneficiary' | 'referrer';
+  party?: 'beneficiary' | 'requester' | 'referrer';
   canCreateFromRequest?: boolean;
   createBusy?: boolean;
   onCreateFromRequest?: () => Promise<void>;
+  heading?: string;
+  createLabel?: string;
   /** Optional fetcher so other request families (e.g. account_creation, which
    *  is guarded by its own permission keys) can feed this panel from their own
    *  endpoint. Defaults to the generic service-requests suggested-matches call. */
@@ -348,7 +352,7 @@ export default function SuggestedMatchesPanel({
     setLoading(true);
     const load = fetchSuggestions
       ? fetchSuggestions()
-      : api.serviceRequests.suggestedMatches(serviceRequestId, party === 'referrer' ? 'referrer' : undefined);
+      : api.serviceRequests.suggestedMatches(serviceRequestId, party === 'beneficiary' ? undefined : party);
     load
       .then((res: { clients: any[]; candidates?: any[] }) => {
         if (cancelled) return;
@@ -392,7 +396,7 @@ export default function SuggestedMatchesPanel({
     <div className="space-y-3">
       <h3 className="flex items-center gap-1 text-base font-bold text-slate-800">
         <Search className="h-4 w-4" />
-        سجلات مقترحة
+        {heading}
       </h3>
 
       {allEmpty && (
@@ -406,7 +410,7 @@ export default function SuggestedMatchesPanel({
                 loading={createBusy}
                 onClick={requestCreate}
               >
-                إنشاء سجل جديد من بيانات الطلب
+                {createLabel}
               </Button>
             </div>
           )}
@@ -523,7 +527,7 @@ export default function SuggestedMatchesPanel({
             loading={createBusy}
             onClick={requestCreate}
           >
-            لا توجد نتيجة مناسبة، إنشاء سجل جديد
+            لا توجد نتيجة مناسبة، {createLabel}
           </Button>
         </div>
       )}

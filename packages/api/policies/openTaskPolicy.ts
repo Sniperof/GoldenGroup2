@@ -17,6 +17,8 @@ export function canViewOpenTask(
   context: AuthContext,
   branchId: number | null,
 ): AuthorizationResult {
+  const invalidAssignedGrant = rejectAssignedManagementGrant(context, 'open_tasks.view');
+  if (invalidAssignedGrant) return invalidAssignedGrant;
   return authorize(context, { permission: 'open_tasks.view', branchId });
 }
 
@@ -24,9 +26,28 @@ export function canEditOpenTask(
   context: AuthContext,
   branchId: number | null,
 ): AuthorizationResult {
+  const invalidAssignedGrant = rejectAssignedManagementGrant(context, 'open_tasks.edit');
+  if (invalidAssignedGrant) return invalidAssignedGrant;
   return authorize(context, { permission: 'open_tasks.edit', branchId });
 }
 
 export function getOpenTaskListAccessPlan(context: AuthContext): ListAccessPlan {
-  return resolveListAccessScope(context, 'open_tasks.view');
+  const plan = resolveListAccessScope(context, 'open_tasks.view');
+  if (plan.scope !== 'ASSIGNED') return plan;
+
+  return {
+    scope: 'NONE',
+    userId: plan.userId,
+    allowedBranchIds: [],
+  };
+}
+
+function rejectAssignedManagementGrant(
+  context: AuthContext,
+  permission: 'open_tasks.view' | 'open_tasks.edit',
+): AuthorizationResult | null {
+  if (context.isSuperAdmin) return null;
+  const grant = context.grants.find(item => item.permission === permission);
+  if (grant?.scope !== 'ASSIGNED') return null;
+  return { allowed: false, reason: 'ASSIGNMENT_FORBIDDEN', grant };
 }

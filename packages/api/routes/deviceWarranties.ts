@@ -37,6 +37,8 @@ function mapWarranty(row: any) {
     totalValue:          row.total_value,
     offerTaskId:         row.offer_task_id,
     cardDeliveryTaskId:  row.card_delivery_task_id,
+    cardDeliveryStatus:  row.card_delivery_status ?? null,
+    activeCardDeliveryTaskId: row.active_card_delivery_task_id ?? null,
     notes:               row.notes,
     createdAt:           row.created_at,
     updatedAt:           row.updated_at,
@@ -106,11 +108,73 @@ router.get('/', requirePermission('clients.device_warranties.view', 'contracts.v
   if (!access.allowed) return res.status(403).json({ error: 'ط؛ظٹط± ظ…ط³ظ…ظˆط­' });
 
   const { rows } = await pool.query(
-    `SELECT * FROM device_warranties WHERE device_id = $1 ORDER BY warranty_type`,
+    `SELECT w.*,
+            current_card.link_status AS card_delivery_status,
+            current_card.task_id AS active_card_delivery_task_id
+       FROM device_warranties w
+       LEFT JOIN LATERAL (
+         SELECT link.link_status, link.task_id
+           FROM open_task_golden_warranties link
+          WHERE link.warranty_id = w.id
+            AND link.link_status IN ('active', 'delivered')
+          ORDER BY CASE link.link_status WHEN 'delivered' THEN 0 ELSE 1 END,
+                   link.id DESC
+          LIMIT 1
+       ) current_card ON TRUE
+      WHERE w.device_id = $1
+      ORDER BY w.warranty_type`,
     [deviceId],
   );
   res.json(rows.map(mapWarranty));
 });
+
+// Manual creation picker: only warranties without an active attempt or prior
+// successful delivery are returned. The create route repeats these checks under
+// row locks; this endpoint is only the user-facing projection.
+router.get(
+  '/golden/card-delivery-eligible',
+  requirePermission('open_tasks.edit'),
+  async (req, res) => {
+    const authContext = req.authContext!;
+    const customerId = Number(req.query.customerId);
+    const branchId = Number(req.query.branchId ?? authContext.actingBranchId);
+    if (!Number.isInteger(customerId) || customerId <= 0) {
+      return res.status(400).json({ error: 'معرف الزبون غير صالح' });
+    }
+    if (!Number.isInteger(branchId) || branchId <= 0) {
+      return res.status(400).json({ error: 'معرف الفرع غير صالح' });
+    }
+    if (!authorize(authContext, { permission: 'open_tasks.edit', branchId }).allowed) {
+      return res.status(403).json({ error: 'غير مسموح بإنشاء مهمة ضمن هذا الفرع' });
+    }
+
+    const { rows } = await pool.query(
+      `SELECT w.id AS "warrantyId",
+              d.id AS "installedDeviceId",
+              COALESCE(d.device_model_name, c.device_model_name, d.external_device_name, 'جهاز') AS "deviceModelName",
+              COALESCE(d.serial_number, d.external_device_serial) AS "serialNumber",
+              w.end_date AS "endDate"
+         FROM device_warranties w
+         JOIN installed_devices d ON d.id = w.device_id
+         LEFT JOIN contracts c ON c.id = d.contract_id
+        WHERE d.customer_id = $1
+          AND d.branch_id = $2
+          AND w.warranty_type = 'golden'
+          AND w.status = 'active'
+          AND (w.end_date IS NULL OR w.end_date >= CURRENT_DATE)
+          AND w.card_delivery_task_id IS NULL
+          AND NOT EXISTS (
+            SELECT 1
+              FROM open_task_golden_warranties link
+             WHERE link.warranty_id = w.id
+               AND link.link_status IN ('active', 'delivered')
+          )
+        ORDER BY w.end_date, w.id`,
+      [customerId, branchId],
+    );
+    return res.json(rows);
+  },
+);
 
 // PATCH /api/device-warranties/:id
 //
@@ -286,29 +350,6 @@ router.post('/golden/offer-result', requirePermission('contracts.edit'), async (
   } finally {
     client.release();
   }
-});
-
-// POST /api/device-warranties/golden/:warrantyId/card-delivery
-// Routine VIP-card handover (DEC-CT-17): stamps the delivery task; activates nothing.
-router.post('/golden/:warrantyId/card-delivery', requirePermission('contracts.edit'), async (req, res) => {
-  const authContext = req.authContext!;
-  const taskId = req.body?.taskId != null ? Number(req.body.taskId) : null;
-  const w = await loadWarrantyForAccess(req.params.warrantyId);
-  if (!w) return res.status(404).json({ error: 'سجل الكفالة غير موجود' });
-  if (w.warranty_type !== 'golden') {
-    return res.status(400).json({ error: 'تسليم الكرت يخص الكفالة الذهبية فقط' });
-  }
-  if (!authorize(authContext, { permission: 'contracts.edit', branchId: w.branchId }).allowed) {
-    return res.status(403).json({ error: 'غير مسموح' });
-  }
-  const { rows } = await pool.query(
-    `UPDATE device_warranties SET card_delivery_task_id = $1, updated_at = now() WHERE id = $2 RETURNING *`,
-    [taskId, req.params.warrantyId],
-  );
-  if (taskId) {
-    await pool.query(`UPDATE open_tasks SET status = 'completed' WHERE id = $1`, [taskId]);
-  }
-  res.json(mapWarranty(rows[0]));
 });
 
 // ── Golden-warranty payments (DEC-CT-17) ─────────────────────────────────────

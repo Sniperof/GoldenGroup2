@@ -24,3 +24,22 @@ test('golden warranty offers reject devices with an active golden warranty', () 
   assert.equal(evaluateDeviceTaskEligibility({ taskType: 'golden_warranty_offer', hasActiveGoldenWarranty: true }).code, 'ACTIVE_GOLDEN_WARRANTY_EXISTS');
   assert.equal(evaluateDeviceTaskEligibility({ taskType: 'golden_warranty_offer', hasActiveGoldenWarranty: false }).allowed, true);
 });
+
+test('device return requires an in-workshop device with a successful maintenance retrieval', () => {
+  assert.equal(
+    evaluateDeviceTaskEligibility({
+      taskType: 'device_return',
+      deviceStatus: 'in_workshop',
+      hasSuccessfulMaintenanceRetrieval: false,
+    }).code,
+    'MAINTENANCE_RETRIEVAL_REQUIRED',
+  );
+  assert.equal(
+    evaluateDeviceTaskEligibility({
+      taskType: 'device_return',
+      deviceStatus: 'in_workshop',
+      hasSuccessfulMaintenanceRetrieval: true,
+    }).allowed,
+    true,
+  );
+});

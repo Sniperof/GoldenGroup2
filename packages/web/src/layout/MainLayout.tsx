@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../hooks/useAuthStore';
 import { usePermissions } from '../hooks/usePermissions';
+import { canSeeFieldVisitManagementSurface } from '../lib/fieldVisitPermissionPolicy';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import { isGlobalOnlyPath } from '../lib/branchContext';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -16,7 +17,7 @@ import {
     Briefcase, Calendar, AlertTriangle, DollarSign, RefreshCw, RotateCcw, PhoneCall,
     FileText, FilePlus2, Headset, Settings, UserPlus, Menu, X as CloseIcon,
     ChevronLeft, ChevronRight, BadgeCheck, GraduationCap, Mic2, LogOut, Building2, SlidersHorizontal, ShieldCheck, ListChecks, Shield, Monitor, Settings2,
-    Bell, Wrench, Gift, Inbox, LayoutGrid, UserCheck, CalendarCheck, Layers, HardDrive, Unplug, Beaker,
+    Bell, Wrench, Gift, Inbox, LayoutGrid, UserCheck, CalendarCheck, Layers, HardDrive, Unplug, Beaker, Package,
 } from '../components/ui/icons';
 
 const navItems = [
@@ -71,10 +72,13 @@ const operationsChildren = [
 
 // Requests — intake parent section (currently only maintenance; will grow).
 const requestsChildren = [
+    { path: '/service-requests/golden-warranty', label: 'طلبات الكفالة الذهبية', icon: ShieldCheck, permission: 'golden_warranty.view' },
     { path: '/account-requests',                label: 'طلبات إنشاء الحساب',     icon: UserPlus, permission: 'account_requests.view' },
-    { path: '/service-requests/water-check',    label: 'طلبات فحص المياه',                  icon: Beaker },
-    { path: '/service-requests/water-check/simulator', label: 'محاكاة فحص المياه',           icon: FilePlus2 },
-    { path: '/service-requests',                label: 'طلبات الصيانة',          icon: Wrench },
+    { path: '/service-requests/water-check',    label: 'طلبات فحص المياه',       icon: Beaker,   permission: 'water_check.view' },
+    { path: '/service-requests/device-requests', label: 'طلبات الأجهزة', icon: Package, permission: 'service_requests.view' },
+    { path: '/service-requests/periodic-maintenance', label: 'طلبات الصيانة الدورية', icon: Wrench, permission: 'periodic_maintenance.view' },
+    { path: '/service-requests/water-check/simulator', label: 'محاكاة فحص المياه', icon: FilePlus2, permission: 'water_check.create' },
+    { path: '/service-requests',                label: 'طلبات الصيانة',          icon: Wrench,   permission: 'service_requests.view' },
 ];
 
 const planningChildren = [
@@ -138,6 +142,10 @@ export default function MainLayout() {
     // (owned customers / team-assigned visits).
     const canSeeMyCustomers = can('tasks.my_customers.view');
     const canSeeMyVisits = can('field_visits.my_visits.view');
+    const canSeeFieldVisitManagement = canSeeFieldVisitManagementSurface({
+      grants,
+      isSuperAdmin,
+    });
 
     const jobsViewPermMap: Record<string, string> = {
       '/jobs/applications': 'jobs.applications.view_list',
@@ -347,7 +355,7 @@ export default function MainLayout() {
                     )}
 
                     {/* 3. Field Visits (central daily visit hub) */}
-                    {canSeeBranchModules && can('field_visits.view') && (
+                    {canSeeBranchModules && canSeeFieldVisitManagement && (
                     <NavLink
                         to="/field-visits"
                         onClick={() => setIsMobileMenuOpen(false)}
@@ -508,8 +516,10 @@ export default function MainLayout() {
                     </div>
                     )}
 
-                    {/* 5b. Requests — parent section for all intake layers */}
-                    {canSeeBranchModules && can('service_requests.view') && (
+                    {/* 5b. Requests — parent section for all intake layers.
+                        Visible with any request-family view key (contract §5). */}
+                    {canSeeBranchModules
+                      && (can('service_requests.view') || can('water_check.view') || can('periodic_maintenance.view') || can('golden_warranty.view') || can('account_requests.view')) && (
                     <div className={isCollapsed ? 'lg:hidden' : 'block'}>
                         <button
                             onClick={() => setRequestsOpen((o: boolean) => !o)}

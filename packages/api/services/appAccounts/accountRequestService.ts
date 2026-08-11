@@ -18,7 +18,11 @@
 
 import pool from '../../db.js';
 import { normalizePhone, isValidSyrianMobile } from '../../utils/contactValidation.js';
-import { resolveAndValidateAddress } from './addressValidation.js';
+import { resolveAndValidateAddress } from '../geo/administrativeAddress.js';
+import {
+  buildMobileAddressLabels,
+  buildMobileServiceAddress,
+} from '../geo/mobileServiceAddress.js';
 import { detectAccountRequestDuplicate } from './accountDuplicatePolicy.js';
 import {
   acquireTx,
@@ -32,13 +36,18 @@ import {
 /** Handle validity window after a successful OTP verify (DEC-013 §6). */
 const HANDLE_TTL_MS = 10 * 60 * 1000;
 
-export type MobileStatus = 'visitor' | 'pending' | 'active' | 'suspended';
+// `rejected` is surfaced ONLY with a matching `ref` (proof of being the
+// submitter); phone alone never yields it — it stays a silent `visitor`.
+export type MobileStatus = 'visitor' | 'pending' | 'active' | 'suspended' | 'rejected';
 
 export interface AccountRequestForm {
   firstName: string;
+  fatherName: string;
   lastName: string;
   primaryMobile: string;
+  primaryMobileHasWhatsapp: boolean;
   secondaryMobile?: string | null;
+  secondaryMobileHasWhatsapp?: boolean;
   governorate: number | string;
   cityOrArea?: number | string | null;
   subArea?: number | string | null;
@@ -69,8 +78,21 @@ function requireText(value: unknown, label: string): string {
 /**
  * Derived mobile view. Priority: active/suspended account (by number) wins over
  * a pending request; a deleted account falls back to visitor (may re-register).
+ *
+ * `ref` (optional) — the request's publicRefNumber, which only the submitter
+ * holds (echoed once by the create response and stored locally). When it
+ * matches the number's latest rejected non-archived request, the response
+ * carries that request's fate + reason so the app can show WHY without an OTP
+ * round. Phone alone still answers a bare `visitor` — the ref acts as the
+ * capability; reason-only, never PII. Archiving the request closes this.
  */
-export async function checkMobileStatus(rawPhone: string): Promise<{ status: MobileStatus }> {
+export async function checkMobileStatus(
+  rawPhone: string,
+  ref?: string,
+): Promise<{
+  status: MobileStatus;
+  rejection?: { code: string; label: string; rejectedAt: string | null };
+}> {
   const phone = normalizePhone(rawPhone);
   if (!isValidSyrianMobile(phone)) throw httpError(400, 'رقم الموبايل غير صالح');
 
@@ -96,19 +118,72 @@ export async function checkMobileStatus(rawPhone: string): Promise<{ status: Mob
   );
   if (pending.length > 0) return { status: 'pending' };
 
+  // Fate disclosure without an OTP round: only with the matching ref in hand
+  // (proof of being the submitter), and only while the rejected request is not
+  // archived. No ref / no match → a silent plain `visitor`, as ever.
+  const cleanRef = typeof ref === 'string' ? ref.trim() : '';
+  if (cleanRef) {
+    const { rows: rejected } = await pool.query<{
+      rejection_reason: string | null;
+      closed_at: string | null;
+    }>(
+      `SELECT rejection_reason, closed_at
+         FROM service_requests
+        WHERE request_type = 'account_creation'
+          AND requester_external->>'primary_phone' = $1
+          AND public_ref_number = $2
+          AND status = 'rejected'
+          AND archived_at IS NULL
+        ORDER BY created_at DESC
+        LIMIT 1`,
+      [phone, cleanRef],
+    );
+    if (rejected.length > 0) {
+      const r = rejected[0];
+      return {
+        status: 'visitor',
+        rejection: {
+          code: r.rejection_reason ?? 'unspecified',
+          label: REJECTION_REASON_LABELS[r.rejection_reason ?? ''] ?? 'لم يُستكمل الطلب',
+          rejectedAt: r.closed_at,
+        },
+      };
+    }
+  }
+
   return { status: 'visitor' };
 }
 
+/**
+ * Customer-facing labels for the shared reject reason codes (stateMachine
+ * TRIAGE_OUTCOMES_BY_TERMINAL.rejected). Disclosed only through the
+ * handle-gated recovery path — the proven owner of the number may know their
+ * own request's fate; the public status route keeps answering `visitor`.
+ */
+const REJECTION_REASON_LABELS: Record<string, string> = {
+  duplicate: 'طلب مكرّر — يوجد طلب أو حساب سابق لهذا الرقم',
+  invalid_request: 'بيانات الطلب غير مكتملة أو غير صالحة',
+  spam: 'طلب غير جدّي',
+  out_of_scope: 'خارج نطاق الخدمة',
+  unverified_caller: 'تعذّر التحقق من مقدّم الطلب',
+  device_not_company: 'الجهاز ليس من أجهزة الشركة',
+};
+
 /** The pending-screen payload, built from the immutable submitted snapshot. */
 export interface PendingRequestSnapshot {
-  status: 'pending';
+  status: 'pending' | 'rejected';
   requestId: number;
   publicRefNumber: string;
   submittedAt: string;
+  /** Present only when status = 'rejected'. */
+  rejection?: { code: string; label: string; rejectedAt: string | null } | null;
   firstName: string | null;
+  fatherName: string | null;
   lastName: string | null;
   primaryMobile: string;
+  primaryMobileHasWhatsapp: boolean | null;
   secondaryMobile: string | null;
+  secondaryMobileHasWhatsapp: boolean | null;
   address: {
     governorate: string | null;
     cityOrArea: string | null;
@@ -126,25 +201,35 @@ export interface PendingRequestSnapshot {
  * resolved geo labels) — so the customer's screen and the admin's screen never
  * drift, and the app never has to track the picker labels itself.
  */
-function buildSnapshot(
+export function buildSnapshot(
   requestId: number | string,
   publicRefNumber: string,
   submittedAt: string,
   payload: Record<string, any> | null,
   fallbackPhone: string,
+  status: 'pending' | 'rejected' = 'pending',
+  rejection: PendingRequestSnapshot['rejection'] = null,
 ): PendingRequestSnapshot {
   const p = payload ?? {};
   const labels = (p.address_labels ?? {}) as Record<string, string | null>;
   return {
-    status: 'pending',
+    status,
+    ...(status === 'rejected' ? { rejection } : {}),
     // BIGINT id → node-pg string; the documented contract is `integer`.
     requestId: Number(requestId),
     publicRefNumber,
     submittedAt,
     firstName: p.first_name ?? null,
+    fatherName: p.father_name ?? null,
     lastName: p.last_name ?? null,
     primaryMobile: p.primary_mobile ?? fallbackPhone,
+    primaryMobileHasWhatsapp: typeof p.primary_mobile_has_whatsapp === 'boolean'
+      ? p.primary_mobile_has_whatsapp
+      : null,
     secondaryMobile: p.secondary_mobile ?? null,
+    secondaryMobileHasWhatsapp: typeof p.secondary_mobile_has_whatsapp === 'boolean'
+      ? p.secondary_mobile_has_whatsapp
+      : null,
     address: {
       governorate: labels.governorate ?? null,
       cityOrArea: labels.city_or_area ?? null,
@@ -197,19 +282,27 @@ export async function getPendingRequestByVerifiedHandle(input: {
     }
     if (otp.phone !== phone) throw httpError(400, 'الرقم لا يطابق الرقم الذي تم التحقق منه');
 
+    // Prefer the live pending request; otherwise fall back to the latest
+    // rejected one so the proven owner learns their request's fate and reason
+    // (the public status route keeps saying `visitor` — this disclosure is
+    // handle-gated only). Archiving the rejected request closes this window.
     const { rows: reqs } = await tx.client.query<{
       id: number;
       public_ref_number: string;
       created_at: string;
       submitted_payload: Record<string, any> | null;
+      status: string;
+      rejection_reason: string | null;
+      closed_at: string | null;
     }>(
-      `SELECT id, public_ref_number, created_at, submitted_payload
+      `SELECT id, public_ref_number, created_at, submitted_payload,
+              status, rejection_reason, closed_at
          FROM service_requests
         WHERE request_type = 'account_creation'
           AND requester_external->>'primary_phone' = $1
-          AND status = ANY($2)
+          AND (status = ANY($2) OR status = 'rejected')
           AND archived_at IS NULL
-        ORDER BY created_at DESC
+        ORDER BY (status = ANY($2)) DESC, created_at DESC
         LIMIT 1`,
       [phone, SR_ACTIVE_STATUSES],
     );
@@ -223,7 +316,23 @@ export async function getPendingRequestByVerifiedHandle(input: {
     await tx.client.query(`UPDATE otp_verifications SET consumed_at = NOW() WHERE id = $1`, [otp.id]);
     await commitTx(tx);
 
-    return buildSnapshot(row.id, row.public_ref_number, row.created_at, row.submitted_payload, phone);
+    const rejected = row.status === 'rejected';
+    return buildSnapshot(
+      row.id,
+      row.public_ref_number,
+      row.created_at,
+      row.submitted_payload,
+      phone,
+      rejected ? 'rejected' : 'pending',
+      rejected
+        ? {
+            code: row.rejection_reason ?? 'unspecified',
+            label:
+              REJECTION_REASON_LABELS[row.rejection_reason ?? ''] ?? 'لم يُستكمل الطلب',
+            rejectedAt: row.closed_at,
+          }
+        : null,
+    );
   } catch (err) {
     await rollbackTx(tx);
     throw err;
@@ -240,10 +349,34 @@ export async function createAccountRequest(
   if (!handle) throw httpError(400, 'مُعرّف التحقق مطلوب');
 
   const firstName = requireText(form.firstName, 'الاسم الأول');
+  const fatherName = requireText(form.fatherName, 'اسم الأب');
   const lastName = requireText(form.lastName, 'الكنية');
   const detailedAddress = requireText(form.detailedAddress, 'العنوان التفصيلي');
   const phone = normalizePhone(form.primaryMobile);
   if (!isValidSyrianMobile(phone)) throw httpError(400, 'رقم الموبايل الرئيسي غير صالح');
+  if (typeof form.primaryMobileHasWhatsapp !== 'boolean') {
+    throw httpError(400, 'خصيصة واتساب للرقم الرئيسي مطلوبة');
+  }
+
+  const rawSecondaryMobile = typeof form.secondaryMobile === 'string'
+    ? form.secondaryMobile.trim()
+    : '';
+  const secondaryMobile = rawSecondaryMobile ? normalizePhone(rawSecondaryMobile) : null;
+  if (secondaryMobile && !isValidSyrianMobile(secondaryMobile)) {
+    throw httpError(400, 'رقم الموبايل الثانوي غير صالح');
+  }
+  if (secondaryMobile === phone) {
+    throw httpError(400, 'رقم الموبايل الثانوي يجب أن يختلف عن الرقم الرئيسي');
+  }
+  if (secondaryMobile && typeof form.secondaryMobileHasWhatsapp !== 'boolean') {
+    throw httpError(400, 'خصيصة واتساب للرقم الثانوي مطلوبة عند وجود الرقم');
+  }
+  if (!secondaryMobile && form.secondaryMobileHasWhatsapp === true) {
+    throw httpError(400, 'لا يمكن تفعيل واتساب لرقم ثانوي غير موجود');
+  }
+  const secondaryMobileHasWhatsapp = secondaryMobile
+    ? form.secondaryMobileHasWhatsapp === true
+    : false;
 
   // Administrative address must be canonical geo_units IDs (picked via
   // GET /api/public/areas), validated for level + parent chain. We keep both the
@@ -291,7 +424,8 @@ export async function createAccountRequest(
       throw httpError(409, 'يوجد حساب قائم لهذا الرقم', { status: active[0].status });
     }
 
-    // 3. Pending-request rule: one active account_creation request per number.
+    // 3. One-pending-per-number rule (a rejected request does NOT block: the
+    // user may freely re-apply after a rejection).
     const { rows: pending } = await tx.client.query(
       `SELECT 1 FROM service_requests
         WHERE request_type = 'account_creation'
@@ -308,32 +442,32 @@ export async function createAccountRequest(
     // 4. Insert the request (received = Pending to the user).
     const ref = await generatePublicRefNumber(tx.client);
     const requesterExternal = {
-      name: `${firstName} ${lastName}`.trim(),
+      name: `${firstName} ${fatherName} ${lastName}`.trim(),
       first_name: firstName,
+      father_name: fatherName,
       last_name: lastName,
       primary_phone: phone,
-      secondary_phone: form.secondaryMobile ? normalizePhone(form.secondaryMobile) : null,
+      primary_phone_has_whatsapp: form.primaryMobileHasWhatsapp,
+      secondary_phone: secondaryMobile,
+      secondary_phone_has_whatsapp: secondaryMobileHasWhatsapp,
     };
-    const addressLabels = {
-      governorate: address.labels.governorate,
-      city_or_area: address.labels.cityOrArea,
-      sub_area: address.labels.subArea,
-      neighborhood: address.labels.neighborhood,
-    };
-    const serviceAddress = {
-      governorate: address.ids.governorate,
-      city_or_area: address.ids.cityOrArea,
-      sub_area: address.ids.subArea,
-      neighborhood: address.ids.neighborhood,
-      detailed_address: detailedAddress,
+    // Same builder as the water_check intake — one `service_address` shape for
+    // every mobile channel, so a reviewer (or a report) reads one vocabulary
+    // regardless of which type the request is.
+    const addressLabels = buildMobileAddressLabels(address);
+    const serviceAddress = buildMobileServiceAddress({
+      resolved: address,
+      detailedAddress,
       location: form.location ?? null,
-      labels: addressLabels,
-    };
+    });
     const submittedPayload = {
       first_name: firstName,
+      father_name: fatherName,
       last_name: lastName,
       primary_mobile: phone,
+      primary_mobile_has_whatsapp: form.primaryMobileHasWhatsapp,
       secondary_mobile: requesterExternal.secondary_phone,
+      secondary_mobile_has_whatsapp: secondaryMobileHasWhatsapp,
       governorate: address.ids.governorate,
       city_or_area: address.ids.cityOrArea,
       sub_area: address.ids.subArea,

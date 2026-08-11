@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { AlertCircle, ArrowLeft, ArrowRight, ChevronRight, Loader2, Save } from '../../ui/icons';
 import { evaluateMembraneEfficiency, membraneEfficiencyIssueMessage } from '@golden-crm/shared';
-import { api } from '../../../lib/api';
+import { api, type EmergencyResultContext } from '../../../lib/api';
 import DSSelect from '../../ui/Select';
 import Card from '../../ui/Card';
 import Badge from '../../ui/Badge';
@@ -122,6 +122,7 @@ function CompareRow({ label, before, after }: { label: string; before?: any; aft
 interface Props {
   phase: 'pre' | 'post';
   taskId: number;
+  resultContext: EmergencyResultContext | null;
   initialData?: any;
   preData?: any; // for post-phase: show comparison
   readOnly?: boolean;
@@ -161,7 +162,7 @@ function initForm(d?: any): F {
   };
 }
 
-export default function TechStateForm({ phase, taskId, initialData, preData, readOnly = false, onSaved, onNext, onBack }: Props) {
+export default function TechStateForm({ phase, taskId, resultContext, initialData, preData, readOnly = false, onSaved, onNext, onBack }: Props) {
   const [f, setF] = useState<F>(() => initForm(initialData));
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState('');
@@ -193,6 +194,10 @@ export default function TechStateForm({ phase, taskId, initialData, preData, rea
   });
 
   const handleSave = async (andNext = false) => {
+    if (!resultContext) {
+      setError('يجب فتح نتيجة الصيانة من داخل الزيارة المرتبطة');
+      return;
+    }
     const membrane = evaluateMembraneEfficiency(f.membraneInputTds, f.membraneOutputTds);
     if (membrane.status === 'invalid') {
       setError(membraneEfficiencyIssueMessage(membrane.issue));
@@ -201,7 +206,7 @@ export default function TechStateForm({ phase, taskId, initialData, preData, rea
     setSaving(true); setError('');
     try {
       const save = phase === 'pre' ? api.emergencyResult.savePreState : api.emergencyResult.savePostState;
-      await save(taskId, buildPayload());
+      await save(taskId, buildPayload(), resultContext);
       onSaved();
       if (andNext && onNext) onNext();
     } catch (err: any) { setError(err.message || 'فشل الحفظ'); }
