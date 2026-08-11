@@ -51,6 +51,9 @@ router.use(requireAuth);
 const CLIENT_REQUEST_VIEW_PERMISSION_BY_TYPE: Record<string, string> = {
   emergency_maintenance: 'service_requests.view',
   water_check: 'water_check.view',
+  device_request: 'service_requests.view',
+  periodic_maintenance: 'periodic_maintenance.view',
+  golden_warranty: 'golden_warranty.view',
   account_creation: 'account_requests.view',
 };
 

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   cancelUpcomingPeriodicMaintenanceForTransfer,
+  createPeriodicMaintenanceTaskFromServiceRequest,
   generateFirstPeriodicMaintenanceTask,
   PeriodicMaintenanceTransferError,
   type PeriodicMaintenanceGenerationResult,
@@ -16,6 +17,98 @@ const enabledSettings: PeriodicMaintenanceSettings = {
   attachWarningDays: 14,
   attachAllowedStatuses: ['open'],
 };
+
+test('service-request periodic creation preserves each approved schedule anchor', async () => {
+  const scenarios = [
+    {
+      name: 'first task uses activation',
+      history: null,
+      expectedAnchor: '2026-01-10T09:00:00.000Z',
+    },
+    {
+      name: 'closed task uses its close time',
+      history: { status: 'closed', dueDate: '2026-06-01', closedAt: '2026-06-15T09:00:00.000Z', supersededByOpenTaskId: null, supersedingClosedAt: null },
+      expectedAnchor: '2026-06-15T09:00:00.000Z',
+    },
+    {
+      name: 'superseded task uses the emergency close time',
+      history: { status: 'closed', dueDate: '2026-06-01', closedAt: '2026-06-02T09:00:00.000Z', supersededByOpenTaskId: 88, supersedingClosedAt: '2026-06-20T09:00:00.000Z' },
+      expectedAnchor: '2026-06-20T09:00:00.000Z',
+    },
+  ];
+
+  for (const scenario of scenarios) {
+    const dateParams: any[][] = [];
+    const db = {
+      async query(sql: string, params?: any[]) {
+        if (sql.includes('FROM installed_devices d')) return { rows: [{
+          id: 38, clientId: 4, branchId: 2, contractId: 77, status: 'active',
+          activatedAt: '2026-01-10T09:00:00.000Z', warrantyMonths: 12, warrantyVisits: 2,
+          maintenancePlan: null, serviceAgreementId: null,
+        }] };
+        if (sql.includes("status NOT IN ('completed', 'closed', 'cancelled')") && sql.includes('FOR UPDATE')) {
+          return { rows: [] };
+        }
+        if (sql.includes('LEFT JOIN open_task_periodic_payload')) return { rows: scenario.history ? [scenario.history] : [] };
+        if (sql.includes('SELECT ($1::timestamptz')) {
+          dateParams.push(params ?? []);
+          return { rows: [{ dueDate: '2026-12-12' }] };
+        }
+        if (sql.includes('INSERT INTO open_tasks')) return { rows: [{ id: 901 }] };
+        return { rows: [] };
+      },
+    };
+    const result = await createPeriodicMaintenanceTaskFromServiceRequest(db, {
+      serviceRequestId: 700,
+      installedDeviceId: 38,
+      requestReasonId: 5,
+      requestReasonSnapshot: { id: 5, code: 'scheduled', label: scenario.name },
+      createdByUserId: 12,
+      settings: enabledSettings,
+    });
+    assert.equal(result.outcome, 'created', scenario.name);
+    assert.deepEqual(dateParams[0], [scenario.expectedAnchor, 180], scenario.name);
+  }
+});
+
+test('service-request periodic creation inherits an unexecuted cancelled due date without clipping it', async () => {
+  let arithmeticQueries = 0;
+  let insertedDueDate: unknown;
+  const db = {
+    async query(sql: string, params?: any[]) {
+      if (sql.includes('FROM installed_devices d')) return { rows: [{
+        id: 38, clientId: 4, branchId: 2, contractId: 77, status: 'active',
+        activatedAt: '2026-01-10T09:00:00.000Z', warrantyMonths: 12, warrantyVisits: 2,
+        maintenancePlan: null, serviceAgreementId: null,
+      }] };
+      if (sql.includes("status NOT IN ('completed', 'closed', 'cancelled')") && sql.includes('FOR UPDATE')) return { rows: [] };
+      if (sql.includes('LEFT JOIN open_task_periodic_payload')) return { rows: [{
+        status: 'cancelled', dueDate: '2026-02-01', closedAt: null,
+        supersededByOpenTaskId: null, supersedingClosedAt: null,
+      }] };
+      if (sql.includes('SELECT ($1::timestamptz')) {
+        arithmeticQueries += 1;
+        return { rows: [] };
+      }
+      if (sql.includes('INSERT INTO open_tasks')) {
+        insertedDueDate = params?.[4];
+        return { rows: [{ id: 902 }] };
+      }
+      return { rows: [] };
+    },
+  };
+  const result = await createPeriodicMaintenanceTaskFromServiceRequest(db, {
+    serviceRequestId: 701,
+    installedDeviceId: 38,
+    requestReasonId: 5,
+    requestReasonSnapshot: { id: 5, code: 'scheduled', label: 'مستحقة' },
+    createdByUserId: 12,
+    settings: enabledSettings,
+  });
+  assert.equal(result.outcome, 'created');
+  assert.equal(arithmeticQueries, 0);
+  assert.equal(insertedDueDate, '2026-02-01');
+});
 
 test('successful activation updates device and contract before bootstrapping periodic maintenance', async () => {
   const statements: string[] = [];

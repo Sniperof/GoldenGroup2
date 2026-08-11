@@ -4,6 +4,8 @@ import { evaluateMobileIntakeAvailability } from './mobileIntakeRegistry.js';
 import { WATER_CHECK_FORM_VERSION } from './waterCheckFormSchema.js';
 import { EMERGENCY_MAINTENANCE_FORM_VERSION } from './emergencyMaintenanceFormSchema.js';
 import { DEVICE_REQUEST_FORM_VERSION } from './deviceRequestFormSchema.js';
+import { PERIODIC_MAINTENANCE_FORM_VERSION } from './periodicMaintenanceFormSchema.js';
+import { GOLDEN_WARRANTY_FORM_VERSION } from './goldenWarrantyFormSchema.js';
 import type { ServiceRequestTypeDefinition } from './serviceRequestTypeRegistry.js';
 
 function definition(overrides: Partial<ServiceRequestTypeDefinition> = {}): ServiceRequestTypeDefinition {
@@ -64,6 +66,42 @@ test('registry and installed handler jointly enable device request', () => {
     submittedMode: 'for_another',
   });
   assert.equal(result.ok, true);
+});
+
+test('registry and installed handler jointly enable periodic maintenance for visitors and customers', () => {
+  for (const isAuthenticatedCustomer of [false, true]) {
+    const result = evaluateMobileIntakeAvailability({
+      definition: definition({
+        requestType: 'periodic_maintenance',
+        defaultFormVersion: PERIODIC_MAINTENANCE_FORM_VERSION,
+        submitterTiers: ['staff', 'unverified', 'visitor', 'customer'],
+      }),
+      requestType: 'periodic_maintenance',
+      isAuthenticatedCustomer,
+      submittedFormVersion: PERIODIC_MAINTENANCE_FORM_VERSION,
+      submittedMode: 'for_self',
+    });
+    assert.equal(result.ok, true);
+  }
+});
+
+test('registry and installed handler jointly enable golden warranty for every public tier and both modes', () => {
+  for (const isAuthenticatedCustomer of [false, true]) {
+    for (const submittedMode of ['for_self', 'for_another'] as const) {
+      const result = evaluateMobileIntakeAvailability({
+        definition: definition({
+          requestType: 'golden_warranty',
+          defaultFormVersion: GOLDEN_WARRANTY_FORM_VERSION,
+          submitterTiers: ['staff', 'unverified', 'visitor', 'customer'],
+        }),
+        requestType: 'golden_warranty',
+        isAuthenticatedCustomer,
+        submittedFormVersion: GOLDEN_WARRANTY_FORM_VERSION,
+        submittedMode,
+      });
+      assert.equal(result.ok, true);
+    }
+  }
 });
 
 test('an active database row without a code handler remains fail-closed', () => {

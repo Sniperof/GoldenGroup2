@@ -2133,10 +2133,15 @@ export async function applyGoldenWarrantyOfferResult(
 
     const { rows: vtRows } = await db.query(
       `SELECT vt.id, vt.field_visit_id, vt.source_open_task_id, vt.task_type, vt.status,
-              fv.status AS visit_status, fv.branch_id, ot.contract_id
+              fv.status AS visit_status, fv.branch_id, ot.contract_id,
+              ot.source_service_request_id,
+              sr.request_type AS source_request_type,
+              sr.installed_device_id AS requested_installed_device_id,
+              sr.requested_warranty_months
          FROM visit_tasks vt
          JOIN field_visits fv ON fv.id = vt.field_visit_id
          LEFT JOIN open_tasks ot ON ot.id = vt.source_open_task_id
+         LEFT JOIN service_requests sr ON sr.id = ot.source_service_request_id
         WHERE vt.id = $1 LIMIT 1`,
       [visitTaskId],
     );
@@ -2171,6 +2176,19 @@ export async function applyGoldenWarrantyOfferResult(
     } else {
       if (!Array.isArray(body.devices) || body.devices.length === 0) {
         throw new ResultValidationError('يجب تحديد جهاز واحد على الأقل للتفعيل');
+      }
+      if (vt.source_request_type === 'golden_warranty') {
+        if (body.devices.length !== 1) {
+          throw new ResultValidationError('طلب الكفالة الذهبية يسمح بتفعيل جهاز واحد فقط');
+        }
+        const lockedDeviceId = Number(vt.requested_installed_device_id);
+        const lockedMonths = Number(vt.requested_warranty_months);
+        if (
+          Number(body.devices[0].installedDeviceId) !== lockedDeviceId
+          || Number(body.devices[0].months) !== lockedMonths
+        ) {
+          throw new ResultValidationError('لا يمكن تغيير الجهاز أو مدة الكفالة المقفلة في الطلب');
+        }
       }
     }
 

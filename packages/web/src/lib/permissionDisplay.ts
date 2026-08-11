@@ -24,6 +24,8 @@ export const PERMISSION_MODULE_LABELS: Record<string, string> = {
   service_requests: 'طلبات الخدمة والصيانة',
   reference_data: 'القوائم المرجعية',
   water_check: 'طلبات فحص المياه',
+  periodic_maintenance: 'طلبات الصيانة الدورية',
+  golden_warranty: 'طلبات الكفالة الذهبية',
   account_requests: 'طلبات إنشاء الحساب',
   app_accounts: 'حسابات التطبيق',
 };
@@ -70,6 +72,7 @@ export const PERMISSION_SUBMODULE_LABELS: Record<string, string> = {
   create_instant: 'إنشاء زيارة فورية',
   tasks: 'المهام',
   periodic_maintenance: 'الصيانة الدورية',
+  golden_warranty: 'الكفالة الذهبية',
   delivery: 'التسليم',
   installation: 'التركيب',
   demo: 'العرض التوضيحي',

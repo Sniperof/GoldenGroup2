@@ -313,12 +313,12 @@
 
 | العملية | المسار | الاستجابة |
 |---|---|---|
-| قائمة الأجهزة المنشورة | `GET /api/app/catalog/devices` | `{ items: PublicDeviceListItem[] }` |
+| قائمة الأجهزة المنشورة | `GET /api/app/catalog/devices` | `{ items: PublicDeviceListItem[], total, page, limit }` |
 | تفاصيل جهاز منشور | `GET /api/app/catalog/devices/:deviceId` | `PublicDeviceDetails` |
 | قائمة الفروع المنشورة | `GET /api/app/catalog/branches` | `{ items: PublicBranchListItem[] }` |
 | تفاصيل فرع منشور | `GET /api/app/catalog/branches/:branchId` | `PublicBranchDetails` |
 
-القائمة تقبل اختياريًا `featured=true|false` و`category` و`search` (حتى 100 محرف). كلا المسارين يعيدان فقط `device_models` التي تحقق `is_active = true` و`deleted_at IS NULL`؛ لذلك يعيد مسار التفاصيل `404` للجهاز غير الموجود أو غير الفعال أو المحذوف.
+القائمة مصفّحة خادمياً: تقبل `page` (الافتراضي `1`) و`limit` (الافتراضي `12`، والأقصى `50`) إضافةً إلى `featured=true|false` و`category` و`search` (حتى 100 محرف). `items` تمثل الصفحة المطلوبة فقط؛ وعلى التطبيق تصفير النتائج والعودة إلى الصفحة الأولى عند تغيير أي فلتر. كلا المسارين يعيدان فقط `device_models` التي تحقق `is_active = true` و`deleted_at IS NULL`؛ لذلك يعيد مسار التفاصيل `404` للجهاز غير الموجود أو غير الفعال أو المحذوف.
 
 بيانات العرض العامة تشمل الاسمين العربي والإنكليزي، ورمز الموديل `code`، والتصنيف والوصف والصورة الأساسية والوسائط وفترات الصيانة والكفالات، إضافةً إلى `services` بالقيم العامة المعتمدة: `تسليم`، `تركيب`، `صيانة`، `تعليم`. تضيف استجابة القائمة `goldenWarrantyAvailable` لبيان دعم موديل الجهاز للكفالة الذهبية، و`activeDiscount` الاختياري بالشكل `{ label, percentage, validUntil }` للخصم الفعال حالياً بتوقيت دمشق، أو `null` عند عدم وجود خصم. وتضيف استجابة التفاصيل مزايا الشراء، وفروع البيع المعتمدة، والإكسسوارات الفعالة المتوافقة، وملفات الكاتلوك العامة. يبقى اسم التخزين الداخلي `supportedVisitTypes` غير مكشوف، ولا يعيد المساران السعر أو علاقات الأقسام.
 

@@ -5317,10 +5317,14 @@ router.get('/:id/installed-devices', requirePermission('open_tasks.view'), async
       `SELECT d.id AS "installedDeviceId",
               d.serial_number AS "serialNumber",
               COALESCE(dm.name_ar, dm.name_en, 'جهاز') AS "deviceModelName",
-              w.id AS "activeGoldenWarrantyId", w.end_date AS "activeGoldenEndDate"
+              w.id AS "activeGoldenWarrantyId", w.end_date AS "activeGoldenEndDate",
+              sr.requested_warranty_months AS "requestedWarrantyMonths",
+              sr.requested_warranty_period_snapshot AS "requestedWarrantyPeriodSnapshot"
          FROM open_task_installed_devices otid
+         JOIN open_tasks ot ON ot.id = otid.task_id
          JOIN installed_devices d ON d.id = otid.installed_device_id
          LEFT JOIN device_models dm ON dm.id = d.device_model_id
+         LEFT JOIN service_requests sr ON sr.id = ot.source_service_request_id
          LEFT JOIN device_warranties w
                 ON w.device_id = d.id AND w.warranty_type='golden' AND w.status='active'
         WHERE otid.task_id = $1

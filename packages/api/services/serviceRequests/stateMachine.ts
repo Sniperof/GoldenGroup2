@@ -81,6 +81,13 @@ const TRIAGE_OUTCOMES_BY_TERMINAL: Record<string, string[]> = {
 const RESOLVE_AT_INTAKE_LIST_BY_REQUEST_TYPE: Record<string, string> = {
   emergency_maintenance: 'service_request_resolve_at_intake_emergency_maintenance',
   water_check: 'service_request_resolve_at_intake_water_check',
+  periodic_maintenance: 'service_request_resolve_at_intake_periodic_maintenance',
+  golden_warranty: 'service_request_resolve_at_intake_golden_warranty',
+};
+
+const REJECT_LIST_BY_REQUEST_TYPE: Record<string, string> = {
+  periodic_maintenance: 'service_request_rejection_periodic_maintenance',
+  golden_warranty: 'service_request_rejection_golden_warranty',
 };
 
 // Terminals whose outcome list is admin-managed per request type (system_lists),
@@ -103,6 +110,7 @@ function listCategoryForTerminal(
   requestType: string | null | undefined,
 ): string | null {
   if (toStatus === 'resolved_at_intake') return resolveAtIntakeListCode(requestType);
+  if (toStatus === 'rejected') return REJECT_LIST_BY_REQUEST_TYPE[requestType || ''] ?? null;
   if (toStatus === 'completed') return COMPLETED_LIST_BY_REQUEST_TYPE[requestType || ''] ?? null;
   return null;
 }
@@ -127,6 +135,8 @@ export interface TransitionInput {
 
   /** Required for all terminal targets per SR-R006. */
   triageOutcome?: string | null;
+  /** Required for periodic-maintenance list-driven resolve/reject decisions. */
+  decisionReasonId?: number | null;
   /** Required for resolved_at_intake per SR-R005. */
   triageNotes?: string | null;
   /** Required for reopen paths per SR-REOPEN-03. */
@@ -185,6 +195,11 @@ export async function transitionStatus(
       return { ok: false, code: 'not_found' };
     }
     const row = rows[0];
+
+    if (row.request_type === 'periodic_maintenance' && input.toStatus === 'cancelled') {
+      await rollbackTx(tx);
+      return { ok: false, code: 'action_not_supported_for_request_type' };
+    }
 
     if (row.escalated_at != null && input.toStatus !== 'rejected') {
       await rollbackTx(tx);
@@ -258,7 +273,10 @@ export async function transitionStatus(
       };
     }
     if (input.toStatus === 'resolved_at_intake') {
-      if (row.request_type === 'emergency_maintenance' && row.installed_device_id == null) {
+      if (
+        (row.request_type === 'emergency_maintenance' || row.request_type === 'periodic_maintenance')
+        && row.installed_device_id == null
+      ) {
         await rollbackTx(tx);
         return { ok: false, code: 'resolved_at_intake_requires_installed_device' };
       }
@@ -270,22 +288,79 @@ export async function transitionStatus(
         await rollbackTx(tx);
         return { ok: false, code: 'triage_notes_required' };
       }
+      if (row.request_type === 'periodic_maintenance') {
+        const { rows: activeRows } = await tx.client.query<{ id: number }>(
+          `SELECT id FROM open_tasks
+            WHERE task_type = 'periodic_maintenance'
+              AND device_id = $1
+              AND status NOT IN ('completed', 'closed', 'cancelled')
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1`,
+          [row.installed_device_id],
+        );
+        if (!activeRows[0]) {
+          await rollbackTx(tx);
+          return { ok: false, code: 'resolved_at_intake_requires_active_periodic_task' };
+        }
+      }
     }
 
+    let terminalOutcome = input.triageOutcome ?? null;
+    let decisionReasonSnapshot: Record<string, unknown> | null = null;
     if (isTerminal(input.toStatus)) {
       // SR-R006: every terminal needs a triage_outcome from the per-terminal list.
       const listCategory = listCategoryForTerminal(input.toStatus, row.request_type);
-      const allowedOutcomes = listCategory
+      const decisionReasonId = Number(input.decisionReasonId) || null;
+      const requiresDecisionReasonId = (
+        row.request_type === 'periodic_maintenance' || row.request_type === 'golden_warranty'
+      ) && listCategory != null;
+      if (requiresDecisionReasonId) {
+        if (decisionReasonId == null) {
+          await rollbackTx(tx);
+          return { ok: false, code: 'decision_reason_id_required', details: { listCode: listCategory } };
+        }
+        const { rows: reasonRows } = await tx.client.query<{
+          id: number; value: string; metadata: Record<string, unknown> | null;
+        }>(
+          `SELECT id, value, metadata FROM system_lists
+            WHERE id = $1 AND category = $2 AND is_active = TRUE LIMIT 1`,
+          [decisionReasonId, listCategory],
+        );
+        if (!reasonRows[0]) {
+          await rollbackTx(tx);
+          return { ok: false, code: 'invalid_decision_reason_id', details: { listCode: listCategory } };
+        }
+        terminalOutcome = String(reasonRows[0].metadata?.code ?? reasonRows[0].value);
+        decisionReasonSnapshot = {
+          id: Number(reasonRows[0].id),
+          code: terminalOutcome,
+          label: reasonRows[0].value,
+        };
+      }
+      if (
+        row.request_type === 'golden_warranty'
+        && input.toStatus === 'resolved_at_intake'
+        && row.installed_device_id == null
+        && !['no_eligible_installed_device', 'requester_withdrew_before_handoff', 'guidance_only_no_offer_requested']
+          .includes(String(terminalOutcome))
+      ) {
+        await rollbackTx(tx);
+        return { ok: false, code: 'resolved_at_intake_requires_installed_device' };
+      }
+      const allowedOutcomes = listCategory && !requiresDecisionReasonId
         ? await loadListOutcomes(tx.client, listCategory)
-        : (TRIAGE_OUTCOMES_BY_TERMINAL[input.toStatus] ?? []);
-      if (!input.triageOutcome || !allowedOutcomes.includes(input.triageOutcome)) {
+        : listCategory ? [] : (TRIAGE_OUTCOMES_BY_TERMINAL[input.toStatus] ?? []);
+      if (
+        !requiresDecisionReasonId
+        && (!terminalOutcome || !allowedOutcomes.includes(terminalOutcome))
+      ) {
         await rollbackTx(tx);
         return {
           ok: false,
           code: 'invalid_triage_outcome',
           details: {
             allowed: allowedOutcomes,
-            got: input.triageOutcome ?? null,
+            got: terminalOutcome,
             listCode: listCategory,
           },
         };
@@ -311,7 +386,13 @@ export async function transitionStatus(
 
     if (isTerminal(input.toStatus)) {
       setParts.push(`triage_outcome = $${idx++}`);
-      params.push(input.triageOutcome ?? null);
+      params.push(terminalOutcome);
+      if (decisionReasonSnapshot && input.decisionReasonId != null) {
+        setParts.push(`decision_reason_id = $${idx++}`);
+        params.push(input.decisionReasonId);
+        setParts.push(`decision_reason_snapshot = $${idx++}::jsonb`);
+        params.push(JSON.stringify(decisionReasonSnapshot));
+      }
       setParts.push('closed_at = NOW()');
       // SR-ESC-02: reaching any terminal clears the escalation lock — reject is
       // the only terminal reachable while escalated; other terminals are gated
@@ -326,7 +407,7 @@ export async function transitionStatus(
         setParts.push(`rejected_by_user_id = $${idx++}`);
         params.push(input.actorUserId);
         setParts.push(`rejection_reason = $${idx++}`);
-        params.push(input.triageOutcome);
+        params.push(terminalOutcome);
       }
     }
 
@@ -379,7 +460,8 @@ export async function transitionStatus(
           ...(isReopen
             ? { previous_status: row.status, reopen_reason: input.reopenReason }
             : {}),
-          ...(input.toStatus === 'rejected' ? { reason: input.triageOutcome } : {}),
+          ...(input.toStatus === 'rejected' ? { reason: terminalOutcome } : {}),
+          ...(decisionReasonSnapshot ? { decision_reason: decisionReasonSnapshot } : {}),
         },
       });
 

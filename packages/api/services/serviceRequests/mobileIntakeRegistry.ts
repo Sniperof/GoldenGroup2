@@ -6,6 +6,10 @@ import { submitMobileEmergencyMaintenance } from './mobileEmergencyMaintenanceIn
 import { EMERGENCY_MAINTENANCE_FORM_VERSION } from './emergencyMaintenanceFormSchema.js';
 import { submitMobileDeviceRequest } from './mobileDeviceRequestIntake.js';
 import { DEVICE_REQUEST_FORM_VERSION } from './deviceRequestFormSchema.js';
+import { submitMobilePeriodicMaintenance } from './mobilePeriodicMaintenanceIntake.js';
+import { PERIODIC_MAINTENANCE_FORM_VERSION } from './periodicMaintenanceFormSchema.js';
+import { submitMobileGoldenWarranty } from './mobileGoldenWarrantyIntake.js';
+import { GOLDEN_WARRANTY_FORM_VERSION } from './goldenWarrantyFormSchema.js';
 import type { ServiceRequestTypeDefinition } from './serviceRequestTypeRegistry.js';
 
 export interface MobileIntakeHandler {
@@ -42,6 +46,18 @@ const handlers: Record<string, MobileIntakeHandler> = {
     formVersion: DEVICE_REQUEST_FORM_VERSION,
     allowsUnverifiedIntake: true,
     submit: submitMobileDeviceRequest,
+  },
+  periodic_maintenance: {
+    requestType: 'periodic_maintenance',
+    formVersion: PERIODIC_MAINTENANCE_FORM_VERSION,
+    allowsUnverifiedIntake: true,
+    submit: submitMobilePeriodicMaintenance,
+  },
+  golden_warranty: {
+    requestType: 'golden_warranty',
+    formVersion: GOLDEN_WARRANTY_FORM_VERSION,
+    allowsUnverifiedIntake: true,
+    submit: submitMobileGoldenWarranty,
   },
 };
 

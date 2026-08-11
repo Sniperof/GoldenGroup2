@@ -601,7 +601,13 @@ export default function ClientProfile() {
     const canViewNetwork = hasPermission('clients.network.view');
     const canViewAccountStatement = hasPermission('clients.account_statement.view');
     const canViewRating = hasPermission('clients.rating.view');
-    const canViewServiceRequests = hasAnyPermission('service_requests.view', 'water_check.view', 'account_requests.view');
+    const canViewServiceRequests = hasAnyPermission(
+      'service_requests.view',
+      'water_check.view',
+      'periodic_maintenance.view',
+      'golden_warranty.view',
+      'account_requests.view',
+    );
     const canEditRating = hasPermission('clients.rating.edit');
     const canEditContactControl = hasPermission('clients.contact_control.edit') || hasPermission('clients.cooldown_unlock');
     const [activeTab, setActiveTab] = useState<ClientProfileTabId>('overview');

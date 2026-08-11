@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   getPublicDeviceCatalogDetails,
   listPublicDeviceCatalog,
+  listPublicDeviceCatalogPage,
   serializePublicDeviceDetails,
   serializePublicDeviceListItem,
   type DeviceCatalogQueryable,
@@ -162,6 +163,45 @@ test('catalog list enforces published state in SQL and parameterizes public filt
   assert.match(capturedSql, /category = \$1/);
   assert.match(capturedSql, /name_ar ILIKE \$2/);
   assert.deepEqual(capturedParams, ['منزلي', '%فلتر%']);
+});
+
+test('paginated catalog applies the same public filters before count and pagination', async () => {
+  const calls: Array<{ sql: string; params: any[] }> = [];
+  const db: DeviceCatalogQueryable = {
+    async query(sql, params = []) {
+      calls.push({ sql, params });
+      if (/COUNT\(\*\)::int AS total/.test(sql)) return { rows: [{ total: 50 }] };
+      return { rows: [sourceRow] };
+    },
+  };
+
+  const result = await listPublicDeviceCatalogPage(
+    { featured: true, category: 'منزلي', search: 'فلتر' },
+    { page: 3, limit: 12 },
+    db,
+  );
+
+  assert.deepEqual(
+    { total: result.total, page: result.page, limit: result.limit, items: result.items.length },
+    { total: 50, page: 3, limit: 12, items: 1 },
+  );
+  assert.equal(calls.length, 2);
+
+  const pageCall = calls.find(({ sql }) => /LIMIT \$3 OFFSET \$4/.test(sql));
+  const countCall = calls.find(({ sql }) => /COUNT\(\*\)::int AS total/.test(sql));
+  assert.ok(pageCall);
+  assert.ok(countCall);
+  assert.deepEqual(pageCall.params, ['منزلي', '%فلتر%', 12, 24]);
+  assert.deepEqual(countCall.params, ['منزلي', '%فلتر%']);
+
+  for (const { sql } of calls) {
+    assert.match(sql, /deleted_at IS NULL/);
+    assert.match(sql, /is_active = TRUE/);
+    assert.match(sql, /is_featured = TRUE/);
+    assert.match(sql, /category = \$1/);
+    assert.match(sql, /name_ar ILIKE \$2/);
+  }
+  assert.match(pageCall.sql, /ORDER BY is_featured DESC, COALESCE\(name_ar, name\) ASC, id ASC/);
 });
 
 test('catalog details hide inactive and deleted devices at the query boundary', async () => {

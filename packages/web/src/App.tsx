@@ -68,6 +68,8 @@ import NewServiceRequestPage from './pages/service-requests/NewServiceRequestPag
 import WaterCheckRequestsPage from './pages/service-requests/WaterCheckRequestsPage';
 import WaterCheckSimulatorPage from './pages/service-requests/WaterCheckSimulatorPage';
 import DeviceRequestsPage from './pages/service-requests/DeviceRequestsPage';
+import PeriodicMaintenanceRequestsPage from './pages/service-requests/PeriodicMaintenanceRequestsPage';
+import GoldenWarrantyRequestsPage from './pages/service-requests/GoldenWarrantyRequestsPage';
 import AccountRequestsListPage from './pages/account-requests/AccountRequestsListPage';
 import AccountRequestDetailPage from './pages/account-requests/AccountRequestDetailPage';
 
@@ -154,6 +156,8 @@ export default function App() {
                         <Route path="/service-requests/water-check" element={<WaterCheckRequestsPage />} />
                         <Route path="/service-requests/water-check/simulator" element={<WaterCheckSimulatorPage />} />
                         <Route path="/service-requests/device-requests" element={<DeviceRequestsPage />} />
+                        <Route path="/service-requests/periodic-maintenance" element={<PeriodicMaintenanceRequestsPage />} />
+                        <Route path="/service-requests/golden-warranty" element={<GoldenWarrantyRequestsPage />} />
                         <Route path="/service-requests/:id" element={<ServiceRequestDetailPage />} />
                         <Route path="/account-requests" element={<AccountRequestsListPage />} />
                         <Route path="/account-requests/:id" element={<AccountRequestDetailPage />} />

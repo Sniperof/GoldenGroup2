@@ -1,10 +1,26 @@
 import { Router } from 'express';
 import {
   getPublicDeviceCatalogDetails,
-  listPublicDeviceCatalog,
+  listPublicDeviceCatalogPage,
 } from '../services/appDeviceCatalogService.js';
 
 const router = Router();
+
+export function parsePublicCatalogPagination(pageRaw: unknown, limitRaw: unknown) {
+  const page = pageRaw === undefined ? 1 : Number(pageRaw);
+  if (typeof pageRaw !== 'undefined'
+    && (typeof pageRaw !== 'string' || !Number.isInteger(page) || page <= 0)) {
+    return { value: null, error: 'page يجب أن يكون عدداً صحيحاً موجباً' };
+  }
+
+  const limit = limitRaw === undefined ? 12 : Number(limitRaw);
+  if (typeof limitRaw !== 'undefined'
+    && (typeof limitRaw !== 'string' || !Number.isInteger(limit) || limit <= 0 || limit > 50)) {
+    return { value: null, error: 'limit يجب أن يكون عدداً صحيحاً بين 1 و50' };
+  }
+
+  return { value: { page, limit }, error: null };
+}
 
 /**
  * @swagger
@@ -29,8 +45,27 @@ const router = Router();
  *       - in: query
  *         name: search
  *         schema: { type: string, maxLength: 100 }
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, minimum: 1, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, minimum: 1, maximum: 50, default: 12 }
  *     responses:
- *       200: { description: Active public device catalog }
+ *       200:
+ *         description: Paginated active public device catalog
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required: [items, total, page, limit]
+ *               properties:
+ *                 items:
+ *                   type: array
+ *                   items: { type: object }
+ *                 total: { type: integer, minimum: 0 }
+ *                 page: { type: integer, minimum: 1 }
+ *                 limit: { type: integer, minimum: 1, maximum: 50 }
  *       400: { description: Invalid query }
  *       500: { description: Catalog unavailable }
  */
@@ -51,11 +86,19 @@ router.get('/', async (req, res) => {
       return res.status(400).json({ error: 'تصنيف الجهاز غير صالح' });
     }
 
-    return res.json(await listPublicDeviceCatalog({
-      featured: featuredRaw === 'true',
-      category: category || undefined,
-      search: search || undefined,
-    }));
+    const pagination = parsePublicCatalogPagination(req.query.page, req.query.limit);
+    if (pagination.error || !pagination.value) {
+      return res.status(400).json({ error: pagination.error });
+    }
+
+    return res.json(await listPublicDeviceCatalogPage(
+      {
+        featured: featuredRaw === 'true',
+        category: category || undefined,
+        search: search || undefined,
+      },
+      pagination.value,
+    ));
   } catch (err) {
     console.error('Public device catalog list error:', err);
     return res.status(500).json({ error: 'تعذر تحميل كتالوج الأجهزة' });

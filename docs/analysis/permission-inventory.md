@@ -7,19 +7,19 @@
 
 | Metric | Count |
 |---|---:|
-| Permissions defined in migrations | 216 |
-| Permission keys used in code | 183 |
+| Permissions defined in migrations | 229 |
+| Permission keys used in code | 188 |
 | Used keys with no visible definition | 2 |
-| Defined keys with no visible usage | 35 |
+| Defined keys with no visible usage | 43 |
 | Keys defined more than once | 6 |
 | Frontend-only permission checks | 5 |
-| Backend-only permission checks | 44 |
-| Endpoints accepting alternative permissions | 47 |
+| Backend-only permission checks | 45 |
+| Endpoints accepting alternative permissions | 50 |
 
 ## Used But Not Defined
 
-- `devices.manage` - `packages/web/src/pages/DeviceManagement.tsx:815`, `packages/web/src/pages/DeviceManagement.tsx:816`
-- `devices.view` - `packages/web/src/layout/MainLayout.tsx:389`
+- `devices.manage` - `packages/web/src/pages/DeviceManagement.tsx:926`, `packages/web/src/pages/DeviceManagement.tsx:927`
+- `devices.view` - `packages/web/src/layout/MainLayout.tsx:392`
 
 ## Duplicate Definitions
 
@@ -44,9 +44,17 @@
 - `employees.direct_manager_branch_fallback` - أهلية الظهور كمدير بديل على مستوى الفرع
 - `employees.direct_manager_eligible` - أهلية الاختيار كمدير مباشر للقسم
 - `employees.nav` - إظهار سجلات الموظفين
+- `golden_warranty.archive` - أرشفة طلبات الكفالة الذهبية
+- `golden_warranty.create` - إنشاء طلب كفالة ذهبية من نتيجة اتصال
+- `golden_warranty.resolve_escalation` - فك تصعيد طلبات الكفالة الذهبية
+- `golden_warranty.review` - مراجعة وربط طلبات الكفالة الذهبية
 - `installed_devices.update_service_data` - تعديل بيانات خدمة الجهاز المركب
 - `jobs.interviews.conduct` - ط¥ط¬ط±ط§ط، ط§ظ„ظ…ظ‚ط§ط¨ظ„ط§طھ
 - `jobs.training.be_trainer` - ط§ظ„طھط¯ط±ظٹط¨ ظƒظ…ط¯ط±ط¨
+- `periodic_maintenance.archive` - أرشفة طلبات الصيانة الدورية
+- `periodic_maintenance.create` - إنشاء طلب صيانة دورية من نتيجة اتصال
+- `periodic_maintenance.resolve_escalation` - فك تصعيد طلبات الصيانة الدورية
+- `periodic_maintenance.review` - مراجعة وربط طلبات الصيانة الدورية
 - `planning.schedule.appear` - ط§ظ„ط¸ظ‡ظˆط± ظپظٹ ط¬ط¯ظˆظ„ط© ط§ظ„ظپط±ظ‚
 - `referral_sheets.create` - ط¥ظ†ط´ط§ط، ظˆط±ظ‚ط© ط¥ط­ط§ظ„ط©
 - `referral_sheets.delete` - ط­ط°ظپ ظˆط±ظ‚ط© ط¥ط­ط§ظ„ط©
@@ -55,7 +63,6 @@
 - `sales.can_close` - ط§ظ„ظ‚ط¯ط±ط© ط¹ظ„ظ‰ طھط³ظƒظٹط± ط§ظ„ط¹ط±ظˆط¶ ظˆط§ظ„ظ…ط¨ظٹط¹ط§طھ
 - `service_requests.archive` - أرشفة طلب صيانة
 - `service_requests.decide` - حسم طلب صيانة (رفض/حل/ترقية/إعادة فتح)
-- `service_requests.override_active_emergency` - فتح طلب صيانة طارئة منفصل رغم وجود مهمة طارئة نشطة للجهاز
 - `service_requests.promote` - ترقية طلب صيانة إلى مهمة
 - `service_requests.reject` - رفض طلب صيانة (مدقّق فقط)
 - `service_requests.resolve_escalation` - فكّ تصعيد طلب خدمة (مدقّق)
@@ -73,8 +80,8 @@
 
 > Review candidates only. Some permissions intentionally control page visibility.
 
-- `admin.task_types.view` - `packages/web/src/pages/admin/TaskTypes.tsx:139`, `packages/web/src/layout/MainLayout.tsx:819`
-- `clients.contacts.view` - `packages/web/src/pages/ClientProfile.tsx:589`
+- `admin.task_types.view` - `packages/web/src/pages/admin/TaskTypes.tsx:139`, `packages/web/src/layout/MainLayout.tsx:822`
+- `clients.contacts.view` - `packages/web/src/pages/ClientProfile.tsx:591`
 - `devices.department_availability.view` - `packages/web/src/pages/Departments.tsx:41`
 - `users.branch_assignments.manage` - `packages/web/src/pages/admin/Users.tsx:37`
 - `users.branch_assignments.view` - `packages/web/src/pages/admin/Users.tsx:36`
@@ -83,91 +90,95 @@
 
 > These can be valid for internal actions or UIs that rely on a 403 response.
 
-- `branches.lookup` - `packages/api/routes/branches.ts:110`, `packages/api/routes/branches.ts:171`
-- `candidates.delete` - `packages/api/routes/candidates.ts:1073`
-- `clients.device_warranties.view` - `packages/api/routes/deviceWarranties.ts:91`, `packages/api/routes/deviceWarranties.ts:330`, `packages/api/routes/deviceWarranties.ts:103`, `packages/api/routes/deviceWarranties.ts:336`
-- `clients.edit` - `packages/api/routes/clients.ts:2288`
-- `clients.view` - `packages/api/routes/clients.ts:1623`, `packages/api/routes/clients.ts:1633`
-- `contract_gifts.view` - `packages/api/routes/gifts.ts:296`, `packages/api/routes/gifts.ts:444`
-- `contracts.delete` - `packages/api/routes/contracts.ts:1637`, `packages/api/routes/contracts.ts:1641`
+- `branches.lookup` - `packages/api/routes/branches.ts:177`, `packages/api/routes/branches.ts:245`
+- `candidates.delete` - `packages/api/routes/candidates.ts:1441`
+- `clients.device_warranties.view` - `packages/api/routes/deviceWarranties.ts:93`, `packages/api/routes/deviceWarranties.ts:371`, `packages/api/routes/deviceWarranties.ts:105`, `packages/api/routes/deviceWarranties.ts:377`
+- `clients.edit` - `packages/api/routes/clients.ts:2417`
+- `clients.view` - `packages/api/routes/clients.ts:1676`, `packages/api/routes/clients.ts:1733`, `packages/api/routes/clients.ts:1743`
+- `contracts.delete` - `packages/api/routes/contracts.ts:1808`, `packages/api/routes/contracts.ts:1812`
 - `departments.lookup` - `packages/api/routes/departments.ts:176`, `packages/api/routes/departments.ts:281`
-- `device_models.lookup` - `packages/api/routes/deviceModels.ts:280`, `packages/api/routes/deviceModels.ts:381`
-- `device_models.task_lookup` - `packages/api/routes/deviceModels.ts:280`, `packages/api/routes/deviceModels.ts:381`
+- `device_models.lookup` - `packages/api/routes/deviceModels.ts:284`, `packages/api/routes/deviceModels.ts:423`
+- `device_models.task_lookup` - `packages/api/routes/deviceModels.ts:284`, `packages/api/routes/deviceModels.ts:423`
 - `employees.delete` - `packages/api/routes/employees.ts:657`, `packages/api/routes/employees.ts:668`
 - `employees.lookup` - `packages/api/routes/employees.ts:198`, `packages/api/routes/employees.ts:210`
 - `employees.manager_lookup` - `packages/api/routes/employees.ts:147`, `packages/api/routes/employees.ts:159`
 - `geo_units.lookup` - `packages/api/routes/geoUnits.ts:96`, `packages/api/routes/geoUnits.ts:105`, `packages/api/routes/geoUnits.ts:115`, `packages/api/routes/geoUnits.ts:130`
-- `installed_devices.create_external` - `packages/api/routes/installedDevices.ts:130`, `packages/api/routes/installedDevices.ts:186`
+- `golden_warranty.decide` - `packages/api/routes/serviceRequests.ts:2182`
+- `installed_devices.create_external` - `packages/api/routes/installedDevices.ts:274`, `packages/api/routes/installedDevices.ts:330`, `packages/api/routes/serviceRequests.ts:1997`
 - `installed_devices.possession.manage` - `packages/api/routes/devicePossession.ts:112`
 - `jobs.applications.edit_notes` - `packages/api/routes/adminApplications.ts:1630`
 - `jobs.applications.view_detail` - `packages/api/routes/adminApplications.ts:534`
-- `jobs.applications.view_list` - `packages/api/routes/adminApplications.ts:161`
+- `jobs.applications.view_list` - `packages/api/routes/adminApplications.ts:161`, `packages/api/services/reporting/breakdownCatalog.ts:1064`, `packages/api/services/reporting/breakdownCatalog.ts:1093`, `packages/api/services/reporting/breakdownCatalog.ts:1113`
 - `jobs.interviews.view_detail` - `packages/api/routes/interviews.ts:265`
 - `jobs.interviews.view_eligible` - `packages/api/routes/interviews.ts:38`
-- `jobs.interviews.view_list` - `packages/api/routes/interviews.ts:167`
+- `jobs.interviews.view_list` - `packages/api/routes/interviews.ts:167`, `packages/api/services/reporting/breakdownCatalog.ts:1171`, `packages/api/services/reporting/breakdownCatalog.ts:1190`, `packages/api/services/reporting/metricsCatalog.ts:664`
 - `jobs.training.add_trainees` - `packages/api/routes/trainingCourses.ts:523`
 - `jobs.training.view_eligible` - `packages/api/routes/trainingCourses.ts:115`
 - `jobs.training.view_list` - `packages/api/policies/trainingCoursePolicy.test.ts:32`, `packages/api/policies/trainingCoursePolicy.test.ts:41`, `packages/api/policies/trainingCoursePolicy.test.ts:49`, `packages/api/routes/trainingCourses.ts:216`
 - `jobs.vacancies.view_detail` - `packages/api/routes/vacancies.ts:257`
-- `jobs.vacancies.view_list` - `packages/api/routes/vacancies.ts:192`
+- `jobs.vacancies.view_list` - `packages/api/routes/vacancies.ts:192`, `packages/api/services/reporting/breakdownCatalog.ts:1151`, `packages/api/services/reporting/metricsCatalog.ts:574`, `packages/api/services/reporting/metricsCatalog.ts:589`
 - `marketing_visits.update_result` - `packages/api/routes/emergencyResult.ts:599`, `packages/api/routes/emergencyResult.ts:711`, `packages/api/routes/emergencyResult.ts:821`, `packages/api/routes/emergencyResult.ts:1048`
 - `marketing_visits.view` - `packages/api/routes/emergencyResult.ts:413`, `packages/api/routes/emergencyResult.ts:1593`, `packages/api/routes/emergencyResult.ts:1658`, `packages/api/routes/emergencyResult.ts:1713`
-- `planning.manage` - `packages/api/routes/employees.ts:250`, `packages/api/routes/employees.ts:261`, `packages/api/routes/planning.ts:319`, `packages/api/routes/planning.ts:462`
+- `periodic_maintenance.decide` - `packages/api/routes/serviceRequests.ts:2140`
+- `planning.manage` - `packages/api/routes/employees.ts:250`, `packages/api/routes/employees.ts:261`, `packages/api/routes/planning.ts:373`, `packages/api/routes/planning.ts:518`
 - `planning.zone_study.manage` - `packages/api/routes/zoneStudy.ts:60`, `packages/api/routes/zoneStudy.ts:80`, `packages/api/routes/zoneStudy.ts:102`
 - `planning.zone_study.view` - `packages/api/routes/zoneStudy.ts:40`
-- `reference_data.lookup` - `packages/api/routes/branches.ts:110`, `packages/api/routes/branches.ts:171`, `packages/api/routes/departments.ts:176`, `packages/api/routes/departments.ts:281`
-- `routes.assign.manage` - `packages/api/policies/routeAssignmentPolicy.ts:155`, `packages/api/routes/routeAssignments.ts:316`
-- `routes.assign.view` - `packages/api/policies/routeAssignmentPolicy.ts:148`, `packages/api/routes/routeAssignments.ts:186`, `packages/api/routes/routeAssignments.ts:251`
+- `reference_data.lookup` - `packages/api/routes/branches.ts:177`, `packages/api/routes/branches.ts:245`, `packages/api/routes/departments.ts:176`, `packages/api/routes/departments.ts:281`
+- `routes.assign.manage` - `packages/api/policies/routeAssignmentPolicy.ts:155`, `packages/api/routes/routeAssignments.ts:317`, `packages/api/services/planningCurationContract.test.ts:395`
+- `routes.assign.view` - `packages/api/policies/routeAssignmentPolicy.ts:148`, `packages/api/routes/routeAssignments.ts:187`, `packages/api/routes/routeAssignments.ts:252`
 - `spare_parts.lookup` - `packages/api/routes/spareParts.ts:183`
 - `spare_parts.task_lookup` - `packages/api/routes/spareParts.ts:183`
 - `tasks.create` - `packages/api/routes/tasks.ts:192`
 - `tasks.delete` - `packages/api/routes/tasks.ts:316`, `packages/api/routes/tasks.ts:320`
 - `tasks.edit` - `packages/api/routes/tasks.ts:247`, `packages/api/routes/tasks.ts:251`
-- `tasks.results.record` - `packages/api/routes/fieldVisits.ts:3169`, `packages/api/routes/fieldVisits.ts:3187`, `packages/api/routes/openTasks.ts:3817`, `packages/api/routes/openTasks.ts:3845`
+- `tasks.results.record` - `packages/api/routes/fieldVisits.ts:3166`, `packages/api/routes/fieldVisits.ts:3184`, `packages/api/routes/openTasks.ts:3936`, `packages/api/routes/openTasks.ts:3964`
 - `tasks.view_list` - `packages/api/routes/tasks.ts:133`
-- `telemarketing.lists.generate` - `packages/api/routes/telemarketing.ts:1114`, `packages/api/routes/telemarketing.ts:1233`
-- `telemarketing.lists.view_device_demo` - `packages/api/routes/telemarketing.ts:725`, `packages/api/routes/telemarketing.ts:1740`, `packages/api/routes/telemarketing.ts:51`
+- `telemarketing.lists.generate` - `packages/api/routes/telemarketing.ts:1291`, `packages/api/routes/telemarketing.ts:1416`, `packages/api/services/telemarketingScope.ts:237`
+- `telemarketing.lists.view_device_demo` - `packages/api/routes/telemarketing.ts:840`, `packages/api/routes/telemarketing.ts:2050`, `packages/api/routes/telemarketing.ts:125`
 
 ## Endpoints With Alternative Permissions
 
-- `GET /` - `branches.view` or `branches.lookup` or `reference_data.lookup` - `packages/api/routes/branches.ts:110`
-- `GET /:id` - `branches.view` or `branches.lookup` or `reference_data.lookup` - `packages/api/routes/branches.ts:171`
-- `PUT /:id` - `branches.edit` or `branches.manage` - `packages/api/routes/branches.ts:353`
-- `PUT /:id` - `clients.edit` or `clients.contacts.edit` - `packages/api/routes/clients.ts:2288`
+- `GET /` - `branches.view` or `branches.lookup` or `reference_data.lookup` - `packages/api/routes/branches.ts:177`
+- `GET /:id` - `branches.view` or `branches.lookup` or `reference_data.lookup` - `packages/api/routes/branches.ts:245`
+- `PUT /:id` - `branches.edit` or `branches.manage` - `packages/api/routes/branches.ts:455`
+- `PUT /:id` - `clients.edit` or `clients.contacts.edit` - `packages/api/routes/clients.ts:2417`
 - `POST /:customerId/calls` - `clients.call_log.create` or `telemarketing.calls.create` - `packages/api/routes/customerCalls.ts:395`
 - `PATCH /calls/:callId` - `clients.call_log.edit` or `telemarketing.calls.create` - `packages/api/routes/customerCalls.ts:661`
 - `GET /:id/pre-offers` - `clients.pre_offers.view` or `contracts.view_list` - `packages/api/routes/customerPreOffers.ts:49`
 - `GET /` - `departments.view_list` or `departments.lookup` or `reference_data.lookup` - `packages/api/routes/departments.ts:176`
 - `GET /:id` - `departments.view_list` or `departments.lookup` or `reference_data.lookup` - `packages/api/routes/departments.ts:281`
 - `PUT /:id` - `departments.manage` or `devices.department_availability.manage` - `packages/api/routes/departments.ts:513`
-- `GET /` - `device_models.lookup` or `device_models.task_lookup` or `reference_data.lookup` or `catalog.manage` - `packages/api/routes/deviceModels.ts:278`
-- `GET /for-sale` - `device_models.task_lookup` or `device_models.lookup` or `reference_data.lookup` - `packages/api/routes/deviceModels.ts:379`
-- `POST /` - `device_models.manage` or `catalog.manage` - `packages/api/routes/deviceModels.ts:483`
-- `PUT /:id` - `device_models.manage` or `catalog.manage` - `packages/api/routes/deviceModels.ts:579`
-- `DELETE /:id` - `device_models.manage` or `catalog.manage` - `packages/api/routes/deviceModels.ts:649`
-- `GET /:id/prices` - `devices.prices.view` or `devices.prices.manage` or `catalog.manage` - `packages/api/routes/deviceModels.ts:654`
-- `GET /:id/discounts/all` - `devices.discounts.view` or `devices.discounts.manage` - `packages/api/routes/deviceModels.ts:800`
-- `GET /` - `clients.device_warranties.view` or `contracts.view_list` - `packages/api/routes/deviceWarranties.ts:91`
-- `GET /:id/payments` - `clients.device_warranties.view` or `contracts.view_list` - `packages/api/routes/deviceWarranties.ts:330`
+- `GET /` - `device_models.lookup` or `device_models.task_lookup` or `reference_data.lookup` or `catalog.manage` - `packages/api/routes/deviceModels.ts:282`
+- `GET /:id/sales-branches` - `device_models.manage` or `catalog.manage` - `packages/api/routes/deviceModels.ts:327`
+- `PUT /:id/sales-branches` - `device_models.manage` or `catalog.manage` - `packages/api/routes/deviceModels.ts:344`
+- `GET /for-sale` - `device_models.task_lookup` or `device_models.lookup` or `reference_data.lookup` - `packages/api/routes/deviceModels.ts:421`
+- `POST /` - `device_models.manage` or `catalog.manage` - `packages/api/routes/deviceModels.ts:525`
+- `PUT /:id` - `device_models.manage` or `catalog.manage` - `packages/api/routes/deviceModels.ts:621`
+- `DELETE /:id` - `device_models.manage` or `catalog.manage` - `packages/api/routes/deviceModels.ts:691`
+- `GET /:id/prices` - `devices.prices.view` or `devices.prices.manage` or `catalog.manage` - `packages/api/routes/deviceModels.ts:696`
+- `GET /:id/discounts/all` - `devices.discounts.view` or `devices.discounts.manage` - `packages/api/routes/deviceModels.ts:842`
+- `GET /` - `clients.device_warranties.view` or `contracts.view_list` - `packages/api/routes/deviceWarranties.ts:93`
+- `GET /:id/payments` - `clients.device_warranties.view` or `contracts.view_list` - `packages/api/routes/deviceWarranties.ts:371`
 - `GET /manager-candidates` - `employees.manager_lookup` or `employees.create` or `employees.edit` or `employees.view_list` - `packages/api/routes/employees.ts:147`
 - `GET /lookup` - `employees.lookup` or `employees.create` or `employees.edit` or `employees.view_list` - `packages/api/routes/employees.ts:198`
-- `GET /` - `clients.visits.view` or `field_visits.view` - `packages/api/routes/fieldVisits.ts:983`
-- `GET /:id` - `field_visits.view` or `field_visits.my_visits.view` - `packages/api/routes/fieldVisits.ts:1640`
-- `GET /:id/pullable-tasks` - `field_visits.view` or `field_visits.my_visits.view` - `packages/api/routes/fieldVisits.ts:2547`
-- `GET /:id/referral-sheet` - `field_visits.view` or `field_visits.my_visits.view` - `packages/api/routes/fieldVisits.ts:2716`
-- `GET /:id/survey` - `field_visits.view` or `field_visits.my_visits.view` - `packages/api/routes/fieldVisits.ts:2884`
+- `GET /` - `clients.visits.view` or `field_visits.view` - `packages/api/routes/fieldVisits.ts:984`
+- `GET /:id` - `field_visits.view` or `field_visits.my_visits.view` - `packages/api/routes/fieldVisits.ts:1641`
+- `GET /:id/pullable-tasks` - `field_visits.view` or `field_visits.my_visits.view` - `packages/api/routes/fieldVisits.ts:2548`
+- `GET /:id/referral-sheet` - `field_visits.view` or `field_visits.my_visits.view` - `packages/api/routes/fieldVisits.ts:2713`
+- `GET /:id/survey` - `field_visits.view` or `field_visits.my_visits.view` - `packages/api/routes/fieldVisits.ts:2881`
 - `GET /` - `geo.view` or `geo_units.lookup` - `packages/api/routes/geoUnits.ts:96`
 - `GET /active` - `geo.view` or `geo_units.lookup` - `packages/api/routes/geoUnits.ts:105`
 - `GET /reference` - `geo.view` or `geo_units.lookup` - `packages/api/routes/geoUnits.ts:115`
 - `GET /names` - `geo.view` or `geo_units.lookup` - `packages/api/routes/geoUnits.ts:130`
 - `GET /:id` - `geo.view` or `geo_units.lookup` - `packages/api/routes/geoUnits.ts:155`
-- `GET /` - `installed_devices.view` or `clients.devices.view` or `contracts.view_list` - `packages/api/routes/installedDevices.ts:72`
-- `GET /:id` - `installed_devices.view` or `clients.devices.view` or `contracts.view_list` - `packages/api/routes/installedDevices.ts:356`
-- `GET /:id/problems` - `clients.devices.view` or `contracts.view_list` - `packages/api/routes/installedDevices.ts:435`
-- `GET /:id/technical-states` - `installed_devices.view` or `clients.devices.view` or `contracts.view_list` - `packages/api/routes/installedDevices.ts:485`
+- `GET /` - `installed_devices.view` or `clients.devices.view` or `contracts.view_list` - `packages/api/routes/installedDevices.ts:74`
+- `GET /paged` - `installed_devices.view` or `clients.devices.view` or `contracts.view_list` - `packages/api/routes/installedDevices.ts:159`
+- `GET /:id` - `installed_devices.view` or `clients.devices.view` or `contracts.view_list` - `packages/api/routes/installedDevices.ts:500`
+- `GET /:id/problems` - `clients.devices.view` or `contracts.view_list` - `packages/api/routes/installedDevices.ts:579`
+- `GET /:id/technical-states` - `installed_devices.view` or `clients.devices.view` or `contracts.view_list` - `packages/api/routes/installedDevices.ts:629`
 - `GET /interviewers` - `jobs.interviews.schedule` or `jobs.interviews.edit` - `packages/api/routes/interviews.ts:77`
-- `GET /client/:clientId` - `clients.visits.view` or `open_tasks.view` - `packages/api/routes/openTasks.ts:2210`
-- `GET /` - `service_requests.view` or `water_check.view` - `packages/api/routes/serviceRequests.ts:605`
+- `GET /client/:clientId` - `clients.visits.view` or `open_tasks.view` - `packages/api/routes/openTasks.ts:2277`
+- `GET /` - `service_requests.view` or `water_check.view` or `periodic_maintenance.view` or `golden_warranty.view` - `packages/api/routes/serviceRequests.ts:1030`
 - `GET /` - `spare_parts.lookup` or `spare_parts.task_lookup` or `reference_data.lookup` or `catalog.manage` - `packages/api/routes/spareParts.ts:181`
 - `POST /` - `spare_parts.manage` or `catalog.manage` - `packages/api/routes/spareParts.ts:257`
 - `PUT /:id` - `spare_parts.manage` or `catalog.manage` - `packages/api/routes/spareParts.ts:335`
@@ -175,8 +186,8 @@
 - `GET /:id/prices` - `spare_parts.prices.manage` or `catalog.manage` - `packages/api/routes/spareParts.ts:403`
 - `GET /` - `admin.system_lists.view` or `admin.system_lists.manage` or `reference_data.lookup` - `packages/api/routes/systemLists.ts:99`
 - `GET /:code/items` - `admin.system_lists.view` or `admin.system_lists.manage` or `reference_data.lookup` - `packages/api/routes/systemLists.ts:129`
-- `GET /snapshot` - `telemarketing.lists.view` or `telemarketing.lists.view_device_demo` - `packages/api/routes/telemarketing.ts:725`
-- `GET /customer/:customerId/all-targets-today` - `telemarketing.lists.view` or `telemarketing.lists.view_device_demo` - `packages/api/routes/telemarketing.ts:1740`
+- `GET /snapshot` - `telemarketing.lists.view` or `telemarketing.lists.view_device_demo` - `packages/api/routes/telemarketing.ts:840`
+- `GET /customer/:customerId/all-targets-today` - `telemarketing.lists.view` or `telemarketing.lists.view_device_demo` - `packages/api/routes/telemarketing.ts:2050`
 
 ## Detail Files
 

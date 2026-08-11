@@ -30,6 +30,22 @@ export interface ManualPeriodicMaintenanceInput {
   createdByUserId?: number | null;
 }
 
+export interface ServiceRequestPeriodicMaintenanceInput {
+  serviceRequestId: number;
+  installedDeviceId: number;
+  requestReasonId: number;
+  requestReasonSnapshot: Record<string, unknown>;
+  createdByUserId: number;
+  /** Injectable for deterministic verification; runtime normally reads system settings. */
+  settings?: PeriodicMaintenanceSettings;
+}
+
+export type ServiceRequestPeriodicMaintenanceResult =
+  | { outcome: 'created'; taskId: number; dueDate: string; intervalDays: number; branchId: number }
+  | { outcome: 'active_task_exists'; taskId: number }
+  | { outcome: 'ineligible'; reason: string }
+  | { outcome: 'missing_schedule_anchor'; reason: string };
+
 export interface PeriodicAttachmentCandidate {
   taskId: number;
   installedDeviceId: number;
@@ -776,6 +792,185 @@ export async function createManualPeriodicMaintenanceTask(
   );
 
   return { createdTaskId, dueDate, intervalDays };
+}
+
+/**
+ * Create one periodic task from an approved service request.
+ * The caller owns the transaction and request row lock. This function locks
+ * the device and rechecks eligibility/active-task uniqueness at decision time.
+ */
+export async function createPeriodicMaintenanceTaskFromServiceRequest(
+  db: Queryable,
+  input: ServiceRequestPeriodicMaintenanceInput,
+): Promise<ServiceRequestPeriodicMaintenanceResult> {
+  const settings = input.settings ?? await getPeriodicMaintenanceSettings();
+  const { rows } = await db.query(
+    `SELECT d.id,
+            d.customer_id AS "clientId",
+            d.branch_id AS "branchId",
+            d.contract_id AS "contractId",
+            d.status,
+            d.activated_at AS "activatedAt",
+            d.warranty_months AS "warrantyMonths",
+            d.warranty_visits AS "warrantyVisits",
+            c.maintenance_plan AS "maintenancePlan",
+            sa.id AS "serviceAgreementId",
+            sa.maintenance_plan AS "serviceAgreementMaintenancePlan",
+            sa.visits_count AS "serviceAgreementVisitsCount",
+            sa.start_date AS "serviceAgreementStartDate",
+            sa.end_date AS "serviceAgreementEndDate"
+       FROM installed_devices d
+       LEFT JOIN contracts c ON c.id = d.contract_id
+       ${activeServiceAgreementJoin('d')}
+      WHERE d.id = $1
+      LIMIT 1
+      FOR UPDATE OF d`,
+    [input.installedDeviceId],
+  );
+  const device = rows[0];
+  if (!device) return { outcome: 'ineligible', reason: 'device_not_found' };
+  if (device.status !== 'active') return { outcome: 'ineligible', reason: 'device_not_active' };
+  const plan = resolvePeriodicPlanSource(device, settings.defaultIntervalMonths);
+  if (!plan.ok || plan.intervalDays == null) {
+    return { outcome: 'ineligible', reason: plan.skippedReason ?? 'periodic_plan_unavailable' };
+  }
+  const intervalDays = Number(plan.intervalDays);
+
+  const { rows: activeRows } = await db.query(
+    `SELECT id
+       FROM open_tasks
+      WHERE task_type = 'periodic_maintenance'
+        AND device_id = $1
+        AND status NOT IN ('completed', 'closed', 'cancelled')
+      ORDER BY created_at DESC, id DESC
+      LIMIT 1
+      FOR UPDATE`,
+    [input.installedDeviceId],
+  );
+  if (activeRows[0]) {
+    return { outcome: 'active_task_exists', taskId: Number(activeRows[0].id) };
+  }
+
+  const { rows: historyRows } = await db.query(
+    `SELECT ot.id, ot.status, ot.due_date::text AS "dueDate",
+            ot.closed_at AS "closedAt",
+            otp.superseded_by_open_task_id AS "supersededByOpenTaskId",
+            superseding.closed_at AS "supersedingClosedAt"
+       FROM open_tasks ot
+       LEFT JOIN open_task_periodic_payload otp ON otp.open_task_id = ot.id
+       LEFT JOIN open_tasks superseding ON superseding.id = otp.superseded_by_open_task_id
+      WHERE ot.task_type = 'periodic_maintenance'
+        AND ot.device_id = $1
+      ORDER BY COALESCE(ot.closed_at, ot.updated_at, ot.created_at) DESC, ot.id DESC
+      LIMIT 1`,
+    [input.installedDeviceId],
+  );
+  const previous = historyRows[0] ?? null;
+  let dueDate: string | null = null;
+  if (!previous) {
+    if (!device.activatedAt) {
+      return { outcome: 'missing_schedule_anchor', reason: 'missing_activation_timestamp' };
+    }
+    const { rows: dueRows } = await db.query(
+      `SELECT ($1::timestamptz::date + $2::int)::text AS "dueDate"`,
+      [device.activatedAt, intervalDays],
+    );
+    dueDate = dueRows[0]?.dueDate ?? null;
+  } else if (previous.supersededByOpenTaskId != null) {
+    if (!previous.supersedingClosedAt) {
+      return { outcome: 'missing_schedule_anchor', reason: 'missing_superseding_execution_timestamp' };
+    }
+    const { rows: dueRows } = await db.query(
+      `SELECT ($1::timestamptz::date + $2::int)::text AS "dueDate"`,
+      [previous.supersedingClosedAt, intervalDays],
+    );
+    dueDate = dueRows[0]?.dueDate ?? null;
+  } else if (previous.status === 'cancelled') {
+    dueDate = previous.dueDate ?? null;
+  } else {
+    if (!previous.closedAt) {
+      return { outcome: 'missing_schedule_anchor', reason: 'missing_previous_closed_timestamp' };
+    }
+    const { rows: dueRows } = await db.query(
+      `SELECT ($1::timestamptz::date + $2::int)::text AS "dueDate"`,
+      [previous.closedAt, intervalDays],
+    );
+    dueDate = dueRows[0]?.dueDate ?? null;
+  }
+  if (!dueDate) return { outcome: 'missing_schedule_anchor', reason: 'due_date_not_resolved' };
+
+  const reasonLabel = String(input.requestReasonSnapshot.label ?? 'طلب صيانة دورية').trim();
+  const { rows: taskRows } = await db.query(
+    `INSERT INTO open_tasks (
+       client_id, branch_id, contract_id, device_id,
+       task_type, task_family, reason,
+       status, due_date, priority,
+       source, creation_origin, origin,
+       notes, created_by, source_service_request_id
+     ) VALUES (
+       $1, $2, $3, $4,
+       'periodic_maintenance', 'maintenance', 'service_request',
+       'open', $5::date, 'medium',
+       'service_request', 'periodic_request', 'service_request',
+       $6, $7, $8
+     )
+     ON CONFLICT DO NOTHING
+     RETURNING id`,
+    [
+      Number(device.clientId),
+      Number(device.branchId),
+      plan.contractId,
+      input.installedDeviceId,
+      dueDate,
+      reasonLabel,
+      input.createdByUserId,
+      input.serviceRequestId,
+    ],
+  );
+  let taskId = taskRows[0]?.id ? Number(taskRows[0].id) : null;
+  if (taskId == null) {
+    const { rows: concurrentRows } = await db.query(
+      `SELECT id FROM open_tasks
+        WHERE task_type = 'periodic_maintenance'
+          AND device_id = $1
+          AND status NOT IN ('completed', 'closed', 'cancelled')
+        ORDER BY created_at DESC, id DESC LIMIT 1`,
+      [input.installedDeviceId],
+    );
+    if (concurrentRows[0]) {
+      return { outcome: 'active_task_exists', taskId: Number(concurrentRows[0].id) };
+    }
+    throw new Error('periodic_service_request_task_insert_failed');
+  }
+
+  await db.query(
+    `INSERT INTO open_task_periodic_payload
+       (open_task_id, generation_origin, interval_days_snapshot,
+        service_agreement_id, request_reason_id, request_reason_snapshot, created_by)
+     VALUES ($1, 'service_request', $2, $3, $4, $5::jsonb, $6)`,
+    [
+      taskId,
+      intervalDays,
+      plan.serviceAgreementId,
+      input.requestReasonId,
+      JSON.stringify(input.requestReasonSnapshot),
+      input.createdByUserId,
+    ],
+  );
+  await persistOpenTaskSnapshots(
+    db,
+    taskId,
+    Number(device.clientId),
+    plan.contractId,
+    input.installedDeviceId,
+  );
+  return {
+    outcome: 'created',
+    taskId,
+    dueDate,
+    intervalDays,
+    branchId: Number(device.branchId),
+  };
 }
 
 export async function findPeriodicAttachmentCandidate(

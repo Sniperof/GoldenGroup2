@@ -7,6 +7,8 @@ import { REQUEST_STATUS_COLORS, requestStatusLabel } from '../../components/requ
 const REQUEST_TYPE_LABELS: Record<string, string> = {
   emergency_maintenance: 'طلب صيانة طارئة',
   water_check: 'طلب فحص مياه',
+  periodic_maintenance: 'طلب صيانة دورية',
+  golden_warranty: 'طلب كفالة ذهبية',
   account_creation: 'طلب إنشاء حساب',
 };
 

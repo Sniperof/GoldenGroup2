@@ -194,9 +194,14 @@ export default function ServiceRequestDetailPage() {
   const req = data.request;
   const isWaterCheck = req.requestType === 'water_check';
   const isDeviceRequest = req.requestType === 'device_request';
+  const isPeriodicMaintenance = req.requestType === 'periodic_maintenance';
+  const isGoldenWarranty = req.requestType === 'golden_warranty';
   const isOwner = req.reviewedByUserId === user?.id;
   // Permission family per request type (request-section-contract.md §5).
-  const permFamily = isWaterCheck ? 'water_check' : 'service_requests';
+  const permFamily = isWaterCheck
+    ? 'water_check'
+    : isPeriodicMaintenance ? 'periodic_maintenance'
+      : isGoldenWarranty ? 'golden_warranty' : 'service_requests';
   const canReview = hasPermission(`${permFamily}.review`);
   const canDecide = hasPermission(`${permFamily}.decide`);
   const canResolveEscalation = hasPermission(`${permFamily}.resolve_escalation`);
@@ -216,27 +221,30 @@ export default function ServiceRequestDetailPage() {
   // claimed first. Only available in_review and while not escalated.
   const canLink = req.status === 'in_review' && !isEscalated;
   const canCreateWaterCheckClient =
-    (isWaterCheck || isDeviceRequest)
+    (isWaterCheck || isDeviceRequest || isGoldenWarranty)
     && canLink
     && !req.beneficiaryClientId
     && (isDeviceRequest || (req.branchId && req.branchResolutionStatus === 'resolved'))
     && hasPermission('clients.create');
   const canCreateCandidateFromRequest =
-    !isWaterCheck && !isDeviceRequest
+    !isWaterCheck && !isDeviceRequest && !isPeriodicMaintenance && !isGoldenWarranty
     && canLink
     && !req.beneficiaryClientId
     && !req.beneficiaryCandidateId
     && hasPermission('candidates.create');
   const hasMediator = !!req.referrerExternal;
-  const hasIndependentRequester = (isWaterCheck || isDeviceRequest) && req.submissionType === 'refer_a_candidate';
+  const hasIndependentRequester = (isWaterCheck || isDeviceRequest || isPeriodicMaintenance || isGoldenWarranty)
+    && req.submissionType === 'refer_a_candidate';
   const canCreateRequesterClient =
     hasIndependentRequester
+    && !isPeriodicMaintenance
     && canLink
     && !req.requesterClientId
     && (isDeviceRequest || !!req.branchId)
     && hasPermission('clients.create');
   const canCreateMediatorClient =
-    (isWaterCheck || isDeviceRequest)
+    (isWaterCheck || isDeviceRequest || isPeriodicMaintenance || isGoldenWarranty)
+    && !isPeriodicMaintenance
     && canLink
     && hasMediator
     && !req.referrerClientId
@@ -251,7 +259,33 @@ export default function ServiceRequestDetailPage() {
     if (!req.reportedDeviceModelId && !externalModelChoice) promoteMissing.push('ربط الجهاز الآخر بطراز مسجل');
   } else if (!req.installedDeviceId) promoteMissing.push('ربط جهاز من أجهزة المستفيد');
   if (activeProblems.length === 0) promoteMissing.push('عطل واحد على الأقل في اللائحة');
-  const canDoPromote = !isWaterCheck && !isDeviceRequest && promoteMissing.length === 0;
+  const canDoPromote = !isWaterCheck && !isDeviceRequest && !isPeriodicMaintenance && !isGoldenWarranty && promoteMissing.length === 0;
+  const periodicHandoffMissing: string[] = [];
+  if (isPeriodicMaintenance && !req.linkedOpenTaskId) {
+    if (req.status !== 'in_review') periodicHandoffMissing.push('تولّي الطلب');
+    if (!req.beneficiaryClientId) periodicHandoffMissing.push('ربط المستفيد بزبون');
+    if (!req.installedDeviceId) periodicHandoffMissing.push('تثبيت الجهاز المقصود');
+    if (!req.periodicMaintenanceReasonId) periodicHandoffMissing.push('سبب طلب الصيانة الدورية');
+    if (!req.branchId) periodicHandoffMissing.push('تحديد فرع الجهاز');
+  }
+  const canDoPeriodicHandoff = isPeriodicMaintenance
+    && !req.linkedOpenTaskId
+    && canDecide
+    && periodicHandoffMissing.length === 0;
+  const goldenHandoffMissing: string[] = [];
+  if (isGoldenWarranty && !req.linkedOpenTaskId) {
+    if (req.status !== 'in_review') goldenHandoffMissing.push('تولّي الطلب');
+    if (!req.beneficiaryClientId) goldenHandoffMissing.push('ربط المستفيد بزبون');
+    if (!req.installedDeviceId) goldenHandoffMissing.push('تثبيت الجهاز المقصود');
+    if (!req.requestedWarrantyMonths) goldenHandoffMissing.push('المدة المطلوبة');
+    if (!req.beneficiaryContactConsentConfirmed) goldenHandoffMissing.push('موافقة التواصل مع المستفيد');
+    if (!req.branchId) goldenHandoffMissing.push('تحديد فرع الجهاز');
+  }
+  const canDoGoldenHandoff = isGoldenWarranty
+    && !req.linkedOpenTaskId
+    && canDecide
+    && hasPermission('open_tasks.edit')
+    && goldenHandoffMissing.length === 0;
   const waterCheckHandoffMissing: string[] = [];
   if (isWaterCheck && !req.linkedOpenTaskId) {
     if (req.status !== 'in_review') waterCheckHandoffMissing.push('استلام الطلب ونقله إلى قيد المراجعة');
@@ -347,6 +381,61 @@ export default function ServiceRequestDetailPage() {
       }
     } catch (e: any) {
       alert(e?.message ?? 'فَشل الترقية');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function doPeriodicMaintenanceHandoff() {
+    setBusy(true);
+    try {
+      let result;
+      try {
+        result = await api.serviceRequests.handoffPeriodicMaintenance(requestId);
+      } catch (error: any) {
+        if (error?.code !== 'device_location_decision_required') throw error;
+        const confirmed = window.confirm(
+          'عنوان الطلب يختلف عن موقع الجهاز المسجل. اضغط موافق لاعتماد موقع الجهاز المسجل، أو إلغاء لمعالجة نقل الجهاز أولاً.',
+        );
+        if (!confirmed) return;
+        result = await api.serviceRequests.handoffPeriodicMaintenance(requestId, {
+          deviceLocationDecision: 'registered_location_confirmed',
+        });
+      }
+      showToast(`تم إنشاء مهمة الصيانة الدورية #${result.openTaskId}`, 'success');
+      await reload();
+    } catch (error: any) {
+      if (error?.code === 'active_periodic_task_exists') {
+        showToast('توجد مهمة صيانة دورية نشطة؛ استخدم حل عند الاستلام.', 'error');
+      } else {
+        showToast(error?.message ?? 'تعذر إنشاء مهمة الصيانة الدورية', 'error');
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function doGoldenWarrantyHandoff() {
+    setBusy(true);
+    try {
+      const result = await api.serviceRequests.handoffGoldenWarranty(requestId);
+      showToast(`تم إنشاء مهمة عرض الكفالة الذهبية #${result.openTaskId}`, 'success');
+      await reload();
+    } catch (error: any) {
+      const resolveCodes = new Set([
+        'active_contract_warranty_exists',
+        'active_golden_warranty_exists',
+        'active_golden_warranty_offer_exists',
+        'device_not_active',
+        'device_model_not_golden_warranty_eligible',
+        'requested_period_no_longer_available',
+      ]);
+      showToast(
+        resolveCodes.has(error?.code)
+          ? 'تعذر إنشاء المهمة بسبب حالة الجهاز الحالية؛ أغلق الطلب بحل عند الاستلام والسبب المطابق.'
+          : error?.message ?? 'تعذر إنشاء مهمة عرض الكفالة الذهبية',
+        'error',
+      );
     } finally {
       setBusy(false);
     }
@@ -859,7 +948,7 @@ export default function ServiceRequestDetailPage() {
           )}
           {req.status === 'in_review' && !isEscalated && canDecide && (
             <>
-              {!isWaterCheck && !isDeviceRequest && (
+              {!isWaterCheck && !isDeviceRequest && !isPeriodicMaintenance && !isGoldenWarranty && (
                 <Button
                   size="sm"
                   icon={ArrowUpCircle}
@@ -904,10 +993,37 @@ export default function ServiceRequestDetailPage() {
                   إنشاء مهمة عرض جهاز
                 </Button>
               )}
+              {isPeriodicMaintenance && (
+                <Button
+                  size="sm"
+                  icon={ArrowUpCircle}
+                  disabled={busy || !canDoPeriodicHandoff}
+                  onClick={doPeriodicMaintenanceHandoff}
+                  title={canDoPeriodicHandoff
+                    ? 'إنشاء مهمة صيانة دورية جديدة'
+                    : `ينقصك: ${periodicHandoffMissing.join(' + ')}`}
+                >
+                  إنشاء مهمة صيانة دورية
+                </Button>
+              )}
+              {isGoldenWarranty && (
+                <Button
+                  size="sm"
+                  icon={ArrowUpCircle}
+                  disabled={busy || !canDoGoldenHandoff}
+                  onClick={doGoldenWarrantyHandoff}
+                  title={canDoGoldenHandoff
+                    ? 'إنشاء مهمة عرض الكفالة بالمدة المقفلة'
+                    : `ينقصك: ${goldenHandoffMissing.join(' + ')}`}
+                >
+                  إنشاء مهمة عرض الكفالة الذهبية
+                </Button>
+              )}
               <Button
                 size="sm"
                 icon={ClipboardCheck}
-                disabled={busy || !hasBeneficiaryClient}
+                disabled={busy || !hasBeneficiaryClient
+                  || (isPeriodicMaintenance && (!req.installedDeviceId || !req.activePeriodicMaintenanceTask))}
                 onClick={() => setActionModal('resolveAtIntake')}
                 title={hasBeneficiaryClient ? 'حل الطلب عند الاستلام' : 'اربط المستفيد بسجل زبون أولاً'}
               >
@@ -930,7 +1046,7 @@ export default function ServiceRequestDetailPage() {
           {req.status === 'in_review' && canDecide && !hasBeneficiaryClient && (
             <span className="text-xs font-semibold text-amber-700">اربط المستفيد بسجل زبون قبل الرفض أو الحل عند الاستلام.</span>
           )}
-          {isActive && canDecide && req.status !== 'received' && !isEscalated && (
+          {isActive && canDecide && req.status !== 'received' && !isEscalated && !isPeriodicMaintenance && (
             <Button
               variant="secondary"
               size="sm"
@@ -985,6 +1101,64 @@ export default function ServiceRequestDetailPage() {
             if (detailPath) navigate(detailPath);
           }}
         />
+      ) : isGoldenWarranty ? (
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <DetailField
+              label="الجهاز كما ورد في الطلب"
+              value={req.reportedDeviceSnapshot?.modelName
+                ?? (req.installedDeviceId ? `جهاز مسجل #${req.installedDeviceId}` : null)}
+            />
+            <DetailField label="الرقم التسلسلي" value={req.reportedDeviceSnapshot?.serialNumber} />
+            <DetailField
+              label="المدة المطلوبة المقفلة"
+              value={req.requestedWarrantyPeriodSnapshot?.label
+                ?? (req.requestedWarrantyMonths ? `${req.requestedWarrantyMonths} شهر` : null)}
+            />
+            <DetailField
+              label="موافقة التواصل مع المستفيد"
+              value={req.beneficiaryContactConsentConfirmed ? 'مؤكدة' : 'غير مؤكدة'}
+            />
+            <DetailField label="الجهاز المثبت" value={req.installedDeviceId ? `#${req.installedDeviceId}` : null} />
+            <DetailField
+              label="كفالة فعالة"
+              value={req.activeDeviceWarranty?.id
+                ? `#${req.activeDeviceWarranty.id} — ${req.activeDeviceWarranty.type}` : null}
+            />
+            <DetailField
+              label="مهمة عرض فعالة"
+              value={req.activeGoldenWarrantyOfferTask?.id
+                ? `#${req.activeGoldenWarrantyOfferTask.id} — ${req.activeGoldenWarrantyOfferTask.status}` : null}
+            />
+          </div>
+          <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+            السعر والدفع والتقسيط تُحدد في نتيجة مهمة العرض، ولا يجوز تغيير المدة المختارة في الطلب.
+          </p>
+        </div>
+      ) : isPeriodicMaintenance ? (
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <DetailField
+              label="الجهاز كما أبلغ عنه منشئ الطلب"
+              value={req.reportedDeviceSnapshot?.deviceName
+                ?? req.reportedDeviceSnapshot?.modelName
+                ?? (req.installedDeviceId ? `جهاز مسجل #${req.installedDeviceId}` : null)}
+            />
+            <DetailField label="الرقم التسلسلي المبلّغ عنه" value={req.reportedDeviceSnapshot?.serialNumber} />
+            <DetailField label="سبب طلب الصيانة الدورية" value={req.periodicMaintenanceReasonSnapshot?.label} />
+            <DetailField label="الجهاز المثبت" value={req.installedDeviceId ? `#${req.installedDeviceId}` : null} />
+            <DetailField
+              label="عنوان الطلب"
+              value={req.serviceAddress?.detailed_address ?? req.serviceAddress?.address_text}
+            />
+            <DetailField
+              label="المهمة الدورية النشطة"
+              value={req.activePeriodicMaintenanceTask?.id
+                ? `#${req.activePeriodicMaintenanceTask.id} — ${req.activePeriodicMaintenanceTask.status}`
+                : null}
+            />
+          </div>
+        </div>
       ) : (
         <div className="space-y-3">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -1013,7 +1187,7 @@ export default function ServiceRequestDetailPage() {
             />
           </div>
           {/* V1.0 §١٢ — promote readiness checklist (visible in in_review only). */}
-          {!isWaterCheck && !isDeviceRequest && req.status === 'in_review' && !canDoPromote && (
+          {!isWaterCheck && !isDeviceRequest && !isPeriodicMaintenance && !isGoldenWarranty && req.status === 'in_review' && !canDoPromote && (
             <div className="bg-yellow-50 border border-yellow-200 rounded p-3 text-sm">
               <div className="font-semibold text-yellow-900 mb-1">
                 للترقية إلى مهمة، ينقصك:
@@ -1128,7 +1302,7 @@ export default function ServiceRequestDetailPage() {
           )}
         </div>
       )}
-      extraTabs={!isWaterCheck && !isDeviceRequest ? [{
+      extraTabs={!isWaterCheck && !isDeviceRequest && !isPeriodicMaintenance && !isGoldenWarranty ? [{
         id: 'problems',
         label: `الأعطال (${data.problems.filter((p) => p.deletedAt == null).length})`,
         content: (
@@ -1144,10 +1318,14 @@ export default function ServiceRequestDetailPage() {
       audit={<AuditLogTimeline events={data.auditLog} />}
       linkage={
         <div>
-          {(isWaterCheck || isDeviceRequest) && (
+          {(isWaterCheck || isDeviceRequest || isPeriodicMaintenance || isGoldenWarranty) && (
         <div className="space-y-4">
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h2 className="text-base font-bold text-slate-800">أطراف {isDeviceRequest ? 'طلب الجهاز' : 'طلب فحص المياه'}</h2>
+            <h2 className="text-base font-bold text-slate-800">أطراف {isDeviceRequest
+              ? 'طلب الجهاز'
+              : isPeriodicMaintenance
+                ? 'طلب الصيانة الدورية'
+                : isGoldenWarranty ? 'طلب الكفالة الذهبية' : 'طلب فحص المياه'}</h2>
             <p className="mt-1 text-sm text-slate-500">
               يعرض كل قسم الطرف المقصود وحالة ربطه. ربط المستفيد مطلوب قبل تحويل الطلب إلى مهمة، أما ربط مقدم الطلب والوسيط فاختياري.
             </p>

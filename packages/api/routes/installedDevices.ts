@@ -28,6 +28,8 @@ const selectFields = `
   COALESCE(d.device_model_id, c.device_model_id) AS "deviceModelId",
   COALESCE(d.device_model_name, c.device_model_name, d.external_device_name) AS "deviceModelName",
   dm.has_sterilization        AS "hasSterilization",
+  dm.is_golden_warranty      AS "modelSupportsGoldenWarranty",
+  dm.golden_warranty_periods AS "goldenWarrantyPeriods",
   d.serial_number     AS "serialNumber",
   d.status,
   d.installation_geo_unit_id  AS "installationGeoUnitId",

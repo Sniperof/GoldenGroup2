@@ -24,7 +24,7 @@ import crypto from 'node:crypto';
 import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
-import { authorize } from '../services/authorizationService.js';
+import { authorize, resolveListAccessScope } from '../services/authorizationService.js';
 import {
   appendAudit,
   type ActorRole,
@@ -49,7 +49,11 @@ import {
 } from '../services/serviceRequests/promoteService.js';
 import { handoffWaterCheckToDeviceDemo } from '../services/serviceRequests/waterCheckHandoffService.js';
 import { handoffDeviceRequestToDemo } from '../services/serviceRequests/deviceRequestHandoffService.js';
+import { handoffPeriodicMaintenanceRequest } from '../services/serviceRequests/periodicMaintenanceHandoffService.js';
+import { handoffGoldenWarrantyRequest } from '../services/serviceRequests/goldenWarrantyHandoffService.js';
 import { createInternalDeviceRequest } from '../services/serviceRequests/internalDeviceRequestService.js';
+import { createInternalPeriodicMaintenanceRequest } from '../services/serviceRequests/internalPeriodicMaintenanceRequest.js';
+import { createInternalGoldenWarrantyRequest } from '../services/serviceRequests/internalGoldenWarrantyRequest.js';
 import { reopen } from '../services/serviceRequests/reopenService.js';
 import { suggestRecords } from '../services/serviceRequests/fuzzyMatching.js';
 import { resolveBranchForServiceGeoUnit } from '../services/serviceRequests/branchResolutionService.js';
@@ -107,9 +111,11 @@ const PERMISSION_FAMILY_BY_TYPE: Record<string, string> = {
   emergency_maintenance: 'service_requests',
   water_check: 'water_check',
   device_request: 'service_requests',
+  periodic_maintenance: 'periodic_maintenance',
+  golden_warranty: 'golden_warranty',
 };
 
-type FamilyAction = 'view' | 'review' | 'decide' | 'resolve_escalation' | 'archive';
+type FamilyAction = 'view' | 'review' | 'decide' | 'resolve_escalation' | 'archive' | 'create';
 
 function familyKeyFor(requestType: string, action: FamilyAction): string {
   const family = PERMISSION_FAMILY_BY_TYPE[requestType] ?? 'service_requests';
@@ -124,7 +130,37 @@ function requireTypedPermission(action: FamilyAction) {
     if (!requestType) {
       return res.status(500).json({ error: 'request_type_not_resolved' });
     }
-    return requirePermission(familyKeyFor(requestType, action))(req, res, next);
+    const permission = familyKeyFor(requestType, action);
+    return requirePermission(permission)(req, res, async (error?: unknown) => {
+      if (error) return next(error);
+      try {
+        const { rows } = await pool.query<{
+          branch_id: number | null; reviewed_by_user_id: number | null;
+        }>(
+          `SELECT branch_id, reviewed_by_user_id FROM service_requests WHERE id = $1 LIMIT 1`,
+          [Number(req.params.id)],
+        );
+        if (!rows[0]) return res.status(404).json({ error: 'service_request_not_found' });
+        const scopePlan = resolveListAccessScope(req.authContext!, permission);
+        if (rows[0].branch_id == null && scopePlan.scope !== 'GLOBAL') {
+          return res.status(403).json({
+            error: 'service_request_subject_forbidden',
+            details: { reason: 'UNRESOLVED_BRANCH_REQUIRES_GLOBAL' },
+          });
+        }
+        const access = authorize(req.authContext!, {
+          permission,
+          branchId: rows[0].branch_id,
+          assignedUserId: rows[0].reviewed_by_user_id,
+        });
+        if (!access.allowed) {
+          return res.status(403).json({ error: 'service_request_subject_forbidden', details: { reason: access.reason } });
+        }
+        return next();
+      } catch (subjectError) {
+        return next(subjectError);
+      }
+    });
   };
 }
 
@@ -141,12 +177,14 @@ async function authorizeCreateSubject(
   req: Request,
   res: Response,
   input: Record<string, unknown> = req.body ?? {},
+  permission = 'service_requests.create',
+  preferDeviceBranch = false,
 ): Promise<boolean> {
   const beneficiaryClientId = Number(input.beneficiaryClientId) || null;
   const installedDeviceId = Number(input.installedDeviceId) || null;
   if (beneficiaryClientId == null && installedDeviceId == null) {
     const branchId = Number(input.branchId ?? req.authContext?.actingBranchId) || null;
-    const access = authorize(req.authContext!, { permission: 'service_requests.create', branchId });
+    const access = authorize(req.authContext!, { permission, branchId });
     if (!access.allowed) {
       res.status(403).json({ error: 'service_request_subject_forbidden', details: { reason: access.reason } });
       return false;
@@ -183,13 +221,20 @@ async function authorizeCreateSubject(
     res.status(400).json({ error: 'installed_device_beneficiary_mismatch' });
     return false;
   }
-  const branchId = subject.client_branch_id ?? subject.device_branch_id;
-  const access = authorize(req.authContext!, { permission: 'service_requests.create', branchId });
+  const branchId = preferDeviceBranch
+    ? subject.device_branch_id ?? subject.client_branch_id
+    : subject.client_branch_id ?? subject.device_branch_id;
+  const access = authorize(req.authContext!, { permission, branchId });
   if (!access.allowed) {
     res.status(403).json({ error: 'service_request_subject_forbidden', details: { reason: access.reason } });
     return false;
   }
   return true;
+}
+
+function requireInternalCallRequestCreatePermission(req: Request, res: Response, next: NextFunction) {
+  const requestType = String(req.body?.request?.requestType ?? 'emergency_maintenance');
+  return requirePermission(familyKeyFor(requestType, 'create'))(req, res, next);
 }
 
 /** Maps a service-result error code to an HTTP status. */
@@ -209,6 +254,8 @@ function statusFromCode(code: string): number {
     case 'merge_or_split_required':
     case 'periodic_attachment_candidate_not_available':
     case 'active_device_demo_exists':
+    case 'active_periodic_task_exists':
+    case 'active_periodic_request_exists':
     case 'device_serial_conflict':
       return 409;
     case 'request_is_escalated_actions_blocked':
@@ -348,6 +395,13 @@ const SR_SELECT = `
   sr.safety_indicator_codes AS "safetyIndicatorCodes",
   sr.device_request_purpose_id AS "deviceRequestPurposeId",
   sr.device_request_purpose_snapshot AS "deviceRequestPurposeSnapshot",
+  sr.periodic_maintenance_reason_id AS "periodicMaintenanceReasonId",
+  sr.periodic_maintenance_reason_snapshot AS "periodicMaintenanceReasonSnapshot",
+  sr.requested_warranty_months AS "requestedWarrantyMonths",
+  sr.requested_warranty_period_snapshot AS "requestedWarrantyPeriodSnapshot",
+  sr.beneficiary_contact_consent_confirmed AS "beneficiaryContactConsentConfirmed",
+  sr.decision_reason_id AS "decisionReasonId",
+  sr.decision_reason_snapshot AS "decisionReasonSnapshot",
   COALESCE((
     SELECT jsonb_agg(jsonb_build_object(
       'deviceModelId', interest.device_model_id,
@@ -368,6 +422,38 @@ const SR_SELECT = `
      ORDER BY active_demo.created_at DESC
      LIMIT 1
   ) AS "activeDeviceDemo",
+  (
+    SELECT jsonb_build_object(
+      'id', active_periodic.id,
+      'status', active_periodic.status,
+      'dueDate', active_periodic.due_date,
+      'createdAt', active_periodic.created_at
+    )
+      FROM open_tasks active_periodic
+     WHERE active_periodic.device_id = sr.installed_device_id
+       AND active_periodic.task_type = 'periodic_maintenance'
+       AND active_periodic.status NOT IN ('completed', 'closed', 'cancelled')
+     ORDER BY active_periodic.created_at DESC, active_periodic.id DESC
+     LIMIT 1
+  ) AS "activePeriodicMaintenanceTask",
+  (
+    SELECT jsonb_build_object('id', offer.id, 'status', offer.status, 'createdAt', offer.created_at)
+      FROM open_tasks offer
+     WHERE offer.device_id = sr.installed_device_id
+       AND offer.task_type = 'golden_warranty_offer'
+       AND offer.status NOT IN ('completed', 'closed', 'cancelled')
+     ORDER BY offer.created_at DESC, offer.id DESC
+     LIMIT 1
+  ) AS "activeGoldenWarrantyOfferTask",
+  (
+    SELECT jsonb_build_object('id', warranty.id, 'type', warranty.warranty_type, 'endDate', warranty.end_date)
+      FROM device_warranties warranty
+     WHERE warranty.device_id = sr.installed_device_id
+       AND warranty.status = 'active'
+       AND (warranty.end_date IS NULL OR warranty.end_date >= CURRENT_DATE)
+     ORDER BY warranty.id DESC
+     LIMIT 1
+  ) AS "activeDeviceWarranty",
   sr.source_call_log_id AS "sourceCallLogId",
   sr.device_location_decision AS "deviceLocationDecision",
   sr.device_location_decided_by_user_id AS "deviceLocationDecidedByUserId",
@@ -453,6 +539,9 @@ const SR_DISPLAY_JOINS = `
 // ------------------------------------------------------------
 
 router.post('/', requirePermission('service_requests.create'), async (req, res) => {
+  if (req.body?.requestType === 'periodic_maintenance') {
+    return res.status(400).json({ error: 'periodic_maintenance_requires_telemarketing_call_result' });
+  }
   const allowedChannels = new Set(['phone', 'internal_button', 'client_detail_button', 'admin_manual']);
   if (!allowedChannels.has(String(req.body?.channel ?? ''))) {
     return res.status(400).json({ error: 'invalid_internal_service_request_channel' });
@@ -497,6 +586,9 @@ router.post('/', requirePermission('service_requests.create'), async (req, res) 
 
 // Convenience: same as POST / but forces channel='admin_manual' + in_review.
 router.post('/internal', requirePermission('service_requests.create'), async (req, res) => {
+  if (req.body?.requestType === 'periodic_maintenance') {
+    return res.status(400).json({ error: 'periodic_maintenance_requires_telemarketing_call_result' });
+  }
   if (!await authorizeCreateSubject(req, res)) return;
   const actor = getActor(req);
   if (req.body?.requestType === 'device_request') {
@@ -541,13 +633,23 @@ router.post('/internal', requirePermission('service_requests.create'), async (re
 router.post(
   '/internal-with-call',
   requirePermission('telemarketing.calls.create'),
-  requirePermission('service_requests.create'),
+  requireInternalCallRequestCreatePermission,
   async (req, res) => {
     const actor = getActor(req);
     const call = (req.body?.call ?? {}) as Record<string, unknown>;
     const request = (req.body?.request ?? {}) as Record<string, unknown>;
     const requesterClientId = Number(request.requesterClientId ?? call.customerId);
     const beneficiaryClientId = Number(request.beneficiaryClientId) || null;
+    const requestType = String(request.requestType ?? 'emergency_maintenance');
+    if (!new Set([
+      'emergency_maintenance',
+      'device_request',
+      'periodic_maintenance',
+      'golden_warranty',
+    ]).has(requestType)) {
+      return res.status(400).json({ error: 'unsupported_internal_call_request_type' });
+    }
+    const createPermission = familyKeyFor(requestType, 'create');
     if (!Number.isInteger(requesterClientId) || requesterClientId <= 0) {
       return res.status(400).json({ error: 'requester_client_id_required' });
     }
@@ -564,17 +666,19 @@ router.post(
       : null;
     if (!requester) return res.status(404).json({ error: 'requester_client_not_found' });
     if (beneficiaryClientId && !beneficiary) return res.status(404).json({ error: 'beneficiary_client_not_found' });
-    const isDeviceRequest = request.requestType === 'device_request';
+    const isDeviceRequest = requestType === 'device_request';
+    const isPeriodicMaintenance = requestType === 'periodic_maintenance';
+    const isGoldenWarranty = requestType === 'golden_warranty';
     const subjectBranchIds = isDeviceRequest
       ? [beneficiary?.branch_id ?? requester.branch_id]
       : [requester.branch_id, beneficiary?.branch_id];
     for (const branchId of new Set(subjectBranchIds.filter((id): id is number => id != null))) {
-      const access = authorize(req.authContext!, { permission: 'service_requests.create', branchId });
+      const access = authorize(req.authContext!, { permission: createPermission, branchId });
       if (!access.allowed) {
         return res.status(403).json({ error: 'service_request_subject_forbidden', details: { branchId, reason: access.reason } });
       }
     }
-    if (!await authorizeCreateSubject(req, res, request)) return;
+    if (!await authorizeCreateSubject(req, res, request, createPermission, isPeriodicMaintenance || isGoldenWarranty)) return;
 
     const callLogId = crypto.randomUUID();
     const client = await pool.connect();
@@ -624,7 +728,28 @@ router.post(
           actorUserId: actor.userId,
           actorRole: 'operator',
         }, client)
-        : await createServiceRequest({
+        : isPeriodicMaintenance
+          ? await createInternalPeriodicMaintenanceRequest({
+            db: client,
+            request,
+            requesterClientId,
+            beneficiaryClientId,
+            beneficiaryExternal: request.beneficiaryExternal as Record<string, unknown> | null | undefined,
+            referrerClientId: Number(request.referrerClientId) || null,
+            referrerExternal: request.referrerExternal as Record<string, unknown> | null | undefined,
+            sourceCallLogId: callLogId,
+            actorUserId: actor.userId,
+          })
+          : isGoldenWarranty
+            ? await createInternalGoldenWarrantyRequest({
+              db: client,
+              request,
+              requesterClientId,
+              beneficiaryClientId,
+              sourceCallLogId: callLogId,
+              actorUserId: actor.userId,
+            })
+          : await createServiceRequest({
         requestType: 'emergency_maintenance',
         channel: 'phone',
         applicationSource: 'telemarketing_service_request',
@@ -902,15 +1027,13 @@ router.post('/water-check', requirePermission('water_check.create'), async (req,
   });
 });
 
-router.get('/', requirePermission('service_requests.view', 'water_check.view'), async (req, res) => {
+router.get('/', requirePermission('service_requests.view', 'water_check.view', 'periodic_maintenance.view', 'golden_warranty.view'), async (req, res) => {
   const q = req.query;
   // Cross-type isolation (request-section-contract.md §5): the list only
   // returns the types whose <family>.view the caller holds. account_creation
   // is never listed here (it has its own router + family).
   const ctx = req.authContext!;
-  const viewableTypes = Object.keys(PERMISSION_FAMILY_BY_TYPE).filter(
-    (type) => ctx.isSuperAdmin || authorize(ctx, { permission: familyKeyFor(type, 'view') }).allowed,
-  );
+  const typeScopeClauses: string[] = [];
 
   // Contract §3 stale safety net (advisory only): in_review with no audit
   // activity for more than the admin-configured threshold. 0 disables.
@@ -928,8 +1051,26 @@ router.get('/', requirePermission('service_requests.view', 'water_check.view'), 
   const filters: string[] = [];
   const params: unknown[] = [];
   let idx = 1;
-  filters.push(`sr.request_type = ANY($${idx++})`);
-  params.push(viewableTypes);
+  for (const type of Object.keys(PERMISSION_FAMILY_BY_TYPE)) {
+    const plan = resolveListAccessScope(ctx, familyKeyFor(type, 'view'));
+    if (plan.scope === 'NONE') continue;
+    const typeParam = idx++;
+    params.push(type);
+    if (plan.scope === 'GLOBAL') {
+      typeScopeClauses.push(`sr.request_type = $${typeParam}`);
+      continue;
+    }
+    if (plan.scope === 'BRANCH') {
+      const branchesParam = idx++;
+      params.push(plan.allowedBranchIds);
+      typeScopeClauses.push(`(sr.request_type = $${typeParam} AND sr.branch_id = ANY($${branchesParam}::int[]))`);
+      continue;
+    }
+    const userParam = idx++;
+    params.push(plan.userId);
+    typeScopeClauses.push(`(sr.request_type = $${typeParam} AND sr.reviewed_by_user_id = $${userParam})`);
+  }
+  filters.push(typeScopeClauses.length > 0 ? `(${typeScopeClauses.join(' OR ')})` : 'FALSE');
   if (q.staleOnly === 'true') filters.push(staleCondition);
 
   if (q.status) {
@@ -1100,9 +1241,10 @@ async function linkBeneficiary(input: {
       submission_type: string;
       branch_id: number | null;
       reviewed_by_user_id: number | null;
+      reported_device_snapshot: Record<string, unknown> | null;
     }>(
       `SELECT beneficiary_client_id, beneficiary_candidate_id, request_type, status,
-              submission_type, branch_id, reviewed_by_user_id
+              submission_type, branch_id, reviewed_by_user_id, reported_device_snapshot
          FROM service_requests WHERE id = $1 FOR UPDATE`,
       [input.serviceRequestId],
     );
@@ -1134,7 +1276,13 @@ async function linkBeneficiary(input: {
       await client.query('ROLLBACK');
       return { ok: false as const, code: 'nothing_to_change_use_link' };
     }
-    if ((rows[0].request_type === 'water_check' || rows[0].request_type === 'device_request') && input.beneficiaryCandidateId != null) {
+    if (
+      (rows[0].request_type === 'water_check'
+        || rows[0].request_type === 'device_request'
+        || rows[0].request_type === 'periodic_maintenance'
+        || rows[0].request_type === 'golden_warranty')
+      && input.beneficiaryCandidateId != null
+    ) {
       await client.query('ROLLBACK');
       return {
         ok: false as const,
@@ -1153,7 +1301,11 @@ async function linkBeneficiary(input: {
         return { ok: false as const, code: 'client_not_found' };
       }
       linkedClientBranchId = exists.rows[0].branch_id == null ? null : Number(exists.rows[0].branch_id);
-      if (rows[0].request_type === 'device_request') {
+      if (
+        rows[0].request_type === 'device_request'
+        || ((rows[0].request_type === 'periodic_maintenance' || rows[0].request_type === 'golden_warranty')
+          && input.installedDeviceId == null)
+      ) {
         if (linkedClientBranchId == null) {
           await client.query('ROLLBACK');
           return { ok: false as const, code: 'beneficiary_branch_required' };
@@ -1175,14 +1327,19 @@ async function linkBeneficiary(input: {
         return { ok: false as const, code: 'candidate_not_found' };
       }
     }
+    let linkedDeviceBranchId: number | null = null;
+    let linkedDeviceSerial: string | null = null;
     if (input.installedDeviceId != null) {
       const beneficiaryClientId = input.beneficiaryClientId ?? rows[0].beneficiary_client_id;
       if (beneficiaryClientId == null) {
         await client.query('ROLLBACK');
         return { ok: false as const, code: 'beneficiary_client_required_for_device_link' };
       }
-      const device = await client.query<{ customer_id: number | null; contract_id: number | null }>(
-        `SELECT customer_id, contract_id
+      const device = await client.query<{
+        customer_id: number | null; contract_id: number | null;
+        branch_id: number | null; serial_number: string | null;
+      }>(
+        `SELECT customer_id, contract_id, branch_id, serial_number
            FROM installed_devices
           WHERE id = $1`,
         [input.installedDeviceId],
@@ -1199,6 +1356,42 @@ async function linkBeneficiary(input: {
         await client.query('ROLLBACK');
         return { ok: false as const, code: 'installed_device_contract_mismatch' };
       }
+      linkedDeviceBranchId = device.rows[0].branch_id == null ? null : Number(device.rows[0].branch_id);
+      linkedDeviceSerial = device.rows[0].serial_number == null ? null : String(device.rows[0].serial_number);
+      if (rows[0].request_type === 'periodic_maintenance' || rows[0].request_type === 'golden_warranty') {
+        const targetAccess = authorize(input.authContext, {
+          permission: familyKeyFor(rows[0].request_type, 'review'),
+          branchId: linkedDeviceBranchId,
+        });
+        if (!targetAccess.allowed) {
+          await client.query('ROLLBACK');
+          return { ok: false as const, code: 'forbidden', details: { reason: targetAccess.reason } };
+        }
+        const existing = rows[0].request_type === 'periodic_maintenance'
+          ? await client.query<{ id: number; public_ref_number: string }>(
+          `SELECT id, public_ref_number
+             FROM service_requests
+            WHERE request_type = 'periodic_maintenance'
+              AND installed_device_id = $1
+              AND status IN ('received', 'in_review')
+              AND id <> $2
+            ORDER BY created_at ASC, id ASC
+            LIMIT 1`,
+            [input.installedDeviceId, input.serviceRequestId],
+          )
+          : { rows: [] as Array<{ id: number; public_ref_number: string }> };
+        if (existing.rows[0]) {
+          await client.query('ROLLBACK');
+          return {
+            ok: false as const,
+            code: 'active_periodic_request_exists',
+            details: {
+              requestId: Number(existing.rows[0].id),
+              publicRefNumber: existing.rows[0].public_ref_number,
+            },
+          };
+        }
+      }
     }
 
     await client.query(
@@ -1211,9 +1404,21 @@ async function linkBeneficiary(input: {
               END,
               installed_device_id = COALESCE($4, installed_device_id),
               contract_id = COALESCE($5, contract_id),
-              branch_id = CASE WHEN request_type = 'device_request' AND $2::bigint IS NOT NULL THEN $6 ELSE branch_id END,
-              branch_resolution_status = CASE WHEN request_type = 'device_request' AND $2::bigint IS NOT NULL THEN 'resolved' ELSE branch_resolution_status END,
-              branch_resolution_reason = CASE WHEN request_type = 'device_request' AND $2::bigint IS NOT NULL THEN 'beneficiary_client_branch' ELSE branch_resolution_reason END,
+               branch_id = CASE
+                 WHEN request_type IN ('periodic_maintenance', 'golden_warranty') AND $4::bigint IS NOT NULL THEN $7
+                 WHEN request_type = 'device_request' AND $2::bigint IS NOT NULL THEN $6
+                 ELSE branch_id
+               END,
+               branch_resolution_status = CASE
+                 WHEN request_type IN ('periodic_maintenance', 'golden_warranty') AND $4::bigint IS NOT NULL THEN 'resolved'
+                 WHEN request_type = 'device_request' AND $2::bigint IS NOT NULL THEN 'resolved'
+                 ELSE branch_resolution_status
+               END,
+               branch_resolution_reason = CASE
+                 WHEN request_type IN ('periodic_maintenance', 'golden_warranty') AND $4::bigint IS NOT NULL THEN 'installed_device_branch'
+                 WHEN request_type = 'device_request' AND $2::bigint IS NOT NULL THEN 'beneficiary_client_branch'
+                 ELSE branch_resolution_reason
+               END,
               updated_at = NOW()
         WHERE id = $1`,
       [
@@ -1223,6 +1428,7 @@ async function linkBeneficiary(input: {
         input.installedDeviceId ?? null,
         input.contractId ?? null,
         linkedClientBranchId,
+        linkedDeviceBranchId,
       ],
     );
 
@@ -1250,6 +1456,28 @@ async function linkBeneficiary(input: {
             contract_id: input.contractId ?? null,
           },
     });
+
+    const reportedSerial = rows[0].reported_device_snapshot?.serialNumber;
+    if (
+      rows[0].request_type === 'periodic_maintenance'
+      && typeof reportedSerial === 'string'
+      && reportedSerial.trim()
+      && linkedDeviceSerial
+      && reportedSerial.trim().toLocaleLowerCase() !== linkedDeviceSerial.trim().toLocaleLowerCase()
+    ) {
+      await appendAudit(client, {
+        serviceRequestId: input.serviceRequestId,
+        eventType: 'internal_note_added',
+        actorUserId: input.actorUserId,
+        actorRole: input.actorRole,
+        note: 'device_serial_mismatch',
+        payload: {
+          code: 'device_serial_mismatch',
+          reportedSerial: reportedSerial.trim(),
+          installedDeviceId: input.installedDeviceId,
+        },
+      });
+    }
 
     await syncWaterCheckBeneficiaryReferrer(client, input.serviceRequestId, input.actorUserId);
 
@@ -1577,6 +1805,7 @@ function transitionEndpoint(
         options.bodyTriageOutcome?.(req.body) ?? (req.body.triageOutcome as string | undefined) ?? null,
       triageNotes:
         options.bodyTriageNotes?.(req.body) ?? (req.body.triageNotes as string | undefined) ?? null,
+      decisionReasonId: Number(req.body.decisionReasonId) || null,
       note: req.body.note ?? null,
     });
     if (result.ok !== true) return sendErr(res, result);
@@ -1703,6 +1932,9 @@ router.post(
   '/:id/cancel',
   requireTypedPermission('decide'),
   blockIfEscalated,
+  (req, res, next) => req.serviceRequestType === 'periodic_maintenance'
+    ? res.status(400).json({ error: 'action_not_supported_for_request_type' })
+    : next(),
   transitionEndpoint('<family>.decide', 'cancelled'),
 );
 
@@ -1881,6 +2113,103 @@ router.post('/:id/handoff-water-check', requireTypedPermission('decide'), blockI
   if (result.ok !== true) return sendErr(res, result);
   res.json(result.data);
 });
+
+router.post(
+  '/:id/handoff-periodic-maintenance',
+  requireTypedPermission('decide'),
+  blockIfEscalated,
+  async (req, res) => {
+    const id = Number(req.params.id);
+    const { rows } = await pool.query<{
+      request_type: string; branch_id: number | null; installed_device_id: number | null;
+      device_branch_id: number | null; reviewed_by_user_id: number | null;
+    }>(
+      `SELECT sr.request_type, sr.branch_id, sr.installed_device_id,
+              d.branch_id AS device_branch_id, sr.reviewed_by_user_id
+         FROM service_requests sr
+         LEFT JOIN installed_devices d ON d.id = sr.installed_device_id
+        WHERE sr.id = $1
+        LIMIT 1`,
+      [id],
+    );
+    const subject = rows[0];
+    if (!subject || subject.request_type !== 'periodic_maintenance') {
+      return res.status(400).json({ error: 'wrong_request_type_for_periodic_handoff' });
+    }
+    const access = authorize(req.authContext!, {
+      permission: 'periodic_maintenance.decide',
+      branchId: subject.device_branch_id ?? subject.branch_id,
+      assignedUserId: subject.reviewed_by_user_id,
+    });
+    if (!access.allowed) {
+      return res.status(403).json({ error: 'forbidden', details: { reason: access.reason } });
+    }
+    const result = await handoffPeriodicMaintenanceRequest({
+      serviceRequestId: id,
+      operatorUserId: getActor(req).userId,
+      deviceLocationDecision: req.body?.deviceLocationDecision === 'registered_location_confirmed'
+        ? 'registered_location_confirmed'
+        : null,
+    });
+    if (result.ok !== true) return sendErr(res, result);
+    return res.json(result.data);
+  },
+);
+
+router.post(
+  '/:id/handoff-golden-warranty',
+  requireTypedPermission('decide'),
+  blockIfEscalated,
+  async (req, res) => {
+    const id = Number(req.params.id);
+    const { rows } = await pool.query<{
+      request_type: string; branch_id: number | null; device_branch_id: number | null;
+      reviewed_by_user_id: number | null;
+    }>(
+      `SELECT sr.request_type, sr.branch_id, d.branch_id AS device_branch_id,
+              sr.reviewed_by_user_id
+         FROM service_requests sr
+         LEFT JOIN installed_devices d ON d.id = sr.installed_device_id
+        WHERE sr.id = $1
+        LIMIT 1`,
+      [id],
+    );
+    const subject = rows[0];
+    if (!subject || subject.request_type !== 'golden_warranty') {
+      return res.status(400).json({ error: 'wrong_request_type_for_golden_warranty_handoff' });
+    }
+    const requestAccess = authorize(req.authContext!, {
+      permission: 'golden_warranty.decide',
+      branchId: subject.device_branch_id ?? subject.branch_id,
+      assignedUserId: subject.reviewed_by_user_id,
+    });
+    if (!requestAccess.allowed) {
+      return res.status(403).json({ error: 'forbidden', details: { reason: requestAccess.reason } });
+    }
+    if (subject.device_branch_id == null) {
+      return res.status(400).json({ error: 'installed_device_branch_required' });
+    }
+    const targetAccess = authorize(req.authContext!, {
+      permission: 'open_tasks.edit',
+      branchId: subject.device_branch_id,
+    });
+    if (!targetAccess.allowed) {
+      return res.status(403).json({ error: 'open_tasks_branch_forbidden', details: { reason: targetAccess.reason } });
+    }
+    const allowedPriorities = new Set(['high', 'medium', 'low']);
+    const result = await handoffGoldenWarrantyRequest({
+      serviceRequestId: id,
+      operatorUserId: getActor(req).userId,
+      priority: allowedPriorities.has(String(req.body?.priority))
+        ? req.body.priority as 'high' | 'medium' | 'low' : null,
+      dueDate: typeof req.body?.dueDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.body.dueDate)
+        ? req.body.dueDate : null,
+      operatorNote: typeof req.body?.operatorNote === 'string' ? req.body.operatorNote.trim() || null : null,
+    });
+    if (result.ok !== true) return sendErr(res, result);
+    return res.json(result.data);
+  },
+);
 
 router.post('/:id/merge', requireTypedPermission('decide'), blockIfEscalated, async (req, res) => {
   const actor = getActor(req);

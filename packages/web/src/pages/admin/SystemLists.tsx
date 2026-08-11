@@ -192,6 +192,33 @@ const CATEGORIES: CategoryMeta[] = [
     ],
   },
   {
+    id: 'periodic_maintenance_request_reasons',
+    label: 'أسباب طلب الصيانة الدورية',
+    description: 'يختار منشئ الطلب عنصراً واحداً منها في الموبايل أو تسجيل نتيجة اتصال، وتُحفظ لقطة تاريخية للاختيار.',
+    impact: 'high',
+    usedIn: [
+      { label: 'إنشاء طلب صيانة دورية', route: 'الطلبات → الصيانة الدورية', icon: <ClipboardList className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'service_request_resolve_at_intake_periodic_maintenance',
+    label: 'أسباب حل طلب الصيانة الدورية عند الاستلام',
+    description: 'أسباب الحل عندما توجد مهمة صيانة دورية نشطة ولا يلزم إنشاء مهمة جديدة.',
+    impact: 'high',
+    usedIn: [
+      { label: 'حل طلب الصيانة الدورية', route: 'الطلبات → الصيانة الدورية → التفاصيل', icon: <ClipboardList className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'service_request_rejection_periodic_maintenance',
+    label: 'أسباب رفض طلب الصيانة الدورية',
+    description: 'أسباب الرفض المنظمة الخاصة بطلبات الصيانة الدورية، منفصلة عن أسباب الأنواع الأخرى.',
+    impact: 'high',
+    usedIn: [
+      { label: 'رفض طلب الصيانة الدورية', route: 'الطلبات → الصيانة الدورية → التفاصيل', icon: <ClipboardList className="w-3 h-3" /> },
+    ],
+  },
+  {
     id: 'service_request_resolve_at_intake_emergency_maintenance',
     label: 'أسباب حل طلب الصيانة في الاستلام',
     description: 'الخيارات المعتمدة عند إغلاق طلب صيانة مباشرة من الاستلام بدون إنشاء مهمة. تستخدم في زر "حُلَّ في الاستلام" داخل تفاصيل الطلب.',
@@ -442,6 +469,24 @@ const CATEGORIES: CategoryMeta[] = [
     impact: 'high',
     usedIn: [
       { label: 'ترقية طلب صيانة لمَهمة طوارئ', route: 'طلبات الصيانة ← الترقية', icon: <ShieldCheck className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'service_request_resolve_at_intake_golden_warranty',
+    label: 'أسباب حل طلب الكفالة الذهبية عند الاستلام',
+    description: 'أسباب عدم إنشاء مهمة عرض، مثل وجود كفالة أو مهمة عرض فعالة أو عدم أهلية الجهاز.',
+    impact: 'high',
+    usedIn: [
+      { label: 'حل طلب الكفالة الذهبية', route: 'الطلبات → الكفالة الذهبية → التفاصيل', icon: <ClipboardList className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'service_request_rejection_golden_warranty',
+    label: 'أسباب رفض طلب الكفالة الذهبية',
+    description: 'أسباب الرفض المتعلقة بالهوية والاحتيال والبيانات المضللة أو تعذر استكمال المعلومات.',
+    impact: 'high',
+    usedIn: [
+      { label: 'رفض طلب الكفالة الذهبية', route: 'الطلبات → الكفالة الذهبية → التفاصيل', icon: <ClipboardList className="w-3 h-3" /> },
     ],
   },
   {
@@ -1040,6 +1085,11 @@ const CATEGORY_GROUP: Record<string, string> = {
 
   service_request_resolve_at_intake_emergency_maintenance: 'service_requests',
   service_request_resolve_at_intake_water_check: 'service_requests',
+  service_request_resolve_at_intake_periodic_maintenance: 'service_requests',
+  service_request_rejection_periodic_maintenance: 'service_requests',
+  service_request_resolve_at_intake_golden_warranty: 'service_requests',
+  service_request_rejection_golden_warranty: 'service_requests',
+  periodic_maintenance_request_reasons: 'service_requests',
   device_request_purpose: 'service_requests',
   service_request_completed_account_creation: 'service_requests',
 

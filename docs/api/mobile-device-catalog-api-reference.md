@@ -11,6 +11,10 @@ This reference defines the public APIs used by the mobile application to display
 
 The "Order Now" workflow is not part of this contract. It will be implemented separately as a device request form.
 
+### Breaking list-contract change — 2026-08-11
+
+`GET /api/app/catalog/devices` is now server-paginated. The response keeps the existing `items` field and adds `total`, `page`, and `limit`, but `items` contains only the requested page. Mobile releases must not assume that the first response contains the complete catalog.
+
 ## 2. General Rules
 
 - No bearer token, OTP handle, or account is required.
@@ -32,6 +36,8 @@ The "Order Now" workflow is not part of this contract. It will be implemented se
 | `featured` | boolean string | No | Accepts `true` or `false`. `true` returns featured models only. |
 | `category` | string | No | Exact category filter. Maximum 100 characters. |
 | `search` | string | No | Case-insensitive search in names, code, and category. Maximum 100 characters. |
+| `page` | positive integer | No | Requested page. Defaults to `1`. |
+| `limit` | integer `1..50` | No | Items per page. Defaults to `12`. |
 
 ### Successful Response (`200`)
 
@@ -59,9 +65,21 @@ The "Order Now" workflow is not part of this contract. It will be implemented se
       },
       "isFeatured": true
     }
-  ]
+  ],
+  "total": 50,
+  "page": 1,
+  "limit": 12
 }
 ```
+
+### Pagination behavior
+
+- Results are ordered by featured status, then Arabic/fallback name, then stable device ID.
+- The client has another page while `page * limit < total`.
+- Changing `featured`, `category`, or `search` must clear accumulated items and restart from `page=1`.
+- When loading additional pages, append items and de-duplicate by `id`.
+- An empty first page is the catalog empty state. An empty page beyond the available range does not mean that the catalog itself is empty.
+- Pull-to-refresh should clear accumulated items and request page 1 again.
 
 ### List Item Fields
 
@@ -215,10 +233,10 @@ type AvailableBranch = {
 
 | Status | Condition | Example body |
 |---:|---|---|
-| `400` | Invalid query parameter or device identifier | `{ "error": "معرف الجهاز غير صالح" }` |
+| `400` | Invalid filter, `page`, `limit`, or device identifier | `{ "error": "limit يجب أن يكون عدداً صحيحاً بين 1 و50" }` |
 | `404` | Device is missing, inactive, or deleted | `{ "error": "الجهاز غير موجود" }` |
 | `500` | Catalog could not be loaded | `{ "error": "تعذر تحميل تفاصيل الجهاز" }` |
 
-Mobile clients should show an empty state for a successful list response with `items: []`, and a not-available state for detail `404`. A `500` response should be treated as retryable.
+Mobile clients should show an empty state only when page 1 succeeds with `items: []`, and a not-available state for detail `404`. A `500` response should be treated as retryable without discarding pages that were already loaded.
 
 The standalone Branches tab and branch-detail contract are documented in `docs/api/mobile-branch-catalog-api-reference.md`.

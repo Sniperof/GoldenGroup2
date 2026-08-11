@@ -17,7 +17,7 @@ type Channel = 'internal_button' | 'client_detail_button' | 'admin_manual' | 'ph
 
 interface Props {
   channel: Channel;
-  initialRequestType?: 'emergency_maintenance' | 'device_request';
+  initialRequestType?: 'emergency_maintenance' | 'device_request' | 'periodic_maintenance' | 'golden_warranty';
   /** Preselected beneficiary client (used by client_detail_button). */
   beneficiaryClientId?: number | null;
   beneficiaryClientName?: string | null;
@@ -61,6 +61,8 @@ interface DeviceLite {
   serialNumber?: string | null;
   deviceModelName?: string | null;
   status?: string | null;
+  modelSupportsGoldenWarranty?: boolean;
+  goldenWarrantyPeriods?: Array<{ months: number; label: string }>;
 }
 
 interface CatalogModelLite {
@@ -99,7 +101,7 @@ export default function NewServiceRequestModal({
   onCreated,
 }: Props) {
   const navigate = useNavigate();
-  const [requestType, setRequestType] = useState<'emergency_maintenance' | 'device_request'>(initialRequestType);
+  const [requestType, setRequestType] = useState<'emergency_maintenance' | 'device_request' | 'periodic_maintenance' | 'golden_warranty'>(initialRequestType);
   const [submissionMode, setSubmissionMode] = useState<'for_self' | 'for_another'>('for_self');
 
   // Linked client (mandatory)
@@ -135,24 +137,30 @@ export default function NewServiceRequestModal({
   const [purposeId, setPurposeId] = useState<number | null>(null);
   const [requestedDeviceModelIds, setRequestedDeviceModelIds] = useState<number[]>([]);
   const [deviceRequestNotes, setDeviceRequestNotes] = useState('');
+  const [periodicReasons, setPeriodicReasons] = useState<PurposeLite[]>([]);
+  const [periodicReasonId, setPeriodicReasonId] = useState<number | null>(null);
+  const [requestedWarrantyMonths, setRequestedWarrantyMonths] = useState<number | null>(null);
+  const [beneficiaryContactConsentConfirmed, setBeneficiaryContactConsentConfirmed] = useState(false);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setError(null);
-  }, [clientId, deviceId, problemDescription]);
+  }, [clientId, deviceId, problemDescription, periodicReasonId, governorateId, detailedAddress]);
 
   useEffect(() => {
     Promise.all([
       api.deviceModels.list(),
       api.geoUnits.listReference(),
       api.systemLists.getItemsByCode('device_request_purpose'),
+      api.systemLists.getItemsByCode('periodic_maintenance_request_reasons'),
     ])
-      .then(([models, units, purposes]) => {
+      .then(([models, units, purposes, periodicReasonItems]) => {
         setCatalogModels((models as CatalogModelLite[]) ?? []);
         setGeoUnits((units as GeoLite[]) ?? []);
         setDeviceRequestPurposes(((purposes as PurposeLite[]) ?? []).filter((item) => item.isActive !== false));
+        setPeriodicReasons(((periodicReasonItems as PurposeLite[]) ?? []).filter((item) => item.isActive !== false));
       })
       .catch(() => undefined);
   }, []);
@@ -231,7 +239,19 @@ export default function NewServiceRequestModal({
   }
 
   function validate(): string | null {
+    if ((requestType === 'periodic_maintenance' || requestType === 'golden_warranty') && !callContext) {
+      return 'طلب الصيانة الدورية يُنشأ من نتيجة اتصال التيلماركتر فقط';
+    }
     if (clientId == null) return 'اختيار زبون موجود إلزامي';
+    if (requestType === 'golden_warranty') {
+      if (clientId == null) return 'اختيار المستفيد إلزامي';
+      if (deviceId == null) return 'اختيار جهاز فعال ومؤهل للكفالة الذهبية إلزامي';
+      const selected = devices.find((device) => device.id === deviceId);
+      if (!selected?.modelSupportsGoldenWarranty || selected.status !== 'active') return 'الجهاز المختار غير مؤهل للكفالة الذهبية';
+      if (!requestedWarrantyMonths) return 'اختيار مدة الكفالة إلزامي';
+      if (!beneficiaryContactConsentConfirmed) return 'تأكيد موافقة التواصل مع المستفيد إلزامي';
+      return null;
+    }
     if (requestType === 'device_request') {
       if (purposeId == null) return 'اختيار غرض الطلب إلزامي';
       const purpose = deviceRequestPurposes.find((item) => Number(item.id) === purposeId);
@@ -243,10 +263,14 @@ export default function NewServiceRequestModal({
     if (deviceSelection === 'registered_device' && deviceId == null) return 'اختيار جهاز للزبون إلزامي';
     if (deviceSelection === 'catalog_model' && catalogModelId == null) return 'اختيار طراز الجهاز إلزامي';
     if (deviceSelection === 'other' && !otherDeviceName.trim()) return 'اسم الجهاز الآخر إلزامي';
-    if (deviceSelection !== 'registered_device' && (!governorateId || !detailedAddress.trim())) {
-      return 'المحافظة والعنوان التفصيلي مطلوبان للجهاز الخارجي';
+    if ((requestType === 'periodic_maintenance' || deviceSelection !== 'registered_device')
+      && (!governorateId || !detailedAddress.trim())) {
+      return requestType === 'periodic_maintenance'
+        ? 'المحافظة والعنوان التفصيلي مطلوبان لطلب الصيانة الدورية'
+        : 'المحافظة والعنوان التفصيلي مطلوبان للجهاز الخارجي';
     }
-    if (!problemDescription.trim()) return 'وصف المشكلة إلزامي';
+    if (requestType === 'periodic_maintenance' && periodicReasonId == null) return 'سبب طلب الصيانة الدورية إلزامي';
+    if (requestType === 'emergency_maintenance' && !problemDescription.trim()) return 'وصف المشكلة إلزامي';
     return null;
   }
 
@@ -271,6 +295,43 @@ export default function NewServiceRequestModal({
         purposeId,
         deviceModelIds: requestedDeviceModelIds,
         notes: deviceRequestNotes.trim() || null,
+      } : requestType === 'golden_warranty' ? {
+        requestType,
+        channel,
+        beneficiaryClientId: clientId,
+        requesterClientId: requesterClientId ?? clientId,
+        submissionType: submissionMode === 'for_another' ? 'refer_a_candidate' as const : 'apply' as const,
+        installedDeviceId: deviceId,
+        requestedWarrantyMonths,
+        beneficiaryContactConsentConfirmed,
+        notes: callNotes.trim() || null,
+      } : requestType === 'periodic_maintenance' ? {
+        requestType,
+        channel,
+        reasonId: periodicReasonId,
+        beneficiaryClientId: clientId,
+        requesterClientId: requesterClientId ?? clientId,
+        submissionType: submissionMode === 'for_another' ? 'refer_a_candidate' as const : 'apply' as const,
+        reportedDeviceSelection: deviceSelection,
+        installedDeviceId: deviceSelection === 'registered_device' ? deviceId : null,
+        reportedDeviceModelId: deviceSelection === 'catalog_model' ? catalogModelId : null,
+        externalDeviceName: deviceSelection === 'catalog_model'
+          ? (catalogModels.find((model) => model.id === catalogModelId)?.nameAr
+            ?? catalogModels.find((model) => model.id === catalogModelId)?.name_ar
+            ?? catalogModels.find((model) => model.id === catalogModelId)?.name
+            ?? null)
+          : deviceSelection === 'other' ? otherDeviceName.trim() : null,
+        externalDeviceSerial: deviceSelection === 'registered_device' ? null : externalSerial.trim() || null,
+        serviceAddress: {
+          governorate: String(governorateId),
+          governorateId,
+          regionId,
+          subdistrictId,
+          neighborhoodId,
+          geo_unit_id: neighborhoodId ?? subdistrictId ?? regionId ?? governorateId,
+          detailed_address: detailedAddress.trim(),
+          detailedAddress: detailedAddress.trim(),
+        },
       } : {
         requestType: 'emergency_maintenance',
         channel,
@@ -394,7 +455,7 @@ export default function NewServiceRequestModal({
 
           <section className="space-y-2">
             <h3 className="text-base font-bold text-slate-800">نوع الطلب</h3>
-            <div className="grid grid-cols-2 gap-2">
+            <div className={`grid gap-2 ${callContext ? 'grid-cols-4' : 'grid-cols-2'}`}>
               <button
                 type="button"
                 onClick={() => setRequestType('emergency_maintenance')}
@@ -405,6 +466,20 @@ export default function NewServiceRequestModal({
                 onClick={() => setRequestType('device_request')}
                 className={`rounded-xl border p-2 text-sm ${requestType === 'device_request' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-200'}`}
               >طلب جهاز</button>
+              {callContext && (
+                <button
+                  type="button"
+                  onClick={() => setRequestType('periodic_maintenance')}
+                  className={`rounded-xl border p-2 text-sm ${requestType === 'periodic_maintenance' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-200'}`}
+                >صيانة دورية</button>
+              )}
+              {callContext && (
+                <button
+                  type="button"
+                  onClick={() => { setRequestType('golden_warranty'); setDeviceSelection('registered_device'); }}
+                  className={`rounded-xl border p-2 text-sm ${requestType === 'golden_warranty' ? 'border-amber-500 bg-amber-50 text-amber-700' : 'border-slate-200'}`}
+                >كفالة ذهبية</button>
+              )}
             </div>
           </section>
 
@@ -540,7 +615,42 @@ export default function NewServiceRequestModal({
             </section>
           )}
 
-          {requestType === 'emergency_maintenance' && <>
+          {(requestType === 'emergency_maintenance' || requestType === 'periodic_maintenance' || requestType === 'golden_warranty') && <>
+          {requestType === 'periodic_maintenance' && (
+            <section className="space-y-2">
+              <h3 className="text-base font-bold text-slate-800">سبب طلب الصيانة الدورية <span className="text-xs text-red-600">*</span></h3>
+              <Select
+                value={periodicReasonId == null ? '' : String(periodicReasonId)}
+                onChange={(value) => setPeriodicReasonId(value ? Number(value) : null)}
+                placeholder="اختر سبب الطلب"
+                ariaLabel="سبب طلب الصيانة الدورية"
+                options={periodicReasons.map((reason) => ({ value: String(reason.id), label: reason.value }))}
+              />
+            </section>
+          )}
+          {requestType === 'golden_warranty' && (
+            <section className="space-y-3 rounded-xl border border-amber-200 bg-amber-50/40 p-3">
+              <p className="text-sm font-bold text-amber-900">طلب كفالة ذهبية لجهاز واحد</p>
+              <p className="text-xs text-amber-800">اختر الجهاز أولاً؛ ستظهر المدد التي يدعمها طراز هذا الجهاز حصراً.</p>
+              <Select
+                value={requestedWarrantyMonths == null ? '' : String(requestedWarrantyMonths)}
+                onChange={(value) => setRequestedWarrantyMonths(value ? Number(value) : null)}
+                placeholder="اختر مدة الكفالة"
+                ariaLabel="مدة الكفالة الذهبية المطلوبة"
+                options={(devices.find((device) => device.id === deviceId)?.goldenWarrantyPeriods ?? [])
+                  .map((period) => ({ value: String(period.months), label: period.label }))}
+              />
+              <label className="flex items-start gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={beneficiaryContactConsentConfirmed}
+                  onChange={(event) => setBeneficiaryContactConsentConfirmed(event.target.checked)}
+                />
+                <span>أؤكد موافقة المستفيد على التواصل معه بخصوص هذا الطلب.</span>
+              </label>
+              <p className="text-xs text-slate-600">المدة تقفل مع الطلب ولا يمكن للموظف أو نتيجة المهمة تغييرها. السعر لا يسجل هنا.</p>
+            </section>
+          )}
           {/* (2) Device — registered, catalog, or another reported device */}
           <section className="space-y-2">
             <h3 className="text-base font-bold text-slate-800">
@@ -551,7 +661,7 @@ export default function NewServiceRequestModal({
                 ['registered_device', 'جهاز مسجل'],
                 ['catalog_model', 'من أجهزة الشركة'],
                 ['other', 'جهاز آخر'],
-              ] as const).map(([value, label]) => (
+              ] as const).filter(([value]) => requestType !== 'golden_warranty' || value === 'registered_device').map(([value, label]) => (
                 <button
                   key={value}
                   type="button"
@@ -577,11 +687,14 @@ export default function NewServiceRequestModal({
             ) : (
               <Select
                 value={deviceId == null ? '' : String(deviceId)}
-                onChange={v => setDeviceId(v === '' ? null : Number(v))}
+                onChange={v => { setDeviceId(v === '' ? null : Number(v)); setRequestedWarrantyMonths(null); }}
                 placeholder="— اختر جهازاً —"
                 ariaLabel="الجهاز"
                 className="w-full"
-                options={devices.map(d => ({
+                options={devices
+                  .filter((d) => requestType !== 'golden_warranty'
+                    || (d.status === 'active' && d.modelSupportsGoldenWarranty && (d.goldenWarrantyPeriods?.length ?? 0) > 0))
+                  .map(d => ({
                   value: String(d.id),
                   label: (d.deviceModelName ?? 'جهاز')
                     + (d.serialNumber ? ` · S/N: ${d.serialNumber}` : '')
@@ -657,10 +770,51 @@ export default function NewServiceRequestModal({
                 />
               </>
             )}
+            {requestType === 'periodic_maintenance' && deviceSelection === 'registered_device' && (
+              <>
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                  <Select
+                    value={governorateId == null ? '' : String(governorateId)}
+                    onChange={(value) => { setGovernorateId(value ? Number(value) : null); setRegionId(null); setSubdistrictId(null); setNeighborhoodId(null); }}
+                    placeholder="المحافظة"
+                    ariaLabel="المحافظة"
+                    options={geoUnits.filter((unit) => unit.level === 1).map((unit) => ({ value: String(unit.id), label: unit.name }))}
+                  />
+                  <Select
+                    value={regionId == null ? '' : String(regionId)}
+                    onChange={(value) => { setRegionId(value ? Number(value) : null); setSubdistrictId(null); setNeighborhoodId(null); }}
+                    placeholder="المدينة أو المنطقة"
+                    ariaLabel="المدينة أو المنطقة"
+                    options={geoUnits.filter((unit) => unit.level === 2 && Number(unit.parentId ?? unit.parent_id) === governorateId).map((unit) => ({ value: String(unit.id), label: unit.name }))}
+                  />
+                  <Select
+                    value={subdistrictId == null ? '' : String(subdistrictId)}
+                    onChange={(value) => { setSubdistrictId(value ? Number(value) : null); setNeighborhoodId(null); }}
+                    placeholder="الناحية"
+                    ariaLabel="الناحية"
+                    options={geoUnits.filter((unit) => unit.level === 3 && Number(unit.parentId ?? unit.parent_id) === regionId).map((unit) => ({ value: String(unit.id), label: unit.name }))}
+                  />
+                  <Select
+                    value={neighborhoodId == null ? '' : String(neighborhoodId)}
+                    onChange={(value) => setNeighborhoodId(value ? Number(value) : null)}
+                    placeholder="الحي"
+                    ariaLabel="الحي"
+                    options={geoUnits.filter((unit) => unit.level === 4 && Number(unit.parentId ?? unit.parent_id) === subdistrictId).map((unit) => ({ value: String(unit.id), label: unit.name }))}
+                  />
+                </div>
+                <textarea
+                  value={detailedAddress}
+                  onChange={(event) => setDetailedAddress(event.target.value)}
+                  placeholder="العنوان التفصيلي المطلوب للخدمة"
+                  rows={2}
+                  className="w-full rounded-xl border border-slate-300 p-2 text-sm"
+                />
+              </>
+            )}
           </section>
 
           {/* (3) Problem description — mandatory */}
-          <section className="space-y-2">
+          {requestType === 'emergency_maintenance' && <section className="space-y-2">
             <h3 className="text-base font-bold text-slate-800">
               وصف المشكلة <span className="text-xs text-red-600">*</span>
             </h3>
@@ -671,7 +825,7 @@ export default function NewServiceRequestModal({
               rows={3}
               className="w-full text-sm border border-slate-300 rounded p-2"
             />
-          </section>
+          </section>}
 
           </>}
 
@@ -707,7 +861,9 @@ export default function NewServiceRequestModal({
           <p className="text-xs text-slate-500 bg-slate-50 p-2 rounded">
             {requestType === 'device_request'
               ? 'طلب الجهاز لا يقبل صوراً أو فيديو أو مرفقات.'
-              : '💡 المرفقات وقائمة الأعطال تُضاف من شاشة تفاصيل الطلب بعد الإنشاء.'}
+              : requestType === 'periodic_maintenance'
+                ? 'طلب الصيانة الدورية لا يقبل صوراً أو فيديو أو مرفقات.'
+                : '💡 المرفقات وقائمة الأعطال تُضاف من شاشة تفاصيل الطلب بعد الإنشاء.'}
           </p>
         </div>
     </Modal>

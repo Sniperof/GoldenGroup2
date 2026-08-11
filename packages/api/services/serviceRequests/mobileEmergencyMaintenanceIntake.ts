@@ -6,6 +6,7 @@ import { resolveCustomerIdentitySnapshot } from '../customerIdentity/identitySna
 import type { MobileIntakeIdentity } from './mobileIntakeIdentity.js';
 import { createServiceRequest } from './createService.js';
 import { appendAudit } from './_shared.js';
+import { resolveBranchForServiceGeoUnit } from './branchResolutionService.js';
 import { assertRequesterDailyQuota, assertRequesterIpQuota } from './mobileIntakeThrottle.js';
 import {
   IDENTITY_BODY_KEYS,
@@ -54,6 +55,8 @@ export async function resolveMobileRequestPeople(input: {
   body: Record<string, unknown>;
   identity: MobileIntakeIdentity;
   db: PoolClient;
+  defaultReferrerModeForAnother?: 'none';
+  requireRequesterNameForAnother?: boolean;
 }) {
   const { body, identity, db } = input;
   const appAccount = identity.kind === 'customer' ? identity.account : undefined;
@@ -75,7 +78,7 @@ export async function resolveMobileRequestPeople(input: {
     const fields = [...suppliedKeys(body, REQUESTER_BODY_KEYS), ...suppliedKeys(body, REFERRER_BODY_KEYS)];
     if (fields.length) throw httpError(400, 'party_fields_not_accepted', { fields });
   } else {
-    const mode = text(body, 'referrerMode');
+    const mode = text(body, 'referrerMode') ?? input.defaultReferrerModeForAnother ?? null;
     if (!mode) throw httpError(400, 'referrer_mode_required');
     referrerMode = mode as WaterCheckReferrerMode;
     if (appAccount && referrerMode === 'separate_person') {
@@ -125,7 +128,7 @@ export async function resolveMobileRequestPeople(input: {
       requesterPerson = buildSubmittedPerson({
         body,
         role: 'requester',
-        requireName: referrerMode !== 'none',
+        requireName: input.requireRequesterNameForAnother === true || referrerMode !== 'none',
         ...(verifiedVisitorPhone ? { verifiedPrimaryPhone: verifiedVisitorPhone } : {}),
       });
     }
@@ -156,11 +159,12 @@ export async function resolveMobileRequestPeople(input: {
   return { appAccount, submissionMode, referrerMode, beneficiaryPerson, beneficiaryExternal, parties };
 }
 
-async function resolveReportedDevice(input: {
+export async function resolveReportedDevice(input: {
   body: Record<string, unknown>;
   identity: MobileIntakeIdentity;
   submissionMode: 'for_self' | 'for_another';
   db: PoolClient;
+  rejectRegisteredSerial?: boolean;
 }) {
   const selection = text(input.body, 'deviceSelectionType') as 'registered_device' | 'catalog_model' | 'other';
   if (!selection) throw httpError(400, 'device_selection_required');
@@ -174,11 +178,14 @@ async function resolveReportedDevice(input: {
       throw httpError(403, 'registered_device_selection_forbidden');
     }
     if (!installedDeviceId) throw httpError(400, 'installed_device_id_required');
+    if (input.rejectRegisteredSerial === true && serialNumber) {
+      throw httpError(400, 'serial_number_not_accepted_for_registered_device');
+    }
     const { rows } = await input.db.query<{
       id: number; device_model_id: number | null; device_source: string | null;
-      model_name: string | null; serial_number: string | null;
+      model_name: string | null; serial_number: string | null; branch_id: number | null;
     }>(
-      `SELECT d.id, d.device_model_id, d.device_source, d.serial_number,
+      `SELECT d.id, d.device_model_id, d.device_source, d.serial_number, d.branch_id,
               COALESCE(dm.name_ar, dm.name_en, dm.name) AS model_name
          FROM installed_devices d
          LEFT JOIN device_models dm ON dm.id = d.device_model_id
@@ -191,6 +198,7 @@ async function resolveReportedDevice(input: {
     return {
       selection,
       installedDeviceId: Number(row.id),
+      branchId: row.branch_id == null ? null : Number(row.branch_id),
       deviceSource: row.device_source === 'external' ? 'external_device' as const : 'company_device' as const,
       modelId: row.device_model_id == null ? null : Number(row.device_model_id),
       snapshot: {
@@ -211,6 +219,7 @@ async function resolveReportedDevice(input: {
     if (!rows[0]) throw httpError(404, 'device_model_not_found');
     return {
       selection, installedDeviceId: null, deviceSource: 'external_device' as const, modelId: Number(rows[0].id),
+      branchId: null,
       snapshot: { selection, modelId: Number(rows[0].id), modelName: rows[0].name, serialNumber, source: 'submitted_catalog_selection' },
     };
   }
@@ -218,6 +227,7 @@ async function resolveReportedDevice(input: {
   if (deviceModelId) throw httpError(400, 'device_model_id_not_accepted');
   return {
     selection, installedDeviceId: null, deviceSource: 'external_device' as const, modelId: null,
+    branchId: null,
     snapshot: { selection, deviceName, serialNumber, source: 'submitted_free_text' },
   };
 }
@@ -359,6 +369,16 @@ export async function submitMobileEmergencyMaintenance(
   });
   const indicators = await resolveSafetyIndicators(body, db);
   const media = await normalizeAttachments(body, identity, db);
+  let beneficiaryBranchId: number | null = null;
+  if (people.parties.beneficiaryClientId != null) {
+    const { rows } = await db.query<{ branch_id: number | null }>(
+      'SELECT branch_id FROM clients WHERE id = $1 AND deleted_at IS NULL',
+      [people.parties.beneficiaryClientId],
+    );
+    beneficiaryBranchId = rows[0]?.branch_id == null ? null : Number(rows[0].branch_id);
+  }
+  const geoBranch = await resolveBranchForServiceGeoUnit(deepestGeoUnitId, db);
+  const branchId = reportedDevice.branchId ?? beneficiaryBranchId ?? geoBranch.branchId;
 
   await assertRequesterDailyQuota({ db, requestType: 'emergency_maintenance', identity });
   await assertRequesterIpQuota({ db, requestType: 'emergency_maintenance', identity });
@@ -409,8 +429,11 @@ export async function submitMobileEmergencyMaintenance(
     safetyIndicatorCodes: indicators.codes,
     serviceAddress,
     priority: null,
-    branchId: null,
-    branchResolutionStatus: 'not_applicable',
+    branchId,
+    branchResolutionStatus: branchId == null ? geoBranch.status : 'resolved',
+    branchResolutionReason: reportedDevice.branchId != null
+      ? 'registered_device_branch'
+      : beneficiaryBranchId != null ? 'beneficiary_client_branch' : geoBranch.reason,
     branchResolutionGeoUnitId: deepestGeoUnitId,
     actorUserId: null,
     actorRole: 'customer',
@@ -426,7 +449,7 @@ export async function submitMobileEmergencyMaintenance(
     );
   }
 
-  if (identity.kind === 'unverified' || indicators.requiresImmediateReview) {
+  if (identity.kind === 'unverified' || indicators.requiresImmediateReview || branchId == null) {
     await db.query(
       `UPDATE service_requests SET review_required_flag = TRUE, updated_at = NOW() WHERE id = $1`,
       [result.data.id],
@@ -440,6 +463,7 @@ export async function submitMobileEmergencyMaintenance(
         reasons: [
           ...(identity.kind === 'unverified' ? ['submitter_unverified'] : []),
           ...(indicators.requiresImmediateReview ? ['safety_indicator'] : []),
+          ...(branchId == null ? ['branch_resolution_required'] : []),
         ],
         auto: true,
       },
@@ -449,6 +473,6 @@ export async function submitMobileEmergencyMaintenance(
   return {
     publicRefNumber: result.data.publicRefNumber,
     status: result.data.status,
-    reviewRequired: identity.kind === 'unverified' || indicators.requiresImmediateReview,
+    reviewRequired: identity.kind === 'unverified' || indicators.requiresImmediateReview || branchId == null,
   };
 }

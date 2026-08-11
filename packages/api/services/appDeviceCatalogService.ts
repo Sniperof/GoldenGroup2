@@ -13,6 +13,11 @@ export interface PublicCatalogFilters {
   salesBranchId?: number;
 }
 
+export interface PublicCatalogPagination {
+  page: number;
+  limit: number;
+}
+
 interface CatalogAttachment {
   id: string;
   name: string;
@@ -289,10 +294,7 @@ export function serializePublicDeviceDetails(row: any) {
   };
 }
 
-export async function listPublicDeviceCatalog(
-  filters: PublicCatalogFilters = {},
-  db: DeviceCatalogQueryable = pool,
-) {
+function buildPublicCatalogWhere(filters: PublicCatalogFilters) {
   const conditions = ['deleted_at IS NULL', 'is_active = TRUE'];
   const params: any[] = [];
 
@@ -333,6 +335,15 @@ export async function listPublicDeviceCatalog(
     )`);
   }
 
+  return { conditions, params };
+}
+
+export async function listPublicDeviceCatalog(
+  filters: PublicCatalogFilters = {},
+  db: DeviceCatalogQueryable = pool,
+) {
+  const { conditions, params } = buildPublicCatalogWhere(filters);
+
   const { rows } = await db.query(
     `SELECT ${PUBLIC_DEVICE_LIST_COLUMNS}
        FROM device_models
@@ -342,6 +353,43 @@ export async function listPublicDeviceCatalog(
   );
 
   return { items: rows.map(serializePublicDeviceListItem) };
+}
+
+export async function listPublicDeviceCatalogPage(
+  filters: PublicCatalogFilters,
+  pagination: PublicCatalogPagination,
+  db: DeviceCatalogQueryable = pool,
+) {
+  const { conditions, params } = buildPublicCatalogWhere(filters);
+  const offset = (pagination.page - 1) * pagination.limit;
+  const pageParams = [...params, pagination.limit, offset];
+  const limitRef = `$${params.length + 1}`;
+  const offsetRef = `$${params.length + 2}`;
+  const where = conditions.join(' AND ');
+
+  const [pageResult, countResult] = await Promise.all([
+    db.query(
+      `SELECT ${PUBLIC_DEVICE_LIST_COLUMNS}
+         FROM device_models
+        WHERE ${where}
+        ORDER BY is_featured DESC, COALESCE(name_ar, name) ASC, id ASC
+        LIMIT ${limitRef} OFFSET ${offsetRef}`,
+      pageParams,
+    ),
+    db.query(
+      `SELECT COUNT(*)::int AS total
+         FROM device_models
+        WHERE ${where}`,
+      params,
+    ),
+  ]);
+
+  return {
+    items: pageResult.rows.map(serializePublicDeviceListItem),
+    total: Number(countResult.rows[0]?.total ?? 0),
+    page: pagination.page,
+    limit: pagination.limit,
+  };
 }
 
 export async function getPublicDeviceCatalogDetails(

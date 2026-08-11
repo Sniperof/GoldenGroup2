@@ -24,7 +24,7 @@ Submit one of:
 | `deviceSelectionType` | Required fields | Rule |
 |---|---|---|
 | `registered_device` | `installedDeviceId` | Authenticated `for_self` only; ownership is verified server-side. |
-| `catalog_model` | `deviceModelId`, optional `serialNumber` | Model comes from `GET /api/app/catalog/devices`. |
+| `catalog_model` | `deviceModelId`, optional `serialNumber` | Model comes from the paginated `GET /api/app/catalog/devices?page=1&limit=12`; load additional pages or use `search` instead of assuming the first page is complete. |
 | `other` | `deviceName`, optional `serialNumber` | Employee must later map it to a Device Management model before creating an external installed device. |
 
 Guests and `for_another` submissions must never see or select another client's registered devices.

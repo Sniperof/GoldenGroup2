@@ -68,7 +68,7 @@ router.get('/types', async (_req, res) => {
 });
 
 /** Returns only devices owned by the authenticated app account's client. */
-router.get('/emergency-maintenance/devices', requireAppAuth, async (req, res) => {
+router.get(['/emergency-maintenance/devices', '/periodic-maintenance/devices'], requireAppAuth, async (req, res) => {
   const clientId = req.appAccount!.clientId;
   const { rows } = await pool.query(
     `SELECT d.id,
@@ -90,6 +90,75 @@ router.get('/emergency-maintenance/devices', requireAppAuth, async (req, res) =>
     [clientId],
   );
   return res.json({ items: rows });
+});
+
+/** Eligible installed devices for an authenticated self golden-warranty request. */
+router.get('/golden-warranty/devices', requireAppAuth, async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT d.id,
+            d.device_model_id AS "deviceModelId",
+            COALESCE(dm.name_ar, dm.name_en, dm.name) AS "deviceName",
+            d.serial_number AS "serialNumber",
+            d.status,
+            dm.golden_warranty_periods AS "goldenWarrantyPeriods",
+            EXISTS (
+              SELECT 1 FROM device_warranties w
+               WHERE w.device_id = d.id AND w.status = 'active'
+            ) AS "hasActiveWarranty",
+            EXISTS (
+              SELECT 1 FROM open_tasks ot
+               WHERE ot.device_id = d.id
+                 AND ot.task_type = 'golden_warranty_offer'
+                 AND ot.status NOT IN ('completed', 'closed', 'cancelled')
+            ) AS "hasActiveGoldenWarrantyOffer"
+       FROM installed_devices d
+       JOIN device_models dm ON dm.id = d.device_model_id
+      WHERE d.customer_id = $1
+        AND d.status = 'active'
+        AND dm.is_active = TRUE
+        AND dm.is_golden_warranty = TRUE
+        AND jsonb_typeof(dm.golden_warranty_periods) = 'array'
+        AND jsonb_array_length(dm.golden_warranty_periods) > 0
+      ORDER BY d.created_at DESC, d.id DESC`,
+    [req.appAccount!.clientId],
+  );
+  return res.json({ items: rows });
+});
+
+/** Visitor-safe eligible catalog models; each model carries its own periods. */
+router.get('/golden-warranty/models', async (_req, res) => {
+  const { rows } = await pool.query(
+    `SELECT id,
+            COALESCE(name_ar, name_en, name) AS "deviceName",
+            golden_warranty_periods AS "goldenWarrantyPeriods"
+       FROM device_models
+      WHERE is_active = TRUE
+        AND is_golden_warranty = TRUE
+        AND jsonb_typeof(golden_warranty_periods) = 'array'
+        AND jsonb_array_length(golden_warranty_periods) > 0
+      ORDER BY COALESCE(name_ar, name_en, name), id`,
+  );
+  return res.json({ items: rows });
+});
+
+/** Visitor-safe request reasons for the periodic-maintenance form. */
+router.get('/periodic-maintenance/options', async (_req, res) => {
+  const { rows } = await pool.query<{
+    id: number; value: string; display_order: number; metadata: Record<string, unknown> | null;
+  }>(
+    `SELECT id, value, display_order, metadata
+       FROM system_lists
+      WHERE category = 'periodic_maintenance_request_reasons'
+        AND is_active = TRUE
+      ORDER BY display_order, id`,
+  );
+  return res.json({
+    reasons: rows.map((row) => ({
+      id: Number(row.id),
+      code: String(row.metadata?.code ?? row.value),
+      label: row.value,
+    })),
+  });
 });
 
 /** Visitor-safe, admin-managed vocabularies used by the emergency form. */
@@ -195,7 +264,13 @@ router.post('/', optionalAppAuth, async (req, res) => {
     if (!requestType) {
       return res.status(400).json({ error: 'request_type_required' });
     }
-    if ((requestType === 'emergency_maintenance' || requestType === 'device_request') && !req.get('Idempotency-Key')) {
+    if (
+      (requestType === 'emergency_maintenance'
+        || requestType === 'device_request'
+        || requestType === 'periodic_maintenance'
+        || requestType === 'golden_warranty')
+      && !req.get('Idempotency-Key')
+    ) {
       return res.status(400).json({ error: 'idempotency_key_required' });
     }
     const definition = await getServiceRequestTypeDefinition(requestType);

@@ -1026,9 +1026,12 @@ export default function TelemarketerWorkspace() {
         else if (ch === 'cellular_text') communicationMethod = 'cellular_text';
         else communicationMethod = 'phone';
 
-        if (outcome === 'service_request' && extras?.serviceTaskType === 'emergency_maintenance') {
+        if (outcome === 'service_request'
+            && (extras?.serviceTaskType === 'emergency_maintenance'
+                || extras?.serviceTaskType === 'periodic_maintenance'
+                || extras?.serviceTaskType === 'golden_warranty_offer')) {
             if (selectedCustomer.entityType !== 'client') {
-                throw new Error('طلب الصيانة الطارئة من هذه البوابة يتطلب زبوناً مسجلاً.');
+                throw new Error('طلب الصيانة من هذه البوابة يتطلب زبوناً مسجلاً.');
             }
             setPendingEmergencyCall({
                 contactId,
@@ -2369,6 +2372,11 @@ export default function TelemarketerWorkspace() {
             {pendingEmergencyCall && selectedCustomer?.entityType === 'client' && activeTaskList && (
                 <NewServiceRequestModal
                     channel="phone"
+                    initialRequestType={pendingEmergencyCall.extras?.serviceTaskType === 'periodic_maintenance'
+                        ? 'periodic_maintenance'
+                        : pendingEmergencyCall.extras?.serviceTaskType === 'golden_warranty_offer'
+                          ? 'golden_warranty'
+                          : 'emergency_maintenance'}
                     requesterClientId={selectedCustomer.entityId}
                     requesterClientName={selectedCustomer.name}
                     beneficiaryClientId={selectedCustomer.entityId}

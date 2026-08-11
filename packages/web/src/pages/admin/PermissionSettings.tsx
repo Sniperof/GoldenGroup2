@@ -110,6 +110,7 @@ const MODULE_CONFIG: Record<string, { label: string; icon: React.ReactNode; colo
   field_visits: { label: 'الزيارات الميدانية',           icon: <Calendar className="w-4 h-4" />,     color: 'text-teal-600 bg-teal-50' },
   open_tasks:   { label: 'المهام المفتوحة',              icon: <ClipboardList className="w-4 h-4" />, color: 'text-orange-600 bg-orange-50' },
   service_requests: { label: 'طلبات الخدمة والصيانة',    icon: <FileText className="w-4 h-4" />,     color: 'text-cyan-600 bg-cyan-50' },
+  periodic_maintenance: { label: 'طلبات الصيانة الدورية', icon: <FileText className="w-4 h-4" />, color: 'text-emerald-700 bg-emerald-50' },
   reference_data: { label: 'القوائم المرجعية', icon: <ListChecks className="w-4 h-4" />, color: 'text-slate-600 bg-slate-100' },
 };
 

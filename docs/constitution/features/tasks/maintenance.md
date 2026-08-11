@@ -146,9 +146,9 @@
 
 **طوارئ فقط + قنوات داخلية فقط.**
 
-#### نوع المهمة في V1.0
+#### نوع المهمة في V1.0 (سجل تاريخي) وتوسعة 2026-08-11
 - ✅ `emergency_maintenance` — كل طارئة جديدة تمرّ عبر `service_request`.
-- ❌ `periodic_maintenance` — تبقى cron-only، لا طبقة intake.
+- ✅ `periodic_maintenance` — أُضيفت لاحقاً كطبقة intake مستقلة؛ لا تلغي التوليد التلقائي ولا تعيد جدولة مهمة دورية قائمة. ينتج الحسم إما مهمة دورية **جديدة** (`promoted`) أو حلاً عند الاستلام عند وجود مهمة نشطة (`resolved_at_intake`) أو رفضاً مسبَّباً.
 - ❌ مهام أخرى (`device_demo` / `collection` / `device_delivery/installation/activation`) — مساراتها ناضجة، لا تدخل service_requests.
 
 #### القنوات في V1.0 — داخلية حصراً

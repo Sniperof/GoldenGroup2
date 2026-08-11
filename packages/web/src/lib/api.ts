@@ -1775,6 +1775,11 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(data),
       }),
+    handoffGoldenWarranty: (id: number, body: any = {}) =>
+      request<any>(`/service-requests/${id}/handoff-golden-warranty`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
     handoffDeviceRequest: (id: number, data: {
       employeeId: number;
       deviceModelIds: number[];
@@ -1783,6 +1788,13 @@ export const api = {
       dueDate?: string | null;
       operatorNote?: string | null;
     }) => request<any>(`/service-requests/${id}/handoff-device-request`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+    handoffPeriodicMaintenance: (
+      id: number,
+      data: { deviceLocationDecision?: 'registered_location_confirmed' | null } = {},
+    ) => request<any>(`/service-requests/${id}/handoff-periodic-maintenance`, {
       method: 'POST',
       body: JSON.stringify(data),
     }),
