@@ -6,7 +6,7 @@ This guide is the mobile contract for creating a commercial device request throu
 
 - `GET /api/app/service-requests/types` — confirm that `device_request` is enabled with form version `device_request.mobile.v1`.
 - `GET /api/app/catalog/device-request-purposes` — active, admin-managed purposes.
-- `GET /api/app/catalog/devices?page=1&limit=12` — paginated active company device models available for selection. Load further pages while `page * limit < total`, and reset to page 1 when search or catalog filters change.
+- `GET /api/app/catalog/devices?fields=names&page=1&limit=12` — lightweight paginated device identities (`id`, `nameAr`, `nameEn`) for the request selector. Load further pages while `page * limit < total`, and reset to page 1 when search or catalog filters change.
 - `POST /api/app/service-requests` — submit the request.
 
 The POST call requires `Content-Type: application/json` and a UUID-valued `Idempotency-Key` header. Retrying the same body with the same key returns the original result; reusing the key with a different body is rejected.

@@ -2,18 +2,19 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { AuthContext, ScopeType } from '@golden-crm/shared';
 import type { PoolClient } from 'pg';
-import { linkNewClientToWaterCheckParty } from './atomicClientLink.js';
+import { linkNewClientToServiceRequestParty } from './atomicClientLink.js';
 
-const permission = 'water_check.review';
-
-function context(scope?: ScopeType, options: { branches?: number[]; userId?: number; superAdmin?: boolean } = {}): AuthContext {
+function context(
+  scope?: ScopeType,
+  options: { branches?: number[]; userId?: number; superAdmin?: boolean; permission?: string } = {},
+): AuthContext {
   return {
     userId: options.userId ?? 8,
     roleId: 2,
     isSuperAdmin: options.superAdmin === true,
     actingBranchId: 3,
     allowedBranchIds: options.branches ?? [3],
-    grants: scope ? [{ permission, scope }] : [],
+    grants: scope ? [{ permission: options.permission ?? 'water_check.review', scope }] : [],
   };
 }
 
@@ -50,7 +51,7 @@ function fakeDb(row = requestRow(), failAt?: 'audit') {
 
 test('atomically links a newly created beneficiary and audits it', async () => {
   const { db, statements } = fakeDb();
-  await linkNewClientToWaterCheckParty({
+  await linkNewClientToServiceRequestParty({
     db,
     authContext: context('ASSIGNED'),
     serviceRequestId: 102,
@@ -80,7 +81,7 @@ test('denies missing permission, wrong branch, and unassigned reviewer before mu
   for (const scenario of scenarios) {
     const { db, statements } = fakeDb();
     await assert.rejects(
-      linkNewClientToWaterCheckParty({
+      linkNewClientToServiceRequestParty({
         db,
         authContext: scenario.auth,
         serviceRequestId: 102,
@@ -97,7 +98,7 @@ test('denies missing permission, wrong branch, and unassigned reviewer before mu
 test('propagates a linkage failure so the caller can roll back client creation', async () => {
   const { db } = fakeDb(requestRow(), 'audit');
   await assert.rejects(
-    linkNewClientToWaterCheckParty({
+    linkNewClientToServiceRequestParty({
       db,
       authContext: context('ASSIGNED'),
       serviceRequestId: 102,
@@ -113,7 +114,7 @@ test('requester and same-person referrer mirrors stay inside the same transactio
   const { db, statements } = fakeDb(requestRow({
     referrer_external: { same_as_requester: true },
   }));
-  await linkNewClientToWaterCheckParty({
+  await linkNewClientToServiceRequestParty({
     db,
     authContext: context('ASSIGNED'),
     serviceRequestId: 102,
@@ -133,7 +134,7 @@ test('device-request beneficiary creation adopts the newly created client branch
     ...context(undefined, { superAdmin: true }),
     grants: [],
   };
-  await linkNewClientToWaterCheckParty({
+  await linkNewClientToServiceRequestParty({
     db,
     authContext: auth,
     serviceRequestId: 103,
@@ -146,4 +147,109 @@ test('device-request beneficiary creation adopts the newly created client branch
   assert.match(update.text, /branch_id = CASE WHEN request_type = 'device_request' THEN \$3/);
   assert.equal(update.params?.[2], 7);
   assert.equal(statements.some(({ text }) => text.includes('client_referral_attributions')), false);
+});
+
+test('supports typed client linkage for emergency, periodic, and golden-warranty requests', async () => {
+  const cases = [
+    { requestType: 'emergency_maintenance', permission: 'service_requests.review' },
+    { requestType: 'periodic_maintenance', permission: 'periodic_maintenance.review' },
+    { requestType: 'golden_warranty', permission: 'golden_warranty.review' },
+  ];
+
+  for (const entry of cases) {
+    const { db, statements } = fakeDb(requestRow({ request_type: entry.requestType }));
+    await linkNewClientToServiceRequestParty({
+      db,
+      authContext: context('ASSIGNED', { permission: entry.permission }),
+      serviceRequestId: 104,
+      clientId: 52,
+      clientBranchId: 3,
+      party: 'requester',
+    });
+    assert.equal(
+      statements.some(({ text }) => text.includes('SET requester_client_id = $2')),
+      true,
+      entry.requestType,
+    );
+  }
+});
+
+test('uses the request-type permission family when linking a newly created client', async () => {
+  const { db, statements } = fakeDb(requestRow({ request_type: 'periodic_maintenance' }));
+  await assert.rejects(
+    linkNewClientToServiceRequestParty({
+      db,
+      authContext: context('ASSIGNED', { permission: 'service_requests.review' }),
+      serviceRequestId: 105,
+      clientId: 53,
+      clientBranchId: 3,
+      party: 'requester',
+    }),
+    (error: any) => error.code === 'forbidden',
+  );
+  assert.equal(statements.some(({ text }) => text.includes('UPDATE service_requests')), false);
+});
+
+test('periodic requester linkage accepts every declared review scope and super-admin', async () => {
+  const actors = [
+    context('GLOBAL', { permission: 'periodic_maintenance.review' }),
+    context('BRANCH', { permission: 'periodic_maintenance.review' }),
+    context('ASSIGNED', { permission: 'periodic_maintenance.review' }),
+    context(undefined, { superAdmin: true }),
+  ];
+
+  for (const authContext of actors) {
+    const { db, statements } = fakeDb(requestRow({ request_type: 'periodic_maintenance' }));
+    await linkNewClientToServiceRequestParty({
+      db,
+      authContext,
+      serviceRequestId: 106,
+      clientId: 54,
+      clientBranchId: 3,
+      party: 'requester',
+    });
+    assert.equal(statements.some(({ text }) => text.includes('SET requester_client_id = $2')), true);
+  }
+});
+
+test('periodic requester linkage denies a wrong branch and an unassigned reviewer', async () => {
+  const actors = [
+    context('BRANCH', { branches: [9], permission: 'periodic_maintenance.review' }),
+    context('ASSIGNED', { userId: 99, permission: 'periodic_maintenance.review' }),
+  ];
+
+  for (const authContext of actors) {
+    const { db, statements } = fakeDb(requestRow({ request_type: 'periodic_maintenance' }));
+    await assert.rejects(
+      linkNewClientToServiceRequestParty({
+        db,
+        authContext,
+        serviceRequestId: 107,
+        clientId: 55,
+        clientBranchId: 3,
+        party: 'requester',
+      }),
+      (error: any) => error.code === 'forbidden',
+    );
+    assert.equal(statements.some(({ text }) => text.includes('UPDATE service_requests')), false);
+  }
+});
+
+test('golden-warranty mediator linkage stays fail-closed pending its contract decision', async () => {
+  const { db, statements } = fakeDb(requestRow({
+    request_type: 'golden_warranty',
+    referrer_external: { name: 'وسيط مؤجل' },
+  }));
+  await assert.rejects(
+    linkNewClientToServiceRequestParty({
+      db,
+      authContext: context('ASSIGNED', { permission: 'golden_warranty.review' }),
+      serviceRequestId: 108,
+      clientId: 56,
+      clientBranchId: 3,
+      party: 'referrer',
+    }),
+    (error: any) => error.code === 'golden_warranty_referrer_not_supported',
+  );
+  assert.equal(statements.some(({ text }) => text.includes('UPDATE service_requests')), false);
 });

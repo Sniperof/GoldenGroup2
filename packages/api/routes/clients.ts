@@ -5,8 +5,8 @@ import { getOrBuildAuthContext, requirePermission } from '../middleware/permissi
 import { authorize, resolveActingBranch } from '../services/authorizationService.js';
 import { assertGeoUnitInScope } from '../services/geoScopeService.js';
 import {
-  linkNewClientToWaterCheckParty,
-  type WaterCheckClientParty,
+  linkNewClientToServiceRequestParty,
+  type ServiceRequestClientParty,
 } from '../services/serviceRequests/atomicClientLink.js';
 import {
   canCreateClient,
@@ -185,7 +185,7 @@ const toJson = (value: unknown, fallback: unknown) => JSON.stringify(value ?? fa
 
 function readAtomicServiceRequestLink(body: any): {
   serviceRequestId: number;
-  party: WaterCheckClientParty;
+  party: ServiceRequestClientParty;
 } | null {
   if (body?.serviceRequestLink == null) return null;
   const serviceRequestId = Number(body.serviceRequestLink.serviceRequestId);
@@ -2323,7 +2323,7 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
     );
 
     if (serviceRequestLink) {
-      await linkNewClientToWaterCheckParty({
+      await linkNewClientToServiceRequestParty({
         db,
         authContext,
         serviceRequestId: serviceRequestLink.serviceRequestId,

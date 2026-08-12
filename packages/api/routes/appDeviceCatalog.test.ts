@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parsePublicCatalogPagination } from './appDeviceCatalog.js';
+import { parsePublicCatalogFields, parsePublicCatalogPagination } from './appDeviceCatalog.js';
 
 test('mobile device catalog pagination defaults to a 12-item first page', () => {
   assert.deepEqual(
@@ -28,4 +28,17 @@ test('mobile device catalog pagination rejects invalid page and limit values', (
     assert.equal(result.value, null);
     assert.ok(result.error);
   }
+});
+
+test('mobile device catalog fields defaults to full and accepts names only', () => {
+  assert.deepEqual(parsePublicCatalogFields(undefined), { value: 'full', error: null });
+  assert.deepEqual(parsePublicCatalogFields('full'), { value: 'full', error: null });
+  assert.deepEqual(parsePublicCatalogFields('names'), { value: 'names', error: null });
+});
+
+test('mobile device catalog fields rejects unknown projections', () => {
+  assert.deepEqual(parsePublicCatalogFields('compact'), {
+    value: null,
+    error: 'fields يجب أن تكون full أو names',
+  });
 });

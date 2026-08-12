@@ -4,6 +4,7 @@ import {
   getPublicDeviceCatalogDetails,
   listPublicDeviceCatalog,
   listPublicDeviceCatalogPage,
+  serializePublicDeviceNameItem,
   serializePublicDeviceDetails,
   serializePublicDeviceListItem,
   type DeviceCatalogQueryable,
@@ -79,6 +80,14 @@ test('public list projection is data-minimized and resolves the primary image', 
       validUntil: '2026-08-31',
     },
     isFeatured: true,
+  });
+});
+
+test('public name projection exposes only the stable id and localized names', () => {
+  assert.deepEqual(serializePublicDeviceNameItem(sourceRow), {
+    id: 7,
+    nameAr: 'جهاز تجريبي',
+    nameEn: 'Demo Device',
   });
 });
 
@@ -202,6 +211,36 @@ test('paginated catalog applies the same public filters before count and paginat
     assert.match(sql, /name_ar ILIKE \$2/);
   }
   assert.match(pageCall.sql, /ORDER BY is_featured DESC, COALESCE\(name_ar, name\) ASC, id ASC/);
+});
+
+test('names-only catalog avoids loading full card fields and keeps pagination metadata', async () => {
+  const calls: Array<{ sql: string; params: any[] }> = [];
+  const db: DeviceCatalogQueryable = {
+    async query(sql, params = []) {
+      calls.push({ sql, params });
+      if (/COUNT\(\*\)::int AS total/.test(sql)) return { rows: [{ total: 50 }] };
+      return { rows: [{ id: 7, name: 'Legacy', nameAr: 'جهاز تجريبي', nameEn: 'Demo Device' }] };
+    },
+  };
+
+  const result = await listPublicDeviceCatalogPage(
+    { search: 'جهاز' },
+    { page: 1, limit: 12, fields: 'names' },
+    db,
+  );
+
+  assert.deepEqual(result, {
+    items: [{ id: 7, nameAr: 'جهاز تجريبي', nameEn: 'Demo Device' }],
+    total: 50,
+    page: 1,
+    limit: 12,
+  });
+  const pageCall = calls.find(({ sql }) => /LIMIT \$2 OFFSET \$3/.test(sql));
+  assert.ok(pageCall);
+  assert.doesNotMatch(pageCall.sql, /FROM device_discounts discount/);
+  assert.doesNotMatch(pageCall.sql, /images/);
+  assert.doesNotMatch(pageCall.sql, /warranty_periods/);
+  assert.deepEqual(pageCall.params, ['%جهاز%', 12, 0]);
 });
 
 test('catalog details hide inactive and deleted devices at the query boundary', async () => {

@@ -1628,7 +1628,13 @@ router.post('/:id/link-requester', requireTypedPermission('review'), blockIfEsca
       await client.query('ROLLBACK');
       return res.status(403).json({ error: 'forbidden', details: { reason: access.reason } });
     }
-    if (rows[0].request_type !== 'water_check' && rows[0].request_type !== 'device_request') {
+    if (![
+      'water_check',
+      'device_request',
+      'emergency_maintenance',
+      'periodic_maintenance',
+      'golden_warranty',
+    ].includes(rows[0].request_type)) {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'wrong_request_type_for_requester_link' });
     }
@@ -1735,6 +1741,10 @@ router.post('/:id/link-referrer', requireTypedPermission('review'), blockIfEscal
     if (rows[0].status !== 'in_review') {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'link_requires_claim', details: { status: rows[0].status } });
+    }
+    if (rows[0].request_type === 'golden_warranty') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'golden_warranty_referrer_not_supported' });
     }
     if (!rows[0].referrer_external) {
       await client.query('ROLLBACK');

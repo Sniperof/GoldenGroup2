@@ -16,6 +16,7 @@ export interface PublicCatalogFilters {
 export interface PublicCatalogPagination {
   page: number;
   limit: number;
+  fields?: 'full' | 'names';
 }
 
 interface CatalogAttachment {
@@ -90,6 +91,13 @@ const PUBLIC_DEVICE_LIST_COLUMNS = `${PUBLIC_DEVICE_COLUMNS},
     ORDER BY discount.end_date ASC, discount.id ASC
     LIMIT 1
   ) AS "activeDiscount"
+`;
+
+const PUBLIC_DEVICE_NAME_COLUMNS = `
+  id,
+  name,
+  name_ar AS "nameAr",
+  name_en AS "nameEn"
 `;
 
 const PUBLIC_DEVICE_DETAILS_COLUMNS = `${PUBLIC_DEVICE_LIST_COLUMNS},
@@ -338,6 +346,14 @@ function buildPublicCatalogWhere(filters: PublicCatalogFilters) {
   return { conditions, params };
 }
 
+export function serializePublicDeviceNameItem(row: any) {
+  return {
+    id: Number(row.id),
+    nameAr: nullableText(row.nameAr) ?? nullableText(row.name) ?? '',
+    nameEn: nullableText(row.nameEn),
+  };
+}
+
 export async function listPublicDeviceCatalog(
   filters: PublicCatalogFilters = {},
   db: DeviceCatalogQueryable = pool,
@@ -366,10 +382,12 @@ export async function listPublicDeviceCatalogPage(
   const limitRef = `$${params.length + 1}`;
   const offsetRef = `$${params.length + 2}`;
   const where = conditions.join(' AND ');
+  const namesOnly = pagination.fields === 'names';
+  const columns = namesOnly ? PUBLIC_DEVICE_NAME_COLUMNS : PUBLIC_DEVICE_LIST_COLUMNS;
 
   const [pageResult, countResult] = await Promise.all([
     db.query(
-      `SELECT ${PUBLIC_DEVICE_LIST_COLUMNS}
+      `SELECT ${columns}
          FROM device_models
         WHERE ${where}
         ORDER BY is_featured DESC, COALESCE(name_ar, name) ASC, id ASC
@@ -385,7 +403,7 @@ export async function listPublicDeviceCatalogPage(
   ]);
 
   return {
-    items: pageResult.rows.map(serializePublicDeviceListItem),
+    items: pageResult.rows.map(namesOnly ? serializePublicDeviceNameItem : serializePublicDeviceListItem),
     total: Number(countResult.rows[0]?.total ?? 0),
     page: pagination.page,
     limit: pagination.limit,

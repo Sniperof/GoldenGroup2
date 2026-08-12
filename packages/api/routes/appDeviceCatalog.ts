@@ -22,6 +22,16 @@ export function parsePublicCatalogPagination(pageRaw: unknown, limitRaw: unknown
   return { value: { page, limit }, error: null };
 }
 
+export function parsePublicCatalogFields(fieldsRaw: unknown) {
+  if (fieldsRaw === undefined || fieldsRaw === 'full') {
+    return { value: 'full' as const, error: null };
+  }
+  if (fieldsRaw === 'names') {
+    return { value: 'names' as const, error: null };
+  }
+  return { value: null, error: 'fields يجب أن تكون full أو names' };
+}
+
 /**
  * @swagger
  * tags:
@@ -51,6 +61,10 @@ export function parsePublicCatalogPagination(pageRaw: unknown, limitRaw: unknown
  *       - in: query
  *         name: limit
  *         schema: { type: integer, minimum: 1, maximum: 50, default: 12 }
+ *       - in: query
+ *         name: fields
+ *         description: Use names to return only id, nameAr, and nameEn for lightweight selectors.
+ *         schema: { type: string, enum: [full, names], default: full }
  *     responses:
  *       200:
  *         description: Paginated active public device catalog
@@ -91,13 +105,18 @@ router.get('/', async (req, res) => {
       return res.status(400).json({ error: pagination.error });
     }
 
+    const fields = parsePublicCatalogFields(req.query.fields);
+    if (fields.error || !fields.value) {
+      return res.status(400).json({ error: fields.error });
+    }
+
     return res.json(await listPublicDeviceCatalogPage(
       {
         featured: featuredRaw === 'true',
         category: category || undefined,
         search: search || undefined,
       },
-      pagination.value,
+      { ...pagination.value, fields: fields.value },
     ));
   } catch (err) {
     console.error('Public device catalog list error:', err);

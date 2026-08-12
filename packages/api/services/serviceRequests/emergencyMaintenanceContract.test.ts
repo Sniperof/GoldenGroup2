@@ -13,9 +13,10 @@ const mobileSource = fs.readFileSync(path.join(root, 'services/serviceRequests/m
 
 test('telemarketing gateway requires both call and service-request capabilities', () => {
   const start = routeSource.indexOf("'/internal-with-call'");
-  const section = routeSource.slice(start, start + 7_000);
+  const section = routeSource.slice(start, start + 14_000);
   assert.match(section, /requirePermission\('telemarketing\.calls\.create'\)/);
-  assert.match(section, /requirePermission\('service_requests\.create'\)/);
+  assert.match(section, /requireInternalCallRequestCreatePermission/);
+  assert.match(routeSource, /requirePermission\(familyKeyFor\(requestType, 'create'\)\)/);
   assert.match(section, /sourceCallLogId: callLogId/);
   assert.match(section, /await client\.query\('BEGIN'\)/);
   assert.match(section, /await client\.query\('COMMIT'\)/);
@@ -59,6 +60,6 @@ test('mobile receives admin-managed safety and attachment vocabularies', () => {
 });
 
 test('emergency mobile submission requires an idempotency key', () => {
-  assert.match(appRouteSource, /requestType === 'emergency_maintenance' && !req\.get\('Idempotency-Key'\)/);
+  assert.match(appRouteSource, /requestType === 'emergency_maintenance'[\s\S]{0,220}&& !req\.get\('Idempotency-Key'\)/);
   assert.match(appRouteSource, /idempotency_key_required/);
 });

@@ -192,10 +192,31 @@ export default function ServiceRequestDetailPage() {
   }
 
   const req = data.request;
+  const isEmergencyMaintenance = req.requestType === 'emergency_maintenance';
   const isWaterCheck = req.requestType === 'water_check';
   const isDeviceRequest = req.requestType === 'device_request';
   const isPeriodicMaintenance = req.requestType === 'periodic_maintenance';
   const isGoldenWarranty = req.requestType === 'golden_warranty';
+  const hasPartyLinkage = isEmergencyMaintenance || isWaterCheck || isDeviceRequest
+    || isPeriodicMaintenance || isGoldenWarranty;
+  const requestKindLabel = isEmergencyMaintenance
+    ? 'طلب الصيانة الطارئة'
+    : isWaterCheck
+      ? 'طلب فحص المياه'
+      : isDeviceRequest
+        ? 'طلب الجهاز'
+        : isPeriodicMaintenance
+          ? 'طلب الصيانة الدورية'
+          : isGoldenWarranty ? 'طلب الكفالة الذهبية' : 'طلب الخدمة';
+  const beneficiaryRoleLabel = isDeviceRequest
+    ? 'المستفيد من طلب الجهاز'
+    : isWaterCheck
+      ? 'المستفيد من فحص المياه'
+      : isEmergencyMaintenance
+        ? 'المستفيد من الصيانة الطارئة'
+        : isPeriodicMaintenance
+          ? 'المستفيد من الصيانة الدورية'
+          : isGoldenWarranty ? 'المستفيد من الكفالة الذهبية' : 'المستفيد';
   const isOwner = req.reviewedByUserId === user?.id;
   // Permission family per request type (request-section-contract.md §5).
   const permFamily = isWaterCheck
@@ -220,11 +241,11 @@ export default function ServiceRequestDetailPage() {
   // SR-LINK-01 — linking (and create-from-request) requires the request to be
   // claimed first. Only available in_review and while not escalated.
   const canLink = req.status === 'in_review' && !isEscalated;
-  const canCreateWaterCheckClient =
-    (isWaterCheck || isDeviceRequest || isGoldenWarranty)
+  const canCreateBeneficiaryClient =
+    (isWaterCheck || isDeviceRequest || isPeriodicMaintenance || isGoldenWarranty)
     && canLink
     && !req.beneficiaryClientId
-    && (isDeviceRequest || (req.branchId && req.branchResolutionStatus === 'resolved'))
+    && (isDeviceRequest || isGoldenWarranty || (req.branchId && req.branchResolutionStatus === 'resolved'))
     && hasPermission('clients.create');
   const canCreateCandidateFromRequest =
     !isWaterCheck && !isDeviceRequest && !isPeriodicMaintenance && !isGoldenWarranty
@@ -233,18 +254,17 @@ export default function ServiceRequestDetailPage() {
     && !req.beneficiaryCandidateId
     && hasPermission('candidates.create');
   const hasMediator = !!req.referrerExternal;
-  const hasIndependentRequester = (isWaterCheck || isDeviceRequest || isPeriodicMaintenance || isGoldenWarranty)
+  const hasIndependentRequester = hasPartyLinkage
     && req.submissionType === 'refer_a_candidate';
   const canCreateRequesterClient =
     hasIndependentRequester
-    && !isPeriodicMaintenance
     && canLink
     && !req.requesterClientId
-    && (isDeviceRequest || !!req.branchId)
+    && (isDeviceRequest || isGoldenWarranty || !!req.branchId)
     && hasPermission('clients.create');
   const canCreateMediatorClient =
-    (isWaterCheck || isDeviceRequest || isPeriodicMaintenance || isGoldenWarranty)
-    && !isPeriodicMaintenance
+    hasPartyLinkage
+    && !isGoldenWarranty
     && canLink
     && hasMediator
     && !req.referrerClientId
@@ -471,7 +491,7 @@ export default function ServiceRequestDetailPage() {
   }
 
   function getWaterCheckClientPayload() {
-    const sourceLabel = isDeviceRequest ? 'طلب جهاز' : 'طلب فحص المياه';
+    const sourceLabel = requestKindLabel;
     const external = req.beneficiaryExternal ?? req.requesterExternal ?? {};
     const submitted = req.submittedPayload?.data ?? {};
     const address = req.serviceAddress ?? {};
@@ -560,7 +580,7 @@ export default function ServiceRequestDetailPage() {
       ...clientData,
       branchId: clientData.branchId ?? req.branchId,
       isCandidate: false,
-      referralReason: (clientData as any).referralReason ?? `${isDeviceRequest ? 'طلب جهاز' : 'طلب فحص المياه'} ${req.publicRefNumber ?? requestId}`,
+      referralReason: (clientData as any).referralReason ?? `${requestKindLabel} ${req.publicRefNumber ?? requestId}`,
     };
     if (!payload.firstName || !payload.lastName || !payload.mobile) {
       showToast('الاسم الأول والكنية ورقم الموبايل الأساسي حقول مطلوبة قبل إنشاء الزبون.', 'error');
@@ -577,7 +597,7 @@ export default function ServiceRequestDetailPage() {
         serviceRequestLink: { serviceRequestId: requestId, party: 'beneficiary' },
       });
       setWaterCheckClientModalOpen(false);
-      showToast(`تم إنشاء سجل جديد وربطه بـ${isDeviceRequest ? 'طلب الجهاز' : 'طلب فحص المياه'}`, 'success');
+      showToast(`تم إنشاء سجل جديد وربطه بـ${requestKindLabel}`, 'success');
       await reload();
     } catch (e: any) {
       const payload = getApiPayload(e);
@@ -618,8 +638,8 @@ export default function ServiceRequestDetailPage() {
       branchId: req.branchId,
       referrerType: 'Unknown',
       sourceChannel: 'App',
-      referralReason: `${roleLabel} طلب فحص المياه ${req.publicRefNumber ?? requestId}`,
-      notes: `تم إنشاء هذا السجل من ${roleLabel} طلب فحص المياه ${req.publicRefNumber ?? requestId}.`,
+      referralReason: `${roleLabel} ${requestKindLabel} ${req.publicRefNumber ?? requestId}`,
+      notes: `تم إنشاء هذا السجل من ${roleLabel} ${requestKindLabel} ${req.publicRefNumber ?? requestId}.`,
       isCandidate: false,
     };
   }
@@ -681,10 +701,10 @@ export default function ServiceRequestDetailPage() {
       detailedAddress,
       referrerType: 'Unknown',
       sourceChannel: 'App',
-      referralReason: `وسيط طلب فحص المياه ${req.publicRefNumber ?? requestId}`,
-      referralNotes: `أُنشئ كوسيط لطلب فحص المياه ${req.publicRefNumber ?? requestId}.`,
+      referralReason: `وسيط ${requestKindLabel} ${req.publicRefNumber ?? requestId}`,
+      referralNotes: `أُنشئ كوسيط لـ${requestKindLabel} ${req.publicRefNumber ?? requestId}.`,
       notes: [
-        `تم إنشاء هذا السجل كوسيط لطلب فحص المياه ${req.publicRefNumber ?? requestId}.`,
+        `تم إنشاء هذا السجل كوسيط لـ${requestKindLabel} ${req.publicRefNumber ?? requestId}.`,
         m.notes || null,
       ].filter(Boolean).join('\n'),
       isCandidate: false,
@@ -701,7 +721,7 @@ export default function ServiceRequestDetailPage() {
       ...clientData,
       branchId: clientData.branchId ?? req.branchId,
       isCandidate: false,
-      referralReason: (clientData as any).referralReason ?? `وسيط طلب فحص المياه ${req.publicRefNumber ?? requestId}`,
+      referralReason: (clientData as any).referralReason ?? `وسيط ${requestKindLabel} ${req.publicRefNumber ?? requestId}`,
     };
     if (!payload.firstName || !payload.lastName || !payload.mobile) {
       showToast('الاسم الأول والكنية ورقم الموبايل الأساسي حقول مطلوبة قبل إنشاء الوسيط.', 'error');
@@ -815,8 +835,8 @@ export default function ServiceRequestDetailPage() {
   }
 
   async function linkSuggested(m: { source: 'client' | 'candidate'; id: number }) {
-    if ((isWaterCheck || isDeviceRequest) && m.source !== 'client') {
-      showToast('طلب فحص المياه يمكن ربطه بزبون فقط.', 'error');
+    if ((isWaterCheck || isDeviceRequest || isPeriodicMaintenance || isGoldenWarranty) && m.source !== 'client') {
+      showToast(`${requestKindLabel} يمكن ربطه بزبون فقط.`, 'error');
       return;
     }
     await api.serviceRequests.link(requestId, {
@@ -1318,14 +1338,10 @@ export default function ServiceRequestDetailPage() {
       audit={<AuditLogTimeline events={data.auditLog} />}
       linkage={
         <div>
-          {(isWaterCheck || isDeviceRequest || isPeriodicMaintenance || isGoldenWarranty) && (
+          {hasPartyLinkage && (
         <div className="space-y-4">
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h2 className="text-base font-bold text-slate-800">أطراف {isDeviceRequest
-              ? 'طلب الجهاز'
-              : isPeriodicMaintenance
-                ? 'طلب الصيانة الدورية'
-                : isGoldenWarranty ? 'طلب الكفالة الذهبية' : 'طلب فحص المياه'}</h2>
+            <h2 className="text-base font-bold text-slate-800">أطراف {requestKindLabel}</h2>
             <p className="mt-1 text-sm text-slate-500">
               يعرض كل قسم الطرف المقصود وحالة ربطه. ربط المستفيد مطلوب قبل تحويل الطلب إلى مهمة، أما ربط مقدم الطلب والوسيط فاختياري.
             </p>
@@ -1341,7 +1357,11 @@ export default function ServiceRequestDetailPage() {
               <div className={`rounded-xl border p-3 ${req.beneficiaryClientId ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
                 <div className="text-xs font-semibold text-slate-500">المستفيد</div>
                 <div className={`mt-1 text-sm font-bold ${req.beneficiaryClientId ? 'text-emerald-800' : 'text-amber-800'}`}>
-                  {req.beneficiaryClientId ? `مرتبط: ${req.beneficiaryClientName ?? `#${req.beneficiaryClientId}`}` : 'غير مرتبط · مطلوب'}
+                  {req.beneficiaryClientId
+                    ? `مرتبط بزبون: ${req.beneficiaryClientName ?? `#${req.beneficiaryClientId}`}`
+                    : req.beneficiaryCandidateId
+                      ? `مرتبط بمرشح مؤقتاً: ${req.beneficiaryCandidateName ?? `#${req.beneficiaryCandidateId}`} · يلزم ربط زبون`
+                      : 'غير مرتبط · مطلوب'}
                 </div>
               </div>
               {hasMediator && (
@@ -1395,12 +1415,12 @@ export default function ServiceRequestDetailPage() {
           <section className={`rounded-2xl border p-4 ${req.beneficiaryClientId ? 'border-emerald-200 bg-emerald-50/40' : 'border-amber-300 bg-amber-50/60'}`}>
             <h3 className="flex items-center gap-1.5 text-base font-bold text-slate-800">
               <UserCheck className={`h-4 w-4 ${req.beneficiaryClientId ? 'text-emerald-600' : 'text-amber-600'}`} />
-              {isDeviceRequest ? 'المستفيد من طلب الجهاز' : 'المستفيد من فحص المياه'}
-              {!req.beneficiaryClientId && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800">مطلوب الربط</span>}
+              {beneficiaryRoleLabel}
+              {!req.beneficiaryClientId && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800">مطلوب ربط زبون</span>}
             </h3>
-            <p className="mb-3 mt-1 text-sm text-slate-500">{isDeviceRequest
-              ? 'الشخص المعني بالاستفسار أو العرض أو الشراء، ومن فرعه يُعتمد فرع الطلب.'
-              : 'الشخص الذي سيستفيد من الفحص وفي عنوانه ستُنفذ الخدمة.'}</p>
+            <p className="mb-3 mt-1 text-sm text-slate-500">
+              الشخص الذي سيستفيد فعلياً من الخدمة، ويجب تثبيت هويته وربطه بالسجل المقصود قبل الحسم أو التسليم.
+            </p>
             {req.beneficiaryClientId ? (
               <>
                 <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">
@@ -1414,9 +1434,15 @@ export default function ServiceRequestDetailPage() {
               </>
             ) : (
               <>
-                <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                  الطرف المطلوب ربطه الآن هو <strong>المستفيد</strong>، وليس مقدم الطلب. اختر سجله أدناه أو أنشئ له سجل زبون جديداً.
-                </div>
+                {req.beneficiaryCandidateId ? (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                    المستفيد مرتبط مؤقتاً بسجل المرشح: <strong>{req.beneficiaryCandidateName ?? `#${req.beneficiaryCandidateId}`}</strong>. يلزم ربطه بسجل زبون قبل الحسم أو التسليم.
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                    الطرف المطلوب ربطه الآن هو <strong>المستفيد</strong>، وليس مقدم الطلب. اختر سجله أدناه أو أنشئ له سجلاً جديداً.
+                  </div>
+                )}
                 {canReview && isActive && !canLink && (
                   <div className="mt-3 rounded border border-sky-200 bg-sky-50 p-3 text-sm text-sky-800">
                     تولَّ الطلب أولاً (زر «تَولّي الطلب») قبل ربط المستفيد.
@@ -1428,12 +1454,12 @@ export default function ServiceRequestDetailPage() {
                       serviceRequestId={requestId}
                       request={req}
                       onLink={linkSuggested}
-                      sources="clients"
-                      canCreateFromRequest={!!canCreateWaterCheckClient}
+                      sources={isEmergencyMaintenance ? 'all' : 'clients'}
+                      canCreateFromRequest={isEmergencyMaintenance ? canCreateCandidateFromRequest : !!canCreateBeneficiaryClient}
                       createBusy={busy}
-                      onCreateFromRequest={createWaterCheckClientFromRequest}
-                      heading="سجلات زبائن مقترحة للمستفيد"
-                      createLabel="إنشاء سجل زبون جديد للمستفيد"
+                      onCreateFromRequest={isEmergencyMaintenance ? createCandidateFromRequest : createWaterCheckClientFromRequest}
+                      heading={isEmergencyMaintenance ? 'سجلات زبائن ومرشحين مقترحة للمستفيد' : 'سجلات زبائن مقترحة للمستفيد'}
+                      createLabel={isEmergencyMaintenance ? 'إنشاء سجل مرشح جديد للمستفيد' : 'إنشاء سجل زبون جديد للمستفيد'}
                     />
                   </div>
                 )}
@@ -1480,7 +1506,7 @@ export default function ServiceRequestDetailPage() {
           )}
         </div>
           )}
-          {!isWaterCheck && !isDeviceRequest && (
+          {!hasPartyLinkage && (
         <div className="space-y-3">
           {req.beneficiaryClientId ? (
             <div className="bg-green-50 border border-green-200 rounded p-3 text-sm">

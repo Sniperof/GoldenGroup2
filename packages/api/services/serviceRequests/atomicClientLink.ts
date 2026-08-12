@@ -3,7 +3,15 @@ import type { PoolClient } from 'pg';
 import { canLinkServiceRequestParty } from '../../policies/serviceRequestPartyLinkPolicy.js';
 import { appendAudit } from './_shared.js';
 
-export type WaterCheckClientParty = 'beneficiary' | 'requester' | 'referrer';
+export type ServiceRequestClientParty = 'beneficiary' | 'requester' | 'referrer';
+
+const CLIENT_LINK_PERMISSION_BY_REQUEST_TYPE: Record<string, string> = {
+  emergency_maintenance: 'service_requests.review',
+  water_check: 'water_check.review',
+  device_request: 'service_requests.review',
+  periodic_maintenance: 'periodic_maintenance.review',
+  golden_warranty: 'golden_warranty.review',
+};
 
 function serviceError(status: number, code: string, message?: string) {
   return Object.assign(new Error(message ?? code), { status, code });
@@ -88,17 +96,17 @@ export async function syncWaterCheckBeneficiaryReferrer(
 
 /**
  * Links a client created in the caller's open transaction to a supported
- * service-request party (water check or device request).
- * party. The caller owns BEGIN/COMMIT/ROLLBACK, so client creation and linkage
+ * service-request party. The caller owns BEGIN/COMMIT/ROLLBACK, so client
+ * creation and linkage
  * either become visible together or are both discarded.
  */
-export async function linkNewClientToWaterCheckParty(input: {
+export async function linkNewClientToServiceRequestParty(input: {
   db: PoolClient;
   authContext: AuthContext;
   serviceRequestId: number;
   clientId: number;
   clientBranchId: number;
-  party: WaterCheckClientParty;
+  party: ServiceRequestClientParty;
 }): Promise<void> {
   const { db, authContext, serviceRequestId, clientId, clientBranchId, party } = input;
   const { rows } = await db.query<{
@@ -120,10 +128,13 @@ export async function linkNewClientToWaterCheckParty(input: {
   );
   const request = rows[0];
   if (!request) throw serviceError(404, 'service_request_not_found');
-  if (request.request_type !== 'water_check' && request.request_type !== 'device_request') {
+  const permission = CLIENT_LINK_PERMISSION_BY_REQUEST_TYPE[request.request_type];
+  if (!permission) {
     throw serviceError(400, 'wrong_request_type_for_atomic_client_link');
   }
-  const permission = request.request_type === 'water_check' ? 'water_check.review' : 'service_requests.review';
+  if (request.request_type === 'golden_warranty' && party === 'referrer') {
+    throw serviceError(400, 'golden_warranty_referrer_not_supported');
+  }
   const access = canLinkServiceRequestParty(authContext, {
     permission,
     branchId: request.branch_id,
@@ -142,7 +153,12 @@ export async function linkNewClientToWaterCheckParty(input: {
   }
   const branchAffectingLink = party === 'beneficiary'
     || (party === 'requester' && request.submission_type === 'apply');
-  if (request.request_type === 'device_request' && branchAffectingLink) {
+  if (
+    (request.request_type === 'device_request'
+      || request.request_type === 'periodic_maintenance'
+      || request.request_type === 'golden_warranty')
+    && branchAffectingLink
+  ) {
     const targetAccess = canLinkServiceRequestParty(authContext, {
       permission,
       branchId: clientBranchId,

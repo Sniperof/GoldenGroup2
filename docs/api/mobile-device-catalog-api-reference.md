@@ -38,6 +38,7 @@ The "Order Now" workflow is not part of this contract. It will be implemented se
 | `search` | string | No | Case-insensitive search in names, code, and category. Maximum 100 characters. |
 | `page` | positive integer | No | Requested page. Defaults to `1`. |
 | `limit` | integer `1..50` | No | Items per page. Defaults to `12`. |
+| `fields` | `full` or `names` | No | Defaults to `full`. Use `names` for lightweight selectors; each item then contains only `id`, `nameAr`, and `nameEn`. |
 
 ### Successful Response (`200`)
 
@@ -80,6 +81,31 @@ The "Order Now" workflow is not part of this contract. It will be implemented se
 - When loading additional pages, append items and de-duplicate by `id`.
 - An empty first page is the catalog empty state. An empty page beyond the available range does not mean that the catalog itself is empty.
 - Pull-to-refresh should clear accumulated items and request page 1 again.
+
+### Lightweight device-name list
+
+Use this form for dropdowns, searchable selectors, or any screen that needs device identity without catalog cards:
+
+```http
+GET /api/app/catalog/devices?fields=names&page=1&limit=12&search=فلتر
+```
+
+```json
+{
+  "items": [
+    {
+      "id": 7,
+      "nameAr": "فلتر غولدن 7 مراحل",
+      "nameEn": "Golden 7-Stage Filter"
+    }
+  ],
+  "total": 50,
+  "page": 1,
+  "limit": 12
+}
+```
+
+`id` is intentionally included because forms must submit the stable `deviceModelId`; the names are display values. This projection does not return images, descriptions, category, services, warranty, featured state, or active discount. Filtering, ordering, and pagination rules are otherwise identical to the full list.
 
 ### List Item Fields
 
@@ -233,7 +259,7 @@ type AvailableBranch = {
 
 | Status | Condition | Example body |
 |---:|---|---|
-| `400` | Invalid filter, `page`, `limit`, or device identifier | `{ "error": "limit يجب أن يكون عدداً صحيحاً بين 1 و50" }` |
+| `400` | Invalid filter, `page`, `limit`, `fields`, or device identifier | `{ "error": "fields يجب أن تكون full أو names" }` |
 | `404` | Device is missing, inactive, or deleted | `{ "error": "الجهاز غير موجود" }` |
 | `500` | Catalog could not be loaded | `{ "error": "تعذر تحميل تفاصيل الجهاز" }` |
 
