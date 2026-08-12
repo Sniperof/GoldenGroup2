@@ -64,7 +64,7 @@ export async function submitMobileAgentLicense(body: Record<string, unknown>, id
       WHERE request_type='agent_license' AND status=ANY($1)
         AND archived_at IS NULL AND requester_external->>'primary_phone'=$2
       ORDER BY created_at DESC LIMIT 1`,
-    [['received', 'in_review'], primaryMobileNumber],
+    [['received', 'in_review', 'awaiting_customer_info'], primaryMobileNumber],
   );
   if (openRows[0]) throw httpError(409, 'open_request_exists', { publicRefNumber: openRows[0].public_ref_number, limit: 1 });
   await assertRequesterDailyQuota({ db, requestType: 'agent_license', identity });
