@@ -10,6 +10,8 @@ import { submitMobilePeriodicMaintenance } from './mobilePeriodicMaintenanceInta
 import { PERIODIC_MAINTENANCE_FORM_VERSION } from './periodicMaintenanceFormSchema.js';
 import { submitMobileGoldenWarranty } from './mobileGoldenWarrantyIntake.js';
 import { GOLDEN_WARRANTY_FORM_VERSION } from './goldenWarrantyFormSchema.js';
+import { submitMobileNameNomination } from './mobileNameNominationIntake.js';
+import { NAME_NOMINATION_FORM_VERSION } from './nameNominationFormSchema.js';
 import type { ServiceRequestTypeDefinition } from './serviceRequestTypeRegistry.js';
 
 export interface MobileIntakeHandler {
@@ -59,6 +61,12 @@ const handlers: Record<string, MobileIntakeHandler> = {
     allowsUnverifiedIntake: true,
     submit: submitMobileGoldenWarranty,
   },
+  name_nomination: {
+    requestType: 'name_nomination',
+    formVersion: NAME_NOMINATION_FORM_VERSION,
+    allowsUnverifiedIntake: true,
+    submit: submitMobileNameNomination,
+  },
 };
 
 export function getMobileIntakeHandler(requestType: string): MobileIntakeHandler | null {
@@ -70,7 +78,7 @@ export function listMobileIntakeHandlerCodes(): string[] {
 }
 
 export type MobileIntakeAvailability =
-  | { ok: true; handler: MobileIntakeHandler; submissionMode: 'for_self' | 'for_another' }
+  | { ok: true; handler: MobileIntakeHandler; submissionMode: 'for_self' | 'for_another' | 'nomination' }
   | { ok: false; status: number; code: string; details?: Record<string, unknown> };
 
 export function evaluateMobileIntakeAvailability(input: {
@@ -97,7 +105,9 @@ export function evaluateMobileIntakeAvailability(input: {
   if (!requesterTiers.some((tier) => definition.submitterTiers.includes(tier))) {
     return { ok: false, status: 403, code: 'request_type_not_available_for_requester' };
   }
-  const submissionMode = input.submittedMode === 'for_another' ? 'for_another' : 'for_self';
+  const submissionMode = input.requestType === 'name_nomination'
+    ? 'nomination'
+    : input.submittedMode === 'for_another' ? 'for_another' : 'for_self';
   if (!definition.submissionModes.includes(submissionMode)) {
     return { ok: false, status: 400, code: 'unsupported_submission_mode' };
   }

@@ -161,6 +161,31 @@ router.get('/periodic-maintenance/options', async (_req, res) => {
   });
 });
 
+/** Visitor-safe vocabularies and live limits for the name-nomination form. */
+router.get('/name-nomination/options', async (_req, res) => {
+  const [{ rows }, settings] = await Promise.all([
+    pool.query<{ value: string; display_order: number }>(
+      `SELECT value,display_order FROM system_lists
+        WHERE category='occupation' AND is_active=TRUE ORDER BY display_order,id`,
+    ),
+    pool.query<{ key: string; value: string }>(
+      `SELECT key,value FROM system_settings WHERE key=ANY($1::text[])`,
+      [[
+        'name_nomination_max_names_per_request',
+        'name_nomination_daily_per_identity',
+        'name_nomination_daily_per_unverified_ip',
+      ]],
+    ),
+  ]);
+  const setting = new Map(settings.rows.map((row) => [row.key, Number(row.value)]));
+  return res.json({
+    occupations: rows.map((row) => row.value),
+    maxNamesPerRequest: setting.get('name_nomination_max_names_per_request') ?? 50,
+    dailyPerIdentity: setting.get('name_nomination_daily_per_identity') ?? 5,
+    dailyPerUnverifiedIp: setting.get('name_nomination_daily_per_unverified_ip') ?? 20,
+  });
+});
+
 /** Visitor-safe, admin-managed vocabularies used by the emergency form. */
 router.get('/emergency-maintenance/options', async (_req, res) => {
   const { rows } = await pool.query<{
@@ -268,7 +293,8 @@ router.post('/', optionalAppAuth, async (req, res) => {
       (requestType === 'emergency_maintenance'
         || requestType === 'device_request'
         || requestType === 'periodic_maintenance'
-        || requestType === 'golden_warranty')
+        || requestType === 'golden_warranty'
+        || requestType === 'name_nomination')
       && !req.get('Idempotency-Key')
     ) {
       return res.status(400).json({ error: 'idempotency_key_required' });

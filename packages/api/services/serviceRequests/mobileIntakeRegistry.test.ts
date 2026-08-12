@@ -6,6 +6,7 @@ import { EMERGENCY_MAINTENANCE_FORM_VERSION } from './emergencyMaintenanceFormSc
 import { DEVICE_REQUEST_FORM_VERSION } from './deviceRequestFormSchema.js';
 import { PERIODIC_MAINTENANCE_FORM_VERSION } from './periodicMaintenanceFormSchema.js';
 import { GOLDEN_WARRANTY_FORM_VERSION } from './goldenWarrantyFormSchema.js';
+import { NAME_NOMINATION_FORM_VERSION } from './nameNominationFormSchema.js';
 import type { ServiceRequestTypeDefinition } from './serviceRequestTypeRegistry.js';
 
 function definition(overrides: Partial<ServiceRequestTypeDefinition> = {}): ServiceRequestTypeDefinition {
@@ -101,6 +102,18 @@ test('registry and installed handler jointly enable golden warranty for every pu
       });
       assert.equal(result.ok, true);
     }
+  }
+});
+
+test('name nomination derives its sole nomination mode and accepts every public tier', () => {
+  for (const isAuthenticatedCustomer of [false,true]) {
+    const result=evaluateMobileIntakeAvailability({
+      definition:definition({requestType:'name_nomination',defaultFormVersion:NAME_NOMINATION_FORM_VERSION,
+        submitterTiers:['unverified','visitor','customer'],submissionModes:['nomination']}),
+      requestType:'name_nomination',isAuthenticatedCustomer,submittedFormVersion:NAME_NOMINATION_FORM_VERSION,
+    });
+    assert.equal(result.ok,true);
+    if(result.ok) assert.equal(result.submissionMode,'nomination');
   }
 });
 

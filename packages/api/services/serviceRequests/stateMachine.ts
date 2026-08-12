@@ -88,6 +88,7 @@ const RESOLVE_AT_INTAKE_LIST_BY_REQUEST_TYPE: Record<string, string> = {
 const REJECT_LIST_BY_REQUEST_TYPE: Record<string, string> = {
   periodic_maintenance: 'service_request_rejection_periodic_maintenance',
   golden_warranty: 'service_request_rejection_golden_warranty',
+  name_nomination: 'service_request_rejection_name_nomination',
 };
 
 // Terminals whose outcome list is admin-managed per request type (system_lists),
@@ -196,6 +197,20 @@ export async function transitionStatus(
     }
     const row = rows[0];
 
+    if (
+      row.request_type === 'name_nomination'
+      && (input.toStatus === 'rejected' || input.toStatus === 'cancelled')
+    ) {
+      const { rows: decisionRows } = await tx.client.query<{ n: number }>(
+        `SELECT COUNT(*)::int AS n FROM service_request_name_nomination_items
+          WHERE service_request_id=$1 AND status<>'pending'`, [input.serviceRequestId],
+      );
+      if (Number(decisionRows[0]?.n ?? 0) > 0) {
+        await rollbackTx(tx);
+        return { ok: false, code: 'name_nomination_terminal_decision_already_started' };
+      }
+    }
+
     if (row.request_type === 'periodic_maintenance' && input.toStatus === 'cancelled') {
       await rollbackTx(tx);
       return { ok: false, code: 'action_not_supported_for_request_type' };
@@ -262,6 +277,7 @@ export async function transitionStatus(
     // side-effect itself, so its reject path cannot depend on that link.
     if (
       row.request_type !== 'account_creation'
+      && row.request_type !== 'name_nomination'
       && (input.toStatus === 'resolved_at_intake' || input.toStatus === 'rejected')
       && row.beneficiary_client_id == null
     ) {
@@ -313,6 +329,7 @@ export async function transitionStatus(
       const decisionReasonId = Number(input.decisionReasonId) || null;
       const requiresDecisionReasonId = (
         row.request_type === 'periodic_maintenance' || row.request_type === 'golden_warranty'
+        || row.request_type === 'name_nomination'
       ) && listCategory != null;
       if (requiresDecisionReasonId) {
         if (decisionReasonId == null) {
@@ -369,7 +386,12 @@ export async function transitionStatus(
       // SR-AUTH-01: reject requires the request to be either escalated
       // (escalated_at set) or carry review_required_flag (duplicate/branch/reopen).
       // The two are decoupled (SR-ESC-02) but both open the reject door.
-      if (input.toStatus === 'rejected' && !row.review_required_flag && row.escalated_at == null) {
+      if (
+        input.toStatus === 'rejected'
+        && row.request_type !== 'name_nomination'
+        && !row.review_required_flag
+        && row.escalated_at == null
+      ) {
         await rollbackTx(tx);
         return {
           ok: false,

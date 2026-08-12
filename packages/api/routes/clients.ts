@@ -54,6 +54,7 @@ const CLIENT_REQUEST_VIEW_PERMISSION_BY_TYPE: Record<string, string> = {
   device_request: 'service_requests.view',
   periodic_maintenance: 'periodic_maintenance.view',
   golden_warranty: 'golden_warranty.view',
+  name_nomination: 'name_nomination.view',
   account_creation: 'account_requests.view',
 };
 

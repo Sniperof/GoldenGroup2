@@ -60,6 +60,12 @@ import { resolveBranchForServiceGeoUnit } from '../services/serviceRequests/bran
 import { getSystemSettingNumber } from '../services/systemSettings.js';
 import { canLinkServiceRequestParty } from '../policies/serviceRequestPartyLinkPolicy.js';
 import { syncWaterCheckBeneficiaryReferrer } from '../services/serviceRequests/atomicClientLink.js';
+import { hasNameNominationGlobalPermission } from '../policies/nameNominationPolicy.js';
+import {
+  convertNameNominationItems,
+  refreshNameNominationBranches,
+  skipNameNominationItems,
+} from '../services/serviceRequests/nameNominationHandoffService.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -113,6 +119,7 @@ const PERMISSION_FAMILY_BY_TYPE: Record<string, string> = {
   device_request: 'service_requests',
   periodic_maintenance: 'periodic_maintenance',
   golden_warranty: 'golden_warranty',
+  name_nomination: 'name_nomination',
 };
 
 type FamilyAction = 'view' | 'review' | 'decide' | 'resolve_escalation' | 'archive' | 'create';
@@ -162,6 +169,10 @@ function requireTypedPermission(action: FamilyAction) {
       }
     });
   };
+}
+
+function hasGlobalPermission(req: Request, permission: string): boolean {
+  return req.authContext ? hasNameNominationGlobalPermission(req.authContext, permission) : false;
 }
 
 // ------------------------------------------------------------
@@ -400,6 +411,22 @@ const SR_SELECT = `
   sr.requested_warranty_months AS "requestedWarrantyMonths",
   sr.requested_warranty_period_snapshot AS "requestedWarrantyPeriodSnapshot",
   sr.beneficiary_contact_consent_confirmed AS "beneficiaryContactConsentConfirmed",
+  COALESCE((
+    SELECT jsonb_agg(jsonb_build_object(
+      'id', item.id, 'itemOrder', item.item_order, 'firstName', item.first_name,
+      'lastName', item.last_name, 'primaryPhone', item.primary_phone,
+      'primaryPhoneHasWhatsapp', item.primary_phone_has_whatsapp,
+      'secondaryPhone', item.secondary_phone, 'secondaryPhoneHasWhatsapp', item.secondary_phone_has_whatsapp,
+      'occupation', item.occupation, 'geoSnapshot', item.geo_snapshot,
+      'branchResolutionStatus', item.branch_resolution_status,
+      'branchResolutionReason', item.branch_resolution_reason, 'branchId', item.branch_id,
+      'branchName', item_branch.name, 'status', item.status, 'candidateId', item.candidate_id,
+      'exclusionReason', item.exclusion_reason_snapshot, 'decidedAt', item.decided_at
+    ) ORDER BY item.item_order)
+    FROM service_request_name_nomination_items item
+    LEFT JOIN branches item_branch ON item_branch.id=item.branch_id
+    WHERE item.service_request_id=sr.id
+  ), '[]'::jsonb) AS "nameNominationItems",
   sr.decision_reason_id AS "decisionReasonId",
   sr.decision_reason_snapshot AS "decisionReasonSnapshot",
   COALESCE((
@@ -1027,7 +1054,7 @@ router.post('/water-check', requirePermission('water_check.create'), async (req,
   });
 });
 
-router.get('/', requirePermission('service_requests.view', 'water_check.view', 'periodic_maintenance.view', 'golden_warranty.view'), async (req, res) => {
+router.get('/', requirePermission('service_requests.view', 'water_check.view', 'periodic_maintenance.view', 'golden_warranty.view', 'name_nomination.view'), async (req, res) => {
   const q = req.query;
   // Cross-type isolation (request-section-contract.md §5): the list only
   // returns the types whose <family>.view the caller holds. account_creation
@@ -1832,6 +1859,9 @@ router.post(
   '/:id/resolve-at-intake',
   requireTypedPermission('decide'),
   blockIfEscalated,
+  (req, res, next) => req.serviceRequestType === 'name_nomination'
+    ? res.status(400).json({ error: 'action_not_supported_for_request_type' })
+    : next(),
   transitionEndpoint('<family>.decide', 'resolved_at_intake'),
 );
 
@@ -2218,6 +2248,65 @@ router.post(
     });
     if (result.ok !== true) return sendErr(res, result);
     return res.json(result.data);
+  },
+);
+
+router.post(
+  '/:id/name-nomination/refresh-branches',
+  requireTypedPermission('review'),
+  blockIfEscalated,
+  async (req, res) => {
+    if (req.serviceRequestType !== 'name_nomination') return res.status(400).json({ error: 'wrong_request_type_for_name_nomination' });
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const count = await refreshNameNominationBranches(Number(req.params.id), client);
+      await client.query('COMMIT');
+      return res.json({ refreshedItems: count });
+    } catch (error: any) {
+      await client.query('ROLLBACK');
+      return res.status(error.status ?? 500).json({ error: error.code ?? error.message, details: error.details });
+    } finally { client.release(); }
+  },
+);
+
+router.post(
+  '/:id/name-nomination/convert',
+  requireTypedPermission('decide'),
+  requirePermission('candidates.create'),
+  blockIfEscalated,
+  async (req, res) => {
+    if (req.serviceRequestType !== 'name_nomination') return res.status(400).json({ error: 'wrong_request_type_for_name_nomination' });
+    if (!hasGlobalPermission(req, 'candidates.create')) {
+      return res.status(403).json({ error: 'candidates_create_global_required' });
+    }
+    try {
+      const result = await convertNameNominationItems({
+        serviceRequestId: Number(req.params.id), itemIds: Array.isArray(req.body?.itemIds) ? req.body.itemIds : [],
+        actorUserId: getActor(req).userId,
+      });
+      return res.json(result);
+    } catch (error: any) {
+      return res.status(error.status ?? 500).json({ error: error.code ?? error.message, details: error.details });
+    }
+  },
+);
+
+router.post(
+  '/:id/name-nomination/skip',
+  requireTypedPermission('decide'),
+  blockIfEscalated,
+  async (req, res) => {
+    if (req.serviceRequestType !== 'name_nomination') return res.status(400).json({ error: 'wrong_request_type_for_name_nomination' });
+    try {
+      const result = await skipNameNominationItems({
+        serviceRequestId: Number(req.params.id), itemIds: Array.isArray(req.body?.itemIds) ? req.body.itemIds : [],
+        reasonId: Number(req.body?.reasonId), actorUserId: getActor(req).userId,
+      });
+      return res.json(result);
+    } catch (error: any) {
+      return res.status(error.status ?? 500).json({ error: error.code ?? error.message, details: error.details });
+    }
   },
 );
 

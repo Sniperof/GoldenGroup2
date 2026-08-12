@@ -72,6 +72,8 @@ export const REQUEST_CHANNEL_LABELS: Record<string, string> = {
 
 /** Canonical label + declared per-type display overlays (contract §9). */
 export function requestStatusLabel(status: string, requestType?: string | null): string {
+  if (requestType === 'name_nomination' && status === 'promoted') return 'تمت معالجة الطلب وتحويل أسماء مقترحة';
+  if (requestType === 'name_nomination' && status === 'resolved_at_intake') return 'تمت مراجعة الطلب دون اعتماد أسماء';
   if (requestType === 'account_creation' && status === 'completed') return 'مُعتمَد ومُفعَّل';
   return REQUEST_STATUS_LABELS[status] ?? status;
 }

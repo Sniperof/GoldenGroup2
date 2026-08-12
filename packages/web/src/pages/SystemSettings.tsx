@@ -36,6 +36,11 @@ const DEFAULT_PERIODIC_SETTINGS = {
     periodic_attach_warning_days: '14',
     periodic_attach_allowed_statuses: '["open","assigned","in_scheduling","scheduled","waiting_execution"]',
 };
+const DEFAULT_NAME_NOMINATION_SETTINGS = {
+    name_nomination_max_names_per_request: '50',
+    name_nomination_daily_per_identity: '5',
+    name_nomination_daily_per_unverified_ip: '20',
+};
 
 export default function SystemSettings() {
     const { hasPermission } = usePermissions();
@@ -63,6 +68,9 @@ export default function SystemSettings() {
     const [webLoginSaving, setWebLoginSaving] = useState(false);
     const [webLoginMsg, setWebLoginMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
     const [showDeveloperSettings, setShowDeveloperSettings] = useState(false);
+    const [nameNominationSettings, setNameNominationSettings] = useState(DEFAULT_NAME_NOMINATION_SETTINGS);
+    const [savedNameNominationSettings, setSavedNameNominationSettings] = useState(DEFAULT_NAME_NOMINATION_SETTINGS);
+    const [nameNominationSavingKey, setNameNominationSavingKey] = useState<string | null>(null);
 
     useEffect(() => {
         let cancelled = false;
@@ -87,6 +95,12 @@ export default function SystemSettings() {
                 );
                 setWebLoginSlots(allowedWebSlots);
                 setSavedWebLoginSlots(allowedWebSlots);
+                const nomination = { ...DEFAULT_NAME_NOMINATION_SETTINGS };
+                for (const key of Object.keys(nomination) as Array<keyof typeof nomination>) {
+                    nomination[key] = res.settings.find((s) => s.key === key)?.value ?? nomination[key];
+                }
+                setNameNominationSettings(nomination);
+                setSavedNameNominationSettings(nomination);
             })
             .catch(() => { if (!cancelled) setCleanupMsg({ type: 'err', text: 'تعذّر تحميل الإعداد.' }); })
             .finally(() => { if (!cancelled) setCleanupLoading(false); });
@@ -162,6 +176,15 @@ export default function SystemSettings() {
         } finally {
             setVisitJobSaving(false);
         }
+    };
+
+    const saveNameNominationSetting = async (key: keyof typeof DEFAULT_NAME_NOMINATION_SETTINGS) => {
+        setNameNominationSavingKey(key);
+        try {
+            const res = await api.systemSettings.update(key, Number(nameNominationSettings[key]));
+            setNameNominationSettings((current) => ({ ...current, [key]: res.value }));
+            setSavedNameNominationSettings((current) => ({ ...current, [key]: res.value }));
+        } finally { setNameNominationSavingKey(null); }
     };
 
     const setWebLoginSlot = (slot: TeamSlot, checked: boolean) => {
@@ -272,6 +295,30 @@ export default function SystemSettings() {
                         {!canManageSettings && (
                             <p className="text-xs text-slate-400 mt-3">للعرض فقط — تعديل الإعداد يحتاج صلاحية «تعديل إعدادات النظام».</p>
                         )}
+                    </div>
+                </motion.div>
+
+                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                    className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+                    <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex items-center gap-3">
+                        <Settings className="w-5 h-5 text-violet-600" />
+                        <h2 className="text-lg font-bold text-slate-800">إعدادات طلب ترشيح الأسماء</h2>
+                    </div>
+                    <div className="p-6 grid md:grid-cols-3 gap-4">
+                        {([
+                            ['name_nomination_max_names_per_request','الحد الأقصى للأسماء في الطلب',1],
+                            ['name_nomination_daily_per_identity','السقف اليومي لكل هوية أو جهاز',0],
+                            ['name_nomination_daily_per_unverified_ip','السقف اليومي لكل IP غير موثق',0],
+                        ] as const).map(([key,label,min])=><div key={key} className="border border-slate-100 rounded-xl p-4">
+                            <label className="block text-xs font-bold text-slate-600 mb-2">{label}</label>
+                            <div className="flex items-center gap-2"><input type="number" min={min}
+                                value={nameNominationSettings[key]} disabled={!canManageSettings||nameNominationSavingKey===key}
+                                onChange={(e)=>setNameNominationSettings((current)=>({...current,[key]:e.target.value}))}
+                                className="w-24 px-3 py-2 border border-slate-200 rounded-xl text-sm font-bold" />
+                                <Button variant="secondary" icon={Save} loading={nameNominationSavingKey===key}
+                                    disabled={!canManageSettings||nameNominationSettings[key]===savedNameNominationSettings[key]||Number(nameNominationSettings[key])<min}
+                                    onClick={()=>saveNameNominationSetting(key)}>حفظ</Button></div>
+                        </div>)}
                     </div>
                 </motion.div>
 

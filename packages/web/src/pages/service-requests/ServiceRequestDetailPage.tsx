@@ -29,6 +29,7 @@ import MergeOrSplitModal from '../../components/service-requests/MergeOrSplitMod
 import TerminalTransitionModal, { type ModalMode } from '../../components/service-requests/TerminalTransitionModal';
 import WaterCheckRequestDetailPanel from '../../components/service-requests/WaterCheckRequestDetailPanel';
 import { DeviceRequestDetailPanel, DeviceRequestHandoffModal } from '../../components/service-requests/DeviceRequestPanel';
+import NameNominationPanel from '../../components/service-requests/NameNominationPanel';
 import RequestDetailLayout from '../../components/requests/RequestDetailLayout';
 import type { Client, GeoUnit } from '../../lib/types';
 import { reviewRequiredReasons } from '../../lib/serviceRequestDisplay';
@@ -197,6 +198,7 @@ export default function ServiceRequestDetailPage() {
   const isDeviceRequest = req.requestType === 'device_request';
   const isPeriodicMaintenance = req.requestType === 'periodic_maintenance';
   const isGoldenWarranty = req.requestType === 'golden_warranty';
+  const isNameNomination = req.requestType === 'name_nomination';
   const hasPartyLinkage = isEmergencyMaintenance || isWaterCheck || isDeviceRequest
     || isPeriodicMaintenance || isGoldenWarranty;
   const requestKindLabel = isEmergencyMaintenance
@@ -222,7 +224,7 @@ export default function ServiceRequestDetailPage() {
   const permFamily = isWaterCheck
     ? 'water_check'
     : isPeriodicMaintenance ? 'periodic_maintenance'
-      : isGoldenWarranty ? 'golden_warranty' : 'service_requests';
+      : isGoldenWarranty ? 'golden_warranty' : isNameNomination ? 'name_nomination' : 'service_requests';
   const canReview = hasPermission(`${permFamily}.review`);
   const canDecide = hasPermission(`${permFamily}.decide`);
   const canResolveEscalation = hasPermission(`${permFamily}.resolve_escalation`);
@@ -235,9 +237,9 @@ export default function ServiceRequestDetailPage() {
   const reviewReasons = reviewRequiredReasons(data.auditLog);
   const canOfferReject = req.status === 'in_review'
     && req.reviewedByUserId != null
-    && (req.reviewRequiredFlag || isEscalated)
+    && (req.reviewRequiredFlag || isEscalated || isNameNomination)
     && canDecide;
-  const canReject = canOfferReject && hasBeneficiaryClient;
+  const canReject = canOfferReject && (hasBeneficiaryClient || isNameNomination);
   // SR-LINK-01 — linking (and create-from-request) requires the request to be
   // claimed first. Only available in_review and while not escalated.
   const canLink = req.status === 'in_review' && !isEscalated;
@@ -248,7 +250,7 @@ export default function ServiceRequestDetailPage() {
     && (isDeviceRequest || isGoldenWarranty || (req.branchId && req.branchResolutionStatus === 'resolved'))
     && hasPermission('clients.create');
   const canCreateCandidateFromRequest =
-    !isWaterCheck && !isDeviceRequest && !isPeriodicMaintenance && !isGoldenWarranty
+    !isWaterCheck && !isDeviceRequest && !isPeriodicMaintenance && !isGoldenWarranty && !isNameNomination
     && canLink
     && !req.beneficiaryClientId
     && !req.beneficiaryCandidateId
@@ -279,7 +281,7 @@ export default function ServiceRequestDetailPage() {
     if (!req.reportedDeviceModelId && !externalModelChoice) promoteMissing.push('ربط الجهاز الآخر بطراز مسجل');
   } else if (!req.installedDeviceId) promoteMissing.push('ربط جهاز من أجهزة المستفيد');
   if (activeProblems.length === 0) promoteMissing.push('عطل واحد على الأقل في اللائحة');
-  const canDoPromote = !isWaterCheck && !isDeviceRequest && !isPeriodicMaintenance && !isGoldenWarranty && promoteMissing.length === 0;
+  const canDoPromote = !isWaterCheck && !isDeviceRequest && !isPeriodicMaintenance && !isGoldenWarranty && !isNameNomination && promoteMissing.length === 0;
   const periodicHandoffMissing: string[] = [];
   if (isPeriodicMaintenance && !req.linkedOpenTaskId) {
     if (req.status !== 'in_review') periodicHandoffMissing.push('تولّي الطلب');
@@ -858,7 +860,8 @@ export default function ServiceRequestDetailPage() {
   const modalLabelClass = 'space-y-1 text-sm font-semibold text-slate-700';
 
   const backPath = isWaterCheck ? '/service-requests/water-check'
-    : isDeviceRequest ? '/service-requests/device-requests' : '/service-requests';
+    : isDeviceRequest ? '/service-requests/device-requests'
+      : isNameNomination ? '/service-requests/name-nomination' : '/service-requests';
 
   return (
     <RequestDetailLayout
@@ -968,7 +971,7 @@ export default function ServiceRequestDetailPage() {
           )}
           {req.status === 'in_review' && !isEscalated && canDecide && (
             <>
-              {!isWaterCheck && !isDeviceRequest && !isPeriodicMaintenance && !isGoldenWarranty && (
+              {!isWaterCheck && !isDeviceRequest && !isPeriodicMaintenance && !isGoldenWarranty && !isNameNomination && (
                 <Button
                   size="sm"
                   icon={ArrowUpCircle}
@@ -1039,7 +1042,7 @@ export default function ServiceRequestDetailPage() {
                   إنشاء مهمة عرض الكفالة الذهبية
                 </Button>
               )}
-              <Button
+              {!isNameNomination && <Button
                 size="sm"
                 icon={ClipboardCheck}
                 disabled={busy || !hasBeneficiaryClient
@@ -1048,7 +1051,7 @@ export default function ServiceRequestDetailPage() {
                 title={hasBeneficiaryClient ? 'حل الطلب عند الاستلام' : 'اربط المستفيد بسجل زبون أولاً'}
               >
                 حُلَّ في الاستلام
-              </Button>
+              </Button>}
             </>
           )}
           {canOfferReject && (
@@ -1063,7 +1066,7 @@ export default function ServiceRequestDetailPage() {
               رَفض (مدقّق)
             </Button>
           )}
-          {req.status === 'in_review' && canDecide && !hasBeneficiaryClient && (
+          {req.status === 'in_review' && canDecide && !hasBeneficiaryClient && !isNameNomination && (
             <span className="text-xs font-semibold text-amber-700">اربط المستفيد بسجل زبون قبل الرفض أو الحل عند الاستلام.</span>
           )}
           {isActive && canDecide && req.status !== 'received' && !isEscalated && !isPeriodicMaintenance && (
@@ -1101,7 +1104,10 @@ export default function ServiceRequestDetailPage() {
           )}
         </div>
       }
-      submittedData={isWaterCheck ? (
+      submittedData={isNameNomination ? (
+        <NameNominationPanel request={req} canDecide={canDecide && isOwner}
+          canCreateCandidates={hasPermission('candidates.create')} onChanged={reload} />
+      ) : isWaterCheck ? (
         <WaterCheckRequestDetailPanel
           request={req}
           handoff={{
@@ -1337,7 +1343,7 @@ export default function ServiceRequestDetailPage() {
       }] : undefined}
       audit={<AuditLogTimeline events={data.auditLog} />}
       linkage={
-        <div>
+        isNameNomination ? undefined : <div>
           {hasPartyLinkage && (
         <div className="space-y-4">
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">

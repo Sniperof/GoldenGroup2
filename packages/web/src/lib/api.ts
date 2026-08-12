@@ -1780,6 +1780,16 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(body),
       }),
+    refreshNameNominationBranches: (id: number) =>
+      request<any>(`/service-requests/${id}/name-nomination/refresh-branches`, { method: 'POST', body: '{}' }),
+    convertNameNominationItems: (id: number, itemIds: number[]) =>
+      request<any>(`/service-requests/${id}/name-nomination/convert`, {
+        method: 'POST', body: JSON.stringify({ itemIds }),
+      }),
+    skipNameNominationItems: (id: number, itemIds: number[], reasonId: number) =>
+      request<any>(`/service-requests/${id}/name-nomination/skip`, {
+        method: 'POST', body: JSON.stringify({ itemIds, reasonId }),
+      }),
     handoffDeviceRequest: (id: number, data: {
       employeeId: number;
       deviceModelIds: number[];

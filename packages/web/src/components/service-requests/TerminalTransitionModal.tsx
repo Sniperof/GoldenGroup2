@@ -39,6 +39,7 @@ const RESOLVE_AT_INTAKE_LIST_BY_REQUEST_TYPE: Record<string, string> = {
 const REJECT_LIST_BY_REQUEST_TYPE: Record<string, string> = {
   periodic_maintenance: 'service_request_rejection_periodic_maintenance',
   golden_warranty: 'service_request_rejection_golden_warranty',
+  name_nomination: 'service_request_rejection_name_nomination',
 };
 
 function resolveAtIntakeListCode(requestType?: string | null): string {
@@ -189,7 +190,7 @@ export default function TerminalTransitionModal({ mode, requestType, onClose, on
             .filter((row: any) => row?.isActive !== false)
             .map((row: any) => optionFromSystemListItem(
               row,
-              requestType === 'periodic_maintenance' || requestType === 'golden_warranty',
+              requestType === 'periodic_maintenance' || requestType === 'golden_warranty' || requestType === 'name_nomination',
             ))
             .filter((option) => option.value && option.label),
         );
@@ -206,7 +207,7 @@ export default function TerminalTransitionModal({ mode, requestType, onClose, on
   }, [mode, requestType]);
 
   const usesAdministrativeOutcomes = mode === 'resolveAtIntake'
-    || (mode === 'reject' && (requestType === 'periodic_maintenance' || requestType === 'golden_warranty'));
+    || (mode === 'reject' && (requestType === 'periodic_maintenance' || requestType === 'golden_warranty' || requestType === 'name_nomination'));
   const outcomes = usesAdministrativeOutcomes ? resolveOutcomes : (cfg.outcomes ?? []);
   const noteOk = !cfg.noteRequired || note.trim().length > 0;
   const outcomeOk = !cfg.requiresOutcome || outcome !== '';
@@ -224,7 +225,7 @@ export default function TerminalTransitionModal({ mode, requestType, onClose, on
       const payload: any = {};
       if (cfg.requiresOutcome) {
         if (
-          (requestType === 'periodic_maintenance' || requestType === 'golden_warranty')
+          (requestType === 'periodic_maintenance' || requestType === 'golden_warranty' || requestType === 'name_nomination')
           && (mode === 'resolveAtIntake' || mode === 'reject')
         ) {
           payload.decisionReasonId = Number(outcome);
