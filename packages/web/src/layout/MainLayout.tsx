@@ -17,7 +17,7 @@ import {
     Briefcase, Calendar, AlertTriangle, DollarSign, RefreshCw, RotateCcw, PhoneCall,
     FileText, FilePlus2, Headset, Settings, UserPlus, Menu, X as CloseIcon,
     ChevronLeft, ChevronRight, BadgeCheck, GraduationCap, Mic2, LogOut, Building2, SlidersHorizontal, ShieldCheck, ListChecks, Shield, Monitor, Settings2,
-    Bell, Wrench, Gift, Inbox, LayoutGrid, UserCheck, CalendarCheck, Layers, HardDrive, Unplug, Beaker, Package,
+    Bell, Wrench, Gift, Inbox, LayoutGrid, UserCheck, CalendarCheck, Layers, HardDrive, Unplug, Beaker, Package, ClipboardCheck,
 } from '../components/ui/icons';
 
 const navItems = [
