@@ -9,6 +9,7 @@ const migration = read('migrations/418_agent_license_service_request_v1.sql');
 const route = read('packages/api/routes/serviceRequests.ts');
 const stateMachine = read('packages/api/services/serviceRequests/stateMachine.ts');
 const reopen = read('packages/api/services/serviceRequests/reopenService.ts');
+const intake = read('packages/api/services/serviceRequests/mobileAgentLicenseIntake.ts');
 
 test('agent-license registry and permissions are mobile self-only and centrally scoped', () => {
   assert.match(migration, /'agent_license'/);
@@ -28,4 +29,8 @@ test('agent-license runtime has isolated typed authorization and a dedicated com
 test('agent-license forbids neutral close and every reopen path', () => {
   assert.match(route, /serviceRequestType === 'name_nomination' \|\| req\.serviceRequestType === 'agent_license'/);
   assert.match(reopen, /request_type === 'agent_license'[\s\S]*agent_license_cannot_be_reopened/);
+});
+
+test('agent-license treats every non-terminal review state as an open primary-phone request', () => {
+  assert.match(intake, /\['received', 'in_review', 'awaiting_customer_info'\]/);
 });
