@@ -64,6 +64,11 @@ export async function reopen(
     }
     const row = rows[0];
 
+    if (row.request_type === 'agent_license') {
+      await rollbackTx(tx);
+      return { ok: false, code: 'agent_license_cannot_be_reopened' };
+    }
+
     if (row.request_type === 'name_nomination' && row.status === 'resolved_at_intake') {
       await rollbackTx(tx);
       return { ok: false, code: 'completed_name_nomination_cannot_be_reopened' };

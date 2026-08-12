@@ -22,13 +22,11 @@
  * registry row in the DB must equal it or the gateway refuses the type with
  * `request_type_configuration_mismatch` (fail-closed by design).
  *
- * v3 is the first unreleased contract that separates the three parties:
- * requester, beneficiary, and optional referrer/mediator. `submissionMode`
- * says who benefits; `referrerMode` independently says whether a mediator
- * exists. Because v3 has not reached an app or approved environment, its
- * contract is corrected in place rather than creating a misleading v4.
+ * v3 first separated requester, beneficiary, and optional mediator. v4 adds
+ * the mediator's independent SmartGeo address and requires its first three
+ * administrative levels whenever `referrerMode` says a mediator exists.
  */
-export const WATER_CHECK_FORM_VERSION = 'water_check.mobile.v3';
+export const WATER_CHECK_FORM_VERSION = 'water_check.mobile.v4';
 
 /**
  * Envelope keys the gateway itself consumes — never part of the form.
@@ -74,6 +72,12 @@ export const WATER_CHECK_FIELDS: Record<string, FieldSpec> = {
   referrerPhoneHasWhatsapp: { kind: 'boolean' },
   referrerSecondaryPhone: { kind: 'phone', maxLength: 20 },
   referrerSecondaryPhoneHasWhatsapp: { kind: 'boolean' },
+  referrerGovernorate: { kind: 'geoId' },
+  referrerCityOrArea: { kind: 'geoId' },
+  referrerSubArea: { kind: 'geoId' },
+  referrerNeighborhood: { kind: 'geoId' },
+  referrerDetailedAddress: { kind: 'string', maxLength: 500 },
+  referrerMapLocation: { kind: 'location' },
 
   phoneNumber: { kind: 'phone', maxLength: 20 },
   primaryPhone: { kind: 'phone', maxLength: 20 },

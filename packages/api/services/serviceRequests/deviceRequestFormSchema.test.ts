@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { DEVICE_REQUEST_FORM_VERSION, validateDeviceRequestForm } from './deviceRequestFormSchema.js';
 
-test('device request v1 accepts purpose, zero or many models, parties, and optional full address', () => {
+test('device request v2 accepts purpose, zero or many models, parties, and optional full address', () => {
   const result = validateDeviceRequestForm({
     requestType: 'device_request',
     formVersion: DEVICE_REQUEST_FORM_VERSION,

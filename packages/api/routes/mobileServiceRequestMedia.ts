@@ -9,6 +9,7 @@ import { resolveMobileIntakeIdentity, type MobileIntakeIdentity } from '../servi
 import { sendAppError } from '../utils/appErrors.js';
 
 const IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+const DOCUMENT_MAX_BYTES = 10 * 1024 * 1024;
 const VIDEO_MAX_BYTES = 25 * 1024 * 1024;
 export const VIDEO_MAX_DURATION_MS = 8_000;
 
@@ -18,7 +19,7 @@ export const mobileServiceRequestMediaUpload = multer({
 }).single('file');
 
 type MediaInspection = {
-  mediaType: 'image' | 'video';
+  mediaType: 'image' | 'video' | 'document';
   mimeType: string;
   extension: string;
   durationMs: number | null;
@@ -93,6 +94,9 @@ function readIsoBmffDuration(buffer: Buffer, start = 0, end = buffer.length): nu
 export function inspectMobileServiceRequestMedia(buffer: Buffer): MediaInspection | null {
   const image = inspectImage(buffer);
   if (image) return image;
+  if (buffer.length >= 5 && buffer.toString('ascii', 0, 5) === '%PDF-') {
+    return { mediaType: 'document', mimeType: 'application/pdf', extension: '.pdf', durationMs: null };
+  }
   if (buffer.length < 12 || buffer.toString('ascii', 4, 8) !== 'ftyp') return null;
   const durationMs = readIsoBmffDuration(buffer);
   if (durationMs == null) return null;
@@ -107,6 +111,9 @@ export async function uploadMobileServiceRequestMedia(req: Request, res: Respons
     if (!media) return res.status(415).json({ error: 'unsupported_or_invalid_media' });
     if (media.mediaType === 'image' && req.file.size > IMAGE_MAX_BYTES) {
       return res.status(413).json({ error: 'image_too_large', details: { maximumBytes: IMAGE_MAX_BYTES } });
+    }
+    if (media.mediaType === 'document' && req.file.size > DOCUMENT_MAX_BYTES) {
+      return res.status(413).json({ error: 'document_too_large', details: { maximumBytes: DOCUMENT_MAX_BYTES } });
     }
     if (media.mediaType === 'video' && media.durationMs! <= 0) {
       return res.status(400).json({ error: 'invalid_video_duration' });

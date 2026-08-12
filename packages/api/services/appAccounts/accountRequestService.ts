@@ -169,6 +169,23 @@ const REJECTION_REASON_LABELS: Record<string, string> = {
   device_not_company: 'الجهاز ليس من أجهزة الشركة',
 };
 
+function snapshotGeoId(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function snapshotMapLocation(value: unknown): { lat: number; lng: number } | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  const lat = Number(raw.lat);
+  const lng = Number(raw.lng);
+  return Number.isFinite(lat) && Number.isFinite(lng)
+    && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180
+    ? { lat, lng }
+    : null;
+}
+
 /** The pending-screen payload, built from the immutable submitted snapshot. */
 export interface PendingRequestSnapshot {
   status: 'pending' | 'rejected';
@@ -185,11 +202,16 @@ export interface PendingRequestSnapshot {
   secondaryMobile: string | null;
   secondaryMobileHasWhatsapp: boolean | null;
   address: {
+    governorateId: number | null;
+    cityOrAreaId: number | null;
+    subAreaId: number | null;
+    neighborhoodId: number | null;
     governorate: string | null;
     cityOrArea: string | null;
     subArea: string | null;
     neighborhood: string | null;
     detailedAddress: string | null;
+    mapLocation: { lat: number; lng: number } | null;
   };
   notes: string | null;
   location: { lat: number; lng: number } | null;
@@ -231,11 +253,16 @@ export function buildSnapshot(
       ? p.secondary_mobile_has_whatsapp
       : null,
     address: {
+      governorateId: snapshotGeoId(p.governorate),
+      cityOrAreaId: snapshotGeoId(p.city_or_area),
+      subAreaId: snapshotGeoId(p.sub_area),
+      neighborhoodId: snapshotGeoId(p.neighborhood),
       governorate: labels.governorate ?? null,
       cityOrArea: labels.city_or_area ?? null,
       subArea: labels.sub_area ?? null,
       neighborhood: labels.neighborhood ?? null,
       detailedAddress: p.detailed_address ?? null,
+      mapLocation: snapshotMapLocation(p.location),
     },
     notes: p.notes ?? null,
     location: p.location ?? null,

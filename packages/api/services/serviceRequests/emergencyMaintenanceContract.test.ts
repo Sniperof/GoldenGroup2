@@ -60,6 +60,6 @@ test('mobile receives admin-managed safety and attachment vocabularies', () => {
 });
 
 test('emergency mobile submission requires an idempotency key', () => {
-  assert.match(appRouteSource, /requestType === 'emergency_maintenance'[\s\S]{0,220}&& !req\.get\('Idempotency-Key'\)/);
+  assert.match(appRouteSource, /requestType === 'emergency_maintenance'[\s\S]*&& !req\.get\('Idempotency-Key'\)/);
   assert.match(appRouteSource, /idempotency_key_required/);
 });

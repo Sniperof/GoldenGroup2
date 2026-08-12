@@ -31,21 +31,18 @@ export interface MyProfile {
   secondaryMobiles: string[];
   classification: ClientClassification;
   address: {
+    governorateId: number | null;
+    cityOrAreaId: number | null;
+    subAreaId: number | null;
+    neighborhoodId: number | null;
     governorate: string | null;
     cityOrArea: string | null;
     subArea: string | null;
     neighborhood: string | null;
     detailedAddress: string | null;
+    mapLocation: { lat: number; lng: number } | null;
   };
-  /**
-   * The same four levels as `address`, as geo_units ids — what a cascading
-   * picker needs to preselect itself. Names alone cannot drive a picker, and
-   * matching by name is wrong twice over: names repeat across governorates,
-   * and a renamed unit would silently stop matching.
-   *
-   * Added alongside `address` rather than folded into it so existing readers
-   * of `address.governorate` (a display string) keep working unchanged.
-   */
+  /** Deprecated compatibility alias; new clients use address.*Id. */
   addressIds: {
     governorate: number | null;
     cityOrArea: number | null;
@@ -63,8 +60,8 @@ interface GeoPathRow {
 }
 
 /**
- * Turns the ancestor walk into the two parallel shapes. Pure — exported for
- * tests.
+ * Turns the ancestor walk into the canonical mobile address and legacy aliases.
+ * Pure — exported for tests.
  *
  * The client record stores only three geo columns for a four-level tree, and
  * the deepest one holds whichever level was picked (a sub-area on some rows, a
@@ -72,13 +69,35 @@ interface GeoPathRow {
  * `geo_units.parent_id` reconstructs the full contiguous chain, which is why no
  * schema change was needed to make the profile drive the request form.
  */
-export function buildProfileAddress(rows: GeoPathRow[], detailedAddress: string | null): {
+function parseStoredMapLocation(value: unknown): { lat: number; lng: number } | null {
+  let candidate = value;
+  if (typeof candidate === 'string') {
+    try { candidate = JSON.parse(candidate); } catch { return null; }
+  }
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return null;
+  const raw = candidate as Record<string, unknown>;
+  const lat = Number(raw.lat);
+  const lng = Number(raw.lng);
+  return Number.isFinite(lat) && Number.isFinite(lng)
+    && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180
+    ? { lat, lng }
+    : null;
+}
+
+export function buildProfileAddress(
+  rows: GeoPathRow[],
+  detailedAddress: string | null,
+  storedMapLocation: unknown = null,
+): {
   address: MyProfile['address'];
   addressIds: MyProfile['addressIds'];
   geoUnitId: number | null;
 } {
   const address: MyProfile['address'] = {
-    governorate: null, cityOrArea: null, subArea: null, neighborhood: null, detailedAddress,
+    governorateId: null, cityOrAreaId: null, subAreaId: null, neighborhoodId: null,
+    governorate: null, cityOrArea: null, subArea: null, neighborhood: null,
+    detailedAddress,
+    mapLocation: parseStoredMapLocation(storedMapLocation),
   };
   const addressIds: MyProfile['addressIds'] = {
     governorate: null, cityOrArea: null, subArea: null, neighborhood: null,
@@ -91,6 +110,7 @@ export function buildProfileAddress(rows: GeoPathRow[], detailedAddress: string 
     if (!key) continue;
     address[key] = row.name;
     addressIds[key] = Number(row.id);
+    address[`${key}Id` as 'governorateId' | 'cityOrAreaId' | 'subAreaId' | 'neighborhoodId'] = Number(row.id);
     if (!deepest || row.level > deepest.level) deepest = { level: row.level, id: Number(row.id) };
   }
   return { address, addressIds, geoUnitId: deepest?.id ?? null };
@@ -111,8 +131,9 @@ export async function getMyProfile(claims: AppAccountClaims): Promise<MyProfile>
     detailed_address: string | null;
     candidate_status: string | null;
     deepest_geo: number | null;
+    gps_coordinates: unknown;
   }>(
-    `SELECT first_name, father_name, last_name, contacts, detailed_address, candidate_status,
+    `SELECT first_name, father_name, last_name, contacts, detailed_address, gps_coordinates, candidate_status,
             COALESCE(neighborhood, district, governorate) AS deepest_geo
        FROM clients
       WHERE id = $1 AND deleted_at IS NULL`,
@@ -135,7 +156,7 @@ export async function getMyProfile(claims: AppAccountClaims): Promise<MyProfile>
     );
     path = rows;
   }
-  const { address, addressIds, geoUnitId } = buildProfileAddress(path, c.detailed_address);
+  const { address, addressIds, geoUnitId } = buildProfileAddress(path, c.detailed_address, c.gps_coordinates);
 
   // Extra numbers from contacts, normalized, excluding the primary + duplicates.
   const primaryNorm = normalizePhone(claims.phone);

@@ -61,6 +61,7 @@ import { getSystemSettingNumber } from '../services/systemSettings.js';
 import { canLinkServiceRequestParty } from '../policies/serviceRequestPartyLinkPolicy.js';
 import { syncWaterCheckBeneficiaryReferrer } from '../services/serviceRequests/atomicClientLink.js';
 import { hasNameNominationGlobalPermission } from '../policies/nameNominationPolicy.js';
+import { hasAgentLicenseGlobalPermission } from '../policies/agentLicensePolicy.js';
 import {
   convertNameNominationItems,
   refreshNameNominationBranches,
@@ -120,6 +121,7 @@ const PERMISSION_FAMILY_BY_TYPE: Record<string, string> = {
   periodic_maintenance: 'periodic_maintenance',
   golden_warranty: 'golden_warranty',
   name_nomination: 'name_nomination',
+  agent_license: 'agent_license',
 };
 
 type FamilyAction = 'view' | 'review' | 'decide' | 'resolve_escalation' | 'archive' | 'create';
@@ -148,6 +150,10 @@ function requireTypedPermission(action: FamilyAction) {
           [Number(req.params.id)],
         );
         if (!rows[0]) return res.status(404).json({ error: 'service_request_not_found' });
+        if (requestType === 'agent_license'
+          && !hasAgentLicenseGlobalPermission(req.authContext!, permission)) {
+          return res.status(403).json({ error: 'service_request_subject_forbidden', details: { reason: 'GLOBAL_REQUIRED' } });
+        }
         const scopePlan = resolveListAccessScope(req.authContext!, permission);
         if (rows[0].branch_id == null && scopePlan.scope !== 'GLOBAL') {
           return res.status(403).json({
@@ -673,6 +679,7 @@ router.post(
       'device_request',
       'periodic_maintenance',
       'golden_warranty',
+      'agent_license',
     ]).has(requestType)) {
       return res.status(400).json({ error: 'unsupported_internal_call_request_type' });
     }
@@ -1054,7 +1061,7 @@ router.post('/water-check', requirePermission('water_check.create'), async (req,
   });
 });
 
-router.get('/', requirePermission('service_requests.view', 'water_check.view', 'periodic_maintenance.view', 'golden_warranty.view', 'name_nomination.view'), async (req, res) => {
+router.get('/', requirePermission('service_requests.view', 'water_check.view', 'periodic_maintenance.view', 'golden_warranty.view', 'name_nomination.view', 'agent_license.view'), async (req, res) => {
   const q = req.query;
   // Cross-type isolation (request-section-contract.md §5): the list only
   // returns the types whose <family>.view the caller holds. account_creation
@@ -1079,6 +1086,13 @@ router.get('/', requirePermission('service_requests.view', 'water_check.view', '
   const params: unknown[] = [];
   let idx = 1;
   for (const type of Object.keys(PERMISSION_FAMILY_BY_TYPE)) {
+    if (type === 'agent_license') {
+      if (!hasAgentLicenseGlobalPermission(ctx, 'agent_license.view')) continue;
+      const typeParam = idx++;
+      params.push(type);
+      typeScopeClauses.push(`sr.request_type = $${typeParam}`);
+      continue;
+    }
     const plan = resolveListAccessScope(ctx, familyKeyFor(type, 'view'));
     if (plan.scope === 'NONE') continue;
     const typeParam = idx++;
@@ -1603,6 +1617,7 @@ router.get('/:id/suggested-matches', requireTypedPermission('review'), async (re
   if (!access.allowed) {
     return res.status(403).json({ error: 'forbidden', details: { reason: access.reason } });
   }
+
   // Mediator (referrer) is always linked to a client entity; water_check
   // beneficiaries likewise link to clients only.
   const clientsOnly = party !== 'beneficiary' || rows[0].request_type === 'water_check';
@@ -1859,10 +1874,20 @@ router.post(
   '/:id/resolve-at-intake',
   requireTypedPermission('decide'),
   blockIfEscalated,
-  (req, res, next) => req.serviceRequestType === 'name_nomination'
+  (req, res, next) => req.serviceRequestType === 'name_nomination' || req.serviceRequestType === 'agent_license'
     ? res.status(400).json({ error: 'action_not_supported_for_request_type' })
     : next(),
   transitionEndpoint('<family>.decide', 'resolved_at_intake'),
+);
+
+router.post(
+  '/:id/approve-agent-license',
+  requireTypedPermission('decide'),
+  blockIfEscalated,
+  (req, res, next) => req.serviceRequestType !== 'agent_license'
+    ? res.status(400).json({ error: 'action_not_supported_for_request_type' })
+    : next(),
+  transitionEndpoint('agent_license.decide', 'completed'),
 );
 
 // SR-ESC-01 — escalate to restricted mode. Sets ONLY the dedicated escalation

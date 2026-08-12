@@ -1,8 +1,10 @@
 # Mobile Integration Guide — Water Check Service Requests
 
+> Agent-license integration is documented separately in `docs/api/mobile-agent-license-api-reference.md`; it uses this gateway's same fail-closed registry, identity, idempotency, SmartGeo, and upload-token boundaries.
+
 > **Endpoint:** `POST /api/app/service-requests`
 > **Request type:** `water_check`
-> **Active form version:** `water_check.mobile.v3`
+> **Active form version:** `water_check.mobile.v4`
 > **Release status:** Implemented in the codebase but not yet applied to an approved environment.
 
 This document defines the authoritative mobile contract for submitting water check service requests. The contract distinguishes among three independent parties:
@@ -18,7 +20,7 @@ There is no confirmation-call requirement in this workflow. Each submitted reque
 The mobile application must perform the following steps before displaying the water check form:
 
 1. Call `GET /api/app/service-requests/types`.
-2. Display the service only when `water_check` is active and its form version is `water_check.mobile.v3`.
+2. Display the service only when `water_check` is active and its form version is `water_check.mobile.v4`.
 3. If a valid customer access token is available, call `GET /api/app/me` to prefill the registered customer's data.
 4. Build the address using the public administrative-area hierarchy. Submit the deepest selected geographical identifiers together with `detailedAddress`.
 
@@ -41,7 +43,7 @@ Every submission is based on the following envelope:
 ```json
 {
   "requestType": "water_check",
-  "formVersion": "water_check.mobile.v3",
+  "formVersion": "water_check.mobile.v4",
   "submissionMode": "for_self",
   "governorate": 1,
   "cityOrArea": 12,
@@ -68,7 +70,9 @@ Every submission is based on the following envelope:
 - `mapLocation` is optional. The application must not submit `(0, 0)` as a location.
 - The father's name is optional for externally submitted water-check parties. It remains required in the account-creation contract.
 - A Boolean WhatsApp value is required for every submitted primary phone number.
-- When a secondary phone is supplied, its corresponding WhatsApp Boolean is also required.
+- The father's name, secondary phone, and secondary-phone WhatsApp Boolean are
+  optional. When a secondary phone is supplied without its WhatsApp Boolean,
+  the request snapshot stores `secondaryPhoneHasWhatsapp: false`.
 - Primary and secondary phone numbers for the same person must be different and must both be valid Syrian mobile numbers.
 - Undeclared fields are rejected. The application must construct the API payload explicitly and must not submit the complete form-state object.
 
@@ -91,6 +95,9 @@ Use the unprefixed fields for the beneficiary:
 ```
 
 Required fields for a submitted beneficiary are `firstName`, `lastName`, `phoneNumber`, and `primaryPhoneHasWhatsapp`.
+`fatherName`, `secondaryPhone`, and `secondaryPhoneHasWhatsapp` are optional in
+every mobile service-request type. The Boolean is meaningful only when a
+secondary phone exists.
 
 ### 3.2 Independent requester fields
 
@@ -112,9 +119,9 @@ Use the `requester` prefix when the requester is distinct from the beneficiary:
 
 For an OTP-verified visitor, `requesterPhone` must match the verified number. For a self-request, the beneficiary's `phoneNumber` must match the verified number.
 
-### 3.3 Independent referrer fields
+### 3.3 Referrer identity and address fields
 
-These fields are valid only when `referrerMode` is `separate_person`:
+Referrer identity fields are valid only when `referrerMode` is `separate_person`:
 
 ```json
 {
@@ -129,8 +136,34 @@ These fields are valid only when `referrerMode` is `separate_person`:
 ```
 
 Required fields for a separate referrer are `referrerFirstName`, `referrerLastName`, `referrerPhone`, and `referrerPhoneHasWhatsapp`.
+`referrerFatherName`, `referrerSecondaryPhone`, and
+`referrerSecondaryPhoneHasWhatsapp` are optional. Omitting the last field while
+sending a secondary phone stores `false`.
 
-The client must remove all `referrer*` fields when the selected mode is `none` or `requester`.
+Whenever a referrer exists (`referrerMode` is `requester` or
+`separate_person`), the mobile app must also submit the referrer's own address:
+
+```json
+{
+  "referrerGovernorate": 1,
+  "referrerCityOrArea": 12,
+  "referrerSubArea": 123,
+  "referrerNeighborhood": 1234,
+  "referrerDetailedAddress": "Building 8",
+  "referrerMapLocation": { "lat": 33.5138, "lng": 36.2765 }
+}
+```
+
+`referrerGovernorate`, `referrerCityOrArea`, and `referrerSubArea` are required.
+`referrerNeighborhood`, `referrerDetailedAddress`, and `referrerMapLocation` are
+optional. The first four values are canonical IDs selected from SmartGeo and
+the server validates their level, active status, and parent chain.
+
+With `referrerMode: "requester"`, do not submit `referrerFirstName`,
+`referrerLastName`, or any other referrer identity field: identity is derived
+from the requester, while the six address fields above describe the mediator's
+address. With `referrerMode: "none"`, remove every `referrer*` field, including
+the address fields.
 
 ## 4. Supported Scenario Matrix
 
@@ -138,12 +171,12 @@ The client must remove all `referrer*` fields when the selected mode is `none` o
 |---|---|---|---|
 | Registered customer | Self | Not submitted | Submit the service address and optional secondary-phone override. Do not submit immutable identity fields. |
 | Registered customer | Another person | `none` | Submit the beneficiary. The requester is derived from the customer account. No referrer exists. |
-| Registered customer | Another person | `requester` | Submit the beneficiary. The requester and referrer are derived from the same customer account. |
+| Registered customer | Another person | `requester` | Submit the beneficiary and referrer address. The requester and referrer identity are derived from the same customer account. |
 | Registered customer | Another person | `separate_person` | Unsupported and rejected by the server. |
 | OTP visitor or unverified device | Self | Not submitted | Submit the beneficiary. The beneficiary is also the requester. No referrer exists. |
 | OTP visitor or unverified device | Another person | `none` | Submit both beneficiary and requester. No referrer exists. |
-| OTP visitor or unverified device | Another person | `requester` | Submit beneficiary and requester. The server snapshots the requester as the referrer. |
-| OTP visitor or unverified device | Another person | `separate_person` | Submit beneficiary, requester, and independent referrer. |
+| OTP visitor or unverified device | Another person | `requester` | Submit beneficiary, requester, and referrer address. The server snapshots the requester identity as the referrer. |
+| OTP visitor or unverified device | Another person | `separate_person` | Submit beneficiary, requester, independent referrer identity, and referrer address. |
 
 ## 5. Detailed Submission Scenarios
 
@@ -152,7 +185,7 @@ The client must remove all `referrer*` fields when the selected mode is `none` o
 ```json
 {
   "requestType": "water_check",
-  "formVersion": "water_check.mobile.v3",
+  "formVersion": "water_check.mobile.v4",
   "submissionMode": "for_self",
   "secondaryPhone": "0944444444",
   "secondaryPhoneHasWhatsapp": true,
@@ -192,12 +225,14 @@ Submit:
 - The complete beneficiary payload.
 - The service address.
 
-Do not submit `requester*` or `referrer*` identity fields. The only permitted requester override is the optional pair:
+Do not submit `requester*` or `referrer*` identity fields. The only permitted
+requester overrides are these optional fields:
 
 - `requesterSecondaryPhone`.
 - `requesterSecondaryPhoneHasWhatsapp`.
 
-These values affect only the stored request snapshot.
+The phone may be sent without the Boolean; in that case WhatsApp support
+defaults to `false`. These values affect only the stored request snapshot.
 
 ### 5.3 Registered customer acting as the referrer
 
@@ -205,11 +240,18 @@ Use the same payload as scenario 5.2, but submit:
 
 ```json
 {
-  "referrerMode": "requester"
+  "referrerMode": "requester",
+  "referrerGovernorate": 1,
+  "referrerCityOrArea": 12,
+  "referrerSubArea": 123
 }
 ```
 
-Do not submit `referrer*` fields. The server derives both requester and referrer from the registered customer record and preserves the invariant that both references represent the same client. These values cannot be modified by the mobile application.
+Do not submit referrer identity fields. The server derives both requester and
+referrer identity from the registered customer record and preserves the
+invariant that both references represent the same client. The three required
+referrer address levels must still be submitted; neighborhood, detailed address,
+and map location remain optional.
 
 ### 5.4 OTP visitor or unverified device requesting for self
 
@@ -234,11 +276,16 @@ Submit the same fields as scenario 5.5, but use:
 
 ```json
 {
-  "referrerMode": "requester"
+  "referrerMode": "requester",
+  "referrerGovernorate": 1,
+  "referrerCityOrArea": 12,
+  "referrerSubArea": 123
 }
 ```
 
-Do not submit any `referrer*` fields. The server copies the requester snapshot into the referrer snapshot and marks both parties as representing the same person.
+Do not submit referrer identity fields. The server copies the requester identity
+into the referrer snapshot, adds the submitted referrer address, and marks both
+parties as representing the same person.
 
 ### 5.7 OTP visitor or unverified device using a separate referrer
 
@@ -247,6 +294,7 @@ Submit:
 - The complete beneficiary payload.
 - The complete requester payload.
 - The complete referrer payload.
+- The referrer's required SmartGeo address levels.
 - `referrerMode: "separate_person"`.
 - The service address.
 
@@ -302,13 +350,13 @@ The mobile application must preserve the server's `error` code in telemetry, eve
 | 400 | `referrer_mode_required` | A `for_another` request omitted `referrerMode`. |
 | 400 | `referrer_mode_not_accepted` | A self-request submitted `referrerMode`. |
 | 400 | `missing_person_fields` | A party payload is incomplete. Inspect `details.role` and `details.fields`. |
+| 400 | `missing_referrer_address_fields` | A request with a referrer omitted governorate, city/area, or sub-area. Inspect `details.fields`. |
 | 400 | `registered_requester_separate_referrer_forbidden` | A registered customer attempted to submit an independent third-party referrer. |
 | 400 | `identity_fields_not_accepted` | A registered self-request submitted immutable customer identity fields. |
 | 400 | `requester_fields_not_accepted` | A registered customer attempted to modify immutable requester identity fields. |
 | 400 | `party_fields_not_accepted` | Requester or referrer fields were submitted for a self-request. |
 | 400 | `referrer_fields_not_accepted` | Referrer fields were submitted while the selected mode does not accept them. |
 | 400 | `verified_phone_does_not_match_requester` | The submitted requester phone does not match the OTP-verified phone. |
-| 400 | `secondary_phone_whatsapp_required` | A secondary phone was submitted without its WhatsApp Boolean. |
 | 400 | `secondary_phone_matches_primary` | A registered customer's secondary override matches the primary phone. |
 | 400 | `device_id_required` | An unverified submission omitted `X-Device-Id`. |
 | 409 | `unsupported_form_version` | The mobile form version does not match the active registry version. |
@@ -334,7 +382,9 @@ The account-creation contract was extended to ensure that an authenticated water
 
 The account-creation response and `POST /api/app/account-requests/mine` expose these values. Historical account requests may return `null` for fields that did not exist when those records were created.
 
-`GET /api/app/me` exposes the active client profile in the following shape:
+`GET /api/app/me` exposes the active client profile in the following shape.
+`POST /api/app/account-requests/mine` uses the same canonical address shape for
+the recovered immutable request snapshot:
 
 ```json
 {
@@ -344,7 +394,19 @@ The account-creation response and `POST /api/app/account-requests/mine` expose t
   "primaryMobile": "0911111111",
   "primaryMobileHasWhatsapp": true,
   "secondaryMobile": "0922222222",
-  "secondaryMobileHasWhatsapp": false
+  "secondaryMobileHasWhatsapp": false,
+  "address": {
+    "governorateId": 1,
+    "cityOrAreaId": 12,
+    "subAreaId": 123,
+    "neighborhoodId": 1234,
+    "governorate": "Damascus",
+    "cityOrArea": "Damascus",
+    "subArea": "Al-Mazzeh",
+    "neighborhood": "Al-Mazzeh 86",
+    "detailedAddress": "Building 12, second floor",
+    "mapLocation": { "lat": 33.5138, "lng": 36.2765 }
+  }
 }
 ```
 
@@ -355,18 +417,26 @@ For a registered customer, the mobile water-check form must:
 - Display the secondary mobile and its WhatsApp status as editable request-level values.
 - Avoid interpreting an editable secondary phone as permission to update the customer's CRM profile.
 
-Populate the four selector levels from `GET /api/app/me.addressIds`, not from
-the display-name object `address`:
+Populate the four selector levels from the IDs inside `GET /api/app/me.address`,
+not from the display names:
 
 ```ts
-const ids = profile.addressIds;
+const address = profile.address;
 const requestAddress = {
-  governorate: ids.governorate,
-  cityOrArea: ids.cityOrArea,
-  subArea: ids.subArea,
-  neighborhood: ids.neighborhood,
+  governorate: address.governorateId,
+  cityOrArea: address.cityOrAreaId,
+  subArea: address.subAreaId,
+  neighborhood: address.neighborhoodId,
+  detailedAddress: address.detailedAddress,
+  mapLocation: address.mapLocation,
 };
 ```
+
+`addressIds` and `geoUnitId` remain temporary compatibility aliases in `me`;
+the top-level `location` remains a temporary compatibility alias in `mine`.
+New implementations must use the nested `address` object. `fatherName`,
+`secondaryMobile`, and `secondaryMobileHasWhatsapp` are explicitly nullable
+when the source record does not contain them.
 
 Submit every non-null level selected by SmartGeo. The server validates the
 complete parent chain and persists all four resolved labels and identifiers.
@@ -390,13 +460,17 @@ The following CRM behavior is relevant to mobile developers because it defines t
 ## 10. Mobile Implementation Checklist
 
 - [ ] Load the active service registry before displaying the water-check entry point.
-- [ ] Submit `formVersion: "water_check.mobile.v3"`.
+- [ ] Submit `formVersion: "water_check.mobile.v4"`.
 - [ ] Never display `separate_person` as an option for a registered customer.
 - [ ] Never submit registered customer's immutable fields, even if they exist in local form state.
 - [ ] Do not infer that a request for another person has a referrer.
-- [ ] Remove all `referrer*` fields when `referrerMode` is `none` or `requester`.
+- [ ] Remove all `referrer*` fields when `referrerMode` is `none`.
+- [ ] With `referrerMode: "requester"`, send referrer address fields but no referrer identity fields.
+- [ ] Whenever a referrer exists, send governorate, city/area, and sub-area for that referrer.
 - [ ] Remove independent `requester*` fields when switching back to `for_self`.
-- [ ] Submit explicit Boolean WhatsApp values; do not use field absence to represent `false`.
+- [ ] Submit an explicit Boolean for every primary phone. The secondary-phone
+      WhatsApp Boolean is optional; omission means `false` when a secondary
+      phone is submitted.
 - [ ] Persist `X-Device-Id` across application restarts.
 - [ ] Do not silently downgrade an invalid authenticated request to an unverified request.
 - [ ] Do not immediately retry after HTTP `429`.

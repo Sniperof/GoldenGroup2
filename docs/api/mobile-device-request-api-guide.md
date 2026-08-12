@@ -4,7 +4,7 @@ This guide is the mobile contract for creating a commercial device request throu
 
 ## Endpoints
 
-- `GET /api/app/service-requests/types` — confirm that `device_request` is enabled with form version `device_request.mobile.v1`.
+- `GET /api/app/service-requests/types` — confirm that `device_request` is enabled with form version `device_request.mobile.v2`.
 - `GET /api/app/catalog/device-request-purposes` — active, admin-managed purposes.
 - `GET /api/app/catalog/devices?fields=names&page=1&limit=12` — lightweight paginated device identities (`id`, `nameAr`, `nameEn`) for the request selector. Load further pages while `page * limit < total`, and reset to page 1 when search or catalog filters change.
 - `POST /api/app/service-requests` — submit the request.
@@ -43,7 +43,7 @@ Content-Type: application/json
 ```json
 {
   "requestType": "device_request",
-  "formVersion": "device_request.mobile.v1",
+  "formVersion": "device_request.mobile.v2",
   "submissionMode": "for_self",
   "purposeId": 501,
   "deviceModelIds": [12, 18],
@@ -58,7 +58,7 @@ The API derives requester, beneficiary, client link, and request branch from the
 ```json
 {
   "requestType": "device_request",
-  "formVersion": "device_request.mobile.v1",
+  "formVersion": "device_request.mobile.v2",
   "submissionMode": "for_self",
   "firstName": "Visitor",
   "lastName": "Customer",
@@ -77,7 +77,7 @@ The API derives requester, beneficiary, client link, and request branch from the
 ```json
 {
   "requestType": "device_request",
-  "formVersion": "device_request.mobile.v1",
+  "formVersion": "device_request.mobile.v2",
   "submissionMode": "for_another",
   "referrerMode": "none",
   "firstName": "Beneficiary",
@@ -92,7 +92,19 @@ The API derives requester, beneficiary, client link, and request branch from the
 
 For a registered requester, requester identity is derived from the account. For a visitor, requester name may be omitted when `referrerMode` is `none`; the verified visitor phone or stable device identity remains the submission identity. The unprefixed person fields always describe the beneficiary.
 
-Use `referrerMode: "requester"` when the requester is also the mediator, or `referrerMode: "separate_person"` with the shared `referrerFirstName`, `referrerLastName`, `referrerPhone`, and WhatsApp fields for an independent referrer. Registered customers cannot submit a separate referrer in v1.
+Use `referrerMode: "requester"` when the requester is also the mediator, or `referrerMode: "separate_person"` with the shared `referrerFirstName`, `referrerLastName`, `referrerPhone`, and WhatsApp fields for an independent referrer. Registered customers cannot submit a separate referrer in this version.
+
+For the beneficiary, `fatherName`, `secondaryPhone`, and
+`secondaryPhoneHasWhatsapp` are optional. For an independent mediator,
+`referrerFatherName`, `referrerSecondaryPhone`, and
+`referrerSecondaryPhoneHasWhatsapp` are optional. Omitting the secondary
+WhatsApp flag while supplying the number is accepted and stores `false`.
+
+For either mediator mode (`requester` or `separate_person`), also submit the
+mediator's address: `referrerGovernorate`, `referrerCityOrArea`, and
+`referrerSubArea` are required SmartGeo IDs; `referrerNeighborhood`,
+`referrerDetailedAddress`, and `referrerMapLocation: { lat, lng }` are optional.
+The mediator address is distinct from the optional request-context address.
 
 ## Optional address
 

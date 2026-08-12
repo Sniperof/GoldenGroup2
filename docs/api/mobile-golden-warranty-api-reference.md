@@ -97,6 +97,12 @@ This flow is available to customers, OTP visitors, and unverified devices. The r
 
 For an authenticated requester, requester identity comes from the account; only requester secondary-contact override fields may be sent. For an OTP visitor, `requesterPhone` must match the verified phone when it is supplied.
 
+The beneficiary fields `fatherName`, `secondaryPhone`, and
+`secondaryPhoneHasWhatsapp` are optional. If the secondary number is sent
+without its WhatsApp flag, the flag defaults to `false`. Golden-warranty
+mediator fields remain outside this version's contract pending a separate
+product decision.
+
 ## Visitor self submission
 
 A visitor or unverified device cannot claim ownership of a registered installed-device record. Send beneficiary identity, `deviceModelId`, and an optional serial number instead:

@@ -137,9 +137,10 @@ router.get('/session', requireAppAuth, async (req, res) => {
  *       (name, mobiles, address, classification, account status). Internal CRM
  *       fields are never exposed.
  *
- *       The address is returned twice: `address` as display names and
- *       `addressIds` as geo_units ids for the same four levels, so a cascading
- *       picker can preselect itself. The client record stores only three geo
+ *       `address` is the canonical mobile-ready shape containing display names,
+ *       geo_units ids, detailed address, and map location. Legacy `addressIds`
+ *       and `geoUnitId` aliases remain during the compatibility period. The
+ *       client record stores only three geo
  *       columns and may leave gaps in them; both shapes are reconstructed by
  *       walking `geo_units.parent_id` up from the deepest stored unit, so the
  *       chain is always contiguous and always accepted by the request form.
@@ -166,19 +167,29 @@ router.get('/session', requireAppAuth, async (req, res) => {
  *                 classification: { type: string, enum: [OP, FOP, Lead], description: "OP/FOP are promotions; everything else defaults to Lead. Never null." }
  *                 address:
  *                   type: object
- *                   description: Display names.
+ *                   description: Canonical mobile-ready address containing IDs and display values.
  *                   properties:
+ *                     governorateId: { type: integer, nullable: true }
+ *                     cityOrAreaId: { type: integer, nullable: true }
+ *                     subAreaId: { type: integer, nullable: true }
+ *                     neighborhoodId: { type: integer, nullable: true }
  *                     governorate: { type: string, nullable: true }
  *                     cityOrArea: { type: string, nullable: true }
  *                     subArea: { type: string, nullable: true }
  *                     neighborhood: { type: string, nullable: true }
  *                     detailedAddress: { type: string, nullable: true }
+ *                     mapLocation:
+ *                       type: object
+ *                       nullable: true
+ *                       properties:
+ *                         lat: { type: number }
+ *                         lng: { type: number }
  *                 addressIds:
  *                   type: object
+ *                   deprecated: true
  *                   description: >
- *                     The same levels as geo_units ids — pass these to the
- *                     request form as governorate / cityOrArea / subArea /
- *                     neighborhood. The older *Id aliases remain accepted.
+ *                     Legacy compatibility alias. New clients must read the
+ *                     geo_units ids from address.
  *                   properties:
  *                     governorate: { type: integer, nullable: true }
  *                     cityOrArea: { type: integer, nullable: true }

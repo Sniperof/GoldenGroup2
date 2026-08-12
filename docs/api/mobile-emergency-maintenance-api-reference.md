@@ -78,7 +78,7 @@ Content-Type: application/json
 ```json
 {
   "requestType": "emergency_maintenance",
-  "formVersion": "emergency_maintenance.mobile.v1",
+  "formVersion": "emergency_maintenance.mobile.v2",
   "submissionMode": "for_self",
   "deviceSelectionType": "registered_device",
   "installedDeviceId": 481,
@@ -97,14 +97,30 @@ Content-Type: application/json
 
 Customer identity is derived from the account. Do not send editable first name, last name, or primary phone for `for_self`.
 
+Across visitor and `for_another` party payloads, `fatherName`, `secondaryPhone`,
+and `secondaryPhoneHasWhatsapp` are optional beneficiary fields. For an
+independent mediator, the optional equivalents are `referrerFatherName`,
+`referrerSecondaryPhone`, and `referrerSecondaryPhoneHasWhatsapp`. Omitting a
+secondary WhatsApp flag defaults it to `false`; the primary-phone WhatsApp flag
+remains required.
+
+Whenever `referrerMode` is `requester` or `separate_person`, the mediator also
+has a separate address payload. `referrerGovernorate`, `referrerCityOrArea`, and
+`referrerSubArea` are required SmartGeo IDs. `referrerNeighborhood`,
+`referrerDetailedAddress`, and `referrerMapLocation: { lat, lng }` are optional.
+These address fields are required even when the requester is the mediator.
+
 ## Request for another person
 
 ```json
 {
   "requestType": "emergency_maintenance",
-  "formVersion": "emergency_maintenance.mobile.v1",
+  "formVersion": "emergency_maintenance.mobile.v2",
   "submissionMode": "for_another",
   "referrerMode": "requester",
+  "referrerGovernorate": 1,
+  "referrerCityOrArea": 12,
+  "referrerSubArea": 123,
   "firstName": "Samer",
   "lastName": "Haddad",
   "phoneNumber": "0933333333",
@@ -127,7 +143,7 @@ An unauthenticated `for_another` request requires `requesterPhone` and its Whats
 ```json
 {
   "requestType": "emergency_maintenance",
-  "formVersion": "emergency_maintenance.mobile.v1",
+  "formVersion": "emergency_maintenance.mobile.v2",
   "submissionMode": "for_self",
   "handle": "<otp-handle>",
   "firstName": "Lina",

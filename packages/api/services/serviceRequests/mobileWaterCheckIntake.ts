@@ -48,9 +48,19 @@ export const REQUESTER_BODY_KEYS = [
  *   - a logged-in customer's name comes from their client record,
  *   - `for_self` has no referrer at all, so the field would be meaningless.
  */
-export const REFERRER_BODY_KEYS = [
+export const REFERRER_IDENTITY_BODY_KEYS = [
   'referrerFirstName', 'referrerFatherName', 'referrerLastName', 'referrerPhone',
   'referrerPhoneHasWhatsapp', 'referrerSecondaryPhone', 'referrerSecondaryPhoneHasWhatsapp',
+] as const;
+
+export const REFERRER_ADDRESS_BODY_KEYS = [
+  'referrerGovernorate', 'referrerCityOrArea', 'referrerSubArea',
+  'referrerNeighborhood', 'referrerDetailedAddress', 'referrerMapLocation',
+] as const;
+
+export const REFERRER_BODY_KEYS = [
+  ...REFERRER_IDENTITY_BODY_KEYS,
+  ...REFERRER_ADDRESS_BODY_KEYS,
 ] as const;
 
 export type WaterCheckReferrerMode = 'none' | 'requester' | 'separate_person';
@@ -171,12 +181,6 @@ export function buildSubmittedPerson(input: {
   if (secondaryPhone === primaryPhone) {
     throw httpError(400, `duplicate_${input.role}_phone`);
   }
-  if (secondaryPhone && !hasProvidedValue(input.body, fields.secondaryWhatsapp)) {
-    throw httpError(400, 'missing_person_fields', {
-      role: input.role,
-      fields: [fields.secondaryWhatsapp],
-    });
-  }
   if (!secondaryPhone && bool(input.body, fields.secondaryWhatsapp)) {
     throw httpError(400, `secondary_whatsapp_without_${input.role}_phone`);
   }
@@ -233,9 +237,6 @@ export function withSecondaryContactOverride(input: {
   if (secondaryPhone === input.person.primaryPhone) {
     throw httpError(400, 'secondary_phone_matches_primary');
   }
-  if (secondaryPhone && phoneSupplied && !whatsappSupplied) {
-    throw httpError(400, 'secondary_phone_whatsapp_required', { field: input.whatsappField });
-  }
   if (!secondaryPhone && bool(input.body, input.whatsappField)) {
     throw httpError(400, 'secondary_whatsapp_without_phone');
   }
@@ -243,7 +244,9 @@ export function withSecondaryContactOverride(input: {
     ...input.person,
     secondaryPhone,
     secondaryPhoneHasWhatsapp: secondaryPhone
-      ? (whatsappSupplied ? bool(input.body, input.whatsappField) : input.person.secondaryPhoneHasWhatsapp)
+      ? (whatsappSupplied
+        ? bool(input.body, input.whatsappField)
+        : phoneSupplied ? false : input.person.secondaryPhoneHasWhatsapp)
       : false,
   };
 }
@@ -256,6 +259,28 @@ export function mapLocation(source: Record<string, unknown>): { lat: number; lng
   const lng = typeof value.lng === 'number' ? value.lng : Number(value.lng);
   if (!Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) return null;
   return { lat, lng };
+}
+
+export async function resolveMobileReferrerAddress(
+  body: Record<string, unknown>,
+  db: PoolClient,
+): Promise<Record<string, unknown>> {
+  const governorate = positiveInt(body, 'referrerGovernorate');
+  const cityOrArea = positiveInt(body, 'referrerCityOrArea');
+  const subArea = positiveInt(body, 'referrerSubArea');
+  const neighborhood = positiveInt(body, 'referrerNeighborhood');
+  const missing = [
+    !governorate && 'referrerGovernorate',
+    !cityOrArea && 'referrerCityOrArea',
+    !subArea && 'referrerSubArea',
+  ].filter(Boolean) as string[];
+  if (missing.length) throw httpError(400, 'missing_referrer_address_fields', { fields: missing });
+
+  const resolved = await resolveAndValidateAddress({ governorate, cityOrArea, subArea, neighborhood }, db);
+  const detailedAddress = text(body, 'referrerDetailedAddress');
+  const location = mapLocation({ mapLocation: body.referrerMapLocation });
+  const address = buildMobileServiceAddress({ resolved, detailedAddress, location });
+  return { ...address, addressRole: 'referrer' };
 }
 
 export function sanitizeMobileSubmittedPayload(body: Record<string, unknown>): Record<string, unknown> {
@@ -279,6 +304,7 @@ export function resolveMobileRequesterParties(input: {
   requesterPerson: PersonSnapshot;
   beneficiaryExternal: Record<string, unknown>;
   referrerPerson?: PersonSnapshot | null;
+  referrerAddress?: Record<string, unknown> | null;
 }) {
   if (!input.appAccount && !input.verifiedVisitorPhone && !input.unverifiedDevice) {
     throw new Error('requester_identity_required');
@@ -294,6 +320,9 @@ export function resolveMobileRequesterParties(input: {
     : input.referrerPerson;
   if (input.referrerMode !== 'none' && !resolvedReferrerPerson) {
     throw new Error('referrer_person_required');
+  }
+  if (input.referrerMode !== 'none' && !input.referrerAddress) {
+    throw new Error('referrer_address_required');
   }
   // Three shapes, one field that tells them apart forever: `identity_source`.
   // A reviewer reading a stored row must be able to say what was proven at
@@ -353,6 +382,7 @@ export function resolveMobileRequesterParties(input: {
         name_source: resolvedReferrerPerson!.source,
         referrer_mode: input.referrerMode,
         same_as_requester: input.referrerMode === 'requester',
+        ...(input.referrerAddress ?? {}),
       };
   return {
     requesterAppAccountId: input.appAccount?.appAccountId ?? null,
@@ -473,6 +503,7 @@ export async function submitMobileWaterCheck(
 
   let referrerPerson: PersonSnapshot | null = null;
   const submittedReferrerFields = suppliedKeys(body, REFERRER_BODY_KEYS);
+  const submittedReferrerIdentityFields = suppliedKeys(body, REFERRER_IDENTITY_BODY_KEYS);
   if (referrerMode === 'none') {
     if (submittedReferrerFields.length) {
       throw httpError(400, 'referrer_fields_not_accepted', {
@@ -481,9 +512,9 @@ export async function submitMobileWaterCheck(
       });
     }
   } else if (referrerMode === 'requester') {
-    if (submittedReferrerFields.length) {
+    if (submittedReferrerIdentityFields.length) {
       throw httpError(400, 'referrer_fields_not_accepted', {
-        fields: submittedReferrerFields,
+        fields: submittedReferrerIdentityFields,
         reason: 'referrer_is_requester',
       });
     }
@@ -491,6 +522,9 @@ export async function submitMobileWaterCheck(
   } else {
     referrerPerson = buildSubmittedPerson({ body, role: 'referrer' });
   }
+  const referrerAddress = referrerMode === 'none'
+    ? null
+    : await resolveMobileReferrerAddress(body, db);
 
   const missing = [!governorateId && 'governorateId', !detailedAddress && 'detailedAddress'].filter(Boolean);
   if (missing.length) throw httpError(400, 'missing_required_fields', { fields: missing });
@@ -592,6 +626,7 @@ export async function submitMobileWaterCheck(
     requesterPerson,
     beneficiaryExternal,
     referrerPerson,
+    referrerAddress,
   });
 
   const requesterAuth = appAccount ? 'app_account' : verifiedVisitorPhone ? 'visitor_otp' : 'device';

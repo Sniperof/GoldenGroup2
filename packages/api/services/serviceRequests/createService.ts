@@ -146,6 +146,7 @@ function validateMandatory(
     && !input.installedDeviceId
     && input.requestType !== 'device_request'
     && input.requestType !== 'name_nomination'
+    && input.requestType !== 'agent_license'
   ) {
     return {
       ok: false,

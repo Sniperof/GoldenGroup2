@@ -5,7 +5,7 @@ import {
   validateEmergencyMaintenanceForm,
 } from './emergencyMaintenanceFormSchema.js';
 
-test('emergency maintenance v1 accepts all four administrative address levels', () => {
+test('emergency maintenance v2 accepts all four administrative address levels', () => {
   const result = validateEmergencyMaintenanceForm({
     requestType: 'emergency_maintenance',
     formVersion: EMERGENCY_MAINTENANCE_FORM_VERSION,
@@ -23,7 +23,7 @@ test('emergency maintenance v1 accepts all four administrative address levels', 
   assert.deepEqual(result, { ok: true, issues: [], unknownFields: [] });
 });
 
-test('emergency maintenance v1 remains strict and rejects undeclared fields', () => {
+test('emergency maintenance v2 remains strict and rejects undeclared fields', () => {
   const result = validateEmergencyMaintenanceForm({
     requestType: 'emergency_maintenance',
     formVersion: EMERGENCY_MAINTENANCE_FORM_VERSION,

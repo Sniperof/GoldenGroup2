@@ -226,6 +226,11 @@ router.post(
 );
 
 /**
+ * Agent-license mobile contract: see docs/api/mobile-agent-license-api-reference.md.
+ * The generic gateway below rejects undeclared fields and derives self_only.
+ */
+
+/**
  * Mobile intake gateway. A valid app bearer token identifies a registered
  * customer. With no token, enabled request types accept either the migration-period OTP
  * visitor handle or an unverified stable X-Device-Id. Invalid bearer tokens
@@ -251,21 +256,45 @@ router.post(
  *             required: [requestType, formVersion, submissionMode]
  *             properties:
  *               requestType: { type: string, example: emergency_maintenance }
- *               formVersion: { type: string, example: emergency_maintenance.mobile.v1 }
+ *               formVersion: { type: string, example: emergency_maintenance.mobile.v2 }
  *               submissionMode: { type: string, enum: [for_self, for_another] }
  *               referrerMode:
  *                 type: string
  *                 enum: [none, requester, separate_person]
  *                 description: Required only for for_another. Registered customers may use none or requester.
  *               handle: { type: string, format: uuid, description: Visitor only }
+ *               firstName: { type: string, description: Beneficiary first name }
+ *               fatherName: { type: string, nullable: true, description: Optional beneficiary father name }
+ *               lastName: { type: string, description: Beneficiary last name }
+ *               phoneNumber: { type: string, description: Beneficiary primary phone }
+ *               primaryPhoneHasWhatsapp: { type: boolean }
+ *               secondaryPhone: { type: string, nullable: true, description: Optional beneficiary secondary phone }
+ *               secondaryPhoneHasWhatsapp: { type: boolean, description: Optional; defaults to false when secondaryPhone is supplied }
  *               requesterFirstName: { type: string, description: External for_another requester; optional with referrerMode none }
+ *               requesterFatherName: { type: string, nullable: true }
  *               requesterPhone: { type: string }
  *               requesterPhoneHasWhatsapp: { type: boolean }
+ *               requesterSecondaryPhone: { type: string, nullable: true }
+ *               requesterSecondaryPhoneHasWhatsapp: { type: boolean, description: Optional; defaults to false when requesterSecondaryPhone is supplied }
  *               referrerFirstName: { type: string, description: Required with separate_person }
  *               referrerLastName: { type: string }
  *               referrerFatherName: { type: string, nullable: true }
  *               referrerPhone: { type: string }
  *               referrerPhoneHasWhatsapp: { type: boolean }
+ *               referrerSecondaryPhone: { type: string, nullable: true }
+ *               referrerSecondaryPhoneHasWhatsapp: { type: boolean, description: Optional; defaults to false when referrerSecondaryPhone is supplied }
+ *               referrerGovernorate: { type: integer, description: Required SmartGeo level 1 whenever a referrer exists }
+ *               referrerCityOrArea: { type: integer, description: Required SmartGeo level 2 whenever a referrer exists }
+ *               referrerSubArea: { type: integer, description: Required SmartGeo level 3 whenever a referrer exists }
+ *               referrerNeighborhood: { type: integer, nullable: true, description: Optional SmartGeo level 4 for the referrer }
+ *               referrerDetailedAddress: { type: string, nullable: true, description: Optional detailed referrer address }
+ *               referrerMapLocation:
+ *                 type: object
+ *                 nullable: true
+ *                 description: Optional referrer coordinates
+ *                 properties:
+ *                   lat: { type: number }
+ *                   lng: { type: number }
  *               governorate: { type: integer, description: SmartGeo level 1; governorateId is also accepted }
  *               cityOrArea: { type: integer, nullable: true, description: SmartGeo level 2; regionId is also accepted }
  *               subArea: { type: integer, nullable: true, description: SmartGeo level 3; subdistrictId is also accepted }
@@ -294,7 +323,8 @@ router.post('/', optionalAppAuth, async (req, res) => {
         || requestType === 'device_request'
         || requestType === 'periodic_maintenance'
         || requestType === 'golden_warranty'
-        || requestType === 'name_nomination')
+        || requestType === 'name_nomination'
+        || requestType === 'agent_license')
       && !req.get('Idempotency-Key')
     ) {
       return res.status(400).json({ error: 'idempotency_key_required' });

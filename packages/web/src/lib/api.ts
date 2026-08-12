@@ -1775,6 +1775,10 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(data),
       }),
+    approveAgentLicense: (id: number, note?: string | null) =>
+      request<any>(`/service-requests/${id}/approve-agent-license`, {
+        method: 'POST', body: JSON.stringify({ note: note ?? null }),
+      }),
     handoffGoldenWarranty: (id: number, body: any = {}) =>
       request<any>(`/service-requests/${id}/handoff-golden-warranty`, {
         method: 'POST',

@@ -12,6 +12,8 @@ import { submitMobileGoldenWarranty } from './mobileGoldenWarrantyIntake.js';
 import { GOLDEN_WARRANTY_FORM_VERSION } from './goldenWarrantyFormSchema.js';
 import { submitMobileNameNomination } from './mobileNameNominationIntake.js';
 import { NAME_NOMINATION_FORM_VERSION } from './nameNominationFormSchema.js';
+import { submitMobileAgentLicense } from './mobileAgentLicenseIntake.js';
+import { AGENT_LICENSE_FORM_VERSION } from './agentLicenseFormSchema.js';
 import type { ServiceRequestTypeDefinition } from './serviceRequestTypeRegistry.js';
 
 export interface MobileIntakeHandler {
@@ -67,6 +69,12 @@ const handlers: Record<string, MobileIntakeHandler> = {
     allowsUnverifiedIntake: true,
     submit: submitMobileNameNomination,
   },
+  agent_license: {
+    requestType: 'agent_license',
+    formVersion: AGENT_LICENSE_FORM_VERSION,
+    allowsUnverifiedIntake: true,
+    submit: submitMobileAgentLicense,
+  },
 };
 
 export function getMobileIntakeHandler(requestType: string): MobileIntakeHandler | null {
@@ -78,7 +86,7 @@ export function listMobileIntakeHandlerCodes(): string[] {
 }
 
 export type MobileIntakeAvailability =
-  | { ok: true; handler: MobileIntakeHandler; submissionMode: 'for_self' | 'for_another' | 'nomination' }
+  | { ok: true; handler: MobileIntakeHandler; submissionMode: 'for_self' | 'for_another' | 'nomination' | 'self_only' }
   | { ok: false; status: number; code: string; details?: Record<string, unknown> };
 
 export function evaluateMobileIntakeAvailability(input: {
@@ -107,6 +115,7 @@ export function evaluateMobileIntakeAvailability(input: {
   }
   const submissionMode = input.requestType === 'name_nomination'
     ? 'nomination'
+    : input.requestType === 'agent_license' ? 'self_only'
     : input.submittedMode === 'for_another' ? 'for_another' : 'for_self';
   if (!definition.submissionModes.includes(submissionMode)) {
     return { ok: false, status: 400, code: 'unsupported_submission_mode' };

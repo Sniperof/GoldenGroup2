@@ -18,5 +18,5 @@ test('client request history reports every matching party role and gates the tab
   assert.match(clientsRoute, /sr\.requester_client_id = \$1 THEN 'requester'/);
   assert.match(clientsRoute, /sr\.beneficiary_client_id = \$1 THEN 'beneficiary'/);
   assert.match(clientsRoute, /sr\.referrer_client_id = \$1 THEN 'referrer'/);
-  assert.match(clientProfile, /hasAnyPermission\('service_requests\.view', 'water_check\.view', 'account_requests\.view'\)/);
+  assert.match(clientProfile, /hasAnyPermission\([\s\S]*'service_requests\.view',[\s\S]*'water_check\.view',[\s\S]*'periodic_maintenance\.view',[\s\S]*'golden_warranty\.view',[\s\S]*'account_requests\.view',[\s\S]*\)/);
 });

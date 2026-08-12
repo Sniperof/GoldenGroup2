@@ -1,7 +1,7 @@
 import type { FormValidationIssue, FormValidationResult } from './waterCheckFormSchema.js';
 export { assertPayloadWithinLimit } from './waterCheckFormSchema.js';
 
-export const PERIODIC_MAINTENANCE_FORM_VERSION = 'periodic_maintenance.mobile.v1';
+export const PERIODIC_MAINTENANCE_FORM_VERSION = 'periodic_maintenance.mobile.v2';
 
 const ENVELOPE_KEYS = new Set(['requestType', 'formVersion', 'handle']);
 const STRING_LIMITS: Record<string, number> = {
@@ -20,6 +20,7 @@ const STRING_LIMITS: Record<string, number> = {
   referrerLastName: 60,
   referrerPhone: 20,
   referrerSecondaryPhone: 20,
+  referrerDetailedAddress: 500,
   phoneNumber: 20,
   primaryPhone: 20,
   phone: 20,
@@ -40,8 +41,9 @@ const NUMBER_KEYS = new Set([
   'reasonId', 'governorateId', 'governorate', 'regionId', 'region', 'cityOrArea',
   'subdistrictId', 'subdistrict', 'subArea', 'neighborhoodId', 'neighborhood',
   'installedDeviceId', 'deviceModelId',
+  'referrerGovernorate', 'referrerCityOrArea', 'referrerSubArea', 'referrerNeighborhood',
 ]);
-const LOCATION_KEYS = new Set(['mapLocation', 'map_location', 'location']);
+const LOCATION_KEYS = new Set(['mapLocation', 'map_location', 'location', 'referrerMapLocation']);
 
 function issueFor(key: string, value: unknown): FormValidationIssue | null {
   if (value == null) return null;

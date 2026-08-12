@@ -11,6 +11,7 @@ const CLIENT_LINK_PERMISSION_BY_REQUEST_TYPE: Record<string, string> = {
   device_request: 'service_requests.review',
   periodic_maintenance: 'periodic_maintenance.review',
   golden_warranty: 'golden_warranty.review',
+  agent_license: 'agent_license.review',
 };
 
 function serviceError(status: number, code: string, message?: string) {

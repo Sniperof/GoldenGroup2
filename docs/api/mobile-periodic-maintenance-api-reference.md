@@ -1,6 +1,6 @@
 # Mobile Periodic Maintenance API
 
-This is the implementation contract for `periodic_maintenance.mobile.v1`.
+This is the implementation contract for `periodic_maintenance.mobile.v2`.
 The request is an intake record for human review. It never changes the due date
 of an existing periodic task.
 
@@ -42,7 +42,7 @@ Common required fields:
 | Field | Rule |
 |---|---|
 | `requestType` | exactly `periodic_maintenance` |
-| `formVersion` | exactly `periodic_maintenance.mobile.v1` |
+| `formVersion` | exactly `periodic_maintenance.mobile.v2` |
 | `submissionMode` | `for_self` or `for_another` |
 | `reasonId` | one active ID returned by the options endpoint |
 | `deviceSelectionType` | exactly one of `registered_device`, `catalog_model`, `other` |
@@ -53,6 +53,19 @@ Optional address fields are `cityOrArea`/`regionId`, `subArea`/`subdistrictId`,
 `neighborhood`/`neighborhoodId`, and `mapLocation: { "lat", "lng" }`.
 Party fields and `referrerMode` follow the shared mobile service-request party
 contract.
+
+For the beneficiary, `fatherName`, `secondaryPhone`, and
+`secondaryPhoneHasWhatsapp` are always optional. For an independent mediator,
+`referrerFatherName`, `referrerSecondaryPhone`, and
+`referrerSecondaryPhoneHasWhatsapp` are also optional. A supplied secondary
+phone without its WhatsApp flag is accepted and defaults the flag to `false`.
+
+Whenever `referrerMode` is `requester` or `separate_person`, submit the
+mediator's address independently from the service address. Required SmartGeo
+IDs are `referrerGovernorate`, `referrerCityOrArea`, and `referrerSubArea`.
+Optional fields are `referrerNeighborhood`, `referrerDetailedAddress`, and
+`referrerMapLocation: { lat, lng }`. No referrer address fields are accepted
+with `referrerMode: "none"`.
 
 Device fields:
 
@@ -70,7 +83,7 @@ Registered-device example:
 ```json
 {
   "requestType": "periodic_maintenance",
-  "formVersion": "periodic_maintenance.mobile.v1",
+  "formVersion": "periodic_maintenance.mobile.v2",
   "submissionMode": "for_self",
   "reasonId": 12,
   "deviceSelectionType": "registered_device",
@@ -86,7 +99,7 @@ Visitor catalog-device example:
 ```json
 {
   "requestType": "periodic_maintenance",
-  "formVersion": "periodic_maintenance.mobile.v1",
+  "formVersion": "periodic_maintenance.mobile.v2",
   "handle": "00000000-0000-4000-8000-000000000001",
   "submissionMode": "for_self",
   "firstName": "Ali",

@@ -278,9 +278,9 @@
 | `primaryMobileHasWhatsapp` | `boolean \| null` | حالة واتساب للرقم الرئيسي؛ `null` لطلب تاريخي لم يخزّنها. |
 | `secondaryMobile` | `string \| null` | الرقم الثانوي. |
 | `secondaryMobileHasWhatsapp` | `boolean \| null` | حالة واتساب للرقم الثانوي؛ `false` عند عدمه في الطلب الجديد، و`null` لطلب تاريخي لم يخزّنها. |
-| `address` | `object` | `{ governorate, cityOrArea, subArea, neighborhood, detailedAddress }` — **أسماءً** من لقطة الطلب. |
+| `address` | `object` | الكائن الموحّد: المعرّفات والأسماء والعنوان التفصيلي و`mapLocation` من لقطة الطلب. |
 | `notes` | `string \| null` | الملاحظات. |
-| `location` | `object \| null` | `{ lat, lng }` إن أُرسلت. |
+| `location` | `object \| null` | حقل توافق قديم؛ يطابق `address.mapLocation`. |
 
 **الأخطاء:** `400` (handle غير معروف / غير مُتحقَّق / منتهٍ / الرقم لا يطابق)، `404` مع `code = "no_pending_request"` (لا طلب معلّقاً ولا مرفوضاً غير مؤرشف)، `409` (handle مُستهلَك).
 
@@ -297,7 +297,12 @@
 - إذا وُجدت ترويسة Authorization غير صالحة أو منتهية أو لحساب موقوف يُرفض الطلب؛ لا يحدث سقوط صامت إلى مسار الزائر.
 - لا يُخزَّن `handle` ضمن `submitted_payload`. تُحفظ بيانات النموذج كلقطة، وتُحفظ هوية المرسل في روابط مستقلة.
 
-الحد الأدنى للجسم: `requestType`, `submissionMode`, `firstName`, `lastName`, `phoneNumber`, `governorateId`, `detailedAddress`، إضافةً إلى `handle` للزائر فقط. الاستجابة `201` تعيد `id`, `publicRefNumber`, `status`, `requesterAuth`, ونتيجة حل الفرع.
+الحد الأدنى للجسم يختلف حسب نوع الطلب وهوية المرسل ونمط التقديم؛ يحدده مرجع
+النوع ونسخة `formVersion`. في كل أنواع طلبات الخدمة التي تجمع بيانات مستفيد،
+تبقى `fatherName` و`secondaryPhone` و`secondaryPhoneHasWhatsapp` اختيارية.
+وفي الأنواع التي تدعم وسيطاً مستقلاً تبقى النظائر ذات السابقة `referrer`
+اختيارية أيضاً. غياب علم واتساب للرقم الثانوي يعني `false` ولا يؤدي إلى رفض
+الطلب. الاستجابة `201` تعيد المرجع العام والحالة وأعلام المراجعة المناسبة.
 
 الأخطاء المغلقة المهمة: `unknown_request_type`، `request_type_inactive`، `request_type_not_implemented`، `request_type_not_available_on_mobile`، `request_type_not_available_for_requester`، `unsupported_submission_mode`، `unsupported_form_version`، و`request_type_configuration_mismatch`.
 
@@ -390,19 +395,24 @@
 | `secondaryMobileHasWhatsapp` | `boolean` | حالة واتساب للرقم الثانوي المُعاد. |
 | `secondaryMobiles` | `string[]` | أرقام إضافية من `contacts` (مطبَّعة، بلا تكرار، وبلا الرقم الرئيسي). |
 | `classification` | `enum(OP, FOP, Lead)` | تصنيف السجل. `OP`/`FOP` حالتا ترقية؛ وكل ما عداهما `Lead` افتراضاً. **لا يكون `null` أبداً.** |
-| `address` | `object` | العنوان بالأسماء — للعرض (أدناه). |
-| `addressIds` | `object` | نفس المستويات بمعرّفات `geo_units` — للمنتقي (أدناه). |
-| `geoUnitId` | `integer \| null` | أعمق مستوى متوفّر. |
+| `address` | `object` | العنوان الموحّد: المعرّفات والأسماء والتفصيل واللوكيشن (أدناه). |
+| `addressIds` | `object` | حقل توافق قديم لمعرّفات `geo_units`؛ استخدم المعرّفات داخل `address` في البناء الجديد. |
+| `geoUnitId` | `integer \| null` | حقل توافق قديم: أعمق مستوى متوفّر. |
 
-**كائن `address` (أسماء للعرض):**
+**كائن `address` الموحّد:**
 
 | الحقل | النوع | الوصف |
 |---|---|---|
+| `governorateId` | `integer \| null` | معرّف المحافظة (مستوى 1). |
+| `cityOrAreaId` | `integer \| null` | معرّف المنطقة (مستوى 2). |
+| `subAreaId` | `integer \| null` | معرّف الناحية (مستوى 3). |
+| `neighborhoodId` | `integer \| null` | معرّف الحي (مستوى 4). |
 | `governorate` | `string \| null` | اسم المحافظة (مستوى 1). |
 | `cityOrArea` | `string \| null` | اسم المنطقة (مستوى 2). |
 | `subArea` | `string \| null` | اسم الناحية (مستوى 3). |
 | `neighborhood` | `string \| null` | اسم الحي (مستوى 4). |
 | `detailedAddress` | `string \| null` | العنوان التفصيلي النصّي. |
+| `mapLocation` | `{ lat, lng } \| null` | إحداثيات العنوان إن كانت مخزّنة وصالحة. |
 
 **كائن `addressIds` (معرّفات — أُضيف 2026-08-02):**
 
@@ -413,8 +423,8 @@
 | `subArea` | `integer \| null` | `subArea` (ويُقبل `subdistrictId`) |
 | `neighborhood` | `integer \| null` | `neighborhood` (ويُقبل `neighborhoodId`) |
 
-استعمل `addressIds` لضبط المنتقي التتالي مسبقاً، ثم مرّرها كما هي إلى
-`POST /api/app/service-requests` حسب جدول المقابلة أعلاه. **لا تطابق بالأسماء**:
+استعمل حقول `*Id` داخل `address` لضبط المنتقي التتالي مسبقاً، ثم مرّرها إلى
+`POST /api/app/service-requests`. يبقى `addressIds` لفترة توافق فقط. **لا تطابق بالأسماء**:
 الأسماء تتكرّر بين المحافظات، وإعادة تسمية وحدة تُبطل المطابقة صامتةً.
 
 السلسلة **مضمونة الاتّصال دائماً** (لا فجوة بين مستوى وما فوقه)، لأنها تُبنى

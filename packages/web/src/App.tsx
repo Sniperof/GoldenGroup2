@@ -71,6 +71,7 @@ import DeviceRequestsPage from './pages/service-requests/DeviceRequestsPage';
 import PeriodicMaintenanceRequestsPage from './pages/service-requests/PeriodicMaintenanceRequestsPage';
 import GoldenWarrantyRequestsPage from './pages/service-requests/GoldenWarrantyRequestsPage';
 import NameNominationRequestsPage from './pages/service-requests/NameNominationRequestsPage';
+import AgentLicenseRequestsPage from './pages/service-requests/AgentLicenseRequestsPage';
 import AccountRequestsListPage from './pages/account-requests/AccountRequestsListPage';
 import AccountRequestDetailPage from './pages/account-requests/AccountRequestDetailPage';
 
@@ -160,6 +161,7 @@ export default function App() {
                         <Route path="/service-requests/periodic-maintenance" element={<PeriodicMaintenanceRequestsPage />} />
                         <Route path="/service-requests/golden-warranty" element={<GoldenWarrantyRequestsPage />} />
                         <Route path="/service-requests/name-nomination" element={<NameNominationRequestsPage />} />
+                        <Route path="/service-requests/agent-license" element={<AgentLicenseRequestsPage />} />
                         <Route path="/service-requests/:id" element={<ServiceRequestDetailPage />} />
                         <Route path="/account-requests" element={<AccountRequestsListPage />} />
                         <Route path="/account-requests/:id" element={<AccountRequestDetailPage />} />

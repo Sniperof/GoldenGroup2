@@ -72,6 +72,7 @@ const operationsChildren = [
 
 // Requests — intake parent section (currently only maintenance; will grow).
 const requestsChildren = [
+    { path: '/service-requests/agent-license', label: 'طلبات ترخيص الوكلاء', icon: ClipboardCheck, permission: 'agent_license.view' },
     { path: '/service-requests/name-nomination', label: 'طلبات ترشيح الأسماء', icon: UserCheck, permission: 'name_nomination.view' },
     { path: '/service-requests/golden-warranty', label: 'طلبات الكفالة الذهبية', icon: ShieldCheck, permission: 'golden_warranty.view' },
     { path: '/account-requests',                label: 'طلبات إنشاء الحساب',     icon: UserPlus, permission: 'account_requests.view' },
@@ -520,7 +521,7 @@ export default function MainLayout() {
                     {/* 5b. Requests — parent section for all intake layers.
                         Visible with any request-family view key (contract §5). */}
                     {canSeeBranchModules
-                      && (can('service_requests.view') || can('water_check.view') || can('periodic_maintenance.view') || can('golden_warranty.view') || can('account_requests.view')) && (
+                      && (can('service_requests.view') || can('water_check.view') || can('periodic_maintenance.view') || can('golden_warranty.view') || can('name_nomination.view') || can('agent_license.view') || can('account_requests.view')) && (
                     <div className={isCollapsed ? 'lg:hidden' : 'block'}>
                         <button
                             onClick={() => setRequestsOpen((o: boolean) => !o)}

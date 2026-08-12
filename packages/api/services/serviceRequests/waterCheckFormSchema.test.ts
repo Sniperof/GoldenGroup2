@@ -78,7 +78,7 @@ test('submissionMode only accepts the declared vocabulary', () => {
   assert.equal(validateWaterCheckForm({ ...valid, submissionMode: 'for_another' }).ok, true);
 });
 
-test('v3 declares the independent requester and mediator vocabulary', () => {
+test('v4 declares the independent requester and mediator vocabulary', () => {
   assert.equal(validateWaterCheckForm({ ...valid, referrerMode: 'none' }).ok, true);
   assert.equal(validateWaterCheckForm({ ...valid, referrerMode: 'requester' }).ok, true);
   assert.equal(validateWaterCheckForm({ ...valid, referrerMode: 'separate_person' }).ok, true);
