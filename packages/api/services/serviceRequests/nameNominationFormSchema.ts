@@ -1,15 +1,15 @@
 import type { FormValidationIssue, FormValidationResult } from './waterCheckFormSchema.js';
 
-export const NAME_NOMINATION_FORM_VERSION = 'name_nomination.mobile.v1';
+export const NAME_NOMINATION_FORM_VERSION = 'name_nomination.mobile.v2';
 
 const ENVELOPE_KEYS = new Set([
   'requestType', 'formVersion', 'handle',
-  'requesterFirstName', 'requesterLastName', 'requesterPrimaryPhone',
-  'requesterPrimaryPhoneHasWhatsapp', 'requesterSecondaryPhone',
+  'requesterFirstName', 'requesterLastName', 'requesterPhone',
+  'requesterPhoneHasWhatsapp', 'requesterSecondaryPhone',
   'requesterSecondaryPhoneHasWhatsapp', 'names',
 ]);
 const ITEM_KEYS = new Set([
-  'firstName', 'lastName', 'governorate', 'region', 'subdistrict', 'neighborhood',
+  'firstName', 'lastName', 'governorate', 'cityOrArea', 'subArea', 'neighborhood',
   'occupation', 'primaryPhone', 'primaryPhoneHasWhatsapp',
   'secondaryPhone', 'secondaryPhoneHasWhatsapp',
 ]);
@@ -44,7 +44,7 @@ export function validateNameNominationForm(body: Record<string, unknown>): FormV
           && typeof item === 'string' && item.length > 100) issues.push({ field, rule: 'too_long', limit: 100 });
         if (['primaryPhone','secondaryPhone'].includes(key)
           && typeof item === 'string' && item.length > 30) issues.push({ field, rule: 'too_long', limit: 30 });
-        if (['governorate','region','subdistrict','neighborhood'].includes(key) && item != null) {
+        if (['governorate','cityOrArea','subArea','neighborhood'].includes(key) && item != null) {
           const n = Number(item);
           if (!Number.isInteger(n) || n <= 0 || n > 2_147_483_647) issues.push({ field, rule: 'out_of_range' });
         }

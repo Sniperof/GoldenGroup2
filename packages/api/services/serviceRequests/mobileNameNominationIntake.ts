@@ -18,7 +18,7 @@ function optionalBool(value: unknown): boolean | null { return typeof value === 
 
 async function requesterSnapshot(body: Record<string, unknown>, identity: MobileIntakeIdentity, db: PoolClient) {
   if (identity.kind === 'customer') {
-    const forbidden = ['requesterFirstName','requesterLastName','requesterPrimaryPhone','requesterPrimaryPhoneHasWhatsapp']
+    const forbidden = ['requesterFirstName','requesterLastName','requesterPhone','requesterPhoneHasWhatsapp']
       .filter((key) => body[key] != null);
     if (forbidden.length) throw httpError(400, 'requester_identity_fields_not_accepted', { fields: forbidden });
     const { rows } = await db.query<{ first_name: string | null; last_name: string | null }>(
@@ -40,7 +40,7 @@ async function requesterSnapshot(body: Record<string, unknown>, identity: Mobile
   const firstName = text(body.requesterFirstName);
   const lastName = text(body.requesterLastName) || null;
   if (!firstName) throw httpError(400, 'requester_first_name_required');
-  const submittedPrimary = normalizePhone(body.requesterPrimaryPhone);
+  const submittedPrimary = normalizePhone(body.requesterPhone);
   const primaryPhone = identity.kind === 'visitor' ? normalizePhone(identity.phone) : submittedPrimary;
   if (identity.kind === 'visitor' && submittedPrimary && submittedPrimary !== primaryPhone) {
     throw httpError(400, 'verified_phone_does_not_match_requester');
@@ -54,7 +54,7 @@ async function requesterSnapshot(body: Record<string, unknown>, identity: Mobile
   return {
     mediatorType: 'Personal', entityId: null, firstName, lastName,
     name: [firstName,lastName].filter(Boolean).join(' '), primaryPhone,
-    primaryPhoneHasWhatsapp: optionalBool(body.requesterPrimaryPhoneHasWhatsapp),
+    primaryPhoneHasWhatsapp: optionalBool(body.requesterPhoneHasWhatsapp),
     secondaryPhone, secondaryPhoneHasWhatsapp: secondaryPhone ? optionalBool(body.requesterSecondaryPhoneHasWhatsapp) : null,
     identitySource: identity.kind === 'visitor' ? 'visitor_otp' : 'unverified_device',
     ...(identity.kind === 'unverified' ? { deviceId: identity.deviceId, requesterIp: identity.ip } : {}),
@@ -86,8 +86,8 @@ export async function submitMobileNameNomination(body: Record<string, unknown>, 
     if (secondaryPhone && !isValidSyrianMobile(secondaryPhone)) throw httpError(400, 'invalid_nominee_secondary_phone', { index });
     if (!secondaryPhone && raw.secondaryPhoneHasWhatsapp != null) throw httpError(400, 'nominee_secondary_whatsapp_without_phone', { index });
     const resolved = await resolveAndValidateAddress({
-      governorate: raw.governorate as number, cityOrArea: raw.region as number | undefined,
-      subArea: raw.subdistrict as number | undefined, neighborhood: raw.neighborhood as number | undefined,
+      governorate: raw.governorate as number, cityOrArea: raw.cityOrArea as number | undefined,
+      subArea: raw.subArea as number | undefined, neighborhood: raw.neighborhood as number | undefined,
     }, db);
     const deepest = resolved.ids.neighborhood ?? resolved.ids.subArea ?? resolved.ids.cityOrArea ?? resolved.ids.governorate;
     const branch = await resolveBranchForServiceGeoUnit(deepest, db);
