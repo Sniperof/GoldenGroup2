@@ -22,7 +22,7 @@ import {
 } from '../../config/env.js';
 import type { OtpSender, OtpSendResult } from './otpSender.js';
 
-interface RaselResultBody {
+interface RaselMessageBody {
   success?: boolean;
   requestId?: string;
   status?: string;
@@ -33,15 +33,16 @@ interface RaselResult {
   to?: string;
   status?: number;
   ok?: boolean;
-  body?: RaselResultBody;
+  body?: RaselMessageBody;
 }
 
-interface RaselResponse {
-  status?: number;
+// The live API returns RaselMessageBody's fields directly at the top level
+// (confirmed 2026-08-13 via a direct curl against /api/v2/messages/send) — the
+// nested `{ok, results: [{ok, body}]}` wrapper from the vendor handoff doc was
+// never observed live. Both are accepted: RaselMessageBody covers the real
+// shape, `ok`/`results` stay optional for the documented-but-unconfirmed one.
+interface RaselResponse extends RaselMessageBody {
   ok?: boolean;
-  total?: number;
-  successCount?: number;
-  failCount?: number;
   results?: RaselResult[];
 }
 
@@ -110,29 +111,33 @@ export class RaselOtpSender implements OtpSender {
       throw providerError('sms_provider_failed', 'تعذّر إرسال رسالة التحقق حالياً');
     }
 
-    const result = parsed.results?.[0];
-    const succeeded = response.ok && parsed.ok === true && !!result?.ok && result.body?.success === true;
+    // Nested (documented) shape wins if present; otherwise `parsed` itself IS
+    // the message body (the real, observed shape — see RaselResponse above).
+    const nested = parsed.results?.[0];
+    const body: RaselMessageBody = nested ? (nested.body ?? {}) : parsed;
+    const wrapperOk = nested ? parsed.ok === true && nested.ok === true : true;
+    const succeeded = response.ok && wrapperOk && body.success === true;
 
     if (!succeeded) {
       console.error(
         `[OTP:rasel] send_rejected purpose=${purpose} phone=${masked} ` +
-        `topStatus=${parsed.status ?? response.status} resultStatus=${result?.status}`,
+        `httpStatus=${response.status} bodyStatus=${body.status}`,
       );
       throw providerError('sms_provider_failed', 'تعذّر إرسال رسالة التحقق حالياً');
     }
 
     console.log(
-      `[OTP:rasel] sent purpose=${purpose} phone=${masked} requestId=${result?.body?.requestId} ` +
-      `status=${result?.body?.status}`,
+      `[OTP:rasel] sent purpose=${purpose} phone=${masked} requestId=${body.requestId} ` +
+      `status=${body.status}`,
     );
 
     return {
       delivered: true,
       provider: this.name,
-      providerRequestId: result?.body?.requestId,
-      providerStatus: result?.body?.status,
-      providerMessageId: result?.body?.tracking?.messageId,
-      providerUsageId: result?.body?.tracking?.usageId,
+      providerRequestId: body.requestId,
+      providerStatus: body.status,
+      providerMessageId: body.tracking?.messageId,
+      providerUsageId: body.tracking?.usageId,
     };
   }
 }

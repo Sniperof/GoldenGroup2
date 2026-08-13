@@ -1,6 +1,10 @@
-// Rasel adapter (rasel-otp-backend-integration.md): success requires BOTH the
-// top-level and the result-level `ok`; the code/API key/full phone must never
-// reach a log line or an error message.
+// Rasel adapter. The FLAT response shape below is the real, observed API
+// response (confirmed 2026-08-13 via a direct curl against
+// /api/v2/messages/send with a valid key) — the vendor handoff doc promised a
+// nested `{ok, results: [{ok, body}]}` wrapper that was never seen live. Both
+// shapes are covered: flat as the primary/expected case, nested for
+// resilience in case a future response (e.g. a batch send) actually wraps.
+// In every case the code/API key/full phone must never reach a log line.
 
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -22,7 +26,21 @@ function mockFetch(handler: (input: unknown, init: unknown) => Promise<Response>
   return { calls, restore: () => { globalThis.fetch = original; } };
 }
 
-function raselResponse(overrides: {
+/** The real, observed response shape — matches the live curl test exactly. */
+function flatResponse(overrides: { success?: boolean } = {}) {
+  const { success = true } = overrides;
+  return new Response(JSON.stringify({
+    success,
+    requestId: success ? 'msgreq_test_1' : '',
+    status: success ? 'sent' : 'failed',
+    resolved: { channel: 'local_sms', provider: null, senderSource: 'explicit' },
+    billing: { estimatedCost: 0, currency: 'USD', pricingNote: null, discountPercent: 0, surchargePercent: 0 },
+    tracking: { messageId: success ? '9639XXXXXXXX' : '', usageId: success ? 'usage_1' : '', queueId: null },
+  }), { status: 200 });
+}
+
+/** The vendor-documented shape — never observed live, kept for resilience. */
+function nestedResponse(overrides: {
   topOk?: boolean;
   resultOk?: boolean;
   bodySuccess?: boolean;
@@ -66,8 +84,8 @@ async function captureConsole<T>(fn: () => Promise<T>) {
   }
 }
 
-test('successful send returns provider tracking metadata', async () => {
-  const mock = mockFetch(() => raselResponse());
+test('successful send (real flat shape) returns provider tracking metadata', async () => {
+  const mock = mockFetch(() => flatResponse());
   try {
     const sender = new RaselOtpSender();
     const { result, lines } = await captureConsole(() => sender.send(TRIAL_PHONE, CODE, 'login'));
@@ -87,8 +105,8 @@ test('successful send returns provider tracking metadata', async () => {
   }
 });
 
-test('top-level ok:false is a provider failure even if the result looks fine', async () => {
-  const mock = mockFetch(() => raselResponse({ topOk: false }));
+test('a flat response with success:false is a provider failure', async () => {
+  const mock = mockFetch(() => flatResponse({ success: false }));
   try {
     const sender = new RaselOtpSender();
     const { error } = await captureConsole(() => sender.send(TRIAL_PHONE, CODE, 'login'));
@@ -98,8 +116,38 @@ test('top-level ok:false is a provider failure even if the result looks fine', a
   }
 });
 
-test('result-level ok:false is a provider failure even if the top level is ok', async () => {
-  const mock = mockFetch(() => raselResponse({ resultOk: false, bodySuccess: false }));
+test('the documented nested shape also succeeds when top-level and result-level are both ok', async () => {
+  const mock = mockFetch(() => nestedResponse());
+  try {
+    const sender = new RaselOtpSender();
+    const { result } = await captureConsole(() => sender.send(TRIAL_PHONE, CODE, 'login'));
+    assert.equal(mock.calls.length, 1);
+    assert.deepEqual(result, {
+      delivered: true,
+      provider: 'rasel',
+      providerRequestId: 'msgreq_test_1',
+      providerStatus: 'sent',
+      providerMessageId: '9639XXXXXXXX',
+      providerUsageId: 'usage_1',
+    });
+  } finally {
+    mock.restore();
+  }
+});
+
+test('nested shape: top-level ok:false is a failure even if the result looks fine', async () => {
+  const mock = mockFetch(() => nestedResponse({ topOk: false }));
+  try {
+    const sender = new RaselOtpSender();
+    const { error } = await captureConsole(() => sender.send(TRIAL_PHONE, CODE, 'login'));
+    assert.equal((error as Error & { code?: string }).code, 'sms_provider_failed');
+  } finally {
+    mock.restore();
+  }
+});
+
+test('nested shape: result-level ok:false is a failure even if the top level is ok', async () => {
+  const mock = mockFetch(() => nestedResponse({ resultOk: false, bodySuccess: false }));
   try {
     const sender = new RaselOtpSender();
     const { error } = await captureConsole(() => sender.send(TRIAL_PHONE, CODE, 'login'));
@@ -122,7 +170,7 @@ test('a network error maps to sms_provider_unavailable', async () => {
 });
 
 test('trial mode blocks any number other than the allowed trial number, without calling Rasel', async () => {
-  const mock = mockFetch(() => raselResponse());
+  const mock = mockFetch(() => flatResponse());
   try {
     const sender = new RaselOtpSender();
     const { error } = await captureConsole(() => sender.send(OTHER_PHONE, CODE, 'login'));
@@ -134,7 +182,7 @@ test('trial mode blocks any number other than the allowed trial number, without 
 });
 
 test('no log line ever contains the raw API key value', async () => {
-  const mock = mockFetch(() => raselResponse());
+  const mock = mockFetch(() => flatResponse());
   try {
     const sender = new RaselOtpSender();
     const { lines } = await captureConsole(() => sender.send(TRIAL_PHONE, CODE, 'login'));
