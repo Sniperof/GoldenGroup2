@@ -90,12 +90,25 @@ This flow is available to customers, OTP visitors, and unverified devices. The r
   "requesterPhoneHasWhatsapp": false,
   "deviceModelId": 12,
   "serialNumber": "OPTIONAL-SERIAL",
+  "governorate": 1,
+  "cityOrArea": 12,
+  "subArea": 34,
+  "detailedAddress": "Building 12",
   "requestedWarrantyMonths": 12,
   "beneficiaryContactConsentConfirmed": true
 }
 ```
 
 For an authenticated requester, requester identity comes from the account; only requester secondary-contact override fields may be sent. For an OTP visitor, `requesterPhone` must match the verified phone when it is supplied.
+
+For catalog-model submissions (visitor or `for_another`), `governorate` and
+`detailedAddress` are required. `cityOrArea`, `subArea`, and `neighborhood` are
+optional SmartGeo IDs, but every supplied level must belong to the same active
+parent chain. The legacy aliases `governorateId`, `regionId`, `subdistrictId`,
+and `neighborhoodId` remain accepted. An authenticated `for_self` submission
+using `installedDeviceId` may omit the address because the registered device is
+the authoritative source; if an address is supplied, it is validated and kept
+as the immutable request snapshot.
 
 The beneficiary fields `fatherName`, `secondaryPhone`, and
 `secondaryPhoneHasWhatsapp` are optional. If the secondary number is sent
@@ -117,6 +130,10 @@ A visitor or unverified device cannot claim ownership of a registered installed-
   "phoneNumber": "0930000000",
   "primaryPhoneHasWhatsapp": true,
   "deviceModelId": 12,
+  "governorate": 1,
+  "cityOrArea": 12,
+  "subArea": 34,
+  "detailedAddress": "Building 12",
   "requestedWarrantyMonths": 12,
   "beneficiaryContactConsentConfirmed": true,
   "handle": "<otp-visitor-handle-if-used>"

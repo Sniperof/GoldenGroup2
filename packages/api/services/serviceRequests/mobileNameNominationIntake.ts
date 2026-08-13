@@ -99,9 +99,8 @@ export async function submitMobileNameNomination(body: Record<string, unknown>, 
     };
     items.push({ normalized, deepest, branch });
   }
-  const dailyLimit = Math.max(0, Math.floor(await getSystemSettingNumber('name_nomination_daily_per_identity', 5)));
   const ipLimit = Math.max(0, Math.floor(await getSystemSettingNumber('name_nomination_daily_per_unverified_ip', 20)));
-  await assertRequesterDailyQuota({ db, requestType: 'name_nomination', identity, limit: dailyLimit });
+  await assertRequesterDailyQuota({ db, requestType: 'name_nomination', identity });
   await assertRequesterIpQuota({ db, requestType: 'name_nomination', identity, limit: ipLimit });
   const submittedPayload = {
     requestType: 'name_nomination', formVersion: NAME_NOMINATION_FORM_VERSION,

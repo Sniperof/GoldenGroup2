@@ -23,11 +23,11 @@
 import type { PoolClient } from 'pg';
 import {
   APP_WATER_CHECK_DAILY_PER_IP,
-  APP_WATER_CHECK_DAILY_PER_REQUESTER,
   APP_WATER_CHECK_OPEN_PER_REQUESTER,
 } from '../../config/env.js';
 import { SR_ACTIVE_STATUSES } from './_shared.js';
 import { intakeIdentityKeys, type MobileIntakeIdentity } from './mobileIntakeIdentity.js';
+import { getDailyRequestsPerIdentity } from './mobileRequestQuotaSettings.js';
 
 function httpError(status: number, code: string, details?: Record<string, unknown>) {
   return Object.assign(new Error(code), { status, details: { code, ...(details ?? {}) } });
@@ -106,7 +106,7 @@ export async function assertRequesterDailyQuota(input: {
   identity: MobileIntakeIdentity;
   limit?: number;
 }): Promise<void> {
-  const limit = input.limit ?? APP_WATER_CHECK_DAILY_PER_REQUESTER;
+  const limit = input.limit ?? await getDailyRequestsPerIdentity(input.requestType);
   if (limit <= 0) return;
 
   const predicate = requesterPredicate(input.identity, 2);

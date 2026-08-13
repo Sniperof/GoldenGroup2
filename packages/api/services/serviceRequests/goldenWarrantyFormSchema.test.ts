@@ -28,10 +28,24 @@ test('golden warranty accepts another beneficiary and a catalog model without a 
     requesterPhoneHasWhatsapp: true,
     deviceModelId: 12,
     serialNumber: 'OPTIONAL',
+    governorate: 1,
+    cityOrArea: 2,
+    subArea: 3,
+    detailedAddress: 'Building 12',
     requestedWarrantyMonths: 12,
     beneficiaryContactConsentConfirmed: true,
   });
   assert.equal(result.ok, true);
+});
+
+test('golden warranty accepts the shared address vocabulary and legacy geo aliases', () => {
+  for (const address of [
+    { governorate: 1, cityOrArea: 2, subArea: 3, neighborhood: 4, detailedAddress: 'Building 12' },
+    { governorateId: 1, regionId: 2, subdistrictId: 3, neighborhoodId: 4, detailed_address: 'Building 12' },
+  ]) {
+    const result = validateGoldenWarrantyForm(address);
+    assert.deepEqual(result, { ok: true, issues: [], unknownFields: [] });
+  }
 });
 
 test('golden warranty rejects price, multiple devices, and referrer semantics', () => {

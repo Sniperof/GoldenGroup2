@@ -73,6 +73,8 @@ import appServiceRequestsRouter from './routes/appServiceRequests.js';
 import appDeviceCatalogRouter from './routes/appDeviceCatalog.js';
 import appBranchCatalogRouter from './routes/appBranchCatalog.js';
 import appDeviceRequestPurposeCatalogRouter from './routes/appDeviceRequestPurposeCatalog.js';
+import appDevicesRouter from './routes/appDevices.js';
+import appVisitsRouter from './routes/appVisits.js';
 import publicAccountDeletionRouter from './routes/publicAccountDeletion.js';
 import adminAccountRequestsRouter from './routes/adminAccountRequests.js';
 import adminAppAccountsRouter from './routes/adminAppAccounts.js';
@@ -193,6 +195,9 @@ app.use('/api/app/catalog/devices', appDeviceCatalogRouter);
 // Public mobile branch catalog and branch detail pages.
 app.use('/api/app/catalog/branches', appBranchCatalogRouter);
 app.use('/api/app/catalog/device-request-purposes', appDeviceRequestPurposeCatalogRouter);
+// Customer mobile-app "My Devices" / "My Visits" read-only views. DEC-017.
+app.use('/api/app', appDevicesRouter);
+app.use('/api/app', appVisitsRouter);
 // Public account-deletion web page (Google Play). DEC-013 §8.
 app.use('/account-deletion', publicAccountDeletionRouter);
 // Web-portal admin review of account-creation requests. DEC-013 §2.5.

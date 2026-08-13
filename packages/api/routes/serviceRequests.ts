@@ -361,6 +361,10 @@ const SR_SELECT = `
     WHEN 'water_check' THEN 'طلب فحص المياه'
     WHEN 'emergency_maintenance' THEN 'طلب صيانة'
     WHEN 'device_request' THEN 'طلب جهاز'
+    WHEN 'periodic_maintenance' THEN 'طلب صيانة دورية'
+    WHEN 'golden_warranty' THEN 'طلب كفالة ذهبية'
+    WHEN 'name_nomination' THEN 'طلب ترشيح أسماء'
+    WHEN 'agent_license' THEN 'طلب ترخيص وكيل'
     ELSE sr.request_type
   END AS "requestTypeLabel",
   sr.channel,
@@ -404,6 +408,9 @@ const SR_SELECT = `
   sr.contract_id AS "contractId",
   sr.device_source AS "deviceSource",
   sr.installed_device_id AS "installedDeviceId",
+  COALESCE(sr_device.device_model_name, sr_contract.device_model_name, sr_device.external_device_name) AS "installedDeviceName",
+  COALESCE(sr_device.serial_number, sr_device.external_device_serial) AS "installedDeviceSerial",
+  COALESCE(sr_device.device_model_id, sr_contract.device_model_id) AS "installedDeviceModelId",
   sr.external_device_name AS "externalDeviceName",
   sr.external_device_serial AS "externalDeviceSerial",
   sr.reported_device_selection AS "reportedDeviceSelection",
@@ -564,6 +571,8 @@ const SR_DISPLAY_JOINS = `
   LEFT JOIN clients rqc ON rqc.id = sr.requester_client_id
   LEFT JOIN clients rc ON rc.id = sr.referrer_client_id
   LEFT JOIN candidates bcan ON bcan.id = sr.beneficiary_candidate_id
+  LEFT JOIN installed_devices sr_device ON sr_device.id = sr.installed_device_id
+  LEFT JOIN contracts sr_contract ON sr_contract.id = sr_device.contract_id
   LEFT JOIN open_tasks lot ON lot.id = sr.linked_open_task_id
 `;
 
@@ -1130,14 +1139,35 @@ router.get('/', requirePermission('service_requests.view', 'water_check.view', '
     filters.push(`sr.branch_resolution_status = $${idx++}`);
     params.push(String(q.branchResolutionStatus));
   }
-  // Unified search (contract §6): name / phone / public ref.
+  // Unified search (contract §6): names, both phones, public ref, and device data.
   if (q.search) {
     filters.push(
       `(sr.public_ref_number ILIKE $${idx}
         OR sr.requester_external->>'name' ILIKE $${idx}
+        OR sr.requester_external->>'firstName' ILIKE $${idx}
+        OR sr.requester_external->>'lastName' ILIKE $${idx}
         OR sr.requester_external->>'primary_phone' ILIKE $${idx}
+        OR sr.requester_external->>'secondary_phone' ILIKE $${idx}
         OR sr.beneficiary_external->>'name' ILIKE $${idx}
-        OR sr.beneficiary_external->>'primary_phone' ILIKE $${idx})`,
+        OR sr.beneficiary_external->>'firstName' ILIKE $${idx}
+        OR sr.beneficiary_external->>'lastName' ILIKE $${idx}
+        OR sr.beneficiary_external->>'primary_phone' ILIKE $${idx}
+        OR sr.beneficiary_external->>'secondary_phone' ILIKE $${idx}
+        OR sr.referrer_external->>'name' ILIKE $${idx}
+        OR sr.referrer_external->>'firstName' ILIKE $${idx}
+        OR sr.referrer_external->>'lastName' ILIKE $${idx}
+        OR sr.referrer_external->>'primary_phone' ILIKE $${idx}
+        OR sr.referrer_external->>'secondary_phone' ILIKE $${idx}
+        OR sr.reported_device_snapshot->>'deviceName' ILIKE $${idx}
+        OR sr.reported_device_snapshot->>'modelName' ILIKE $${idx}
+        OR sr.reported_device_snapshot->>'serialNumber' ILIKE $${idx}
+        OR sr.external_device_name ILIKE $${idx}
+        OR sr.external_device_serial ILIKE $${idx}
+        OR EXISTS (
+          SELECT 1 FROM service_request_device_interests search_interest
+          WHERE search_interest.service_request_id = sr.id
+            AND search_interest.device_snapshot::text ILIKE $${idx}
+        ))`,
     );
     params.push(`%${String(q.search)}%`);
     idx += 1;

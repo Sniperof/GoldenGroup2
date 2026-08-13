@@ -31,6 +31,9 @@ import WaterCheckRequestDetailPanel from '../../components/service-requests/Wate
 import { DeviceRequestDetailPanel, DeviceRequestHandoffModal } from '../../components/service-requests/DeviceRequestPanel';
 import NameNominationPanel from '../../components/service-requests/NameNominationPanel';
 import AgentLicensePanel from '../../components/service-requests/AgentLicensePanel';
+import RequestOverviewSummary from '../../components/service-requests/RequestOverviewSummary';
+import RequestHandoffReadiness from '../../components/service-requests/RequestHandoffReadiness';
+import RequestActionConfirmModal, { type RequestConfirmationAction } from '../../components/service-requests/RequestActionConfirmModal';
 import RequestDetailLayout from '../../components/requests/RequestDetailLayout';
 import type { Client, GeoUnit } from '../../lib/types';
 import { reviewRequiredReasons } from '../../lib/serviceRequestDisplay';
@@ -68,6 +71,7 @@ export default function ServiceRequestDetailPage() {
   const [busy, setBusy] = useState(false);
   // Phase 4 polish — modal for the 4 in_review actions; toasts via sonner
   const [actionModal, setActionModal] = useState<ModalMode | null>(null);
+  const [confirmationAction, setConfirmationAction] = useState<RequestConfirmationAction | null>(null);
   const [waterCheckClientModalOpen, setWaterCheckClientModalOpen] = useState(false);
   const [waterCheckClientDraft, setWaterCheckClientDraft] = useState<any | null>(null);
   const [mediatorClientModalOpen, setMediatorClientModalOpen] = useState(false);
@@ -211,7 +215,11 @@ export default function ServiceRequestDetailPage() {
         ? 'طلب الجهاز'
         : isPeriodicMaintenance
           ? 'طلب الصيانة الدورية'
-          : isGoldenWarranty ? 'طلب الكفالة الذهبية' : isAgentLicense ? 'طلب ترخيص وكيل' : 'طلب الخدمة';
+          : isGoldenWarranty
+            ? 'طلب الكفالة الذهبية'
+            : isNameNomination
+              ? 'طلب ترشيح الأسماء'
+              : isAgentLicense ? 'طلب ترخيص وكيل' : 'طلب الخدمة';
   const beneficiaryRoleLabel = isDeviceRequest
     ? 'المستفيد من طلب الجهاز'
     : isWaterCheck
@@ -279,6 +287,7 @@ export default function ServiceRequestDetailPage() {
   // V1.0 promote pre-conditions (maintenance-v1.md §١٢)
   const activeProblems = data.problems.filter((p) => p.deletedAt == null);
   const promoteMissing: string[] = [];
+  if (isEmergencyMaintenance && req.status !== 'in_review') promoteMissing.push('تولّي الطلب');
   if (!req.beneficiaryClientId) promoteMissing.push('ربط زبون');
   if (req.deviceSource === 'external_device') {
     if (!req.reportedDeviceModelId && !externalModelChoice) promoteMissing.push('ربط الجهاز الآخر بطراز مسجل');
@@ -389,23 +398,22 @@ export default function ServiceRequestDetailPage() {
         res = await api.serviceRequests.promote(requestId, promoteBody);
       } catch (error: any) {
         if (error?.code !== 'device_location_decision_required') throw error;
-        const useRegisteredLocation = window.confirm(
-          'الموقع المبلّغ عنه يختلف عن موقع الجهاز المسجل. اضغط موافق لاعتماد موقع الجهاز المسجل للمهمة، أو إلغاء للعودة وإنشاء مهمة نقل جهاز منفصلة.',
-        );
-        if (!useRegisteredLocation) return;
-        res = await api.serviceRequests.promote(requestId, {
-          ...promoteBody,
-          deviceLocationDecision: 'registered_location_confirmed',
+        setConfirmationAction({
+          kind: 'promote_registered_location',
+          title: 'اعتماد موقع الجهاز المسجل',
+          description: 'الموقع المبلّغ عنه يختلف عن موقع الجهاز المسجل. المتابعة ستعتمد موقع الجهاز المسجل للمهمة؛ وإلا يجب معالجة نقل الجهاز أولاً.',
+          confirmLabel: 'اعتماد الموقع وإنشاء المهمة',
         });
+        return;
       }
       if ('collision' in res && res.collision) {
         setCollision(res.collision);
       } else {
-        alert(`تَمَّت الترقية — open_task #${res.ok?.newOpenTaskId}`);
+        showToast(`تَمَّت الترقية — المهمة #${res.ok?.newOpenTaskId}`);
         await reload();
       }
     } catch (e: any) {
-      alert(e?.message ?? 'فَشل الترقية');
+      showToast(e?.message ?? 'فَشل الترقية', 'error');
     } finally {
       setBusy(false);
     }
@@ -419,13 +427,13 @@ export default function ServiceRequestDetailPage() {
         result = await api.serviceRequests.handoffPeriodicMaintenance(requestId);
       } catch (error: any) {
         if (error?.code !== 'device_location_decision_required') throw error;
-        const confirmed = window.confirm(
-          'عنوان الطلب يختلف عن موقع الجهاز المسجل. اضغط موافق لاعتماد موقع الجهاز المسجل، أو إلغاء لمعالجة نقل الجهاز أولاً.',
-        );
-        if (!confirmed) return;
-        result = await api.serviceRequests.handoffPeriodicMaintenance(requestId, {
-          deviceLocationDecision: 'registered_location_confirmed',
+        setConfirmationAction({
+          kind: 'periodic_registered_location',
+          title: 'اعتماد موقع الجهاز المسجل',
+          description: 'عنوان الطلب يختلف عن موقع الجهاز المسجل. المتابعة ستعتمد موقع الجهاز المسجل؛ وإلا يجب معالجة نقل الجهاز أولاً.',
+          confirmLabel: 'اعتماد الموقع وإنشاء المهمة',
         });
+        return;
       }
       showToast(`تم إنشاء مهمة الصيانة الدورية #${result.openTaskId}`, 'success');
       await reload();
@@ -441,12 +449,42 @@ export default function ServiceRequestDetailPage() {
   }
 
   async function doApproveAgentLicense() {
-    if (!window.confirm('تأكيد الموافقة وإكمال مراجعة طلب ترخيص الوكيل؟')) return;
-    const note = window.prompt('ملاحظة الموافقة (اختيارية):');
-    await safeRun(
-      () => api.serviceRequests.approveAgentLicense(requestId, note?.trim() || null),
-      'تمت الموافقة على الطلب وإكمال مراجعته',
-    );
+    setConfirmationAction({
+      kind: 'approve_agent',
+      title: 'الموافقة على طلب ترخيص الوكيل',
+      description: 'سيُغلق الطلب بحالة مكتملة. تعني الموافقة اكتمال مراجعة الطلب، ولا تُنشئ ترخيصاً تشغيلياً مستقلاً.',
+      confirmLabel: 'الموافقة وإكمال المراجعة',
+      noteLabel: 'ملاحظة الموافقة (اختيارية)',
+    });
+  }
+
+  async function confirmRequestAction(note: string) {
+    if (!confirmationAction) return;
+    const kind = confirmationAction.kind;
+    if (kind === 'promote_registered_location') {
+      const result = await api.serviceRequests.promote(requestId, {
+        ...(externalModelChoice ? { externalDeviceModelId: Number(externalModelChoice) } : {}),
+        deviceLocationDecision: 'registered_location_confirmed',
+      });
+      if ('collision' in result && result.collision) setCollision(result.collision);
+      else showToast(`تَمَّت الترقية — المهمة #${result.ok?.newOpenTaskId}`);
+    } else if (kind === 'periodic_registered_location') {
+      const result = await api.serviceRequests.handoffPeriodicMaintenance(requestId, {
+        deviceLocationDecision: 'registered_location_confirmed',
+      });
+      showToast(`تم إنشاء مهمة الصيانة الدورية #${result.openTaskId}`);
+    } else if (kind === 'approve_agent') {
+      await api.serviceRequests.approveAgentLicense(requestId, note || null);
+      showToast('تمت الموافقة على الطلب وإكمال مراجعته');
+    } else if (kind === 'resolve_escalation') {
+      await api.serviceRequests.resolveEscalation(requestId, note || null);
+      showToast('تم فك التصعيد وعادت الإجراءات');
+    } else if (kind === 'archive') {
+      await api.serviceRequests.archive(requestId, note || null);
+      showToast('تمت أرشفة الطلب');
+    }
+    setConfirmationAction(null);
+    await reload();
   }
 
   async function doGoldenWarrantyHandoff() {
@@ -875,8 +913,20 @@ export default function ServiceRequestDetailPage() {
 
   const backPath = isWaterCheck ? '/service-requests/water-check'
     : isDeviceRequest ? '/service-requests/device-requests'
+      : isPeriodicMaintenance ? '/service-requests/periodic-maintenance'
+        : isGoldenWarranty ? '/service-requests/golden-warranty'
       : isNameNomination ? '/service-requests/name-nomination'
         : isAgentLicense ? '/service-requests/agent-license' : '/service-requests';
+
+  const overviewHandoff = isEmergencyMaintenance
+    ? { title: 'مهمة صيانة طارئة', missing: promoteMissing, permissionDenied: !canDecide }
+    : isDeviceRequest
+      ? { title: 'مهمة عرض جهاز', missing: deviceRequestHandoffMissing, permissionDenied: !canDecide || !hasPermission('open_tasks.edit') }
+      : isPeriodicMaintenance
+        ? { title: 'مهمة صيانة دورية', missing: periodicHandoffMissing, permissionDenied: !canDecide }
+        : isGoldenWarranty
+          ? { title: 'مهمة عرض الكفالة الذهبية', missing: goldenHandoffMissing, permissionDenied: !canDecide || !hasPermission('open_tasks.edit') }
+          : null;
 
   return (
     <RequestDetailLayout
@@ -965,10 +1015,13 @@ export default function ServiceRequestDetailPage() {
                     variant="secondary"
                     size="sm"
                     disabled={busy}
-                    onClick={() => safeRun(
-                      () => api.serviceRequests.resolveEscalation(requestId, prompt('سبب فكّ التصعيد (اختياري):') ?? null),
-                      '✓ تَمَّ فكّ التصعيد — عادت الإجراءات',
-                    )}
+                    onClick={() => setConfirmationAction({
+                      kind: 'resolve_escalation',
+                      title: 'فكّ تصعيد الطلب',
+                      description: 'ستعود إجراءات المراجعة والحسم المعتادة لهذا الطلب.',
+                      confirmLabel: 'فكّ التصعيد',
+                      noteLabel: 'سبب فكّ التصعيد (اختياري)',
+                    })}
                   >
                     فكّ التصعيد
                   </Button>
@@ -1107,7 +1160,13 @@ export default function ServiceRequestDetailPage() {
               variant="secondary"
               size="sm"
               disabled={busy}
-              onClick={() => safeRun(() => api.serviceRequests.archive(requestId, prompt('سبب الأرشفة (اختياري):') ?? null))}
+              onClick={() => setConfirmationAction({
+                kind: 'archive',
+                title: 'أرشفة الطلب',
+                description: 'سيختفي الطلب من قائمة الطلبات النشطة، ويمكن عرضه لاحقاً من فلتر الطلبات المؤرشفة.',
+                confirmLabel: 'أرشفة الطلب',
+                noteLabel: 'سبب الأرشفة (اختياري)',
+              })}
             >
               أرشفة
             </Button>
@@ -1127,7 +1186,16 @@ export default function ServiceRequestDetailPage() {
           )}
         </div>
       }
-      submittedData={isAgentLicense ? (
+      submittedData={(
+        <div className="space-y-4">
+          <RequestOverviewSummary
+            request={req}
+            showDevice={isEmergencyMaintenance || isDeviceRequest || isPeriodicMaintenance || isGoldenWarranty}
+            requesterSnapshot={requesterSnapshot}
+            beneficiarySnapshot={beneficiarySnapshot}
+            referrerSnapshot={referrerSnapshot}
+          />
+          {isAgentLicense ? (
         <AgentLicensePanel request={req} />
       ) : isNameNomination ? (
         <NameNominationPanel request={req} canDecide={canDecide && isOwner}
@@ -1135,6 +1203,7 @@ export default function ServiceRequestDetailPage() {
       ) : isWaterCheck ? (
         <WaterCheckRequestDetailPanel
           request={req}
+          showPartySummary={false}
           handoff={{
             permissionDenied: !canWaterCheckHandoffByPermission,
             missing: waterCheckHandoffMissing,
@@ -1156,12 +1225,6 @@ export default function ServiceRequestDetailPage() {
         <div className="space-y-4">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <DetailField
-              label="الجهاز كما ورد في الطلب"
-              value={req.reportedDeviceSnapshot?.modelName
-                ?? (req.installedDeviceId ? `جهاز مسجل #${req.installedDeviceId}` : null)}
-            />
-            <DetailField label="الرقم التسلسلي" value={req.reportedDeviceSnapshot?.serialNumber} />
-            <DetailField
               label="المدة المطلوبة المقفلة"
               value={req.requestedWarrantyPeriodSnapshot?.label
                 ?? (req.requestedWarrantyMonths ? `${req.requestedWarrantyMonths} شهر` : null)}
@@ -1170,7 +1233,6 @@ export default function ServiceRequestDetailPage() {
               label="موافقة التواصل مع المستفيد"
               value={req.beneficiaryContactConsentConfirmed ? 'مؤكدة' : 'غير مؤكدة'}
             />
-            <DetailField label="الجهاز المثبت" value={req.installedDeviceId ? `#${req.installedDeviceId}` : null} />
             <DetailField
               label="كفالة فعالة"
               value={req.activeDeviceWarranty?.id
@@ -1189,19 +1251,7 @@ export default function ServiceRequestDetailPage() {
       ) : isPeriodicMaintenance ? (
         <div className="space-y-4">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <DetailField
-              label="الجهاز كما أبلغ عنه منشئ الطلب"
-              value={req.reportedDeviceSnapshot?.deviceName
-                ?? req.reportedDeviceSnapshot?.modelName
-                ?? (req.installedDeviceId ? `جهاز مسجل #${req.installedDeviceId}` : null)}
-            />
-            <DetailField label="الرقم التسلسلي المبلّغ عنه" value={req.reportedDeviceSnapshot?.serialNumber} />
             <DetailField label="سبب طلب الصيانة الدورية" value={req.periodicMaintenanceReasonSnapshot?.label} />
-            <DetailField label="الجهاز المثبت" value={req.installedDeviceId ? `#${req.installedDeviceId}` : null} />
-            <DetailField
-              label="عنوان الطلب"
-              value={req.serviceAddress?.detailed_address ?? req.serviceAddress?.address_text}
-            />
             <DetailField
               label="المهمة الدورية النشطة"
               value={req.activePeriodicMaintenanceTask?.id
@@ -1213,13 +1263,6 @@ export default function ServiceRequestDetailPage() {
       ) : (
         <div className="space-y-3">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <DetailField
-              label="الجهاز كما أبلغ عنه مقدم الطلب"
-              value={req.reportedDeviceSnapshot?.deviceName
-                ?? req.reportedDeviceSnapshot?.modelName
-                ?? req.externalDeviceName
-                ?? (req.installedDeviceId ? `جهاز مسجل #${req.installedDeviceId}` : null)}
-            />
             <DetailField
               label="مصدر الطلب الهاتفي"
               value={req.sourceCallLogId ? `سجل اتصال ${req.sourceCallLogId}` : null}
@@ -1240,14 +1283,7 @@ export default function ServiceRequestDetailPage() {
           {/* V1.0 §١٢ — promote readiness checklist (visible in in_review only). */}
           {!isWaterCheck && !isDeviceRequest && !isPeriodicMaintenance && !isGoldenWarranty && req.status === 'in_review' && !canDoPromote && (
             <div className="bg-yellow-50 border border-yellow-200 rounded p-3 text-sm">
-              <div className="font-semibold text-yellow-900 mb-1">
-                للترقية إلى مهمة، ينقصك:
-              </div>
-              <ul className="list-disc pr-5 text-yellow-800 space-y-0.5">
-                {promoteMissing.map((m) => (
-                  <li key={m}>{m}</li>
-                ))}
-              </ul>
+              <div className="font-semibold text-yellow-900 mb-1">إجراءات استكمال متطلبات التسليم</div>
               <div className="mt-2 flex gap-2 flex-wrap">
                 {!req.beneficiaryClientId && (
                   <Button variant="gold" size="sm" onClick={() => setTab('linkage')}>
@@ -1316,44 +1352,23 @@ export default function ServiceRequestDetailPage() {
             </p>
           </div>
 
-          <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
-            <h3 className="mb-3 flex items-center gap-1.5 font-bold text-slate-800">
-              <UserCheck className="h-4 w-4 text-sky-500" />
-              البيانات والربط
-            </h3>
-            <div className="grid gap-3 md:grid-cols-3">
-              <DetailField label="صاحب الطلب" value={req.requesterExternal?.name} />
-              <DetailField label="رقم الهاتف" value={req.requesterExternal?.primary_phone} />
-              <DetailField
-                label="عنوان الخدمة"
-                value={req.serviceAddress ? `${req.serviceAddress.governorate ?? ''} — ${req.serviceAddress.detailed_address ?? ''}` : ''}
-              />
-              <DetailField label="الزبون المربوط" value={req.beneficiaryClientId ? `#${req.beneficiaryClientId}` : ''} />
-              <DetailField label="الجهاز المربوط" value={req.installedDeviceId ? `#${req.installedDeviceId}` : ''} />
-              <DetailField
-                label="الأولوية"
-                value={PRIORITY_LABELS[req.priority] ?? req.priority}
-              />
-            </div>
-          </div>
-
-          {req.linkedOpenTaskId && (
-            <div className="rounded-2xl border border-purple-200 bg-purple-50 p-4 shadow-sm">
-              <h3 className="mb-2 font-bold text-purple-800">المهمة المُرتبطة</h3>
-              <button
-                onClick={() => {
-                  const detailPath = getOpenTaskDetailPath(req.requestType ?? 'emergency_maintenance', req.linkedOpenTaskId);
-                  if (detailPath) navigate(detailPath);
-                }}
-                className="text-sm font-semibold text-purple-700 hover:underline"
-              >
-                فتح المهمة رقم {req.linkedOpenTaskId} ←
-              </button>
-            </div>
+        </div>
+      )}
+          {overviewHandoff && (
+            <RequestHandoffReadiness
+              request={req}
+              title={overviewHandoff.title}
+              missing={overviewHandoff.missing}
+              permissionDenied={overviewHandoff.permissionDenied}
+              onOpenTask={(taskId) => {
+                const detailPath = getOpenTaskDetailPath(req.linkedOpenTaskType ?? req.requestType, taskId);
+                if (detailPath) navigate(detailPath);
+              }}
+            />
           )}
         </div>
       )}
-      extraTabs={!isWaterCheck && !isDeviceRequest && !isPeriodicMaintenance && !isGoldenWarranty && !isAgentLicense ? [{
+      extraTabs={isEmergencyMaintenance ? [{
         id: 'problems',
         label: `الأعطال (${data.problems.filter((p) => p.deletedAt == null).length})`,
         content: (
@@ -1777,6 +1792,13 @@ export default function ServiceRequestDetailPage() {
           requestType={req.requestType}
           onClose={() => setActionModal(null)}
           onConfirm={handleModalConfirm}
+        />
+      )}
+      {confirmationAction && (
+        <RequestActionConfirmModal
+          action={confirmationAction}
+          onClose={() => setConfirmationAction(null)}
+          onConfirm={confirmRequestAction}
         />
       )}
         </>

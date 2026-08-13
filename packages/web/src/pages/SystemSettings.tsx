@@ -38,9 +38,22 @@ const DEFAULT_PERIODIC_SETTINGS = {
 };
 const DEFAULT_NAME_NOMINATION_SETTINGS = {
     name_nomination_max_names_per_request: '50',
-    name_nomination_daily_per_identity: '5',
     name_nomination_daily_per_unverified_ip: '20',
 };
+
+const DAILY_IDENTITY_REQUEST_SETTINGS = [
+    ['water_check_daily_per_identity', 'فحص المياه'],
+    ['emergency_maintenance_daily_per_identity', 'الصيانة الطارئة'],
+    ['device_request_daily_per_identity', 'طلب جهاز'],
+    ['periodic_maintenance_daily_per_identity', 'الصيانة الدورية'],
+    ['golden_warranty_daily_per_identity', 'الضمان الذهبي'],
+    ['name_nomination_daily_per_identity', 'ترشيح الأسماء'],
+    ['agent_license_daily_per_identity', 'ترخيص الوكيل'],
+] as const;
+type DailyIdentitySettingKey = typeof DAILY_IDENTITY_REQUEST_SETTINGS[number][0];
+const DEFAULT_DAILY_IDENTITY_SETTINGS = Object.fromEntries(
+    DAILY_IDENTITY_REQUEST_SETTINGS.map(([key]) => [key, '5']),
+) as Record<DailyIdentitySettingKey, string>;
 
 export default function SystemSettings() {
     const { hasPermission } = usePermissions();
@@ -71,6 +84,9 @@ export default function SystemSettings() {
     const [nameNominationSettings, setNameNominationSettings] = useState(DEFAULT_NAME_NOMINATION_SETTINGS);
     const [savedNameNominationSettings, setSavedNameNominationSettings] = useState(DEFAULT_NAME_NOMINATION_SETTINGS);
     const [nameNominationSavingKey, setNameNominationSavingKey] = useState<string | null>(null);
+    const [dailyIdentitySettings, setDailyIdentitySettings] = useState(DEFAULT_DAILY_IDENTITY_SETTINGS);
+    const [savedDailyIdentitySettings, setSavedDailyIdentitySettings] = useState(DEFAULT_DAILY_IDENTITY_SETTINGS);
+    const [dailyIdentitySavingKey, setDailyIdentitySavingKey] = useState<DailyIdentitySettingKey | null>(null);
 
     useEffect(() => {
         let cancelled = false;
@@ -101,6 +117,12 @@ export default function SystemSettings() {
                 }
                 setNameNominationSettings(nomination);
                 setSavedNameNominationSettings(nomination);
+                const dailyIdentity = { ...DEFAULT_DAILY_IDENTITY_SETTINGS };
+                for (const key of Object.keys(dailyIdentity) as DailyIdentitySettingKey[]) {
+                    dailyIdentity[key] = res.settings.find((s) => s.key === key)?.value ?? dailyIdentity[key];
+                }
+                setDailyIdentitySettings(dailyIdentity);
+                setSavedDailyIdentitySettings(dailyIdentity);
             })
             .catch(() => { if (!cancelled) setCleanupMsg({ type: 'err', text: 'تعذّر تحميل الإعداد.' }); })
             .finally(() => { if (!cancelled) setCleanupLoading(false); });
@@ -185,6 +207,17 @@ export default function SystemSettings() {
             setNameNominationSettings((current) => ({ ...current, [key]: res.value }));
             setSavedNameNominationSettings((current) => ({ ...current, [key]: res.value }));
         } finally { setNameNominationSavingKey(null); }
+    };
+
+    const saveDailyIdentitySetting = async (key: DailyIdentitySettingKey) => {
+        setDailyIdentitySavingKey(key);
+        try {
+            const res = await api.systemSettings.update(key, Number(dailyIdentitySettings[key]));
+            setDailyIdentitySettings((current) => ({ ...current, [key]: res.value }));
+            setSavedDailyIdentitySettings((current) => ({ ...current, [key]: res.value }));
+        } finally {
+            setDailyIdentitySavingKey(null);
+        }
     };
 
     const setWebLoginSlot = (slot: TeamSlot, checked: boolean) => {
@@ -301,13 +334,39 @@ export default function SystemSettings() {
                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
                     className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
                     <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex items-center gap-3">
+                        <Settings className="w-5 h-5 text-sky-600" />
+                        <div>
+                            <h2 className="text-lg font-bold text-slate-800">سقوف طلبات الموبايل لكل هوية</h2>
+                            <p className="text-xs text-slate-500 mt-1">عدد الطلبات المسموح به لكل نوع خلال نافذة متحركة مدتها 24 ساعة. القيمة 0 توقف السقف لهذا النوع.</p>
+                        </div>
+                    </div>
+                    <div className="p-6 grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {DAILY_IDENTITY_REQUEST_SETTINGS.map(([key, label]) => (
+                            <div key={key} className="border border-slate-100 rounded-xl p-4">
+                                <label className="block text-xs font-bold text-slate-600 mb-2">{label}</label>
+                                <div className="flex items-center gap-2">
+                                    <input type="number" min={0} value={dailyIdentitySettings[key]}
+                                        disabled={!canManageSettings || dailyIdentitySavingKey === key}
+                                        onChange={(event) => setDailyIdentitySettings((current) => ({ ...current, [key]: event.target.value }))}
+                                        className="w-24 px-3 py-2 border border-slate-200 rounded-xl text-sm font-bold" />
+                                    <Button variant="secondary" icon={Save} loading={dailyIdentitySavingKey === key}
+                                        disabled={!canManageSettings || dailyIdentitySettings[key] === savedDailyIdentitySettings[key] || Number(dailyIdentitySettings[key]) < 0}
+                                        onClick={() => saveDailyIdentitySetting(key)}>حفظ</Button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </motion.div>
+
+                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                    className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+                    <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex items-center gap-3">
                         <Settings className="w-5 h-5 text-violet-600" />
                         <h2 className="text-lg font-bold text-slate-800">إعدادات طلب ترشيح الأسماء</h2>
                     </div>
                     <div className="p-6 grid md:grid-cols-3 gap-4">
                         {([
                             ['name_nomination_max_names_per_request','الحد الأقصى للأسماء في الطلب',1],
-                            ['name_nomination_daily_per_identity','السقف اليومي لكل هوية أو جهاز',0],
                             ['name_nomination_daily_per_unverified_ip','السقف اليومي لكل IP غير موثق',0],
                         ] as const).map(([key,label,min])=><div key={key} className="border border-slate-100 rounded-xl p-4">
                             <label className="block text-xs font-bold text-slate-600 mb-2">{label}</label>

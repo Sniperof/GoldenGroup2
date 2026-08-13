@@ -5,7 +5,7 @@
 > **الحالة:** ✅ معتمد
 > **الأولوية:** 🟡 متوسطة
 > **يكمل:** DEC-013 (إنشاء الحساب ومصادقة تطبيق الزبائن) + DEC-004 (دورة حياة الزيارة) + DEC-011 (الزيارة الفورية)
-> **الكيانات المتأثرة:** installed_devices, device_models, device_warranties, contracts, field_visits, visit_tasks, employees, app_accounts
+> **الكيانات المتأثرة:** installed_devices, device_models, device_warranties, contracts, field_visits, visit_tasks, visit_task_results, system_lists, employees, app_accounts
 
 ---
 
@@ -17,7 +17,7 @@
 
 ---
 
-## 2. القرارات المعتمدة (D-AV1 → D-AV7)
+## 2. القرارات المعتمدة (D-AV1 → D-AV11)
 
 ### D-AV1 — النطاق: عرض فقط (read-only)
 هذه المرحلة تبني عرضاً فقط. لا إلغاء/إعادة جدولة/تعديل من الزبون على الزيارة أو الجهاز. أي تفاعل كتابي مؤجَّل لمرحلة لاحقة (انظر §5).
@@ -56,6 +56,24 @@
 ### D-AV7 — الشكوى بعد الزيارة: مؤجَّلة
 ميزة تقديم شكوى بحق فريق الزيارة بعد إتمامها **مؤجَّلة لمرحلة لاحقة**، خارج نطاق هذا القرار. عند بنائها، التوجيه المعتمد هو إعادة استخدام نمط `service_requests` (نوع طلب جديد `visit_complaint` مرتبط بـ`field_visit_id`)، بنفس فلسفة DEC-013 مع `account_creation` — لا جدول شكاوى مستقل جديد.
 
+### D-AV8 — شاشة تفاصيل الزيارة: تفصيل كل مهمة بلا الملاحظات الحرة
+شاشة "تفاصيل الزيارة" (تُفتح من عنصر في قائمة «زياراتي») تعرض لكل `visit_task`: نوع المهمة، الجهاز المرتبط (`id` + الاسم + الرقم التسلسلي — تفصيل أغنى من `deviceNames` في القائمة، ليُميّز الزبون بين جهازين من نفس الموديل ويُتيح تنقّلاً مستقبلياً لتفاصيل الجهاز)، والنتيجة من `visit_task_results`. **لا تُعرض `closing_notes` أبداً** — حقل حر كتبه الفني/المشرف لسجل داخلي، لم يُصَغ أصلاً ليقرأه الزبون.
+
+**اكتشاف فني مهم أثناء التنفيذ:** `visit_tasks.task_type` **بلا enum ثابت** فعلياً (قيد `golden_crm_dev` الحالي هو `CHECK (length(btrim(task_type)) > 0)` فقط — نص غير فارغ، لا قائمة مقفلة؛ الافتراض الأصلي "5 أنواع" في §1 كان مبنياً على قراءة نسخة قديمة من المخطط). البيانات الفعلية تحوي 8+ أنواع فعلاً (`device_checkup`, `golden_warranty_offer`, `golden_warranty_card_delivery`, `periodic_maintenance`, ...) والكود (`services/visitTaskResultReflection.ts`, `routes/emergencyResult.ts`) يعرّف ما لا يقل عن 15 نوعاً بمجموعات `final_decision` خاصة بكل نوع (union أنواع TS، لا عمود DB واحد).
+
+**القرار المعتمد لترجمة `final_decision`:** قاموس ثابت شامل `TASK_DECISION_LABELS` في `routes/appVisits.ts` يغطي كل تركيبة `(taskType, final_decision)` موجودة في الكود اليوم (15 نوع مهمة). أي تركيبة غير موجودة بالقاموس تُسجَّل بـ`console.warn` وتُعرض بـ`decisionLabel: null` بدل رمز إنجليزي خام — **تبعة مقبولة صريحة**: القاموس سيصبح ناقصاً تلقائياً كل مرة يُضاف نوع مهمة أو قرار جديد بالكود دون تحديث مقابل هنا، ولا يوجد أي تنبيه أوتوماتيكي لذلك غير سجل التحذير.
+
+**`reason_code` منفصل تقنياً عن `final_decision`:** بخلاف `final_decision` (ثوابت كود)، `reason_code` نص حر يُطابق عادة `system_lists.value` لفئة تديرها الإدارة (تختلف حسب نوع المهمة)، مع تضارب في الاتفاقية (بعض الفئات تضع النص العربي في `value` مباشرة، وأخرى بـ`metadata.label` مع كود بـ`value`). لذلك لا يُستخدم قاموس ثابت لـ`reason_code`، بل مطابقة حيّة أفضل-جهد: `COALESCE(system_lists.metadata->>'label', system_lists.value)` بمطابقة `value = reason_code` — بلا نتيجة تُعرض `null`، لا الرمز الخام.
+
+### D-AV9 — سبب الإلغاء: التسمية المُصنَّفة فقط
+عند `status = 'cancelled'`، تُعرض تسمية `cancellation_reason_id` (عبر `system_lists`) فقط. **لا تُعرض `cancellation_notes`** الحرة، لنفس منطق D-AV8 — كتبها موظف (تيليماركتر/مشرف) لغرض داخلي.
+
+### D-AV10 — لا توقيت تنفيذ فعلي (GPS)
+شاشة التفاصيل تعرض فقط الموعد المجدول (`scheduled_date`/`scheduled_time`)، ولا تضيف أوقات وصول/انتهاء فعلية من `visit_geo_logs`. هذا الجدول مصمَّم لضبط الالتزام الميداني الداخلي لا كميزة تواصل مع الزبون؛ إن ظهرت حاجة فعلية له لاحقاً (مثل "مدة الزيارة")، تُضاف كنقطة مستقلة.
+
+### D-AV11 — استثناء بيانات الحجز والتشغيل الداخلية
+شاشة التفاصيل **لا تعرض أبداً**: معلومات حجز الموعد (اسم التيليماركتر `booked_by_telemarketer_id`، ملاحظاته `telemarketer_notes`، من ردّ على الاتصال `answered_by`، تاريخ الحجز `appointment_booked_at`)، تعليمات الفريق المسبقة (`field_instructions`)، وملاحظات الفريق بعد التنفيذ (`field_notes`). كل هذه بيانات تشغيلية كُتبت لجهة داخلية (تيليماركتر ↔ فريق ميداني)، لا للزبون — نفس فلسفة D-AV8/D-AV9.
+
 ---
 
 ## 3. التأثير على الكود
@@ -66,9 +84,12 @@
 ### 3.2 Backend
 | العنصر | الحالة |
 |---|---|
-| `routes/appDevices.ts` | 🆕 — `GET /api/app/me/devices`، تحت `requireAppAuth`، يوسّع نمط `appServiceRequests.ts` (`installed_devices` ⋈ `device_models` ⋈ `device_warranties`) بلا استثناء حالة (D-AV6) |
-| `routes/appVisits.ts` | 🆕 — `GET /api/app/me/visits`، `WHERE client_id = $1`، تبسيط حالات (D-AV2)، ربط فريق فعلي (D-AV3)، ربط جهاز (D-AV5) |
-| `index.ts` | تسجيل الراوترين الجديدين تحت `/api/app` |
+| `routes/appDevices.ts` | ✅ منفَّذ — `GET /api/app/me/devices`، تحت `requireAppAuth`، يوسّع نمط `appServiceRequests.ts` (`installed_devices` ⋈ `device_models` ⋈ `device_warranties`) بلا استثناء حالة (D-AV6) |
+| `routes/appVisits.ts` | ✅ منفَّذ — `GET /api/app/me/visits`، `WHERE client_id = $1`، تبسيط حالات (D-AV2)، ربط فريق فعلي (D-AV3)، ربط جهاز (D-AV5) |
+| `index.ts` | ✅ الراوتران مسجّلان تحت `/api/app` (يرثان `appReadLimiter` العام) |
+| `routes/appVisits.ts` — `GET /me/visits/:id` | ✅ منفَّذ — تفاصيل زيارة واحدة (D-AV8→D-AV11)، نفس حاجز `WHERE client_id = $1` مطبّق أيضاً على `id` الزيارة (عدم تسريب وجود زيارة زبون آخر: عدم تطابق `client_id` = نفس رد `404` الخاص بمعرّف غير موجود)، + `TASK_DECISION_LABELS` (15 نوع مهمة) |
+
+كل الاستعلامات (قائمة + تفاصيل) تحقّقت فعلياً على قاعدة `golden_crm_dev` (2026-08-13، تشمل زيارات حقيقية بأنواع مهام: golden_warranty_offer/card_delivery, periodic_maintenance, device_demo, device_delivery, device_installation) — لا اختبارات آلية بعد (مؤجَّلة).
 
 ### 3.3 Frontend
 خارج نطاق هذا المستودع (فريق الموبايل) — يُسلَّم كمرجع API (§4).
@@ -79,9 +100,9 @@
 
 | الملف | التحديث |
 |---|---|
-| `docs/api/mobile-devices-api-reference.md` | 🆕 مرجع API لـ `GET /me/devices` |
-| `docs/api/mobile-visits-api-reference.md` | 🆕 مرجع API لـ `GET /me/visits` |
-| `decisions/README.md` | إدراج DEC-017 |
+| `docs/api/mobile-devices-api-reference.md` | ✅ مرجع API لـ `GET /me/devices` |
+| `docs/api/mobile-visits-api-reference.md` | ✅ القائمة + التفاصيل (`GET /me/visits/:id`) موثّقتان بالكامل |
+| `decisions/README.md` | ✅ أُدرِج DEC-017 |
 
 ---
 
@@ -99,6 +120,7 @@
 - `P-DEC017-01`: بناء شكوى الزيارة كـ `request_type = 'visit_complaint'` على `service_requests` (يتطلب دستوراً فرعياً خاصاً بالصلاحيات ودورة الـ escalation).
 - `P-DEC017-02`: إشعارات الدفع (push notifications) عند تغيّر حالة الزيارة/الجهاز.
 - `P-DEC017-03`: هل تحتاج شاشة الأجهزة عرض تاريخ دفعات الضمان الذهبي للزبون، أم تبقى تفصيلاً مالياً داخلياً بحتاً؟
+- `P-DEC017-04`: `TASK_DECISION_LABELS` (D-AV8) قاموس يدوي بلا رقابة آلية — لا اختبار/تنبيه يفشل عند إضافة نوع مهمة أو قرار جديد بالكود دون تحديث القاموس المقابل. مقترح مستقبلي: اختبار CI يقارن مجموعة مفاتيح القاموس بمجموعة أنواع الـ`final_decision` المُصرَّح عنها في `visitTaskResultReflection.ts`/`emergencyResult.ts`، ويفشل عند وجود فارق.
 
 ---
 
@@ -111,3 +133,7 @@
 - `routes/appServiceRequests.ts` (سابقة نمط الاستعلام العميل-محدود، أسطر ~70–126)
 - `routes/fieldVisits.ts` (نمط حل الفريق الفعلي عبر `reassigned_*` + `team_snapshot`، أسطر ~1085–1188)
 - `middleware/appAuth.ts` (`requireAppAuth`, `req.appAccount`)
+- `features/visit-detail-page-constitution.md` (دستور شاشة تفاصيل الزيارة **الداخلية/الموظفين** — نطاق مختلف تماماً؛ D-AV8→D-AV11 يستعير بعض حقوله المُصنَّفة فقط للزبون، لا يعيد استخدام أي كود منه)
+- جدول `visit_task_results` (`final_decision`, `reason_code`, `closing_notes` — الأخير محجوب عن الزبون، D-AV8)
+- `field_visits.cancellation_reason_id → system_lists` (نمط الاستخدام في `routes/fieldVisits.ts:1694`)
+- `services/visitTaskResultReflection.ts` (كل أنواع `*FinalDecision` — مصدر `TASK_DECISION_LABELS`) و `routes/emergencyResult.ts` (`emergencyFinalDecisions`, `periodicFinalDecisions`)

@@ -8,6 +8,15 @@ export const EDITABLE_KEYS = [
   'dashboard_metric_refresh_hours',
   'visit_escalation_job_interval_minutes',
   'web_login_allowed_team_slots',
+  'water_check_daily_per_identity',
+  'emergency_maintenance_daily_per_identity',
+  'device_request_daily_per_identity',
+  'periodic_maintenance_daily_per_identity',
+  'golden_warranty_daily_per_identity',
+  'name_nomination_daily_per_identity',
+  'agent_license_daily_per_identity',
+  'name_nomination_max_names_per_request',
+  'name_nomination_daily_per_unverified_ip',
 ] as const;
 
 export type EditableKey = typeof EDITABLE_KEYS[number];
@@ -23,6 +32,15 @@ const SETTING_TYPES: Record<EditableKey, EditableSettingType> = {
   dashboard_metric_refresh_hours: 'integer',
   visit_escalation_job_interval_minutes: 'integer',
   web_login_allowed_team_slots: 'slot_list',
+  water_check_daily_per_identity: 'integer',
+  emergency_maintenance_daily_per_identity: 'integer',
+  device_request_daily_per_identity: 'integer',
+  periodic_maintenance_daily_per_identity: 'integer',
+  golden_warranty_daily_per_identity: 'integer',
+  name_nomination_daily_per_identity: 'integer',
+  agent_license_daily_per_identity: 'integer',
+  name_nomination_max_names_per_request: 'integer',
+  name_nomination_daily_per_unverified_ip: 'integer',
 };
 
 const ALLOWED_PERIODIC_STATUSES = new Set(['open', 'assigned', 'in_scheduling', 'scheduled', 'waiting_execution']);
@@ -52,6 +70,9 @@ export function normalizeSettingValue(key: EditableKey, value: unknown): string 
     if (!Number.isInteger(n) || n < 0) throw new Error('القيمة يجب أن تكون رقماً صحيحاً موجباً.');
     if (key === 'periodic_default_interval_months' && n < 1) {
       throw new Error('فترة الصيانة الافتراضية يجب أن تكون شهراً واحداً على الأقل.');
+    }
+    if (key === 'name_nomination_max_names_per_request' && n < 1) {
+      throw new Error('الحد الأقصى للأسماء يجب أن يكون اسماً واحداً على الأقل.');
     }
     if (key === 'visit_escalation_job_interval_minutes' && (n < 1 || n > 1440)) {
       throw new Error('فترة فحص تنبيهات الزيارات يجب أن تكون بين دقيقة و1440 دقيقة.');
