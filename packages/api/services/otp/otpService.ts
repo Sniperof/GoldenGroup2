@@ -207,13 +207,36 @@ export async function sendOtp(input: SendOtpInput): Promise<SendOtpResult> {
   const code = generateCode(OTP_CODE_LENGTH);
   const codeHash = await bcrypt.hash(code, 10);
 
-  await pool.query(
+  const { rows: inserted } = await pool.query<{ id: number }>(
     `INSERT INTO otp_verifications (phone, purpose, code_hash, expires_at, last_sent_at)
-     VALUES ($1, $2, $3, NOW() + make_interval(secs => $4), NOW())`,
+     VALUES ($1, $2, $3, NOW() + make_interval(secs => $4), NOW())
+     RETURNING id`,
     [phone, purpose, codeHash, OTP_TTL_SECONDS],
   );
+  const otpId = inserted[0].id;
 
-  await getOtpSender().send(phone, code, purpose);
+  try {
+    const result = await getOtpSender().send(phone, code, purpose);
+    await pool.query(
+      `UPDATE otp_verifications
+          SET provider = $2, provider_request_id = $3, provider_status = $4,
+              provider_message_id = $5, provider_usage_id = $6
+        WHERE id = $1`,
+      [otpId, result.provider, result.providerRequestId, result.providerStatus,
+        result.providerMessageId, result.providerUsageId],
+    );
+  } catch (err) {
+    const failureCode = (err as { code?: string }).code || 'unknown';
+    await pool.query(
+      `UPDATE otp_verifications SET send_failure_reason = $2 WHERE id = $1`,
+      [otpId, failureCode],
+    );
+    throw httpError(
+      failureCode === 'sms_provider_unavailable' ? 503 : 502,
+      (err as Error).message || 'تعذّر إرسال رسالة التحقق',
+      { code: failureCode },
+    );
+  }
 
   return {
     sent: true,

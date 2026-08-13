@@ -5,16 +5,22 @@
 //
 // The rest of the OTP layer (storage, expiry, attempts, handle issuance)
 // is identical regardless of provider — only the delivery step swaps.
-//   - now:   SimulatedOtpSender (logs the code, no external call)
-//   - later: SmsOtpSender, selected by OTP_PROVIDER=sms, WITHOUT changing
-//            the API contract or the mobile integration.
+//   - SimulatedOtpSender (OTP_PROVIDER=simulated): logs the code, no external call
+//   - RaselOtpSender (OTP_PROVIDER=sms): real SMS via Rasel — neither changes
+//     the API contract or the mobile integration.
 // ============================================================
 
 import { OTP_PROVIDER } from '../../config/env.js';
+import { RaselOtpSender } from './raselOtpSender.js';
 
 export interface OtpSendResult {
   delivered: boolean;
   provider: string;
+  /** Present only for providers that return tracking metadata (e.g. Rasel). */
+  providerRequestId?: string;
+  providerStatus?: string;
+  providerMessageId?: string;
+  providerUsageId?: string;
 }
 
 export interface OtpSender {
@@ -49,7 +55,9 @@ let cached: OtpSender | null = null;
 export function getOtpSender(): OtpSender {
   if (cached) return cached;
   switch (OTP_PROVIDER) {
-    // case 'sms': cached = new SmsOtpSender(); break;   // Phase: production
+    case 'sms':
+      cached = new RaselOtpSender();
+      break;
     case 'simulated':
       cached = new SimulatedOtpSender();
       break;

@@ -64,7 +64,7 @@ export const TRUST_PROXY: number | boolean | string =
 // Fail-closed: an unknown value is a hard error, and 'simulated' is refused in
 // production — a silent fallback would accept requests while delivering nothing
 // and print live codes to the log (permissions standard §13, SH-3).
-export const OTP_PROVIDERS = ['simulated'] as const;
+export const OTP_PROVIDERS = ['simulated', 'sms'] as const;
 export const OTP_PROVIDER = (process.env.OTP_PROVIDER || 'simulated').toLowerCase();
 if (!(OTP_PROVIDERS as readonly string[]).includes(OTP_PROVIDER)) {
   throw new Error(
@@ -91,6 +91,41 @@ export const OTP_EXPOSE_CODE = NODE_ENV !== 'production' && OTP_PROVIDER === 'si
 // caps one number at ~1440 messages/day — with a paid SMS provider that is a
 // direct spend channel. 0 disables the cap.
 export const OTP_DAILY_CAP_PER_PHONE = parseInt(process.env.OTP_DAILY_CAP_PER_PHONE || '10');
+
+// ── Rasel SMS provider (OTP_PROVIDER=sms) ───────────────────────────────────
+// Config for RaselOtpSender (services/otp/raselOtpSender.ts). Ops docs from the
+// provider handoff call this switch `SMS_PROVIDER_MODE=mock|rasel` — that is
+// NOT a separate flag here; OTP_PROVIDER above ('simulated' == their 'mock',
+// 'sms' == their 'rasel') is the single source of truth, so there is only one
+// place that decides which sender is active.
+export const RASEL_BASE_URL = process.env.RASEL_BASE_URL || 'https://raselsms.com';
+// Provider-supplied v2 contract (public docs still show v1) — confirm in the
+// Rasel dashboard before production if this ever needs to change.
+export const RASEL_SEND_PATH = process.env.RASEL_SEND_PATH || '/api/v2/messages/send';
+export const RASEL_API_KEY = process.env.RASEL_API_KEY;
+export const RASEL_CHANNEL = process.env.RASEL_CHANNEL || 'local_sms';
+export const RASEL_SENDER_ID = process.env.RASEL_SENDER_ID;
+export const RASEL_TIMEOUT_MS = parseInt(process.env.RASEL_TIMEOUT_MS || '10000');
+// Provider trial restricts real delivery to one number; block everything else
+// server-side so testing never burns quota on a call the provider will reject.
+export const RASEL_TRIAL_MODE = (process.env.RASEL_TRIAL_MODE ?? 'true') !== 'false';
+export const RASEL_TRIAL_ALLOWED_TO = process.env.RASEL_TRIAL_ALLOWED_TO || '963987223900';
+// Fast disable without a redeploy: flip this and `pm2 restart` (see CLAUDE.md).
+export const RASEL_KILL_SWITCH = (process.env.RASEL_KILL_SWITCH || 'false') === 'true';
+
+if (OTP_PROVIDER === 'sms' && !RASEL_API_KEY) {
+  throw new Error('OTP_PROVIDER=sms requires RASEL_API_KEY to be set.');
+}
+if (OTP_PROVIDER === 'sms' && !RASEL_SENDER_ID) {
+  throw new Error('OTP_PROVIDER=sms requires RASEL_SENDER_ID to be set.');
+}
+if (NODE_ENV === 'production' && RASEL_TRIAL_MODE) {
+  throw new Error(
+    'RASEL_TRIAL_MODE=true is refused in production: it silently blocks delivery to every ' +
+    'number except the provider trial number. Set RASEL_TRIAL_MODE=false once Rasel has ' +
+    'enabled production sending.',
+  );
+}
 
 // ── Customer app tokens (DEC-013 §6) ────────────────────────────────────────
 // Short access token + long rotating refresh token (separate from staff auth).
