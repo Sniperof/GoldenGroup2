@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
+import DateField from '../ui/DateField';
 import {
     CheckCircle2, Send, PhoneMissed, PhoneCall,
     PhoneForwarded, UserCheck, PhoneOff, Edit3, Calendar, Layers,
-} from 'lucide-react';
+} from '../ui/icons';
 import { TelemarketingOutcomeCode, OUTCOME_MAP } from '@golden-crm/shared';
 import { useSystemList } from '../../hooks/useSystemList';
 import Button from '../ui/Button';
@@ -226,10 +227,9 @@ export default function MessageReplyOutcomeModal({ isOpen, onClose, canBook = fa
                                         <Calendar className="w-3.5 h-3.5" />
                                         الموعد المتوقع <span className="text-violet-400 font-normal">(اختياري)</span>
                                     </label>
-                                    <input type="date" value={followUpDate} onChange={e => setFollowUpDate(e.target.value)}
+                                    <DateField value={followUpDate} onChange={setFollowUpDate}
                                         min={new Date().toISOString().split('T')[0]}
-                                        className="w-full bg-white border border-violet-200 rounded-lg px-3 py-2 text-sm focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 focus:outline-none"
-                                        dir="ltr" />
+                                        className="w-full bg-white border border-violet-200 rounded-lg pl-3 py-2 text-sm focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 focus:outline-none" />
                                 </div>
                                 {/* Priority */}
                                 <div className="space-y-1.5">

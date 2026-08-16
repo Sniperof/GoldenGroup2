@@ -4,19 +4,20 @@ import type { JobVacancy, GeoUnit, ReferralType, ReferralOriginChannel, Client }
 import { useSystemListsStore } from '../../hooks/useSystemLists';
 import { authFetch } from '../../lib/authFetch';
 import { api } from '../../lib/api';
-import { findEmployeeByNumber, formatEmployeeMediatorLabel, toMediatorEmployee, MediatorEmployee } from '../../lib/employeeMediatorLookup';
+import { findEmployeeByNumber, formatEmployeeMediatorLabel, resolveEmployeeMediatorReference, toMediatorEmployee, MediatorEmployee } from '../../lib/employeeMediatorLookup';
 import GeoSmartSearch, { GeoSelection } from '../../components/GeoSmartSearch';
 import {
   ChevronRight, Search, Briefcase, MapPin, Users, GraduationCap,
   Calendar, Car, PartyPopper, AlertTriangle, X, User, CheckCircle,
   Phone, Home, BookOpen, Monitor, Globe, DollarSign, Send, Info, Loader2,
   File, UploadCloud, Paperclip
-} from 'lucide-react';
+} from '../../components/ui/icons';
 import { motion, AnimatePresence } from 'framer-motion';
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import { SYRIAN_MOBILE_HINT, isValidSyrianMobile } from '../../lib/contactRules';
 import Select from '../../components/ui/Select';
+import DateField from '../../components/ui/DateField';
 import Button from '../../components/ui/Button';
 
 // --- Types & Constants ---
@@ -328,16 +329,15 @@ export default function PublicJobs() {
     if (applicant.foreignLanguages.length === 0) e.foreignLanguages = 'مطلوب لغة واحدة على الأقل. اختر لا يوجد إن لزم.';
     if (!applicant.yearsOfExperience || parseInt(applicant.yearsOfExperience) < 0) e.yearsOfExperience = 'مطلوبة (أرقام فقط)';
 
-    // Attachments (Section 5)
-    if (!applicant.photoFile && !applicant.photoUrl) e.photoFile = 'الصورة الشخصية مطلوبة';
-
     // Referrer (Section 6)
     if (submissionType === 'Refer a Candidate' && referrer.isReferrer) {
       if (!referrer.type) e.referrer_type = 'مطلوب';
 
       if (referrer.type === 'Employee') {
         if (!referrer.employeeId.trim()) e.referrer_employeeId = 'رقم الموظف مطلوب';
-        if (!employeeFound) e.referrer_employeeId = 'لم يتم العثور على الموظف';
+        if (!resolveEmployeeMediatorReference(referrer.employeeId, employeeFound)) {
+          e.referrer_employeeId = 'لم يتم العثور على الموظف';
+        }
       } else if (referrer.type === 'Client') {
         if (!selectedClientId) e.referrer_fullName = 'الرجاء اختيار الزبون الوسيط';
       }
@@ -362,6 +362,9 @@ export default function PublicJobs() {
 
   const handleSubmit = async () => {
     if (!validate()) return;
+    const employeeReference = referrer.type === 'Employee'
+      ? resolveEmployeeMediatorReference(referrer.employeeId, employeeFound)
+      : null;
     
     setSubmitResult(null);
     setSubmitting(true);
@@ -382,7 +385,7 @@ export default function PublicJobs() {
 
       if (applicant.photoFile) finalPhotoUrl = await uploadFile(applicant.photoFile);
       if (applicant.cvFile) finalCvUrl = await uploadFile(applicant.cvFile);
-      // photoUrl stays null/empty if no file selected (validation above catches it)
+      // Personal photo and CV are optional in both public and manual application flows.
 
       const payload: any = {
         jobVacancyId: selectedVacancy!.id,
@@ -423,11 +426,11 @@ export default function PublicJobs() {
         payload.referrer = {
           type: referrer.type,
           sourceChannel: referrer.sourceChannel,
-          employeeId: referrer.employeeId ? parseInt(referrer.employeeId) : null,
+          employeeId: employeeReference?.employeeId ?? null,
           referralEntityId: referrer.type === 'Employee'
-            ? (referrer.employeeId ? parseInt(referrer.employeeId) : null)
+            ? (employeeReference?.referralEntityId ?? null)
             : (selectedClientId ?? null),
-          fullName: referrer.fullName.trim() || null,
+          fullName: employeeReference?.fullName ?? (referrer.fullName.trim() || null),
           lastName: referrer.lastName.trim() || null,
           governorate: getGeoName(referrer.geoSelection.govId) || null,
           cityOrArea: getGeoName(referrer.geoSelection.regionId) || null,
@@ -614,7 +617,7 @@ export default function PublicJobs() {
               <FormSection num={1} title="البيانات الشخصية" subtitle="أدخل معلومات المتقدم الرئيسية" icon={User} delay={0.1}>
                 <Field label="الاسم الأول" required error={fieldErrors.firstName}><input value={applicant.firstName} onChange={e => handleNameInput(e.target.value, 'firstName')} className={inputCls(!!fieldErrors.firstName)} /></Field>
                 <Field label="الكنية" required error={fieldErrors.lastName}><input value={applicant.lastName} onChange={e => handleNameInput(e.target.value, 'lastName')} className={inputCls(!!fieldErrors.lastName)} /></Field>
-                <Field label="تاريخ الميلاد" required error={fieldErrors.dob}><input type="date" value={applicant.dob} onChange={e => setA('dob', e.target.value)} max={new Date().toISOString().split('T')[0]} className={inputCls(!!fieldErrors.dob)} /></Field>
+                <Field label="تاريخ الميلاد" required error={fieldErrors.dob}><DateField value={applicant.dob} onChange={v => setA('dob', v)} max={new Date().toISOString().split('T')[0]} className={inputCls(!!fieldErrors.dob)} /></Field>
                 <Field label="الجنس" required error={fieldErrors.gender}>
                   <Select
                     value={applicant.gender}
@@ -756,7 +759,7 @@ export default function PublicJobs() {
 
               <FormSection num={5} title="المرفقات" subtitle="ملفات الوثائق الثبوتية وصورة المتقدم" icon={Paperclip} delay={0.5}>
                  <div className="lg:col-span-1">
-                   <Field label="صورة شخصية (PNG/JPG)" required error={fieldErrors.photoFile}>
+                   <Field label="صورة شخصية (PNG/JPG، اختياري)" error={fieldErrors.photoFile}>
                      <div className={`mt-1 border-2 border-dashed rounded-2xl p-6 text-center ${applicant.photoFile ? 'border-emerald-400 bg-emerald-50' : fieldErrors.photoFile ? 'border-red-300 bg-red-50' : 'border-slate-300 bg-white hover:bg-slate-50'}`}>
                        <input type="file" id="photo-upload" accept=".png,.jpg,.jpeg" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if(f) setA('photoFile', f); }} />
                        <label htmlFor="photo-upload" className="cursor-pointer flex flex-col items-center gap-2">
@@ -810,7 +813,16 @@ export default function PublicJobs() {
                         <>
                           <Field label="رقم الموظف" required error={fieldErrors.referrer_employeeId}>
                             <div className="flex gap-2">
-                              <input value={referrer.employeeId} onChange={e => setR('employeeId', e.target.value)} className={inputCls(!!fieldErrors.referrer_employeeId)} placeholder="Emp-ID" />
+                              <input
+                                value={referrer.employeeId}
+                                onChange={e => {
+                                  setR('employeeId', e.target.value);
+                                  setEmployeeFound(null);
+                                  setR('fullName', '');
+                                }}
+                                className={inputCls(!!fieldErrors.referrer_employeeId)}
+                                placeholder="Emp-ID"
+                              />
                               <Button type="button" onClick={handleEmployeeLookup}>جلب</Button>
                             </div>
                           </Field>
@@ -884,8 +896,8 @@ export default function PublicJobs() {
                   )}
                 </div>
                 <div className="flex gap-4 w-full md:w-auto">
-                  <Button variant="secondary" size="lg" onClick={() => setSelectedVacancy(null)} className="flex-1 md:flex-none">إلغاء</Button>
-                  <Button variant="primary" size="lg" icon={Send} loading={submitting} onClick={handleSubmit} className="flex-1 md:flex-none">
+                  <Button variant="secondary" size="md" onClick={() => setSelectedVacancy(null)} className="flex-1 md:flex-none">إلغاء</Button>
+                  <Button variant="primary" size="md" icon={Send} loading={submitting} onClick={handleSubmit} className="flex-1 md:flex-none">
                     {submitting ? 'جاري المعالجة...' : 'حفظ وتسجيل الطلب'}
                   </Button>
                 </div>

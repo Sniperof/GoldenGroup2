@@ -3,7 +3,7 @@ import { Navigate } from 'react-router-dom';
 import {
   Settings2, Save, Loader2, Info, AlertTriangle,
   Clock, Calendar, CalendarClock, Zap, CheckCircle2, XCircle,
-} from 'lucide-react';
+} from '../../components/ui/icons';
 import { api } from '../../lib/api';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import Select from '../../components/ui/Select';

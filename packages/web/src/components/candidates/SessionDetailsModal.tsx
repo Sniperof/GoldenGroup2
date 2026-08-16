@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useCandidateStore } from '../../hooks/useCandidateStore';
-import { Calendar, User, FileText, AlertCircle, Phone, MapPin, ShieldCheck, Gift, Plus, Trash2 } from 'lucide-react';
+import { Calendar, User, FileText, AlertCircle, Phone, MapPin, ShieldCheck, Gift, Plus, Trash2 } from '../ui/icons';
 import QualificationModal from './QualificationModal';
 import ClientModal from '../ClientModal';
 import { Candidate, Client, GeoUnit } from '../../lib/types';
@@ -9,6 +10,7 @@ import { formatGeoUnitLastLevels } from '../GeoSmartSearch';
 import { usePermissions } from '../../hooks/usePermissions';
 import Button from '../ui/Button';
 import Modal from '../ui/Modal';
+import DataTable from '../ui/DataTable';
 import {
     giftConditionStatusLabels,
     type GiftConditionStatus,
@@ -282,41 +284,40 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
 
                 <div className="border-t border-slate-100 pt-4 overflow-hidden flex flex-col flex-1">
                     <h3 className="text-base font-bold text-slate-800 mb-3 px-1">قائمة الأسماء في هذه الورقة</h3>
-                    <div className="overflow-x-auto rounded-xl border border-slate-200">
-                        <table className="w-full text-right bg-white">
-                            <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10 shadow-sm">
-                                <tr>
-                                    <th className="px-4 py-3 text-xs font-black text-slate-500 w-16">ID</th>
-                                    <th className="px-4 py-3 text-xs font-black text-slate-600">الاسم المقترح</th>
-                                    <th className="px-4 py-3 text-xs font-black text-slate-600">أرقام التواصل</th>
-                                    <th className="px-4 py-3 text-xs font-black text-slate-600">العنوان</th>
-                                    <th className="px-4 py-3 text-xs font-black text-slate-600">المهنة</th>
-                                    <th className="px-4 py-3 text-xs font-black text-slate-600">الحالة</th>
-                                    <th className="px-4 py-3 text-xs font-black text-slate-600 text-center w-24">الإجراءات</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100">
-                                {sheetCandidates.map(c => {
+                    <DataTable wrapperClassName="rounded-xl border border-slate-200">
+                        <DataTable.Head className="sticky top-0 z-10 shadow-sm">
+                            <DataTable.Row>
+                                <DataTable.Th className="w-16">ID</DataTable.Th>
+                                <DataTable.Th>الاسم المقترح</DataTable.Th>
+                                <DataTable.Th>أرقام التواصل</DataTable.Th>
+                                <DataTable.Th>العنوان</DataTable.Th>
+                                <DataTable.Th>المهنة</DataTable.Th>
+                                <DataTable.Th>الحالة</DataTable.Th>
+                                <DataTable.Th align="center" className="w-24">الإجراءات</DataTable.Th>
+                            </DataTable.Row>
+                        </DataTable.Head>
+                        <DataTable.Body>
+                            {sheetCandidates.map(c => {
                                     const allNumbers = c.contacts && c.contacts.length > 0
                                         ? c.contacts.map(con => con.number).filter(Boolean)
                                         : c.mobile ? [c.mobile] : [];
                                     return (
-                                    <tr key={c.id} className="hover:bg-slate-50/50 transition-colors group">
+                                    <DataTable.Row key={c.id} className="hover:bg-slate-50/50 transition-colors group">
                                         {/* ID */}
-                                        <td className="px-4 py-3">
+                                        <DataTable.Td>
                                             <span className="text-xs font-mono text-slate-400">#{c.id}</span>
-                                        </td>
+                                        </DataTable.Td>
                                         {/* الاسم المقترح */}
-                                        <td className="px-4 py-3">
-                                            <span className="font-bold text-slate-800 text-sm">
+                                        <DataTable.Td>
+                                            <Link to={`/candidates/${c.id}`} className="font-bold text-slate-800 text-sm hover:text-sky-700 hover:underline">
                                                 {[c.firstName, c.lastName].filter(Boolean).join(' ') || c.nickname || '--'}
-                                            </span>
+                                            </Link>
                                             {c.nickname && (c.firstName || c.lastName) && (
                                                 <div className="text-xs text-slate-400 mt-0.5">({c.nickname})</div>
                                             )}
-                                        </td>
+                                        </DataTable.Td>
                                         {/* أرقام التواصل */}
-                                        <td className="px-4 py-3">
+                                        <DataTable.Td>
                                             {allNumbers.length > 0 ? (
                                                 <div className="space-y-0.5">
                                                     {allNumbers.map((num, i) => (
@@ -329,9 +330,9 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
                                             ) : (
                                                 <span className="text-slate-300 text-sm">--</span>
                                             )}
-                                        </td>
+                                        </DataTable.Td>
                                         {/* العنوان */}
-                                        <td className="px-4 py-3">
+                                        <DataTable.Td>
                                             {getCandidateAddressDisplay(c) !== '--' ? (
                                                 <div className="flex items-center gap-1.5 text-slate-600 text-sm">
                                                     <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
@@ -340,13 +341,13 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
                                             ) : (
                                                 <span className="text-slate-300 text-sm">--</span>
                                             )}
-                                        </td>
+                                        </DataTable.Td>
                                         {/* المهنة */}
-                                        <td className="px-4 py-3">
+                                        <DataTable.Td>
                                             <span className="text-sm text-slate-600">{c.occupation || '--'}</span>
-                                        </td>
+                                        </DataTable.Td>
                                         {/* الحالة */}
-                                        <td className="px-4 py-3">
+                                        <DataTable.Td>
                                             <span className={`px-2 py-1 rounded text-xs font-bold border ${
                                                 c.status === 'Suggested' ? 'bg-sky-50 text-sky-700 border-sky-200'
                                                 : c.status === 'FollowUp' ? 'bg-amber-50 text-amber-700 border-amber-200'
@@ -355,18 +356,18 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
                                             }`}>
                                                 {c.status === 'Suggested' ? 'مقترح'
                                                 : c.status === 'FollowUp' ? 'متابعة'
-                                                : c.status === 'Qualified' ? (c.duplicateFlag ? 'تم الربط' : 'تم التحويل')
+                                                : c.status === 'Qualified' ? 'مؤهل'
                                                 : 'مرفوض'}
                                             </span>
                                             {c.duplicateFlag && (
                                                 <div className={`text-xs font-bold mt-1 flex items-center gap-1 ${c.status === 'Qualified' ? 'text-emerald-600' : 'text-amber-500'}`}>
                                                     <AlertCircle className="w-3 h-3" />
-                                                    {c.status === 'Qualified' ? 'زبون حالي' : 'احتمال تكرار'}
+                                                    احتمال تكرار
                                                 </div>
                                             )}
-                                        </td>
+                                        </DataTable.Td>
                                         {/* الإجراءات */}
-                                        <td className="px-4 py-3 text-center">
+                                        <DataTable.Td align="center">
                                             {canEditCandidates && (c.status === 'Suggested' || c.status === 'FollowUp') && (
                                                 <button
                                                     onClick={() => handleOpenQualify(c)}
@@ -376,8 +377,8 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
                                                     <ShieldCheck className="w-4 h-4" />
                                                 </button>
                                             )}
-                                        </td>
-                                    </tr>
+                                        </DataTable.Td>
+                                    </DataTable.Row>
                                     );
                                 })}
                                 {sheetCandidates.length === 0 && (
@@ -387,9 +388,8 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
                                         </td>
                                     </tr>
                                 )}
-                            </tbody>
-                        </table>
-                    </div>
+                        </DataTable.Body>
+                    </DataTable>
                 </div>
             </div>
         </Modal>

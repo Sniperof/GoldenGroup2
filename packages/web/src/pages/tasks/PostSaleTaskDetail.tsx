@@ -1,19 +1,9 @@
 import { useLocation, useParams } from 'react-router-dom';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw } from '../../components/ui/icons';
 import TaskDetailLayout from '../../components/tasks/TaskDetailLayout';
 import { InfoLine, formatDate } from '../../components/tasks/shared';
-import type { TaskResultModalProps, TaskTypeExtension, TaskDetailData } from '../../components/tasks/types';
+import type { TaskTypeExtension, TaskDetailData } from '../../components/tasks/types';
 import DeliveryInfoTab from '../../taskTypes/device_delivery/DeliveryInfoTab';
-import DeviceActivationResultModal from '../../taskTypes/device_delivery/DeviceActivationResultModal';
-import DeviceCheckupResultModal from '../../taskTypes/device_delivery/DeviceCheckupResultModal';
-import DeviceDeliveryResultModal from '../../taskTypes/device_delivery/DeviceDeliveryResultModal';
-import DeviceDisconnectionResultModal from '../../taskTypes/device_delivery/DeviceDisconnectionResultModal';
-import DeviceInstallationResultModal from '../../taskTypes/device_delivery/DeviceInstallationResultModal';
-import DeviceRetrievalResultModal from '../../taskTypes/device_delivery/DeviceRetrievalResultModal';
-import DeviceReturnResultModal from '../../taskTypes/device_delivery/DeviceReturnResultModal';
-import DeviceTransferResultModal from '../../taskTypes/device_delivery/DeviceTransferResultModal';
-
-const RECORDABLE_POST_SALE_TYPES = new Set(['device_delivery', 'device_installation', 'device_activation', 'device_checkup', 'device_disconnection', 'device_retrieval', 'device_return', 'device_transfer']);
 
 // The component is mounted from four group routes; the back link must point to
 // the group the user actually came from (group segment in /tasks/group/<g>/:id),
@@ -26,38 +16,7 @@ const BACK_BY_GROUP: Record<string, { href: string; label: string }> = {
   'after-sale-services': { href: '/tasks/group/after-sale-services', label: 'مهام خدمات ما بعد البيع' },
 };
 
-const PostSaleResultModal = (props: TaskResultModalProps) => {
-  const taskType = props.task?.taskType ?? props.task?.task_type;
-  if (taskType === 'device_activation') {
-    return <DeviceActivationResultModal {...props} />;
-  }
-  if (taskType === 'device_checkup') {
-    return <DeviceCheckupResultModal {...props} />;
-  }
-  if (taskType === 'device_installation') {
-    return <DeviceInstallationResultModal {...props} />;
-  }
-  if (taskType === 'device_delivery') {
-    return <DeviceDeliveryResultModal {...props} />;
-  }
-  if (taskType === 'device_disconnection') {
-    return <DeviceDisconnectionResultModal {...props} />;
-  }
-  if (taskType === 'device_retrieval') {
-    return <DeviceRetrievalResultModal {...props} />;
-  }
-  if (taskType === 'device_return') {
-    return <DeviceReturnResultModal {...props} />;
-  }
-  if (taskType === 'device_transfer') {
-    return <DeviceTransferResultModal {...props} />;
-  }
-  return null;
-};
-
 const postSaleExtension: TaskTypeExtension = {
-  ResultModal: PostSaleResultModal,
-  canRecordResultFor: (task) => RECORDABLE_POST_SALE_TYPES.has(task?.taskType ?? task?.task_type),
   extraTabs: [
     {
       id: 'delivery-info',

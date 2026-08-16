@@ -16,6 +16,10 @@ const options: swaggerJsdoc.Options = {
     },
     servers: [
       {
+        url: 'http://localhost:3000',
+        description: 'Local dev',
+      },
+      {
         url: 'http://76.13.133.8:3001',
         description: 'Staging',
       },
@@ -33,6 +37,16 @@ const options: swaggerJsdoc.Options = {
   apis: [
     path.join(__dirname, 'index.ts'),
     path.join(__dirname, 'routes', 'auth.ts'),
+    path.join(__dirname, 'routes', 'appOtp.ts'),
+    path.join(__dirname, 'routes', 'appAccount.ts'),
+    path.join(__dirname, 'routes', 'appAuth.ts'),
+    path.join(__dirname, 'routes', 'appServiceRequests.ts'),
+    path.join(__dirname, 'routes', 'appHome.ts'),
+    path.join(__dirname, 'routes', 'appHomeBanners.ts'),
+    path.join(__dirname, 'routes', 'appContactLinks.ts'),
+    path.join(__dirname, 'routes', 'media.ts'),
+    path.join(__dirname, 'routes', 'adminAccountRequests.ts'),
+    path.join(__dirname, 'routes', 'adminAppAccounts.ts'),
     path.join(__dirname, 'routes', 'geoUnits.ts'),
     path.join(__dirname, 'routes', 'branches.ts'),
     path.join(__dirname, 'routes', 'employees.ts'),

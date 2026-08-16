@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react';
 import {
   AlertCircle, ArrowLeft, ArrowRight, CheckCircle2,
   Edit, Loader2, Package, Plus, Save, Trash2, X,
-} from 'lucide-react';
-import { api } from '../../../lib/api';
+} from '../../ui/icons';
+import { api, type EmergencyResultContext } from '../../../lib/api';
 import { useSystemListItems } from '../../../hooks/useSystemListItems';
 import Select from '../../ui/Select';
 import Card from '../../ui/Card';
@@ -262,7 +262,7 @@ function PartDraftForm({ draft, allParts, maintenanceKind, activeWarranty, noRet
             onChange={e => set('unitPrice', e.target.value)}
             className={`${inp} text-sm`} />
           {coveredByWarranty && (
-            <p className="text-[10px] font-bold text-sky-600">صفر افتراضياً ضمن الكفالة</p>
+            <p className="text-xs font-bold text-sky-600">صفر افتراضياً ضمن الكفالة</p>
           )}
         </div>
         <div className="space-y-1">
@@ -386,6 +386,7 @@ function PartDraftForm({ draft, allParts, maintenanceKind, activeWarranty, noRet
 
 interface Props {
   taskId: number;
+  resultContext: EmergencyResultContext | null;
   initialData?: any;
   readOnly?: boolean;
   onSaved: () => void;
@@ -395,7 +396,7 @@ interface Props {
   activeWarranty?: ActiveWarranty;
 }
 
-export default function MaintenanceActionsForm({ taskId, initialData, readOnly = false, onSaved, onNext, onBack, maintenanceKind = 'emergency', activeWarranty = null }: Props) {
+export default function MaintenanceActionsForm({ taskId, resultContext, initialData, readOnly = false, onSaved, onNext, onBack, maintenanceKind = 'emergency', activeWarranty = null }: Props) {
   const [allParts, setAllParts]         = useState<SparePartRaw[]>([]);
   const [actionTypes, setActionTypes]   = useState<any[]>([]);
   const [actionTypeId, setActionTypeId] = useState(initialData?.actionTypeId ? String(initialData.actionTypeId) : '');
@@ -447,6 +448,9 @@ export default function MaintenanceActionsForm({ taskId, initialData, readOnly =
   // so the wizard stays on phase 2 and the technician can keep adding parts.
   // onSaved() is only called from handleSaveMeta() when the user finishes the phase.
   const persistParts = async (newParts: SavedPart[]) => {
+    if (!resultContext) {
+      throw new Error('يجب فتح نتيجة الصيانة من داخل الزيارة المرتبطة');
+    }
     await api.emergencyResult.saveParts(taskId, newParts.map(p => ({
       sparePartId:          p.sparePartId,
       partNameSnapshot:     p.partNameSnapshot,
@@ -463,7 +467,7 @@ export default function MaintenanceActionsForm({ taskId, initialData, readOnly =
       executionStatus:      p.executionStatus,
       customerRefusalReasonId: p.customerRefusalReasonId,
       customerRefusalReasonText: p.customerRefusalReasonText || null,
-    })));
+    })), resultContext);
     // intentionally NOT calling onSaved() here
   };
 
@@ -534,6 +538,10 @@ export default function MaintenanceActionsForm({ taskId, initialData, readOnly =
 
   // ── Save meta (action type + notes) ─────────────────────────────────────────
   const handleSaveMeta = async (andNext = false) => {
+    if (!resultContext) {
+      setError('يجب فتح نتيجة الصيانة من داخل الزيارة المرتبطة');
+      return;
+    }
     setSavingMeta(true); setError('');
     try {
       await api.emergencyResult.saveActions(taskId, {
@@ -542,7 +550,7 @@ export default function MaintenanceActionsForm({ taskId, initialData, readOnly =
         actionsTaken:    null,
         technicianNotes: techNotes.trim() || null,
         partsUsed:       [],
-      });
+      }, resultContext);
       onSaved();
       if (andNext && onNext) onNext();
     } catch (err: any) { setError(err.message || 'فشل الحفظ'); }

@@ -7,6 +7,7 @@ production.env
 
 # dependencies
 node_modules/
+.pnpm-store/
 
 # builds
 dist/
@@ -14,6 +15,7 @@ packages/*/dist/
 
 # runtime data
 uploads/
+media/
 logs/
 tmp/
 *.log

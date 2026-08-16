@@ -10,3 +10,4 @@
 - `domain-template.md`
 - `feature-template.md`
 - `decision-template.md`
+- `unified-service-request-template.md`

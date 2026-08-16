@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { useEffect } from 'react';
 import { useAuthStore } from './hooks/useAuthStore';
 import Login from './pages/auth/Login';
@@ -14,12 +14,12 @@ import EmployeeDetail from './pages/EmployeeDetail';
 import Clients from './pages/Clients';
 import ClientProfile from './pages/ClientProfile';
 import CandidatesEntry from './pages/candidates/CandidatesEntry';
+import CandidateDetail from './pages/candidates/CandidateDetail';
 import TeamScheduler from './pages/planning/TeamScheduler';
 import ZoneStudy from './pages/planning/ZoneStudy';
 import RouteAssigner from './pages/planning/RouteAssigner';
 import PlanOverview from './pages/planning/PlanOverview';
 import PlanningContactTargets from './pages/planning/PlanningContactTargets';
-import EmergencyTasks from './pages/tasks/EmergencyTasks';
 import EmergencyTaskDetail from './pages/tasks/EmergencyTaskDetail';
 import Dues from './pages/tasks/Dues';
 import DeviceManagement from './pages/DeviceManagement';
@@ -32,7 +32,6 @@ import ContractDetail from './pages/contracts/ContractDetail';
 import GiftsManagement from './pages/gifts/GiftsManagement';
 import TelemarketerWorkspace from './pages/TelemarketerWorkspace';
 import TeamTasksDetail from './pages/planning/TeamTasksDetail';
-import DeviceDemo from './pages/tasks/DeviceDemo';
 import DeviceDemoDetail from './pages/tasks/DeviceDemoDetail';
 import PostSaleTaskDetail from './pages/tasks/PostSaleTaskDetail';
 import WarrantyServicesTaskDetail from './pages/tasks/WarrantyServicesTaskDetail';
@@ -59,6 +58,8 @@ import RolePermissions from './pages/admin/RolePermissions';
 import PermissionSettings from './pages/admin/PermissionSettings';
 import TaskTypes from './pages/admin/TaskTypes';
 import EmergencyActionTypes from './pages/admin/EmergencyActionTypes';
+import AppHomeBanners from './pages/admin/AppHomeBanners';
+import AppContactLinks from './pages/admin/AppContactLinks';
 import VisitsListPage from './pages/visits/VisitsListPage';
 import MyVisitsPage from './pages/visits/MyVisitsPage';
 import VisitDetailPage from './pages/visits/VisitDetailPage';
@@ -66,12 +67,26 @@ import TaskGroupPage from './pages/tasks/TaskGroupPage';
 import ServiceRequestsListPage from './pages/service-requests/ServiceRequestsListPage';
 import ServiceRequestDetailPage from './pages/service-requests/ServiceRequestDetailPage';
 import NewServiceRequestPage from './pages/service-requests/NewServiceRequestPage';
+import WaterCheckRequestsPage from './pages/service-requests/WaterCheckRequestsPage';
+import WaterCheckSimulatorPage from './pages/service-requests/WaterCheckSimulatorPage';
+import DeviceRequestsPage from './pages/service-requests/DeviceRequestsPage';
+import PeriodicMaintenanceRequestsPage from './pages/service-requests/PeriodicMaintenanceRequestsPage';
+import GoldenWarrantyRequestsPage from './pages/service-requests/GoldenWarrantyRequestsPage';
+import NameNominationRequestsPage from './pages/service-requests/NameNominationRequestsPage';
+import AgentLicenseRequestsPage from './pages/service-requests/AgentLicenseRequestsPage';
+import AccountRequestsListPage from './pages/account-requests/AccountRequestsListPage';
+import AccountRequestDetailPage from './pages/account-requests/AccountRequestDetailPage';
 
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
     const token = useAuthStore((s) => s.token);
     if (!token) return <Navigate to="/login" replace />;
     return <>{children}</>;
+}
+
+function RedirectTaskDetail({ toBase }: { toBase: string }) {
+    const { id } = useParams<{ id: string }>();
+    return <Navigate to={`${toBase}/${id}`} replace />;
 }
 
 export default function App() {
@@ -105,6 +120,7 @@ export default function App() {
                         <Route path="/clients" element={<Clients />} />
                         <Route path="/clients/:id" element={<ClientProfile />} />
                         <Route path="/candidates" element={<CandidatesEntry />} />
+                        <Route path="/candidates/:id" element={<CandidateDetail />} />
                         {/* Group 3 — single-branch operational pages: hidden on "all branches" (§6 / Phase 3.2). */}
                         <Route path="/planning/schedule" element={<RequireBranchContext><TeamScheduler /></RequireBranchContext>} />
                         <Route path="/planning/zone-study" element={<RequireBranchContext><ZoneStudy /></RequireBranchContext>} />
@@ -112,17 +128,18 @@ export default function App() {
                         <Route path="/planning/overview" element={<RequireBranchContext><PlanOverview /></RequireBranchContext>} />
                         <Route path="/planning/contact-targets/:teamKey" element={<RequireBranchContext><PlanningContactTargets /></RequireBranchContext>} />
                         <Route path="/planning/team-tasks/:teamKey" element={<RequireBranchContext><TeamTasksDetail /></RequireBranchContext>} />
-                        <Route path="/tasks/emergency" element={<EmergencyTasks />} />
-                        <Route path="/tasks/emergency/:id" element={<EmergencyTaskDetail />} />
+                        <Route path="/tasks/emergency" element={<Navigate to="/tasks/group/maintenance" replace />} />
+                        <Route path="/tasks/emergency/:id" element={<RedirectTaskDetail toBase="/tasks/group/maintenance" />} />
                         <Route path="/tasks/dues" element={<Dues />} />
                         <Route path="/tasks/open" element={<OpenTasks />} />
-                        <Route path="/tasks/device-demo" element={<DeviceDemo />} />
-                        <Route path="/tasks/device-demo/:id" element={<DeviceDemoDetail />} />
+                        <Route path="/tasks/device-demo" element={<Navigate to="/tasks/group/device-demo" replace />} />
+                        <Route path="/tasks/device-demo/:id" element={<RedirectTaskDetail toBase="/tasks/group/device-demo" />} />
                         {/* Post-sale detail routes — each group's detailHref is
                             /tasks/group/<group>, so the per-row link is
                             /tasks/group/<group>/:id. These must precede the
-                            /tasks/group/:group catch-all below. PostSaleTaskDetail
+                        /tasks/group/:group catch-all below. PostSaleTaskDetail
                             derives its back link from the group segment. */}
+                        <Route path="/tasks/group/device-demo/:id" element={<DeviceDemoDetail />} />
                         <Route path="/tasks/group/after-sale-services/:id" element={<PostSaleTaskDetail />} />
                         <Route path="/tasks/group/device-delivery/:id" element={<PostSaleTaskDetail />} />
                         <Route path="/tasks/group/device-installation/:id" element={<PostSaleTaskDetail />} />
@@ -140,7 +157,16 @@ export default function App() {
                         {/* Service Requests intake (٠.١٦ — GLOBAL) */}
                         <Route path="/service-requests" element={<ServiceRequestsListPage />} />
                         <Route path="/service-requests/new" element={<NewServiceRequestPage />} />
+                        <Route path="/service-requests/water-check" element={<WaterCheckRequestsPage />} />
+                        <Route path="/service-requests/water-check/simulator" element={<WaterCheckSimulatorPage />} />
+                        <Route path="/service-requests/device-requests" element={<DeviceRequestsPage />} />
+                        <Route path="/service-requests/periodic-maintenance" element={<PeriodicMaintenanceRequestsPage />} />
+                        <Route path="/service-requests/golden-warranty" element={<GoldenWarrantyRequestsPage />} />
+                        <Route path="/service-requests/name-nomination" element={<NameNominationRequestsPage />} />
+                        <Route path="/service-requests/agent-license" element={<AgentLicenseRequestsPage />} />
                         <Route path="/service-requests/:id" element={<ServiceRequestDetailPage />} />
+                        <Route path="/account-requests" element={<AccountRequestsListPage />} />
+                        <Route path="/account-requests/:id" element={<AccountRequestDetailPage />} />
                         {/* Group 3 — visit management is a single-branch supervisory surface (§6).
                             Hidden on "all branches"; super-admin / GLOBAL must pick a branch. The
                             field team uses the standalone "زياراتي" page instead. */}
@@ -184,6 +210,8 @@ export default function App() {
                         <Route path="/admin/permissions-settings" element={<PermissionSettings />} />
                         <Route path="/admin/task-types" element={<TaskTypes />} />
                         <Route path="/admin/emergency-action-types" element={<EmergencyActionTypes />} />
+                        <Route path="/admin/app-home-banners" element={<AppHomeBanners />} />
+                        <Route path="/admin/app-contact-links" element={<AppContactLinks />} />
                     </Route>
                 </Routes>
             </ErrorBoundary>

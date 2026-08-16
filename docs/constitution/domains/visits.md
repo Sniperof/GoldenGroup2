@@ -189,6 +189,9 @@ scheduled ──→ in_progress ──→ ended ──→ completed   (تلقا�
 
 النظام يفرض الفحص الثلاثي عند `POST /telemarketing/book-visit` و `POST /field-visits` و `POST /open-tasks/:id/schedule-from-expected`. لا late-binding، لا تخمين فريق المستقبل.
 
+### `V-R009A` — حيّز موعد الفريق لا يتحرر إلا بالإلغاء
+مفتاح حيّز الموعد هو: `branch_id + teamKey + scheduled_date + أول خمس خانات من scheduled_time`. كل زيارة حالتها **ليست** `cancelled` تبقى حاجزة لهذا الحيّز، بما فيها `completed` و`closed` و`not_completed`؛ فالإقفال الإداري أو عدم اكتمال التنفيذ لا يمحوان الموعد التاريخي. الحارس التطبيقي يعيد `409` برسالة واضحة، وحارس قاعدة البيانات الذري يمنع السباق وأي مسار كتابة يتجاوز التطبيق. الزيارة الفورية تخضع للحارس نفسه على دقيقة إنشائها.
+
 ### `V-R010` — `completed` محسوب لا يدوي (D16 + DEC-007 §2 المبدأ الرابع)
 الزيارة تنتقل `completed` تلقائياً عند تحقق الشروط الثلاثة (§4.1). لا زر "إكمال الزيارة" يدوي. الانتقال يُنفَّذ في طبقة التطبيق عبر helper `checkAndCompleteVisit(visitId)` يُستدعى بعد كل `save` لـ task_result أو survey أو survey skip (DEC-007 P-DEC007-04). `not_completed` على الزيارة استثناء صريح يدوي.
 
@@ -254,9 +257,12 @@ GPS مطلوب عند البدء والإنهاء. مهلة 30 ثانية. عن�
 | الشاشة | المحتوى |
 |---|---|
 | قائمة الزيارات (`VisitsListPage`) | كل الزيارات بكل أنواعها مع فلاتر type/team/date/status |
-| تفاصيل الزيارة (`VisitDetailPage`) | الأقسام السبعة (راجع `features/visit-detail-page-constitution.md`) |
-| نموذج النتيجة (`VisitTaskResultModal`) | conditional rendering حسب `task_type`، POST لـ unified endpoint |
+| تفاصيل الزيارة (`VisitDetailPage`) | الأقسام السبعة، وهي السطح الوحيد لتسجيل أو تعديل نتيجة `visit_task` |
+| تفاصيل المهمة (`TaskDetailLayout`) | عرض النتيجة والمحاولات فقط؛ لا تسجيل نتيجة. قبل الجدولة فقط يمكن إلغاء `open_task` بسبب معتمد |
+| نموذج النتيجة (`VisitTaskResultModal`) | يُحل من سجل مركزي حسب `task_type`، ثم POST إلى الـ unified endpoint |
 | سير عمل التيليماركتر | يستدعي `POST /telemarketing/book-visit` → ينشئ `field_visit` |
+
+كل نوع مهمة تشغيلي ظاهر يجب أن يكون مسجلاً في `VISIT_RESULT_TASK_TYPES` وفي سجل نوافذ صفحة الزيارة. يمنع إنشاء قائمة دعم يدوية مستقلة في صفحة أخرى، لأن ذلك يسمح بانحراف نوع بين مسار تفاصيل المهمة ومسار الزيارة.
 
 ---
 

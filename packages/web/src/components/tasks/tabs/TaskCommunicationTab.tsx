@@ -4,7 +4,7 @@ import {
   PhoneCall, Activity, MessageSquare, RotateCcw, Users, CheckCircle2,
   ShoppingCart, Send, Loader2, Phone, PhoneMissed, Layers,
   Footprints, CalendarClock, ChevronLeft, Clock,
-} from 'lucide-react';
+} from '../../ui/icons';
 import { OPEN_TASK_STATUS_LABELS, type OpenTaskStatus, getOutcomeMeta } from '@golden-crm/shared';
 import { Card, EmptyState, TabAlert, formatDateTime } from '../shared';
 import Button from '../../ui/Button';

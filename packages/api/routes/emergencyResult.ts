@@ -10,6 +10,7 @@
  */
 
 import { Router } from 'express';
+import { evaluateMembraneEfficiency, membraneEfficiencyIssueMessage } from '@golden-crm/shared';
 import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
@@ -26,6 +27,16 @@ import {
   generateNextPeriodicMaintenanceTask,
   supersedePeriodicWithinEmergency,
 } from '../services/periodicMaintenanceTasks.js';
+import {
+  assertCanRecordSuccessfulDeviceTaskResult,
+  DeviceTaskEligibilityError,
+  type DeviceTaskType,
+} from '../services/deviceTaskEligibilityGuard.js';
+import {
+  getEmergencyDirectWorkshopRetrieval,
+  recordEmergencyDirectWorkshopRetrieval,
+} from '../services/emergencyDirectWorkshopRetrieval.js';
+import { ResultValidationError } from '../services/visitTaskResultReflection.js';
 
 const router = Router();
 
@@ -257,6 +268,44 @@ const router = Router();
  */
 router.use(requireAuth);
 
+async function requireVisitResultContext(req: any, res: any, next: any) {
+  const taskId = Number(req.params.taskId);
+  const visitId = Number(req.query.visitId);
+  const visitTaskId = Number(req.query.visitTaskId);
+  if (!Number.isInteger(taskId) || taskId <= 0) {
+    return res.status(400).json({ error: 'معرف المهمة غير صالح' });
+  }
+  if (!Number.isInteger(visitId) || visitId <= 0 || !Number.isInteger(visitTaskId) || visitTaskId <= 0) {
+    return res.status(400).json({ error: 'سياق الزيارة ومهمة الزيارة مطلوبان لتسجيل نتيجة الصيانة' });
+  }
+  try {
+    const { rows } = await pool.query(
+      `SELECT vt.id AS "visitTaskId",
+              fv.id AS "visitId",
+              fv.status AS "visitStatus"
+         FROM visit_tasks vt
+         JOIN field_visits fv ON fv.id = vt.field_visit_id
+        WHERE vt.source_open_task_id = $1
+          AND vt.id = $2
+          AND fv.id = $3
+          AND vt.task_type IN ('emergency_maintenance', 'periodic_maintenance')
+        LIMIT 1`,
+      [taskId, visitTaskId, visitId],
+    );
+    const context = rows[0];
+    if (!context || !['in_progress', 'ended', 'completed'].includes(context.visitStatus)) {
+      return res.status(409).json({
+        error: 'تُسجّل نتيجة الصيانة من داخل زيارة بدأت فعلياً فقط',
+      });
+    }
+    req.visitTaskResultContext = context;
+    return next();
+  } catch (err) {
+    console.error('[emergency-result] visit context guard error:', err);
+    return res.status(500).json({ error: 'تعذر التحقق من سياق الزيارة' });
+  }
+}
+
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 export const TECH_STATE_FIELDS = `
@@ -277,6 +326,7 @@ export const TECH_STATE_FIELDS = `
 
 function mapNum(v: any) { return v != null ? Number(v) : null; }
 export function mapTechState(r: any) {
+  const membrane = evaluateMembraneEfficiency(r.membraneInputTds, r.membraneOutputTds);
   return {
     ...r,
     waterSourceTds:    mapNum(r.waterSourceTds),
@@ -286,11 +336,14 @@ export function mapTechState(r: any) {
     membraneInputTds:  mapNum(r.membraneInputTds),
     highPressureTds:   mapNum(r.highPressureTds),
     tankTds:           mapNum(r.tankTds),
-    // computed
-    membraneEfficiency: (r.membraneOutputTds != null && r.membraneInputTds != null && Number(r.membraneInputTds) > 0)
-      ? Math.round((1 - Number(r.membraneOutputTds) / Number(r.membraneInputTds)) * 100)
-      : null,
+    membraneEfficiency: membrane.percentage,
+    membraneEfficiencyStatus: membrane.status,
   };
+}
+
+function membraneReadingError(body: any): string | null {
+  const evaluation = evaluateMembraneEfficiency(body?.membraneInputTds, body?.membraneOutputTds);
+  return evaluation.status === 'invalid' ? membraneEfficiencyIssueMessage(evaluation.issue) : null;
 }
 
 async function getTaskMeta(taskId: number) {
@@ -363,7 +416,7 @@ router.get('/:taskId', requirePermission('marketing_visits.view'), async (req, r
     const meta = await getTaskMeta(taskId);
     if (!meta) return res.status(404).json({ error: 'المهمة غير موجودة' });
 
-    const [preRow, postRow, actionRow, costsRow, periodicAttachmentCandidate] = await Promise.all([
+    const [preRow, postRow, actionRow, costsRow, periodicAttachmentCandidate, directWorkshopRetrieval] = await Promise.all([
       meta.preStateId
         ? pool.query(`SELECT ${TECH_STATE_FIELDS} FROM device_technical_states WHERE id = $1`, [meta.preStateId]).then(r => r.rows[0])
         : null,
@@ -404,6 +457,9 @@ router.get('/:taskId', requirePermission('marketing_visits.view'), async (req, r
         : null,
       meta.taskType === 'emergency_maintenance'
         ? findPeriodicAttachmentCandidate(pool, meta.installedDeviceId ?? null)
+        : null,
+      meta.taskType === 'emergency_maintenance'
+        ? getEmergencyDirectWorkshopRetrieval(pool, taskId)
         : null,
     ]);
 
@@ -461,6 +517,7 @@ router.get('/:taskId', requirePermission('marketing_visits.view'), async (req, r
             ?? null,
       },
       periodicAttachmentCandidate,
+      directWorkshopRetrieval,
       problems,
       derivedOutcome,
       phases: {
@@ -539,13 +596,15 @@ router.get('/:taskId', requirePermission('marketing_visits.view'), async (req, r
  *       500:
  *         description: Server error
  */
-router.put('/:taskId/pre-state', requirePermission('marketing_visits.update_result'), async (req, res) => {
+router.put('/:taskId/pre-state', requirePermission('marketing_visits.update_result'), requireVisitResultContext, async (req, res) => {
   try {
     const taskId = Number(req.params.taskId);
     const meta = await getTaskMeta(taskId);
     if (!meta) return res.status(404).json({ error: 'المهمة غير موجودة' });
 
     const b = req.body ?? {};
+    const membraneError = membraneReadingError(b);
+    if (membraneError) return res.status(400).json({ error: membraneError });
     const recordedBy = (req.authContext as any)?.userId ?? null;
 
     const fields = [
@@ -649,13 +708,15 @@ router.put('/:taskId/pre-state', requirePermission('marketing_visits.update_resu
  *       500:
  *         description: Server error
  */
-router.put('/:taskId/post-state', requirePermission('marketing_visits.update_result'), async (req, res) => {
+router.put('/:taskId/post-state', requirePermission('marketing_visits.update_result'), requireVisitResultContext, async (req, res) => {
   try {
     const taskId = Number(req.params.taskId);
     const meta = await getTaskMeta(taskId);
     if (!meta) return res.status(404).json({ error: 'المهمة غير موجودة' });
 
     const b = req.body ?? {};
+    const membraneError = membraneReadingError(b);
+    if (membraneError) return res.status(400).json({ error: membraneError });
     const recordedBy = (req.authContext as any)?.userId ?? null;
 
     const fields = [
@@ -757,7 +818,7 @@ router.put('/:taskId/post-state', requirePermission('marketing_visits.update_res
  *       500:
  *         description: Server error
  */
-router.put('/:taskId/actions', requirePermission('marketing_visits.update_result'), async (req, res) => {
+router.put('/:taskId/actions', requirePermission('marketing_visits.update_result'), requireVisitResultContext, async (req, res) => {
   const taskId = Number(req.params.taskId);
   const meta = await getTaskMeta(taskId);
   if (!meta) return res.status(404).json({ error: 'المهمة غير موجودة' });
@@ -984,7 +1045,7 @@ router.put('/:taskId/actions', requirePermission('marketing_visits.update_result
  *       500:
  *         description: Server error
  */
-router.put('/:taskId/costs', requirePermission('marketing_visits.update_result'), async (req, res) => {
+router.put('/:taskId/costs', requirePermission('marketing_visits.update_result'), requireVisitResultContext, async (req, res) => {
   try {
     const taskId = Number(req.params.taskId);
     const meta = await getTaskMeta(taskId);
@@ -1006,6 +1067,7 @@ router.put('/:taskId/costs', requirePermission('marketing_visits.update_result')
       closingNote,
       closingEmployeeId,
       coveredPeriodicTaskId,
+      directWorkshopRetrieval,
     } = req.body ?? {};
 
     if (!finalDecision) return res.status(400).json({ error: 'finalDecision مطلوب' });
@@ -1067,6 +1129,16 @@ router.put('/:taskId/costs', requirePermission('marketing_visits.update_result')
     const db = await pool.connect();
     try {
       await db.query('BEGIN');
+      if (
+        (meta.taskType === 'emergency_maintenance' || meta.taskType === 'periodic_maintenance')
+        && meta.installedDeviceId
+      ) {
+        await assertCanRecordSuccessfulDeviceTaskResult(db, {
+          taskType: meta.taskType as DeviceTaskType,
+          installedDeviceId: Number(meta.installedDeviceId),
+          finalDecision,
+        });
+      }
 
       // Compute total paid in SYP from multi-currency inputs
       const p1Syp = pay1Currency === 'usd'
@@ -1166,7 +1238,7 @@ router.put('/:taskId/costs', requirePermission('marketing_visits.update_result')
       // page sees "النتيجة مسجلة" and checkAndCompleteVisit's guard passes.
       // (Reflection service doesn't cover emergency_maintenance yet.)
       const { rows: vtRows } = await db.query<{ id: number }>(
-        `SELECT id FROM visit_tasks WHERE source_open_task_id = $1 LIMIT 1`,
+        `SELECT id FROM visit_tasks WHERE source_open_task_id = $1 ORDER BY id DESC LIMIT 1`,
         [taskId],
       );
       const visitTaskId = vtRows[0]?.id ?? null;
@@ -1182,6 +1254,28 @@ router.put('/:taskId/costs', requirePermission('marketing_visits.update_result')
                   closed_by      = EXCLUDED.closed_by,
                   updated_at     = NOW()`,
           [visitTaskId, finalDecision, closingNotes ?? null, recordedBy],
+        );
+      }
+
+      let directWorkshopRetrievalResult = null;
+      if (directWorkshopRetrieval?.requested === true) {
+        if (!visitTaskId || !Number.isInteger(Number(recordedBy))) {
+          throw new ResultValidationError('تعذر تحديد الزيارة أو المستخدم لتسجيل سحب الجهاز إلى الورشة');
+        }
+        directWorkshopRetrievalResult = await recordEmergencyDirectWorkshopRetrieval(
+          db,
+          taskId,
+          visitTaskId,
+          Number(recordedBy),
+          {
+            requested: true,
+            finalDecision,
+            waterDisconnected: directWorkshopRetrieval.waterDisconnected === true,
+            electricityDisconnected: directWorkshopRetrieval.electricityDisconnected === true,
+            accessoriesRemoved: directWorkshopRetrieval.accessoriesRemoved === true,
+            customerAcknowledged: directWorkshopRetrieval.customerAcknowledged === true,
+            notes: closingNotes ?? null,
+          },
         );
       }
 
@@ -1281,6 +1375,7 @@ router.put('/:taskId/costs', requirePermission('marketing_visits.update_result')
         followUpTaskId,
         taskStatus: newTaskStatus,
         visitCompletion,
+        directWorkshopRetrieval: directWorkshopRetrievalResult,
       };
       if (nextPeriodicTask) {
         result.nextPeriodicTask = nextPeriodicTask;
@@ -1302,6 +1397,9 @@ router.put('/:taskId/costs', requirePermission('marketing_visits.update_result')
       db.release();
     }
   } catch (err: any) {
+    if (err instanceof DeviceTaskEligibilityError || err instanceof ResultValidationError) {
+      return res.status(err.status).json({ error: err.message });
+    }
     console.error('[emergency-result] costs error:', err);
     res.status(500).json({ error: err.message });
   }
@@ -1354,7 +1452,7 @@ router.put('/:taskId/costs', requirePermission('marketing_visits.update_result')
  *       500:
  *         description: Server error
  */
-router.put('/:taskId/parts', requirePermission('marketing_visits.update_result'), async (req, res) => {
+router.put('/:taskId/parts', requirePermission('marketing_visits.update_result'), requireVisitResultContext, async (req, res) => {
   try {
     const taskId = Number(req.params.taskId);
     const { parts } = req.body ?? {};
@@ -1678,7 +1776,7 @@ router.get('/:taskId/payment-entries', requirePermission('marketing_visits.view'
  *       500:
  *         description: Server error
  */
-router.put('/:taskId/payment-entries', requirePermission('marketing_visits.update_result'), async (req, res) => {
+router.put('/:taskId/payment-entries', requirePermission('marketing_visits.update_result'), requireVisitResultContext, async (req, res) => {
   try {
     const taskId = Number(req.params.taskId);
     const meta = await getTaskMeta(taskId);
@@ -1843,7 +1941,7 @@ router.get('/:taskId/installments', requirePermission('marketing_visits.view'), 
  *       500:
  *         description: Server error
  */
-router.put('/:taskId/installments', requirePermission('marketing_visits.update_result'), async (req, res) => {
+router.put('/:taskId/installments', requirePermission('marketing_visits.update_result'), requireVisitResultContext, async (req, res) => {
   try {
     const taskId = Number(req.params.taskId);
     const meta = await getTaskMeta(taskId);
@@ -1914,7 +2012,7 @@ router.put('/:taskId/installments', requirePermission('marketing_visits.update_r
  *       500:
  *         description: Server error
  */
-router.post('/:taskId/installments/confirm', requirePermission('marketing_visits.update_result'), async (req, res) => {
+router.post('/:taskId/installments/confirm', requirePermission('marketing_visits.update_result'), requireVisitResultContext, async (req, res) => {
   try {
     const taskId = Number(req.params.taskId);
     const meta = await getTaskMeta(taskId);

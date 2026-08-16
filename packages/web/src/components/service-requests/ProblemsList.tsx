@@ -3,9 +3,12 @@
 // Constitution: maintenance.md §٠.١٩ (لائحة الأعطال)
 // ============================================================
 import { useEffect, useState } from 'react';
-import { Plus, Wrench, Trash2, CheckCircle2, AlertCircle, Edit2, RotateCcw } from 'lucide-react';
+import { toast } from 'sonner';
+import { Plus, Wrench, Trash2, CheckCircle2, AlertCircle, Edit2, RotateCcw } from '../ui/icons';
 import { api } from '../../lib/api';
 import Select from '../ui/Select';
+import Button from '../ui/Button';
+import Modal from '../ui/Modal';
 
 interface Problem {
   id: number;
@@ -75,6 +78,9 @@ export default function ProblemsList({
   const [newPhase, setNewPhase] = useState<'intake' | 'in_review' | 'technical_consultation' | 'field_discovery'>('in_review');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [statusChange, setStatusChange] = useState<{ id: number; status: string } | null>(null);
+  const [deleteId, setDeleteId] = useState<number | null>(null);
+  const [deleteReason, setDeleteReason] = useState('');
 
   useEffect(() => {
     fetch('/api/system-lists?category=diagnosis_problem_types', {
@@ -112,23 +118,42 @@ export default function ProblemsList({
   }
 
   async function changeStatus(pid: number, toStatus: string) {
-    if (!confirm(`نَقل العطل إلى "${STATUS_LABELS[toStatus]}"؟`)) return;
+    setStatusChange({ id: pid, status: toStatus });
+  }
+
+  async function confirmStatusChange() {
+    if (!statusChange) return;
+    setBusy(true);
     try {
-      await api.serviceRequests.setProblemStatus(serviceRequestId, pid, { toStatus });
+      await api.serviceRequests.setProblemStatus(serviceRequestId, statusChange.id, { toStatus: statusChange.status });
+      toast.success('تم تحديث حالة العطل');
+      setStatusChange(null);
       onRefresh();
     } catch (e: any) {
-      alert(e?.message ?? 'فَشل تَغيير الحالة');
+      toast.error(e?.message ?? 'فَشل تَغيير الحالة');
+    } finally {
+      setBusy(false);
     }
   }
 
   async function softDelete(pid: number) {
-    const reason = prompt('سبب الحذف:');
-    if (!reason) return;
+    setDeleteId(pid);
+    setDeleteReason('');
+  }
+
+  async function confirmDelete() {
+    if (!deleteId || !deleteReason.trim()) return;
+    setBusy(true);
     try {
-      await api.serviceRequests.deleteProblem(serviceRequestId, pid, reason);
+      await api.serviceRequests.deleteProblem(serviceRequestId, deleteId, deleteReason.trim());
+      toast.success('تم حذف العطل');
+      setDeleteId(null);
+      setDeleteReason('');
       onRefresh();
     } catch (e: any) {
-      alert(e?.message ?? 'فَشل الحذف');
+      toast.error(e?.message ?? 'فَشل الحذف');
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -266,6 +291,33 @@ export default function ProblemsList({
             </li>
           ))}
         </ul>
+      )}
+
+      {statusChange && (
+        <Modal isOpen onClose={() => setStatusChange(null)} title="تأكيد تغيير حالة العطل" size="sm">
+          <div className="space-y-4 p-4" dir="rtl">
+            <p className="text-sm text-slate-700">نقل العطل إلى «{STATUS_LABELS[statusChange.status]}»؟</p>
+            <div className="flex gap-2">
+              <Button loading={busy} onClick={confirmStatusChange}>تأكيد</Button>
+              <Button variant="secondary" disabled={busy} onClick={() => setStatusChange(null)}>إلغاء</Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {deleteId != null && (
+        <Modal isOpen onClose={() => setDeleteId(null)} title="حذف العطل" size="sm">
+          <div className="space-y-4 p-4" dir="rtl">
+            <label className="block space-y-1 text-sm font-semibold text-slate-700">
+              <span>سبب الحذف <span className="text-red-500">*</span></span>
+              <textarea value={deleteReason} onChange={(event) => setDeleteReason(event.target.value)} rows={3} className="w-full rounded-lg border border-slate-300 p-2" />
+            </label>
+            <div className="flex gap-2">
+              <Button variant="danger" loading={busy} disabled={!deleteReason.trim()} onClick={confirmDelete}>حذف</Button>
+              <Button variant="secondary" disabled={busy} onClick={() => setDeleteId(null)}>إلغاء</Button>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );

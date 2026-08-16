@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle2, ChevronRight, Loader2 } from 'lucide-react';
-import { api } from '../../lib/api';
+import { CheckCircle2, ChevronRight, Loader2 } from '../ui/icons';
+import { api, type EmergencyResultContext } from '../../lib/api';
 import TechStateForm from './result-phases/TechStateForm';
 import MaintenanceActionsForm from './result-phases/MaintenanceActionsForm';
 import CostsForm from './result-phases/CostsForm';
@@ -37,6 +37,8 @@ function coverageText(warranty: { type: WarrantyKind; endDate?: string | null } 
 
 interface Props {
   taskId: number;
+  visitId?: number | null;
+  visitTaskId?: number | null;
   contractId?: number | null;
   maintenanceKind?: MaintenanceKind;
   readOnly?: boolean;
@@ -47,11 +49,14 @@ interface Props {
   onCostsSaved?: () => void;
 }
 
-export default function EmergencyResultWizard({ taskId, contractId, maintenanceKind = 'emergency', readOnly = false, visitTechnicianEmployeeId = null, visitTechnicianName = null, onCostsSaved }: Props) {
+export default function EmergencyResultWizard({ taskId, visitId = null, visitTaskId = null, contractId, maintenanceKind = 'emergency', readOnly = false, visitTechnicianEmployeeId = null, visitTechnicianName = null, onCostsSaved }: Props) {
   const [result, setResult]       = useState<any>(null);
   const [loading, setLoading]     = useState(true);
   const [activePhase, setActive]  = useState<PhaseKey>('preState');
   const [activeWarranty, setActiveWarranty] = useState<{ type: WarrantyKind; endDate?: string | null } | null>(null);
+  const resultContext: EmergencyResultContext | null = visitId && visitTaskId
+    ? { visitId, visitTaskId }
+    : null;
 
   const load = () => {
     setLoading(true);
@@ -143,6 +148,7 @@ export default function EmergencyResultWizard({ taskId, contractId, maintenanceK
         <TechStateForm
           phase="pre"
           taskId={taskId}
+          resultContext={resultContext}
           initialData={phases.preState}
           readOnly={readOnly}
           onSaved={() => load()}
@@ -167,6 +173,7 @@ export default function EmergencyResultWizard({ taskId, contractId, maintenanceK
           )}
           <MaintenanceActionsForm
             taskId={taskId}
+            resultContext={resultContext}
             initialData={phases.actions}
             maintenanceKind={maintenanceKind}
             activeWarranty={activeWarranty}
@@ -181,6 +188,7 @@ export default function EmergencyResultWizard({ taskId, contractId, maintenanceK
         <TechStateForm
           phase="post"
           taskId={taskId}
+          resultContext={resultContext}
           initialData={phases.postState}
           preData={phases.preState}
           readOnly={readOnly}
@@ -192,6 +200,7 @@ export default function EmergencyResultWizard({ taskId, contractId, maintenanceK
       {activePhase === 'costs' && (
         <CostsForm
           taskId={taskId}
+          resultContext={resultContext}
           initialData={phases.costs}
           maintenanceKind={maintenanceKind}
           readOnly={readOnly}
@@ -204,6 +213,8 @@ export default function EmergencyResultWizard({ taskId, contractId, maintenanceK
           sourceServiceRequestId={problemServiceRequestId}
           derivedOutcome={result?.derivedOutcome ?? null}
           periodicAttachmentCandidate={result?.periodicAttachmentCandidate ?? null}
+          installedDeviceId={result?.taskMeta?.installedDeviceId ?? null}
+          directWorkshopRetrieval={result?.directWorkshopRetrieval ?? null}
         />
       )}
     </div>

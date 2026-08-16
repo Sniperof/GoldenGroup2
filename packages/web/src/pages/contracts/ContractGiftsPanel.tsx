@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Gift, Info, Plus, Save, X } from 'lucide-react';
+import { Gift, Info, Plus, Save, X } from '../../components/ui/icons';
 import Modal from '../../components/ui/Modal';
+import Select from '../../components/ui/Select';
 import GiftRecordsTable from '../../components/gifts/GiftRecordsTable';
 import { api } from '../../lib/api';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -12,17 +13,25 @@ import {
   type GiftRecordPrototype,
 } from '../../data/giftsPrototype';
 
-type DraftBeneficiaryKind = 'contract_customer' | 'customer_referrer';
+type DraftBeneficiaryKind =
+  | 'contract_customer'
+  | 'customer_referrer'
+  | 'employee_referrer'
+  | 'personal_referrer';
 
 interface CustomerReferrerOption {
   key: string;
   name: string;
+  beneficiaryType: Exclude<DraftBeneficiaryKind, 'contract_customer'>;
   clientId: string | number | null;
+  employeeId: string | number | null;
 }
 
 interface PromiseConditionOption {
   id: number;
+  value: string;
   label: string;
+  requiresNotes: boolean;
 }
 
 interface GiftPromiseDraft {
@@ -31,6 +40,7 @@ interface GiftPromiseDraft {
   referrerKey: string;
   conditionId: string;
   conditionStatus: GiftConditionStatus;
+  conditionNotes: string;
   quantity: number;
 }
 
@@ -45,15 +55,26 @@ function contractCustomerId(contract: any) {
 function customerReferrers(contract: any): CustomerReferrerOption[] {
   const referrers = Array.isArray(contract?.contractReferrers) ? contract.contractReferrers : [];
   return referrers
-    .filter((referrer: any) => {
+    .map((referrer: any, index: number) => {
       const type = String(referrer?.referrerType ?? '').toLowerCase();
-      return type === 'client' || type === 'customer';
+      const beneficiaryType = type === 'client' || type === 'customer'
+        ? 'customer_referrer'
+        : type === 'employee'
+          ? 'employee_referrer'
+          : type === 'personal' || type === 'person'
+            ? 'personal_referrer'
+            : null;
+      if (!beneficiaryType) return null;
+      const entityId = referrer?.referrerId ?? referrer?.referralEntityId ?? null;
+      return {
+        key: String(referrer?.id ?? referrer?.referrerId ?? index),
+        name: referrer?.referrerName ?? 'وسيط العقد',
+        beneficiaryType,
+        clientId: beneficiaryType === 'customer_referrer' ? entityId : null,
+        employeeId: beneficiaryType === 'employee_referrer' ? entityId : null,
+      };
     })
-    .map((referrer: any, index: number) => ({
-      key: String(referrer?.id ?? referrer?.referrerClientId ?? referrer?.clientId ?? index),
-      name: referrer?.referrerName ?? 'وسيط زبون',
-      clientId: referrer?.referrerClientId ?? referrer?.clientId ?? null,
-    }));
+    .filter((referrer: CustomerReferrerOption | null): referrer is CustomerReferrerOption => referrer != null);
 }
 
 export default function ContractGiftsPanel({ contract }: { contract: any }) {
@@ -77,6 +98,7 @@ export default function ContractGiftsPanel({ contract }: { contract: any }) {
     referrerKey: '',
     conditionId: '',
     conditionStatus: 'pending',
+    conditionNotes: '',
     quantity: 1,
   });
 
@@ -98,7 +120,8 @@ export default function ContractGiftsPanel({ contract }: { contract: any }) {
       })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [contractId, reloadToken]);
+    // contract?.status: يُعيد الجلب بعد الاعتماد (draft→active) حين تُنشأ السجلات.
+  }, [contractId, reloadToken, contract?.status]);
 
   useEffect(() => {
     let active = true;
@@ -108,7 +131,12 @@ export default function ContractGiftsPanel({ contract }: { contract: any }) {
     ]).then(([defs, conds]) => {
       if (!active) return;
       setDefinitions((defs as GiftDefinitionPrototype[]).filter(d => d.isActive));
-      setConditions((conds as any[]).map(item => ({ id: Number(item.id), label: item.label ?? item.value ?? String(item.id) })));
+      setConditions((conds as any[]).map(item => ({
+        id: Number(item.id),
+        value: String(item.value ?? ''),
+        label: item.label ?? item.value ?? String(item.id),
+        requiresNotes: item?.metadata?.requiresNotes === true || item?.value === 'other',
+      })));
     });
     return () => { active = false; };
   }, []);
@@ -118,7 +146,7 @@ export default function ContractGiftsPanel({ contract }: { contract: any }) {
   ), [definitions, isGiftContract]);
 
   const customerRecords = records.filter(record => record.beneficiaryType === 'contract_customer').length;
-  const referrerRecords = records.filter(record => record.beneficiaryType === 'customer_referrer').length;
+  const referrerRecords = records.filter(record => record.beneficiaryType !== 'contract_customer').length;
 
   function openDialog() {
     setSaveError(null);
@@ -127,7 +155,8 @@ export default function ContractGiftsPanel({ contract }: { contract: any }) {
       beneficiaryKind: 'contract_customer',
       referrerKey: referrers[0]?.key ?? '',
       conditionId: conditions[0]?.id != null ? String(conditions[0].id) : '',
-      conditionStatus: isGiftContract ? 'met' : 'pending',
+      conditionStatus: 'pending',
+      conditionNotes: '',
       quantity: 1,
     });
     setDialogOpen(true);
@@ -146,37 +175,50 @@ export default function ContractGiftsPanel({ contract }: { contract: any }) {
     if (!contractId || !contract?.branchId) { setSaveError('بيانات العقد غير مكتملة لإنشاء وعد'); return; }
 
     const selectedReferrer = referrers.find(referrer => referrer.key === draft.referrerKey);
-    const beneficiaryType: GiftBeneficiaryType = draft.beneficiaryKind === 'customer_referrer'
-      ? 'customer_referrer'
-      : 'contract_customer';
-    const beneficiaryName = draft.beneficiaryKind === 'customer_referrer'
+    const beneficiaryType: GiftBeneficiaryType = draft.beneficiaryKind;
+    const beneficiaryName = draft.beneficiaryKind !== 'contract_customer'
       ? selectedReferrer?.name ?? 'وسيط زبون'
       : contractCustomerName(contract);
     const beneficiaryClientId = draft.beneficiaryKind === 'customer_referrer'
       ? selectedReferrer?.clientId ?? null
-      : customerId;
+      : draft.beneficiaryKind === 'contract_customer'
+        ? customerId
+        : null;
+    const beneficiaryEmployeeId = draft.beneficiaryKind === 'employee_referrer'
+      ? selectedReferrer?.employeeId ?? null
+      : null;
 
-    if (!beneficiaryClientId) {
+    if (
+      ((beneficiaryType === 'contract_customer' || beneficiaryType === 'customer_referrer') && !beneficiaryClientId)
+      || (beneficiaryType === 'employee_referrer' && !beneficiaryEmployeeId)
+    ) {
       setSaveError('المستفيد الزبون يجب أن يرتبط بسجل زبون معروف');
       return;
     }
 
     const conditionId = draft.conditionId ? Number(draft.conditionId) : undefined;
-    const conditionLabel = conditions.find(c => String(c.id) === draft.conditionId)?.label;
+    const selectedCondition = conditions.find(c => String(c.id) === draft.conditionId);
+    const conditionLabel = selectedCondition?.label;
+    if (selectedCondition?.requiresNotes && !draft.conditionNotes.trim()) {
+      setSaveError('ملاحظات الشرط إلزامية عند اختيار شرط آخر');
+      return;
+    }
     const quantity = Math.max(1, Number(draft.quantity) || 1);
 
     setSaving(true);
     setSaveError(null);
     try {
-      await api.gifts.records.create({
+      const payload = {
         giftDefinitionId: Number(selectedDefinition.id),
         beneficiaryType,
         beneficiaryClientId,
+        beneficiaryEmployeeId,
         beneficiaryName,
         conditionId,
         conditionLabel,
-        conditionStatus: draft.conditionStatus,
-        approvedQuantity: quantity,
+        conditionNotes: draft.conditionNotes.trim() || undefined,
+        conditionStatus: 'pending',
+        promisedQuantity: quantity,
         quantity,
         sourceBranchId: contract.branchId,
         responsibleBranchId: contract.serviceBranchId ?? contract.branchId,
@@ -185,10 +227,21 @@ export default function ContractGiftsPanel({ contract }: { contract: any }) {
         source: {
           sourceType: 'contract',
           contractId,
-          sourceLabel: draft.beneficiaryKind === 'customer_referrer' ? 'وعد وسيط بيعة من العقد' : 'وعد زبون العقد',
+          sourceLabel: draft.beneficiaryKind !== 'contract_customer' ? 'وعد وسيط بيعة من العقد' : 'وعد زبون العقد',
           quantity,
         },
-      });
+      };
+      try {
+        await api.gifts.records.create(payload);
+      } catch (error: any) {
+        if (error?.payload?.code !== 'similar_gift_promises') throw error;
+        const similarCount = Number(error.payload?.similarCount) || 0;
+        const proceed = window.confirm(
+          `تنبيه: يوجد ${similarCount} وعد/وعود غير منتهية مشابهة لهذا المستفيد. هل تريد إنشاء وعد جديد مستقل؟`,
+        );
+        if (!proceed) throw new Error('تم إيقاف الحفظ بعد تنبيه الوعود المشابهة');
+        await api.gifts.records.create({ ...payload, similarPromiseWarningAcknowledged: true });
+      }
       setDialogOpen(false);
       setReloadToken(token => token + 1);
     } catch (err: any) {
@@ -271,7 +324,19 @@ export default function ContractGiftsPanel({ contract }: { contract: any }) {
             <button
               type="button"
               onClick={addGiftRecord}
-              disabled={saving || !draft.giftDefinitionId || (draft.beneficiaryKind === 'customer_referrer' && referrers.length === 0)}
+              disabled={
+                saving
+                || !draft.giftDefinitionId
+                || !draft.conditionId
+                || (
+                  conditions.find(condition => String(condition.id) === draft.conditionId)?.requiresNotes
+                  && !draft.conditionNotes.trim()
+                )
+                || (
+                  draft.beneficiaryKind !== 'contract_customer'
+                  && !referrers.some(referrer => referrer.beneficiaryType === draft.beneficiaryKind)
+                )
+              }
               className="inline-flex h-9 items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-xs font-bold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Save className="h-4 w-4" />
@@ -281,76 +346,86 @@ export default function ContractGiftsPanel({ contract }: { contract: any }) {
         }
       >
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2" dir="rtl">
-          <label className="text-xs font-bold text-slate-500">
+          <div className="text-xs font-bold text-slate-500">
             تعريف الهدية
-            <select
+            <Select<string>
+              className="mt-1 w-full"
               value={draft.giftDefinitionId}
-              onChange={(event) => setDraft(prev => ({ ...prev, giftDefinitionId: event.target.value }))}
-              className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"
-            >
-              <option value="">— اختر تعريفاً —</option>
-              {definitions.map(definition => (
-                <option key={definition.id} value={String(definition.id)}>{definition.name}</option>
-              ))}
-            </select>
-          </label>
+              onChange={(value) => setDraft(prev => ({ ...prev, giftDefinitionId: value }))}
+              placeholder="— اختر تعريفاً —"
+              ariaLabel="تعريف الهدية"
+              options={definitions.map(definition => ({ value: String(definition.id), label: definition.name }))}
+            />
+          </div>
 
-          <label className="text-xs font-bold text-slate-500">
+          <div className="text-xs font-bold text-slate-500">
             المستفيد
-            <select
+            <Select<string>
+              className="mt-1 w-full"
               value={draft.beneficiaryKind}
-              onChange={(event) => setDraft(prev => ({
-                ...prev,
-                beneficiaryKind: event.target.value as DraftBeneficiaryKind,
-              }))}
-              className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"
-            >
-              <option value="contract_customer">زبون العقد: {contractCustomerName(contract)}</option>
-              <option value="customer_referrer" disabled={referrers.length === 0}>وسيط بيعة من نوع زبون</option>
-            </select>
-          </label>
+              onChange={(value) => {
+                const beneficiaryKind = value as DraftBeneficiaryKind;
+                setDraft(prev => ({
+                  ...prev,
+                  beneficiaryKind,
+                  referrerKey: beneficiaryKind === 'contract_customer'
+                    ? ''
+                    : referrers.find(referrer => referrer.beneficiaryType === beneficiaryKind)?.key ?? '',
+                }));
+              }}
+              ariaLabel="المستفيد"
+              options={[
+                { value: 'contract_customer', label: `زبون العقد: ${contractCustomerName(contract)}` },
+                { value: 'customer_referrer', label: 'وسيط بيعة من نوع زبون', disabled: !referrers.some(r => r.beneficiaryType === 'customer_referrer') },
+                { value: 'employee_referrer', label: 'وسيط بيعة من نوع موظف', disabled: !referrers.some(r => r.beneficiaryType === 'employee_referrer') },
+                { value: 'personal_referrer', label: 'وسيط بيعة شخصي', disabled: !referrers.some(r => r.beneficiaryType === 'personal_referrer') },
+              ]}
+            />
+          </div>
 
-          {draft.beneficiaryKind === 'customer_referrer' && (
-            <label className="text-xs font-bold text-slate-500 md:col-span-2">
-              وسيط البيع الزبون
-              <select
+          {draft.beneficiaryKind !== 'contract_customer' && (
+            <div className="text-xs font-bold text-slate-500 md:col-span-2">
+              وسيط البيع
+              <Select<string>
+                className="mt-1 w-full"
                 value={draft.referrerKey}
-                onChange={(event) => setDraft(prev => ({ ...prev, referrerKey: event.target.value }))}
-                className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"
-              >
-                {referrers.map(referrer => (
-                  <option key={referrer.key} value={referrer.key}>{referrer.name}</option>
-                ))}
-              </select>
-            </label>
+                onChange={(value) => setDraft(prev => ({ ...prev, referrerKey: value }))}
+                ariaLabel="وسيط البيع"
+                options={referrers
+                  .filter(referrer => referrer.beneficiaryType === draft.beneficiaryKind)
+                  .map(referrer => ({ value: referrer.key, label: referrer.name }))}
+              />
+            </div>
           )}
 
-          <label className="text-xs font-bold text-slate-500">
+          <div className="text-xs font-bold text-slate-500">
             شرط/سبب الوعد
-            <select
+            <Select<string>
+              className="mt-1 w-full"
               value={draft.conditionId}
-              onChange={(event) => setDraft(prev => ({ ...prev, conditionId: event.target.value }))}
-              className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"
-            >
-              <option value="">— بدون شرط محدد —</option>
-              {conditions.map(condition => (
-                <option key={condition.id} value={String(condition.id)}>{condition.label}</option>
-              ))}
-            </select>
-          </label>
+              onChange={(value) => setDraft(prev => ({ ...prev, conditionId: value }))}
+              ariaLabel="شرط/سبب الوعد"
+              options={conditions.map(condition => ({ value: String(condition.id), label: condition.label }))}
+            />
+          </div>
 
-          <label className="text-xs font-bold text-slate-500">
+          <div className="text-xs font-bold text-slate-500">
             حالة تحقق الشرط
-            <select
-              value={draft.conditionStatus}
-              onChange={(event) => setDraft(prev => ({ ...prev, conditionStatus: event.target.value as GiftConditionStatus }))}
-              className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"
-            >
-              {Object.entries(giftConditionStatusLabels).map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
-          </label>
+            <div className="mt-1 flex h-10 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700">
+              بانتظار التحقق
+            </div>
+          </div>
+
+          {conditions.find(condition => String(condition.id) === draft.conditionId)?.requiresNotes && (
+            <label className="text-xs font-bold text-slate-500 md:col-span-2">
+              ملاحظات الشرط *
+              <textarea
+                value={draft.conditionNotes}
+                onChange={(event) => setDraft(prev => ({ ...prev, conditionNotes: event.target.value }))}
+                className="mt-1 min-h-[72px] w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+              />
+            </label>
+          )}
 
           <label className="text-xs font-bold text-slate-500">
             العدد

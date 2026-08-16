@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../hooks/useAuthStore';
 import { usePermissions } from '../hooks/usePermissions';
+import { canSeeFieldVisitManagementSurface } from '../lib/fieldVisitPermissionPolicy';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import { isGlobalOnlyPath } from '../lib/branchContext';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -15,9 +16,9 @@ import {
     ClipboardList, UsersRound, MapPinned, ChevronDown, Gem, Eye,
     Briefcase, Calendar, AlertTriangle, DollarSign, RefreshCw, RotateCcw, PhoneCall,
     FileText, FilePlus2, Headset, Settings, UserPlus, Menu, X as CloseIcon,
-    ChevronLeft, ChevronRight, BadgeCheck, GraduationCap, Mic2, LogOut, Building2, SlidersHorizontal, ShieldCheck, ListChecks, Shield, Monitor, Settings2,
-    Bell, Wrench, Gift, Inbox, LayoutGrid, UserCheck, CalendarCheck, Layers, HardDrive, Unplug,
-} from 'lucide-react';
+    ChevronLeft, ChevronRight, BadgeCheck, GraduationCap, Mic2, LogOut, Building2, SlidersHorizontal, ShieldCheck, ListChecks, Shield, Monitor, Settings2, GalleryHorizontal,
+    Bell, Wrench, Gift, Inbox, LayoutGrid, UserCheck, CalendarCheck, Layers, HardDrive, Unplug, Beaker, Package, ClipboardCheck, Link2,
+} from '../components/ui/icons';
 
 const navItems = [
     { path: '/', label: 'نظرة عامة', icon: LayoutDashboard },
@@ -54,6 +55,7 @@ const operationsChildren = [
     { path: '/tasks/group/device-installation', label: 'مهام تركيب الجهاز',      icon: Wrench,      permission: 'tasks.installation.view' },
     { path: '/tasks/group/device-activation',   label: 'مهام تشغيل الجهاز',      icon: Monitor,     permission: 'tasks.activation.view' },
     { path: '/tasks/group/device-disconnection', label: 'مهام فك الجهاز',        icon: Unplug,      permission: 'tasks.disconnection.view' },
+    { path: '/tasks/evaluation-lab',            label: 'تقييم المهام',           icon: Beaker,      permission: 'tasks.demo.view' },
     // DEC-006 D37/D38: hub for supervisor alerts (attempt threshold + visit escalation)
     { path: '/supervisor/alerts',               label: 'تنبيهات المشرف',         icon: Bell,        permission: 'tasks.supervisor_alerts.view' },
 
@@ -70,7 +72,15 @@ const operationsChildren = [
 
 // Requests — intake parent section (currently only maintenance; will grow).
 const requestsChildren = [
-    { path: '/service-requests',                label: 'طلبات الصيانة',          icon: Wrench },
+    { path: '/service-requests/agent-license', label: 'طلبات ترخيص الوكلاء', icon: ClipboardCheck, permission: 'agent_license.view' },
+    { path: '/service-requests/name-nomination', label: 'طلبات ترشيح الأسماء', icon: UserCheck, permission: 'name_nomination.view' },
+    { path: '/service-requests/golden-warranty', label: 'طلبات الكفالة الذهبية', icon: ShieldCheck, permission: 'golden_warranty.view' },
+    { path: '/account-requests',                label: 'طلبات إنشاء الحساب',     icon: UserPlus, permission: 'account_requests.view' },
+    { path: '/service-requests/water-check',    label: 'طلبات فحص المياه',       icon: Beaker,   permission: 'water_check.view' },
+    { path: '/service-requests/device-requests', label: 'طلبات الأجهزة', icon: Package, permission: 'service_requests.view' },
+    { path: '/service-requests/periodic-maintenance', label: 'طلبات الصيانة الدورية', icon: Wrench, permission: 'periodic_maintenance.view' },
+    { path: '/service-requests/water-check/simulator', label: 'محاكاة فحص المياه', icon: FilePlus2, permission: 'water_check.create' },
+    { path: '/service-requests',                label: 'طلبات الصيانة',          icon: Wrench,   permission: 'service_requests.view' },
 ];
 
 const planningChildren = [
@@ -125,12 +135,19 @@ export default function MainLayout() {
     // Each operations table is shown only if its own view permission is granted.
     const visibleOperationsChildren = operationsChildren.filter(child => can(child.permission));
 
+    // Requests children: gate only those that declare a permission (e.g. account requests).
+    const visibleRequestsChildren = requestsChildren.filter(child => !(child as any).permission || can((child as any).permission));
+
     // Standalone "مهامي" / "زياراتي" surfaces — OUTSIDE Operations & Tasks. Each gated
     // by its dedicated ASSIGNED-only permission (migrations 301/302): only a
     // supervisor/technician granted it sees it. Both self-scope to the holder
     // (owned customers / team-assigned visits).
     const canSeeMyCustomers = can('tasks.my_customers.view');
     const canSeeMyVisits = can('field_visits.my_visits.view');
+    const canSeeFieldVisitManagement = canSeeFieldVisitManagementSurface({
+      grants,
+      isSuperAdmin,
+    });
 
     const jobsViewPermMap: Record<string, string> = {
       '/jobs/applications': 'jobs.applications.view_list',
@@ -194,6 +211,8 @@ export default function MainLayout() {
                 </div>
                 <button
                     onClick={toggleSidebar}
+                    aria-label={isMobileMenuOpen ? 'إغلاق القائمة' : 'فتح القائمة'}
+                    aria-expanded={isMobileMenuOpen}
                     className="p-2 rounded-lg text-slate-600 hover:bg-slate-100 transition-colors"
                 >
                     {isMobileMenuOpen ? <CloseIcon className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
@@ -233,6 +252,7 @@ export default function MainLayout() {
                     {/* Desktop Collapse Toggle — only when expanded; collapsed expands via logo click */}
                     <button
                         onClick={toggleCollapse}
+                        aria-label="طيّ الشريط الجانبي"
                         className={`p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors ${isCollapsed ? 'hidden' : 'hidden lg:flex'}`}
                     >
                         <ChevronRight className="w-5 h-5" />
@@ -240,6 +260,7 @@ export default function MainLayout() {
                     {/* Mobile Close Button */}
                     <button
                         onClick={() => setIsMobileMenuOpen(false)}
+                        aria-label="إغلاق القائمة"
                         className="lg:hidden p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
                     >
                         <CloseIcon className="w-6 h-6" />
@@ -259,7 +280,7 @@ export default function MainLayout() {
                             onClick={() => setIsMobileMenuOpen(false)}
                             className={({ isActive }: { isActive: boolean }) =>
                                 `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
-                                    ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
+                                    ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500'
                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
                             }
@@ -276,7 +297,7 @@ export default function MainLayout() {
                         <button
                             onClick={() => setRecordsOpen(o => !o)}
                             className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isRecordsActive
-                                ? 'bg-sky-50 text-sky-600 font-bold'
+                                ? 'bg-sky-50 text-sky-600'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 }`}
                         >
@@ -299,10 +320,11 @@ export default function MainLayout() {
                                         <NavLink
                                             key={child.path}
                                             to={child.path}
+                                            end={child.path !== '/service-requests'}
                                             onClick={() => setIsMobileMenuOpen(false)}
                                             className={({ isActive }: { isActive: boolean }) =>
                                                 `w-full flex items-center gap-3 pr-12 pl-4 py-2.5 rounded-lg no-pill transition-all text-right text-sm leading-snug ${isActive
-                                                    ? 'text-sky-600 bg-sky-50 font-bold'
+                                                    ? 'text-sky-600 bg-sky-50'
                                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                                 }`
                                             }
@@ -324,7 +346,7 @@ export default function MainLayout() {
                         onClick={() => setIsMobileMenuOpen(false)}
                         className={({ isActive }: { isActive: boolean }) =>
                             `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
-                                ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
+                                ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                             } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
                         }
@@ -335,13 +357,13 @@ export default function MainLayout() {
                     )}
 
                     {/* 3. Field Visits (central daily visit hub) */}
-                    {canSeeBranchModules && can('field_visits.view') && (
+                    {canSeeBranchModules && canSeeFieldVisitManagement && (
                     <NavLink
                         to="/field-visits"
                         onClick={() => setIsMobileMenuOpen(false)}
                         className={({ isActive }: { isActive: boolean }) =>
                             `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive || isVisitsActive
-                                ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
+                                ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                             } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
                         }
@@ -358,7 +380,7 @@ export default function MainLayout() {
                         onClick={() => setIsMobileMenuOpen(false)}
                         className={({ isActive }: { isActive: boolean }) =>
                             `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
-                                ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
+                                ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                             } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
                         }
@@ -375,7 +397,7 @@ export default function MainLayout() {
                         onClick={() => setIsMobileMenuOpen(false)}
                         className={({ isActive }: { isActive: boolean }) =>
                             `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
-                                ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
+                                ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                             } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
                         }
@@ -392,7 +414,7 @@ export default function MainLayout() {
                         onClick={() => setIsMobileMenuOpen(false)}
                         className={({ isActive }: { isActive: boolean }) =>
                             `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
-                                ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
+                                ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                             } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
                         }
@@ -408,7 +430,7 @@ export default function MainLayout() {
                         <button
                             onClick={() => setJobsOpen(o => !o)}
                             className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isJobsActive
-                                ? 'bg-sky-50 text-sky-600 font-bold'
+                                ? 'bg-sky-50 text-sky-600'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 }`}
                         >
@@ -434,7 +456,7 @@ export default function MainLayout() {
                                             onClick={() => setIsMobileMenuOpen(false)}
                                             className={({ isActive }: { isActive: boolean }) =>
                                                 `w-full flex items-center gap-3 pr-12 pl-4 py-2.5 rounded-lg no-pill transition-all text-right text-sm leading-snug ${isActive
-                                                    ? 'text-sky-600 bg-sky-50 font-bold'
+                                                    ? 'text-sky-600 bg-sky-50'
                                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                                 }`
                                             }
@@ -455,7 +477,7 @@ export default function MainLayout() {
                         <button
                             onClick={() => setPlanningOpen((o: boolean) => !o)}
                             className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isPlanningActive
-                                ? 'bg-sky-50 text-sky-600 font-bold'
+                                ? 'bg-sky-50 text-sky-600'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 }`}
                         >
@@ -481,7 +503,7 @@ export default function MainLayout() {
                                             onClick={() => setIsMobileMenuOpen(false)}
                                             className={({ isActive }: { isActive: boolean }) =>
                                                 `w-full flex items-center gap-3 pr-12 pl-4 py-2.5 rounded-lg no-pill transition-all text-right text-sm leading-snug ${isActive
-                                                    ? 'text-sky-600 bg-sky-50 font-bold'
+                                                    ? 'text-sky-600 bg-sky-50'
                                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                                 }`
                                             }
@@ -496,13 +518,15 @@ export default function MainLayout() {
                     </div>
                     )}
 
-                    {/* 5b. Requests — parent section for all intake layers */}
-                    {canSeeBranchModules && can('service_requests.view') && (
+                    {/* 5b. Requests — parent section for all intake layers.
+                        Visible with any request-family view key (contract §5). */}
+                    {canSeeBranchModules
+                      && (can('service_requests.view') || can('water_check.view') || can('periodic_maintenance.view') || can('golden_warranty.view') || can('name_nomination.view') || can('agent_license.view') || can('account_requests.view')) && (
                     <div className={isCollapsed ? 'lg:hidden' : 'block'}>
                         <button
                             onClick={() => setRequestsOpen((o: boolean) => !o)}
                             className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isRequestsActive
-                                ? 'bg-sky-50 text-sky-600 font-bold'
+                                ? 'bg-sky-50 text-sky-600'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 }`}
                         >
@@ -521,14 +545,14 @@ export default function MainLayout() {
                                     exit={{ height: 0, opacity: 0 }}
                                     className="overflow-hidden flex flex-col gap-0.5 mt-0.5"
                                 >
-                                    {requestsChildren.map(child => (
+                                    {visibleRequestsChildren.map(child => (
                                         <NavLink
                                             key={child.path}
                                             to={child.path}
                                             onClick={() => setIsMobileMenuOpen(false)}
                                             className={({ isActive }: { isActive: boolean }) =>
                                                 `w-full flex items-center gap-3 pr-12 pl-4 py-2.5 rounded-lg no-pill transition-all text-right text-sm leading-snug ${isActive
-                                                    ? 'text-sky-600 bg-sky-50 font-bold'
+                                                    ? 'text-sky-600 bg-sky-50'
                                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                                 }`
                                             }
@@ -551,7 +575,7 @@ export default function MainLayout() {
                             onClick={() => setIsMobileMenuOpen(false)}
                             className={({ isActive }: { isActive: boolean }) =>
                                 `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
-                                    ? 'bg-sky-50 text-sky-600 font-bold'
+                                    ? 'bg-sky-50 text-sky-600'
                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 }`
                             }
@@ -570,7 +594,7 @@ export default function MainLayout() {
                             onClick={() => setIsMobileMenuOpen(false)}
                             className={({ isActive }: { isActive: boolean }) =>
                                 `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
-                                    ? 'bg-sky-50 text-sky-600 font-bold'
+                                    ? 'bg-sky-50 text-sky-600'
                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 }`
                             }
@@ -589,7 +613,7 @@ export default function MainLayout() {
                             onClick={() => setIsMobileMenuOpen(false)}
                             className={({ isActive }: { isActive: boolean }) =>
                                 `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive || isGiftsActive
-                                    ? 'bg-sky-50 text-sky-600 font-bold'
+                                    ? 'bg-sky-50 text-sky-600'
                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 }`
                             }
@@ -606,7 +630,7 @@ export default function MainLayout() {
                         <button
                             onClick={() => setOperationsOpen((o: boolean) => !o)}
                             className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isOperationsActive
-                                ? 'bg-sky-50 text-sky-600 font-bold'
+                                ? 'bg-sky-50 text-sky-600'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 }`}
                         >
@@ -632,7 +656,7 @@ export default function MainLayout() {
                                             onClick={() => setIsMobileMenuOpen(false)}
                                             className={({ isActive }: { isActive: boolean }) =>
                                                 `w-full flex items-center gap-3 pr-12 pl-4 py-2.5 rounded-lg no-pill transition-all text-right text-sm leading-snug ${isActive
-                                                    ? 'text-sky-600 bg-sky-50 font-bold'
+                                                    ? 'text-sky-600 bg-sky-50'
                                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                                 }`
                                             }
@@ -653,7 +677,7 @@ export default function MainLayout() {
                         <button
                             onClick={() => setGeoOpen(o => !o)}
                             className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isGeoActive
-                                ? 'bg-sky-50 text-sky-600 font-bold'
+                                ? 'bg-sky-50 text-sky-600'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 }`}
                         >
@@ -679,7 +703,7 @@ export default function MainLayout() {
                                             onClick={() => setIsMobileMenuOpen(false)}
                                             className={({ isActive }: { isActive: boolean }) =>
                                                 `w-full flex items-center gap-3 pr-12 pl-4 py-2.5 rounded-lg no-pill transition-all text-right text-sm leading-snug ${isActive
-                                                    ? 'text-sky-600 bg-sky-50 font-bold'
+                                                    ? 'text-sky-600 bg-sky-50'
                                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                                 }`
                                             }
@@ -701,7 +725,7 @@ export default function MainLayout() {
                         onClick={() => setIsMobileMenuOpen(false)}
                         className={({ isActive }: { isActive: boolean }) =>
                             `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
-                                ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
+                                ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                             } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
                         }
@@ -718,7 +742,7 @@ export default function MainLayout() {
                         onClick={() => setIsMobileMenuOpen(false)}
                         className={({ isActive }: { isActive: boolean }) =>
                             `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
-                                ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
+                                ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                             } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
                         }
@@ -735,7 +759,7 @@ export default function MainLayout() {
                             onClick={() => setIsMobileMenuOpen(false)}
                             className={({ isActive }: { isActive: boolean }) =>
                                 `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
-                                    ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
+                                    ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500'
                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
                             }
@@ -752,7 +776,7 @@ export default function MainLayout() {
                             onClick={() => setIsMobileMenuOpen(false)}
                             className={({ isActive }: { isActive: boolean }) =>
                                 `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
-                                    ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
+                                    ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500'
                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
                             }
@@ -769,7 +793,7 @@ export default function MainLayout() {
                             onClick={() => setIsMobileMenuOpen(false)}
                             className={({ isActive }: { isActive: boolean }) =>
                                 `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
-                                    ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
+                                    ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500'
                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
                             }
@@ -786,7 +810,7 @@ export default function MainLayout() {
                             onClick={() => setIsMobileMenuOpen(false)}
                             className={({ isActive }: { isActive: boolean }) =>
                                 `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
-                                    ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
+                                    ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500'
                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
                             }
@@ -803,13 +827,47 @@ export default function MainLayout() {
                             onClick={() => setIsMobileMenuOpen(false)}
                             className={({ isActive }: { isActive: boolean }) =>
                                 `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
-                                    ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
+                                    ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500'
                                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                 } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
                             }
                         >
                             <Settings2 className={`w-5 h-5 ${isCollapsed ? 'lg:w-6 lg:h-6' : ''}`} />
                             <span className={`${isCollapsed ? 'lg:hidden' : 'block'}`}>إعدادات أنواع المهام</span>
+                        </NavLink>
+                    )}
+
+                    {/* 10d. Mobile home-screen banners */}
+                    {canAccessAdminSurface('admin.app_home_banners.view') && (
+                        <NavLink
+                            to="/admin/app-home-banners"
+                            onClick={() => setIsMobileMenuOpen(false)}
+                            className={({ isActive }: { isActive: boolean }) =>
+                                `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
+                                    ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500'
+                                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                                } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
+                            }
+                        >
+                            <GalleryHorizontal className={`w-5 h-5 ${isCollapsed ? 'lg:w-6 lg:h-6' : ''}`} />
+                            <span className={`${isCollapsed ? 'lg:hidden' : 'block'}`}>بانرات التطبيق</span>
+                        </NavLink>
+                    )}
+
+                    {/* 10e. Mobile contact/social links */}
+                    {canAccessAdminSurface('admin.app_contact_links.view') && (
+                        <NavLink
+                            to="/admin/app-contact-links"
+                            onClick={() => setIsMobileMenuOpen(false)}
+                            className={({ isActive }: { isActive: boolean }) =>
+                                `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
+                                    ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500'
+                                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                                } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
+                            }
+                        >
+                            <Link2 className={`w-5 h-5 ${isCollapsed ? 'lg:w-6 lg:h-6' : ''}`} />
+                            <span className={`${isCollapsed ? 'lg:hidden' : 'block'}`}>روابط التطبيق</span>
                         </NavLink>
                     )}
 
@@ -820,7 +878,7 @@ export default function MainLayout() {
                         onClick={() => setIsMobileMenuOpen(false)}
                         className={({ isActive }: { isActive: boolean }) =>
                             `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
-                                ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500 font-bold'
+                                ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500'
                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                             } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
                         }
@@ -853,6 +911,7 @@ export default function MainLayout() {
                         <button
                             onClick={handleLogout}
                             title="تسجيل الخروج"
+                            aria-label="تسجيل الخروج"
                             className={`p-1.5 rounded-lg hover:bg-red-50 hover:text-red-500 text-slate-400 transition-colors ${isCollapsed ? 'lg:hidden' : ''}`}
                         >
                             <LogOut className="w-4 h-4" />

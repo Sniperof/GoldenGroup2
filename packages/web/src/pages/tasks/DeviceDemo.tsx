@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Loader2, Monitor, Filter } from 'lucide-react';
+import { Loader2, Monitor, Filter } from '../../components/ui/icons';
 import { api } from '../../lib/api';
 import { useBranchListScope } from '../../hooks/useBranchListScope';
 import ClientCardPopup from '../../components/ClientCardPopup';
 import Select from '../../components/ui/Select';
+import DateField from '../../components/ui/DateField';
 import PageHeader from '../../components/ui/PageHeader';
+import Checkbox from '../../components/ui/Checkbox';
 import SmartTable from '../../components/SmartTable';
 import type { ColumnDef } from '../../components/SmartTable';
 import { OPEN_TASK_STATUS_LABELS, OPEN_TASK_PHASE_LABELS, OPEN_TASK_PHASE_COLORS, getTaskPhase, type OpenTaskStatus, type CustomerOwnership } from '@golden-crm/shared';
@@ -344,22 +346,19 @@ export default function DeviceDemo() {
             ]}
           />
 
-          <input
-            type="date"
+          <DateField
             value={dateFilter}
-            onChange={(e) => setDateFilter(e.target.value)}
-            className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
+            onChange={setDateFilter}
+            className="border border-slate-200 rounded-lg pl-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
           />
 
-          <label className="inline-flex items-center gap-2 px-3 py-2 bg-white border border-slate-200 rounded-lg cursor-pointer text-sm text-slate-700">
-            <input
-              type="checkbox"
-              checked={hideSnoozed}
-              onChange={(e) => setHideSnoozed(e.target.checked)}
-              className="accent-indigo-600"
-            />
+          <Checkbox
+            checked={hideSnoozed}
+            onCheckedChange={setHideSnoozed}
+            className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-700"
+          >
             <span title="المهام التي حدد لها التلمارك موعداً متوقعاً في المستقبل">إخفاء المؤجلة</span>
-          </label>
+          </Checkbox>
 
           <label className="inline-flex items-center gap-2 px-3 py-2 bg-white border border-slate-200 rounded-lg cursor-pointer text-sm text-slate-700">
             <input
@@ -406,11 +405,10 @@ export default function DeviceDemo() {
           columns={columns}
           getId={(row) => row.id}
           hideFilterBar
-          paginated={false}
           tableMinWidth={1900}
           emptyIcon={Monitor}
           emptyMessage="لا توجد مهام عروض أجهزة"
-          onRowClick={(row) => navigate(`/tasks/device-demo/${row.id}`)}
+          onRowClick={(row) => navigate(`/tasks/group/device-demo/${row.id}`)}
         />
       )}
 

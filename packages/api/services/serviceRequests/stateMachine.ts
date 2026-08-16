@@ -20,8 +20,10 @@
 //   - apply auth/role     → endpoint layer (Phase 3)
 //
 // All terminal transitions require a triage_outcome from the per-terminal
-// list (٠.٤ table). SR-R005: resolved_at_intake additionally requires
-// a triager-present channel and non-empty triage_notes.
+// list (٠.٤ table). Human terminal decisions require the request to be claimed
+// (in_review with reviewed_by_user_id set — i.e. a human triager is present
+// regardless of the intake channel). resolved_at_intake additionally requires
+// non-empty triage_notes. The old channel-based gate wrongly blocked mobile_app.
 // ============================================================
 
 import type { PoolClient } from 'pg';
@@ -31,7 +33,6 @@ import {
   rollbackTx,
   appendAudit,
   isTerminal,
-  isTriagerPresent,
   type ActorRole,
   type ServiceRequestChannel,
   type ServiceRequestStatus,
@@ -39,29 +40,27 @@ import {
 } from './_shared.js';
 
 // Allowed forward + reopen transitions per ٠.٣ + ٠.٤.ب
-const ALLOWED: Record<ServiceRequestStatus, ServiceRequestStatus[]> = {
+// 'awaiting_customer_info' dropped (request-section-contract.md §3): the map
+// keeps a legacy escape hatch FROM it (old rows → back to review/cancel) but
+// no transition INTO it exists anymore.
+const ALLOWED: Record<string, ServiceRequestStatus[]> = {
   received: ['in_review', 'cancelled'],
   in_review: [
-    'awaiting_customer_info',
     'resolved_at_intake',
     'rejected',
     'promoted',
+    'completed',
     'cancelled',
   ],
-  awaiting_customer_info: ['in_review', 'cancelled'],
+  awaiting_customer_info: ['in_review', 'cancelled'], // legacy rows only
   resolved_at_intake: ['in_review'], // SR-REOPEN-01
   rejected: ['in_review'], // SR-REOPEN-01
   cancelled: ['in_review'], // SR-REOPEN-01
   promoted: [], // SR-R011 — no transitions out
+  completed: [], // side-effect already applied — no reopen (like promoted)
 };
 
 const TRIAGE_OUTCOMES_BY_TERMINAL: Record<string, string[]> = {
-  resolved_at_intake: [
-    'resolved_by_advice',
-    'customer_self_fixed',
-    'false_alarm',
-    'info_clarified_no_issue',
-  ],
   rejected: [
     'duplicate',
     'invalid_request',
@@ -79,6 +78,57 @@ const TRIAGE_OUTCOMES_BY_TERMINAL: Record<string, string[]> = {
   ],
 };
 
+const RESOLVE_AT_INTAKE_LIST_BY_REQUEST_TYPE: Record<string, string> = {
+  emergency_maintenance: 'service_request_resolve_at_intake_emergency_maintenance',
+  water_check: 'service_request_resolve_at_intake_water_check',
+  periodic_maintenance: 'service_request_resolve_at_intake_periodic_maintenance',
+  golden_warranty: 'service_request_resolve_at_intake_golden_warranty',
+};
+
+const REJECT_LIST_BY_REQUEST_TYPE: Record<string, string> = {
+  periodic_maintenance: 'service_request_rejection_periodic_maintenance',
+  golden_warranty: 'service_request_rejection_golden_warranty',
+  name_nomination: 'service_request_rejection_name_nomination',
+  agent_license: 'service_request_rejection_agent_license',
+};
+
+// Terminals whose outcome list is admin-managed per request type (system_lists),
+// instead of the hard-coded TRIAGE_OUTCOMES_BY_TERMINAL map. `completed` is
+// per-type because each self-completing type has its own outcome vocabulary
+// (account_creation → linked_to_op/fop/lead/confirmed_duplicate).
+const COMPLETED_LIST_BY_REQUEST_TYPE: Record<string, string> = {
+  account_creation: 'service_request_completed_account_creation',
+};
+
+function resolveAtIntakeListCode(requestType: string | null | undefined): string {
+  return RESOLVE_AT_INTAKE_LIST_BY_REQUEST_TYPE[requestType || '']
+    ?? RESOLVE_AT_INTAKE_LIST_BY_REQUEST_TYPE.emergency_maintenance;
+}
+
+/** The system_lists category for a list-driven terminal, or null if the
+ * terminal uses the hard-coded TRIAGE_OUTCOMES_BY_TERMINAL map. */
+function listCategoryForTerminal(
+  toStatus: ServiceRequestStatus,
+  requestType: string | null | undefined,
+): string | null {
+  if (toStatus === 'resolved_at_intake') return resolveAtIntakeListCode(requestType);
+  if (toStatus === 'rejected') return REJECT_LIST_BY_REQUEST_TYPE[requestType || ''] ?? null;
+  if (toStatus === 'completed') return COMPLETED_LIST_BY_REQUEST_TYPE[requestType || ''] ?? null;
+  return null;
+}
+
+async function loadListOutcomes(client: PoolClient, category: string): Promise<string[]> {
+  const { rows } = await client.query<{ value: string }>(
+    `SELECT value
+       FROM system_lists
+      WHERE category = $1
+        AND is_active = TRUE
+      ORDER BY display_order ASC, id ASC`,
+    [category],
+  );
+  return rows.map(row => String(row.value).trim()).filter(Boolean);
+}
+
 export interface TransitionInput {
   serviceRequestId: number;
   toStatus: ServiceRequestStatus;
@@ -87,6 +137,8 @@ export interface TransitionInput {
 
   /** Required for all terminal targets per SR-R006. */
   triageOutcome?: string | null;
+  /** Required for periodic-maintenance list-driven resolve/reject decisions. */
+  decisionReasonId?: number | null;
   /** Required for resolved_at_intake per SR-R005. */
   triageNotes?: string | null;
   /** Required for reopen paths per SR-REOPEN-03. */
@@ -115,13 +167,26 @@ export async function transitionStatus(
       id: number;
       status: ServiceRequestStatus;
       channel: ServiceRequestChannel;
+      request_type: string | null;
+      beneficiary_client_id: number | null;
+      installed_device_id: number | null;
+      has_structured_problem: boolean;
+      reviewed_by_user_id: number | null;
       reopen_count: number;
       review_required_flag: boolean;
+      escalated_at: string | null;
       duplicate_flag: boolean;
       archived_at: string | null;
     }>(
-      `SELECT id, status, channel, reopen_count, review_required_flag,
-              duplicate_flag, archived_at
+      `SELECT id, status, channel, request_type, beneficiary_client_id,
+              installed_device_id,
+              EXISTS (
+                SELECT 1 FROM service_request_problems problem
+                 WHERE problem.service_request_id = service_requests.id
+                   AND problem.deleted_at IS NULL
+              ) AS has_structured_problem,
+              reviewed_by_user_id, reopen_count,
+              review_required_flag, escalated_at, duplicate_flag, archived_at
          FROM service_requests
         WHERE id = $1
         FOR UPDATE`,
@@ -132,6 +197,30 @@ export async function transitionStatus(
       return { ok: false, code: 'not_found' };
     }
     const row = rows[0];
+
+    if (
+      row.request_type === 'name_nomination'
+      && (input.toStatus === 'rejected' || input.toStatus === 'cancelled')
+    ) {
+      const { rows: decisionRows } = await tx.client.query<{ n: number }>(
+        `SELECT COUNT(*)::int AS n FROM service_request_name_nomination_items
+          WHERE service_request_id=$1 AND status<>'pending'`, [input.serviceRequestId],
+      );
+      if (Number(decisionRows[0]?.n ?? 0) > 0) {
+        await rollbackTx(tx);
+        return { ok: false, code: 'name_nomination_terminal_decision_already_started' };
+      }
+    }
+
+    if (row.request_type === 'periodic_maintenance' && input.toStatus === 'cancelled') {
+      await rollbackTx(tx);
+      return { ok: false, code: 'action_not_supported_for_request_type' };
+    }
+
+    if (row.escalated_at != null && input.toStatus !== 'rejected') {
+      await rollbackTx(tx);
+      return { ok: false, code: 'request_is_escalated_actions_blocked' };
+    }
 
     // 2. Validate transition is in the allowed map.
     const allowed = ALLOWED[row.status] ?? [];
@@ -165,41 +254,154 @@ export async function transitionStatus(
     }
 
     // 4. Per-target validation.
-    if (input.toStatus === 'resolved_at_intake') {
-      // SR-R005: channel must be triager-present + triage_notes non-empty.
-      if (!isTriagerPresent(row.channel)) {
+    // A human-triage terminal decision requires the request to be claimed
+    // first (reviewed_by_user_id set — true for any channel once an operator
+    // claims). The audit admin who rejects remains a separate decision actor;
+    // this guard does not replace the operational reviewer (SR-CLAIM-06).
+    if (
+      input.toStatus === 'resolved_at_intake'
+      || input.toStatus === 'completed'
+      || input.toStatus === 'rejected'
+    ) {
+      if (row.reviewed_by_user_id == null) {
         await rollbackTx(tx);
         return {
           ok: false,
-          code: 'resolved_at_intake_requires_triager_channel',
-          details: { channel: row.channel },
+          code: `${input.toStatus}_requires_claim`,
+          message: `${input.toStatus === 'rejected' ? 'SR-R007' : 'SR-R005'}: claim the request (assign a reviewer) before this decision`,
         };
+      }
+    }
+    // Operational service requests cannot be closed by rejection or an
+    // intake-resolution until their beneficiary is an identified client.
+    // account_creation is structurally different: linking is the approval
+    // side-effect itself, so its reject path cannot depend on that link.
+    if (
+      row.request_type !== 'account_creation'
+      && row.request_type !== 'name_nomination'
+      && row.request_type !== 'agent_license'
+      && (input.toStatus === 'resolved_at_intake' || input.toStatus === 'rejected')
+      && row.beneficiary_client_id == null
+    ) {
+      await rollbackTx(tx);
+      return {
+        ok: false,
+        code: `${input.toStatus}_requires_beneficiary_client`,
+        message: 'Link the beneficiary to a client record before this decision',
+      };
+    }
+    if (input.toStatus === 'resolved_at_intake') {
+      if (
+        (row.request_type === 'emergency_maintenance' || row.request_type === 'periodic_maintenance')
+        && row.installed_device_id == null
+      ) {
+        await rollbackTx(tx);
+        return { ok: false, code: 'resolved_at_intake_requires_installed_device' };
+      }
+      if (row.request_type === 'emergency_maintenance' && !row.has_structured_problem) {
+        await rollbackTx(tx);
+        return { ok: false, code: 'resolved_at_intake_requires_structured_problem' };
       }
       if (!input.triageNotes || input.triageNotes.trim().length === 0) {
         await rollbackTx(tx);
         return { ok: false, code: 'triage_notes_required' };
       }
+      if (row.request_type === 'periodic_maintenance') {
+        const { rows: activeRows } = await tx.client.query<{ id: number }>(
+          `SELECT id FROM open_tasks
+            WHERE task_type = 'periodic_maintenance'
+              AND device_id = $1
+              AND status NOT IN ('completed', 'closed', 'cancelled')
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1`,
+          [row.installed_device_id],
+        );
+        if (!activeRows[0]) {
+          await rollbackTx(tx);
+          return { ok: false, code: 'resolved_at_intake_requires_active_periodic_task' };
+        }
+      }
     }
 
+    let terminalOutcome = row.request_type === 'agent_license' && input.toStatus === 'completed'
+      ? 'approved'
+      : input.triageOutcome ?? null;
+    let decisionReasonSnapshot: Record<string, unknown> | null = null;
     if (isTerminal(input.toStatus)) {
       // SR-R006: every terminal needs a triage_outcome from the per-terminal list.
-      const allowedOutcomes = TRIAGE_OUTCOMES_BY_TERMINAL[input.toStatus] ?? [];
-      if (!input.triageOutcome || !allowedOutcomes.includes(input.triageOutcome)) {
+      const listCategory = listCategoryForTerminal(input.toStatus, row.request_type);
+      const decisionReasonId = Number(input.decisionReasonId) || null;
+      const requiresDecisionReasonId = (
+        row.request_type === 'periodic_maintenance' || row.request_type === 'golden_warranty'
+        || row.request_type === 'name_nomination' || row.request_type === 'agent_license'
+      ) && listCategory != null;
+      if (requiresDecisionReasonId) {
+        if (decisionReasonId == null) {
+          await rollbackTx(tx);
+          return { ok: false, code: 'decision_reason_id_required', details: { listCode: listCategory } };
+        }
+        const { rows: reasonRows } = await tx.client.query<{
+          id: number; value: string; metadata: Record<string, unknown> | null;
+        }>(
+          `SELECT id, value, metadata FROM system_lists
+            WHERE id = $1 AND category = $2 AND is_active = TRUE LIMIT 1`,
+          [decisionReasonId, listCategory],
+        );
+        if (!reasonRows[0]) {
+          await rollbackTx(tx);
+          return { ok: false, code: 'invalid_decision_reason_id', details: { listCode: listCategory } };
+        }
+        terminalOutcome = String(reasonRows[0].metadata?.code ?? reasonRows[0].value);
+        decisionReasonSnapshot = {
+          id: Number(reasonRows[0].id),
+          code: terminalOutcome,
+          label: reasonRows[0].value,
+        };
+      }
+      if (
+        row.request_type === 'golden_warranty'
+        && input.toStatus === 'resolved_at_intake'
+        && row.installed_device_id == null
+        && !['no_eligible_installed_device', 'requester_withdrew_before_handoff', 'guidance_only_no_offer_requested']
+          .includes(String(terminalOutcome))
+      ) {
+        await rollbackTx(tx);
+        return { ok: false, code: 'resolved_at_intake_requires_installed_device' };
+      }
+      const allowedOutcomes = listCategory && !requiresDecisionReasonId
+        ? await loadListOutcomes(tx.client, listCategory)
+        : listCategory ? [] : row.request_type === 'agent_license' && input.toStatus === 'completed'
+          ? ['approved'] : (TRIAGE_OUTCOMES_BY_TERMINAL[input.toStatus] ?? []);
+      if (
+        !requiresDecisionReasonId
+        && (!terminalOutcome || !allowedOutcomes.includes(terminalOutcome))
+      ) {
         await rollbackTx(tx);
         return {
           ok: false,
           code: 'invalid_triage_outcome',
-          details: { allowed: allowedOutcomes, got: input.triageOutcome ?? null },
+          details: {
+            allowed: allowedOutcomes,
+            got: terminalOutcome,
+            listCode: listCategory,
+          },
         };
       }
 
-      // SR-AUTH-01: cannot reach rejected without review_required_flag.
-      if (input.toStatus === 'rejected' && !row.review_required_flag) {
+      // SR-AUTH-01: reject requires the request to be either escalated
+      // (escalated_at set) or carry review_required_flag (duplicate/branch/reopen).
+      // The two are decoupled (SR-ESC-02) but both open the reject door.
+      if (
+        input.toStatus === 'rejected'
+        && row.request_type !== 'name_nomination'
+        && !row.review_required_flag
+        && row.escalated_at == null
+      ) {
         await rollbackTx(tx);
         return {
           ok: false,
           code: 'review_required_flag_must_be_set',
-          message: 'SR-AUTH-01: flag review_required first',
+          message: 'SR-AUTH-01: escalate the request or flag review_required first',
         };
       }
     }
@@ -211,8 +413,18 @@ export async function transitionStatus(
 
     if (isTerminal(input.toStatus)) {
       setParts.push(`triage_outcome = $${idx++}`);
-      params.push(input.triageOutcome ?? null);
+      params.push(terminalOutcome);
+      if (decisionReasonSnapshot && input.decisionReasonId != null) {
+        setParts.push(`decision_reason_id = $${idx++}`);
+        params.push(input.decisionReasonId);
+        setParts.push(`decision_reason_snapshot = $${idx++}::jsonb`);
+        params.push(JSON.stringify(decisionReasonSnapshot));
+      }
       setParts.push('closed_at = NOW()');
+      // SR-ESC-02: reaching any terminal clears the escalation lock — reject is
+      // the only terminal reachable while escalated; other terminals are gated
+      // and already have a null marker, so clearing is a harmless no-op there.
+      setParts.push('escalated_at = NULL', 'escalated_by_user_id = NULL', 'escalation_reason = NULL');
 
       if (input.toStatus === 'resolved_at_intake' && input.triageNotes) {
         setParts.push(`triage_notes = $${idx++}`);
@@ -222,7 +434,7 @@ export async function transitionStatus(
         setParts.push(`rejected_by_user_id = $${idx++}`);
         params.push(input.actorUserId);
         setParts.push(`rejection_reason = $${idx++}`);
-        params.push(input.triageOutcome);
+        params.push(terminalOutcome);
       }
     }
 
@@ -275,7 +487,8 @@ export async function transitionStatus(
           ...(isReopen
             ? { previous_status: row.status, reopen_reason: input.reopenReason }
             : {}),
-          ...(input.toStatus === 'rejected' ? { reason: input.triageOutcome } : {}),
+          ...(input.toStatus === 'rejected' ? { reason: terminalOutcome } : {}),
+          ...(decisionReasonSnapshot ? { decision_reason: decisionReasonSnapshot } : {}),
         },
       });
 
@@ -310,14 +523,15 @@ export async function transitionStatus(
 }
 
 function specializedEventFor(
-  from: ServiceRequestStatus,
+  from: string,
   to: ServiceRequestStatus,
   reopened: boolean,
 ): import('./_shared.js').ServiceRequestAuditEventType | null {
   if (reopened) return 'request_reopened';
-  if (to === 'awaiting_customer_info') return 'customer_info_requested';
+  // request-info dropped (contract §3) — only the legacy exit event remains.
   if (from === 'awaiting_customer_info' && to === 'in_review') return 'customer_info_received';
   if (to === 'rejected') return 'rejected_decision';
+  if (to === 'completed') return 'request_completed';
   if (to === 'cancelled') return 'cancelled_by_admin';
   if (from === 'received' && to === 'in_review') return 'claimed_by_operator';
   // promoted_to_task is emitted by promoteService (carries linked_open_task_id),

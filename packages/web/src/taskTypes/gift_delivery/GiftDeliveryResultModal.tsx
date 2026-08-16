@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
-import { CalendarClock, CircleCheck, CircleX, Gift, Loader2, X } from 'lucide-react';
+import { CalendarClock, CircleCheck, CircleX, Gift, Loader2, X } from '../../components/ui/icons';
 import { api } from '../../lib/api';
 import type { TaskResultModalProps } from '../../components/tasks/types';
+import DateField from '../../components/ui/DateField';
+import Checkbox from '../../components/ui/Checkbox';
 
 type Mode = 'delivered_successfully' | 'refused_gift' | 'rescheduled';
 
@@ -103,10 +105,9 @@ export default function GiftDeliveryResultModal({ visitId, taskId, task, onClose
           </div>
 
           {mode === 'delivered_successfully' && (
-            <label className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-900">
-              <input type="checkbox" checked={acknowledged} onChange={(e) => setAcknowledged(e.target.checked)} className="mt-0.5 h-4 w-4" />
+            <Checkbox checked={acknowledged} onCheckedChange={setAcknowledged} className="items-start rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-900">
               <span>أقر بأن كامل الكمية المعتمدة من الهدية قد تم تسليمها للمستفيد.</span>
-            </label>
+            </Checkbox>
           )}
 
           {(mode === 'refused_gift' || mode === 'rescheduled') && (
@@ -127,7 +128,7 @@ export default function GiftDeliveryResultModal({ visitId, taskId, task, onClose
           {mode === 'rescheduled' && (
             <label className="block space-y-1.5">
               <span className="text-xs font-bold text-slate-500">تاريخ المتابعة *</span>
-              <input type="date" value={rescheduledDate} onChange={(e) => setRescheduledDate(e.target.value)}
+              <DateField value={rescheduledDate} onChange={setRescheduledDate}
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
             </label>
           )}

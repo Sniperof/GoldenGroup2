@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { Eye, CheckCircle2, Clock, AlertCircle } from 'lucide-react';
+import { Eye, CheckCircle2, Clock, AlertCircle } from './ui/icons';
 import type { Task } from '../lib/types';
 import Button from './ui/Button';
 

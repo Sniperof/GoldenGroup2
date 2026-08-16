@@ -1,8 +1,9 @@
 // DEC-CT-02: service_agreements — independent from contracts.
 //
 // Covers third-party devices we service (no sale on our books). The schema
-// is intentionally lean compared to sale contracts: no installments, no
-// installed_devices link, no contract warranty record.
+// is intentionally lean compared to sale contracts: no installments and no
+// contract warranty record. External periodic maintenance can link an
+// agreement to one installed external device through installed_device_id.
 //
 // Endpoints:
 //   GET    /api/service-agreements            — list (paginated)
@@ -31,6 +32,7 @@ function mapRow(r: any) {
     customerId:               r.customer_id,
     customerName:             r.customer_name,
     branchId:                 r.branch_id,
+    installedDeviceId:        r.installed_device_id,
     agreementDate:            r.agreement_date,
     externalDeviceModelName:  r.external_device_model_name,
     externalDeviceSerial:     r.external_device_serial,
@@ -50,6 +52,30 @@ function mapRow(r: any) {
   };
 }
 
+async function assertExternalDeviceLink(deviceId: number, customerId: number, branchId?: number | null) {
+  if (!Number.isInteger(deviceId) || deviceId <= 0) {
+    return { ok: false as const, status: 400, error: 'installedDeviceId غير صالح' };
+  }
+  const { rows } = await pool.query(
+    `SELECT id, customer_id, branch_id, device_source
+       FROM installed_devices
+      WHERE id = $1`,
+    [deviceId],
+  );
+  const device = rows[0];
+  if (!device) return { ok: false as const, status: 404, error: 'الجهاز غير موجود' };
+  if (Number(device.customer_id) !== Number(customerId)) {
+    return { ok: false as const, status: 400, error: 'اتفاق الخدمة يجب أن يرتبط بجهاز لنفس الزبون' };
+  }
+  if (branchId != null && Number(device.branch_id) !== Number(branchId)) {
+    return { ok: false as const, status: 400, error: 'اتفاق الخدمة يجب أن يرتبط بجهاز ضمن نفس الفرع' };
+  }
+  if (device.device_source !== 'external') {
+    return { ok: false as const, status: 400, error: 'اتفاق الخدمة الدوري يربط بالأجهزة الخارجية فقط' };
+  }
+  return { ok: true as const };
+}
+
 // GET /api/service-agreements
 router.get('/', requirePermission('contracts.view_list'), async (req, res) => {
   const authContext = req.authContext!;
@@ -61,6 +87,10 @@ router.get('/', requirePermission('contracts.view_list'), async (req, res) => {
   } else {
     const hb = Number(req.headers['x-branch-id'] ?? req.query.branchId);
     if (Number.isFinite(hb) && hb > 0) conds.push(`branch_id = $${params.push(hb)}`);
+  }
+  const installedDeviceId = Number(req.query.installedDeviceId);
+  if (Number.isInteger(installedDeviceId) && installedDeviceId > 0) {
+    conds.push(`installed_device_id = $${params.push(installedDeviceId)}`);
   }
 
   const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
@@ -87,6 +117,8 @@ router.get('/:id', requirePermission('contracts.view_list'), async (req, res) =>
 router.post('/', requirePermission('contracts.edit'), async (req, res) => {
   const b = req.body ?? {};
   const actorId = (req as any).user?.id ?? null;
+  const installedDeviceIdRaw = b.installedDeviceId ?? b.installed_device_id ?? null;
+  const installedDeviceId = installedDeviceIdRaw == null || installedDeviceIdRaw === '' ? null : Number(installedDeviceIdRaw);
 
   if (!b.customerId || !b.customerName || !b.agreementDate) {
     return res.status(400).json({ error: 'customerId و customerName و agreementDate حقول مطلوبة' });
@@ -95,21 +127,26 @@ router.post('/', requirePermission('contracts.edit'), async (req, res) => {
   if (!ALLOWED_STATUS.includes(status)) {
     return res.status(400).json({ error: `status غير صالح. القيم: ${ALLOWED_STATUS.join(', ')}` });
   }
+  if (installedDeviceId != null) {
+    const deviceCheck = await assertExternalDeviceLink(installedDeviceId, Number(b.customerId), b.branchId ?? null);
+    if (!deviceCheck.ok) return res.status(deviceCheck.status).json({ error: deviceCheck.error });
+  }
 
   const { rows } = await pool.query(
     `INSERT INTO service_agreements (
-       agreement_number, customer_id, customer_name, branch_id, agreement_date,
+       agreement_number, customer_id, customer_name, branch_id, installed_device_id, agreement_date,
        external_device_model_name, external_device_serial, external_device_notes,
        maintenance_plan, visits_count, fee_syp,
        status, start_date, end_date,
        closing_employee_id, created_by, notes
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
      RETURNING *`,
     [
       b.agreementNumber ?? null,
       b.customerId,
       b.customerName,
       b.branchId ?? null,
+      installedDeviceId,
       b.agreementDate,
       b.externalDeviceModelName ?? null,
       b.externalDeviceSerial ?? null,
@@ -133,7 +170,7 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
   const id = Number(req.params.id);
   const b  = req.body ?? {};
 
-  const { rows: existing } = await pool.query('SELECT branch_id FROM service_agreements WHERE id = $1', [id]);
+  const { rows: existing } = await pool.query('SELECT customer_id, branch_id FROM service_agreements WHERE id = $1', [id]);
   if (!existing[0]) return res.status(404).json({ error: 'اتفاقية الخدمة غير موجودة' });
 
   const access = authorize(req.authContext!, { permission: 'contracts.edit', branchId: existing[0].branch_id });
@@ -158,6 +195,19 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
   if (b.visitsCount             !== undefined) push('visits_count',               b.visitsCount);
   if (b.feeSyp                  !== undefined) push('fee_syp',                    b.feeSyp);
   if (b.status                  !== undefined) push('status',                     b.status);
+  if (b.installedDeviceId !== undefined || b.installed_device_id !== undefined) {
+    const raw = b.installedDeviceId ?? b.installed_device_id;
+    const installedDeviceId = raw == null || raw === '' ? null : Number(raw);
+    if (installedDeviceId != null) {
+      const deviceCheck = await assertExternalDeviceLink(
+        installedDeviceId,
+        Number(existing[0].customer_id),
+        existing[0].branch_id ?? null,
+      );
+      if (!deviceCheck.ok) return res.status(deviceCheck.status).json({ error: deviceCheck.error });
+    }
+    push('installed_device_id', installedDeviceId);
+  }
   if (b.startDate               !== undefined) push('start_date',                 b.startDate);
   if (b.endDate                 !== undefined) push('end_date',                   b.endDate);
   if (b.closingEmployeeId       !== undefined) push('closing_employee_id',        b.closingEmployeeId);

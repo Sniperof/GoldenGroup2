@@ -3,15 +3,20 @@ import { useNavigate } from 'react-router-dom';
 import {
     Plus, Wrench, PenTool, GraduationCap, Truck, Package, Cog, X, Save,
     RefreshCw, Gem, Loader2, Image, Video, FileText, Star, ChevronRight,
-    AlertCircle, Pencil, Tag, ToggleLeft, ToggleRight,
-} from 'lucide-react';
+    AlertCircle, AlertTriangle, Pencil, Tag, ToggleLeft, ToggleRight, MapPin,
+} from '../components/ui/icons';
 import IconButton from '../components/ui/IconButton';
+import Modal from '../components/ui/Modal';
+import Checkbox from '../components/ui/Checkbox';
+import DataTable from '../components/ui/DataTable';
+import PageHeader from '../components/ui/PageHeader';
 import { api } from '../lib/api';
 import type { DeviceModel, SparePart, MaintenancePartType, CatalogPriceHistoryEntry } from '../lib/types';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import SmartTable from '../components/SmartTable';
 import type { ColumnDef, FilterDef } from '../components/SmartTable';
 import { usePermissions } from '../hooks/usePermissions';
+import { uploadMedia } from '../lib/uploadMedia';
 
 /* ------------------------------------------------------------------ */
 /*  Shared Config                                                       */
@@ -46,7 +51,7 @@ const warrantyPeriodOptions: Array<{ months: number; label: string }> = [
     { months: 36, label: '36 شهرًا' },
 ];
 
-type DeviceAttachment = { id: string; name: string; url: string };
+type DeviceAttachment = { id: string; name: string; url: string; thumbUrl?: string };
 type SupportedVisitType = DeviceModel['supportedVisitTypes'][number];
 
 const partTypeConfig: Record<MaintenancePartType, { label: string; color: string; bg: string; border: string; hint: string }> = {
@@ -113,13 +118,21 @@ function makeAttachmentId() {
     return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-function readFileAsDataUrl(file: File): Promise<DeviceAttachment> {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve({ id: makeAttachmentId(), name: file.name, url: String(reader.result || '') });
-        reader.onerror = () => reject(reader.error);
-        reader.readAsDataURL(file);
-    });
+/**
+ * Uploads to the media store and returns the attachment to persist.
+ *
+ * Replaces the previous readAsDataURL, which inlined the whole file as base64
+ * into device_models.images — a 2 MB photo became ~2.7 MB inside the row, read
+ * back on every catalogue list query and shipped to the mobile app verbatim.
+ */
+async function uploadAttachment(file: File): Promise<DeviceAttachment> {
+    const media = await uploadMedia(file);
+    return {
+        id: makeAttachmentId(),
+        name: file.name,
+        url: media.url,
+        ...(media.thumbUrl ? { thumbUrl: media.thumbUrl } : {}),
+    };
 }
 
 /* ------------------------------------------------------------------ */
@@ -147,7 +160,7 @@ function ImageGrid({ images, primaryImageId, onSetPrimary, onRemove }: {
                         <IconButton icon={X} label="حذف" variant="danger" size="sm" shape="circle" onClick={() => onRemove(img.id)} />
                     </div>
                     {img.id === primaryImageId && (
-                        <div className="absolute top-1 right-1 bg-amber-400 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">رئيسية</div>
+                        <div className="absolute top-1 right-1 bg-amber-400 text-white text-xs font-bold px-1.5 py-0.5 rounded-full">رئيسية</div>
                     )}
                 </div>
             ))}
@@ -224,6 +237,10 @@ function normalizeDeviceForm(device?: DeviceModel | null): Partial<DeviceModel> 
 function AddDevicePage({ device, onCancel, onSaved }: { device?: DeviceModel | null; onCancel: () => void; onSaved: (savedDevice?: DeviceModel) => void }) {
     const isEditing = !!device;
     const [newDevice, setNewDevice] = useState<Partial<DeviceModel>>(() => normalizeDeviceForm(device));
+    // Uploads now go to the server, so the form has to show progress and errors
+    // that the old synchronous base64 read never had.
+    const [uploadingField, setUploadingField] = useState<'images' | 'videos' | 'documents' | null>(null);
+    const [uploadError, setUploadError] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
     const [wpMonths, setWpMonths] = useState('');
@@ -270,7 +287,17 @@ function AddDevicePage({ device, onCancel, onSaved }: { device?: DeviceModel | n
 
     const addAttachments = async (field: 'images' | 'videos' | 'documents', files: FileList | null) => {
         if (!files || files.length === 0) return;
-        const attachments = await Promise.all(Array.from(files).map(readFileAsDataUrl));
+        setUploadingField(field);
+        setUploadError(null);
+        let attachments: DeviceAttachment[];
+        try {
+            attachments = await Promise.all(Array.from(files).map(uploadAttachment));
+        } catch (err: any) {
+            setUploadError(err?.message || 'فشل رفع الملف');
+            return;
+        } finally {
+            setUploadingField(null);
+        }
         setNewDevice(prev => {
             const current = (prev[field] || []) as DeviceAttachment[];
             const next = [...current, ...attachments];
@@ -549,11 +576,11 @@ function AddDevicePage({ device, onCancel, onSaved }: { device?: DeviceModel | n
                                 <span className="text-xs text-slate-400">الجهاز مشمول بالكفالة الذهبية</span>
                             </div>
                             <div className="relative">
-                                <input
-                                    type="checkbox"
+                                <Checkbox
+                                    bare
+                                    size="md"
                                     checked={newDevice.isGoldenWarranty || false}
-                                    onChange={(e) => setNewDevice(prev => ({ ...prev, isGoldenWarranty: e.target.checked, goldenWarrantyPeriods: e.target.checked ? prev.goldenWarrantyPeriods : [] }))}
-                                    className="w-5 h-5 accent-sky-600"
+                                    onCheckedChange={(v) => setNewDevice(prev => ({ ...prev, isGoldenWarranty: v, goldenWarrantyPeriods: v ? prev.goldenWarrantyPeriods : [] }))}
                                 />
                             </div>
                         </label>
@@ -584,11 +611,11 @@ function AddDevicePage({ device, onCancel, onSaved }: { device?: DeviceModel | n
                                 <span className="text-sm font-semibold text-slate-700 block">جهاز بارز</span>
                                 <span className="text-xs text-slate-400">يظهر في قائمة الأجهزة المُركّز عليها</span>
                             </div>
-                            <input
-                                type="checkbox"
+                            <Checkbox
+                                bare
+                                size="md"
                                 checked={newDevice.isFeatured || false}
-                                onChange={(e) => setNewDevice(prev => ({ ...prev, isFeatured: e.target.checked }))}
-                                className="w-5 h-5 accent-sky-600"
+                                onCheckedChange={(v) => setNewDevice(prev => ({ ...prev, isFeatured: v }))}
                             />
                         </label>
                     </div>
@@ -596,6 +623,20 @@ function AddDevicePage({ device, onCancel, onSaved }: { device?: DeviceModel | n
                     {/* ── Section: الوسائط ── */}
                     <div className="bg-white rounded-xl border border-slate-200 p-5">
                         <h3 className="text-base font-bold text-slate-800 border-b border-slate-100 pb-3 mb-4">الصور والوسائط</h3>
+
+                        {uploadingField && (
+                            <div className="mb-3 flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-2.5 text-sm font-bold text-sky-700">
+                                <Loader2 className="w-4 h-4 animate-spin" /> جارٍ رفع الملفات…
+                            </div>
+                        )}
+                        {uploadError && (
+                            <div className="mb-3 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-bold text-red-700">
+                                <AlertTriangle className="w-4 h-4 shrink-0" /> {uploadError}
+                                <button type="button" onClick={() => setUploadError(null)} className="mr-auto p-1 text-red-400 hover:text-red-600">
+                                    <X className="w-4 h-4" />
+                                </button>
+                            </div>
+                        )}
 
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                             {/* Images */}
@@ -719,17 +760,15 @@ function SparePartPricesModal({ part, onClose, onSaved }: {
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4" dir="rtl">
-            <div className="w-full max-w-4xl rounded-2xl bg-white shadow-2xl overflow-hidden">
-                <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-                    <div>
-                        <h3 className="text-base font-bold text-slate-800">سجل أسعار قطعة الصيانة</h3>
-                        <p className="mt-1 text-xs text-slate-500">{part.name} · {part.code}</p>
-                    </div>
-                    <IconButton icon={X} label="إغلاق" size="sm" onClick={onClose} />
-                </div>
-
-                <div className="space-y-4 bg-slate-50/60 px-5 py-5">
+        <Modal
+            isOpen
+            onClose={onClose}
+            size="4xl"
+            title="سجل أسعار قطعة الصيانة"
+            subtitle={`${part.name} · ${part.code}`}
+            bodyClassName="bg-slate-50/60"
+        >
+                <div className="space-y-4 px-5 py-5">
                     <div className="grid gap-3 rounded-xl border border-slate-200 bg-white p-4 md:grid-cols-[180px_1fr_auto]">
                         <div>
                             <label className="mb-1.5 block text-sm font-bold text-slate-700">السعر الجديد</label>
@@ -766,49 +805,157 @@ function SparePartPricesModal({ part, onClose, onSaved }: {
 
                     {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
 
-                    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-                        <table className="min-w-full divide-y divide-slate-100 text-sm">
-                            <thead className="bg-slate-50 text-slate-600">
-                                <tr>
-                                    <th className="px-4 py-3 text-right font-bold">السعر</th>
-                                    <th className="px-4 py-3 text-right font-bold">من لحظة</th>
-                                    <th className="px-4 py-3 text-right font-bold">حتى لحظة</th>
-                                    <th className="px-4 py-3 text-right font-bold">الحالة</th>
-                                    <th className="px-4 py-3 text-right font-bold">ملاحظة</th>
-                                    <th className="px-4 py-3 text-right font-bold">أضيف بواسطة</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100 bg-white">
-                                {loading ? (
-                                    <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">جاري التحميل...</td></tr>
-                                ) : prices.length === 0 ? (
-                                    <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">لا يوجد سجل أسعار بعد.</td></tr>
-                                ) : prices.map(entry => (
-                                    <tr key={entry.id}>
-                                        <td className="px-4 py-3 font-mono font-bold text-slate-800">{formatPrice(entry.price)}</td>
-                                        <td className="px-4 py-3 text-xs text-slate-500">{formatPriceMoment(entry.effectiveFrom)}</td>
-                                        <td className="px-4 py-3 text-xs text-slate-500">{formatPriceMoment(entry.effectiveTo)}</td>
-                                        <td className="px-4 py-3">
-                                            <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-bold ${entry.isCurrent ? 'bg-sky-50 text-sky-700' : 'bg-slate-100 text-slate-500'}`}>
-                                                {entry.isCurrent ? 'فعال الآن' : 'تاريخي'}
-                                            </span>
-                                        </td>
-                                        <td className="px-4 py-3 text-xs text-slate-500">{entry.note || '-'}</td>
-                                        <td className="px-4 py-3 text-xs text-slate-500">{entry.createdByName || '-'}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
+                    <DataTable card>
+                        <DataTable.Head>
+                            <DataTable.Row>
+                                <DataTable.Th>السعر</DataTable.Th>
+                                <DataTable.Th>من لحظة</DataTable.Th>
+                                <DataTable.Th>حتى لحظة</DataTable.Th>
+                                <DataTable.Th>الحالة</DataTable.Th>
+                                <DataTable.Th>ملاحظة</DataTable.Th>
+                                <DataTable.Th>أضيف بواسطة</DataTable.Th>
+                            </DataTable.Row>
+                        </DataTable.Head>
+                        <DataTable.Body>
+                            {loading ? (
+                                <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">جاري التحميل...</td></tr>
+                            ) : prices.length === 0 ? (
+                                <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">لا يوجد سجل أسعار بعد.</td></tr>
+                            ) : prices.map(entry => (
+                                <DataTable.Row key={entry.id}>
+                                    <DataTable.Td className="font-mono font-bold text-slate-800">{formatPrice(entry.price)}</DataTable.Td>
+                                    <DataTable.Td className="text-xs text-slate-500">{formatPriceMoment(entry.effectiveFrom)}</DataTable.Td>
+                                    <DataTable.Td className="text-xs text-slate-500">{formatPriceMoment(entry.effectiveTo)}</DataTable.Td>
+                                    <DataTable.Td>
+                                        <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-bold ${entry.isCurrent ? 'bg-sky-50 text-sky-700' : 'bg-slate-100 text-slate-500'}`}>
+                                            {entry.isCurrent ? 'فعال الآن' : 'تاريخي'}
+                                        </span>
+                                    </DataTable.Td>
+                                    <DataTable.Td className="text-xs text-slate-500">{entry.note || '-'}</DataTable.Td>
+                                    <DataTable.Td className="text-xs text-slate-500">{entry.createdByName || '-'}</DataTable.Td>
+                                </DataTable.Row>
+                            ))}
+                        </DataTable.Body>
+                    </DataTable>
                 </div>
-            </div>
-        </div>
+        </Modal>
     );
 }
 
 /* ------------------------------------------------------------------ */
 /*  Component                                                           */
 /* ------------------------------------------------------------------ */
+
+interface SalesBranchOption {
+    id: number;
+    name: string;
+    detailedAddress: string | null;
+    locationGeoName: string | null;
+    isSelected: boolean;
+}
+
+function DeviceSalesBranchesModal({ device, onClose }: {
+    device: DeviceModel;
+    onClose: () => void;
+}) {
+    const [branches, setBranches] = useState<SalesBranchOption[]>([]);
+    const [selectedIds, setSelectedIds] = useState<number[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+        let active = true;
+        setLoading(true);
+        setError(null);
+        api.deviceModels.getSalesBranches(device.id)
+            .then((result) => {
+                if (!active) return;
+                setBranches(result.branches);
+                setSelectedIds(result.branches.filter(branch => branch.isSelected).map(branch => branch.id));
+            })
+            .catch((err) => {
+                if (active) setError(err instanceof Error ? err.message : 'تعذر تحميل فروع البيع');
+            })
+            .finally(() => { if (active) setLoading(false); });
+        return () => { active = false; };
+    }, [device.id]);
+
+    const toggleBranch = (branchId: number, checked: boolean) => {
+        setSelectedIds(current => checked
+            ? [...new Set([...current, branchId])]
+            : current.filter(id => id !== branchId));
+    };
+
+    const save = async () => {
+        setSaving(true);
+        setError(null);
+        try {
+            await api.deviceModels.updateSalesBranches(device.id, selectedIds);
+            onClose();
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'تعذر حفظ فروع البيع');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <Modal
+            isOpen
+            onClose={onClose}
+            title="فروع البيع"
+            subtitle={device.nameAr || device.name}
+            size="md"
+            closeOnBackdrop={!saving}
+            closeOnEsc={!saving}
+            footer={(
+                <>
+                    <button type="button" onClick={onClose} disabled={saving} className="px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-100 rounded-xl disabled:opacity-50">
+                        إلغاء
+                    </button>
+                    <button type="button" onClick={save} disabled={loading || saving} className="flex items-center gap-2 px-5 py-2 bg-sky-600 hover:bg-sky-700 text-white text-sm font-bold rounded-xl disabled:opacity-50">
+                        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                        حفظ
+                    </button>
+                </>
+            )}
+        >
+            <div className="p-5 space-y-3" dir="rtl">
+                <p className="text-sm text-slate-500">حدد الفروع المعتمدة لبيع هذا الجهاز. هذا الإعداد لا يمثل كمية المخزون.</p>
+                {error && (
+                    <div className="flex items-center gap-2 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">
+                        <AlertCircle className="w-4 h-4 shrink-0" /> {error}
+                    </div>
+                )}
+                {loading ? (
+                    <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-sky-500" /></div>
+                ) : branches.length === 0 ? (
+                    <p className="py-8 text-center text-sm text-slate-400">لا توجد فروع نشطة</p>
+                ) : branches.map(branch => (
+                    <label key={branch.id} className="flex items-start gap-3 rounded-xl border border-slate-200 p-3 hover:bg-slate-50 cursor-pointer">
+                        <Checkbox
+                            bare
+                            checked={selectedIds.includes(branch.id)}
+                            onCheckedChange={checked => toggleBranch(branch.id, checked)}
+                            label={`اختيار ${branch.name}`}
+                            className="mt-1"
+                        />
+                        <span className="min-w-0">
+                            <span className="block text-sm font-bold text-slate-700">{branch.name}</span>
+                            {(branch.detailedAddress || branch.locationGeoName) && (
+                                <span className="mt-1 flex items-center gap-1 text-xs text-slate-500">
+                                    <MapPin className="w-3.5 h-3.5 shrink-0" />
+                                    {branch.detailedAddress || branch.locationGeoName}
+                                </span>
+                            )}
+                        </span>
+                    </label>
+                ))}
+            </div>
+        </Modal>
+    );
+}
 
 const DeviceManagement = () => {
     const navigate = useNavigate();
@@ -822,6 +969,7 @@ const DeviceManagement = () => {
     const [devices, setDevices] = useState<DeviceModel[]>([]);
     const [isAddingDevice, setIsAddingDevice] = useState(false);
     const [editingDevice, setEditingDevice] = useState<DeviceModel | null>(null);
+    const [salesBranchesDevice, setSalesBranchesDevice] = useState<DeviceModel | null>(null);
 
     const [parts, setParts] = useState<SparePart[]>([]);
     const [isAddingPart, setIsAddingPart] = useState(false);
@@ -1105,129 +1253,135 @@ const DeviceManagement = () => {
         );
     }
 
+    // Inline add/edit device keeps its own full-height layout.
+    if (isAddingDevice && canManageDeviceModels) {
+        return (
+            <div className="h-full flex flex-col overflow-hidden">
+                <AddDevicePage
+                    device={editingDevice}
+                    onCancel={closeDeviceForm}
+                    onSaved={async () => { closeDeviceForm(); await fetchData(); }}
+                />
+            </div>
+        );
+    }
+
     return (
         <>
-            <div className="flex flex-col min-h-full">
-                {/* TAB HEADER — hidden when adding device */}
-                {!isAddingDevice && (
-                    <div className="bg-white border-b border-slate-200 flex gap-1 px-6 pt-4 shrink-0">
-                        {tabs.map(tab => (
+            <div className="p-8 space-y-6" dir="rtl">
+                <PageHeader
+                    title="إدارة الأجهزة وقطع الغيار"
+                    subtitle="كتالوج الأجهزة وقطع الصيانة وأسعارها"
+                    actions={activeTab === 'devices'
+                        ? (canManageDeviceModels && (
                             <button
-                                key={tab.id}
-                                onClick={() => setActiveTab(tab.id)}
-                                className={`flex items-center gap-2 px-5 py-3 text-sm font-bold rounded-t-lg transition-all relative top-[1px] ${activeTab === tab.id
-                                    ? 'bg-slate-50 text-sky-600 border border-slate-200 border-b-slate-50 shadow-sm'
-                                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}
+                                onClick={openCreateDevice}
+                                className="flex items-center gap-2 px-5 py-2 bg-sky-600 hover:bg-sky-700 text-white text-sm font-bold rounded-xl shadow-md shadow-sky-500/20 transition-all"
                             >
-                                <tab.icon className="w-4 h-4" />
-                                <span>{tab.label}</span>
-                                <span className={`px-1.5 py-0.5 rounded text-xs font-bold ${activeTab === tab.id ? 'bg-sky-100 text-sky-600' : 'bg-slate-100 text-slate-500'}`}>
-                                    {tab.count}
-                                </span>
+                                <Plus className="w-4 h-4" /> إضافة جهاز
+                            </button>
+                        ))
+                        : (canManageSpareParts && (
+                            <button
+                                onClick={() => openPartForm()}
+                                className="flex items-center gap-2 px-5 py-2 bg-sky-600 hover:bg-sky-700 text-white text-sm font-bold rounded-xl shadow-md shadow-sky-500/20 transition-all"
+                            >
+                                <Plus className="w-4 h-4" /> إضافة قطعة
                             </button>
                         ))}
-                    </div>
-                )}
+                />
 
-                {/* TAB CONTENT */}
-                <div className="flex-1 min-h-0 flex flex-col">
-                    <AnimatePresence mode="wait">
-                        {isAddingDevice && canManageDeviceModels ? (
-                            <AddDevicePage
-                                key="add-device"
-                                device={editingDevice}
-                                onCancel={closeDeviceForm}
-                                onSaved={async () => { closeDeviceForm(); await fetchData(); }}
-                            />
-                        ) : activeTab === 'devices' ? (
-                            <motion.div key="devices-table" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex-1 min-h-0 flex flex-col">
-                                <SmartTable<DeviceModel>
-                                    title="إدارة الأجهزة"
-                                    titlePlacement="page"
-                                    icon={Package}
-                                    data={devices}
-                                    columns={deviceColumns}
-                                    filters={deviceFilters}
-                                    searchKeys={['name', 'nameAr', 'nameEn', 'brand']}
-                                    searchPlaceholder="بحث عن جهاز..."
-                                    getId={(d) => d.id}
-                                    onRowClick={(d) => navigate(`/devices/${d.id}`)}
-                                    rowClassName={(d) => d.isActive === false ? 'bg-slate-50 text-slate-500 opacity-75 hover:bg-slate-100' : ''}
-                                    headerActions={canManageDeviceModels ? (
-                                        <button
-                                            onClick={openCreateDevice}
-                                            className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition-all"
-                                        >
-                                            <Plus className="w-4 h-4" /><span>إضافة جهاز</span>
-                                        </button>
-                                    ) : undefined}
-                                    emptyIcon={Package}
-                                    emptyMessage="لا توجد أجهزة"
-                                    actions={canManageDeviceModels ? (d) => (
-                                        <button
-                                            type="button"
-                                            onClick={(event) => { event.stopPropagation(); openEditDevice(d); }}
-                                            className="p-1.5 rounded-lg hover:bg-sky-50 text-slate-400 hover:text-sky-600 transition-colors"
-                                            title="تعديل الجهاز"
-                                        >
-                                            <Pencil className="w-4 h-4" />
-                                        </button>
-                                    ) : undefined}
-                                />
-                            </motion.div>
-                        ) : (
-                            <motion.div key="parts-table" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex-1 min-h-0 flex flex-col">
-                                <SmartTable<SparePart>
-                                    title="قطع الأجهزة"
-                                    titlePlacement="page"
-                                    icon={Cog}
-                                    data={parts}
-                                    columns={partColumns}
-                                    filters={partFilters}
-                                    searchKeys={['name', 'code']}
-                                    searchPlaceholder="بحث عن قطعة..."
-                                    getId={(p) => p.id}
-                                    onRowClick={canManageSpareParts ? (p) => openPartForm(p) : undefined}
-                                    rowClassName={(p) => p.isActive === false ? 'bg-slate-50 text-slate-500 opacity-75 hover:bg-slate-100' : ''}
-                                    headerActions={canManageSpareParts ? (
-                                        <button
-                                            onClick={() => openPartForm()}
-                                            className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition-all"
-                                        >
-                                            <Plus className="w-4 h-4" /><span>إضافة قطعة</span>
-                                        </button>
-                                    ) : undefined}
-                                    emptyIcon={Cog}
-                                    actions={(canManageSpareParts || canManageSparePartPrices) ? (p) => (
-                                        <div className="flex items-center gap-1">
-                                            {canManageSparePartPrices && (
-                                                <button
-                                                    type="button"
-                                                    onClick={(event) => { event.stopPropagation(); openPartPrices(p); }}
-                                                    className="p-1.5 rounded-lg hover:bg-sky-50 text-slate-400 hover:text-sky-600 transition-colors"
-                                                    title="سجل أسعار القطعة"
-                                                >
-                                                    <Tag className="w-4 h-4" />
-                                                </button>
-                                            )}
-                                            {canManageSpareParts && (
-                                                <button
-                                                    type="button"
-                                                    onClick={(event) => { event.stopPropagation(); openPartForm(p); }}
-                                                    className="p-1.5 rounded-lg hover:bg-sky-50 text-slate-400 hover:text-sky-600 transition-colors"
-                                                    title="تعديل القطعة"
-                                                >
-                                                    <Pencil className="w-4 h-4" />
-                                                </button>
-                                            )}
-                                        </div>
-                                    ) : undefined}
-                                    emptyMessage="لا توجد قطع غيار"
-                                />
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
+                {/* Tabs Navigation */}
+                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl w-fit">
+                    {tabs.map(tab => (
+                        <button
+                            key={tab.id}
+                            onClick={() => setActiveTab(tab.id)}
+                            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === tab.id ? 'bg-white text-sky-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                            <tab.icon className="w-4 h-4" /> {tab.label} ({tab.count})
+                        </button>
+                    ))}
                 </div>
+
+                {/* Active table */}
+                {activeTab === 'devices' ? (
+                    <SmartTable<DeviceModel>
+                        hideHeader
+                        title="إدارة الأجهزة"
+                        icon={Package}
+                        data={devices}
+                        columns={deviceColumns}
+                        filters={deviceFilters}
+                        searchKeys={['name', 'nameAr', 'nameEn', 'brand']}
+                        searchPlaceholder="بحث عن جهاز..."
+                        getId={(d) => d.id}
+                        onRowClick={(d) => navigate(`/devices/${d.id}`)}
+                        rowClassName={(d) => d.isActive === false ? 'bg-slate-50 text-slate-500 opacity-75 hover:bg-slate-100' : ''}
+                        emptyIcon={Package}
+                        emptyMessage="لا توجد أجهزة"
+                        actions={canManageDeviceModels ? (d) => (
+                            <div className="flex items-center gap-1">
+                                <button
+                                    type="button"
+                                    onClick={(event) => { event.stopPropagation(); setSalesBranchesDevice(d); }}
+                                    className="p-1.5 rounded-lg hover:bg-sky-50 text-slate-400 hover:text-sky-600 transition-colors"
+                                    title="فروع البيع"
+                                >
+                                    <MapPin className="w-4 h-4" />
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={(event) => { event.stopPropagation(); openEditDevice(d); }}
+                                    className="p-1.5 rounded-lg hover:bg-sky-50 text-slate-400 hover:text-sky-600 transition-colors"
+                                    title="تعديل الجهاز"
+                                >
+                                    <Pencil className="w-4 h-4" />
+                                </button>
+                            </div>
+                        ) : undefined}
+                    />
+                ) : (
+                    <SmartTable<SparePart>
+                        hideHeader
+                        title="قطع الأجهزة"
+                        icon={Cog}
+                        data={parts}
+                        columns={partColumns}
+                        filters={partFilters}
+                        searchKeys={['name', 'code']}
+                        searchPlaceholder="بحث عن قطعة..."
+                        getId={(p) => p.id}
+                        onRowClick={canManageSpareParts ? (p) => openPartForm(p) : undefined}
+                        rowClassName={(p) => p.isActive === false ? 'bg-slate-50 text-slate-500 opacity-75 hover:bg-slate-100' : ''}
+                        emptyIcon={Cog}
+                        actions={(canManageSpareParts || canManageSparePartPrices) ? (p) => (
+                            <div className="flex items-center gap-1">
+                                {canManageSparePartPrices && (
+                                    <button
+                                        type="button"
+                                        onClick={(event) => { event.stopPropagation(); openPartPrices(p); }}
+                                        className="p-1.5 rounded-lg hover:bg-sky-50 text-slate-400 hover:text-sky-600 transition-colors"
+                                        title="سجل أسعار القطعة"
+                                    >
+                                        <Tag className="w-4 h-4" />
+                                    </button>
+                                )}
+                                {canManageSpareParts && (
+                                    <button
+                                        type="button"
+                                        onClick={(event) => { event.stopPropagation(); openPartForm(p); }}
+                                        className="p-1.5 rounded-lg hover:bg-sky-50 text-slate-400 hover:text-sky-600 transition-colors"
+                                        title="تعديل القطعة"
+                                    >
+                                        <Pencil className="w-4 h-4" />
+                                    </button>
+                                )}
+                            </div>
+                        ) : undefined}
+                        emptyMessage="لا توجد قطع غيار"
+                    />
+                )}
             </div>
 
             {pricingPart && (
@@ -1238,25 +1392,20 @@ const DeviceManagement = () => {
                 />
             )}
 
+            {salesBranchesDevice && (
+                <DeviceSalesBranchesModal
+                    device={salesBranchesDevice}
+                    onClose={() => setSalesBranchesDevice(null)}
+                />
+            )}
+
             {/* ADD/EDIT PART MODAL */}
-            <AnimatePresence>
-                {isAddingPart && (
-                    <div
-                        className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
-                        onClick={() => { setIsAddingPart(false); setEditingPart(null); }}
-                    >
-                        <motion.div
-                            initial={{ opacity: 0, scale: 0.95 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            exit={{ opacity: 0, scale: 0.95 }}
-                            className="bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden text-right"
-                            dir="rtl"
-                            onClick={e => e.stopPropagation()}
-                        >
-                            <div className="p-6 border-b border-slate-100 flex justify-between items-center">
-                                <h2 className="text-lg font-bold text-slate-800">{editingPart ? 'تعديل قطعة غيار' : 'إضافة قطعة غيار'}</h2>
-                                <IconButton icon={X} label="إغلاق" onClick={() => { setIsAddingPart(false); setEditingPart(null); }} />
-                            </div>
+            <Modal
+                isOpen={isAddingPart}
+                onClose={() => { setIsAddingPart(false); setEditingPart(null); }}
+                size="lg"
+                title={editingPart ? 'تعديل قطعة غيار' : 'إضافة قطعة غيار'}
+            >
                             <form onSubmit={handlePartSubmit} className="p-6 space-y-4">
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
@@ -1337,7 +1486,7 @@ const DeviceManagement = () => {
                                                             : inactive ? 'bg-amber-50/60 border border-amber-100 hover:bg-amber-50' : 'bg-white border border-slate-100 hover:bg-slate-50'
                                                     }`}
                                                 >
-                                                    <input type="checkbox" checked={isSelected} onChange={() => toggleDeviceCompat(dev.id)} className="accent-sky-600 w-4 h-4" />
+                                                    <Checkbox bare checked={isSelected} onCheckedChange={() => toggleDeviceCompat(dev.id)} />
                                                     <div className="flex-1 min-w-0">
                                                         <span className={`text-sm font-medium block ${inactive ? 'text-amber-800' : 'text-slate-700'}`}>{dev.nameAr || dev.name}</span>
                                                         <div className="mt-0.5 flex flex-wrap items-center gap-2">
@@ -1365,10 +1514,7 @@ const DeviceManagement = () => {
                                     </button>
                                 </div>
                             </form>
-                        </motion.div>
-                    </div>
-                )}
-            </AnimatePresence>
+            </Modal>
         </>
     );
 };

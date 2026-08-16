@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { createPublicApplication } from '../services/applicationService.js';
+import { applicationSubmissionErrorResponse } from '../services/applicationSubmissionError.js';
 
 const router = Router();
 
@@ -72,11 +73,11 @@ router.post('/', async (req, res) => {
     const result = await createPublicApplication(req.body);
     res.status(201).json(result);
   } catch (err: any) {
-    if (err?.status) {
-      return res.status(err.status).json(err.payload ?? { error: err.message });
+    const response = applicationSubmissionErrorResponse(err);
+    if (response.status === 500) {
+      console.error('Error submitting application:', err);
     }
-    console.error('Error submitting application:', err);
-    res.status(500).json({ error: err.message });
+    res.status(response.status).json(response.payload);
   }
 });
 

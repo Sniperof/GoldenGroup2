@@ -1,5 +1,5 @@
-import React from 'react';
-import { Filter, ChevronDown, X, ArrowDownUp, UserSearch, MapPin, History, Layers, Tag, Star } from 'lucide-react';
+import React, { useEffect, useRef } from 'react';
+import { Filter, ChevronDown, X, ArrowDownUp, UserSearch, MapPin, History, Layers, Tag, Star } from '../ui/icons';
 import Select from '../ui/Select';
 
 export interface FilterOption { value: string; label: string; }
@@ -59,7 +59,7 @@ const SORT_CHIPS: { value: QueueSortMode; label: string }[] = [
 
 function FieldLabel({ icon: Icon, children, hint }: { icon: any; children: React.ReactNode; hint?: string }) {
     return (
-        <label className="text-[11px] font-bold text-slate-600 flex items-center gap-1 mb-1">
+        <label className="text-xs font-bold text-slate-600 flex items-center gap-1 mb-1">
             <Icon className="w-3 h-3 text-slate-400" />
             {children}
             {hint && <span className="text-slate-400 font-normal">{hint}</span>}
@@ -81,8 +81,25 @@ export default function CustomerQueueFilters(props: Props) {
 
     const withAll = (opts: FilterOption[], allLabel: string): FilterOption[] => [{ value: '', label: allLabel }, ...opts];
 
+    // Close the panel on any click outside its bounds — not just the chevron.
+    // A Select's dropdown menu is portalled to <body> (outside rootRef), so a
+    // click on one of its options must NOT count as "outside"; exclude it.
+    const rootRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        if (!open) return;
+        function onPointerDown(e: PointerEvent) {
+            const el = e.target instanceof Element ? e.target : null;
+            if (!el) return;
+            if (rootRef.current?.contains(el)) return;      // inside the filters panel
+            if (el.closest('[role="listbox"]')) return;     // inside a portalled Select menu
+            onToggle();                                      // outside → close (panel is open)
+        }
+        document.addEventListener('pointerdown', onPointerDown);
+        return () => document.removeEventListener('pointerdown', onPointerDown);
+    }, [open, onToggle]);
+
     return (
-        <div className="border-b border-slate-100">
+        <div ref={rootRef} className="border-b border-slate-100">
             {/* Toggle row */}
             <button
                 type="button"
@@ -92,7 +109,7 @@ export default function CustomerQueueFilters(props: Props) {
                 <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
                     <Filter className="w-3.5 h-3.5 text-violet-500" /> الفلاتر
                     {activeCount > 0 && (
-                        <span className="text-[10px] font-bold bg-violet-600 text-white rounded-full px-1.5 py-0.5 leading-none">{activeCount}</span>
+                        <span className="text-xs font-bold bg-violet-600 text-white rounded-full px-1.5 py-0.5 leading-none">{activeCount}</span>
                     )}
                 </span>
                 <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
@@ -102,14 +119,14 @@ export default function CustomerQueueFilters(props: Props) {
             {activeChips.length > 0 && (
                 <div className="px-2 pb-2 flex flex-wrap items-center gap-1">
                     {activeChips.map(chip => (
-                        <span key={chip.key} className="text-[11px] font-bold text-violet-700 bg-violet-50 border border-violet-100 rounded-full px-2 py-0.5 inline-flex items-center gap-1">
+                        <span key={chip.key} className="text-xs font-bold text-violet-700 bg-violet-50 border border-violet-100 rounded-full px-2 py-0.5 inline-flex items-center gap-1">
                             {chip.label}
                             <button type="button" onClick={chip.onRemove} aria-label="إزالة" className="hover:text-violet-900">
                                 <X className="w-3 h-3" />
                             </button>
                         </span>
                     ))}
-                    <button type="button" onClick={onClearAll} className="text-[11px] font-bold text-slate-400 hover:text-slate-600 mr-auto">
+                    <button type="button" onClick={onClearAll} className="text-xs font-bold text-slate-400 hover:text-slate-600 mr-auto">
                         مسح الكل
                     </button>
                 </div>
@@ -117,7 +134,7 @@ export default function CustomerQueueFilters(props: Props) {
 
             {/* Panel */}
             {open && (
-                <div className="px-3 pb-3 space-y-3 bg-slate-50/60">
+                <div className="px-3 pb-3 space-y-3 bg-slate-50/60 max-h-[calc(100vh-380px)] overflow-y-auto custom-scroll">
                     <div>
                         <FieldLabel icon={UserSearch} hint="(ضمن القائمة)">الوسيط</FieldLabel>
                         <Select<string> value={referrer} onChange={setReferrer} className="w-full" options={withAll(referrerOptions, 'كل الوسطاء')} />
@@ -145,7 +162,7 @@ export default function CustomerQueueFilters(props: Props) {
                                 const on = classification.includes(c.value);
                                 return (
                                     <button key={c.value} type="button" onClick={() => toggleClassification(c.value)}
-                                        className={`flex-1 text-center text-[11px] font-bold py-1.5 rounded-lg border-2 transition-all ${on ? c.on : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                                        className={`flex-1 text-center text-xs font-bold py-1.5 rounded-lg border-2 transition-all ${on ? c.on : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
                                         {c.label}
                                     </button>
                                 );
@@ -160,7 +177,7 @@ export default function CustomerQueueFilters(props: Props) {
                                 const on = rating.includes(c.value);
                                 return (
                                     <button key={c.value} type="button" onClick={() => toggleRating(c.value)}
-                                        className={`flex-1 text-center text-[11px] font-bold py-1.5 rounded-lg border-2 transition-all ${on ? c.on : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                                        className={`flex-1 text-center text-xs font-bold py-1.5 rounded-lg border-2 transition-all ${on ? c.on : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
                                         {c.label}
                                     </button>
                                 );
@@ -173,7 +190,7 @@ export default function CustomerQueueFilters(props: Props) {
                         <div className="flex gap-1.5">
                             {SORT_CHIPS.map(c => (
                                 <button key={c.value} type="button" onClick={() => setSortMode(c.value)}
-                                    className={`flex-1 text-center text-[11px] font-bold py-1.5 rounded-lg border-2 transition-all ${sortMode === c.value ? 'bg-violet-600 border-violet-600 text-white' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                                    className={`flex-1 text-center text-xs font-bold py-1.5 rounded-lg border-2 transition-all ${sortMode === c.value ? 'bg-violet-600 border-violet-600 text-white' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
                                     {c.label}
                                 </button>
                             ))}

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Building2 } from 'lucide-react';
+import { Building2 } from './ui/icons';
 import { useAuthStore } from '../hooks/useAuthStore';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import { canCrossBranch } from '../lib/branchScope';

@@ -146,9 +146,9 @@
 
 **طوارئ فقط + قنوات داخلية فقط.**
 
-#### نوع المهمة في V1.0
+#### نوع المهمة في V1.0 (سجل تاريخي) وتوسعة 2026-08-11
 - ✅ `emergency_maintenance` — كل طارئة جديدة تمرّ عبر `service_request`.
-- ❌ `periodic_maintenance` — تبقى cron-only، لا طبقة intake.
+- ✅ `periodic_maintenance` — أُضيفت لاحقاً كطبقة intake مستقلة؛ لا تلغي التوليد التلقائي ولا تعيد جدولة مهمة دورية قائمة. ينتج الحسم إما مهمة دورية **جديدة** (`promoted`) أو حلاً عند الاستلام عند وجود مهمة نشطة (`resolved_at_intake`) أو رفضاً مسبَّباً.
 - ❌ مهام أخرى (`device_demo` / `collection` / `device_delivery/installation/activation`) — مساراتها ناضجة، لا تدخل service_requests.
 
 #### القنوات في V1.0 — داخلية حصراً
@@ -190,7 +190,7 @@ received           ────→  in_review                  (Operator فَت�
                               │           │
                               │           └──→  in_review     (الزبون ردّ)
                               │
-                              ├──→  resolved_at_intake       [terminal — قناة triager-present فقط]
+                              ├──→  resolved_at_intake       [terminal — بعد تولّي الطلب (أي قناة)]
                               ├──→  rejected                 [terminal — Audit Admin حصراً]
                               ├──→  promoted                 [terminal — open_task أُنشئ]
                               └──→  cancelled                [terminal — admin-initiated فقط]
@@ -232,9 +232,9 @@ received           ────→  in_review                  (Operator فَت�
 | **SR-R002** | `in_review` تنتقل إلى أي من الأربع terminal (`resolved_at_intake` / `rejected` / `promoted` / `cancelled`) أو إلى `awaiting_customer_info` |
 | **SR-R003** | `awaiting_customer_info` تعود فقط إلى `in_review` (الزبون ردّ) أو تنتقل إلى `cancelled`. **لا قفز مباشر إلى terminal آخر** — يجب المرور بـ `in_review` للتثبت |
 | **SR-R004** | الانتقال إلى `promoted` يستلزم: (١) ربط الـ request بـ client أو candidate (`beneficiary_client_id` أو `beneficiary_candidate_id` غير NULL)، (٢) توفير `installed_device_id` — موجود لـ `company_device`، أو يُنشأ ضمن transaction لـ `external_device` (راجع ٠.١٣)، (٣) إنشاء صف في `open_tasks` ضمن نفس transaction، (٤) حفظ `linked_open_task_id` على الـ request |
-| **SR-R005** | الانتقال إلى `resolved_at_intake` يستلزم: (١) `channel` بـ triager-present (ضمن مجموعة محدَّدة في ٠.٦)، (٢) تسجيل `triage_notes` غير فارغة، (٣) `triage_outcome` يحدّد سبب الحلّ |
+| **SR-R005** | الانتقال إلى `resolved_at_intake` يستلزم: (١) أن يكون الطلب **مُتولّىً** — أي في `in_review` مع مُراجِعٍ مُسنَد (`reviewed_by_user_id` غير NULL) — **بصرف النظر عن قناة الدخول**؛ القصد أن يكون قد فُرِز بشرياً فعلاً لا أن تكون قناته triager-present فحسب. (٢) ربط المستفيد بسجل زبون (`beneficiary_client_id` غير NULL)، (٣) تسجيل `triage_notes` غير فارغة، (٤) `triage_outcome` يحدّد سبب الحلّ |
 | **SR-R006** | كل حالة terminal تُلزم `triage_outcome` غير NULL — يُحدّد المخرج التفصيلي ضمن نوع الحالة |
-| **SR-R007** | `rejected` تستلزم صلاحية `service_requests.reject` (Request Audit Admin حصراً) — راجع ٠.١٦. الـ Operator لا يستطيع الرفض مباشرةً |
+| **SR-R007** | `rejected` تستلزم أن يكون الطلب مُتولّىً أولاً (`in_review` مع `reviewed_by_user_id` غير NULL)، وأن يكون المستفيد مربوطاً بسجل زبون (`beneficiary_client_id` غير NULL)، وصلاحية `service_requests.reject` (Request Audit Admin حصراً) — راجع ٠.١٦. المدقّق هو صاحب قرار الرفض ولا يستبدل المالك التشغيلي المسجّل على الطلب. طلب إنشاء الحساب مستثنى من شرط الربط لأن الربط فيه هو أثر الاعتماد والتفعيل نفسه |
 | **SR-R008** | بيانات الزبون المُدخَلة (الاسم، الهاتف، الوصف، المرفقات) **immutable بعد `received`** — لا تعديل من admin أبداً. التصحيحات تُسجَّل كـ internal notes منفصلة (راجع ٠.١٨) |
 | **SR-R009** | تفعيل `duplicate_flag` آلياً يُفعِّل `review_required_flag` تلقائياً ويُلزم Audit Admin قبل الرفض |
 | **SR-R010** | لا حذف فيزيائي للطلبات. الإقفال يكون عبر terminal state ثم أرشفة ناعمة عبر `archived_at` (راجع ٠.١٨) |
@@ -287,6 +287,15 @@ received           ────→  in_review                  (Operator فَت�
 | **SR-REOPEN-03** | كل إعادة فتح تُسجَّل كـ event `request_reopened` في audit log مع: السبب المهيكَل، الحالة السابقة، الـ actor |
 | **SR-REOPEN-04** | حقل `reopen_count` يُزاد بـ 1 على كل إعادة. لا حد أعلى في V1.0، لكن `reopen_count > 2` يُفعِّل `review_required_flag` آلياً (تنبيه على نمط مشبوه) |
 | **SR-REOPEN-05** | إعادة الفتح بعد `archived_at` ممنوعة — يجب إلغاء الأرشفة أولاً (إجراء منفصل بـ نفس صلاحية إعادة الفتح) |
+
+### ٠.٤.د التصعيد كـ «وضع مقيَّد» (مُحسَمة 2026-07-08 — تعميم JR-R009)
+
+التصعيد ليس حالةً جديدة بل **طبقة تجميد فوق الحالة الحالية** (`in_review`/`awaiting_customer_info`)، على غرار مسار التصعيد في dominio التوظيف (JR-R009). يُعبَّر عنه بعلامة مخصّصة `escalated_at` (+ `escalated_by_user_id` + `escalation_reason`) منفصلة عن `review_required_flag` لأن الأخير مُثقَل (يُضبط آلياً عند التكرار وتعذّر حلّ الفرع) فلا يصلح ليعني «مُجمَّد بانتظار قرار Audit Admin».
+
+| الرمز | القاعدة |
+|---|---|
+| **SR-ESC-01** | ما دام `escalated_at IS NOT NULL` فالطلب في **وضع مقيَّد**: تُحجب **كل** أكشنز التعديل (claim/take-over/link/change-linkage/request-info/resume-review/resolve-at-intake/cancel/promote/handoff/merge/attach-periodic/problems*) برمز `request_is_escalated_actions_blocked` (HTTP 423). المسموح فقط: العرض، الملاحظات الداخلية، ومَخرجان: **فكّ التصعيد** و**الرفض** |
+| **SR-ESC-02** | التصعيد يُنشئه `Operator` (صلاحية `service_requests.review`) على طلب غير-نهائي، ويضبط `escalated_at` **فقط** — لا يلمس `review_required_flag` (المفهومان منفصلان؛ التصعيد نفسه يفتح باب الرفض عبر SR-AUTH-01). أثناء التجميد، مَخرجان: **الرفض** (صلاحية `service_requests.reject`) و**فكّ التصعيد** (صلاحية **`service_requests.resolve_escalation`** المستقلة — لا `reject`، لأن فكّ التصعيد يُعيد التشغيل بينما الرفض نهائي؛ §4.1 من معيار الصلاحيات، على غرار `jobs.applications.resolve_escalation`). فكّ التصعيد يمسح العلامة ويُسجَّل event `escalation_resolved`؛ وأي انتقال إلى terminal يمسح العلامة تلقائياً (snapshot لا يُبقي التجميد على طلب مُغلق) |
 
 ### ٠.٤.ج Auto-Cancel للـ `awaiting_customer_info` (مُحسَمة 2026-06-03)
 
@@ -342,7 +351,7 @@ V1.0 يَحفظ البساطة: قاعدة واحدة، آلية واحدة، se
 
 **القاعدتان الحاكمتان:**
 - **قاعدة الحالة الابتدائية:** أي قناة بـ triager حيّ ⇒ `in_review` فوراً. أي قناة آلية ⇒ `received` ينتظر claim.
-- **قاعدة `resolved_at_intake`:** متاحة فقط للقنوات الأربع الأخيرة (triager-present). القنوات الثلاث الأولى لا يمكنها الوصول لهذه الحالة — مخارجها الوحيدة `promoted`/`rejected`/`cancelled`.
+- **قاعدة `resolved_at_intake`:** متاحة لأي قناة **بعد تولّي الطلب** (`in_review` مع مُراجِع مُسنَد) — العبرة بوجود فرزٍ بشري لا بنوع القناة. القنوات الآلية (`mobile_app`/`website`/`whatsapp`) تبدأ `received`، فما إن يتولّاها موظف حتى تُتاح لها هذه الحالة كبقية القنوات (راجع SR-R005).
 
 #### القنوات بحسب الدور
 
@@ -371,7 +380,7 @@ service_requests
 ├── submission_type        VARCHAR(20)        -- CHECK: 'apply' | 'refer_a_candidate'
 │
 │   -- شريحة المستخدم وقت الإرسال (snapshot — لا تتغيّر مع لاحق ترقية العميل)
-├── submitter_tier         VARCHAR(20)        -- CHECK: 'visitor' | 'lead' | 'fop' | 'op' | 'staff'
+├── submitter_tier         VARCHAR(20)        -- CHECK: 'visitor' | 'customer' | 'lead' | 'fop' | 'op' | 'staff'
 │
 │   -- بيانات العقد والجهاز
 ├── contract_id            INTEGER FK → contracts(id)         -- nullable: يُملأ أثناء الفرز
@@ -541,7 +550,7 @@ SELECT 'SR-' || to_char(NOW(), 'YYYYMMDD') || '-' ||
 | **Visitor** | غير مسجَّل في النظام | يدوياً 100% | بدون (الاسم + هاتف فقط) | مسار العام للصيانة فقط |
 | **Lead** (اسم مرشح) | مرشَّح غير مفعَّل (`clients.is_candidate = TRUE`) | آلية مع إمكانية تعديل قبل الإرسال | حساب موبايل أساسي | المسار العام |
 | **FOP** (زبون محتمل) | عميل بـ زيارات تسويقية بدون عقد | آلية مع تعديل | حساب | المسار العام |
-| **OP** (زبون لديه جهاز) | عميل بـ `installed_devices` نشطة | آلية كاملة | حساب | المسار العام **+ مسار "أجهزتي"** بـ جهاز مختار مُسبقاً |
+| **OP** (زبون لديه جهاز) | عميل لديه عقد تشغيلي أو جهاز خارجي مسجل (`installed_devices.device_source = 'external'`) | آلية كاملة | حساب | المسار العام **+ مسار "أجهزتي"** بـ جهاز مختار مُسبقاً |
 
 **قواعد ضرورية:**
 - **`submitter_tier` snapshot:** الشريحة لحظة الإرسال تُحفَظ كـ snapshot. ترقية لاحقة لـ Visitor إلى Lead لا تُغيّر `submitter_tier` على الطلب الأصلي (audit trail).
@@ -594,7 +603,7 @@ SELECT 'SR-' || to_char(NOW(), 'YYYYMMDD') || '-' ||
      device_model_id = NULL أو يدوي من الـ Operator,
      device_model_name = service_request.external_device_name,
      serial_number   = service_request.external_device_serial,  -- اختياري
-     status          = 'active',                       -- موجود فعلاً لدى الزبون
+     status          = operator_selected_status,       -- delivered / installed / active / faulty حسب واقع الجهاز
      installation_geo_unit_id = service_address.geo_unit_id,
      branch_id       = clients.branch_id,
      warranty_*      = NULL                            -- لا كفالة شركة
@@ -711,6 +720,7 @@ IF score >= 0.75 AND existing_request.status NOT IN (terminal) THEN
 | `service_requests.view` | **`GLOBAL` فقط** | Operator + Audit Admin | رؤية كل الطلبات بصرف النظر عن الفرع |
 | `service_requests.review` | **`GLOBAL` فقط** | Admin Operator | claim، link، promote، escalate، add notes، priority، resolved_at_intake |
 | `service_requests.reject` | **`GLOBAL` فقط** | Request Audit Admin | الرفض النهائي + اعتماد/تجاوز قرارات Operator |
+| `service_requests.resolve_escalation` | **`GLOBAL` فقط** | Request Audit Admin | فكّ تصعيد طلب (وضع مقيَّد ← عودة التشغيل) — منفصلة عن `reject` (SR-ESC-02) |
 | `service_requests.promote` | **`GLOBAL` فقط** | Admin Operator | إنشاء `open_task` من الطلب المُربَط |
 | `service_requests.archive` | **`GLOBAL` فقط** | Operator + Audit Admin | تفعيل `archived_at` بعد terminal |
 
@@ -726,12 +736,13 @@ IF score >= 0.75 AND existing_request.status NOT IN (terminal) THEN
 
 | الرمز | القاعدة |
 |---|---|
-| **SR-AUTH-01** | الرفض المباشر بدون `review_required_flag = TRUE` ممنوع. يجب تفعيل العلَم أولاً (آلياً عبر duplicate أو يدوياً عبر Operator) |
+| **SR-AUTH-01** | الرفض المباشر ممنوع قبل **تولّي الطلب** (`in_review` مع `reviewed_by_user_id` غير NULL)، وبعد التولّي لا يُفتح باب الرفض ما لم يكن الطلب إمّا **مُصعَّداً** (`escalated_at IS NOT NULL`) أو عليه `review_required_flag = TRUE` (يُضبط آلياً عبر duplicate / تعذّر الفرع / reopen). التصعيد وعلم المراجعة **مفهومان منفصلان** (SR-ESC-02): التصعيد لا يلمس `review_required_flag`، وكلاهما يفتح باب الرفض |
 | **SR-AUTH-02** | `Operator` يستطيع `promote` فقط بعد اكتمال: (أ) ربط الـ beneficiary، (ب) توفير `installed_device_id` (موجود أو يُنشأ كـ external — راجع ٠.١٣) |
 | **SR-AUTH-03** | `Audit Admin` يستطيع تجاوز قرار Operator (مثلاً إلغاء `awaiting_customer_info` بـ `rejected` مباشرة بعد review) |
 | **SR-AUTH-04** | لا أحد يستطيع تعديل بيانات الزبون المُرسَلة (`problem_description`، الأسماء، الهواتف، المرفقات) — إن وجد خطأ يُسجَّل كـ internal note منفصل |
 | **SR-AUTH-05** | الإلغاء (`cancelled`) متاح لـ Operator و Audit Admin، لكن يستلزم سبباً مهيكلاً من قائمة معتمدة |
 | **SR-AUTH-06** | عند `promote`، يُحسَب `open_tasks.branch_id` آلياً من `beneficiary_client.branch_id` — لا اختيار يدوي للفرع. هذا يحفظ مبدأ "الطلب مركزي، المهمة فرع-محلية" |
+| **SR-LINK-01** | ربط الطلب بزبون/مرشح (وكذلك إنشاء زبون/مرشح من الطلب) **قرار مراجعة** يتطلّب أن يكون الطلب **مُتولّىً** (`in_review`) — لا ربط في `received` قبل التولّي. الخلفية ترفض بـ `link_requires_claim`، والواجهة تُخفي لوحة الربط وتعرض تلميح «تولَّ الطلب أولاً». **ينطبق ذات الحارس على ربط الوسيط** (`referrer_client_id` عبر `/link-referrer`): عند اكتمال ربط الوسيط والمستفيد يُنشأ إسناد ثابت في `client_referral_attributions` بمصدر `water_check`، ويُلحَق الوسيط بقائمة وسطاء المستفيد دون حذف وسيط سابق. الوسيط غير المربوط يبقى snapshot على الطلب ولا يتحول إلى `Personal` باسم المستخدم الإداري. |
 
 ### ٠.١٧ Audit Log المُهيكَل
 
@@ -1304,6 +1315,8 @@ derived_outcome = function(لائحة الأعطال على open_task):
 | `partially_resolved`/`resolved` + `emergency_installments` بُذرت | `open_task` جديدة بـ `task_type='collection'` للقسط الأول، `required_date` من جدول الأقساط |
 | `unresolved` + قرار "يحتاج ورشة" | ملاحظة على `emergency_tickets` + open_task جديدة (نوع لاحق `workshop_repair` إن أُدخل) |
 
+**السحب المباشر ضمن زيارة الطوارئ:** عندما تكون النتيجة `unresolved` ويؤكد الفني أنه فك الجهاز وأخذه فعلياً إلى ورشة الفرع، لا يجوز الاكتفاء بتحديث `installed_devices.status`. يجب، داخل معاملة واحدة، إنشاء وإكمال `device_disconnection` ثم `device_retrieval` (`retrieval_purpose='maintenance'`) مرتبطتين بالزيارة نفسها، مع توثيق إجراء فك واحد على الأقل وإقرار الزبون وحفظ موقع الجهاز السابق. عند نجاح السلسلة فقط تصبح الحالة `in_workshop` وتُتاح `device_return`. إعادة حفظ النتيجة idempotent ولا تنشئ سلسلة ثانية.
+
 #### 13.ب — توليد المهام بعد إكمال الدورية
 
 | المُطلِق | الـ artifact المولَّد |
@@ -1435,7 +1448,7 @@ Body بـ discriminator على `task_type`. خدمة موحَّدة (`visitTaskR
 - [ ] CHECK على `channel` يشمل القنوات السبع من ٠.٦ — **immutable بعد الإنشاء** (DB trigger يمنع UPDATE).
 - [ ] CHECK على `triage_outcome` يشمل القيم الـ 14 من ٠.٥.
 - [ ] CHECK على `submission_type ∈ ('apply', 'refer_a_candidate')`.
-- [ ] CHECK على `submitter_tier ∈ ('visitor', 'lead', 'fop', 'op', 'staff')`.
+- [ ] CHECK على `submitter_tier ∈ ('visitor', 'customer', 'lead', 'fop', 'op', 'staff')`.
 - [ ] CHECK على `device_source ∈ ('company_device', 'external_device')`.
 - [ ] CHECK مركَّب: `(device_source='external_device' AND installed_device_id IS NULL AND external_device_name IS NOT NULL) OR (device_source='company_device' AND external_device_name IS NULL)`.
 - [ ] CHECK مركَّب: `(submission_type='apply' AND beneficiary_client_id = requester_user_id::client_id) OR (submission_type='refer_a_candidate')`.

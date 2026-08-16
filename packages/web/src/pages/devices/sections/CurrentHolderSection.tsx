@@ -1,11 +1,12 @@
-import { MapPin } from 'lucide-react';
+import { MapPin } from '../../../components/ui/icons';
 import { PossessionHolderChip } from '../../../components/devices/PossessionHolderChip';
 import { GeoPathDisplay } from '../../../components/geo/GeoPathDisplay';
 import { SectionShell } from './SectionShell';
+import type { DevicePossessionEntry } from '@golden-crm/shared';
 
 interface Props {
   device: any;
-  currentPossession: any | null;
+  currentPossession: DevicePossessionEntry | null;
 }
 
 function PossessionEmpty({ status }: { status?: string }) {
@@ -50,6 +51,7 @@ export function CurrentHolderSection({ device, currentPossession }: Props) {
           {currentPossession ? (
             <PossessionHolderChip
               holderType={currentPossession.holderType}
+              holderName={currentPossession.holderName}
               reason={currentPossession.reason}
               showReason
             />

@@ -8,7 +8,7 @@
 // planners can see *why* the offer didn't land without leaving the tab.
 
 import { Link } from 'react-router-dom';
-import { Check, Clock, X, Minus, AlertTriangle } from 'lucide-react';
+import { Check, Clock, X, Minus, AlertTriangle } from '../ui/icons';
 
 export type PreOfferOutcomeState =
   | 'not_presented_yet'

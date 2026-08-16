@@ -21,6 +21,7 @@
 import type { PoolClient } from 'pg';
 import pool from '../db.js';
 import { resolveTeamZoneIds } from './planningMarketingTargets.js';
+import { refreshVisitType } from './visitClassification.js';
 
 export type VisitOriginType =
   | 'telemarketing'
@@ -44,6 +45,9 @@ export interface BookVisitInput {
   performedByUserId: number | null;
   customerSnapshot?: Record<string, unknown> | null;
   telemarketerNotes?: string | null;
+  answeredBy?: 'customer' | 'spouse' | 'child' | 'other' | null;
+  fieldInstructions?: string | null;
+  bookingCallLogId?: string | null;
 }
 
 export interface BookVisitResult {
@@ -59,13 +63,57 @@ class BookingError extends Error {
   }
 }
 
-const POST_SALE_TASK_TYPES = new Set([
-  'device_delivery',
-  'gift_delivery',
-  'device_installation',
-  'device_activation',
-  'device_disconnection',
-]);
+export const FIELD_VISIT_SLOT_OCCUPIED_SQL = `fv.status <> 'cancelled'`;
+export const FIELD_VISIT_SLOT_CONSTRAINT = 'uq_field_visits_team_slot';
+const SLOT_CONFLICT_MESSAGE = 'هذا الموعد محجوز مسبقاً للفريق في نفس الوقت.';
+
+export const INSTANT_VISIT_INSERT_SQL = `
+  INSERT INTO field_visits (
+    visit_type, visit_family, branch_id, client_id, status,
+    scheduled_date, scheduled_time,
+    origin_type, origin_id,
+    team_snapshot, team_responsible_user_id,
+    customer_snapshot, appointment_booked_at, created_by
+  ) VALUES (
+    'marketing', 'marketing', $1, $2, 'in_progress',
+    $3, $4,
+    'field_initiated', $5,
+    $6::jsonb, $7,
+    $8::jsonb, NOW(), $9
+  )
+  RETURNING id
+`;
+
+export function buildInstantVisitInsertParams(input: {
+  branchId: number;
+  clientId: number;
+  scheduledDate: string;
+  scheduledTime: string;
+  performedByUserId: number;
+  teamSnapshotJson: string | null;
+  responsibleHrUserId: number | null;
+  customerSnapshotJson: string;
+}): unknown[] {
+  return [
+    input.branchId,
+    input.clientId,
+    input.scheduledDate,
+    input.scheduledTime,
+    input.performedByUserId, // origin_id per DEC-011 D-FI8
+    input.teamSnapshotJson,
+    input.responsibleHrUserId,
+    input.customerSnapshotJson,
+    input.performedByUserId, // created_by: same identity, distinct SQL parameter type
+  ];
+}
+
+export function mapVisitSlotConflict(error: unknown): unknown {
+  const pgError = error as { code?: string; constraint?: string } | null;
+  if (pgError?.code === '23505' && pgError.constraint === FIELD_VISIT_SLOT_CONSTRAINT) {
+    return new BookingError(409, SLOT_CONFLICT_MESSAGE);
+  }
+  return error;
+}
 
 // ─── D18 triple guard ──────────────────────────────────────────────────────
 
@@ -123,6 +171,7 @@ interface TaskRow {
   status: string;
   client_id: number;
   task_type: string;
+  task_family: string;
 }
 
 const LOCKED_TASK_STATUSES = new Set([
@@ -142,7 +191,8 @@ async function validateSelectedTasks(
 
   const taskIds = input.selectedTasks.map((t) => t.openTaskId);
   const { rows } = await db.query<TaskRow>(
-    `SELECT ot.id, ot.status, ot.client_id, ot.task_type
+    `SELECT ot.id, ot.status, ot.client_id, ot.task_type,
+            COALESCE(ot.task_family, ttc.task_family) AS task_family
        FROM open_tasks ot
        INNER JOIN task_type_config ttc ON ttc.task_type = ot.task_type
       WHERE ot.id = ANY($1::int[])
@@ -238,7 +288,7 @@ async function loadTeamSnapshot(
   return { teamSnapshot: null, responsibleEmployeeId: null };
 }
 
-async function assertTeamSlotAvailable(
+export async function assertTeamSlotAvailable(
   db: PoolClient,
   params: { branchId: number; scheduledDate: string; scheduledTime: string; teamKey: string },
 ): Promise<void> {
@@ -250,7 +300,7 @@ async function assertTeamSlotAvailable(
         AND fv.scheduled_date = $2
         AND COALESCE(fv.team_snapshot->>'teamKey', ct.team_key) = $3
         AND substring(COALESCE(fv.scheduled_time, '') from 1 for 5) = substring($4 from 1 for 5)
-        AND fv.status IN ('scheduled', 'in_progress', 'ended', 'completed')
+        AND ${FIELD_VISIT_SLOT_OCCUPIED_SQL}
       LIMIT 1`,
     [params.branchId, params.scheduledDate, params.teamKey, params.scheduledTime],
   );
@@ -258,7 +308,7 @@ async function assertTeamSlotAvailable(
   if (rows.length > 0) {
     throw new BookingError(
       409,
-      'هذا الموعد محجوز مسبقاً للفريق في نفس الوقت.',
+      SLOT_CONFLICT_MESSAGE,
     );
   }
 }
@@ -274,13 +324,6 @@ async function resolveHrUserId(
     [employeeId],
   );
   return rows[0]?.id ?? null;
-}
-
-// ─── Visit family inference ────────────────────────────────────────────────
-
-function inferVisitFamily(selectedTasks: BookVisitInput['selectedTasks']): 'marketing' | 'service' {
-  const allPostSale = selectedTasks.every((t) => POST_SALE_TASK_TYPES.has(t.taskType));
-  return allPostSale ? 'service' : 'marketing';
 }
 
 // ─── The unified booking entry point ───────────────────────────────────────
@@ -311,7 +354,11 @@ export async function bookVisit(input: BookVisitInput): Promise<BookVisitResult>
     });
 
     // 4. Create the field_visit
-    const visitFamily = inferVisitFamily(input.selectedTasks);
+    // Compatibility-only legacy column. The authoritative visit_type is
+    // recomputed from visit_tasks below; any non-marketing family is service.
+    const visitFamily = input.selectedTasks.every(
+      (selected) => taskById.get(selected.openTaskId)?.task_family === 'marketing',
+    ) ? 'marketing' : 'service';
     const { rows: visitRows } = await db.query<{ id: number }>(
       `INSERT INTO field_visits (
          visit_type, visit_family, branch_id, client_id, status,
@@ -322,6 +369,9 @@ export async function bookVisit(input: BookVisitInput): Promise<BookVisitResult>
          appointment_booked_at,
          booked_by_telemarketer_id,
          telemarketer_notes,
+         answered_by,
+         field_instructions,
+         booking_call_log_id,
          created_by
        ) VALUES (
          'marketing', $1, $2, $3, 'scheduled',
@@ -332,7 +382,10 @@ export async function bookVisit(input: BookVisitInput): Promise<BookVisitResult>
          NOW(),
          $11,
          $12,
-         $13
+         $13,
+         $14,
+         $15,
+         $16
        )
        RETURNING id`,
       [
@@ -348,6 +401,9 @@ export async function bookVisit(input: BookVisitInput): Promise<BookVisitResult>
         input.customerSnapshot ? JSON.stringify(input.customerSnapshot) : null,
         input.performedByUserId,
         input.telemarketerNotes ?? null,
+        input.answeredBy ?? null,
+        input.fieldInstructions ?? null,
+        input.bookingCallLogId ?? null,
         input.performedByUserId,
       ],
     );
@@ -358,7 +414,7 @@ export async function bookVisit(input: BookVisitInput): Promise<BookVisitResult>
     for (let i = 0; i < input.selectedTasks.length; i++) {
       const sel = input.selectedTasks[i];
       const taskRow = taskById.get(sel.openTaskId)!;
-      const taskFamily = POST_SALE_TASK_TYPES.has(sel.taskType) ? 'service' : 'marketing';
+      const taskFamily = taskRow.task_family;
       const { rows: vtRows } = await db.query<{ id: number }>(
         `INSERT INTO visit_tasks (
            field_visit_id, source_open_task_id,
@@ -409,11 +465,12 @@ export async function bookVisit(input: BookVisitInput): Promise<BookVisitResult>
       }
     }
 
+    await refreshVisitType(db, fieldVisitId);
     await db.query('COMMIT');
     return { fieldVisitId, visitTaskIds };
   } catch (err) {
     await db.query('ROLLBACK');
-    throw err;
+    throw mapVisitSlotConflict(err);
   } finally {
     db.release();
   }
@@ -551,7 +608,15 @@ export async function createInstantVisit(input: CreateInstantVisitInput): Promis
       throw new BookingError(400, 'GPS غير متاح — يجب اختيار سبب (locationMissingReasonId).');
     }
 
-    // 9. Create the field_visit, already in_progress.
+    // 9. Reserve the current minute and create the field_visit already in_progress.
+    const timeSlot = now.toTimeString().slice(0, 5);
+    await assertTeamSlotAvailable(db, {
+      branchId,
+      scheduledDate: today,
+      scheduledTime: timeSlot,
+      teamKey,
+    });
+
     const customerSnapshot = {
       name: client.name,
       address: client.detailed_address,
@@ -560,32 +625,18 @@ export async function createInstantVisit(input: CreateInstantVisitInput): Promis
       waterSource: client.water_source,
       fieldInitiated: true,
     };
-    const timeSlot = now.toTimeString().slice(0, 5);
     const { rows: visitRows } = await db.query(
-      `INSERT INTO field_visits (
-         visit_type, visit_family, branch_id, client_id, status,
-         scheduled_date, scheduled_time,
-         origin_type, origin_id,
-         team_snapshot, team_responsible_user_id,
-         customer_snapshot, appointment_booked_at, created_by
-       ) VALUES (
-         'marketing', 'marketing', $1, $2, 'in_progress',
-         $3, $4,
-         'field_initiated', $5,
-         $6::jsonb, $7,
-         $8::jsonb, NOW(), $5
-       )
-       RETURNING id`,
-      [
+      INSTANT_VISIT_INSERT_SQL,
+      buildInstantVisitInsertParams({
         branchId,
-        input.clientId,
-        today,
-        timeSlot,
-        input.performedByUserId,
-        teamInfo.teamSnapshot ? JSON.stringify(teamInfo.teamSnapshot) : null,
+        clientId: input.clientId,
+        scheduledDate: today,
+        scheduledTime: timeSlot,
+        performedByUserId: input.performedByUserId,
+        teamSnapshotJson: teamInfo.teamSnapshot ? JSON.stringify(teamInfo.teamSnapshot) : null,
         responsibleHrUserId,
-        JSON.stringify(customerSnapshot),
-      ],
+        customerSnapshotJson: JSON.stringify(customerSnapshot),
+      }),
     );
     const fieldVisitId = Number(visitRows[0].id);
 
@@ -642,7 +693,7 @@ export async function createInstantVisit(input: CreateInstantVisitInput): Promis
     return { fieldVisitId };
   } catch (err) {
     await db.query('ROLLBACK');
-    throw err;
+    throw mapVisitSlotConflict(err);
   } finally {
     db.release();
   }

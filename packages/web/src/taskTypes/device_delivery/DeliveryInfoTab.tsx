@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Users, UserRound, Wrench, Phone, MessageCircle, Truck, MapPin, ExternalLink } from 'lucide-react';
+import { Users, UserRound, Wrench, Phone, MessageCircle, Truck, MapPin, ExternalLink } from '../../components/ui/icons';
 import { Card, EmptyState, TabAlert, InfoLine, formatDate, formatMoney } from '../../components/tasks/shared';
 import type { TaskDetailData } from '../../components/tasks/types';
 import { api } from '../../lib/api';

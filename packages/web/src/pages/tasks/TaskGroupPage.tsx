@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Loader2, Monitor, Filter, Wrench, DollarSign, RefreshCw, Gift, ShieldCheck, UserCheck, Unplug } from 'lucide-react';
+import { Loader2, Monitor, Filter, Wrench, DollarSign, RefreshCw, Gift, ShieldCheck, UserCheck, Unplug } from '../../components/ui/icons';
 import { api } from '../../lib/api';
 import { useBranchListScope } from '../../hooks/useBranchListScope';
 import ClientCardPopup from '../../components/ClientCardPopup';
 import Select from '../../components/ui/Select';
+import DateField from '../../components/ui/DateField';
 import PageHeader from '../../components/ui/PageHeader';
 import SmartTable from '../../components/SmartTable';
 import type { ColumnDef } from '../../components/SmartTable';
@@ -61,7 +62,7 @@ const GROUP_CONFIG: Record<GroupKey, GroupConfig> = {
     Icon: Monitor,
     accentBg: 'bg-indigo-500',
     accentRing: 'shadow-indigo-500/20',
-    detailHref: '/tasks/device-demo',
+    detailHref: '/tasks/group/device-demo',
   },
   'maintenance': {
     label: 'مهام الصيانة',
@@ -274,6 +275,48 @@ function buildCompactGeoAddress(geoUnitId: number | null, geoMap: Map<number, Ge
   return unit.name;
 }
 
+function buildGeoPathFromMap(geoUnitId: number | null, geoMap: Map<number, GeoUnit>): GeoUnit[] {
+  if (!geoUnitId) return [];
+  const path: GeoUnit[] = [];
+  const visited = new Set<number>();
+  let cursor = geoMap.get(geoUnitId);
+  for (let i = 0; cursor && i < 10; i++) {
+    if (visited.has(cursor.id)) break;
+    visited.add(cursor.id);
+    path.unshift(cursor);
+    cursor = cursor.parentId ? geoMap.get(cursor.parentId) : undefined;
+  }
+  return path;
+}
+
+function resolveGeoDisplayPart(value: unknown, geoMap: Map<number, GeoUnit>): string {
+  const geoId = parseGeoId(value);
+  if (geoId) return geoMap.get(geoId)?.name ?? '';
+  return compactText(value);
+}
+
+function buildCompactCustomerLocation(hierarchy: unknown[], geoMap: Map<number, GeoUnit>): string {
+  let leafGeoId: number | null = null;
+  for (let i = hierarchy.length - 1; i >= 0; i--) {
+    const candidate = parseGeoId(hierarchy[i]);
+    if (candidate && geoMap.has(candidate)) {
+      leafGeoId = candidate;
+      break;
+    }
+  }
+
+  if (leafGeoId) {
+    const pathNames = buildGeoPathFromMap(leafGeoId, geoMap).map((unit) => unit.name).filter(Boolean).slice(-2);
+    if (pathNames.length > 0) return pathNames.join(' ← ');
+  }
+
+  return hierarchy
+    .map((part) => resolveGeoDisplayPart(part, geoMap))
+    .filter(Boolean)
+    .slice(-2)
+    .join(' ← ');
+}
+
 function getFullCustomerName(row: any): string {
   const structured = [row.clientFirstName, row.clientFatherName, row.clientLastName]
     .map(compactText)
@@ -305,8 +348,8 @@ function getLocation(row: any, geoMap: Map<number, GeoUnit>): string {
   const hierarchy = snap
     ? [snap.governorate, snap.district, snap.subArea, snap.neighborhood]
     : [row.clientGovernorate, row.clientDistrict, row.clientNeighborhood];
-  const lastTwo = hierarchy.map(compactText).filter(Boolean).slice(-2);
-  return lastTwo.length > 0 ? lastTwo.join(' > ') : '—';
+  const location = buildCompactCustomerLocation(hierarchy, geoMap);
+  return location || '—';
 }
 
 function getTaskTypeLabel(taskType: string): string {
@@ -539,7 +582,7 @@ export default function TaskGroupPage() {
               {(OPEN_TASK_STATUS_LABELS as Record<string, string>)[row.taskStatus] || row.taskStatus}
             </span>
             {supersessionLabel && (
-              <span className="inline-flex items-center rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-700">
+              <span className="inline-flex items-center rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-bold text-emerald-700">
                 {supersessionLabel}
               </span>
             )}
@@ -671,11 +714,10 @@ export default function TaskGroupPage() {
             ]}
           />
 
-          <input
-            type="date"
+          <DateField
             value={dateFilter}
-            onChange={(e) => setDateFilter(e.target.value)}
-            className="h-[39px] border border-slate-200 rounded-lg px-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
+            onChange={setDateFilter}
+            className="h-[39px] w-40 border border-slate-200 rounded-lg pl-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
           />
 
           <label className="inline-flex items-center gap-2 px-3 h-[39px] bg-white border border-slate-200 rounded-lg cursor-pointer text-sm text-slate-700">
@@ -744,7 +786,6 @@ export default function TaskGroupPage() {
           columns={columns}
           getId={(row) => row.id}
           hideFilterBar
-          paginated={false}
           tableMinWidth={2200}
           emptyIcon={Icon}
           emptyMessage="لا توجد مهام"

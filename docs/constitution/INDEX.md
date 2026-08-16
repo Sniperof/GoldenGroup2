@@ -29,6 +29,7 @@
 | الصلاحيات والأدوار (Permissions & Roles) | [domains/permissions.md](domains/permissions.md) | ✅ مكتمل | 382 سطر | 12+ | 9 |
 | الإعدادات الإدارية | [domains/admin-settings.md](domains/admin-settings.md) | ⚠️ فاضي | 221 بايت | — | — |
 | المهام الموحدة | [domains/tasks-unified.md](domains/tasks-unified.md) | ⚠️ قديم | 10,991 بايت | — | — |
+| التقارير والمؤشرات (Reporting & Analytics) | [domains/reporting-analytics.md](domains/reporting-analytics.md) | 🟢 مخطّط (Blueprint) | — | — | 4 (مفتوحة §5) |
 
 **الدومينات المتبقية (72 جدول — مش كلون مُوثقين بعد):**
 [عرض الكل في CROSS-REFERENCE.md](CROSS-REFERENCE.md#الجداول)

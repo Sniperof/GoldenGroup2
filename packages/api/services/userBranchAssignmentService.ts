@@ -21,7 +21,7 @@ export type BranchCatalogItem = {
 
 export class UserBranchAssignmentError extends Error {
   constructor(
-    public readonly code: 'USER_NOT_FOUND' | 'BRANCH_NOT_FOUND' | 'ASSIGNMENT_NOT_FOUND' | 'PRIMARY_BRANCH_REQUIRES_ACTIVE_ASSIGNMENT',
+    public readonly code: 'USER_NOT_FOUND' | 'BRANCH_NOT_FOUND' | 'ASSIGNMENT_NOT_FOUND' | 'PRIMARY_BRANCH_REQUIRES_ACTIVE_ASSIGNMENT' | 'MANAGED_BY_EMPLOYEE',
     message: string,
   ) {
     super(message);
@@ -78,6 +78,7 @@ export async function upsertUserBranchAssignment(input: {
     await client.query('BEGIN');
 
     await ensureUserExists(client, input.userId);
+    await assertAccountBranchIsManual(client, input.userId);
     await ensureBranchExists(client, input.branchId);
 
     const status = normalizeStatus(input.status);
@@ -115,6 +116,7 @@ export async function deactivateUserBranchAssignment(input: {
     await client.query('BEGIN');
 
     await ensureUserExists(client, input.userId);
+    await assertAccountBranchIsManual(client, input.userId);
     const existing = await getAssignmentForUpdate(client, input.userId, input.branchId);
     if (!existing) {
       throw new UserBranchAssignmentError('ASSIGNMENT_NOT_FOUND', 'إسناد الفرع غير موجود لهذا المستخدم');
@@ -151,6 +153,7 @@ export async function setPrimaryUserBranchAssignment(input: {
     await client.query('BEGIN');
 
     await ensureUserExists(client, input.userId);
+    await assertAccountBranchIsManual(client, input.userId);
     const assignment = await getAssignmentForUpdate(client, input.userId, input.branchId);
     if (!assignment) {
       throw new UserBranchAssignmentError('ASSIGNMENT_NOT_FOUND', 'إسناد الفرع غير موجود لهذا المستخدم');
@@ -178,6 +181,66 @@ type Queryable = {
   query: typeof pool.query;
 };
 
+/**
+ * Force the user's active branch assignments to be EXACTLY `branchId` (deactivate
+ * every other active branch, then activate this one as primary). This is the
+ * system path used when the employee record is the single source of truth for the
+ * account's branch (account link + branch transfer). It deliberately does NOT go
+ * through `assertAccountBranchIsManual`, unlike the manual admin mutations.
+ *
+ * `applyExclusiveBranchAssignmentTx` runs inside a caller-supplied transaction so
+ * an employee transfer can move the record and reset the account atomically.
+ */
+export async function applyExclusiveBranchAssignmentTx(
+  client: Queryable,
+  userId: number,
+  branchId: number,
+): Promise<void> {
+  await ensureBranchExists(client, branchId);
+
+  await client.query(
+    `UPDATE user_branch_assignments
+        SET status = 'inactive',
+            is_primary = FALSE,
+            updated_at = NOW()
+      WHERE user_id = $1
+        AND branch_id <> $2
+        AND status = 'active'`,
+    [userId, branchId],
+  );
+
+  await client.query(
+    `INSERT INTO user_branch_assignments (user_id, branch_id, is_primary, status)
+     VALUES ($1, $2, TRUE, 'active')
+     ON CONFLICT (user_id, branch_id) DO UPDATE
+       SET is_primary = TRUE,
+           status = 'active',
+           updated_at = NOW()`,
+    [userId, branchId],
+  );
+
+  await reconcilePrimaryBranch(client, userId, branchId);
+}
+
+export async function setExclusiveBranchAssignment(input: {
+  userId: number;
+  branchId: number;
+}): Promise<UserBranchAssignmentRecord[]> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await ensureUserExists(client, input.userId);
+    await applyExclusiveBranchAssignmentTx(client, input.userId, input.branchId);
+    await client.query('COMMIT');
+    return listUserBranchAssignments(input.userId);
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function ensureUserExists(client: Queryable, userId: number): Promise<void> {
   const { rows } = await client.query('SELECT id FROM hr_users WHERE id = $1 FOR UPDATE', [userId]);
   if (!rows[0]) {
@@ -189,6 +252,22 @@ async function ensureBranchExists(client: Queryable, branchId: number): Promise<
   const { rows } = await client.query('SELECT id FROM branches WHERE id = $1', [branchId]);
   if (!rows[0]) {
     throw new UserBranchAssignmentError('BRANCH_NOT_FOUND', 'الفرع غير موجود');
+  }
+}
+
+/**
+ * Manual branch-assignment mutations are forbidden for accounts linked to an
+ * employee record: those accounts derive their (single) branch from the employee
+ * record, which is the source of truth. Branch changes for them go through the
+ * employee transfer flow instead.
+ */
+async function assertAccountBranchIsManual(client: Queryable, userId: number): Promise<void> {
+  const { rows } = await client.query('SELECT employee_id FROM hr_users WHERE id = $1', [userId]);
+  if (rows[0]?.employee_id != null) {
+    throw new UserBranchAssignmentError(
+      'MANAGED_BY_EMPLOYEE',
+      'فروع هذا الحساب تُدار من سجل الموظف ولا يمكن تعديلها يدويًا',
+    );
   }
 }
 

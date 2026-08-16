@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Loader2, Package, Wrench, Boxes, Layers3, CalendarClock, FileStack } from 'lucide-react';
+import { Loader2, Package, Wrench, Boxes, Layers3, CalendarClock, FileStack } from '../../components/ui/icons';
 
 import { api } from '../../lib/api';
 

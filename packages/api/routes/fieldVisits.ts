@@ -4,22 +4,54 @@ import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
 import { authorize } from '../services/authorizationService.js';
 import { HIDDEN_OPERATIONAL_TASK_TYPES } from '@golden-crm/shared';
-import type { AuthContext } from '@golden-crm/shared';
-import { canViewFieldVisit, canEditFieldVisit, getFieldVisitListAccessPlan } from '../policies/fieldVisitPolicy.js';
+import type { AuthContext, VisitResultTaskType } from '@golden-crm/shared';
+import {
+  canViewFieldVisit,
+  canEditFieldVisit,
+  canViewFieldVisitOrOwn,
+  getFieldVisitListAccessPlan,
+} from '../policies/fieldVisitPolicy.js';
 import { checkAndCompleteVisit } from '../services/visitCompletion.js';
 import { hasBlockingUndocumentedVisit } from '../services/visitEscalationJob.js';
 import { applyDeviceActivationResult, applyDeviceCheckupResult, applyDeviceDeliveryResult, applyDeviceDemoResult, applyDeviceDisconnectionResult, applyDeviceInstallationResult, applyDeviceRetrievalResult, applyDeviceReturnResult, applyDeviceTransferResult, applyEmergencyMaintenanceLifecycleResult, applyGiftDeliveryResult, applyGoldenWarrantyOfferResult, applyGoldenWarrantyCardDeliveryResult, applyInstallmentCollectionResult, ResultValidationError } from '../services/visitTaskResultReflection.js';
+import { GoldenWarrantyCardDeliveryError } from '../services/goldenWarrantyCardDelivery.js';
+import { DeviceTaskEligibilityError } from '../services/deviceTaskEligibilityGuard.js';
 import {
   buildClientLifecycleStatusSql,
   buildCustomerOwnershipSql,
+  eligiblePersonalOwnerCondition,
   mapCustomerOwnership,
 } from '../services/customerOwnership.js';
 import { createInstantVisit, BookingError } from '../services/visitBooking.js';
+import { refreshVisitType } from '../services/visitClassification.js';
+import { getOpenTaskLinkageIssue } from '../services/openTaskLinkagePolicy.js';
 
 const router = Router();
 router.use(requireAuth);
 
-const MY_VISITS_PERMISSION = 'field_visits.my_visits.view';
+type VisitTaskResultApplier = (
+  visitTaskId: number,
+  body: any,
+  performedByUserId: number,
+) => Promise<any>;
+
+export const VISIT_TASK_RESULT_APPLIERS = {
+  device_demo: (taskId, body, userId) => applyDeviceDemoResult(taskId, body, userId),
+  device_checkup: (taskId, body, userId) => applyDeviceCheckupResult(taskId, body, userId),
+  device_delivery: (taskId, body, userId) => applyDeviceDeliveryResult(taskId, body, userId),
+  device_installation: (taskId, body, userId) => applyDeviceInstallationResult(taskId, body, userId),
+  device_activation: (taskId, body, userId) => applyDeviceActivationResult(taskId, body, userId),
+  device_disconnection: (taskId, body, userId) => applyDeviceDisconnectionResult(taskId, body, userId),
+  device_retrieval: (taskId, body, userId) => applyDeviceRetrievalResult(taskId, body, userId),
+  device_return: (taskId, body, userId) => applyDeviceReturnResult(taskId, body, userId),
+  device_transfer: (taskId, body, userId) => applyDeviceTransferResult(taskId, body, userId),
+  emergency_maintenance: (taskId, body, userId) => applyEmergencyMaintenanceLifecycleResult(taskId, body, userId),
+  periodic_maintenance: (taskId, body, userId) => applyEmergencyMaintenanceLifecycleResult(taskId, body, userId),
+  golden_warranty_offer: (taskId, body, userId) => applyGoldenWarrantyOfferResult(taskId, body, userId),
+  golden_warranty_card_delivery: (taskId, body, userId) => applyGoldenWarrantyCardDeliveryResult(taskId, body, userId),
+  installment_collection: (taskId, body, userId) => applyInstallmentCollectionResult(taskId, body, userId),
+  gift_delivery: (taskId, body, userId) => applyGiftDeliveryResult(taskId, body, userId),
+} satisfies Record<VisitResultTaskType, VisitTaskResultApplier>;
 
 function getAuthContext(req: any) {
   if (!req.authContext) throw new Error('AuthContext is required');
@@ -31,26 +63,7 @@ function toPositiveInteger(value: unknown): number | null {
   return Number.isInteger(numeric) && (numeric as number) > 0 ? (numeric as number) : null;
 }
 
-function readTeamEmployeeId(snapshot: unknown, key: string): number | null {
-  if (!snapshot || typeof snapshot !== 'object') return null;
-  return toPositiveInteger((snapshot as Record<string, unknown>)[key]);
-}
-
-function getVisitTeamEmployeeIds(visit: any): number[] {
-  const ids = [
-    toPositiveInteger(visit.reassigned_supervisor_id) ?? readTeamEmployeeId(visit.team_snapshot, 'supervisorEmployeeId'),
-    toPositiveInteger(visit.reassigned_technician_id) ?? readTeamEmployeeId(visit.team_snapshot, 'technicianEmployeeId'),
-    toPositiveInteger(visit.reassigned_trainee_id) ?? readTeamEmployeeId(visit.team_snapshot, 'traineeEmployeeId'),
-  ].filter((id): id is number => id != null);
-
-  return [...new Set(ids)];
-}
-
-async function canViewOwnFieldVisit(authContext: AuthContext, visit: any): Promise<boolean> {
-  if (!authorize(authContext, { permission: MY_VISITS_PERMISSION, branchId: visit.branch_id }).allowed) {
-    return false;
-  }
-
+async function getActorEmployeeId(authContext: AuthContext): Promise<number | null> {
   const { rows } = await pool.query(
     `SELECT employee_id AS "employeeId"
        FROM hr_users
@@ -59,16 +72,12 @@ async function canViewOwnFieldVisit(authContext: AuthContext, visit: any): Promi
       LIMIT 1`,
     [authContext.userId],
   );
-  const employeeId = toPositiveInteger(rows[0]?.employeeId);
-  return employeeId != null && getVisitTeamEmployeeIds(visit).includes(employeeId);
+  return toPositiveInteger(rows[0]?.employeeId);
 }
 
-async function canViewFieldVisitOrOwn(authContext: AuthContext, visit: any): Promise<boolean> {
-  if (canViewFieldVisit(authContext, visit.branch_id).allowed) {
-    return true;
-  }
-
-  return canViewOwnFieldVisit(authContext, visit);
+async function canReadFieldVisitWorkspace(authContext: AuthContext, visit: any): Promise<boolean> {
+  const actorEmployeeId = await getActorEmployeeId(authContext);
+  return canViewFieldVisitOrOwn(authContext, visit, actorEmployeeId).allowed;
 }
 
 // Haversine distance in metres between two lat/lng points
@@ -81,6 +90,20 @@ function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number)
     Math.sin(dLat / 2) ** 2 +
     Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
   return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+}
+
+async function isActiveSystemListItem(
+  db: { query: (text: string, params?: any[]) => Promise<{ rows: any[] }> },
+  itemId: number,
+  category: string,
+): Promise<boolean> {
+  const { rows } = await db.query(
+    `SELECT 1 FROM system_lists
+      WHERE id = $1 AND category = $2 AND is_active = TRUE
+      LIMIT 1`,
+    [itemId, category],
+  );
+  return rows.length > 0;
 }
 
 async function hasOpenTaskColumn(columnName: string): Promise<boolean> {
@@ -121,14 +144,17 @@ async function resolveVisitSource(visitId: number): Promise<{
 
   // Check personal assignments
   const { rows: assignRows } = await pool.query(
-    `SELECT u.id AS hr_user_id, u.name, u.employee_id, r.team_slot_type
+    `SELECT u.id AS hr_user_id,
+            u.name,
+            u.employee_id,
+            r.team_slot_type,
+            COALESCE(r.display_name, u.role) AS role_display_name
      FROM client_assignments ca
      JOIN hr_users u ON u.id = ca.hr_user_id
      LEFT JOIN roles r ON r.id = u.role_id
+     LEFT JOIN employees e ON e.id = u.employee_id
      WHERE ca.client_id = $1
-       AND u.is_active = TRUE
-       AND u.employee_id IS NOT NULL
-       AND r.team_slot_type IN ('SUPERVISOR', 'TECHNICIAN')`,
+       AND ${eligiblePersonalOwnerCondition('u', 'r', 'e')}`,
     [fv.client_id],
   );
 
@@ -145,18 +171,21 @@ async function resolveVisitSource(visitId: number): Promise<{
   // Match assignments to team snapshot
   let hasSup = false;
   let hasTech = false;
+  let hasEmployee = false;
   const actorIds: number[] = [];
   const labels: string[] = [];
 
   for (const a of assignRows) {
+    actorIds.push(a.employee_id);
     if (a.team_slot_type === 'SUPERVISOR') {
       hasSup = true;
-      actorIds.push(a.employee_id);
       labels.push(`مشرف: ${a.name}`);
     } else if (a.team_slot_type === 'TECHNICIAN') {
       hasTech = true;
-      actorIds.push(a.employee_id);
       labels.push(`فني: ${a.name}`);
+    } else {
+      hasEmployee = true;
+      labels.push(`${a.role_display_name ?? 'موظف'}: ${a.name}`);
     }
   }
 
@@ -166,7 +195,15 @@ async function resolveVisitSource(visitId: number): Promise<{
     if (teamSnap.technician?.name) labels.push(`فني: ${teamSnap.technician.name}`);
   }
 
-  const sourceType = hasSup && hasTech ? 'both' : hasSup ? 'supervisor' : 'technician';
+  const sourceType = hasSup && hasTech
+    ? 'both'
+    : hasSup
+      ? 'supervisor'
+      : hasTech
+        ? 'technician'
+        : hasEmployee
+          ? 'employee'
+          : 'both';
   return {
     source_type: sourceType,
     source_label: labels.join(' + ') || 'غير محدد',
@@ -376,7 +413,7 @@ router.post('/instant', requirePermission('field_visits.create_instant'), async 
       return res.status(err.statusCode).json({ error: err.message });
     }
     console.error('[field-visits] POST /instant error:', err);
-    return res.status(500).json({ error: err?.message ?? 'فشل إنشاء الزيارة الفورية' });
+    return res.status(500).json({ error: 'فشل إنشاء الزيارة الفورية' });
   }
 });
 
@@ -387,12 +424,15 @@ router.post('/:id/start', requirePermission('field_visits.edit'), async (req, re
     if (!Number.isFinite(visitId)) return res.status(400).json({ error: 'معرف الزيارة غير صالح' });
 
     const { rows: fvRows } = await pool.query(
-      'SELECT id, branch_id, status FROM field_visits WHERE id = $1',
+      'SELECT id, branch_id, status, team_responsible_user_id FROM field_visits WHERE id = $1',
       [visitId],
     );
     if (!fvRows[0]) return res.status(404).json({ error: 'الزيارة غير موجودة' });
-    if (!canEditFieldVisit(authContext, fvRows[0].branch_id).allowed) {
+    if (!canEditFieldVisit(authContext, fvRows[0].branch_id, fvRows[0].team_responsible_user_id).allowed) {
       return res.status(403).json({ error: 'ليس لديك صلاحية الوصول' });
+    }
+    if (fvRows[0].status !== 'scheduled') {
+      return res.status(409).json({ error: 'يمكن بدء الزيارة فقط عندما تكون بحالة مجدولة.' });
     }
 
     // DEC-006 D38 L2: a technician with an undocumented visit older than L2 hours
@@ -418,6 +458,9 @@ router.post('/:id/start', requirePermission('field_visits.edit'), async (req, re
       return res.status(400).json({
         error: 'GPS غير متاح — يجب اختيار سبب من القائمة (locationMissingReasonId).',
       });
+    }
+    if (locationMissing && !await isActiveSystemListItem(pool, locationMissingReasonId!, 'location_missing_reasons')) {
+      return res.status(400).json({ error: 'سبب غياب GPS غير صالح أو غير فعال.' });
     }
 
     const now = new Date();
@@ -449,7 +492,12 @@ router.post('/:id/start', requirePermission('field_visits.edit'), async (req, re
 
     await pool.query(
       `UPDATE field_visits SET status = 'in_progress', updated_at = NOW()
-       WHERE id = $1 AND status NOT IN ('ended','completed','cancelled','closed')`,
+       WHERE id = $1 AND status = 'scheduled'`,
+      [visitId],
+    );
+    await pool.query(
+      `UPDATE visit_scheduled_alerts SET resolved_at = NOW()
+        WHERE visit_id = $1 AND resolved_at IS NULL`,
       [visitId],
     );
 
@@ -552,12 +600,15 @@ router.post('/:id/end', requirePermission('field_visits.edit'), async (req, res)
     if (!Number.isFinite(visitId)) return res.status(400).json({ error: 'معرف الزيارة غير صالح' });
 
     const { rows: fvRows } = await pool.query(
-      'SELECT id, branch_id, status FROM field_visits WHERE id = $1',
+      'SELECT id, branch_id, status, team_responsible_user_id FROM field_visits WHERE id = $1',
       [visitId],
     );
     if (!fvRows[0]) return res.status(404).json({ error: 'الزيارة غير موجودة' });
-    if (!canEditFieldVisit(authContext, fvRows[0].branch_id).allowed) {
+    if (!canEditFieldVisit(authContext, fvRows[0].branch_id, fvRows[0].team_responsible_user_id).allowed) {
       return res.status(403).json({ error: 'ليس لديك صلاحية الوصول' });
+    }
+    if (fvRows[0].status !== 'in_progress') {
+      return res.status(409).json({ error: 'يمكن إنهاء الزيارة فقط عندما تكون قيد التنفيذ.' });
     }
 
     const lat = req.body?.lat != null ? Number(req.body.lat) : null;
@@ -570,6 +621,9 @@ router.post('/:id/end', requirePermission('field_visits.edit'), async (req, res)
       return res.status(400).json({
         error: 'GPS غير متاح — يجب اختيار سبب من القائمة (locationMissingReasonId).',
       });
+    }
+    if (locationMissing && !await isActiveSystemListItem(pool, locationMissingReasonId!, 'location_missing_reasons')) {
+      return res.status(400).json({ error: 'سبب غياب GPS غير صالح أو غير فعال.' });
     }
 
     const now = new Date();
@@ -627,7 +681,7 @@ router.post('/:id/end', requirePermission('field_visits.edit'), async (req, res)
 
     await pool.query(
       `UPDATE field_visits SET status = 'ended', updated_at = NOW()
-       WHERE id = $1 AND status NOT IN ('completed','cancelled','closed')`,
+       WHERE id = $1 AND status = 'in_progress'`,
       [visitId],
     );
 
@@ -643,14 +697,97 @@ router.post('/:id/end', requirePermission('field_visits.edit'), async (req, res)
       [visitId],
     );
 
+    // DEC-007: completion is calculated, never a separate field action. If
+    // documentation was already finished during in_progress, ending the visit
+    // now promotes it immediately; otherwise later result/survey saves do it.
+    const completion = await checkAndCompleteVisit(visitId, authContext.userId ?? null);
+
     const { rows: updatedGeoRows } = await pool.query(
       'SELECT * FROM visit_geo_logs WHERE visit_id = $1',
       [visitId],
     );
-    res.json({ success: true, geo: updatedGeoRows[0] ?? null });
+    res.json({ success: true, geo: updatedGeoRows[0] ?? null, completed: completion.completed });
   } catch (err: any) {
     console.error('[field-visits] POST /:id/end error:', err);
     res.status(500).json({ error: 'فشل في تسجيل نهاية الزيارة' });
+  }
+});
+
+// DEC-004 D8/D10: cancellation exists only before execution. Visit-task rows
+// stay as attempt history; their open tasks return to the waiting phase.
+router.post('/:id/cancel', requirePermission('field_visits.edit'), async (req, res) => {
+  const authContext = getAuthContext(req);
+  const visitId = Number(req.params.id);
+  const cancellationReasonId = Number(req.body?.cancellationReasonId);
+  const notes = typeof req.body?.notes === 'string' ? req.body.notes.trim() || null : null;
+  if (!Number.isInteger(visitId) || visitId <= 0) {
+    return res.status(400).json({ error: 'معرف الزيارة غير صالح' });
+  }
+  if (!Number.isInteger(cancellationReasonId) || cancellationReasonId <= 0) {
+    return res.status(400).json({ error: 'سبب إلغاء الزيارة مطلوب.' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      `SELECT id, branch_id, status, team_responsible_user_id
+         FROM field_visits WHERE id = $1 FOR UPDATE`,
+      [visitId],
+    );
+    const visit = rows[0];
+    if (!visit) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'الزيارة غير موجودة' });
+    }
+    if (!canEditFieldVisit(authContext, visit.branch_id, visit.team_responsible_user_id).allowed) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'ليس لديك صلاحية الوصول' });
+    }
+    if (visit.status !== 'scheduled') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'يمكن إلغاء الزيارة فقط قبل بدء التنفيذ.' });
+    }
+    if (!await isActiveSystemListItem(client, cancellationReasonId, 'visit_cancellation_reasons')) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'سبب إلغاء الزيارة غير صالح أو غير فعال.' });
+    }
+
+    await client.query(
+      `UPDATE open_tasks ot
+          SET status = COALESCE(ot.last_waiting_status, 'open'), updated_at = NOW()
+        WHERE ot.id IN (
+          SELECT vt.source_open_task_id FROM visit_tasks vt
+           WHERE vt.field_visit_id = $1 AND vt.source_open_task_id IS NOT NULL
+        )
+          AND ot.status IN ('assigned', 'in_scheduling', 'scheduled', 'waiting_execution')`,
+      [visitId],
+    );
+    await client.query(
+      `UPDATE visit_tasks SET status = 'cancelled', updated_at = NOW()
+        WHERE field_visit_id = $1 AND status = 'pending'`,
+      [visitId],
+    );
+    await client.query(
+      `UPDATE field_visits
+          SET status = 'cancelled', cancellation_reason_id = $2,
+              cancellation_notes = $3, updated_at = NOW()
+        WHERE id = $1`,
+      [visitId, cancellationReasonId, notes],
+    );
+    await client.query(
+      `UPDATE visit_scheduled_alerts SET resolved_at = NOW()
+        WHERE visit_id = $1 AND resolved_at IS NULL`,
+      [visitId],
+    );
+    await client.query('COMMIT');
+    return res.json({ success: true, status: 'cancelled' });
+  } catch (err: any) {
+    await client.query('ROLLBACK');
+    console.error('[field-visits] POST /:id/cancel error:', err);
+    return res.status(500).json({ error: err?.message ?? 'فشل إلغاء الزيارة' });
+  } finally {
+    client.release();
   }
 });
 
@@ -1109,7 +1246,7 @@ router.get('/my-visits', requirePermission('field_visits.my_visits.view'), async
       return res.json([]);
     }
 
-    const params: any[] = [date, employeeId, employeeId, employeeId];
+    const params: any[] = [date, employeeId, employeeId, employeeId, authContext.userId];
     let statusClause = '';
     if (status !== null) {
       params.push(status);
@@ -1137,6 +1274,7 @@ router.get('/my-visits', requirePermission('field_visits.my_visits.view'), async
          sup.name   AS "supervisorName",
          tech.name  AS "technicianName",
          train.name AS "traineeName",
+         (vsa.visit_id IS NOT NULL) AS "hasPendingStartAlert",
          COUNT(DISTINCT vt.id)::int AS "taskCount",
          COALESCE(
            json_agg(DISTINCT jsonb_build_object('taskType', vt.task_type, 'taskFamily', vt.task_family, 'status', vt.status))
@@ -1153,6 +1291,10 @@ router.get('/my-visits', requirePermission('field_visits.my_visits.view'), async
        LEFT JOIN employees sup   ON sup.id   = COALESCE(fv.reassigned_supervisor_id, NULLIF((fv.team_snapshot->>'supervisorEmployeeId')::text, '')::int)
        LEFT JOIN employees tech  ON tech.id  = COALESCE(fv.reassigned_technician_id, NULLIF((fv.team_snapshot->>'technicianEmployeeId')::text, '')::int)
        LEFT JOIN employees train ON train.id = COALESCE(fv.reassigned_trainee_id, NULLIF((fv.team_snapshot->>'traineeEmployeeId')::text, '')::int)
+       LEFT JOIN visit_scheduled_alerts vsa
+         ON vsa.visit_id = fv.id
+        AND vsa.responsible_user_id = $5
+        AND vsa.resolved_at IS NULL
        LEFT JOIN visit_tasks vt ON vt.field_visit_id = fv.id
        WHERE fv.scheduled_date = $1
          AND (
@@ -1162,7 +1304,7 @@ router.get('/my-visits', requirePermission('field_visits.my_visits.view'), async
          )
          ${statusClause}
        GROUP BY fv.id, c.id, neigh.id, neigh.name, neigh.level, neigh_parent.id, neigh_parent.name,
-                district.id, district.name, sup.name, tech.name, train.name
+                district.id, district.name, sup.name, tech.name, train.name, vsa.visit_id
        ORDER BY fv.scheduled_date DESC, fv.scheduled_time ASC, fv.created_at DESC`,
       params,
     );
@@ -1229,7 +1371,7 @@ router.get('/escalation-alerts', requirePermission('field_visits.view'), async (
     let branchClause = '';
     if (plan.scope !== 'GLOBAL') {
       if (plan.allowedBranchIds.length === 0) {
-        return res.json({ count: 0, items: [] });
+        return res.json({ count: 0, items: [], scheduledCount: 0, scheduledItems: [] });
       }
       params.push(plan.allowedBranchIds);
       branchClause = `AND fv.branch_id = ANY($${params.length}::int[])`;
@@ -1257,7 +1399,35 @@ router.get('/escalation-alerts', requirePermission('field_visits.view'), async (
         LIMIT 200`,
       params,
     );
-    return res.json({ count: rows.length, items: rows });
+    const { rows: scheduledRows } = await pool.query(
+      `SELECT fv.id AS "visitId",
+              fv.status,
+              fv.branch_id AS "branchId",
+              fv.client_id AS "clientId",
+              c.name AS "clientName",
+              fv.team_responsible_user_id AS "teamResponsibleUserId",
+              responsible.name AS "teamResponsibleName",
+              fv.scheduled_date AS "scheduledDate",
+              fv.scheduled_time AS "scheduledTime",
+              vsa.alerted_at AS "alertedAt",
+              EXTRACT(EPOCH FROM (NOW() - vsa.alerted_at)) / 3600 AS "hoursSinceAlert"
+         FROM visit_scheduled_alerts vsa
+         JOIN field_visits fv ON fv.id = vsa.visit_id
+         LEFT JOIN clients c ON c.id = fv.client_id
+         LEFT JOIN hr_users responsible ON responsible.id = vsa.responsible_user_id
+        WHERE vsa.resolved_at IS NULL
+          AND fv.status = 'scheduled'
+          ${branchClause}
+        ORDER BY fv.scheduled_date ASC, fv.scheduled_time ASC
+        LIMIT 200`,
+      params,
+    );
+    return res.json({
+      count: rows.length,
+      items: rows,
+      scheduledCount: scheduledRows.length,
+      scheduledItems: scheduledRows,
+    });
   } catch (err: any) {
     console.error('[field-visits] GET /escalation-alerts error:', err);
     res.status(500).json({ error: err?.message ?? 'فشل تحميل التنبيهات' });
@@ -1468,7 +1638,7 @@ router.get('/task-type-summary', requirePermission('field_visits.view'), async (
   }
 });
 
-router.get('/:id', requirePermission('field_visits.view', MY_VISITS_PERMISSION), async (req, res) => {
+router.get('/:id', requirePermission('field_visits.view', 'field_visits.my_visits.view'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
     const visitId = Number(req.params.id);
@@ -1500,7 +1670,11 @@ router.get('/:id', requirePermission('field_visits.view', MY_VISITS_PERMISSION),
               c.referrers         AS client_referrers,
               c.referrer_type     AS client_referrer_type,
               c.referrer_name     AS client_referrer_name,
-              c.water_source      AS client_water_source,
+              COALESCE(
+                NULLIF(fv.customer_snapshot->>'waterSource', ''),
+                NULLIF(fv.customer_snapshot->>'water_source', ''),
+                c.water_source
+              ) AS client_water_source,
               c.governorate       AS client_governorate_id,
               c.district          AS client_district_id,
               c.neighborhood      AS client_neighborhood_id,
@@ -1522,7 +1696,7 @@ router.get('/:id', requirePermission('field_visits.view', MY_VISITS_PERMISSION),
       [visitId],
     );
     if (!fvRows[0]) return res.status(404).json({ error: 'الزيارة غير موجودة' });
-    if (!(await canViewFieldVisitOrOwn(authContext, fvRows[0]))) {
+    if (!(await canReadFieldVisitWorkspace(authContext, fvRows[0]))) {
       return res.status(403).json({ error: 'ليس لديك صلاحية الوصول' });
     }
     const fv = fvRows[0];
@@ -1536,8 +1710,17 @@ router.get('/:id', requirePermission('field_visits.view', MY_VISITS_PERMISSION),
                 vtr.id AS result_id, vtr.final_decision, vtr.reason_code,
                 vtr.closing_notes, vtr.closed_at,
                 ot.reason,
+                gift_info.gift_name,
+                gift_info.approved_quantity,
+                gift_info.unit_label,
+                gift_info.gift_beneficiary_name,
                 ${hasDeliveryAddressColumn ? 'ot.delivery_address' : 'idev.installation_address_text'} AS delivery_address,
                 ot.device_id, ot.service_branch_id, ot.retrieval_purpose,
+                ot.installment_id AS "installmentId",
+                ot.expected_amount_syp::float AS "expectedAmountSyp",
+                ot.receivable_source_type AS "receivableSourceType",
+                ot.receivable_source_id AS "receivableSourceId",
+                ot.receivable_source_label AS "receivableSourceLabel",
                 ot.transfer_kind, ot.target_client_id,
                 ot.planned_transfer_geo_unit_id, ot.planned_transfer_address_text,
                 ot.planned_transfer_lat, ot.planned_transfer_lng,
@@ -1551,6 +1734,18 @@ router.get('/:id', requirePermission('field_visits.view', MY_VISITS_PERMISSION),
          LEFT JOIN task_type_config ttc ON ttc.task_type = vt.task_type
          LEFT JOIN visit_task_results vtr ON vtr.visit_task_id = vt.id
          LEFT JOIN open_tasks ot ON ot.id = vt.source_open_task_id
+         LEFT JOIN LATERAL (
+           SELECT
+             STRING_AGG(DISTINCT gd.name, '، ' ORDER BY gd.name) AS gift_name,
+             SUM(gr.approved_quantity)::int AS approved_quantity,
+             STRING_AGG(DISTINCT gd.default_unit_label, '، ' ORDER BY gd.default_unit_label) AS unit_label,
+             STRING_AGG(DISTINCT gr.beneficiary_name_snapshot, '، ' ORDER BY gr.beneficiary_name_snapshot) AS gift_beneficiary_name
+           FROM gift_delivery_task_records gift_link
+           JOIN gift_records gr ON gr.id = gift_link.gift_record_id
+           JOIN gift_definitions gd ON gd.id = gr.gift_definition_id
+           WHERE ot.task_type = 'gift_delivery'
+             AND gift_link.open_task_id = ot.id
+         ) gift_info ON true
          LEFT JOIN branches service_branch ON service_branch.id = ot.service_branch_id
          LEFT JOIN clients target_client ON target_client.id = ot.target_client_id
          LEFT JOIN installed_devices idev ON idev.id = ot.device_id
@@ -2167,7 +2362,8 @@ router.post('/:id/tasks', requirePermission('field_visits.edit'), async (req, re
   if (!Number.isInteger(fieldVisitId) || fieldVisitId <= 0) {
     return res.status(400).json({ error: 'fieldVisitId غير صالح' });
   }
-  const performedByUserId = (req as any).authContext?.userId ?? null;
+  const authContext = getAuthContext(req);
+  const performedByUserId = authContext.userId;
   const body = req.body ?? {};
   const taskType = typeof body.taskType === 'string' ? body.taskType : null;
   if (!taskType) {
@@ -2180,7 +2376,7 @@ router.post('/:id/tasks', requirePermission('field_visits.edit'), async (req, re
 
     // 1. Load and verify the field_visit is in_progress
     const { rows: visitRows } = await client.query(
-      `SELECT id, client_id, branch_id, status
+      `SELECT id, client_id, branch_id, status, team_responsible_user_id
          FROM field_visits
         WHERE id = $1
         LIMIT 1`,
@@ -2191,6 +2387,10 @@ router.post('/:id/tasks', requirePermission('field_visits.edit'), async (req, re
       return res.status(404).json({ error: 'الزيارة غير موجودة' });
     }
     const visit = visitRows[0];
+    if (!canEditFieldVisit(authContext, visit.branch_id, visit.team_responsible_user_id).allowed) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'غير مسموح بتعديل هذه الزيارة ضمن نطاق صلاحيتك' });
+    }
     if (visit.status !== 'in_progress') {
       await client.query('ROLLBACK');
       return res.status(409).json({
@@ -2224,7 +2424,29 @@ router.post('/:id/tasks', requirePermission('field_visits.edit'), async (req, re
       });
     }
     const { rows: existingRows } = await client.query(
-      `SELECT id, client_id, branch_id, task_type, status FROM open_tasks WHERE id = $1 LIMIT 1`,
+      `SELECT ot.id, ot.client_id, ot.branch_id, ot.task_type AS "taskType", ot.status,
+              ot.device_id AS "deviceId", ot.installment_id AS "installmentId",
+              EXISTS (
+                SELECT 1
+                  FROM gift_delivery_task_records gift_link
+                  JOIN gift_records gr ON gr.id = gift_link.gift_record_id
+                 WHERE gift_link.open_task_id = ot.id
+                   AND gift_link.is_active = TRUE
+                   AND gr.status = 'delivery_task_created'
+              ) AS "hasGiftDeliveryLink",
+              EXISTS (
+                SELECT 1
+                  FROM open_task_golden_warranties warranty_link
+                  JOIN device_warranties dw ON dw.id = warranty_link.warranty_id
+                 WHERE warranty_link.task_id = ot.id
+                   AND warranty_link.link_status = 'active'
+                   AND dw.warranty_type = 'golden'
+                   AND dw.status = 'active'
+                   AND dw.card_delivery_task_id IS NULL
+              ) AS "hasGoldenWarrantyLink"
+         FROM open_tasks ot
+        WHERE ot.id = $1
+        LIMIT 1`,
       [openTaskId],
     );
     if (existingRows.length === 0) {
@@ -2238,10 +2460,10 @@ router.post('/:id/tasks', requirePermission('field_visits.edit'), async (req, re
         error: 'لا يجوز سحب مهمة لزبون مختلف عن زبون الزيارة (DEC-003 D7).',
       });
     }
-    if (ot.task_type !== taskType) {
+    if (ot.taskType !== taskType) {
       await client.query('ROLLBACK');
       return res.status(400).json({
-        error: `نوع المهمة المطلوب (${taskType}) لا يطابق نوع open_task #${openTaskId} (${ot.task_type}).`,
+        error: `نوع المهمة المطلوب (${taskType}) لا يطابق نوع open_task #${openTaskId} (${ot.taskType}).`,
       });
     }
     if (Number(ot.branch_id) !== Number(visit.branch_id)) {
@@ -2255,6 +2477,11 @@ router.post('/:id/tasks', requirePermission('field_visits.edit'), async (req, re
       return res.status(409).json({
         error: `لا يمكن سحب المهمة — حالتها "${ot.status}". يُسمح فقط بمهام قيد الانتظار (open / needs_follow_up) (DEC-010 D-PB2).`,
       });
+    }
+    const linkageIssue = getOpenTaskLinkageIssue(ot);
+    if (linkageIssue) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: linkageIssue.message, code: linkageIssue.code });
     }
 
     // 4. Insert the visit_task (marked as pulled — DEC-010 D-PB7).
@@ -2286,6 +2513,8 @@ router.post('/:id/tasks', requirePermission('field_visits.edit'), async (req, re
       [openTaskId],
     );
 
+    await refreshVisitType(client, fieldVisitId);
+
     await client.query('COMMIT');
     return res.json({
       visitTaskId: vtRows[0].id,
@@ -2316,18 +2545,26 @@ router.post('/:id/tasks', requirePermission('field_visits.edit'), async (req, re
  *   - D-PB5: no N-Window, no eligibility filter.
  *   - D-PB6: oldest-first, information-dense.
  */
-router.get('/:id/pullable-tasks', requirePermission('field_visits.view'), async (req, res) => {
+router.get('/:id/pullable-tasks', requirePermission('field_visits.view', 'field_visits.my_visits.view'), async (req, res) => {
   const fieldVisitId = Number(req.params.id);
   if (!Number.isInteger(fieldVisitId) || fieldVisitId <= 0) {
     return res.status(400).json({ error: 'معرف الزيارة غير صالح' });
   }
   try {
+    const authContext = getAuthContext(req);
     const { rows: visitRows } = await pool.query(
-      `SELECT id, client_id, branch_id FROM field_visits WHERE id = $1 LIMIT 1`,
+      `SELECT id, client_id, branch_id, team_snapshot,
+              reassigned_supervisor_id, reassigned_technician_id, reassigned_trainee_id
+         FROM field_visits
+        WHERE id = $1
+        LIMIT 1`,
       [fieldVisitId],
     );
     if (visitRows.length === 0) return res.status(404).json({ error: 'الزيارة غير موجودة' });
     const visit = visitRows[0];
+    if (!(await canReadFieldVisitWorkspace(authContext, visit))) {
+      return res.status(403).json({ error: 'غير مسموح بعرض مهام هذه الزيارة ضمن نطاق صلاحيتك' });
+    }
 
     const { rows } = await pool.query(
       `SELECT ot.id                       AS "openTaskId",
@@ -2342,6 +2579,7 @@ router.get('/:id/pullable-tasks', requirePermission('field_visits.view'), async 
               ot.expected_date            AS "expectedDate",
               ot.expected_time            AS "expectedTime",
               ot.contract_id              AS "contractId",
+              ot.device_id                AS "deviceId",
               ct.contract_number          AS "contractNumber",
               ct.device_model_name        AS "deviceModelName",
               ot.installment_id           AS "installmentId",
@@ -2350,6 +2588,24 @@ router.get('/:id/pullable-tasks', requirePermission('field_visits.view'), async 
               ci.remaining_balance        AS "installmentRemaining",
               ot.expected_amount_syp      AS "expectedAmount",
               ot.receivable_source_label  AS "receivableLabel",
+              EXISTS (
+                SELECT 1
+                  FROM gift_delivery_task_records gift_link
+                  JOIN gift_records gr ON gr.id = gift_link.gift_record_id
+                 WHERE gift_link.open_task_id = ot.id
+                   AND gift_link.is_active = TRUE
+                   AND gr.status = 'delivery_task_created'
+              ) AS "hasGiftDeliveryLink",
+              EXISTS (
+                SELECT 1
+                  FROM open_task_golden_warranties warranty_link
+                  JOIN device_warranties dw ON dw.id = warranty_link.warranty_id
+                 WHERE warranty_link.task_id = ot.id
+                   AND warranty_link.link_status = 'active'
+                   AND dw.warranty_type = 'golden'
+                   AND dw.status = 'active'
+                   AND dw.card_delivery_task_id IS NULL
+              ) AS "hasGoldenWarrantyLink",
               idev.installation_address_text AS "taskAddress",
               idev.installation_geo_unit_id  AS "taskGeoUnitId"
          FROM open_tasks ot
@@ -2363,7 +2619,10 @@ router.get('/:id/pullable-tasks', requirePermission('field_visits.view'), async 
         ORDER BY ot.created_at ASC`,
       [visit.client_id, visit.branch_id],
     );
-    return res.json(rows);
+    const pullableRows = rows
+      .filter((row: any) => getOpenTaskLinkageIssue(row) == null)
+      .map(({ hasGiftDeliveryLink: _giftLink, hasGoldenWarrantyLink: _warrantyLink, ...row }: any) => row);
+    return res.json(pullableRows);
   } catch (err: any) {
     console.error('[field-visits] GET /:id/pullable-tasks error:', err);
     res.status(500).json({ error: err?.message ?? 'فشل جلب المهام القابلة للسحب' });
@@ -2417,6 +2676,7 @@ router.delete('/:id/tasks/:visitTaskId', requirePermission('field_visits.edit'),
     }
 
     await client.query(`DELETE FROM visit_tasks WHERE id = $1`, [visitTaskId]);
+    await refreshVisitType(client, fieldVisitId);
     if (row.source_open_task_id) {
       await client.query(
         `UPDATE open_tasks
@@ -2450,10 +2710,23 @@ router.delete('/:id/tasks/:visitTaskId', requirePermission('field_visits.edit'),
  * Returns the referral_sheet bound to this visit (if any). Frontend uses this
  * to decide whether to show "إضافة لائحة جديدة" or "تعديل عدد اللائحة".
  */
-router.get('/:id/referral-sheet', requirePermission('field_visits.view'), async (req, res) => {
+router.get('/:id/referral-sheet', requirePermission('field_visits.view', 'field_visits.my_visits.view'), async (req, res) => {
   try {
+    const authContext = getAuthContext(req);
     const visitId = Number(req.params.id);
     if (!Number.isFinite(visitId)) return res.status(400).json({ error: 'معرف الزيارة غير صالح' });
+    const { rows: visitRows } = await pool.query(
+      `SELECT id, branch_id, team_snapshot,
+              reassigned_supervisor_id, reassigned_technician_id, reassigned_trainee_id
+         FROM field_visits
+        WHERE id = $1
+        LIMIT 1`,
+      [visitId],
+    );
+    if (visitRows.length === 0) return res.status(404).json({ error: 'الزيارة غير موجودة' });
+    if (!(await canReadFieldVisitWorkspace(authContext, visitRows[0]))) {
+      return res.status(403).json({ error: 'ليس لديك صلاحية الوصول' });
+    }
     const { rows } = await pool.query(
       `SELECT id,
               field_visit_id  AS "fieldVisitId",
@@ -2605,10 +2878,23 @@ router.patch('/:id/referral-sheet/target', requirePermission('field_visits.edit'
  * GET /api/field-visits/:id/survey
  * Returns the visit's survey row if it exists.
  */
-router.get('/:id/survey', requirePermission('field_visits.view'), async (req, res) => {
+router.get('/:id/survey', requirePermission('field_visits.view', 'field_visits.my_visits.view'), async (req, res) => {
   try {
+    const authContext = getAuthContext(req);
     const visitId = Number(req.params.id);
     if (!Number.isFinite(visitId)) return res.status(400).json({ error: 'معرف الزيارة غير صالح' });
+    const { rows: visitRows } = await pool.query(
+      `SELECT id, branch_id, team_snapshot,
+              reassigned_supervisor_id, reassigned_technician_id, reassigned_trainee_id
+         FROM field_visits
+        WHERE id = $1
+        LIMIT 1`,
+      [visitId],
+    );
+    if (visitRows.length === 0) return res.status(404).json({ error: 'الزيارة غير موجودة' });
+    if (!(await canReadFieldVisitWorkspace(authContext, visitRows[0]))) {
+      return res.status(403).json({ error: 'ليس لديك صلاحية الوصول' });
+    }
     const { rows } = await pool.query(
       `SELECT id,
               field_visit_id                    AS "fieldVisitId",
@@ -2874,11 +3160,9 @@ router.post('/:id/reopen', requirePermission('field_visits.reopen_closed'), asyn
 // POST /field-visits/:visitId/tasks/:taskId/result
 // ============================================================================
 // Unified task-result entrypoint. Routes by visit_tasks.task_type to the
-// matching reflection service (currently: device_demo). The service writes
-// visit_task_results + side table + per-offer rows + reflects onto open_task
-// and calls checkAndCompleteVisit at the end — all in one transaction.
-//
-// Reference: docs/constitution/features/tasks/device-demo.md
+// exhaustive shared registry. Each reflection service writes visit_task_results
+// plus its side tables, reflects onto open_tasks, and invokes the visit
+// completion guard in one transaction.
 router.post('/:visitId/tasks/:taskId/result', requirePermission('tasks.results.record'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
@@ -2903,76 +3187,9 @@ router.post('/:visitId/tasks/:taskId/result', requirePermission('tasks.results.r
 
     const taskType = vtRows[0].task_type;
     const body = req.body ?? {};
-
-    if (taskType === 'device_demo') {
-      const result = await applyDeviceDemoResult(taskId, body, authContext.userId);
-      return res.json({ success: true, ...result });
-    }
-
-    if (taskType === 'device_checkup') {
-      const result = await applyDeviceCheckupResult(taskId, body, authContext.userId);
-      return res.json({ success: true, ...result });
-    }
-
-    if (taskType === 'device_delivery') {
-      const result = await applyDeviceDeliveryResult(taskId, body, authContext.userId);
-      return res.json({ success: true, ...result });
-    }
-
-    if (taskType === 'device_installation') {
-      const result = await applyDeviceInstallationResult(taskId, body, authContext.userId);
-      return res.json({ success: true, ...result });
-    }
-
-    if (taskType === 'device_activation') {
-      const result = await applyDeviceActivationResult(taskId, body, authContext.userId);
-      return res.json({ success: true, ...result });
-    }
-
-    if (taskType === 'device_disconnection') {
-      const result = await applyDeviceDisconnectionResult(taskId, body, authContext.userId);
-      return res.json({ success: true, ...result });
-    }
-
-    if (taskType === 'device_retrieval') {
-      const result = await applyDeviceRetrievalResult(taskId, body, authContext.userId);
-      return res.json({ success: true, ...result });
-    }
-
-    if (taskType === 'device_return') {
-      const result = await applyDeviceReturnResult(taskId, body, authContext.userId);
-      return res.json({ success: true, ...result });
-    }
-
-    if (taskType === 'device_transfer') {
-      const result = await applyDeviceTransferResult(taskId, body, authContext.userId);
-      return res.json({ success: true, ...result });
-    }
-
-    if (taskType === 'emergency_maintenance' || taskType === 'periodic_maintenance') {
-      // Lifecycle-only path (reschedule / cancel). The "apply maintenance"
-      // outcome continues to use the dedicated /api/emergency-result wizard.
-      const result = await applyEmergencyMaintenanceLifecycleResult(taskId, body, authContext.userId);
-      return res.json({ success: true, ...result });
-    }
-
-    if (taskType === 'golden_warranty_offer') {
-      const result = await applyGoldenWarrantyOfferResult(taskId, body, authContext.userId);
-      return res.json({ success: true, ...result });
-    }
-
-    if (taskType === 'golden_warranty_card_delivery') {
-      const result = await applyGoldenWarrantyCardDeliveryResult(taskId, body, authContext.userId);
-      return res.json({ success: true, ...result });
-    }
-
-    if (taskType === 'gift_delivery') {
-      const result = await applyGiftDeliveryResult(taskId, body, authContext.userId);
-      return res.json({ success: true, ...result });
-    }
-
-    if (taskType === 'installment_collection') {
-      const result = await applyInstallmentCollectionResult(taskId, body, authContext.userId);
+    const applyResult = VISIT_TASK_RESULT_APPLIERS[taskType as VisitResultTaskType];
+    if (applyResult) {
+      const result = await applyResult(taskId, body, authContext.userId);
       return res.json({ success: true, ...result });
     }
 
@@ -2980,7 +3197,11 @@ router.post('/:visitId/tasks/:taskId/result', requirePermission('tasks.results.r
       error: `تسجيل نتيجة موحَّد غير مدعوم بعد لنوع المهمة "${taskType}"`,
     });
   } catch (err: any) {
-    if (err instanceof ResultValidationError) {
+    if (
+      err instanceof ResultValidationError
+      || err instanceof DeviceTaskEligibilityError
+      || err instanceof GoldenWarrantyCardDeliveryError
+    ) {
       return res.status(err.status).json({ error: err.message });
     }
     console.error('[field-visits] POST /:visitId/tasks/:taskId/result error:', err);

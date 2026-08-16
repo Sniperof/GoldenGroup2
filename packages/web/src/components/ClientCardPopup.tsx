@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, MapPin, Phone, Smartphone, UserRound } from 'lucide-react';
+import { X, MapPin, Phone, Smartphone, UserRound } from './ui/icons';
 import IconButton from './ui/IconButton';
 import { api } from '../lib/api';
 import type { Client, ClientRating, ContactEntry, GeoUnit } from '../lib/types';

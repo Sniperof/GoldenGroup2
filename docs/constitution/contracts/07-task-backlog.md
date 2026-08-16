@@ -344,9 +344,9 @@
 - ✅ `shared/types.ts`: نوعا المهمة + labels؛ عائلة `warranty-services` موسَّعة (لا قيد CHECK على task_type، لا مهام قديمة → لا migration بيانات).
 - ✅ endpoints الدفعات (`/api/device-warranties/:id/payments` GET/POST + DELETE) + الرصيد المشتقّ.
 - ✅ معالِج نتيجة العرض `POST /api/device-warranties/golden/offer-result` (إنشاء كفالة golden + التفعيل بالوصل start=receiptDate/end=+months + قراءة 01i `baseline` عبر `insertTechnicalState` المُصدَّرة + الحارس «واحدة فعّالة فقط» + دفعات أولية + إكمال المهمة) — متحقَّق على DB (date math + exclusion).
-- ✅ معالِج تسليم الكرت `POST /api/device-warranties/golden/:id/card-delivery` (ختم `card_delivery_task_id` + إكمال المهمة، بلا تفعيل).
+- ✅ معالِج تسليم الكرت ضمن مسار نتائج الزيارة الموحّد (ختم `card_delivery_task_id` للكفالات المرتبطة صراحة + إكمال المهمة، بلا تفعيل). أُلغي مسار الكتابة المباشر القديم حتى لا توجد نتيجة خارج السياق القانوني للمهمة/الزيارة.
 - ✅ المؤشّر اللوني في مودل الصيانة (`EmergencyResultWizard`: شريط أزرق=عقد/ذهبي=ذهبية + تلميح «التكلفة غير مقفلة»؛ و prop اختياري في `components/emergency/EmergencyResultModal`).
-- ✅ **UI:** `GoldenWarrantyOfferModal` (اختيار جهاز + تاريخ الوصل/المدة→نهاية محسوبة + قيمة + دفعات + قراءة 01i عبر `TechnicalStateFields`) و `GoldenWarrantyCardDeliveryModal` (يجد الكفالة الذهبية الفعّالة ويختم التسليم)؛ مُوزَّعان في `VisitDetailPage` حسب `task_type` + دوال `api.deviceWarranties` (offerResult/cardDelivery/payments). typecheck أخضر.
+- ✅ **UI:** `GoldenWarrantyOfferModal` (اختيار جهاز + تاريخ الوصل/المدة→نهاية محسوبة + قيمة + دفعات + قراءة 01i عبر `TechnicalStateFields`) و `GoldenWarrantyCardDeliveryModal` (يسجل نتيجة الزيارة على الكفالات المرتبطة بالمهمة)؛ مُوزَّعان حسب `task_type`، مع إبقاء الكتابة ضمن مسار نتيجة الزيارة الموحّد.
 
 - ✅ منفذ open-tasks: صفحة `/tasks/group/warranty-services` تعرض **جدولين** (مهام الكفالة/العرض · تسليم كروت VIP)؛ النقر على صف عرض/تسليم يفتح المودل في مكانه (لا صفحة تفصيل). أُضيف النوعان لعائلة الـbackend والـfrontend GROUP_CONFIG + labels.
 

@@ -31,6 +31,7 @@ export interface CreateInstallmentCollectionTaskArgs {
     | 'data_correction'
     | 'other';
   creationOrigin?: 'system_trigger' | 'manual_creation' | 'branch_plan';
+  creationReason?: string | null;
   notes?: string | null;
   createdBy?: number | null;
   sourceContextType?: string | null;
@@ -54,6 +55,34 @@ function normalizePriority(value: unknown): 'high' | 'medium' | 'low' {
 function asPositiveNumber(value: unknown): number {
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+async function resolveCollectionCreationReason(
+  db: Queryable,
+  systemReason: CreateInstallmentCollectionTaskArgs['reason'],
+  creationReason?: string | null,
+): Promise<string> {
+  const requested = typeof creationReason === 'string' ? creationReason.trim() || null : null;
+  const { rows } = await db.query(
+    `SELECT value
+       FROM system_lists
+      WHERE category = 'installment_collection_creation_reasons'
+        AND is_active = TRUE
+        AND (
+          ($1::text IS NOT NULL AND value = $1 AND COALESCE(metadata->>'systemReason', $2) = $2)
+          OR ($1::text IS NULL AND metadata->>'systemReason' = $2)
+        )
+      ORDER BY
+        CASE WHEN value = $1 THEN 0 ELSE 1 END,
+        display_order ASC,
+        id ASC
+      LIMIT 1`,
+    [requested, systemReason],
+  );
+  if (rows.length === 0) {
+    throw new Error('سبب إنشاء مهمة التحصيل مطلوب ويجب اختياره من قائمته المعتمدة');
+  }
+  return String(rows[0].value);
 }
 
 export async function createInstallmentCollectionTask(
@@ -120,22 +149,23 @@ export async function createInstallmentCollectionTask(
   const sourceLabel = args.receivableSourceLabel ?? `عقد رقم ${contractNumber}`;
   const branchId = Number(installment.service_branch_id ?? installment.branch_id);
   const dueDate = args.dueDate ?? installment.due_date;
+  const creationReason = await resolveCollectionCreationReason(db, args.reason, args.creationReason);
 
   const { rows: insertedRows } = await db.query(
     `INSERT INTO open_tasks (
        client_id, branch_id, task_type, task_family, reason, status,
        due_date, priority, source, notes, created_by, origin,
-       contract_id, installment_id, creation_origin,
+       contract_id, installment_id, creation_origin, creation_reason,
        source_context_type, source_context_id,
        receivable_source_type, receivable_source_id, receivable_source_label,
        expected_amount_syp
      ) VALUES (
        $1, $2, 'installment_collection', 'collection', $3, 'open',
        $4::date, $5, 'system', $6, $7, 'system_trigger',
-       $8, $9, $10,
-       $11, $12,
-       $13, $14, $15,
-       $16
+       $8, $9, $10, $11,
+       $12, $13,
+       $14, $15, $16,
+       $17
      )
      RETURNING id`,
     [
@@ -149,6 +179,7 @@ export async function createInstallmentCollectionTask(
       Number(installment.contract_id),
       installmentId,
       args.creationOrigin ?? 'system_trigger',
+      creationReason,
       args.sourceContextType ?? null,
       args.sourceContextId ?? null,
       sourceType,

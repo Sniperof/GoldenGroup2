@@ -41,9 +41,9 @@ const SIZE_CLASSES: Record<InputSize, string> = {
 // trailing) — base padding is on the side without a slot; the slot side gets
 // extra room for the icon/button.
 const SLOT_PADDING: Record<InputSize, { base: string; withLeading: string; withTrailing: string }> = {
-  sm: { base: 'px-3.5',  withLeading: 'pr-9',  withTrailing: 'pl-9'  },
-  md: { base: 'px-4',    withLeading: 'pr-10', withTrailing: 'pl-10' },
-  lg: { base: 'px-5',    withLeading: 'pr-12', withTrailing: 'pl-12' },
+  sm: { base: 'px-3.5',  withLeading: 'ps-9',  withTrailing: 'pe-9'  },
+  md: { base: 'px-4',    withLeading: 'ps-10', withTrailing: 'pe-10' },
+  lg: { base: 'px-5',    withLeading: 'ps-12', withTrailing: 'pe-12' },
 };
 
 const SLOT_POSITION: Record<InputSize, string> = {
@@ -81,8 +81,8 @@ const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
     !leading && !trailing ? pad.base : '',
     leading ? pad.withLeading : '',
     trailing ? pad.withTrailing : '',
-    leading && !trailing ? 'pl-4' : '',
-    trailing && !leading ? 'pr-4' : '',
+    leading && !trailing ? 'pe-4' : '',
+    trailing && !leading ? 'ps-4' : '',
   ].filter(Boolean).join(' ');
 
   return (
@@ -93,12 +93,12 @@ const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
           className={`block text-base font-semibold mb-1.5 ${hasError ? 'text-red-600' : 'text-slate-700'}`}
         >
           {label}
-          {required && <span className="text-red-500 mr-1">*</span>}
+          {required && <span className="text-red-500 ms-1">*</span>}
         </label>
       )}
       <div className="relative">
         {leading && (
-          <div className={`absolute ${SLOT_POSITION[inputSize]} right-4 flex items-center text-slate-400 pointer-events-none`}>
+          <div className={`absolute ${SLOT_POSITION[inputSize]} start-4 flex items-center text-slate-400 pointer-events-none`}>
             {leading}
           </div>
         )}
@@ -119,7 +119,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
           {...rest}
         />
         {trailing && (
-          <div className={`absolute ${SLOT_POSITION[inputSize]} left-4 flex items-center text-slate-400`}>
+          <div className={`absolute ${SLOT_POSITION[inputSize]} end-4 flex items-center text-slate-400`}>
             {trailing}
           </div>
         )}

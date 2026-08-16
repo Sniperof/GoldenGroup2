@@ -1,4 +1,4 @@
-import { Users, UserRound, Wrench, ShoppingCart } from 'lucide-react';
+import { Users, UserRound, Wrench, ShoppingCart } from '../../components/ui/icons';
 import { Card, EmptyState, formatMoney, TabAlert } from '../../components/tasks/shared';
 import type { TaskDetailData } from '../../components/tasks/types';
 

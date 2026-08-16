@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { AlertCircle, ArrowLeft, ArrowRight, ChevronRight, Loader2, Save } from 'lucide-react';
-import { api } from '../../../lib/api';
+import { AlertCircle, ArrowLeft, ArrowRight, ChevronRight, Loader2, Save } from '../../ui/icons';
+import { evaluateMembraneEfficiency, membraneEfficiencyIssueMessage } from '@golden-crm/shared';
+import { api, type EmergencyResultContext } from '../../../lib/api';
 import DSSelect from '../../ui/Select';
 import Card from '../../ui/Card';
 import Badge from '../../ui/Badge';
@@ -21,7 +22,7 @@ const inp = "w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus
 const sel = `${inp} appearance-none cursor-pointer`;
 
 function NumInput({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
-  return <input type="number" value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder ?? '—'} className={inp} />;
+  return <input type="number" min="0" value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder ?? '—'} className={inp} />;
 }
 
 function Select({ value, onChange, options, placeholder }: { value: string; onChange: (v: string) => void; options: { value: string; label: string }[]; placeholder?: string }) {
@@ -48,9 +49,25 @@ function BoolSelect({ value, onChange }: { value: string; onChange: (v: string) 
 // ── Efficiency badge ──────────────────────────────────────────────────────────
 
 function EfficiencyBadge({ inlet, outlet }: { inlet: string; outlet: string }) {
-  const i = parseFloat(inlet), o = parseFloat(outlet);
-  if (!i || !o || o === 0) return null;
-  const eff = Math.round((1 - i / o) * 100);
+  const evaluation = evaluateMembraneEfficiency(inlet, outlet);
+  if (evaluation.status === 'incomplete') return null;
+  if (evaluation.status === 'invalid') {
+    return (
+      <div className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700">
+        <AlertCircle className="h-4 w-4 shrink-0" />
+        {membraneEfficiencyIssueMessage(evaluation.issue)}
+      </div>
+    );
+  }
+  if (evaluation.status === 'undefined') {
+    return (
+      <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">
+        <AlertCircle className="h-4 w-4 shrink-0" />
+        لا يمكن حساب الكفاءة عندما يكون دخل الميمبرين صفراً
+      </div>
+    );
+  }
+  const i = Number(inlet), o = Number(outlet), eff = evaluation.percentage;
   const label = eff >= 90 ? 'ممتازة' : eff >= 75 ? 'جيدة' : eff >= 60 ? 'مقبولة' : 'ضعيفة';
   const cls = eff >= 90 ? 'bg-emerald-50 text-emerald-700 border-emerald-300 ring-emerald-100'
     : eff >= 75 ? 'bg-sky-50 text-sky-700 border-sky-300 ring-sky-100'
@@ -65,7 +82,7 @@ function EfficiencyBadge({ inlet, outlet }: { inlet: string; outlet: string }) {
       <div className="flex-1 min-w-0">
         <div className="text-xs font-bold mb-0.5">كفاءة الميمبرين</div>
         <div className="text-xs opacity-60 font-mono ltr">
-          (1 − {i} / {o}) × 100
+          (1 − {o} / {i}) × 100
         </div>
         <div className="text-xs opacity-60 mt-0.5">
           دخل: <span className="font-bold">{i} ppm</span> · خرج: <span className="font-bold">{o} ppm</span>
@@ -73,6 +90,14 @@ function EfficiencyBadge({ inlet, outlet }: { inlet: string; outlet: string }) {
       </div>
     </div>
   );
+}
+
+function efficiencyComparisonValue(input: unknown, output: unknown): string | undefined {
+  const evaluation = evaluateMembraneEfficiency(input, output);
+  if (evaluation.status === 'incomplete') return undefined;
+  if (evaluation.status === 'invalid') return 'قراءة غير صالحة';
+  if (evaluation.status === 'undefined') return 'غير قابلة للحساب';
+  return `${evaluation.percentage}%`;
 }
 
 // ── Comparison row (for post-state vs pre-state) ──────────────────────────────
@@ -97,6 +122,7 @@ function CompareRow({ label, before, after }: { label: string; before?: any; aft
 interface Props {
   phase: 'pre' | 'post';
   taskId: number;
+  resultContext: EmergencyResultContext | null;
   initialData?: any;
   preData?: any; // for post-phase: show comparison
   readOnly?: boolean;
@@ -136,7 +162,7 @@ function initForm(d?: any): F {
   };
 }
 
-export default function TechStateForm({ phase, taskId, initialData, preData, readOnly = false, onSaved, onNext, onBack }: Props) {
+export default function TechStateForm({ phase, taskId, resultContext, initialData, preData, readOnly = false, onSaved, onNext, onBack }: Props) {
   const [f, setF] = useState<F>(() => initForm(initialData));
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState('');
@@ -168,10 +194,19 @@ export default function TechStateForm({ phase, taskId, initialData, preData, rea
   });
 
   const handleSave = async (andNext = false) => {
+    if (!resultContext) {
+      setError('يجب فتح نتيجة الصيانة من داخل الزيارة المرتبطة');
+      return;
+    }
+    const membrane = evaluateMembraneEfficiency(f.membraneInputTds, f.membraneOutputTds);
+    if (membrane.status === 'invalid') {
+      setError(membraneEfficiencyIssueMessage(membrane.issue));
+      return;
+    }
     setSaving(true); setError('');
     try {
       const save = phase === 'pre' ? api.emergencyResult.savePreState : api.emergencyResult.savePostState;
-      await save(taskId, buildPayload());
+      await save(taskId, buildPayload(), resultContext);
       onSaved();
       if (andNext && onNext) onNext();
     } catch (err: any) { setError(err.message || 'فشل الحفظ'); }
@@ -197,11 +232,11 @@ export default function TechStateForm({ phase, taskId, initialData, preData, rea
             <CompareRow label="عيار حنفية الجهاز" before={preData.tapTdsBefore} after={f.tapTdsBefore ? Number(f.tapTdsBefore) : undefined} />
             <CompareRow label="خرج الميمبرين" before={preData.membraneOutputTds} after={f.membraneOutputTds ? Number(f.membraneOutputTds) : undefined} />
             <CompareRow label="ضغط المضخة" before={preData.pumpPressure} after={f.pumpPressure ? Number(f.pumpPressure) : undefined} />
-            {preData.membraneInputTds && preData.membraneOutputTds && f.membraneInputTds && f.membraneOutputTds && (() => {
-              const before = Math.round((1 - preData.membraneInputTds / preData.membraneOutputTds) * 100);
-              const after  = Math.round((1 - Number(f.membraneInputTds) / Number(f.membraneOutputTds)) * 100);
-              return <CompareRow label="كفاءة الميمبرين" before={`${before}%`} after={`${after}%`} />;
-            })()}
+            <CompareRow
+              label="كفاءة الميمبرين"
+              before={efficiencyComparisonValue(preData.membraneInputTds, preData.membraneOutputTds)}
+              after={efficiencyComparisonValue(f.membraneInputTds, f.membraneOutputTds)}
+            />
           </div>
         </div>
       )}

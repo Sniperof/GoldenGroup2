@@ -1,4 +1,4 @@
-import { ShoppingCart } from 'lucide-react';
+import { ShoppingCart } from '../../components/ui/icons';
 import { Card, EmptyState, formatMoney } from '../../components/tasks/shared';
 import type { TaskResultRendererProps } from '../../components/tasks/types';
 

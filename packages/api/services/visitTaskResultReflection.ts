@@ -25,11 +25,25 @@
 // ============================================================
 
 import type { PoolClient } from 'pg';
+import { evaluateMembraneEfficiency, membraneEfficiencyIssueMessage } from '@golden-crm/shared';
 import pool from '../db.js';
+import { getGoldenWarrantyDeliveryResultIssue } from './openTaskLinkagePolicy.js';
 import { checkAndCompleteVisit } from './visitCompletion.js';
 import { recordContractPaymentMovement, recordMovement } from './financialMovements.js';
 import { createInstallmentCollectionTask } from './installmentCollectionTasks.js';
 import { findUnavailableDeviceModelsForNewCommercialUse } from './catalogActiveStateService.js';
+import { assertCanRecordSuccessfulDeviceTaskResult } from './deviceTaskEligibilityGuard.js';
+import {
+  assertActiveGoldenWarrantyCardLinks,
+  cancelGoldenWarrantyCardLinks,
+  deliverGoldenWarrantyCardLinks,
+} from './goldenWarrantyCardDelivery.js';
+import {
+  cancelUpcomingPeriodicMaintenanceForTransfer,
+  generateFirstPeriodicMaintenanceTask,
+  PeriodicMaintenanceTransferError,
+  type PeriodicMaintenanceGenerationResult,
+} from './periodicMaintenanceTasks.js';
 
 export type DeviceDemoFinalDecision =
   | 'offer_presented'
@@ -81,6 +95,19 @@ export type GiftDeliveryFinalDecision =
   | 'refused_gift'
   | 'rescheduled';
 
+export function giftDeliveryDecisionTransition(decision: GiftDeliveryFinalDecision): {
+  giftStatus: 'delivered' | 'refused' | 'delivery_task_created';
+  openTaskStatus: 'completed' | 'cancelled' | 'needs_follow_up';
+} {
+  if (decision === 'delivered_successfully') {
+    return { giftStatus: 'delivered', openTaskStatus: 'completed' };
+  }
+  if (decision === 'refused_gift') {
+    return { giftStatus: 'refused', openTaskStatus: 'cancelled' };
+  }
+  return { giftStatus: 'delivery_task_created', openTaskStatus: 'needs_follow_up' };
+}
+
 export type DeviceDisconnectionFinalDecision =
   | 'disconnected_successfully'
   | 'rescheduled'
@@ -114,14 +141,14 @@ export interface OfferInput {
   /** Free-text refusal reason. Required when customer_response='rejected'. */
   no_closing_reason?: string | null;
   sale_reference_number?: string | null;
-  source_customer_pre_offer_id?: number | null;
+  source_customer_pre_offer_id?: number | string | null;
   /**
    * Existing open_task_pre_offers.id when the offer was loaded from the task.
    * Used as the primary UPDATE key so result recording mutates the existing
    * row instead of inserting a duplicate when source_customer_pre_offer_id
    * is NULL (e.g. offers authored manually in DeviceOfferModal pre migration).
    */
-  open_task_pre_offer_id?: number | null;
+  open_task_pre_offer_id?: number | string | null;
 }
 
 export interface DeviceDemoResultBody {
@@ -280,6 +307,7 @@ export interface DeviceActivationReflectionResult {
   deviceActivationResultId: number;
   openTaskNewStatus: 'completed' | 'needs_follow_up';
   deviceNewStatus: 'active' | 'installed';
+  firstPeriodicMaintenanceTask: PeriodicMaintenanceGenerationResult | null;
   visitCompleted: boolean;
 }
 
@@ -372,6 +400,7 @@ export interface DeviceTransferReflectionResult {
   openTaskNewStatus: 'completed' | 'needs_follow_up' | 'cancelled';
   deviceNewStatus: 'delivered' | 'unchanged';
   ownershipTransferred: boolean;
+  cancelledPeriodicTaskIds: number[];
   visitCompleted: boolean;
 }
 
@@ -406,13 +435,24 @@ export interface DeviceDisconnectionReflectionResult {
 // جزء دفع واحد ضمن تسديد ذمة — يد/حوالة/مقايضة، بالليرة أو الدولار بسعر صرف.
 // (نموذج العقد بدون تقسيط؛ نفس بنية PaymentEntriesList في الواجهة.)
 export interface CollectionPaymentPart {
-  method: 'hand' | 'transfer' | 'barter';
+  paymentCategory?: 'hand' | 'transfer' | 'barter';
+  method: 'hand' | 'transfer' | 'barter' | ContractCollectionPaymentMethod;
   amountValue: number | string;
   currency?: 'syp' | 'usd';
   exchangeRate?: number | string | null;
   transferCompanyId?: number | string | null;
+  referenceNumber?: string | null;
   barterDescription?: string | null;
 }
+
+export type ContractCollectionPaymentMethod =
+  | 'cash'
+  | 'sham_cash'
+  | 'syriatel_cash'
+  | 'mtn_cash'
+  | 'alharam'
+  | 'bank_transfer'
+  | 'barter';
 
 export interface InstallmentCollectionResultBody {
   final_decision: InstallmentCollectionFinalDecision;
@@ -448,6 +488,53 @@ function collectionPartSyp(p: CollectionPaymentPart): number {
   return v;
 }
 
+const transferCollectionPaymentMethods = new Set<ContractCollectionPaymentMethod>([
+  'sham_cash',
+  'syriatel_cash',
+  'mtn_cash',
+  'alharam',
+  'bank_transfer',
+]);
+
+export function normalizeCollectionPaymentPart(part: CollectionPaymentPart): CollectionPaymentPart & {
+  paymentCategory: 'hand' | 'transfer' | 'barter';
+  method: ContractCollectionPaymentMethod;
+} {
+  const rawMethod = optionalText(part.method);
+  const paymentCategory = part.paymentCategory
+    ?? (rawMethod === 'hand' || rawMethod === 'transfer' || rawMethod === 'barter'
+      ? rawMethod
+      : rawMethod === 'cash'
+        ? 'hand'
+        : transferCollectionPaymentMethods.has(rawMethod as ContractCollectionPaymentMethod)
+          ? 'transfer'
+          : null);
+
+  if (!paymentCategory) {
+    throw new ResultValidationError('نوع جزء الدفع غير صالح');
+  }
+
+  let method: ContractCollectionPaymentMethod;
+  if (paymentCategory === 'hand') {
+    if (rawMethod !== 'hand' && rawMethod !== 'cash') {
+      throw new ResultValidationError('أداة الدفع النقدي غير صالحة');
+    }
+    method = 'cash';
+  } else if (paymentCategory === 'barter') {
+    if (rawMethod !== 'barter') {
+      throw new ResultValidationError('أداة المقايضة غير صالحة');
+    }
+    method = 'barter';
+  } else {
+    if (!transferCollectionPaymentMethods.has(rawMethod as ContractCollectionPaymentMethod)) {
+      throw new ResultValidationError('أداة الحوالة مطلوبة ويجب اختيارها من القائمة المعتمدة');
+    }
+    method = rawMethod as ContractCollectionPaymentMethod;
+  }
+
+  return { ...part, paymentCategory, method };
+}
+
 class ResultValidationError extends Error {
   status = 400;
   constructor(msg: string) {
@@ -466,6 +553,57 @@ function isPositiveNumber(v: any): boolean {
 
 function isPositiveInteger(v: any): boolean {
   return Number.isInteger(Number(v)) && Number(v) > 0;
+}
+
+export function normalizePositiveDbId(value: unknown): number | null {
+  if (typeof value === 'number') {
+    return Number.isSafeInteger(value) && value > 0 ? value : null;
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim();
+    if (!/^[1-9]\d*$/.test(normalized)) return null;
+    const parsed = Number(normalized);
+    return Number.isSafeInteger(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+export function normalizeDeviceDemoOfferLinkIds(
+  offer: Pick<OfferInput, 'open_task_pre_offer_id' | 'source_customer_pre_offer_id'>,
+): {
+  openTaskPreOfferId: number | null;
+  sourceCustomerPreOfferId: number | null;
+} {
+  const rawOpenTaskPreOfferId = offer.open_task_pre_offer_id;
+  const rawSourceCustomerPreOfferId = offer.source_customer_pre_offer_id;
+  const openTaskPreOfferId = normalizePositiveDbId(rawOpenTaskPreOfferId);
+  const sourceCustomerPreOfferId = normalizePositiveDbId(rawSourceCustomerPreOfferId);
+
+  if (rawOpenTaskPreOfferId != null && openTaskPreOfferId == null) {
+    throw new ResultValidationError('open_task_pre_offer_id غير صالح');
+  }
+  if (rawSourceCustomerPreOfferId != null && sourceCustomerPreOfferId == null) {
+    throw new ResultValidationError('source_customer_pre_offer_id غير صالح');
+  }
+
+  return { openTaskPreOfferId, sourceCustomerPreOfferId };
+}
+
+export function resolveStoredDeviceDemoOfferSourceId(
+  storedSourceCustomerPreOfferId: unknown,
+  suppliedSourceCustomerPreOfferId: number | null,
+): number | null {
+  const storedSourceId = normalizePositiveDbId(storedSourceCustomerPreOfferId);
+  if (storedSourceCustomerPreOfferId != null && storedSourceId == null) {
+    throw new ResultValidationError('معرف العرض المرتبط المستعاد غير صالح');
+  }
+  if (
+    suppliedSourceCustomerPreOfferId != null
+    && suppliedSourceCustomerPreOfferId !== storedSourceId
+  ) {
+    throw new ResultValidationError('هوية العرض المسبق لا تطابق رابط عرض الزبون المحفوظ');
+  }
+  return storedSourceId;
 }
 
 function optionalText(value: unknown): string | null {
@@ -520,6 +658,31 @@ async function assertSystemListCategory(
 }
 
 // camelCase reading key → device_technical_states column (constitution 01i).
+async function assertSystemListValue(
+  db: Pick<PoolClient, 'query'>,
+  value: unknown,
+  category: string,
+  label: string,
+): Promise<string> {
+  const parsed = typeof value === 'string' ? value.trim() : '';
+  if (!parsed) {
+    throw new ResultValidationError(`${label} مطلوب`);
+  }
+  const { rows } = await db.query(
+    `SELECT value
+       FROM system_lists
+      WHERE category = $1
+        AND value = $2
+        AND is_active = TRUE
+      LIMIT 1`,
+    [category, parsed],
+  );
+  if (rows.length === 0) {
+    throw new ResultValidationError(`${label} غير صالح`);
+  }
+  return parsed;
+}
+
 const TECH_STATE_COLUMN_MAP: Record<string, string> = {
   waterSourceType: 'water_source_type', waterSourceTds: 'water_source_tds',
   waterPressure: 'water_pressure', hasPressureRegulator: 'has_pressure_regulator',
@@ -554,6 +717,11 @@ export async function insertTechnicalState(
   if (!reading || typeof reading !== 'object') return null;
   const hasAny = Object.values(reading).some((v) => v !== null && v !== undefined && v !== '');
   if (!hasAny) return null;
+
+  const membrane = evaluateMembraneEfficiency(reading.membraneInputTds, reading.membraneOutputTds);
+  if (membrane.status === 'invalid') {
+    throw new ResultValidationError(membraneEfficiencyIssueMessage(membrane.issue));
+  }
 
   const cols = ['installed_device_id', 'open_task_id', 'contract_id', 'task_type_snapshot', 'phase', 'recorded_by'];
   const vals: unknown[] = [args.installedDeviceId, args.openTaskId, args.contractId, args.taskTypeSnapshot, args.phase, args.recordedBy];
@@ -745,8 +913,18 @@ function assertActivationShape(body: DeviceActivationResultBody): {
     return { decision, openTaskNewStatus: 'completed', deviceNewStatus: 'active' };
   }
 
+  if (decision === 'activation_failed') {
+    if (!optionalText(body.reason_code)) {
+      throw new ResultValidationError('سبب فشل التشغيل مطلوب');
+    }
+    return { decision, openTaskNewStatus: 'completed', deviceNewStatus: 'installed' };
+  }
+
+  if (!optionalText(body.reason_code)) {
+    throw new ResultValidationError('سبب إعادة جدولة التشغيل مطلوب');
+  }
   if (!optionalDate(body.expected_date)) {
-    throw new ResultValidationError('تاريخ المتابعة مطلوب عند فشل التشغيل أو وجود مشكلة بالجهاز');
+    throw new ResultValidationError('تاريخ المتابعة مطلوب عند وجود مشكلة بالجهاز');
   }
   return { decision, openTaskNewStatus: 'needs_follow_up', deviceNewStatus: 'installed' };
 }
@@ -1083,6 +1261,85 @@ function deriveReflectionForOfferPresented(offers: OfferInput[]): {
   return { openTaskNewStatus: 'completed', acceptedCount, extensionCount };
 }
 
+type OpenTaskPreOfferWriteResult = 'updated_by_id' | 'updated_by_source' | 'inserted';
+
+export async function persistOpenTaskPreOfferResult(
+  db: Pick<PoolClient, 'query'>,
+  input: {
+    values: any[];
+    openTaskPreOfferId: number | null;
+    sourceCustomerPreOfferId: number | null;
+  },
+): Promise<OpenTaskPreOfferWriteResult> {
+  const { values, openTaskPreOfferId, sourceCustomerPreOfferId } = input;
+
+  if (openTaskPreOfferId != null) {
+    const { rowCount } = await db.query(
+      `UPDATE open_task_pre_offers
+          SET device_model_id = $2,
+              offer_type = $3,
+              quantity = $4,
+              total_amount = $5,
+              first_payment_amount = $6,
+              installment_months = $7,
+              currency = $8,
+              discount_percentage = $9,
+              applied_device_discount_id = $10,
+              closed_by_employee_id = $11,
+              no_closing_reason = $12,
+              source_customer_pre_offer_id = $13,
+              sale_reference_number = $14,
+              updated_at = NOW()
+        WHERE id = $15
+          AND open_task_id = $1`,
+      [...values, openTaskPreOfferId],
+    );
+    if ((rowCount ?? 0) === 0) {
+      throw new ResultValidationError('العرض المسبق المحدد غير موجود ضمن مهمة عرض الجهاز');
+    }
+    return 'updated_by_id';
+  }
+
+  if (sourceCustomerPreOfferId != null) {
+    const { rowCount } = await db.query(
+      `UPDATE open_task_pre_offers
+          SET device_model_id = $2,
+              offer_type = $3,
+              quantity = $4,
+              total_amount = $5,
+              first_payment_amount = $6,
+              installment_months = $7,
+              currency = $8,
+              discount_percentage = $9,
+              applied_device_discount_id = $10,
+              closed_by_employee_id = $11,
+              no_closing_reason = $12,
+              source_customer_pre_offer_id = $13,
+              sale_reference_number = $14,
+              updated_at = NOW()
+        WHERE open_task_id = $1
+          AND source_customer_pre_offer_id = $15`,
+      [...values, sourceCustomerPreOfferId],
+    );
+    if ((rowCount ?? 0) === 0) {
+      throw new ResultValidationError('العرض المرتبط المحدد غير موجود ضمن مهمة عرض الجهاز');
+    }
+    return 'updated_by_source';
+  }
+
+  await db.query(
+    `INSERT INTO open_task_pre_offers
+       (open_task_id, device_model_id, offer_type, quantity,
+        total_amount, first_payment_amount, installment_months, currency,
+        discount_percentage, applied_device_discount_id,
+        closed_by_employee_id, no_closing_reason,
+        source_customer_pre_offer_id, sale_reference_number, created_at, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW(),NOW())`,
+    values,
+  );
+  return 'inserted';
+}
+
 // ────────────────────────────────────────────────────────────
 // Main entry
 // ────────────────────────────────────────────────────────────
@@ -1136,6 +1393,16 @@ export async function applyDeviceDemoResult(
         throw new ResultValidationError('offers مطلوبة عند offer_presented');
       }
       body.offers.forEach(assertOfferShape);
+      for (const [idx, offer] of body.offers.entries()) {
+        if (offer.customer_response === 'rejected') {
+          offer.no_closing_reason = await assertSystemListValue(
+            db,
+            offer.no_closing_reason,
+            'device_demo_offer_refusal_reasons',
+            `العرض #${idx + 1}: سبب الرفض`,
+          );
+        }
+      }
       const unavailableDeviceModels = await findUnavailableDeviceModelsForNewCommercialUse(
         db,
         body.offers.map((offer) => offer.device_model_id),
@@ -1169,10 +1436,22 @@ export async function applyDeviceDemoResult(
     } else if (decision === 'rescheduled') {
       if (!isPositiveNumber(body.reason_code_id)) throw new ResultValidationError('reason_code_id مطلوب');
       if (!body.expected_date) throw new ResultValidationError('expected_date مطلوب');
+      body.reason_code_id = await assertSystemListCategory(
+        db,
+        body.reason_code_id,
+        'device_demo_reschedule_reasons',
+        'سبب إعادة الجدولة',
+      );
       openTaskNewStatus = 'needs_follow_up';
       openTaskExpectedDate = body.expected_date;
     } else if (decision === 'cancelled') {
       if (!isPositiveNumber(body.reason_code_id)) throw new ResultValidationError('reason_code_id مطلوب');
+      body.reason_code_id = await assertSystemListCategory(
+        db,
+        body.reason_code_id,
+        'device_demo_cancellation_reasons',
+        'سبب الإلغاء',
+      );
       openTaskNewStatus = 'cancelled';
     }
 
@@ -1256,19 +1535,15 @@ export async function applyDeviceDemoResult(
       // Linked standalone offers keep their identity: result recording updates
       // customer_device_pre_offers instead of creating a duplicate history row.
       for (const offer of body.offers!) {
-        let sourceCustomerPreOfferId = isPositiveNumber(offer.source_customer_pre_offer_id)
-          ? Number(offer.source_customer_pre_offer_id)
-          : null;
-        const openTaskPreOfferId = isPositiveNumber(offer.open_task_pre_offer_id)
-          ? Number(offer.open_task_pre_offer_id)
-          : null;
+        const normalizedLinkIds = normalizeDeviceDemoOfferLinkIds(offer);
+        let sourceCustomerPreOfferId = normalizedLinkIds.sourceCustomerPreOfferId;
+        const openTaskPreOfferId = normalizedLinkIds.openTaskPreOfferId;
 
-        // When the offer came from an existing task row but no longer carries
-        // a source_customer_pre_offer_id (e.g. authored manually pre-migration),
-        // we still need to UPDATE the row instead of inserting a duplicate.
-        // Recover the CDPO link, if any, from the existing row so the CDPO
-        // UPDATE path below can hit its target as well.
-        if (openTaskPreOfferId != null && sourceCustomerPreOfferId == null && vt.source_open_task_id) {
+        // An echoed task-row id is authoritative. Resolve its stored CDPO link
+        // before writing, and reject a payload that tries to pair two unrelated
+        // existing identities. A NULL stored link is valid: result recording
+        // will create the CDPO row and attach it to this same task offer.
+        if (openTaskPreOfferId != null && vt.source_open_task_id) {
           const { rows: existingRows } = await db.query(
             `SELECT source_customer_pre_offer_id AS "cdpoId"
                FROM open_task_pre_offers
@@ -1277,9 +1552,13 @@ export async function applyDeviceDemoResult(
               LIMIT 1`,
             [openTaskPreOfferId, vt.source_open_task_id],
           );
-          if (existingRows.length > 0 && isPositiveNumber(existingRows[0].cdpoId)) {
-            sourceCustomerPreOfferId = Number(existingRows[0].cdpoId);
+          if (existingRows.length === 0) {
+            throw new ResultValidationError('العرض المسبق المحدد غير موجود ضمن مهمة عرض الجهاز');
           }
+          sourceCustomerPreOfferId = resolveStoredDeviceDemoOfferSourceId(
+            existingRows[0].cdpoId,
+            sourceCustomerPreOfferId,
+          );
         }
         const offerCloserId = offer.closed_by_employee_id ?? body.closed_by_employee_id ?? null;
         const offerNoClosingReason = typeof offer.no_closing_reason === 'string'
@@ -1335,7 +1614,13 @@ export async function applyDeviceDemoResult(
               vt.client_id,
             ],
           );
-          cdpoId = updatedRows.length > 0 ? Number(updatedRows[0].id) : null;
+          if (updatedRows.length === 0) {
+            throw new ResultValidationError('العرض المرتبط المحدد غير موجود لهذا الزبون');
+          }
+          cdpoId = normalizePositiveDbId(updatedRows[0].id);
+          if (cdpoId == null) {
+            throw new ResultValidationError('معرف العرض المرتبط المحفوظ غير صالح');
+          }
         }
 
         if (cdpoId == null) {
@@ -1368,7 +1653,10 @@ export async function applyDeviceDemoResult(
               performedByUserId,
             ],
           );
-          cdpoId = Number(cdpoRows[0].id);
+          cdpoId = normalizePositiveDbId(cdpoRows[0].id);
+          if (cdpoId == null) {
+            throw new ResultValidationError('معرف العرض الجديد المحفوظ غير صالح');
+          }
         }
 
         if (vt.source_open_task_id) {
@@ -1389,79 +1677,18 @@ export async function applyDeviceDemoResult(
             offerSaleReference,
           ];
 
-          // Preferred path: update by primary key when the client echoed back
-          // the original open_task_pre_offers.id. This works regardless of
-          // whether source_customer_pre_offer_id was populated on the row.
-          let updated = false;
-          if (openTaskPreOfferId != null) {
-            const { rowCount } = await db.query(
-              `UPDATE open_task_pre_offers
-                  SET device_model_id = $2,
-                      offer_type = $3,
-                      quantity = $4,
-                      total_amount = $5,
-                      first_payment_amount = $6,
-                      installment_months = $7,
-                      currency = $8,
-                      discount_percentage = $9,
-                      applied_device_discount_id = $10,
-                      closed_by_employee_id = $11,
-                      no_closing_reason = $12,
-                      source_customer_pre_offer_id = $13,
-                      sale_reference_number = $14,
-                      updated_at = NOW()
-                WHERE id = $15
-                  AND open_task_id = $1`,
-              [...openTaskOfferValues, openTaskPreOfferId],
-            );
-            updated = (rowCount ?? 0) > 0;
-          }
-
-          // Fallback: legacy path keyed on source_customer_pre_offer_id. This
-          // remains correct for offers imported from a standalone CDPO where
-          // the row was created with that link already in place.
-          if (!updated && sourceCustomerPreOfferId != null) {
-            const { rowCount } = await db.query(
-              `UPDATE open_task_pre_offers
-                  SET device_model_id = $2,
-                      offer_type = $3,
-                      quantity = $4,
-                      total_amount = $5,
-                      first_payment_amount = $6,
-                      installment_months = $7,
-                      currency = $8,
-                      discount_percentage = $9,
-                      applied_device_discount_id = $10,
-                      closed_by_employee_id = $11,
-                      no_closing_reason = $12,
-                      source_customer_pre_offer_id = $13,
-                      sale_reference_number = $14,
-                      updated_at = NOW()
-                WHERE open_task_id = $1
-                  AND source_customer_pre_offer_id = $13`,
-              openTaskOfferValues,
-            );
-            updated = (rowCount ?? 0) > 0;
-          }
-
-          if (updated) {
+          const writeResult = await persistOpenTaskPreOfferResult(db, {
+            values: openTaskOfferValues,
+            openTaskPreOfferId,
+            sourceCustomerPreOfferId,
+          });
+          if (writeResult !== 'inserted') {
             if (offer.customer_response === 'accepted' && acceptedPreOfferId == null) {
               acceptedPreOfferId = cdpoId;
               acceptedOfferData = offer;
             }
             continue;
           }
-
-          await db.query(
-            `INSERT INTO open_task_pre_offers
-               (open_task_id, device_model_id, offer_type, quantity,
-                total_amount, first_payment_amount, installment_months, currency,
-                discount_percentage, applied_device_discount_id,
-                closed_by_employee_id, no_closing_reason,
-                source_customer_pre_offer_id, sale_reference_number, created_at, updated_at)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW(),NOW())`,
-            openTaskOfferValues,
-          );
         }
 
         if (offer.customer_response === 'accepted' && acceptedPreOfferId == null) {
@@ -1619,6 +1846,53 @@ interface GiftDeliveryResultBody {
   closing_notes?: string | null;
 }
 
+export const INSERT_GIFT_DELIVERY_RESULT_EVENTS_SQL = `
+  INSERT INTO gift_record_events (
+    gift_record_id, event_type, actor_user_id, previous_status, new_status, reason,
+    metadata
+  )
+  SELECT record_id,
+         'delivery_result_recorded',
+         $3,
+         previous_status,
+         $4,
+         $5,
+         jsonb_build_object(
+           'visitTaskId', $1::bigint,
+           'visitTaskResultId', $2::bigint,
+           'finalDecision', $6::text
+         )
+    FROM unnest($7::int[], $8::text[]) AS previous(record_id, previous_status)
+`;
+
+export async function insertGiftDeliveryResultEvents(
+  db: Pick<PoolClient, 'query'>,
+  input: {
+    visitTaskId: number;
+    visitTaskResultId: number;
+    performedByUserId: number;
+    newGiftStatus: string;
+    closingNotes: string | null;
+    decision: GiftDeliveryFinalDecision;
+    giftRecordIds: number[];
+    previousGiftStatuses: string[];
+  },
+) {
+  await db.query(
+    INSERT_GIFT_DELIVERY_RESULT_EVENTS_SQL,
+    [
+      input.visitTaskId,
+      input.visitTaskResultId,
+      input.performedByUserId,
+      input.newGiftStatus,
+      input.closingNotes,
+      input.decision,
+      input.giftRecordIds,
+      input.previousGiftStatuses,
+    ],
+  );
+}
+
 export async function applyGiftDeliveryResult(
   visitTaskId: number,
   body: GiftDeliveryResultBody,
@@ -1677,11 +1951,14 @@ export async function applyGiftDeliveryResult(
       `SELECT gr.id,
               gr.gift_definition_id,
               gr.approved_quantity,
+              gr.status,
               gd.default_unit_label
-         FROM gift_records gr
+         FROM gift_delivery_task_records gift_link
+         JOIN gift_records gr ON gr.id = gift_link.gift_record_id
          JOIN gift_definitions gd ON gd.id = gr.gift_definition_id
-        WHERE gr.delivery_task_id = $1
-          AND gr.status = 'delivery_task_created'
+        WHERE gift_link.open_task_id = $1
+          AND gift_link.is_active = TRUE
+          AND gr.status IN ('delivery_task_created', 'delivered', 'refused')
         ORDER BY gr.id`,
       [vt.source_open_task_id],
     );
@@ -1689,6 +1966,7 @@ export async function applyGiftDeliveryResult(
       throw new ResultValidationError('لا توجد سجلات هدايا نشطة مرتبطة بمهمة التسليم');
     }
     const giftRecordIds = recordRows.map((row: any) => Number(row.id));
+    const previousGiftStatuses = recordRows.map((row: any) => String(row.status));
     const closingNotes = optionalText(body.closing_notes) ?? optionalText(body.notes);
 
     const { rows: vtrRows } = await db.query(
@@ -1753,9 +2031,10 @@ export async function applyGiftDeliveryResult(
       ],
     );
 
+    const transition = giftDeliveryDecisionTransition(decision);
     let openTaskNewStatus: 'completed' | 'cancelled' | 'needs_follow_up';
     if (decision === 'delivered_successfully') {
-      openTaskNewStatus = 'completed';
+      openTaskNewStatus = transition.openTaskStatus;
       await db.query(
         `UPDATE gift_records
             SET status = 'delivered', updated_by = $2, updated_at = NOW()
@@ -1763,7 +2042,7 @@ export async function applyGiftDeliveryResult(
         [giftRecordIds, performedByUserId],
       );
     } else if (decision === 'refused_gift') {
-      openTaskNewStatus = 'cancelled';
+      openTaskNewStatus = transition.openTaskStatus;
       await db.query(
         `UPDATE gift_records
             SET status = 'refused', updated_by = $2, updated_at = NOW()
@@ -1771,8 +2050,26 @@ export async function applyGiftDeliveryResult(
         [giftRecordIds, performedByUserId],
       );
     } else {
-      openTaskNewStatus = 'needs_follow_up';
+      openTaskNewStatus = transition.openTaskStatus;
+      await db.query(
+        `UPDATE gift_records
+            SET status = 'delivery_task_created', updated_by = $2, updated_at = NOW()
+          WHERE id = ANY($1::int[])`,
+        [giftRecordIds, performedByUserId],
+      );
     }
+
+    const newGiftStatus = transition.giftStatus;
+    await insertGiftDeliveryResultEvents(db, {
+      visitTaskId,
+      visitTaskResultId,
+      performedByUserId,
+      newGiftStatus,
+      closingNotes,
+      decision,
+      giftRecordIds,
+      previousGiftStatuses,
+    });
 
     await db.query(
       `UPDATE visit_tasks
@@ -1836,10 +2133,15 @@ export async function applyGoldenWarrantyOfferResult(
 
     const { rows: vtRows } = await db.query(
       `SELECT vt.id, vt.field_visit_id, vt.source_open_task_id, vt.task_type, vt.status,
-              fv.status AS visit_status, fv.branch_id, ot.contract_id
+              fv.status AS visit_status, fv.branch_id, ot.contract_id,
+              ot.source_service_request_id,
+              sr.request_type AS source_request_type,
+              sr.installed_device_id AS requested_installed_device_id,
+              sr.requested_warranty_months
          FROM visit_tasks vt
          JOIN field_visits fv ON fv.id = vt.field_visit_id
          LEFT JOIN open_tasks ot ON ot.id = vt.source_open_task_id
+         LEFT JOIN service_requests sr ON sr.id = ot.source_service_request_id
         WHERE vt.id = $1 LIMIT 1`,
       [visitTaskId],
     );
@@ -1874,6 +2176,19 @@ export async function applyGoldenWarrantyOfferResult(
     } else {
       if (!Array.isArray(body.devices) || body.devices.length === 0) {
         throw new ResultValidationError('يجب تحديد جهاز واحد على الأقل للتفعيل');
+      }
+      if (vt.source_request_type === 'golden_warranty') {
+        if (body.devices.length !== 1) {
+          throw new ResultValidationError('طلب الكفالة الذهبية يسمح بتفعيل جهاز واحد فقط');
+        }
+        const lockedDeviceId = Number(vt.requested_installed_device_id);
+        const lockedMonths = Number(vt.requested_warranty_months);
+        if (
+          Number(body.devices[0].installedDeviceId) !== lockedDeviceId
+          || Number(body.devices[0].months) !== lockedMonths
+        ) {
+          throw new ResultValidationError('لا يمكن تغيير الجهاز أو مدة الكفالة المقفلة في الطلب');
+        }
       }
     }
 
@@ -2100,25 +2415,18 @@ export async function applyGoldenWarrantyCardDeliveryResult(
 
     let deliveredCount = 0;
     if (decision === 'delivered') {
-      // The task may combine several cards — stamp every linked device's active
-      // golden warranty (fallback to the single open_tasks.device_id).
-      const { rows: devRows } = await db.query(
-        `SELECT installed_device_id FROM open_task_installed_devices WHERE task_id = $1`,
-        [vt.source_open_task_id],
-      );
-      const deviceIds: number[] = devRows.length > 0
-        ? devRows.map((r: any) => Number(r.installed_device_id))
-        : (vt.device_id ? [Number(vt.device_id)] : []);
-      for (const did of deviceIds) {
-        const upd = await db.query(
-          `UPDATE device_warranties SET card_delivery_task_id = $1, updated_at = now()
-            WHERE id = (SELECT id FROM device_warranties
-                         WHERE device_id = $2 AND warranty_type='golden' AND status='active'
-                         ORDER BY end_date DESC LIMIT 1)`,
-          [vt.source_open_task_id, did],
-        );
-        deliveredCount += upd.rowCount ?? 0;
-      }
+      deliveredCount = await deliverGoldenWarrantyCardLinks(db, Number(vt.source_open_task_id));
+    } else if (decision === 'cancelled') {
+      await assertActiveGoldenWarrantyCardLinks(db, Number(vt.source_open_task_id));
+      await cancelGoldenWarrantyCardLinks(db, Number(vt.source_open_task_id));
+    } else {
+      // Rescheduling continues this exact attempt and preserves its links.
+      await assertActiveGoldenWarrantyCardLinks(db, Number(vt.source_open_task_id));
+    }
+
+    const deliveryIssue = getGoldenWarrantyDeliveryResultIssue(decision, deliveredCount);
+    if (deliveryIssue) {
+      throw new ResultValidationError(deliveryIssue);
     }
 
     const newVtStatus = decision === 'cancelled' ? 'cancelled' : 'completed';
@@ -2193,6 +2501,11 @@ export async function applyDeviceDeliveryResult(
     }
 
     const shape = assertDeliveryShape(body, vt);
+    await assertCanRecordSuccessfulDeviceTaskResult(db, {
+      taskType: 'device_delivery',
+      installedDeviceId: Number(vt.device_id),
+      finalDecision: shape.decision,
+    });
     let rescheduleReasonId: number | null = null;
     let failureReasonId: number | null = null;
     if (shape.decision === 'rescheduled') {
@@ -2456,11 +2769,11 @@ export async function applyDeviceDeliveryResult(
         `INSERT INTO open_tasks (
            client_id, branch_id, task_type, task_family, reason, status,
            due_date, priority, source, notes, created_by, origin,
-           contract_id, device_id, creation_origin, delivery_address,
+           contract_id, device_id, creation_origin, creation_reason, delivery_address,
            source_context_type, source_context_id
          ) VALUES ($1, $2, 'device_installation', 'delivery', 'service_request', 'open',
            $3::date, $4, 'system', $5, $6, 'device_delivery_result',
-           $7, $8, 'cascading_during_visit', $9, 'device_delivery', $10)
+           $7, $8, 'cascading_during_visit', 'تركيب بعد نجاح التسليم', $9, 'device_delivery', $10)
          RETURNING id`,
         [
           Number(vt.client_id),
@@ -2518,7 +2831,7 @@ export async function applyDeviceInstallationResult(
          FROM visit_tasks vt
          JOIN field_visits fv ON fv.id = vt.field_visit_id
          JOIN open_tasks ot ON ot.id = vt.source_open_task_id
-         JOIN installed_devices idev ON idev.id = ot.device_id
+         LEFT JOIN installed_devices idev ON idev.id = ot.device_id
         WHERE vt.id = $1
         LIMIT 1`,
       [visitTaskId],
@@ -2540,6 +2853,11 @@ export async function applyDeviceInstallationResult(
     }
 
     const shape = assertInstallationShape(body);
+    await assertCanRecordSuccessfulDeviceTaskResult(db, {
+      taskType: 'device_installation',
+      installedDeviceId: Number(vt.device_id),
+      finalDecision: shape.decision,
+    });
     const notes = body.closing_notes ?? body.notes ?? null;
 
     const { rows: vtrRows } = await db.query(
@@ -2806,6 +3124,60 @@ export async function applyDeviceInstallationResult(
 // Records the field outcome that turns an installed device into an
 // active device, or keeps the same activation task alive for follow-up.
 // ════════════════════════════════════════════════════════════════
+type FirstPeriodicMaintenanceGenerator = (
+  db: Pick<PoolClient, 'query'>,
+  installedDeviceId: number,
+  createdByUserId: number | null,
+) => Promise<PeriodicMaintenanceGenerationResult>;
+
+export async function activateDeviceAndBootstrapPeriodicMaintenance(
+  db: Pick<PoolClient, 'query'>,
+  input: {
+    installedDeviceId: number;
+    contractId: number | null;
+    performedByUserId: number;
+  },
+  generateFirstTask: FirstPeriodicMaintenanceGenerator = generateFirstPeriodicMaintenanceTask,
+): Promise<PeriodicMaintenanceGenerationResult> {
+  await db.query(
+    `UPDATE installed_devices
+        SET status = 'active',
+            updated_at = NOW()
+      WHERE id = $1`,
+    [input.installedDeviceId],
+  );
+
+  if (input.contractId != null) {
+    // NOTE: contracts has no updated_at column (only created_at).
+    await db.query(
+      `UPDATE contracts
+          SET status = 'active'
+        WHERE id = $1
+          AND status NOT IN ('cancelled', 'discarded')`,
+      [input.contractId],
+    );
+  }
+
+  // Keep first-task creation in the activation transaction. The device trigger
+  // has already stamped activated_at, which anchors the first periodic due date.
+  const generation = await generateFirstTask(
+    db,
+    input.installedDeviceId,
+    input.performedByUserId,
+  );
+  if ([
+    'device_not_found',
+    'device_not_active',
+    'missing_customer_or_branch',
+    'missing_activation_timestamp',
+  ].includes(String(generation.skippedReason))) {
+    throw new Error(
+      `Periodic maintenance bootstrap failed after device activation: ${generation.skippedReason}`,
+    );
+  }
+  return generation;
+}
+
 export async function applyDeviceActivationResult(
   visitTaskId: number,
   body: DeviceActivationResultBody,
@@ -2826,7 +3198,7 @@ export async function applyDeviceActivationResult(
          FROM visit_tasks vt
          JOIN field_visits fv ON fv.id = vt.field_visit_id
          JOIN open_tasks ot ON ot.id = vt.source_open_task_id
-         JOIN installed_devices idev ON idev.id = ot.device_id
+         LEFT JOIN installed_devices idev ON idev.id = ot.device_id
         WHERE vt.id = $1
         LIMIT 1`,
       [visitTaskId],
@@ -2851,7 +3223,17 @@ export async function applyDeviceActivationResult(
     }
 
     const shape = assertActivationShape(body);
+    await assertCanRecordSuccessfulDeviceTaskResult(db, {
+      taskType: 'device_activation',
+      installedDeviceId: Number(vt.device_id),
+      finalDecision: shape.decision,
+    });
     const notes = body.closing_notes ?? body.notes ?? null;
+    const activationReasonCode = shape.decision === 'activation_failed'
+      ? await assertSystemListValue(db, body.reason_code, 'device_activation_failure_reasons', 'سبب فشل التشغيل')
+      : shape.decision === 'device_issue'
+        ? await assertSystemListValue(db, body.reason_code, 'device_activation_reschedule_reasons', 'سبب إعادة جدولة التشغيل')
+        : null;
 
     const { rows: vtrRows } = await db.query(
       `INSERT INTO visit_task_results
@@ -2868,33 +3250,20 @@ export async function applyDeviceActivationResult(
       [
         visitTaskId,
         shape.decision,
-        optionalText(body.reason_code),
+        activationReasonCode,
         notes,
         performedByUserId,
       ],
     );
     const visitTaskResultId = Number(vtrRows[0].id);
 
-    if (shape.decision === 'activated_successfully') {
-      await db.query(
-        `UPDATE installed_devices
-            SET status = 'active',
-                updated_at = NOW()
-          WHERE id = $1`,
-        [Number(vt.device_id)],
-      );
-
-      if (vt.contract_id) {
-        // NOTE: contracts has no updated_at column (only created_at).
-        await db.query(
-          `UPDATE contracts
-              SET status = 'active'
-            WHERE id = $1
-              AND status NOT IN ('cancelled', 'discarded')`,
-          [Number(vt.contract_id)],
-        );
-      }
-    }
+    const firstPeriodicMaintenanceTask = shape.decision === 'activated_successfully'
+      ? await activateDeviceAndBootstrapPeriodicMaintenance(db, {
+        installedDeviceId: Number(vt.device_id),
+        contractId: vt.contract_id != null ? Number(vt.contract_id) : null,
+        performedByUserId,
+      })
+      : null;
 
     const photos = Array.isArray(body.activation_photos) ? body.activation_photos : [];
     // Technical measurements moved to device_technical_states (constitution 01i);
@@ -2925,15 +3294,17 @@ export async function applyDeviceActivationResult(
 
     // Integrated technical health reading — baseline reference at first operation,
     // keyed on the physical device (constitution 01i §4). Same transaction.
-    await insertTechnicalState(db, {
-      installedDeviceId: Number(vt.device_id),
-      openTaskId: Number(vt.open_task_id),
-      contractId: vt.contract_id != null ? Number(vt.contract_id) : null,
-      taskTypeSnapshot: 'device_activation',
-      phase: 'baseline',
-      recordedBy: performedByUserId,
-      reading: body.technical_state ?? null,
-    });
+    if (shape.decision === 'activated_successfully') {
+      await insertTechnicalState(db, {
+        installedDeviceId: Number(vt.device_id),
+        openTaskId: Number(vt.open_task_id),
+        contractId: vt.contract_id != null ? Number(vt.contract_id) : null,
+        taskTypeSnapshot: 'device_activation',
+        phase: 'baseline',
+        recordedBy: performedByUserId,
+        reading: body.technical_state ?? null,
+      });
+    }
 
     await db.query(
       `UPDATE visit_tasks
@@ -2980,6 +3351,7 @@ export async function applyDeviceActivationResult(
       deviceActivationResultId,
       openTaskNewStatus: shape.openTaskNewStatus,
       deviceNewStatus: shape.deviceNewStatus,
+      firstPeriodicMaintenanceTask,
       visitCompleted: completion.completed,
     };
   } catch (err) {
@@ -3017,7 +3389,7 @@ export async function applyDeviceDisconnectionResult(
          FROM visit_tasks vt
          JOIN field_visits fv ON fv.id = vt.field_visit_id
          JOIN open_tasks ot ON ot.id = vt.source_open_task_id
-         JOIN installed_devices idev ON idev.id = ot.device_id
+         LEFT JOIN installed_devices idev ON idev.id = ot.device_id
         WHERE vt.id = $1
         LIMIT 1`,
       [visitTaskId],
@@ -3031,8 +3403,8 @@ export async function applyDeviceDisconnectionResult(
     if (!isPositiveInteger(vt.device_id)) {
       throw new ResultValidationError('مهمة فك الجهاز يجب أن ترتبط بجهاز مثبت');
     }
-    if (!['active', 'out_of_service'].includes(String(vt.device_status))) {
-      throw new ResultValidationError('لا يمكن تسجيل فك إلا لجهاز كان فعالاً عند إنشاء المهمة');
+    if (!['active', 'installed', 'faulty', 'out_of_service'].includes(String(vt.device_status))) {
+      throw new ResultValidationError('لا يمكن تسجيل فك إلا لجهاز موجود لدى الزبون');
     }
     if (!['in_progress', 'ended', 'completed'].includes(vt.visit_status)) {
       throw new ResultValidationError(`لا يمكن تسجيل النتيجة - الزيارة في حالة "${vt.visit_status}"`);
@@ -3042,6 +3414,11 @@ export async function applyDeviceDisconnectionResult(
     }
 
     const shape = assertDisconnectionShape(body);
+    await assertCanRecordSuccessfulDeviceTaskResult(db, {
+      taskType: 'device_disconnection',
+      installedDeviceId: Number(vt.device_id),
+      finalDecision: shape.decision,
+    });
     const notes = body.closing_notes ?? body.notes ?? null;
     let rescheduleReasonId: number | null = null;
     let failureReasonId: number | null = null;
@@ -3066,6 +3443,14 @@ export async function applyDeviceDisconnectionResult(
         : failureReasonId != null ? String(failureReasonId)
           : optionalText(body.reason_code);
     const requiresRetrieval = shape.decision === 'disconnected_successfully' && body.requires_retrieval_task === true;
+    const retrievalReason = requiresRetrieval
+      ? await assertSystemListValue(
+          db,
+          body.retrieval_reason,
+          'device_disconnection_retrieval_reasons',
+          'سبب السحب اللاحق لفك الجهاز',
+        )
+      : null;
 
     const { rows: vtrRows } = await db.query(
       `INSERT INTO visit_task_results
@@ -3133,7 +3518,7 @@ export async function applyDeviceDisconnectionResult(
         body.accessories_removed === true,
         body.customer_acknowledged === true ? true : (body.customer_acknowledged === false ? false : null),
         requiresRetrieval,
-        requiresRetrieval ? optionalText(body.retrieval_reason) : null,
+        retrievalReason,
         isPositiveInteger(body.disconnected_by_employee_id) ? Number(body.disconnected_by_employee_id) : null,
         optionalText(body.technical_notes),
         rescheduleReasonId,
@@ -3244,11 +3629,11 @@ export async function applyDeviceRetrievalResult(
          FROM visit_tasks vt
          JOIN field_visits fv ON fv.id = vt.field_visit_id
          JOIN open_tasks ot ON ot.id = vt.source_open_task_id
-         JOIN installed_devices idev ON idev.id = ot.device_id
+         LEFT JOIN installed_devices idev ON idev.id = ot.device_id
          JOIN branches br ON br.id = ot.service_branch_id
         WHERE vt.id = $1
         LIMIT 1
-        FOR UPDATE OF vt, ot, idev`,
+        FOR UPDATE OF vt, ot`,
       [visitTaskId],
     );
     if (vtRows.length === 0) throw new ResultValidationError('visit_task غير مرتبط بمهمة سحب جهاز');
@@ -3274,6 +3659,11 @@ export async function applyDeviceRetrievalResult(
     }
 
     const shape = assertRetrievalShape(body, vt);
+    await assertCanRecordSuccessfulDeviceTaskResult(db, {
+      taskType: 'device_retrieval',
+      installedDeviceId: Number(vt.device_id),
+      finalDecision: shape.decision,
+    });
     let refusalReasonId: number | null = null;
     let rescheduleReasonId: number | null = null;
 
@@ -3532,10 +3922,10 @@ export async function applyDeviceCheckupResult(
          FROM visit_tasks vt
          JOIN field_visits fv ON fv.id = vt.field_visit_id
          JOIN open_tasks ot ON ot.id = vt.source_open_task_id
-         JOIN installed_devices idev ON idev.id = ot.device_id
+         LEFT JOIN installed_devices idev ON idev.id = ot.device_id
         WHERE vt.id = $1
         LIMIT 1
-        FOR UPDATE OF vt, ot, idev`,
+        FOR UPDATE OF vt, ot`,
       [visitTaskId],
     );
     if (vtRows.length === 0) throw new ResultValidationError('visit_task غير مرتبط بمهمة تشييك جهاز');
@@ -3556,18 +3946,50 @@ export async function applyDeviceCheckupResult(
     if (!['pending', 'in_progress', 'completed'].includes(vt.status)) {
       throw new ResultValidationError(`المهمة في حالة "${vt.status}" ولا تقبل تسجيل نتيجة جديدة`);
     }
-    if (body.final_decision !== 'checked_successfully') {
-      throw new ResultValidationError(`final_decision غير صالح: ${body.final_decision}`);
+    const decision = body.final_decision;
+    if (!['checked_successfully', 'reschedule', 'customer_refused_checkup'].includes(decision)) {
+      throw new ResultValidationError(`final_decision غير صالح: ${decision}`);
     }
-    if (!hasAnyReading(body.technical_state)) {
+    if (decision === 'checked_successfully' && !hasAnyReading(body.technical_state)) {
       throw new ResultValidationError('الحالة الفنية مطلوبة لتسجيل تشييك الجهاز');
+    }
+    await assertCanRecordSuccessfulDeviceTaskResult(db, {
+      taskType: 'device_checkup',
+      installedDeviceId: Number(vt.device_id),
+      finalDecision: decision,
+    });
+
+    let refusalReasonId: number | null = null;
+    let rescheduleReasonId: number | null = null;
+    if (decision === 'customer_refused_checkup') {
+      refusalReasonId = await assertSystemListCategory(
+        db,
+        body.refusal_reason_id,
+        'device_checkup_refusal_reasons',
+        'سبب رفض تشييك الجهاز',
+      );
+    }
+    if (decision === 'reschedule') {
+      rescheduleReasonId = await assertSystemListCategory(
+        db,
+        body.reschedule_reason_id,
+        'device_checkup_reschedule_reasons',
+        'سبب إعادة جدولة تشييك الجهاز',
+      );
+      if (!optionalDate(body.expected_date)) {
+        throw new ResultValidationError('تاريخ إعادة جدولة تشييك الجهاز مطلوب');
+      }
     }
 
     const notes = body.closing_notes ?? body.notes ?? body.technical_notes ?? null;
+    const reasonCode =
+      refusalReasonId != null ? String(refusalReasonId)
+      : rescheduleReasonId != null ? String(rescheduleReasonId)
+      : 'device_checkup';
     const { rows: vtrRows } = await db.query(
       `INSERT INTO visit_task_results
          (visit_task_id, final_decision, reason_code, closing_notes, closed_by, closed_at, created_at, updated_at)
-       VALUES ($1, 'checked_successfully', 'device_checkup', $2, $3, NOW(), NOW(), NOW())
+       VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), NOW())
        ON CONFLICT (visit_task_id) DO UPDATE SET
          final_decision = EXCLUDED.final_decision,
          reason_code    = EXCLUDED.reason_code,
@@ -3576,59 +3998,112 @@ export async function applyDeviceCheckupResult(
          closed_at      = NOW(),
          updated_at     = NOW()
        RETURNING id`,
-      [visitTaskId, notes, performedByUserId],
+      [visitTaskId, decision, reasonCode, notes, performedByUserId],
     );
     const visitTaskResultId = Number(vtrRows[0].id);
 
-    const technicalStateId = await insertTechnicalState(db, {
-      installedDeviceId: Number(vt.device_id),
-      openTaskId: Number(vt.open_task_id),
-      contractId: vt.contract_id != null ? Number(vt.contract_id) : null,
-      taskTypeSnapshot: 'device_checkup',
-      phase: 'diagnostic',
-      recordedBy: performedByUserId,
-      reading: body.technical_state ?? null,
-    });
-    if (!technicalStateId) {
+    const technicalStateId = decision === 'checked_successfully'
+      ? await insertTechnicalState(db, {
+          installedDeviceId: Number(vt.device_id),
+          openTaskId: Number(vt.open_task_id),
+          contractId: vt.contract_id != null ? Number(vt.contract_id) : null,
+          taskTypeSnapshot: 'device_checkup',
+          phase: 'diagnostic',
+          recordedBy: performedByUserId,
+          reading: body.technical_state ?? null,
+        })
+      : null;
+    if (decision === 'checked_successfully' && !technicalStateId) {
       throw new ResultValidationError('الحالة الفنية مطلوبة لتسجيل تشييك الجهاز');
     }
 
     const { rows: checkupRows } = await db.query(
       `INSERT INTO visit_task_device_checkup_results
-         (visit_task_result_id, technical_state_id, technical_notes, created_at, updated_at)
-       VALUES ($1, $2, $3, NOW(), NOW())
+         (visit_task_result_id, final_decision, technical_state_id,
+          refusal_reason_id, reschedule_reason_id, rescheduled_at,
+          technical_notes, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6::date, $7, NOW(), NOW())
        ON CONFLICT (visit_task_result_id) DO UPDATE SET
+         final_decision = EXCLUDED.final_decision,
          technical_state_id = EXCLUDED.technical_state_id,
+         refusal_reason_id = EXCLUDED.refusal_reason_id,
+         reschedule_reason_id = EXCLUDED.reschedule_reason_id,
+         rescheduled_at = EXCLUDED.rescheduled_at,
          technical_notes = EXCLUDED.technical_notes,
          updated_at = NOW()
        RETURNING id`,
-      [visitTaskResultId, technicalStateId, optionalText(body.technical_notes)],
+      [
+        visitTaskResultId,
+        decision,
+        technicalStateId,
+        refusalReasonId,
+        rescheduleReasonId,
+        optionalDate(body.expected_date),
+        optionalText(body.technical_notes),
+      ],
     );
     const deviceCheckupResultId = Number(checkupRows[0].id);
 
+    const openTaskNewStatus =
+      decision === 'reschedule' ? 'needs_follow_up'
+      : decision === 'customer_refused_checkup' ? 'cancelled'
+      : 'completed';
+
     await db.query(
       `UPDATE visit_tasks
-          SET status = 'completed',
+          SET status = $1,
               updated_at = NOW()
-        WHERE id = $1`,
-      [visitTaskId],
+        WHERE id = $2`,
+      [openTaskNewStatus === 'cancelled' ? 'cancelled' : 'completed', visitTaskId],
     );
-    await db.query(
-      `UPDATE open_tasks
-          SET last_waiting_status = CASE
-                WHEN status IN ('open', 'needs_follow_up') THEN status
-                ELSE last_waiting_status
-              END,
-              status = 'completed',
-              updated_at = NOW()
-        WHERE id = $1`,
-      [Number(vt.open_task_id)],
-    );
+    if (openTaskNewStatus === 'needs_follow_up') {
+      await db.query(
+        `UPDATE open_tasks
+            SET last_waiting_status = CASE
+                  WHEN status IN ('open', 'needs_follow_up') THEN status
+                  ELSE COALESCE(last_waiting_status, 'open')
+                END,
+                status = 'needs_follow_up',
+                expected_date = COALESCE($2::date, expected_date),
+                expected_time = $3,
+                updated_at = NOW()
+          WHERE id = $1`,
+        [Number(vt.open_task_id), optionalDate(body.expected_date), optionalText(body.expected_time)],
+      );
+    } else if (openTaskNewStatus === 'cancelled') {
+      await db.query(
+        `UPDATE open_tasks
+            SET status = 'cancelled',
+                cancellation_reason = COALESCE($2, cancellation_reason),
+                updated_at = NOW()
+          WHERE id = $1`,
+        [Number(vt.open_task_id), notes ?? reasonCode],
+      );
+    } else {
+      await db.query(
+        `UPDATE open_tasks
+            SET last_waiting_status = CASE
+                  WHEN status IN ('open', 'needs_follow_up') THEN status
+                  ELSE last_waiting_status
+                END,
+                status = 'completed',
+                updated_at = NOW()
+          WHERE id = $1`,
+        [Number(vt.open_task_id)],
+      );
+    }
     await db.query(
       `INSERT INTO task_activity_log
          (task_id, event_type, performed_by, old_value, new_value, reason, reference_id, created_at)
-       VALUES ($1, 'status_change', $2, $3, 'completed', 'checked_successfully', $4, NOW())`,
-      [Number(vt.open_task_id), performedByUserId, String(vt.open_task_status ?? ''), visitTaskResultId],
+       VALUES ($1, 'status_change', $2, $3, $4, $5, $6, NOW())`,
+      [
+        Number(vt.open_task_id),
+        performedByUserId,
+        String(vt.open_task_status ?? ''),
+        openTaskNewStatus,
+        decision,
+        visitTaskResultId,
+      ],
     );
 
     const completion = await checkAndCompleteVisit(vt.field_visit_id, performedByUserId, db);
@@ -3638,7 +4113,7 @@ export async function applyDeviceCheckupResult(
       visitTaskResultId,
       deviceCheckupResultId,
       technicalStateId,
-      openTaskNewStatus: 'completed',
+      openTaskNewStatus,
       visitCompleted: completion.completed,
     };
   } catch (err) {
@@ -3681,7 +4156,7 @@ export async function applyDeviceReturnResult(
          FROM visit_tasks vt
          JOIN field_visits fv ON fv.id = vt.field_visit_id
          JOIN open_tasks ot ON ot.id = vt.source_open_task_id
-         JOIN installed_devices idev ON idev.id = ot.device_id
+         LEFT JOIN installed_devices idev ON idev.id = ot.device_id
          LEFT JOIN LATERAL (
            SELECT otret.id AS retrieval_task_id,
                   otret.pre_retrieval_branch_id,
@@ -3702,7 +4177,7 @@ export async function applyDeviceReturnResult(
          ) retr ON TRUE
         WHERE vt.id = $1
         LIMIT 1
-        FOR UPDATE OF vt, ot, idev`,
+        FOR UPDATE OF vt, ot`,
       [visitTaskId],
     );
     if (vtRows.length === 0) throw new ResultValidationError('visit_task غير مرتبط بمهمة إرجاع جهاز');
@@ -3731,6 +4206,11 @@ export async function applyDeviceReturnResult(
     }
 
     const shape = assertReturnShape(body);
+    await assertCanRecordSuccessfulDeviceTaskResult(db, {
+      taskType: 'device_return',
+      installedDeviceId: Number(vt.device_id),
+      finalDecision: shape.decision,
+    });
     let refusalReasonId: number | null = null;
     let rescheduleReasonId: number | null = null;
 
@@ -3953,12 +4433,12 @@ export async function applyDeviceTransferResult(
          FROM visit_tasks vt
          JOIN field_visits fv ON fv.id = vt.field_visit_id
          JOIN open_tasks ot ON ot.id = vt.source_open_task_id
-         JOIN installed_devices idev ON idev.id = ot.device_id
+         LEFT JOIN installed_devices idev ON idev.id = ot.device_id
          LEFT JOIN geo_units gu ON gu.id = ot.planned_transfer_geo_unit_id
          LEFT JOIN clients target ON target.id = ot.target_client_id
         WHERE vt.id = $1
         LIMIT 1
-        FOR UPDATE OF vt, ot, idev`,
+        FOR UPDATE OF vt, ot`,
       [visitTaskId],
     );
     if (vtRows.length === 0) throw new ResultValidationError('visit_task غير مرتبط بمهمة نقل جهاز');
@@ -3970,8 +4450,25 @@ export async function applyDeviceTransferResult(
     if (!isPositiveInteger(vt.device_id)) {
       throw new ResultValidationError('مهمة نقل الجهاز يجب أن ترتبط بجهاز مثبت');
     }
-    if (!['delivered', 'installed', 'active'].includes(String(vt.device_status))) {
-      throw new ResultValidationError('لا يمكن نقل الجهاز إلا عندما يكون عند الزبون');
+    const deviceStatus = String(vt.device_status);
+    if (deviceStatus !== 'out_of_service') {
+      throw new ResultValidationError('لا يمكن تسجيل نقل إلا لجهاز مفكوك حالته out_of_service');
+    }
+    const { rows: disconnectionRows } = await db.query(
+      `SELECT vtr.id
+         FROM visit_tasks dvt
+         JOIN visit_task_results vtr ON vtr.visit_task_id = dvt.id
+        WHERE dvt.task_type = 'device_disconnection'
+          AND dvt.source_open_task_id IN (
+            SELECT id FROM open_tasks WHERE device_id = $1 AND task_type = 'device_disconnection'
+          )
+          AND vtr.final_decision IN ('disconnected_successfully', 'requires_retrieval')
+        ORDER BY vtr.closed_at DESC NULLS LAST, vtr.id DESC
+        LIMIT 1`,
+      [Number(vt.device_id)],
+    );
+    if (disconnectionRows.length === 0) {
+      throw new ResultValidationError('لا يمكن تسجيل نقل قبل وجود مهمة فك ناجحة سابقة لهذا الجهاز');
     }
     if (!['in_progress', 'ended', 'completed'].includes(vt.visit_status)) {
       throw new ResultValidationError(`لا يمكن تسجيل النتيجة - الزيارة في حالة "${vt.visit_status}"`);
@@ -3981,6 +4478,11 @@ export async function applyDeviceTransferResult(
     }
 
     const shape = assertTransferShape(body, vt);
+    await assertCanRecordSuccessfulDeviceTaskResult(db, {
+      taskType: 'device_transfer',
+      installedDeviceId: Number(vt.device_id),
+      finalDecision: shape.decision,
+    });
 
     const { rows: geoRows } = await db.query(
       `SELECT id, level, status
@@ -4059,6 +4561,23 @@ export async function applyDeviceTransferResult(
 
     const ownershipTransferred = shape.decision === 'transferred_successfully' && shape.transferKind === 'another_customer';
     const toClientId = shape.transferKind === 'another_customer' ? shape.targetClientId : Number(vt.from_client_id);
+    let cancelledPeriodicTaskIds: number[] = [];
+
+    if (ownershipTransferred) {
+      try {
+        cancelledPeriodicTaskIds = await cancelUpcomingPeriodicMaintenanceForTransfer(db, {
+          installedDeviceId: Number(vt.device_id),
+          fromClientId: Number(vt.from_client_id),
+          toClientId: Number(toClientId),
+          performedByUserId,
+        });
+      } catch (error) {
+        if (error instanceof PeriodicMaintenanceTransferError) {
+          throw new ResultValidationError(error.message);
+        }
+        throw error;
+      }
+    }
 
     const { rows: transferRows } = await db.query(
       `INSERT INTO visit_task_device_transfer_results
@@ -4223,6 +4742,7 @@ export async function applyDeviceTransferResult(
       openTaskNewStatus: shape.openTaskNewStatus,
       deviceNewStatus: shape.deviceNewStatus,
       ownershipTransferred,
+      cancelledPeriodicTaskIds,
       visitCompleted: completion.completed,
     };
   } catch (err) {
@@ -4255,10 +4775,10 @@ export async function applyInstallmentCollectionResult(
          FROM visit_tasks vt
          JOIN field_visits fv ON fv.id = vt.field_visit_id
          JOIN open_tasks ot ON ot.id = vt.source_open_task_id
-         JOIN contract_installments i ON i.id = ot.installment_id
+         LEFT JOIN contract_installments i ON i.id = ot.installment_id
         WHERE vt.id = $1
         LIMIT 1
-        FOR UPDATE OF vt, ot, i`,
+        FOR UPDATE OF vt, ot`,
       [visitTaskId],
     );
     if (vtRows.length === 0) throw new ResultValidationError('visit_task غير مرتبط بمهمة تسديد ذمة');
@@ -4266,6 +4786,9 @@ export async function applyInstallmentCollectionResult(
     const vt = vtRows[0];
     if (vt.task_type !== 'installment_collection') {
       throw new ResultValidationError(`نوع المهمة "${vt.task_type}" - هذا المسار خاص بتسديد الذمم فقط`);
+    }
+    if (!isPositiveInteger(vt.installment_id)) {
+      throw new ResultValidationError('مهمة تسديد الذمة يجب أن ترتبط بقسط');
     }
     if (!['in_progress', 'ended', 'completed'].includes(vt.visit_status)) {
       throw new ResultValidationError(`لا يمكن تسجيل النتيجة - الزيارة في حالة "${vt.visit_status}"`);
@@ -4289,6 +4812,8 @@ export async function applyInstallmentCollectionResult(
     const nextPriority = normalizePriority(body.next_priority);
     const parts = Array.isArray(body.payment_parts) ? body.payment_parts : [];
     const usingParts = parts.length > 0;
+    let normalizedParts: ReturnType<typeof normalizeCollectionPaymentPart>[] = [];
+    let singlePaymentMethod: ContractCollectionPaymentMethod | null = null;
     let paidAmount = optionalNumber(body.paid_amount_syp);
     let partialReasonId: number | null = null;
     let rescheduleReasonId: number | null = null;
@@ -4296,28 +4821,32 @@ export async function applyInstallmentCollectionResult(
 
     if (decision === 'paid_full' || decision === 'paid_partial') {
       if (usingParts) {
+        normalizedParts = parts.map(normalizeCollectionPaymentPart);
         // كل جزء دفع يجب أن يكون مكتملاً قبل قبول الدفعة.
-        for (const p of parts) {
-          if (!['hand', 'transfer', 'barter'].includes(p.method)) {
-            throw new ResultValidationError('نوع جزء الدفع غير صالح');
-          }
+        for (const p of normalizedParts) {
           if (!(Number(p.amountValue) > 0)) {
             throw new ResultValidationError('قيمة كل جزء دفع مطلوبة');
           }
-          if (p.method === 'barter' && !optionalText(p.barterDescription)) {
+          if (p.paymentCategory === 'barter' && !optionalText(p.barterDescription)) {
             throw new ResultValidationError('وصف المقايضة مطلوب');
           }
-          if (p.method !== 'barter' && p.currency === 'usd' && !(Number(p.exchangeRate) > 0)) {
+          if (p.paymentCategory !== 'barter' && p.currency === 'usd' && !(Number(p.exchangeRate) > 0)) {
             throw new ResultValidationError('سعر الصرف مطلوب للدفع بالدولار');
           }
         }
-        paidAmount = parts.reduce((sum, p) => sum + collectionPartSyp(p), 0);
+        paidAmount = normalizedParts.reduce((sum, p) => sum + collectionPartSyp(p), 0);
       }
       if (!paidAmount || paidAmount <= 0) {
         throw new ResultValidationError('قيمة الدفعة مطلوبة');
       }
       if (!usingParts && !optionalText(body.payment_method)) {
         throw new ResultValidationError('طريقة الدفع مطلوبة');
+      }
+      if (!usingParts) {
+        singlePaymentMethod = normalizeCollectionPaymentPart({
+          method: optionalText(body.payment_method) as CollectionPaymentPart['method'],
+          amountValue: paidAmount ?? 0,
+        }).method;
       }
       if (decision === 'paid_full' && paidAmount + 0.5 < amountBefore) {
         throw new ResultValidationError('الدفع الكامل يجب أن يغطي كامل الرصيد المتبقي');
@@ -4389,7 +4918,7 @@ export async function applyInstallmentCollectionResult(
     if (paidAmount != null) {
       if (usingParts) {
         // صف دفعة لكل جزء (يد/حوالة/مقايضة، بالليرة أو الدولار)، الكل مرتبط بالقسط.
-        for (const p of parts) {
+        for (const p of normalizedParts) {
           const partSyp = collectionPartSyp(p);
           const { rows: pr } = await db.query(
             `INSERT INTO contract_payment_entries (
@@ -4401,15 +4930,15 @@ export async function applyInstallmentCollectionResult(
             [
               paymentContractId,
               p.method,
-              p.method === 'barter' ? 'SYP' : (p.currency === 'usd' ? 'USD' : 'SYP'),
+              p.paymentCategory === 'barter' ? 'SYP' : (p.currency === 'usd' ? 'USD' : 'SYP'),
               Number(p.amountValue),
-              p.method !== 'barter' && p.currency === 'usd' ? Number(p.exchangeRate) : null,
+              p.paymentCategory !== 'barter' && p.currency === 'usd' ? Number(p.exchangeRate) : null,
               partSyp,
-              p.method === 'transfer' && p.transferCompanyId != null
-                ? String(p.transferCompanyId)
+              p.paymentCategory === 'transfer'
+                ? optionalText(p.referenceNumber) ?? optionalText(body.payment_reference)
                 : optionalText(body.payment_reference),
-              p.method === 'barter' ? optionalText(p.barterDescription) : null,
-              p.method === 'barter' ? partSyp : null,
+              p.paymentCategory === 'barter' ? optionalText(p.barterDescription) : null,
+              p.paymentCategory === 'barter' ? partSyp : null,
               receivedByEmployeeId,
               notes,
               Number(vt.installment_id),
@@ -4421,7 +4950,7 @@ export async function applyInstallmentCollectionResult(
         }
         await db.query('SELECT recompute_installment_balance($1)', [Number(vt.installment_id)]);
       } else {
-        const method = optionalText(body.payment_method)!;
+        const method = singlePaymentMethod!;
         const { rows: paymentRows } = await db.query(
           `INSERT INTO contract_payment_entries (
              contract_id, method, currency, amount_value, amount_syp,
@@ -4575,8 +5104,10 @@ export async function applyInstallmentCollectionResult(
         paidAmount,
         remainingAfter,
         paymentEntryId,
-        usingParts ? (parts.length > 1 ? 'mixed' : parts[0].method) : optionalText(body.payment_method),
-        optionalText(body.payment_reference),
+        usingParts ? (normalizedParts.length > 1 ? 'mixed' : normalizedParts[0].method) : singlePaymentMethod,
+        usingParts && normalizedParts.length === 1
+          ? optionalText(normalizedParts[0].referenceNumber) ?? optionalText(body.payment_reference)
+          : optionalText(body.payment_reference),
         isPositiveInteger(body.received_by_employee_id) ? Number(body.received_by_employee_id) : (paidAmount != null ? performedByUserId : null),
         partialReasonId,
         rescheduleReasonId,
@@ -4650,7 +5181,7 @@ export async function applyEmergencyMaintenanceLifecycleResult(
     );
     if (vtRows.length === 0) throw new ResultValidationError('visit_task غير موجود');
     const vt = vtRows[0];
-    if (vt.task_type !== 'emergency_maintenance') {
+    if (vt.task_type !== 'emergency_maintenance' && vt.task_type !== 'periodic_maintenance') {
       throw new ResultValidationError(`نوع المهمة "${vt.task_type}" غير مدعوم لهذا المسار`);
     }
     if (!['in_progress', 'ended', 'completed'].includes(vt.visit_status)) {
@@ -4669,6 +5200,24 @@ export async function applyEmergencyMaintenanceLifecycleResult(
     }
     if (decision === 'rescheduled' && !body.expected_date) {
       throw new ResultValidationError('expected_date مطلوب');
+    }
+    if (decision === 'rescheduled') {
+      body.reason_code_id = await assertSystemListCategory(
+        db,
+        body.reason_code_id,
+        vt.task_type === 'periodic_maintenance'
+          ? 'periodic_maintenance_reschedule_reasons'
+          : 'emergency_maintenance_reschedule_reasons',
+        'سبب إعادة الجدولة',
+      );
+    }
+    if (decision === 'cancelled' && vt.task_type === 'emergency_maintenance') {
+      body.reason_code_id = await assertSystemListCategory(
+        db,
+        body.reason_code_id,
+        'emergency_cancelled_reason',
+        'سبب الإلغاء',
+      );
     }
 
     // visit_task_results — single row per visit_task

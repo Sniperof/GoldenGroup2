@@ -1,4 +1,4 @@
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle } from '../ui/icons';
 import Button from '../ui/Button';
 import Modal from '../ui/Modal';
 

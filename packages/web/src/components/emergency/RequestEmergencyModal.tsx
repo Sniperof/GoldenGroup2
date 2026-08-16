@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Clock, Image, Loader2, Send, Video, X, Zap } from 'lucide-react';
+import { AlertTriangle, Clock, Image, Loader2, Send, Video, X, Zap } from '../ui/icons';
 import IconButton from '../ui/IconButton';
 import Select from '../ui/Select';
 import Modal from '../ui/Modal';

@@ -8,6 +8,7 @@
 // camelCase payload the API expects (same keys as the emergency wizard).
 // ============================================================
 import type { ReactNode } from 'react';
+import { evaluateMembraneEfficiency, membraneEfficiencyIssueMessage } from '@golden-crm/shared';
 import Select from '../ui/Select';
 
 export type TechStateForm = Record<string, string>;
@@ -60,12 +61,6 @@ export function hasAnyTechnicalReading(f: TechStateForm) {
   return Object.entries(f).some(([, v]) => v != null && String(v).trim() !== '');
 }
 
-function efficiency(f: TechStateForm): number | null {
-  const i = Number(f.membraneInputTds), o = Number(f.membraneOutputTds);
-  if (!i || !o || i <= 0) return null;
-  return Math.round((1 - o / i) * 100);
-}
-
 export function TechnicalStateFields({
   value,
   onChange,
@@ -89,10 +84,10 @@ export function TechnicalStateFields({
     />
   );
   const Num = (key: string) => (
-    <input type="number" value={f[key] ?? ''} onChange={(e) => set(key)(e.target.value)} className={inp} placeholder="—" />
+    <input type="number" min="0" value={f[key] ?? ''} onChange={(e) => set(key)(e.target.value)} className={inp} placeholder="—" />
   );
 
-  const eff = efficiency(f);
+  const membrane = evaluateMembraneEfficiency(f.membraneInputTds, f.membraneOutputTds);
 
   return (
     <div className="space-y-5">
@@ -120,10 +115,16 @@ export function TechnicalStateFields({
           <Field label="عيار الهاي برشر (ppm)">{Num('highPressureTds')}</Field>
           <Field label="عيار الخزان (ppm)">{Num('tankTds')}</Field>
         </div>
-        {eff != null && (
+        {membrane.status === 'valid' && (
           <div className="mt-2 inline-flex items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-bold text-sky-700">
-            كفاءة الميمبرين: {eff}%
+            كفاءة الميمبرين: {membrane.percentage}%
           </div>
+        )}
+        {membrane.status === 'invalid' && (
+          <p className="mt-2 text-xs font-bold text-red-600">{membraneEfficiencyIssueMessage(membrane.issue)}</p>
+        )}
+        {membrane.status === 'undefined' && (
+          <p className="mt-2 text-xs font-bold text-amber-600">لا يمكن حساب الكفاءة عندما يكون دخل الميمبرين صفراً</p>
         )}
       </div>
 

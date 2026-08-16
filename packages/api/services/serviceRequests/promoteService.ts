@@ -35,9 +35,11 @@ import {
 } from './_shared.js';
 import { persistOpenTaskSnapshots } from '../../routes/openTasks.js';
 import {
-  findPeriodicAttachmentCandidate,
-  type PeriodicAttachmentCandidate,
-} from '../periodicMaintenanceTasks.js';
+  DEVICE_SERIAL_CONFLICT_CODE,
+  DEVICE_SERIAL_CONFLICT_MESSAGE,
+  assertDeviceSerialAvailable,
+  isDeviceSerialUniqueViolation,
+} from '../deviceSerialIntegrity.js';
 
 export interface PromoteInput {
   serviceRequestId: number;
@@ -46,6 +48,8 @@ export interface PromoteInput {
    *  authorized by audit admin with an override reason). EM-UNIQ-04. */
   splitAuthorized?: boolean;
   splitReason?: string | null;
+  splitNote?: string | null;
+  deviceLocationDecision?: 'registered_location_confirmed' | null;
   /** For external_device: optional model id when admin can map it. */
   externalDeviceModelId?: number | null;
 }
@@ -55,7 +59,6 @@ export interface PromoteOutput {
   installedDeviceId: number;
   externalDeviceCreated: boolean;
   branchId: number;
-  periodicAttachmentCandidate: PeriodicAttachmentCandidate | null;
 }
 
 export interface PromoteCollision {
@@ -90,12 +93,14 @@ export async function promote(
       requested_action_type_id: number | null;
       service_address: Record<string, unknown> | null;
       priority: string | null;
+      device_location_decision: string | null;
+      reported_device_model_id: number | null;
     }>(
       `SELECT id, status, channel, beneficiary_client_id, beneficiary_candidate_id,
               contract_id, device_source, installed_device_id,
               external_device_name, external_device_serial,
               problem_description, requested_action_type_id,
-              service_address, priority
+              service_address, priority, device_location_decision, reported_device_model_id
          FROM service_requests
         WHERE id = $1
         FOR UPDATE`,
@@ -135,13 +140,22 @@ export async function promote(
     let externalDeviceCreated = false;
 
     if (sr.device_source === 'external_device') {
+      const externalModelId = input.externalDeviceModelId ?? sr.reported_device_model_id;
+      if (externalModelId == null) {
+        await rollbackTx(tx);
+        return {
+          ok: false,
+          code: 'external_device_model_link_required',
+          message: 'Add the unique model in Device Management, then link that model before promotion.',
+        };
+      }
       const created = await createLightweightInstalledDevice(
         tx.client,
         clientId,
         sr.external_device_name,
         sr.external_device_serial,
         sr.service_address,
-        input.externalDeviceModelId ?? null,
+        externalModelId,
       );
       if (created.ok !== true) {
         await rollbackTx(tx);
@@ -163,6 +177,110 @@ export async function promote(
         message: 'SR-AUTH-02: company_device path requires installed_device_id linkage',
       };
     }
+
+    const { rows: deviceRows } = await tx.client.query<{
+      id: number;
+      customer_id: number | null;
+      branch_id: number | null;
+      installation_geo_unit_id: number | null;
+      installation_address_text: string | null;
+    }>(
+      `SELECT id, customer_id, branch_id, installation_geo_unit_id, installation_address_text
+         FROM installed_devices
+        WHERE id = $1
+        FOR UPDATE`,
+      [installedDeviceId],
+    );
+    const device = deviceRows[0];
+    if (!device) {
+      await rollbackTx(tx);
+      return { ok: false, code: 'installed_device_not_found' };
+    }
+    if (device.customer_id !== clientId) {
+      await rollbackTx(tx);
+      return {
+        ok: false,
+        code: 'installed_device_beneficiary_mismatch',
+        message: 'The selected device must belong to the linked beneficiary.',
+      };
+    }
+
+    const { rows: problemRows } = await tx.client.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count
+         FROM service_request_problems
+        WHERE service_request_id = $1 AND deleted_at IS NULL`,
+      [sr.id],
+    );
+    if (Number(problemRows[0]?.count ?? 0) === 0) {
+      await rollbackTx(tx);
+      return {
+        ok: false,
+        code: 'structured_problem_required',
+        message: 'Add at least one structured problem before creating the maintenance task.',
+      };
+    }
+
+    const reportedGeoUnitId = Number(sr.service_address?.['geo_unit_id'] ?? 0) || null;
+    const reportedAddressText = String(
+      sr.service_address?.['detailed_address']
+      ?? sr.service_address?.['address_text']
+      ?? '',
+    ).trim() || null;
+    const locationDiffers = (
+      reportedGeoUnitId != null
+      && device.installation_geo_unit_id != null
+      && reportedGeoUnitId !== device.installation_geo_unit_id
+    ) || (
+      reportedAddressText != null
+      && device.installation_address_text != null
+      && reportedAddressText !== device.installation_address_text.trim()
+    );
+    if (locationDiffers && input.deviceLocationDecision !== 'registered_location_confirmed') {
+      await rollbackTx(tx);
+      return {
+        ok: false,
+        code: 'device_location_decision_required',
+        message: 'Confirm using the registered device location or create and complete a separate device-transfer task.',
+        details: {
+          reportedGeoUnitId,
+          registeredGeoUnitId: device.installation_geo_unit_id,
+          reportedAddressText,
+          registeredAddressText: device.installation_address_text,
+        },
+      };
+    }
+
+    const { rows: transferRows } = await tx.client.query<{ id: number }>(
+      `SELECT id
+         FROM open_tasks
+        WHERE task_type = 'device_transfer'
+          AND device_id = $1
+          AND status NOT IN ('completed', 'closed', 'cancelled')
+        LIMIT 1`,
+      [installedDeviceId],
+    );
+    if (transferRows.length > 0) {
+      await rollbackTx(tx);
+      return {
+        ok: false,
+        code: 'active_device_transfer_blocks_handoff',
+        details: { openTaskId: transferRows[0].id },
+      };
+    }
+
+    await tx.client.query(
+      `UPDATE service_requests
+          SET device_location_decision = $2,
+              device_location_decided_by_user_id = $3,
+              device_location_decided_at = NOW(),
+              updated_at = NOW()
+        WHERE id = $1`,
+      [
+        sr.id,
+        'registered_location_confirmed',
+        input.operatorUserId,
+      ],
+    );
 
     // 4. SR-AUTH-06 — compute branch from client.
     const { rows: branchRows } = await tx.client.query<{ branch_id: number | null }>(
@@ -244,11 +362,6 @@ export async function promote(
     );
     const newOpenTaskId = taskRows[0].id;
 
-    const periodicAttachmentCandidate = await findPeriodicAttachmentCandidate(
-      tx.client,
-      installedDeviceId,
-    );
-
     // 7. Snapshots (reuse existing helper).
     await persistOpenTaskSnapshots(
       tx.client,
@@ -309,6 +422,8 @@ export async function promote(
         external_device_created: externalDeviceCreated,
         split_authorized: !!input.splitAuthorized,
         split_reason: input.splitAuthorized ? input.splitReason ?? null : undefined,
+        split_note: input.splitAuthorized ? input.splitNote ?? null : undefined,
+        device_location_decision: 'registered_location_confirmed',
       },
     });
 
@@ -320,7 +435,6 @@ export async function promote(
         installedDeviceId,
         externalDeviceCreated,
         branchId,
-        periodicAttachmentCandidate,
       },
     };
   } catch (err) {
@@ -342,13 +456,6 @@ export interface MergeInput {
   mergeNote?: string | null;
 }
 
-export interface AttachToPeriodicInput {
-  serviceRequestId: number;
-  periodicOpenTaskId: number;
-  operatorUserId: number;
-  note?: string | null;
-}
-
 export async function mergeIntoExistingTask(
   input: MergeInput,
   db?: PoolClient,
@@ -361,8 +468,9 @@ export async function mergeIntoExistingTask(
       status: string;
       problem_description: string;
       beneficiary_client_id: number | null;
+      installed_device_id: number | null;
     }>(
-      `SELECT id, status, problem_description, beneficiary_client_id
+      `SELECT id, status, problem_description, beneficiary_client_id, installed_device_id
          FROM service_requests
         WHERE id = $1
         FOR UPDATE`,
@@ -377,6 +485,14 @@ export async function mergeIntoExistingTask(
       await rollbackTx(tx);
       return { ok: false, code: 'invalid_status_for_merge', details: { status: sr.status } };
     }
+    if (sr.beneficiary_client_id == null) {
+      await rollbackTx(tx);
+      return { ok: false, code: 'beneficiary_client_required' };
+    }
+    if (sr.installed_device_id == null) {
+      await rollbackTx(tx);
+      return { ok: false, code: 'installed_device_id_required' };
+    }
 
     // Validate existing task is active emergency for same client.
     const { rows: otRows } = await tx.client.query<{
@@ -384,8 +500,9 @@ export async function mergeIntoExistingTask(
       task_type: string;
       status: string;
       client_id: number;
+      device_id: number | null;
     }>(
-      `SELECT id, task_type, status, client_id
+      `SELECT id, task_type, status, client_id, device_id
          FROM open_tasks
         WHERE id = $1
         FOR UPDATE`,
@@ -404,9 +521,13 @@ export async function mergeIntoExistingTask(
       await rollbackTx(tx);
       return { ok: false, code: 'existing_task_not_active', details: { status: ot.status } };
     }
-    if (sr.beneficiary_client_id != null && ot.client_id !== sr.beneficiary_client_id) {
+    if (ot.client_id !== sr.beneficiary_client_id) {
       await rollbackTx(tx);
       return { ok: false, code: 'beneficiary_mismatch' };
+    }
+    if (ot.device_id !== sr.installed_device_id) {
+      await rollbackTx(tx);
+      return { ok: false, code: 'installed_device_mismatch' };
     }
 
     // Move problems to the existing task.
@@ -474,150 +595,6 @@ export async function mergeIntoExistingTask(
   }
 }
 
-export async function attachToPeriodicTask(
-  input: AttachToPeriodicInput,
-  db?: PoolClient,
-): Promise<ServiceResult<{ attachedToOpenTaskId: number; installedDeviceId: number; branchId: number }>> {
-  const tx = await acquireTx(db);
-  try {
-    const { rows: srRows } = await tx.client.query<{
-      id: number;
-      status: string;
-      problem_description: string;
-      beneficiary_client_id: number | null;
-      installed_device_id: number | null;
-    }>(
-      `SELECT id, status, problem_description, beneficiary_client_id, installed_device_id
-         FROM service_requests
-        WHERE id = $1
-        FOR UPDATE`,
-      [input.serviceRequestId],
-    );
-    if (srRows.length === 0) {
-      await rollbackTx(tx);
-      return { ok: false, code: 'not_found' };
-    }
-    const sr = srRows[0];
-    if (sr.status !== 'in_review') {
-      await rollbackTx(tx);
-      return { ok: false, code: 'invalid_status_for_periodic_attach', details: { status: sr.status } };
-    }
-    if (sr.beneficiary_client_id == null) {
-      await rollbackTx(tx);
-      return { ok: false, code: 'beneficiary_client_required' };
-    }
-    if (sr.installed_device_id == null) {
-      await rollbackTx(tx);
-      return { ok: false, code: 'installed_device_id_required' };
-    }
-
-    const candidate = await findPeriodicAttachmentCandidate(tx.client, sr.installed_device_id);
-    if (!candidate || candidate.taskId !== input.periodicOpenTaskId) {
-      await rollbackTx(tx);
-      return { ok: false, code: 'periodic_attachment_candidate_not_available' };
-    }
-
-    const { rows: otRows } = await tx.client.query<{
-      id: number;
-      task_type: string;
-      status: string;
-      client_id: number;
-      branch_id: number;
-      device_id: number | null;
-    }>(
-      `SELECT id, task_type, status, client_id, branch_id, device_id
-         FROM open_tasks
-        WHERE id = $1
-        FOR UPDATE`,
-      [input.periodicOpenTaskId],
-    );
-    if (otRows.length === 0) {
-      await rollbackTx(tx);
-      return { ok: false, code: 'existing_open_task_not_found' };
-    }
-    const ot = otRows[0];
-    if (ot.task_type !== 'periodic_maintenance') {
-      await rollbackTx(tx);
-      return { ok: false, code: 'existing_task_not_periodic' };
-    }
-    if (ot.client_id !== sr.beneficiary_client_id || ot.device_id !== sr.installed_device_id) {
-      await rollbackTx(tx);
-      return { ok: false, code: 'periodic_attachment_subject_mismatch' };
-    }
-
-    await tx.client.query(
-      `UPDATE service_request_problems
-          SET open_task_id = $2, updated_at = NOW()
-        WHERE service_request_id = $1
-          AND deleted_at IS NULL
-          AND open_task_id IS NULL`,
-      [sr.id, input.periodicOpenTaskId],
-    );
-
-    await tx.client.query(
-      `UPDATE service_requests
-          SET status = 'promoted',
-              triage_outcome = 'needs_field_intervention',
-              linked_open_task_id = $2,
-              closed_at = NOW(),
-              updated_at = NOW()
-        WHERE id = $1`,
-      [sr.id, input.periodicOpenTaskId],
-    );
-
-    await tx.client.query(
-      `INSERT INTO task_activity_log
-         (task_id, event_type, performed_by, role, new_value, reason)
-       VALUES ($1, 'note_added', $2, 'operator', $3, $4)`,
-      [
-        input.periodicOpenTaskId,
-        input.operatorUserId,
-        sr.problem_description,
-        `service_request #${sr.id} attached to nearby periodic task`,
-      ],
-    );
-
-    await appendAudit(tx.client, {
-      serviceRequestId: sr.id,
-      eventType: 'status_changed',
-      actorUserId: input.operatorUserId,
-      actorRole: 'operator',
-      payload: { from: 'in_review', to: 'promoted', via: 'attach_periodic' },
-    });
-    await appendAudit(tx.client, {
-      serviceRequestId: sr.id,
-      eventType: 'promoted_to_task',
-      actorUserId: input.operatorUserId,
-      actorRole: 'operator',
-      payload: {
-        open_task_id: input.periodicOpenTaskId,
-        task_type: 'periodic_maintenance',
-        installed_device_id: sr.installed_device_id,
-        branch_id: ot.branch_id,
-        attach_window_days: candidate.attachWindowDays,
-        days_until_due: candidate.daysUntilDue,
-        note: input.note ?? null,
-        via: 'attach_periodic',
-      },
-    });
-
-    await commitTx(tx);
-    return {
-      ok: true,
-      data: {
-        attachedToOpenTaskId: input.periodicOpenTaskId,
-        installedDeviceId: Number(sr.installed_device_id),
-        branchId: Number(ot.branch_id),
-      },
-    };
-  } catch (err) {
-    await rollbackTx(tx);
-    throw err;
-  } finally {
-    tx.release();
-  }
-}
-
 // ============================================================
 // helpers
 // ============================================================
@@ -644,6 +621,7 @@ async function createLightweightInstalledDevice(
   // (Documented limitation — promoted as a known V1.0 gap.)
   // Attempt INSERT and let DB reject if constraint forbids NULL.
   try {
+    const serialNumber = await assertDeviceSerialAvailable(db, externalDeviceSerial);
     const geoUnitId =
       (serviceAddress?.['geo_unit_id'] as number | undefined) ?? null;
     const addressText =
@@ -671,7 +649,7 @@ async function createLightweightInstalledDevice(
         customerId,
         modelId,
         externalDeviceName,
-        externalDeviceSerial,
+        serialNumber,
         geoUnitId,
         addressText,
       ],
@@ -679,6 +657,13 @@ async function createLightweightInstalledDevice(
     if (!rows[0]) return { ok: false, code: 'client_not_found' };
     return { ok: true, data: { id: rows[0].id } };
   } catch (err: unknown) {
+    if (isDeviceSerialUniqueViolation(err)) {
+      return {
+        ok: false,
+        code: DEVICE_SERIAL_CONFLICT_CODE,
+        message: DEVICE_SERIAL_CONFLICT_MESSAGE,
+      };
+    }
     const pgErr = err as { code?: string; constraint?: string; message?: string };
     if (pgErr?.code === '23502') {
       return {

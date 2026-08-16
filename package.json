@@ -12,7 +12,8 @@
         "migrate": "pnpm --filter @golden-crm/api migrate",
         "typecheck": "pnpm --filter @golden-crm/web exec tsc -p tsconfig.typecheck.json --noEmit",
         "typecheck:api": "pnpm --filter @golden-crm/api exec tsc --noEmit",
-        "audit:branch-scope": "node scripts/audit-branch-scope.mjs"
+        "audit:branch-scope": "node scripts/audit-branch-scope.mjs",
+        "reconcile:periodic-maintenance": "tsx scripts/reconcile-periodic-maintenance.ts"
     },
     "dependencies": {
         "@types/cors": "^2.8.19",
@@ -36,6 +37,7 @@
         "react-leaflet": "^5.0.0",
         "react-quill": "^2.0.0",
         "react-router-dom": "^7.1.1",
+        "sharp": "^0.35.3",
         "tsx": "^4.21.0",
         "uuid": "^13.0.0",
         "zustand": "^5.0.11"

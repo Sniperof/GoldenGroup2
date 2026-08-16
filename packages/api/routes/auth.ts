@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import { getCurrentSession, loginUser } from '../services/authService.js';
+import { DEVICE_CLASS_HEADER, classifyDevice } from '../services/deviceClass.js';
 
 const router = Router();
 
@@ -51,11 +52,18 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'اسم المستخدم وكلمة المرور مطلوبان' });
     }
 
-    const result = await loginUser(username, password);
+    const { deviceClass } = classifyDevice({
+      userAgent: req.headers['user-agent'] ?? null,
+      deviceClassHint: (req.headers[DEVICE_CLASS_HEADER] as string | undefined) ?? null,
+    });
+    const result = await loginUser(username, password, deviceClass);
     res.json(result);
   } catch (err: any) {
     if (err?.status) {
-      return res.status(err.status).json({ error: err.message });
+      return res.status(err.status).json({
+        error: err.message,
+        ...(err.details ? { details: err.details } : {}),
+      });
     }
     console.error('Login error:', err);
     res.status(500).json({ error: err.message });

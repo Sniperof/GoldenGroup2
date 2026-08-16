@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Building2, ChevronDown, Check } from 'lucide-react';
+import { Building2, ChevronDown, Check } from './ui/icons';
 import { useAuthStore } from '../hooks/useAuthStore';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import { canCrossBranch } from '../lib/branchScope';

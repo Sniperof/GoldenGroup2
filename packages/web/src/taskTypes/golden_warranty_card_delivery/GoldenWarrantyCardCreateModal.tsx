@@ -1,15 +1,23 @@
 // ============================================================
 // GoldenWarrantyCardCreateModal — creates ONE card-delivery task combining the
 // customer's active golden warranties (cards). DEC-CT-17.
-// Posts api.openTasks.create with installedDeviceIds (devices with an active
-// golden warranty). Creation reason folded into notes.
+// Posts exact goldenWarrantyIds. The API derives and persists device links but
+// the warranty rows remain the source of truth for eligibility and uniqueness.
 // ============================================================
 import { useEffect, useMemo, useState } from 'react';
-import { CreditCard, Loader2, X } from 'lucide-react';
+import { CreditCard, Loader2 } from '../../components/ui/icons';
 import { api } from '../../lib/api';
 import Select from '../../components/ui/Select';
+import DateField from '../../components/ui/DateField';
+import Checkbox from '../../components/ui/Checkbox';
+import Modal from '../../components/ui/Modal';
 
-interface CardPick { id: number; label: string; selected: boolean; }
+interface CardPick {
+  warrantyId: number;
+  installedDeviceId: number;
+  label: string;
+  selected: boolean;
+}
 
 export default function GoldenWarrantyCardCreateModal({
   customerId, branchId, onClose, onSaved,
@@ -25,16 +33,13 @@ export default function GoldenWarrantyCardCreateModal({
   const [error, setError] = useState('');
 
   useEffect(() => {
-    api.installedDevices.list({ customerId, ...(branchId ? { branchId } : {}) })
+    api.deviceWarranties.eligibleForCardDelivery(customerId, branchId)
       .then((rows: any[]) => {
         const list = (Array.isArray(rows) ? rows : [])
-          .filter((d) => {
-            const end = d.goldenWarrantyEndDate ?? d.golden_warranty_end_date ?? null;
-            return !!end && String(end) >= today; // has an active golden warranty (a card)
-          })
-          .map((d) => ({
-            id: d.id,
-            label: `${d.deviceModelName ?? d.device_model_name ?? 'جهاز'} — ${d.serialNumber ?? d.serial_number ?? `#${d.id}`}`,
+          .map((w) => ({
+            warrantyId: Number(w.warrantyId),
+            installedDeviceId: Number(w.installedDeviceId),
+            label: `${w.deviceModelName ?? 'جهاز'} — ${w.serialNumber ?? `#${w.installedDeviceId}`}`,
             selected: true,
           }));
         setCards(list);
@@ -43,12 +48,19 @@ export default function GoldenWarrantyCardCreateModal({
     api.systemLists.getItemsByCode('golden_card_creation_reasons').then((r: any) => setReasons(Array.isArray(r) ? r : [])).catch(() => {});
   }, [customerId, branchId]);
 
-  const selectedIds = useMemo(() => cards.filter((c) => c.selected).map((c) => c.id), [cards]);
-  const toggle = (id: number) => setCards((p) => p.map((c) => (c.id === id ? { ...c, selected: !c.selected } : c)));
+  const selectedCards = useMemo(() => cards.filter((c) => c.selected), [cards]);
+  const selectedWarrantyIds = useMemo(() => selectedCards.map((c) => c.warrantyId), [selectedCards]);
+  const selectedDeviceIds = useMemo(
+    () => [...new Set(selectedCards.map((c) => c.installedDeviceId))],
+    [selectedCards],
+  );
+  const toggle = (warrantyId: number) => setCards((p) => p.map((c) => (
+    c.warrantyId === warrantyId ? { ...c, selected: !c.selected } : c
+  )));
 
   async function submit() {
     setError('');
-    if (selectedIds.length === 0) { setError('اختر كفالة واحدة على الأقل لتسليم كرتها'); return; }
+    if (selectedWarrantyIds.length === 0) { setError('اختر كفالة واحدة على الأقل لتسليم كرتها'); return; }
     if (!dueDate) { setError('التاريخ المطلوب مطلوب'); return; }
     setSaving(true);
     try {
@@ -62,8 +74,9 @@ export default function GoldenWarrantyCardCreateModal({
         dueDate,
         priority,
         notes: notes.trim() || null,
-        installedDeviceId: selectedIds[0],
-        installedDeviceIds: selectedIds,
+        installedDeviceId: selectedDeviceIds[0],
+        installedDeviceIds: selectedDeviceIds,
+        goldenWarrantyIds: selectedWarrantyIds,
         creationOrigin: 'manual_creation',
       });
       onSaved();
@@ -75,28 +88,35 @@ export default function GoldenWarrantyCardCreateModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" dir="rtl">
-      <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-amber-200 bg-white shadow-xl">
-        <div className="flex items-center justify-between border-b border-amber-200 bg-amber-50 px-5 py-4">
-          <div className="flex items-center gap-2"><CreditCard className="h-5 w-5 text-amber-600" /><h2 className="text-base font-black text-amber-900">إنشاء تسليم كرت كفالة ذهبية</h2></div>
-          <button onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-white hover:text-slate-700"><X className="h-5 w-5" /></button>
-        </div>
-        <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="2xl"
+      title={<span className="flex items-center gap-2"><CreditCard className="h-5 w-5 text-amber-600" />إنشاء تسليم كرت كفالة ذهبية</span>}
+      footer={
+        <>
+          <button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50">إلغاء</button>
+          <button onClick={submit} disabled={saving} className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-bold text-white hover:bg-amber-500 disabled:opacity-60">
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}إنشاء مهمة التسليم</button>
+        </>
+      }
+    >
+        <div className="space-y-4 px-5 py-4">
           {error && <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>}
           <div>
             <div className="text-xs font-bold text-slate-500 mb-1">الكفالات الذهبية الفعّالة (الكروت)</div>
             <div className="rounded-lg border border-slate-200 p-2">
-              {cards.length === 0 && <p className="text-sm text-slate-400 px-1 py-2">لا كفالات ذهبية فعّالة لهذا الزبون.</p>}
+              {cards.length === 0 && <p className="text-sm text-slate-400 px-1 py-2">لا توجد كفالة ذهبية مؤهلة: قد يكون الكرت مسلّماً أو توجد له مهمة نشطة.</p>}
               {cards.map((c) => (
-                <label key={c.id} className="flex items-center gap-2 px-1 py-1.5 text-sm">
-                  <input type="checkbox" checked={c.selected} onChange={() => toggle(c.id)} /><span>{c.label}</span>
-                </label>
+                <Checkbox key={c.warrantyId} checked={c.selected} onCheckedChange={() => toggle(c.warrantyId)} className="px-1 py-1.5 text-sm">
+                  <span>{c.label}</span>
+                </Checkbox>
               ))}
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <label className="space-y-1.5 block"><span className="text-xs font-bold text-slate-500">التاريخ المطلوب *</span>
-              <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label>
+              <DateField value={dueDate} onChange={setDueDate} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label>
             <label className="space-y-1.5 block"><span className="text-xs font-bold text-slate-500">الأولوية</span>
               <Select
                 value={priority}
@@ -120,12 +140,6 @@ export default function GoldenWarrantyCardCreateModal({
               <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label>
           </div>
         </div>
-        <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
-          <button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50">إلغاء</button>
-          <button onClick={submit} disabled={saving} className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-bold text-white hover:bg-amber-500 disabled:opacity-60">
-            {saving && <Loader2 className="h-4 w-4 animate-spin" />}إنشاء مهمة التسليم</button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

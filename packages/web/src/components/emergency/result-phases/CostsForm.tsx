@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import {
   AlertCircle, ArrowRight, CheckCircle2, Loader2, Plus, Save,
-} from 'lucide-react';
-import { api } from '../../../lib/api';
+} from '../../ui/icons';
+import { api, type EmergencyResultContext } from '../../../lib/api';
+import DateField from '../../ui/DateField';
 import { useSystemListItems } from '../../../hooks/useSystemListItems';
 import PaymentEntriesList, { type PaymentEntry, newEntry } from '../PaymentEntriesList';
 import InstallmentsSchedule, { type Installment } from '../InstallmentsSchedule';
@@ -46,6 +47,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 interface Props {
   taskId: number;
+  resultContext: EmergencyResultContext | null;
   initialData?: any;
   readOnly?: boolean;
   onSaved: () => void;
@@ -61,6 +63,15 @@ interface Props {
     dueDate: string;
     daysUntilDue: number;
     attachWindowDays: number;
+  } | null;
+  installedDeviceId?: number | null;
+  directWorkshopRetrieval?: {
+    disconnectionTaskId: number;
+    retrievalTaskId: number;
+    waterDisconnected?: boolean;
+    electricityDisconnected?: boolean;
+    accessoriesRemoved?: boolean;
+    customerAcknowledged?: boolean;
   } | null;
 }
 
@@ -103,6 +114,7 @@ const DERIVED_COLORS: Record<string, string> = {
 
 export default function CostsForm({
   taskId,
+  resultContext,
   initialData,
   readOnly = false,
   onSaved,
@@ -111,6 +123,8 @@ export default function CostsForm({
   sourceServiceRequestId = null,
   derivedOutcome = null,
   periodicAttachmentCandidate = null,
+  installedDeviceId = null,
+  directWorkshopRetrieval = null,
 }: Props) {
   const isNewPath = sourceServiceRequestId != null;
   const isPeriodic = maintenanceKind === 'periodic';
@@ -123,6 +137,12 @@ export default function CostsForm({
   const [followUpExpectedDate, setFollowUpExpectedDate] = useState(initialData?.followUpExpectedDate ?? '');
   const [closingNotes, setClosingNotes]         = useState(initialData?.closingNotes ?? '');
   const [coverPeriodic, setCoverPeriodic]       = useState(false);
+  const directRetrievalRecorded = directWorkshopRetrieval != null;
+  const [retrieveToWorkshop, setRetrieveToWorkshop] = useState(directRetrievalRecorded);
+  const [waterDisconnected, setWaterDisconnected] = useState(directWorkshopRetrieval?.waterDisconnected === true);
+  const [electricityDisconnected, setElectricityDisconnected] = useState(directWorkshopRetrieval?.electricityDisconnected === true);
+  const [accessoriesRemoved, setAccessoriesRemoved] = useState(directWorkshopRetrieval?.accessoriesRemoved === true);
+  const [retrievalCustomerAcknowledged, setRetrievalCustomerAcknowledged] = useState(directWorkshopRetrieval?.customerAcknowledged === true);
 
   // ── Costs breakdown ────────────────────────────────────────────────────────
   const [transportFee, setTransportFee]         = useState(String(initialData?.transportFee ?? ''));
@@ -205,6 +225,16 @@ export default function CostsForm({
     }
   }, [isNewPath, isPeriodic, derivedOutcome?.outcome]);
 
+  useEffect(() => {
+    if (finalDecision !== 'unresolved' && !directRetrievalRecorded) {
+      setRetrieveToWorkshop(false);
+      setWaterDisconnected(false);
+      setElectricityDisconnected(false);
+      setAccessoriesRemoved(false);
+      setRetrievalCustomerAcknowledged(false);
+    }
+  }, [finalDecision, directRetrievalRecorded]);
+
   // ── Calculations ───────────────────────────────────────────────────────────
   const transport  = Number(transportFee) || 0;
   const assembly   = Number(assemblyFee)  || 0;
@@ -227,6 +257,9 @@ export default function CostsForm({
 
   // ── Shared save logic (quiet = no onSaved trigger) ────────────────────────
   const saveCostsAndEntries = async () => {
+    if (!resultContext) {
+      throw new Error('يجب فتح نتيجة الصيانة من داخل الزيارة المرتبطة');
+    }
     await api.emergencyResult.saveCosts(taskId, {
       finalDecision,
       closingNotes:        closingNotes.trim() || null,
@@ -245,15 +278,28 @@ export default function CostsForm({
       coveredPeriodicTaskId: !isPeriodic && coverPeriodic && periodicAttachmentCandidate
         ? periodicAttachmentCandidate.taskId
         : null,
-    });
+      directWorkshopRetrieval: !isPeriodic && retrieveToWorkshop ? {
+        requested: true,
+        waterDisconnected,
+        electricityDisconnected,
+        accessoriesRemoved,
+        customerAcknowledged: retrievalCustomerAcknowledged,
+      } : null,
+    }, resultContext);
     const validEntries = paymentEntries.filter(e => e.method && Number(e.amountValue) > 0);
-    if (validEntries.length) await api.emergencyResult.savePaymentEntries(taskId, validEntries);
+    if (validEntries.length) await api.emergencyResult.savePaymentEntries(taskId, validEntries, resultContext);
   };
 
   // ── Save (with onSaved trigger) ───────────────────────────────────────────
   const handleSave = async () => {
     if (!finalDecision) { setError('يجب تحديد القرار النهائي'); return; }
     if (requiresDecisionReason && !decisionReasonId) { setError('يجب تحديد سبب القرار'); return; }
+    if (retrieveToWorkshop && !waterDisconnected && !electricityDisconnected && !accessoriesRemoved) {
+      setError('يجب توثيق إجراء فك واحد على الأقل قبل سحب الجهاز إلى الورشة'); return;
+    }
+    if (retrieveToWorkshop && !retrievalCustomerAcknowledged) {
+      setError('تأكيد الزبون مطلوب عند سحب الجهاز إلى الورشة'); return;
+    }
     setSaving(true); setError('');
     try {
       await saveCostsAndEntries();
@@ -264,24 +310,26 @@ export default function CostsForm({
   };
 
   const handleSaveInstallments = async (rows: Installment[], count: number) => {
+    if (!resultContext) throw new Error('يجب فتح نتيجة الصيانة من داخل الزيارة المرتبطة');
     // Auto-save costs first if not yet saved
     if (!initialData && finalDecision) await saveCostsAndEntries().catch(() => {});
     await api.emergencyResult.saveInstallments(taskId, {
       installments: rows, hasFirstPayment, installmentsCount: count,
-    });
+    }, resultContext);
     setInstallments(rows);
   };
 
   const handleConfirmInstallments = async (rows: Installment[]) => {
+    if (!resultContext) throw new Error('يجب فتح نتيجة الصيانة من داخل الزيارة المرتبطة');
     if (!finalDecision) throw new Error('يجب تحديد القرار النهائي أولاً');
     // 1. حفظ التكاليف (يضمن وجود costsId)
     await saveCostsAndEntries();
     // 2. حفظ الأقساط بالصفوف الحالية من المكوّن مباشرة
     await api.emergencyResult.saveInstallments(taskId, {
       installments: rows, hasFirstPayment, installmentsCount: rows.length,
-    });
+    }, resultContext);
     // 3. اعتماد الجدول
-    await api.emergencyResult.confirmInstallments(taskId);
+    await api.emergencyResult.confirmInstallments(taskId, resultContext);
     setInstallmentsConfirmed(true);
     setInstallments(rows);
     setSaved(true);
@@ -341,7 +389,7 @@ export default function CostsForm({
                   }`}>
                   {finalDecision === d.value && <CheckCircle2 className="h-4 w-4" />}
                   <span>{d.label}</span>
-                  <span className={`text-[9px] font-normal ${finalDecision === d.value ? 'opacity-75' : 'text-slate-400'}`}>{d.description}</span>
+                  <span className={`text-xs font-normal ${finalDecision === d.value ? 'opacity-75' : 'text-slate-400'}`}>{d.description}</span>
                 </button>
               ))}
             </div>
@@ -391,6 +439,65 @@ export default function CostsForm({
         )}
 
         {/* ══ needs_followup — hidden on new path (no cascade per V-R007) ══ */}
+        {!isPeriodic && installedDeviceId && finalDecision === 'unresolved' && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 space-y-3">
+            <label className={`flex items-start gap-3 ${directRetrievalRecorded || readOnly ? '' : 'cursor-pointer'}`}>
+              <input
+                type="checkbox"
+                checked={retrieveToWorkshop}
+                disabled={readOnly || directRetrievalRecorded}
+                onChange={(e) => setRetrieveToWorkshop(e.target.checked)}
+                className="mt-1 h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
+              />
+              <span className="text-sm text-amber-950">
+                <span className="block font-black">تم فك الجهاز وسحبه مباشرة إلى ورشة الفرع</span>
+                <span className="mt-1 block text-xs text-amber-800">
+                  ينشئ النظام نتيجتي فك وسحب نظاميتين، وينقل الجهاز إلى حالة in_workshop لتصبح مهمة الإرجاع متاحة.
+                </span>
+              </span>
+            </label>
+
+            {retrieveToWorkshop && (
+              <div className="border-t border-amber-200 pt-3 space-y-2">
+                <p className="text-xs font-bold text-amber-900">إجراءات الفك المنفذة <span className="text-red-500">*</span></p>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  {[
+                    { label: 'فصل المياه', checked: waterDisconnected, set: setWaterDisconnected },
+                    { label: 'فصل الكهرباء', checked: electricityDisconnected, set: setElectricityDisconnected },
+                    { label: 'إزالة الملحقات', checked: accessoriesRemoved, set: setAccessoriesRemoved },
+                  ].map(item => (
+                    <label key={item.label} className="flex items-center gap-2 text-xs font-bold text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={item.checked}
+                        disabled={readOnly || directRetrievalRecorded}
+                        onChange={(e) => item.set(e.target.checked)}
+                        className="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500"
+                      />
+                      {item.label}
+                    </label>
+                  ))}
+                </div>
+                <label className="flex items-center gap-2 pt-1 text-xs font-bold text-slate-800">
+                  <input
+                    type="checkbox"
+                    checked={retrievalCustomerAcknowledged}
+                    disabled={readOnly || directRetrievalRecorded}
+                    onChange={(e) => setRetrievalCustomerAcknowledged(e.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500"
+                  />
+                  أقر الزبون بفك الجهاز وسحبه إلى الورشة <span className="text-red-500">*</span>
+                </label>
+                {directRetrievalRecorded && (
+                  <p className="text-xs font-bold text-emerald-700">
+                    تم تسجيل الفك #{directWorkshopRetrieval.disconnectionTaskId} والسحب #{directWorkshopRetrieval.retrievalTaskId}.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {finalDecision === 'needs_followup' && !isNewPath && (
           <div className="rounded-2xl border-2 border-violet-200 bg-violet-50/30 p-4 space-y-3">
             <div className="flex items-center gap-2 text-xs font-bold text-violet-700">
@@ -411,8 +518,8 @@ export default function CostsForm({
               </div>
               <div className="space-y-1">
                 <label className="block text-xs font-bold text-slate-600">التاريخ المتوقع <span className="text-red-400">*</span></label>
-                <input type="date" value={followUpExpectedDate}
-                  onChange={e => setFollowUpExpectedDate(e.target.value)}
+                <DateField value={followUpExpectedDate}
+                  onChange={setFollowUpExpectedDate}
                   min={new Date().toISOString().slice(0,10)}
                   disabled={readOnly} className={inp} />
               </div>
@@ -500,7 +607,7 @@ export default function CostsForm({
                       paymentType === pt.value ? 'border-rose-400 bg-rose-50 text-rose-700' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
                     }`}>
                     <span>{pt.label}</span>
-                    <span className="font-normal text-[9px] opacity-60">{pt.desc}</span>
+                    <span className="font-normal text-xs opacity-60">{pt.desc}</span>
                   </button>
                 ))}
               </div>

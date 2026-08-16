@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Building2, Layers } from 'lucide-react';
+import { Building2, Layers } from './ui/icons';
 import { useAuthStore } from '../hooks/useAuthStore';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import { useBranchStore } from '../hooks/useBranchStore';

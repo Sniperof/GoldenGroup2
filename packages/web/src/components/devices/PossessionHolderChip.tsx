@@ -1,9 +1,9 @@
 // DEC-CT-09: surface the current device holder as a compact chip.
 //
 // holderType drives the icon + color; reason is shown as a soft secondary line.
-// holderName is resolved by the caller (we don't fetch employees/customers here).
+// holderName is resolved by the possession API projection; this component only renders it.
 
-import { Warehouse, Wrench, User, Hammer, Building2, HelpCircle } from 'lucide-react';
+import { Warehouse, Wrench, User, Hammer, Building2, HelpCircle } from '../ui/icons';
 import type { PossessionHolderType, PossessionReason } from '@golden-crm/shared';
 
 const HOLDER_CONFIG: Record<PossessionHolderType, { Icon: any; cls: string; label: string }> = {
@@ -21,6 +21,7 @@ const REASON_LABEL: Record<PossessionReason, string> = {
   retrieval:       'استرجاع',
   cancellation:    'إلغاء',
   transfer:        'نقل',
+  external_registration: 'تسجيل جهاز خارجي',
 };
 
 interface Props {

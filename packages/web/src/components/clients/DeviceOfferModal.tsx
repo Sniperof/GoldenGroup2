@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle2, Download, Loader2, Plus, Printer, Share2, Trash2 } from 'lucide-react';
+import { CheckCircle2, Download, Loader2, Plus, Printer, Share2, Trash2 } from '../ui/icons';
 import { api } from '../../lib/api';
 import type { Client, DeviceDiscount, DeviceModel, SystemList } from '../../lib/types';
 import Select from '../ui/Select';
 import Modal from '../ui/Modal';
+import DataTable from '../ui/DataTable';
+import DateField from '../ui/DateField';
 
 type PreOfferDraft = {
   deviceModelId: string;
@@ -47,12 +49,12 @@ type CustomerPreOfferEntry = {
   };
 };
 
-const FALLBACK_CREATION_REASONS: CreationReasonOption[] = [
-  { value: 'new_lead', label: 'عميل جديد' },
-  { value: 'follow_up', label: 'متابعة' },
-  { value: 'renewal', label: 'تجديد' },
-  { value: 'service_request', label: 'طلب خدمة' },
-  { value: 'other', label: 'أخرى' },
+const FALLBACK_DEVICE_DEMO_CREATION_REASONS: CreationReasonOption[] = [
+  { value: 'طلب الزبون', label: 'طلب الزبون' },
+  { value: 'حملة ترويجية', label: 'حملة ترويجية' },
+  { value: 'متابعة من التسويق', label: 'متابعة من التسويق' },
+  { value: 'ترشيح من مندوب', label: 'ترشيح من مندوب' },
+  { value: 'إعادة تواصل مع زبون سابق', label: 'إعادة تواصل مع زبون سابق' },
 ];
 
 function createPreOfferDraft(): PreOfferDraft {
@@ -141,15 +143,14 @@ function offerSummaryText(offer: PreOfferDraft, deviceName: string): string {
   ].filter(Boolean).join('\n');
 }
 
-function getReasonLabel(value: string): string {
-  return FALLBACK_CREATION_REASONS.find((item) => item.value === value)?.label ?? value;
-}
-
 function buildReasonOptions(listItems: SystemList[]): CreationReasonOption[] {
   const mapped = listItems
     .map((item) => ({ value: item.value, label: item.value }))
     .filter((item) => item.value.trim().length > 0);
-  const merged = [...mapped, ...FALLBACK_CREATION_REASONS.filter((fallback) => !mapped.some((item) => item.value === fallback.value))];
+  const merged = [
+    ...mapped,
+    ...FALLBACK_DEVICE_DEMO_CREATION_REASONS.filter((fallback) => !mapped.some((item) => item.value === fallback.value)),
+  ];
   return merged;
 }
 
@@ -377,7 +378,7 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
   const [deviceModels, setDeviceModels] = useState<DeviceModel[]>([]);
   const [closers, setClosers] = useState<Closer[]>([]);
   const [noClosingReasons, setNoClosingReasons] = useState<CreationReasonOption[]>([]);
-  const [creationReasons, setCreationReasons] = useState<CreationReasonOption[]>(FALLBACK_CREATION_REASONS);
+  const [creationReasons, setCreationReasons] = useState<CreationReasonOption[]>(FALLBACK_DEVICE_DEMO_CREATION_REASONS);
 
   // Top section — selected devices (mandatory)
   const [selectedDevices, setSelectedDevices] = useState<SelectedDevice[]>([]);
@@ -409,7 +410,7 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
     Promise.all([
       api.deviceModels.list({ branchId: client.branchId ?? null, activeOnly: true }),
       api.employees.employeeClosers(),
-      api.systemLists.getItemsByCode('open_task_reasons'),
+      api.systemLists.getItemsByCode('device_demo_creation_reasons'),
       api.systemLists.getItemsByCode('no_closing_reasons'),
       api.customers.getPreOffers(client.id),
     ])
@@ -592,8 +593,12 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
       const created = await api.openTasks.create({
         clientId: client.id,
         branchId: client.branchId,
+        taskType: 'device_demo',
+        taskFamily: 'marketing',
         dueDate,
-        reason,
+        reason: 'device_demo',
+        creationReason: reason,
+        creationOrigin: 'manual_creation',
         priority: priority || null,
         notes: notes.trim() || null,
         devices: selectedDevices.map(d => ({ deviceModelId: d.deviceModelId, quantity: d.quantity })),
@@ -673,34 +678,32 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
 
                 {/* Selected devices table */}
                 {selectedDevices.length > 0 && (
-                  <div className="overflow-hidden rounded-xl border border-slate-200">
-                    <table className="min-w-full divide-y divide-slate-100 text-sm">
-                      <thead className="bg-slate-50 text-slate-600">
-                        <tr>
-                          <th className="px-4 py-2.5 text-right font-bold">#</th>
-                          <th className="px-4 py-2.5 text-right font-bold">الجهاز</th>
-                          <th className="px-4 py-2.5 text-right font-bold">الكمية</th>
-                          <th className="px-4 py-2.5 text-right font-bold">حذف</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-50 bg-white">
-                        {selectedDevices.map((d, i) => (
-                          <tr key={d.deviceModelId}>
-                            <td className="px-4 py-2.5 text-slate-400">{i + 1}</td>
-                            <td className="px-4 py-2.5 font-semibold text-slate-800">{d.deviceName}</td>
-                            <td className="px-4 py-2.5 text-slate-600">{d.quantity}</td>
-                            <td className="px-4 py-2.5">
-                              <button type="button"
-                                onClick={() => setSelectedDevices(prev => prev.filter((_, idx) => idx !== i))}
-                                className="text-red-400 hover:text-red-600">
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                  <DataTable card>
+                    <DataTable.Head>
+                      <DataTable.Row>
+                        <DataTable.Th>#</DataTable.Th>
+                        <DataTable.Th>الجهاز</DataTable.Th>
+                        <DataTable.Th>الكمية</DataTable.Th>
+                        <DataTable.Th>حذف</DataTable.Th>
+                      </DataTable.Row>
+                    </DataTable.Head>
+                    <DataTable.Body>
+                      {selectedDevices.map((d, i) => (
+                        <DataTable.Row key={d.deviceModelId}>
+                          <DataTable.Td className="text-slate-400">{i + 1}</DataTable.Td>
+                          <DataTable.Td className="font-semibold text-slate-800">{d.deviceName}</DataTable.Td>
+                          <DataTable.Td className="text-slate-600">{d.quantity}</DataTable.Td>
+                          <DataTable.Td>
+                            <button type="button"
+                              onClick={() => setSelectedDevices(prev => prev.filter((_, idx) => idx !== i))}
+                              className="text-red-400 hover:text-red-600">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </DataTable.Td>
+                        </DataTable.Row>
+                      ))}
+                    </DataTable.Body>
+                  </DataTable>
                 )}
                 {selectedDevices.length === 0 && (
                   <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
@@ -858,63 +861,61 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
                 )}
 
                 {/* Pre-offers table */}
-                <div className="overflow-hidden rounded-2xl border border-slate-200">
-                  <table className="min-w-full divide-y divide-slate-200 text-sm">
-                    <thead className="bg-slate-50 text-slate-600">
+                <DataTable card>
+                  <DataTable.Head>
+                    <DataTable.Row>
+                      <DataTable.Th>#</DataTable.Th>
+                      <DataTable.Th>الجهاز</DataTable.Th>
+                      <DataTable.Th>النوع</DataTable.Th>
+                      <DataTable.Th>الكمية</DataTable.Th>
+                      <DataTable.Th>القيمة</DataTable.Th>
+                      <DataTable.Th>التسكير</DataTable.Th>
+                      <DataTable.Th>الإجراءات</DataTable.Th>
+                    </DataTable.Row>
+                  </DataTable.Head>
+                  <DataTable.Body>
+                    {preOffers.length === 0 ? (
                       <tr>
-                        <th className="px-4 py-3 text-right font-bold">#</th>
-                        <th className="px-4 py-3 text-right font-bold">الجهاز</th>
-                        <th className="px-4 py-3 text-right font-bold">النوع</th>
-                        <th className="px-4 py-3 text-right font-bold">الكمية</th>
-                        <th className="px-4 py-3 text-right font-bold">القيمة</th>
-                        <th className="px-4 py-3 text-right font-bold">التسكير</th>
-                        <th className="px-4 py-3 text-right font-bold">الإجراءات</th>
+                        <td className="px-4 py-6 text-center text-slate-400" colSpan={7}>
+                          لا توجد عروض مثبتة بعد.
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 bg-white">
-                      {preOffers.length === 0 ? (
-                        <tr>
-                          <td className="px-4 py-6 text-center text-slate-400" colSpan={7}>
-                            لا توجد عروض مثبتة بعد.
-                          </td>
-                        </tr>
-                      ) : (
-                        preOffers.map((offer, index) => {
-                          const deviceName = selectedDevices.find(d => String(d.deviceModelId) === offer.deviceModelId)?.deviceName
-                            || deviceModels.find(m => String(m.id) === offer.deviceModelId)?.nameAr
-                            || '—';
-                          const closingLabel = offer.closedByEmployeeId
-                            ? closers.find(c => String(c.id) === offer.closedByEmployeeId)?.name || offer.closedByEmployeeId
-                            : offer.noClosingReason
-                              ? noClosingReasons.find(r => r.value === offer.noClosingReason)?.label || offer.noClosingReason
-                              : '—';
-                          return (
-                            <tr key={`${offer.deviceModelId}-${index}`} className="align-top">
-                              <td className="px-4 py-3 font-semibold text-slate-500">{index + 1}</td>
-                              <td className="px-4 py-3 font-semibold text-slate-800">{deviceName}</td>
-                              <td className="px-4 py-3 text-slate-600">{getOfferLabel(offer.offerType)}</td>
-                              <td className="px-4 py-3 text-slate-600">{offer.quantity || 1}</td>
-                              <td className="px-4 py-3 text-slate-600">{formatOfferAmountDetails(offer)}</td>
-                              <td className="px-4 py-3 text-slate-600">{closingLabel}</td>
-                              <td className="px-4 py-3">
-                                <div className="flex flex-wrap gap-2">
-                                  <button type="button" onClick={() => openReceipt(index)}
-                                    className="inline-flex items-center gap-1 rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-bold text-sky-700 hover:bg-sky-100">
-                                    <CheckCircle2 className="h-3.5 w-3.5" /> فتح الإيصال
-                                  </button>
-                                  <button type="button" onClick={() => setPreOffers(current => current.filter((_, i) => i !== index))}
-                                    className="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-bold text-red-700 hover:bg-red-100">
-                                    <Trash2 className="h-3.5 w-3.5" /> حذف
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+                    ) : (
+                      preOffers.map((offer, index) => {
+                        const deviceName = selectedDevices.find(d => String(d.deviceModelId) === offer.deviceModelId)?.deviceName
+                          || deviceModels.find(m => String(m.id) === offer.deviceModelId)?.nameAr
+                          || '—';
+                        const closingLabel = offer.closedByEmployeeId
+                          ? closers.find(c => String(c.id) === offer.closedByEmployeeId)?.name || offer.closedByEmployeeId
+                          : offer.noClosingReason
+                            ? noClosingReasons.find(r => r.value === offer.noClosingReason)?.label || offer.noClosingReason
+                            : '—';
+                        return (
+                          <DataTable.Row key={`${offer.deviceModelId}-${index}`} className="align-top">
+                            <DataTable.Td className="font-semibold text-slate-500">{index + 1}</DataTable.Td>
+                            <DataTable.Td className="font-semibold text-slate-800">{deviceName}</DataTable.Td>
+                            <DataTable.Td className="text-slate-600">{getOfferLabel(offer.offerType)}</DataTable.Td>
+                            <DataTable.Td className="text-slate-600">{offer.quantity || 1}</DataTable.Td>
+                            <DataTable.Td className="text-slate-600">{formatOfferAmountDetails(offer)}</DataTable.Td>
+                            <DataTable.Td className="text-slate-600">{closingLabel}</DataTable.Td>
+                            <DataTable.Td>
+                              <div className="flex flex-wrap gap-2">
+                                <button type="button" onClick={() => openReceipt(index)}
+                                  className="inline-flex items-center gap-1 rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-bold text-sky-700 hover:bg-sky-100">
+                                  <CheckCircle2 className="h-3.5 w-3.5" /> فتح الإيصال
+                                </button>
+                                <button type="button" onClick={() => setPreOffers(current => current.filter((_, i) => i !== index))}
+                                  className="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-bold text-red-700 hover:bg-red-100">
+                                  <Trash2 className="h-3.5 w-3.5" /> حذف
+                                </button>
+                              </div>
+                            </DataTable.Td>
+                          </DataTable.Row>
+                        );
+                      })
+                    )}
+                  </DataTable.Body>
+                </DataTable>
               </section>
 
               {/* ══ Section 3: Task Meta ══ */}
@@ -932,7 +933,7 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-bold text-slate-700">تاريخ مستحق <span className="text-red-500">*</span></label>
-                  <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)}
+                  <DateField value={dueDate} onChange={setDueDate}
                     className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm" />
                 </div>
                 <div className="space-y-2">

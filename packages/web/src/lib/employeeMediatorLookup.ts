@@ -8,6 +8,13 @@ export type MediatorEmployee = {
   branchName: string | null;
 };
 
+export type EmployeeMediatorReference = {
+  employeeId: number;
+  referralEntityId: number;
+  employeeNumber: number | string;
+  fullName: string;
+};
+
 export function toMediatorEmployee(employee: Partial<Employee> & Record<string, any>): MediatorEmployee {
   return {
     id: Number(employee.id),
@@ -30,4 +37,30 @@ export function findEmployeeByNumber(employees: MediatorEmployee[], input: strin
 
 export function formatEmployeeMediatorLabel(employee: MediatorEmployee): string {
   return [employee.name, employee.branchName, employee.jobTitle].filter(Boolean).join(' - ');
+}
+
+export function resolveEmployeeMediatorReference(
+  employeeNumberInput: string,
+  employee: MediatorEmployee | null,
+): EmployeeMediatorReference | null {
+  const query = employeeNumberInput.trim();
+  const employeeId = Number(employee?.id);
+  if (
+    !query
+    || !employee
+    || employee.employeeNumber == null
+    || employee.employeeNumber === ''
+    || String(employee.employeeNumber) !== query
+    || !Number.isInteger(employeeId)
+    || employeeId <= 0
+  ) {
+    return null;
+  }
+
+  return {
+    employeeId,
+    referralEntityId: employeeId,
+    employeeNumber: employee.employeeNumber,
+    fullName: employee.name,
+  };
 }

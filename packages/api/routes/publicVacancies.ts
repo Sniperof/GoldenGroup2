@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import pool from '../db.js';
+import { vacancyApplicabilitySql } from '../services/vacancyApplicability.js';
 
 const router = Router();
 
@@ -59,7 +60,7 @@ router.get('/', async (_req, res) => {
         vacancy_count AS "vacancyCount",
         start_date AS "startDate", end_date AS "endDate", status
       FROM job_vacancies
-      WHERE status = 'Open'
+      WHERE ${vacancyApplicabilitySql('job_vacancies')}
       ORDER BY created_at DESC`
     );
     res.json(rows);
@@ -111,7 +112,7 @@ router.get('/:id', async (req, res) => {
         vacancy_count AS "vacancyCount",
         start_date AS "startDate", end_date AS "endDate", status
       FROM job_vacancies
-      WHERE id = $1 AND status = 'Open' AND CURRENT_DATE BETWEEN start_date AND end_date`,
+      WHERE id = $1 AND ${vacancyApplicabilitySql('job_vacancies')}`,
       [req.params.id]
     );
     if (rows.length === 0) return res.status(404).json({ error: 'الوظيفة غير متاحة' });

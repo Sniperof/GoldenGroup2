@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ShieldAlert, Eye, Loader2 } from 'lucide-react';
+import { ShieldAlert, Eye, Loader2 } from '../../components/ui/icons';
 import SmartTable from '../../components/SmartTable';
 import ClientCardPopup from '../../components/ClientCardPopup';
 import { useOpenTaskStore } from '../../hooks/useOpenTaskStore';
@@ -236,7 +236,6 @@ export default function EmergencyTasks() {
       {!loading && (
         <SmartTable<OpenTask>
           title="طوارئ الصيانة"
-          titlePlacement="page"
           icon={ShieldAlert}
           data={emergencyTasks}
           columns={columns}
@@ -254,7 +253,7 @@ export default function EmergencyTasks() {
               icon={Eye}
               onClick={(e) => {
                 e.stopPropagation();
-                navigate(`/tasks/emergency/${t.id}`);
+                navigate(`/tasks/group/maintenance/${t.id}`);
               }}
             >
               عرض التفاصيل

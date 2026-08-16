@@ -1,127 +1,251 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Users, UserCheck, Route, MapPin, TrendingUp, Clock } from 'lucide-react';
-import { api } from '../lib/api';
-import PageHeader from '../components/ui/PageHeader';
+import { BarChart3, Briefcase, ClipboardList, LayoutDashboard, LayoutGrid, Sparkles, UsersRound, FileText, HardDrive } from '../components/ui/icons';
+import { useSearchParams } from 'react-router-dom';
+import { usePermissions } from '../hooks/usePermissions';
+import { useBranchContextStore } from '../hooks/useBranchContextStore';
+import ScopeFilterBar from '../components/dashboard/ScopeFilterBar';
+import MetricWidget from '../components/dashboard/MetricWidget';
+import BreakdownWidget from '../components/dashboard/BreakdownWidget';
+import { WIDGET_REGISTRY, type ScopeState, type WidgetDef, type TimePreset } from '../components/dashboard/widgetRegistry';
 
-const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.08 } } };
-const item = { hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0 } };
+const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.06 } } };
+const item = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } };
+
+type DashboardSection = 'summary' | 'clients' | 'candidates' | 'name-lists' | 'contracts' | 'devices' | 'recruitment';
+
+const SECTION_META: Record<DashboardSection, {
+  label: string;
+  title: string;
+  description: string;
+  icon: typeof BarChart3;
+}> = {
+  summary: {
+    label: 'الملخص',
+    title: 'ملخص الأداء',
+    description: 'أهم المؤشرات المشتركة خلال الفترة المختارة',
+    icon: LayoutDashboard,
+  },
+  clients: {
+    label: 'الزبائن',
+    title: 'تحليلات الزبائن',
+    description: 'نمو المحفظة، دورة الحياة، جودة البيانات ومصادر الاكتساب',
+    icon: BarChart3,
+  },
+  candidates: {
+    label: 'الأسماء المقترحة',
+    title: 'تحليلات الأسماء المقترحة',
+    description: 'جودة القمع، توزيع المسؤوليات ومصادر الترشيح',
+    icon: UsersRound,
+  },
+  'name-lists': {
+    label: 'لوائح الأسماء',
+    title: 'أداء لوائح الأسماء',
+    description: 'قراءة جودة اللوائح والتحويل حسب الفريق',
+    icon: ClipboardList,
+  },
+  contracts: {
+    label: 'العقود',
+    title: 'تحليلات العقود والمبيعات',
+    description: 'قيمة المبيعات، نوع البيع، أداء البائعين ومعدّل الإلغاء',
+    icon: FileText,
+  },
+  devices: {
+    label: 'الأجهزة',
+    title: 'تحليلات الأجهزة المركّبة',
+    description: 'القاعدة المركّبة الحيّة، الكفالات، التوزيع حسب الحالة والموديل والفرع',
+    icon: HardDrive,
+  },
+  recruitment: {
+    label: 'التوظيف',
+    title: 'تحليلات التوظيف والاستقطاب',
+    description: 'قمع التوظيف، الشواغر والمقاعد، زمن الدورة وأداء المقابلات',
+    icon: Briefcase,
+  },
+};
+
+function isNameListWidget(widget: WidgetDef): boolean {
+  return widget.key.startsWith('referral_sheets.');
+}
+
+function widgetsForSection(section: DashboardSection, widgets: WidgetDef[]): WidgetDef[] {
+  // الملخص يجمع كل بطاقات KPI القانونية فقط؛ الرسوم التفصيلية تبقى داخل أقسامها.
+  if (section === 'summary') return widgets.filter(widget => !widget.kind || widget.kind === 'kpi');
+  if (section === 'clients') return widgets.filter(widget => widget.department === 'الزبائن');
+  if (section === 'name-lists') return widgets.filter(isNameListWidget);
+  if (section === 'contracts') return widgets.filter(widget => widget.department === 'العقود');
+  if (section === 'devices') return widgets.filter(widget => widget.department === 'الأجهزة');
+  if (section === 'recruitment') return widgets.filter(widget => widget.department === 'التوظيف');
+  return widgets.filter(widget => widget.department === 'الأسماء المقترحة' && !isNameListWidget(widget));
+}
+
+function SectionHeading({ icon: Icon, title, description }: {
+  icon: typeof BarChart3;
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="mb-4 flex items-center gap-3">
+      <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-sky-100 bg-sky-50 text-sky-600">
+        <Icon className="h-5 w-5" />
+      </div>
+      <div>
+        <h2 className="text-base font-black text-slate-800">{title}</h2>
+        <p className="mt-0.5 text-xs text-slate-500">{description}</p>
+      </div>
+    </div>
+  );
+}
 
 export default function Dashboard() {
-    const [loading, setLoading] = useState(true);
-    const [dashboardData, setDashboardData] = useState<any>(null);
-    const [employees, setEmployees] = useState<any[]>([]);
+  const { hasPermission } = usePermissions();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [preset, setPreset] = useState<TimePreset>('month');
 
-    useEffect(() => {
-        Promise.all([
-            api.dashboard.get(),
-            api.employees.list(),
-        ]).then(([dashboard, emps]) => {
-            setDashboardData(dashboard);
-            setEmployees(emps);
-        }).finally(() => setLoading(false));
-    }, []);
+  // Branch scope has a SINGLE source of truth app-wide: the external branch
+  // switcher (branch context). The dashboard no longer owns a branch picker —
+  // it reads the selected branch and applies it to every widget's scope.
+  const contextBranchId = useBranchContextStore(s => s.branchId);
+  const scope = useMemo<ScopeState>(() => ({ preset, branchId: contextBranchId ?? null }), [preset, contextBranchId]);
 
-    if (loading) {
-        return (
-            <div className="h-full flex items-center justify-center">
-                <p className="text-slate-500 text-lg">جاري التحميل...</p>
+  // §8.1 — لا يدخل أي مؤشر إلى الواجهة قبل اجتياز بوابة صلاحية مصدره.
+  const visibleWidgets = useMemo(
+    () => WIDGET_REGISTRY.filter(widget => hasPermission(widget.permission)),
+    [hasPermission],
+  );
+
+  const availableSections = useMemo(() => {
+    const sections: DashboardSection[] = [];
+    if (widgetsForSection('summary', visibleWidgets).length > 0) sections.push('summary');
+    if (widgetsForSection('clients', visibleWidgets).length > 0) sections.push('clients');
+    if (widgetsForSection('candidates', visibleWidgets).length > 0) sections.push('candidates');
+    if (widgetsForSection('name-lists', visibleWidgets).length > 0) sections.push('name-lists');
+    if (widgetsForSection('contracts', visibleWidgets).length > 0) sections.push('contracts');
+    if (widgetsForSection('devices', visibleWidgets).length > 0) sections.push('devices');
+    if (widgetsForSection('recruitment', visibleWidgets).length > 0) sections.push('recruitment');
+    return sections;
+  }, [visibleWidgets]);
+
+  const requestedSection = searchParams.get('section') as DashboardSection | null;
+  const activeSection = requestedSection && availableSections.includes(requestedSection)
+    ? requestedSection
+    : (availableSections[0] ?? 'summary');
+  const activeWidgets = useMemo(
+    () => widgetsForSection(activeSection, visibleWidgets),
+    [activeSection, visibleWidgets],
+  );
+  const kpiWidgets = useMemo(
+    () => activeWidgets.filter(widget => !widget.kind || widget.kind === 'kpi'),
+    [activeWidgets],
+  );
+  const chartWidgets = useMemo(
+    () => activeWidgets.filter(widget => widget.kind && widget.kind !== 'kpi'),
+    [activeWidgets],
+  );
+  const sectionMeta = SECTION_META[activeSection];
+
+  useEffect(() => {
+    if (requestedSection === activeSection || availableSections.length === 0) return;
+    const next = new URLSearchParams(searchParams);
+    next.set('section', activeSection);
+    setSearchParams(next, { replace: true });
+  }, [activeSection, availableSections.length, requestedSection, searchParams, setSearchParams]);
+
+  const selectSection = (section: DashboardSection) => {
+    const next = new URLSearchParams(searchParams);
+    next.set('section', section);
+    setSearchParams(next);
+  };
+
+  return (
+    <div className="custom-scroll h-full overflow-y-auto bg-slate-50/70">
+      <div className="mx-auto w-full max-w-[1600px] p-4 sm:p-6 lg:p-8">
+        <section className="relative mb-6 overflow-hidden rounded-3xl border border-sky-100 bg-gradient-to-l from-sky-700 via-sky-600 to-indigo-600 px-6 py-7 text-white shadow-lg shadow-sky-900/10 sm:px-8">
+          <div className="absolute -left-16 -top-20 h-56 w-56 rounded-full bg-white/10 blur-2xl" />
+          <div className="absolute -bottom-28 right-1/3 h-52 w-52 rounded-full bg-cyan-300/15 blur-3xl" />
+          <div className="relative flex flex-col justify-between gap-5 md:flex-row md:items-end">
+            <div>
+              <div className="mb-3 flex w-fit items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-bold text-sky-50 backdrop-blur-sm">
+                <Sparkles className="h-3.5 w-3.5" />
+                مركز المؤشرات
+              </div>
+              <h1 className="text-2xl font-black tracking-tight sm:text-3xl">نظرة عامة</h1>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-sky-100">
+                اختر القسم المطلوب لتحميل مؤشراته فقط، مع تطبيق الفترة والنطاق المصرّح لك به.
+              </p>
             </div>
-        );
-    }
+            <div className="flex items-center gap-3 rounded-2xl border border-white/15 bg-white/10 px-4 py-3 backdrop-blur-sm">
+              <sectionMeta.icon className="h-5 w-5 text-cyan-200" />
+              <div>
+                <p className="text-[11px] text-sky-100">القسم الحالي</p>
+                <p className="text-sm font-black">{sectionMeta.label}</p>
+              </div>
+            </div>
+          </div>
+        </section>
 
-    const stats = [
-        { label: 'الزبائن', value: dashboardData?.totalClients ?? 0, icon: Users, color: 'from-sky-500 to-blue-600', delta: '+12%' },
-        { label: 'الموظفون النشطون', value: dashboardData?.activeEmployees ?? 0, icon: UserCheck, color: 'from-emerald-500 to-teal-600', delta: '+3' },
-        { label: 'المسارات', value: dashboardData?.totalRoutes ?? 0, icon: Route, color: 'from-amber-500 to-orange-600', delta: `${dashboardData?.totalRoutes ?? 0}` },
-        { label: 'الأحياء المغطاة', value: dashboardData?.coveredNeighborhoods ?? 0, icon: MapPin, color: 'from-rose-500 to-pink-600', delta: 'محطة' },
-    ];
+        <ScopeFilterBar preset={preset} onPresetChange={setPreset} />
 
-    const recentClients = dashboardData?.recentClients ?? [];
-    const activeSupervisors = employees.filter((e: any) => e.role === 'supervisor' && e.status === 'active').length;
-    const activeTechnicians = employees.filter((e: any) => e.role === 'technician' && e.status === 'active').length;
+        {availableSections.length > 0 && (
+          <nav className="mb-7 mt-4 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm" aria-label="أقسام الداشبورد">
+            <div className="flex min-w-max gap-1">
+              {availableSections.map(section => {
+                const meta = SECTION_META[section];
+                const Icon = meta.icon;
+                const active = section === activeSection;
+                return (
+                  <button
+                    key={section}
+                    type="button"
+                    onClick={() => selectSection(section)}
+                    aria-current={active ? 'page' : undefined}
+                    className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-black transition-colors sm:text-sm ${
+                      active ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50 hover:text-sky-700'
+                    }`}
+                  >
+                    <Icon className="h-4 w-4" />
+                    {meta.label}
+                  </button>
+                );
+              })}
+            </div>
+          </nav>
+        )}
 
-    return (
-        <div className="h-full overflow-y-auto p-8 custom-scroll">
-            <PageHeader
-                className="mb-6"
-                title="نظرة عامة"
-                subtitle="نظرة عامة على أداء النظام والبيانات."
-            />
+        {visibleWidgets.length === 0 ? (
+          <div className="flex flex-col items-center gap-3 rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400 shadow-sm">
+            <LayoutGrid className="h-9 w-9 text-slate-300" />
+            <p className="text-sm font-bold">لا توجد مؤشرات متاحة لصلاحياتك بعد.</p>
+          </div>
+        ) : (
+          <motion.section
+            key={`${activeSection}-${scope.preset}-${scope.branchId ?? 'all'}`}
+            variants={container}
+            initial="hidden"
+            animate="show"
+          >
+            <SectionHeading icon={sectionMeta.icon} title={sectionMeta.title} description={sectionMeta.description} />
 
-            {/* Stats Grid */}
-            <motion.div variants={container} initial="hidden" animate="show" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
-                {stats.map((s, i) => (
-                    <motion.div key={i} variants={item} className="bg-white shadow-sm border border-slate-200 rounded-xl p-5 hover:shadow-md transition-all group">
-                        <div className="flex items-center justify-between mb-4">
-                            <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${s.color} flex items-center justify-center shadow-lg`}>
-                                <s.icon className="w-5 h-5 text-white" />
-                            </div>
-                            <span className="text-xs text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full font-bold border border-emerald-100">{s.delta}</span>
-                        </div>
-                        <p className="text-2xl font-bold text-slate-800">{s.value}</p>
-                        <p className="text-xs text-slate-500 mt-1">{s.label}</p>
-                    </motion.div>
+            {kpiWidgets.length > 0 && (
+              <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                {kpiWidgets.map(def => (
+                  <motion.div key={def.key} variants={item}><MetricWidget def={def} scope={scope} /></motion.div>
                 ))}
-            </motion.div>
+              </div>
+            )}
 
-            {/* Recent Activity Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="bg-white shadow-sm border border-slate-200 rounded-xl overflow-hidden h-full">
-                    <div className="p-4 border-b border-slate-100 flex items-center gap-2 bg-slate-50/50">
-                        <Clock className="w-4 h-4 text-sky-500" />
-                        <h3 className="text-slate-800 font-bold text-base">آخر الزبائن المسجلين</h3>
-                    </div>
-                    <div className="p-4">
-                        {recentClients.length === 0 ? (
-                            <p className="text-center text-slate-400 py-6 text-sm">لا توجد بيانات بعد</p>
-                        ) : (
-                            <div className="space-y-3">
-                                {recentClients.map((c: any) => (
-                                    <div key={c.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-sky-50 transition-colors cursor-pointer group">
-                                        <div className="relative">
-                                            <img src={`https://ui-avatars.com/api/?name=${encodeURIComponent(c?.name || '')}&background=0ea5e9&color=fff&size=32`} alt="" className="w-9 h-9 rounded-full border border-slate-100 group-hover:border-sky-200 transition-colors" />
-                                            <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-white ${c?.candidateStatus === 'Qualified' ? 'bg-emerald-500' : 'bg-blue-500'}`}></span>
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                            <p className="text-sm text-slate-800 font-semibold truncate group-hover:text-sky-700 transition-colors">{c?.name || 'بدون اسم'}</p>
-                                            <p className="text-xs text-slate-500">{c?.mobile || '--'}</p>
-                                        </div>
-                                        <span className={`text-xs px-2 py-0.5 rounded-full border ${c?.candidateStatus === 'Qualified' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-blue-50 text-blue-600 border-blue-100'}`}>
-                                            {c?.candidateStatus === 'Qualified' ? 'فعّال' : 'جديد'}
-                                        </span>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                </motion.div>
-
-                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }} className="bg-white shadow-sm border border-slate-200 rounded-xl overflow-hidden h-full">
-                    <div className="p-4 border-b border-slate-100 flex items-center gap-2 bg-slate-50/50">
-                        <TrendingUp className="w-4 h-4 text-sky-500" />
-                        <h3 className="text-slate-800 font-bold text-base">ملخص سريع</h3>
-                    </div>
-                    <div className="p-4 space-y-4">
-                        <div className="flex items-center justify-between p-3 rounded-lg bg-slate-50/50 hover:bg-slate-50 transition-colors">
-                            <span className="text-sm text-slate-600 font-medium">المشرفون المتاحون</span>
-                            <span className="text-slate-900 font-bold bg-white px-2.5 py-0.5 rounded-lg border border-slate-200 shadow-sm">{activeSupervisors}</span>
-                        </div>
-                        <div className="flex items-center justify-between p-3 rounded-lg bg-slate-50/50 hover:bg-slate-50 transition-colors">
-                            <span className="text-sm text-slate-600 font-medium">الفنيون المتاحون</span>
-                            <span className="text-slate-900 font-bold bg-white px-2.5 py-0.5 rounded-lg border border-slate-200 shadow-sm">{activeTechnicians}</span>
-                        </div>
-                        <div className="flex items-center justify-between p-3 rounded-lg bg-slate-50/50 hover:bg-slate-50 transition-colors">
-                            <span className="text-sm text-slate-600 font-medium">المسارات المعرّفة</span>
-                            <span className="text-slate-900 font-bold bg-white px-2.5 py-0.5 rounded-lg border border-slate-200 shadow-sm">{dashboardData?.totalRoutes ?? 0}</span>
-                        </div>
-                        <div className="flex items-center justify-between p-3 rounded-lg bg-slate-50/50 hover:bg-slate-50 transition-colors">
-                            <span className="text-sm text-slate-600 font-medium">الزبائن الجدد</span>
-                            <span className="text-slate-900 font-bold bg-white px-2.5 py-0.5 rounded-lg border border-slate-200 shadow-sm">{recentClients.length}</span>
-                        </div>
-                    </div>
-                </motion.div>
-            </div>
-        </div>
-    );
+            {chartWidgets.length > 0 && (
+              <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+                {chartWidgets.map(def => (
+                  <motion.div key={def.key} variants={item} className="h-full">
+                    <BreakdownWidget def={def} scope={scope} />
+                  </motion.div>
+                ))}
+              </div>
+            )}
+          </motion.section>
+        )}
+      </div>
+    </div>
+  );
 }

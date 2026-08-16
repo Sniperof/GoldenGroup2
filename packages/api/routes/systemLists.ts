@@ -359,6 +359,12 @@ router.delete('/:id', requirePermission('admin.system_lists.manage'), async (req
 
     res.json({ success: true });
   } catch (err: any) {
+    if (err?.code === '23503') {
+      return res.status(409).json({
+        error: 'system_list_item_in_use',
+        message: 'لا يمكن حذف هذا الخيار لأنه مستخدم في سجلات موجودة. يمكن تعطيله بدلاً من حذفه.',
+      });
+    }
     console.error('Error deleting system list item:', err);
     res.status(500).json({ error: err.message });
   }

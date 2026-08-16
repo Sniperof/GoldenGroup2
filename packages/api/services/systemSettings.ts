@@ -80,12 +80,14 @@ export function clearSystemSettingsCache(key?: string): void {
 // ── Constitution-defined defaults (kept here for single source of truth) ────
 
 export const SYSTEM_SETTING_DEFAULTS = {
+  service_request_stale_after_days: 14,        // request-section-contract §3 (advisory stale flag; 0 disables)
   default_cooldown_days: 7,                    // DEC-005 D29
   contact_target_cleanup_time: '22:00',        // DEC-005 D26
   attempt_alert_threshold: 5,                  // DEC-006 D37
   visit_undocumented_alert_hours_l1: 24,       // DEC-006 D38
   visit_undocumented_alert_hours_l2: 48,       // DEC-006 D38
   visit_undocumented_alert_hours_l3: 72,       // DEC-006 D38
+  visit_escalation_job_interval_minutes: 15,
   periodic_auto_generate_enabled: true,
   periodic_manual_creation_enabled: true,
   periodic_default_interval_months: 6,

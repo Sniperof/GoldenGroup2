@@ -1,4 +1,4 @@
-import { FileText } from 'lucide-react';
+import { FileText } from '../../ui/icons';
 import { Card, InfoLine, formatDateTime } from '../shared';
 
 // Mirror of DEC-004 D13 — the 7 canonical creation_origin values.

@@ -1,4 +1,4 @@
-import { CalendarDays, Repeat2, Sparkles } from 'lucide-react';
+import { CalendarDays, Repeat2, Sparkles } from '../../ui/icons';
 import { OPEN_TASK_STATUS_LABELS, type OpenTaskStatus } from '@golden-crm/shared';
 import { formatDate } from '../shared';
 import { getDueDateStatus, getExpectedDateStatus } from '../../../lib/taskDateStatus';
@@ -97,7 +97,7 @@ export default function TaskHeroSummary({ task }: TaskHeroSummaryProps) {
                 {task.dueDate ? formatDate(task.dueDate) : '—'}
               </span>
               {dueStatus && (
-                <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold ${dueStatus.badgeClass}`}>
+                <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-bold ${dueStatus.badgeClass}`}>
                   {dueStatus.label}
                 </span>
               )}
@@ -116,7 +116,7 @@ export default function TaskHeroSummary({ task }: TaskHeroSummaryProps) {
                 {task.expectedDate ? formatDate(task.expectedDate) : '—'}
               </span>
               {expectedStatus && (
-                <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold ${expectedStatus.badgeClass}`}>
+                <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-bold ${expectedStatus.badgeClass}`}>
                   {expectedStatus.label}
                 </span>
               )}

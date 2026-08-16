@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Phone, Loader2, MessageSquare, PhoneMissed, Clock, Edit3 } from 'lucide-react';
+import { Phone, Loader2, MessageSquare, PhoneMissed, Clock, Edit3 } from '../ui/icons';
 import { api } from '../../lib/api';
 import { getOutcomeMeta } from '@golden-crm/shared';
 import type { CustomerCallLog } from '@golden-crm/shared';

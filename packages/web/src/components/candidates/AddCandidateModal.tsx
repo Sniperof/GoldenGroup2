@@ -1,18 +1,18 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCandidateStore } from '../../hooks/useCandidateStore';
-import { UserPlus, PlusCircle, CheckCircle, AlertCircle, Save, MapPin, Trash2, MessageCircle, Plus, Building2, User } from 'lucide-react';
+import { UserPlus, PlusCircle, CheckCircle, AlertCircle, Save, MapPin, Trash2, MessageCircle, Plus, Building2, User } from '../ui/icons';
 import { CandidateStatus, ReferralType, ReferralOriginChannel, Client, ContactEntry, Candidate, ContactType, ContactStatus } from '../../lib/types';
 import CreateReferralSheetModal from './CreateReferralSessionModal';
 import GeoSmartSearch, { GeoSelection } from '../GeoSmartSearch';
 import Select from '../ui/Select';
 import Modal from '../ui/Modal';
-import GiftPromiseInlinePanel from '../gifts/GiftPromiseInlinePanel';
+import GiftPromiseInlinePanel, { type InlineGiftPromiseDraft } from '../gifts/GiftPromiseInlinePanel';
 import { api } from '../../lib/api';
 import type { GeoUnit } from '../../lib/types';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { useBranchContextStore } from '../../hooks/useBranchContextStore';
-import { findEmployeeByNumber, formatEmployeeMediatorLabel, MediatorEmployee, toMediatorEmployee } from '../../lib/employeeMediatorLookup';
+import { findEmployeeByNumber, formatEmployeeMediatorLabel, MediatorEmployee, resolveEmployeeMediatorReference, toMediatorEmployee } from '../../lib/employeeMediatorLookup';
 import {
     CONTACT_STATUS_CONFIG,
     CONTACT_TYPE_CONFIG,
@@ -92,11 +92,11 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
     // existing sheet) the field is HIDDEN and the fixed branch is used silently
     // — so we never render an unresolved "#id" badge.
     const canChooseBranch = authUser?.isSuperAdmin === true || createCandidateScope === 'GLOBAL';
-    const editCandidateScope = getPermissionScope('candidates.edit');
+    const assignmentScope = getPermissionScope('candidates.assignment.manage');
     const canChooseAssignedOwner =
         authUser?.isSuperAdmin === true ||
-        editCandidateScope === 'GLOBAL' ||
-        editCandidateScope === 'BRANCH';
+        assignmentScope === 'GLOBAL' ||
+        assignmentScope === 'BRANCH';
     const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
     const [allClients, setAllClients] = useState<Client[]>([]);
     const [contracts, setContracts] = useState<Array<{ customerId: number }>>([]);
@@ -104,6 +104,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
     const [hrUsers, setHrUsers] = useState<HrUserOption[]>([]);
     const [occupationOptions, setOccupationOptions] = useState<string[]>([]);
     const [selectedBranchId, setSelectedBranchId] = useState<number | ''>('');
+    const [ownershipType, setOwnershipType] = useState<'PERSONAL' | 'BRANCH'>('PERSONAL');
     const [selectedResponsibleUserId, setSelectedResponsibleUserId] = useState<number | ''>('');
     useEffect(() => {
         let active = true;
@@ -174,11 +175,39 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
 
     const addCandidate = useCandidateStore((state: any) => state.addCandidate);
     const updateCandidate = useCandidateStore((state: any) => state.updateCandidate);
-    const referralSheets = useCandidateStore((state: any) => state.referralSheets);
-
-    const activeSheets = useMemo(() => referralSheets.filter((s: any) => s.status !== 'Archived' && s.status !== 'Completed'), [referralSheets]);
-
     const [isDirectMode, setIsDirectMode] = useState(initialDirectMode || false);
+    const nameListViewScope = getPermissionScope('candidates.name_lists.view_list');
+    const [availableSheets, setAvailableSheets] = useState<any[]>([]);
+    const [sheetsLoading, setSheetsLoading] = useState(false);
+    const [sheetsLoadError, setSheetsLoadError] = useState('');
+    const [sheetsRefreshKey, setSheetsRefreshKey] = useState(0);
+
+    useEffect(() => {
+        if (!isOpen || isDirectMode) return;
+        let active = true;
+        setSheetsLoading(true);
+        setSheetsLoadError('');
+        const branchFilter = nameListViewScope === 'GLOBAL' ? contextBranchId : null;
+        api.referralSheets.list(branchFilter)
+            .then(rows => {
+                if (!active) return;
+                setAvailableSheets(Array.isArray(rows) ? rows : []);
+            })
+            .catch((err: any) => {
+                if (!active) return;
+                setAvailableSheets([]);
+                setSheetsLoadError(err?.message || 'تعذر تحميل لوائح الأسماء ضمن نطاقك.');
+            })
+            .finally(() => {
+                if (active) setSheetsLoading(false);
+            });
+        return () => { active = false; };
+    }, [contextBranchId, isDirectMode, isOpen, nameListViewScope, sheetsRefreshKey]);
+
+    const activeSheets = useMemo(
+        () => availableSheets.filter((sheet: any) => sheet.status === 'New' || sheet.status === 'In-Progress'),
+        [availableSheets],
+    );
 
     const [selectedSheetId, setSelectedSheetId] = useState<number | ''>('');
     const [isCreateSheetOpen, setIsCreateSheetOpen] = useState(false);
@@ -187,6 +216,8 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
     const [referralType, setReferralType] = useState<ReferralType>('Personal');
     const [originChannel, setOriginChannel] = useState<ReferralOriginChannel>('Acquaintance');
     const [referralNameSnapshot, setReferralNameSnapshot] = useState('');
+    const [giftPromiseSheet, setGiftPromiseSheet] = useState<InlineGiftPromiseDraft | null>(null);
+    const [giftPromiseDirect, setGiftPromiseDirect] = useState<InlineGiftPromiseDraft | null>(null);
 
     const [employeeIdInput, setEmployeeIdInput] = useState('');
     const [employeeFound, setEmployeeFound] = useState<MediatorEmployee | null>(null);
@@ -205,6 +236,8 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
     useEffect(() => {
         if (isOpen) {
             if (initialData) {
+                setGiftPromiseSheet(null);
+                setGiftPromiseDirect(null);
                 const sheetId = initialData.referralSheetId;
                 setIsDirectMode(sheetId === null);
                 setCandidateData({
@@ -234,6 +267,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                     setSelectedSheetId(sheetId);
                 }
                 setSelectedBranchId(initialData.branchId ?? authUser?.branchId ?? contextBranchId ?? '');
+                setOwnershipType(initialData.ownershipType ?? ((initialData.assignments?.length ?? 0) > 0 ? 'PERSONAL' : 'BRANCH'));
                 setSelectedResponsibleUserId(initialData.assignments?.[0]?.userId ?? initialData.ownerUserId ?? authUser?.id ?? '');
             } else {
                 setIsDirectMode(initialDirectMode || false);
@@ -247,7 +281,10 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                 setClientSearch('');
                 setSelectedClientId(null);
                 setOriginChannel('Acquaintance');
+                setGiftPromiseSheet(null);
+                setGiftPromiseDirect(null);
                 setSelectedBranchId(contextBranchId ?? authUser?.branchId ?? '');
+                setOwnershipType('PERSONAL');
                 // Default empty so the responsible is an explicit single choice
                 // (no phantom first-option). Users who can't choose self-assign on save.
                 setSelectedResponsibleUserId('');
@@ -257,6 +294,43 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
             isInitialSync.current = true;
         }
     }, [isOpen, initialData, initialDirectMode, authUser?.branchId, authUser?.id, contextBranchId]);
+
+    useEffect(() => {
+        if (
+            !isOpen
+            || initialData?.referralSheetId !== null
+            || initialData?.referralType !== 'Employee'
+            || initialData.referralEntityId == null
+        ) {
+            return;
+        }
+
+        let cancelled = false;
+        void api.employees.get(Number(initialData.referralEntityId))
+            .then((employee) => {
+                if (cancelled || !employee) return;
+                const mediator = toMediatorEmployee(employee);
+                setEmployeeFound(mediator);
+                setEmployeeIdInput(String(mediator.employeeNumber ?? ''));
+                setEmployeeSearchError('');
+                setReferralNameSnapshot(mediator.name);
+            })
+            .catch(() => {
+                if (!cancelled) {
+                    setEmployeeFound(null);
+                    setEmployeeSearchError('تعذر استرجاع بيانات الوسيط من سجل الموظف');
+                }
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [
+        initialData?.referralEntityId,
+        initialData?.referralSheetId,
+        initialData?.referralType,
+        isOpen,
+    ]);
 
     useEffect(() => {
         if (!isOpen || isInitialSync.current || !isDirectMode) return;
@@ -358,6 +432,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
         setReferralNameSnapshot(client.name);
         setSelectedClientId(client.id);
         setClientSuggestions([]);
+        setGiftPromiseDirect(null);
     };
 
     const selectedSheet = useMemo(
@@ -380,7 +455,11 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
             setSelectedBranchId(selectedSheet.branchId);
         }
         if (selectedSheet.assignedHrUserId != null) {
+            setOwnershipType('PERSONAL');
             setSelectedResponsibleUserId(selectedSheet.assignedHrUserId);
+        } else {
+            setOwnershipType('BRANCH');
+            setSelectedResponsibleUserId('');
         }
     }, [isDirectMode, isOpen, selectedSheet]);
 
@@ -403,6 +482,14 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
             setError('الرجاء تعبئة جميع الحقول الإلزامية الخاصة بالاستقطاب المباشر.');
             return false;
         }
+        if (
+            isDirectMode
+            && referralType === 'Employee'
+            && !resolveEmployeeMediatorReference(employeeIdInput, employeeFound)
+        ) {
+            setError('الرجاء اختيار موظف صالح كوسيط.');
+            return false;
+        }
         if (!candidateData.firstName.trim() && !candidateData.nickname.trim()) {
             setError('يجب إدخال الاسم الأول أو اللقب للاسم المقترح على الأقل.');
             return false;
@@ -411,11 +498,11 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
             setError('يجب إدخال رقم هاتف واحد أساسي على الأقل.');
             return false;
         }
-        if (canChooseBranch && !selectedBranchId) {
+        if (isDirectMode && canChooseBranch && !selectedBranchId) {
             setError('يجب تحديد الفرع لهذا السجل.');
             return false;
         }
-        if (canChooseAssignedOwner && !selectedResponsibleUserId) {
+        if (isDirectMode && canChooseAssignedOwner && ownershipType === 'PERSONAL' && !selectedResponsibleUserId) {
             setError('يجب تحديد المسؤول عن هذا السجل.');
             return false;
         }
@@ -430,6 +517,9 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
 
     const handleSave = async (addAnother: boolean) => {
         if (!validateForm()) return;
+        const employeeReference = referralType === 'Employee'
+            ? resolveEmployeeMediatorReference(employeeIdInput, employeeFound)
+            : null;
 
         const candidateUnitId = candidateData.locationSelection.neighborhoodId || candidateData.locationSelection.subId || candidateData.locationSelection.regionId || candidateData.locationSelection.govId;
         const candidateAddressText = geoUnits.find(u => u.id === Number(candidateUnitId))?.name || 'غير محدد';
@@ -457,13 +547,18 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                 resolvedOriginChannel = selectedSheet.referralOriginChannel;
                 resolvedReferralNameSnapshot = selectedSheet.referralNameSnapshot;
                 entityId = selectedSheet.referralEntityId ?? null;
-            } else if (referralType === 'Employee' && employeeFound) {
-                entityId = employeeFound.id;
+            } else if (referralType === 'Employee' && employeeReference) {
+                entityId = employeeReference.referralEntityId;
+                resolvedReferralNameSnapshot = employeeReference.fullName;
             } else if (referralType === 'Client' && selectedClientId) {
                 entityId = selectedClientId;
             }
 
-            const newC: Omit<Candidate, 'id' | 'createdAt' | 'duplicateFlag' | 'duplicateType' | 'duplicateReferenceId' | 'status' | 'referralConfirmationStatus' | 'convertedToLeadId' | 'referralSheetId'> & { referralSheetId: number | null; assignmentUserIds?: number[] } = {
+            const newC: Omit<Candidate, 'id' | 'createdAt' | 'duplicateFlag' | 'duplicateType' | 'duplicateReferenceId' | 'status' | 'referralConfirmationStatus' | 'convertedToLeadId' | 'referralSheetId' | 'ownershipType'> & {
+                referralSheetId: number | null;
+                ownershipType?: 'PERSONAL' | 'BRANCH';
+                responsibleUserId?: number | null;
+            } = {
                 firstName,
                 lastName,
                 nickname,
@@ -480,18 +575,84 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                 referralReason: isDirectMode ? 'Direct Referral' : 'Part of Sheet',
                 occupation: candidateData.occupation,
                 candidateNotes: candidateData.candidateNotes,
-                ownerUserId: resolvedResponsibleUserId ?? authUser?.id ?? 0,
+                ownerUserId: ownershipType === 'PERSONAL' ? (resolvedResponsibleUserId ?? authUser?.id ?? null) : null,
                 branchId: resolvedBranchId,
-                assignmentUserIds: canChooseAssignedOwner && resolvedResponsibleUserId ? [resolvedResponsibleUserId] : undefined,
+                ownershipType: isDirectMode && canChooseAssignedOwner ? ownershipType : undefined,
+                responsibleUserId: isDirectMode && canChooseAssignedOwner && ownershipType === 'PERSONAL' ? resolvedResponsibleUserId : undefined,
                 createdBy: authUser?.id ?? 0
             };
+            let savedCandidate: Candidate | null = initialData ?? null;
             if (initialData?.id) {
-                await updateCandidate(initialData.id, newC as Partial<Candidate> & { assignmentUserIds?: number[] });
+                await updateCandidate(initialData.id, newC as Partial<Candidate>);
             } else {
-                await addCandidate(newC as any);
+                savedCandidate = await addCandidate(newC as any);
             }
+            const candidateSourceId = savedCandidate?.id ?? initialData?.id ?? null;
+
+            // وعد هدية من لائحة الأسماء — يُنشأ للوسيط الزبون؛ القيد الفريد يمنع التكرار.
+            if (giftPromiseSheet && canCreateSheetGiftPromise && selectedSheet?.referralEntityId) {
+                try {
+                    await api.gifts.records.create({
+                        giftDefinitionId: Number(giftPromiseSheet.giftDefinitionId) || undefined,
+                        beneficiaryType: 'customer_referrer',
+                        beneficiaryClientId: selectedSheet.referralEntityId,
+                        beneficiaryName: selectedSheet.referralNameSnapshot,
+                        conditionLabel: giftPromiseSheet.conditionLabel,
+                        conditionStatus: giftPromiseSheet.conditionStatus,
+                        approvedQuantity: giftPromiseSheet.quantity,
+                        quantity: giftPromiseSheet.quantity,
+                        customerId: selectedSheet.referralEntityId,
+                        sourceBranchId: resolvedBranchId,
+                        responsibleBranchId: resolvedBranchId,
+                        source: {
+                            sourceType: 'name_list',
+                            referralSheetId: selectedSheetId,
+                            sourceLabel: `وعد من لائحة الأسماء #${selectedSheetId}`,
+                            quantity: giftPromiseSheet.quantity,
+                        },
+                    });
+                    setGiftPromiseSheet(null);
+                } catch (giftErr) {
+                    console.error('Failed to create gift promise from name list:', giftErr);
+                    throw new Error(`تم حفظ الاسم، لكن تعذر إنشاء وعد الهدية: ${(giftErr as any)?.message ?? 'خطأ غير معروف'}`);
+                }
+            }
+
+            // وعد هدية من اسم مقترح مباشر — المصدر الحقيقي هنا هو candidates.id.
+            if (giftPromiseDirect && canCreateDirectGiftPromise && selectedClientId && isDirectMode) {
+                if (!candidateSourceId) {
+                    throw new Error('تم حفظ الاسم، لكن تعذر إنشاء وعد الهدية لأن معرف الاسم المقترح غير متاح.');
+                }
+                try {
+                    await api.gifts.records.create({
+                        giftDefinitionId: Number(giftPromiseDirect.giftDefinitionId) || undefined,
+                        beneficiaryType: 'customer_referrer',
+                        beneficiaryClientId: selectedClientId,
+                        beneficiaryName: referralNameSnapshot,
+                        conditionLabel: giftPromiseDirect.conditionLabel,
+                        conditionStatus: giftPromiseDirect.conditionStatus,
+                        approvedQuantity: giftPromiseDirect.quantity,
+                        quantity: giftPromiseDirect.quantity,
+                        customerId: selectedClientId,
+                        sourceBranchId: resolvedBranchId,
+                        responsibleBranchId: resolvedBranchId,
+                        source: {
+                            sourceType: 'candidate',
+                            candidateId: candidateSourceId,
+                            sourceLabel: `وعد من اسم مقترح مباشر #${candidateSourceId}`,
+                            quantity: giftPromiseDirect.quantity,
+                        },
+                    });
+                    setGiftPromiseDirect(null);
+                } catch (giftErr) {
+                    console.error('Failed to create gift promise from direct candidate:', giftErr);
+                    throw new Error(`تم حفظ الاسم، لكن تعذر إنشاء وعد الهدية: ${(giftErr as any)?.message ?? 'خطأ غير معروف'}`);
+                }
+            }
+
             if (addAnother) {
                 setCandidateData(initialCandidateState);
+                setOwnershipType('PERSONAL');
                 setError('');
             } else {
                 resetAndClose();
@@ -516,7 +677,10 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
         setClientSearch('');
         setClientSuggestions([]);
         setSelectedClientId(null);
+        setGiftPromiseSheet(null);
+        setGiftPromiseDirect(null);
         setSelectedBranchId(contextBranchId ?? authUser?.branchId ?? '');
+        setOwnershipType('PERSONAL');
         setSelectedResponsibleUserId(authUser?.id ?? '');
         onClose();
     };
@@ -577,7 +741,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                         <div className="space-y-4">
                             <div className="mb-2"></div>
 
-                            {(canChooseBranch || canChooseAssignedOwner) && (
+                            {isDirectMode && (canChooseBranch || canChooseAssignedOwner) && (
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 border border-slate-200 rounded-2xl p-4">
                                     {(canChooseBranch && contextBranchId == null && !sheetLocked) && (
                                         <div>
@@ -596,25 +760,47 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                                         </div>
                                     )}
                                     {canChooseAssignedOwner && (
-                                        <div>
+                                        <div className="space-y-2">
                                             <label className="block text-xs font-semibold text-slate-600 mb-1.5 flex items-center gap-1">
                                                 <User className="w-3.5 h-3.5" />
-                                                المسؤول عن السجل <span className="text-red-500">*</span>
+                                                ملكية السجل <span className="text-red-500">*</span>
                                             </label>
                                             {sheetLocked ? (
                                                 <div className="w-full p-2.5 rounded-xl border border-slate-200 bg-slate-100 text-slate-600 text-sm font-bold flex items-center justify-between">
-                                                    <span>{selectedSheet?.assignedHrUserName ?? 'مسؤول اللائحة'}</span>
+                                                    <span>
+                                                        {selectedSheet?.assignedHrUserId != null
+                                                            ? (selectedSheet.assignedHrUserName ?? 'مسؤول اللائحة')
+                                                            : (selectedSheet?.branchName ?? 'فرع غير محدد')}
+                                                    </span>
                                                     <span className="text-xs text-slate-400">مثبّت من اللائحة</span>
                                                 </div>
                                             ) : (
-                                                <Select
-                                                    value={selectedResponsibleUserId === '' ? '' : String(selectedResponsibleUserId)}
-                                                    onChange={(v) => setSelectedResponsibleUserId(v ? Number(v) : '')}
-                                                    placeholder="-- اختر المسؤول --"
-                                                    ariaLabel="المسؤول"
-                                                    className="w-full"
-                                                    options={[{ value: '', label: '-- اختر المسؤول --' }, ...assignableHrUsers.map(user => ({ value: String(user.id), label: `${user.name}${user.roleDisplayName ? ` - ${user.roleDisplayName}` : ''}` }))]}
-                                                />
+                                                <>
+                                                    <Select
+                                                        value={ownershipType}
+                                                        onChange={(value) => {
+                                                            const nextType = value === 'BRANCH' ? 'BRANCH' : 'PERSONAL';
+                                                            setOwnershipType(nextType);
+                                                            if (nextType === 'BRANCH') setSelectedResponsibleUserId('');
+                                                        }}
+                                                        ariaLabel="نوع ملكية الاسم المقترح"
+                                                        className="w-full"
+                                                        options={[
+                                                            { value: 'PERSONAL', label: 'موظف مسؤول' },
+                                                            { value: 'BRANCH', label: `ملكية الفرع${selectedBranchId ? ` — ${branches.find(branch => branch.id === Number(selectedBranchId))?.name ?? ''}` : ''}` },
+                                                        ]}
+                                                    />
+                                                    {ownershipType === 'PERSONAL' && (
+                                                        <Select
+                                                            value={selectedResponsibleUserId === '' ? '' : String(selectedResponsibleUserId)}
+                                                            onChange={(v) => setSelectedResponsibleUserId(v ? Number(v) : '')}
+                                                            placeholder="-- اختر المسؤول --"
+                                                            ariaLabel="المسؤول"
+                                                            className="w-full"
+                                                            options={[{ value: '', label: '-- اختر المسؤول --' }, ...assignableHrUsers.map(user => ({ value: String(user.id), label: `${user.name}${user.roleDisplayName ? ` - ${user.roleDisplayName}` : ''}` }))]}
+                                                        />
+                                                    )}
+                                                </>
                                             )}
                                         </div>
                                     )}
@@ -629,11 +815,36 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                                         <Select
                                             value={selectedSheetId === '' ? '' : String(selectedSheetId)}
                                             onChange={(v) => setSelectedSheetId(v ? Number(v) : '')}
-                                            placeholder="-- اختر لائحة أسماء لإضافة أسماء مقترحة مرتبطة بها --"
+                                            placeholder={
+                                                sheetsLoading
+                                                    ? 'جارٍ تحميل لوائح الأسماء...'
+                                                    : sheetsLoadError
+                                                        ? 'تعذر تحميل لوائح الأسماء'
+                                                        : activeSheets.length === 0
+                                                            ? 'لا توجد لائحة مفتوحة ضمن نطاقك'
+                                                            : '-- اختر لائحة أسماء لإضافة أسماء مقترحة مرتبطة بها --'
+                                            }
                                             ariaLabel="لائحة الأسماء"
                                             className="w-full"
+                                            disabled={sheetsLoading || Boolean(sheetsLoadError) || activeSheets.length === 0}
                                             options={activeSheets.map((sheet: any) => ({ value: String(sheet.id), label: `[#${sheet.id}] ${sheet.referralNameSnapshot} - ${sheet.stats.totalCandidates} أسماء` }))}
                                         />
+                                        {sheetsLoadError ? (
+                                            <div className="mt-2 flex items-center justify-between gap-3 text-xs font-bold text-red-600">
+                                                <span>{sheetsLoadError}</span>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setSheetsRefreshKey(key => key + 1)}
+                                                    className="shrink-0 rounded-lg border border-red-200 bg-white px-2.5 py-1 text-red-700 hover:bg-red-50"
+                                                >
+                                                    إعادة المحاولة
+                                                </button>
+                                            </div>
+                                        ) : !sheetsLoading && activeSheets.length === 0 ? (
+                                            <p className="mt-2 text-xs font-bold text-amber-700">
+                                                لا توجد لائحة جديدة أو قيد الجمع ضمن نطاقك. أنشئ لائحة جديدة أولاً.
+                                            </p>
+                                        ) : null}
                                     </div>
                                     <button
                                         onClick={() => setIsCreateSheetOpen(true)}
@@ -687,7 +898,12 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                                                 <input
                                                     type="text"
                                                     value={employeeIdInput}
-                                                    onChange={(e) => setEmployeeIdInput(e.target.value)}
+                                                    onChange={(e) => {
+                                                        setEmployeeIdInput(e.target.value);
+                                                        setEmployeeFound(null);
+                                                        setEmployeeSearchError('');
+                                                        setReferralNameSnapshot('');
+                                                    }}
                                                     onBlur={handleEmployeeBlur}
                                                     placeholder="أدخل رقم الموظف..."
                                                     className="w-1/2 p-2.5 rounded-xl border border-indigo-200 bg-white text-sm"
@@ -775,6 +991,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                                     sourceType="name_list"
                                     beneficiaryName={selectedSheet.referralNameSnapshot}
                                     disabledReason="وعد الهدية من اللائحة يحتاج أن يكون وسيط اللائحة زبونا مرتبطا بسجل معروف."
+                                    onChange={setGiftPromiseSheet}
                                 />
                             )}
 
@@ -784,6 +1001,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                                     sourceType="direct_referral"
                                     beneficiaryName={referralNameSnapshot}
                                     disabledReason="وعد الهدية من الاقتراح المباشر يحتاج وسيطا من نوع زبون مرتبط بسجل معروف."
+                                    onChange={setGiftPromiseDirect}
                                 />
                             )}
                         </div>
@@ -1017,7 +1235,11 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
             <CreateReferralSheetModal
                 isOpen={isCreateSheetOpen}
                 onClose={() => setIsCreateSheetOpen(false)}
-                onSheetCreated={(id) => { setSelectedSheetId(id); setIsDirectMode(false); }}
+                onSheetCreated={(id) => {
+                    setSelectedSheetId(id);
+                    setIsDirectMode(false);
+                    setSheetsRefreshKey(key => key + 1);
+                }}
             />
         </>
     );

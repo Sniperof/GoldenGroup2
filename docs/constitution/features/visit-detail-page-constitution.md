@@ -31,8 +31,14 @@
 | ٤ | **اسم التيليماركتر** | `booked_by_telemarketer_id` FK → `hr_users` | INTEGER | يحتاج migration ⚠️ |
 | ٥ | **ملاحظات التيليماركتر** | `telemarketer_notes` | TEXT | يحتاج migration ⚠️ |
 | ٦ | **من رد على الاتصال** | `answered_by` | VARCHAR(50) | يحتاج migration ⚠️ |
+| ٧ | **تعليمات للفريق الميداني** | `field_instructions` | TEXT | موجود ✅ |
+| ٨ | **سجل الاتصال المنشئ للحجز** | `booking_call_log_id` | VARCHAR(100) FK | موجود ✅ |
 
 **قيم `answered_by`:** `'customer'` \| `'spouse'` \| `'child'` \| `'other'`
+
+**فصل الملاحظات:** `field_instructions` هي تعليمات مسبقة من التيليماركتر إلى الفريق، أما `field_notes` فهي ملاحظات يسجلها الميدان أثناء التنفيذ أو بعده، ولا يجوز الخلط بينهما.
+
+**ثبات مصدر المياه:** عند عرض الزيارة تُقرأ قيمة `customer_snapshot.waterSource` المحفوظة وقت الحجز أولًا، ثم `clients.water_source` كقيمة احتياطية فقط؛ حتى لا يعيد تعديل ملف الزبون كتابة تاريخ الزيارة.
 
 ---
 
@@ -340,6 +346,8 @@ visit_tasks vt
 | ٢ | `booked_by_telemarketer_id` | INTEGER FK → `hr_users` | التيليماركتر الذي حجز |
 | ٣ | `telemarketer_notes` | TEXT | ملاحظات التيليماركتر عن المكالمة |
 | ٤ | `answered_by` | VARCHAR(50) | من رد (`customer` / `spouse` / `child` / `other`) |
+| ٥ | `field_instructions` | TEXT | تعليمات مسبقة يكتبها التيليماركتر للفريق، وليست ملاحظات الميدان |
+| ٦ | `booking_call_log_id` | VARCHAR(100) FK | سجل الاتصال الذي نتج عنه الحجز |
 | ٥ | `customer_snapshot` | JSONB | لقطة بيانات الزبون وقت إنشاء الزيارة |
 | ٦ | `cancellation_reason_id` | INTEGER FK → `system_lists` | سبب الإلغاء (category = `'visit_cancellation_reasons'`) |
 | ٧ | `cancellation_notes` | TEXT | ملاحظات إضافية عن الإلغاء |

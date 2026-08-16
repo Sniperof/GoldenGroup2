@@ -2,7 +2,7 @@
 // AuditLogTimeline — chronological view of service_request audit events
 // Constitution: maintenance.md §٠.١٧ + §٠.١٩.و
 // ============================================================
-import { Clock, User, AlertTriangle, CheckCircle2, X, ArrowRight, MessageSquare, Wrench } from 'lucide-react';
+import { Clock, User, AlertTriangle, CheckCircle2, X, ArrowRight, MessageSquare, Wrench } from '../ui/icons';
 
 interface AuditEvent {
   id: number;
@@ -10,6 +10,7 @@ interface AuditEvent {
   eventPayload: Record<string, unknown> | null;
   actorUserId: number | null;
   actorRole: string;
+  actorName: string | null;
   note: string | null;
   createdAt: string;
 }
@@ -28,6 +29,7 @@ const EVENT_LABELS: Record<string, string> = {
   escalated_to_audit_admin: 'تَصعيد للمدقّق',
   rejected_decision: 'قرار رفض',
   promoted_to_task: 'ترقية لمهمة',
+  request_completed: 'إكمال الطلب',
   merged_into_existing_task: 'دمج مع مهمة قائمة',
   cancelled_by_admin: 'إلغاء إداري',
   customer_info_requested: 'طلب معلومة من الزبون',
@@ -75,7 +77,7 @@ export default function AuditLogTimeline({ events }: { events: AuditEvent[] }) {
           <span className={`absolute -right-7 flex items-center justify-center w-6 h-6 rounded-full ring-4 ring-white ${colorFor(ev.eventType)}`}>
             {iconFor(ev.eventType)}
           </span>
-          <div className="bg-white border border-slate-200 rounded-lg p-3 shadow-sm">
+          <div className="bg-white border border-slate-100 rounded-xl p-3 shadow-sm">
             <div className="flex items-center justify-between mb-1">
               <span className="font-medium text-sm text-slate-800">
                 {EVENT_LABELS[ev.eventType] ?? ev.eventType}
@@ -84,21 +86,13 @@ export default function AuditLogTimeline({ events }: { events: AuditEvent[] }) {
                 {new Date(ev.createdAt).toLocaleString('ar-SY')}
               </time>
             </div>
-            <div className="flex items-center gap-2 text-xs text-slate-500">
-              <span className="px-1.5 py-0.5 bg-slate-100 rounded">{ev.actorRole}</span>
-              {ev.actorUserId != null && <span>المستخدم #{ev.actorUserId}</span>}
+            <div className="flex items-center gap-1.5 text-xs text-slate-500">
+              <User className="h-3.5 w-3.5 text-slate-400" />
+              <span className="font-medium text-slate-600">
+                {ev.actorName ?? (ev.actorUserId == null ? 'النظام' : 'مستخدم غير معروف')}
+              </span>
             </div>
             {ev.note && <p className="text-sm text-slate-600 mt-1.5">{ev.note}</p>}
-            {ev.eventPayload && Object.keys(ev.eventPayload).length > 0 && (
-              <details className="mt-1.5">
-                <summary className="text-xs text-slate-400 cursor-pointer hover:text-slate-600">
-                  التفاصيل
-                </summary>
-                <pre className="text-xs bg-slate-50 p-2 rounded mt-1 overflow-auto max-h-40">
-                  {JSON.stringify(ev.eventPayload, null, 2)}
-                </pre>
-              </details>
-            )}
           </div>
         </li>
       ))}

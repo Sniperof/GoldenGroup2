@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Calendar, Droplets, FileText, CheckCircle2 } from 'lucide-react';
+import { Calendar, Droplets, FileText, CheckCircle2 } from '../ui/icons';
 import { api } from '../../lib/api';
 import { OPEN_TASK_TYPE_LABELS } from '@golden-crm/shared';
 import type { OpenTaskType } from '@golden-crm/shared';
@@ -175,6 +175,7 @@ export default function AppointmentSchedulerModal({
                         value={visitTime}
                         onChange={setVisitTime}
                         bookedTimes={bookedTimes}
+                        submitting={saving}
                     />
 
                     <div className="space-y-2">
@@ -221,7 +222,7 @@ export default function AppointmentSchedulerModal({
                     {/* Technician Notes */}
                     <div className="space-y-2">
                         <label className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
-                            <FileText className="w-4 h-4 text-amber-500" />ملاحظات خاصة للفني
+                            <FileText className="w-4 h-4 text-amber-500" />تعليمات للفريق الميداني
                         </label>
                         <textarea
                             value={technicianNotes}

@@ -5,16 +5,23 @@ import { getOrBuildAuthContext, requirePermission } from '../middleware/permissi
 import { authorize, resolveActingBranch } from '../services/authorizationService.js';
 import { assertGeoUnitInScope } from '../services/geoScopeService.js';
 import {
+  linkNewClientToServiceRequestParty,
+  type ServiceRequestClientParty,
+} from '../services/serviceRequests/atomicClientLink.js';
+import {
   canCreateClient,
   canDeleteClient,
   canEditClient,
+  canEditClientContactControl,
   canEditClientRating,
   canListClients,
   canManageClientAssignments,
   canViewClient,
   canViewClientRating,
+  canUnlockClientCooldown,
   getClientListAccessPlan,
 } from '../policies/clientPolicy.js';
+import { canEditCandidate } from '../policies/candidatePolicy.js';
 import {
   getCanonicalContactNumber,
   normalizeContactsForWrite,
@@ -31,9 +38,25 @@ import {
   personalOwnershipPredicate,
   redactPersonalAssignments,
 } from '../services/customerOwnership.js';
+import { buildClientSnapshot } from '../lib/clientSnapshot.js';
+import { resolveReferenceValueForWrite } from '../services/referenceValueService.js';
+import {
+  applyClientDoNotContactState,
+  lockClientContactControlMutations,
+} from '../services/planningTaskCuration.js';
 
 const router = Router();
 router.use(requireAuth);
+
+const CLIENT_REQUEST_VIEW_PERMISSION_BY_TYPE: Record<string, string> = {
+  emergency_maintenance: 'service_requests.view',
+  water_check: 'water_check.view',
+  device_request: 'service_requests.view',
+  periodic_maintenance: 'periodic_maintenance.view',
+  golden_warranty: 'golden_warranty.view',
+  name_nomination: 'name_nomination.view',
+  account_creation: 'account_requests.view',
+};
 
 const CLIENT_SELECT = `
   SELECT
@@ -160,6 +183,23 @@ const CLIENT_MUTATION_RETURNING = `
 `;
 
 const toJson = (value: unknown, fallback: unknown) => JSON.stringify(value ?? fallback);
+
+function readAtomicServiceRequestLink(body: any): {
+  serviceRequestId: number;
+  party: ServiceRequestClientParty;
+} | null {
+  if (body?.serviceRequestLink == null) return null;
+  const serviceRequestId = Number(body.serviceRequestLink.serviceRequestId);
+  const party = body.serviceRequestLink.party;
+  if (!Number.isInteger(serviceRequestId) || serviceRequestId <= 0
+      || !['beneficiary', 'requester', 'referrer'].includes(party)) {
+    throw Object.assign(new Error('بيانات ربط طلب الخدمة غير صالحة'), {
+      status: 400,
+      code: 'invalid_service_request_client_link',
+    });
+  }
+  return { serviceRequestId, party };
+}
 
 function mapClientRow(row: any) {
   // Many clients still carry their (single) referrer only in the legacy scalar
@@ -381,12 +421,22 @@ function normalizeReferrerItem(raw: any): Record<string, any> | null {
 }
 
 function buildLegacyReferrerFromPayload(payload: Record<string, any>): Record<string, any> | null {
+  const referrerType = normalizeTextValue(payload.referrerType);
+  const referrerName = normalizeTextValue(payload.referrerName);
+  const referrerId = normalizeNullableNumber(payload.referrerId);
+  const referralEntityId = normalizeNullableNumber(payload.referralEntityId);
+  // Channel/reason describe acquisition context, not a referrer identity.
+  // Without this guard an ordinary App-created client becomes a fake
+  // referrer row, and `Personal` enforcement may attribute it to the admin.
+  if (!referrerType && !referrerName && referrerId == null && referralEntityId == null) {
+    return null;
+  }
   return normalizeReferrerItem({
-    referrerType: payload.referrerType,
-    referrerId: payload.referrerId,
-    referrerName: payload.referrerName,
+    referrerType,
+    referrerId,
+    referrerName,
     sourceChannel: payload.sourceChannel,
-    referralEntityId: payload.referralEntityId,
+    referralEntityId,
     referralDate: payload.referralDate,
     referralReason: payload.referralReason,
     referralSheetId: payload.referralSheetId,
@@ -450,10 +500,10 @@ function reconcileClientReferrers<T extends Record<string, any>>(
     referrerType: primary?.referrerType ?? null,
     referrerId: primary?.referrerId ?? null,
     referrerName: primary?.referrerName ?? null,
-    sourceChannel: primary?.sourceChannel ?? null,
+    sourceChannel: primary?.sourceChannel ?? normalizeTextValue(payload.sourceChannel),
     referralEntityId: primary?.referralEntityId ?? null,
     referralDate: primary?.referralDate ?? null,
-    referralReason: primary?.referralReason ?? null,
+    referralReason: primary?.referralReason ?? normalizeTextValue(payload.referralReason),
     referralSheetId: primary?.referralSheetId ?? null,
     referralAddressText: primary?.referralAddressText ?? null,
   };
@@ -690,6 +740,48 @@ function clientVisibleInBranchesCondition(paramRef: string): string {
   )`;
 }
 
+// Shared client-list scope predicates — the single source of truth for the
+// BRANCH/ASSIGNED/requested-branch WHERE fragments, used by both the legacy
+// GET '/' list and the new paginated GET '/paged'. Pushes bound params onto
+// `params` (mutated) so callers can append their own filter params afterwards
+// with correct $n indices (SH-1: no drift between the two list endpoints).
+function appendClientScopeConditions(
+  authContext: any,
+  requestedBranchId: number | null,
+  scope: string,
+  params: any[],
+): string[] {
+  const conditions: string[] = [];
+
+  if (requestedBranchId != null) {
+    params.push([requestedBranchId]);
+    conditions.push(clientVisibleInBranchesCondition(`$${params.length}`));
+  } else if (scope === 'BRANCH') {
+    params.push(authContext.allowedBranchIds);
+    conditions.push(clientVisibleInBranchesCondition(`$${params.length}`));
+  }
+
+  if (scope === 'ASSIGNED') {
+    params.push(authContext.userId);
+    conditions.push(personalOwnershipPredicate('c.id', `$${params.length}`));
+    params.push(requestedBranchId != null ? [requestedBranchId] : authContext.allowedBranchIds);
+    conditions.push(clientVisibleInBranchesCondition(`$${params.length}`));
+  }
+
+  return conditions;
+}
+
+// Whitelist of sortable columns for GET '/paged' — never interpolate a raw
+// client-supplied key into ORDER BY (SQL-injection guard).
+const CLIENT_SORT_COLUMNS: Record<string, string> = {
+  id: 'c.id',
+  name: 'c.name',
+  createdAt: 'c.created_at',
+  branchName: 'b.name',
+  rating: 'c.rating',
+  lifecycleStage: `(${buildClientLifecycleStatusSql('c')})`,
+};
+
 function hasBranchScopedClientGrant(authContext: any, permission: string): boolean {
   if (authContext.isSuperAdmin) return true;
   const grant = authContext.grants?.find((item: any) => item.permission === permission);
@@ -719,8 +811,12 @@ async function hasClientDeviceOrContractInBranches(
   return rows.length > 0;
 }
 
-async function loadClientSubject(clientId: string | number): Promise<ClientSubject | null> {
-  const { rows } = await pool.query(
+async function loadClientSubject(
+  clientId: string | number,
+  db: { query: typeof pool.query } = pool,
+  lock = false,
+): Promise<ClientSubject | null> {
+  const { rows } = await db.query(
     `SELECT
        c.branch_id AS "branchId",
        COALESCE(
@@ -734,7 +830,8 @@ async function loadClientSubject(clientId: string | number): Promise<ClientSubje
          '{}'::int[]
        ) AS "assignedUserIds"
      FROM clients c
-    WHERE c.id = $1`,
+    WHERE c.id = $1
+    ${lock ? 'FOR UPDATE OF c' : ''}`,
     [clientId],
   );
 
@@ -773,13 +870,14 @@ async function insertClientAssignments(
   clientId: number,
   userIds: number[],
   assignedBy: number,
+  db: { query: (text: string, params?: any[]) => Promise<any> } = pool,
 ): Promise<void> {
   if (userIds.length === 0) return;
   const values = userIds
     .map((_, i) => `($${i * 3 + 1}, $${i * 3 + 2}, $${i * 3 + 3})`)
     .join(', ');
   const params = userIds.flatMap(uid => [clientId, uid, assignedBy]);
-  await pool.query(
+  await db.query(
     `INSERT INTO client_assignments (client_id, hr_user_id, assigned_by)
      VALUES ${values}
      ON CONFLICT (client_id, hr_user_id) DO NOTHING`,
@@ -948,23 +1046,8 @@ router.get('/', requirePermission('clients.view_list'), async (req, res) => {
       return forbidClientAccess(res, 'MISSING_PERMISSION');
     }
 
-    const conditions: string[] = [];
     const params: any[] = [];
-
-    if (requestedBranchId != null) {
-      params.push([requestedBranchId]);
-      conditions.push(clientVisibleInBranchesCondition(`$${params.length}`));
-    } else if (listAccess.scope === 'BRANCH') {
-      params.push(authContext.allowedBranchIds);
-      conditions.push(clientVisibleInBranchesCondition(`$${params.length}`));
-    }
-
-    if (listAccess.scope === 'ASSIGNED') {
-      params.push(authContext.userId);
-      conditions.push(personalOwnershipPredicate('c.id', `$${params.length}`));
-      params.push(requestedBranchId != null ? [requestedBranchId] : authContext.allowedBranchIds);
-      conditions.push(clientVisibleInBranchesCondition(`$${params.length}`));
-    }
+    const conditions = appendClientScopeConditions(authContext, requestedBranchId, listAccess.scope, params);
 
     const where = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '';
     const { rows } = await pool.query(`${CLIENT_SELECT}${where} ORDER BY c.id`, params);
@@ -980,6 +1063,253 @@ router.get('/', requirePermission('clients.view_list'), async (req, res) => {
       : rows.map(mapClientRow);
 
     res.json(responseRows);
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+/**
+ * @swagger
+ * /api/clients/paged:
+ *   get:
+ *     tags: [Clients]
+ *     summary: Paginated + server-side searched/filtered client list
+ *     description: >
+ *       Isolated companion to GET /api/clients — does NOT replace it. Returns a
+ *       single page of NON-candidate clients with server-side search, filters,
+ *       sort, and lifecycle KPI counts (all computed within the caller's scope).
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: X-Branch-Id
+ *         schema: { type: integer }
+ *         required: false
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 25, maximum: 100 }
+ *       - in: query
+ *         name: search
+ *         schema: { type: string }
+ *       - in: query
+ *         name: filterClass
+ *         schema: { type: string, enum: [Lead, FOP, OP] }
+ *       - in: query
+ *         name: filterMediator
+ *         schema: { type: string }
+ *       - in: query
+ *         name: filterArea
+ *         schema: { type: string }
+ *       - in: query
+ *         name: sortKey
+ *         schema: { type: string, enum: [id, name, createdAt, branchName, rating, lifecycleStage] }
+ *       - in: query
+ *         name: sortDir
+ *         schema: { type: string, enum: [asc, desc] }
+ *     responses:
+ *       200:
+ *         description: Success
+ *       403:
+ *         description: Forbidden
+ *       500:
+ *         description: Server error
+ */
+router.get('/paged', requirePermission('clients.view_list'), async (req, res) => {
+  try {
+    const authContext = getRequiredAuthContext(req);
+    const requestedBranchId = resolveClientListBranchFilter(req);
+    const listAccess = getClientListAccessPlan(authContext);
+
+    if (!authContext.isSuperAdmin && authContext.allowedBranchIds.length === 0) {
+      return res.status(403).json({ error: 'لا يوجد فرع فعّال متاح لهذه العملية' });
+    }
+    if (requestedBranchId != null && !authContext.isSuperAdmin && !authContext.allowedBranchIds.includes(requestedBranchId)) {
+      return forbidClientAccess(res, 'BRANCH_FORBIDDEN');
+    }
+    if (listAccess.scope === 'NONE') {
+      return forbidClientAccess(res, 'MISSING_PERMISSION');
+    }
+
+    // ── Pagination + sort inputs ──
+    const page = toPositiveInt(req.query.page as any) ?? 1;
+    const limit = Math.min(100, Math.max(1, toPositiveInt(req.query.limit as any) ?? 25));
+    const offset = (page - 1) * limit;
+
+    const sortKey = typeof req.query.sortKey === 'string' && CLIENT_SORT_COLUMNS[req.query.sortKey]
+      ? req.query.sortKey
+      : 'id';
+    const sortDir = req.query.sortDir === 'asc' ? 'ASC' : 'DESC';
+    const orderBy = `${CLIENT_SORT_COLUMNS[sortKey]} ${sortDir}, c.id ${sortDir}`;
+
+    // ── Shared WHERE: scope + always non-candidate + optional filters ──
+    const params: any[] = [];
+    const conditions = appendClientScopeConditions(authContext, requestedBranchId, listAccess.scope, params);
+    conditions.push('c.is_candidate = FALSE');
+
+    const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+    if (search) {
+      params.push(`%${search}%`);
+      const likeRef = `$${params.length}`;
+      const parts = [
+        `c.name ILIKE ${likeRef}`,
+        `c.referrer_name ILIKE ${likeRef}`,
+        `b.name ILIKE ${likeRef}`,
+        `c.id::text LIKE ${likeRef}`,
+      ];
+      const digits = search.replace(/\D/g, '');
+      if (digits) {
+        params.push(`%${digits}%`);
+        const phoneRef = `$${params.length}`;
+        parts.push(`${phoneNormalizationSql('c.mobile')} LIKE ${phoneRef}`);
+        parts.push(
+          `EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(c.contacts, '[]'::jsonb)) AS contact
+             WHERE ${phoneNormalizationSql(`contact->>'number'`)} LIKE ${phoneRef})`,
+        );
+      }
+      conditions.push(`(${parts.join(' OR ')})`);
+    }
+
+    const filterClass = typeof req.query.filterClass === 'string' ? req.query.filterClass.toUpperCase() : '';
+    if (['OP', 'FOP', 'LEAD'].includes(filterClass)) {
+      params.push(filterClass);
+      conditions.push(`(${buildClientLifecycleStatusSql('c')}) = $${params.length}`);
+    }
+
+    const filterMediator = typeof req.query.filterMediator === 'string' ? req.query.filterMediator.trim() : '';
+    if (filterMediator) {
+      params.push(filterMediator);
+      conditions.push(`c.referrer_type = $${params.length}`);
+    }
+
+    // ── Enriched filter catalog (docs/analysis/clients-records-performance-and-filters.md §7) ──
+    // Geo cascade: the frontend sends the subtree of the deepest selected level
+    // (محافظة→منطقة→ناحية→حي) as `geoIds`; a client matches when any of its geo
+    // columns falls inside that subtree ("match everything under the selection").
+    const geoIds = typeof req.query.geoIds === 'string'
+      ? req.query.geoIds.split(',').map(s => s.trim()).filter(s => /^\d+$/.test(s))
+      : [];
+    if (geoIds.length > 0) {
+      params.push(geoIds);
+      const ref = `$${params.length}::text[]`;
+      conditions.push(`(c.governorate::text = ANY(${ref}) OR c.district::text = ANY(${ref}) OR c.neighborhood::text = ANY(${ref}))`);
+    }
+
+    // Owner/responsible: clients personally owned by a specific eligible user.
+    const owner = toPositiveInt(req.query.owner as any);
+    if (owner != null) {
+      params.push(owner);
+      conditions.push(personalOwnershipPredicate('c.id', `$${params.length}`));
+    }
+
+    // Commitment rating.
+    const rating = typeof req.query.rating === 'string' ? req.query.rating.trim() : '';
+    if (['Committed', 'NotCommitted', 'Undefined'].includes(rating)) {
+      params.push(rating);
+      conditions.push(`COALESCE(c.rating, 'Undefined') = $${params.length}`);
+    }
+
+    // Registration date range.
+    const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+    const createdFrom = typeof req.query.createdFrom === 'string' && dateRe.test(req.query.createdFrom) ? req.query.createdFrom : '';
+    if (createdFrom) {
+      params.push(createdFrom);
+      conditions.push(`c.created_at >= $${params.length}::date`);
+    }
+    const createdTo = typeof req.query.createdTo === 'string' && dateRe.test(req.query.createdTo) ? req.query.createdTo : '';
+    if (createdTo) {
+      params.push(createdTo);
+      conditions.push(`c.created_at < ($${params.length}::date + INTERVAL '1 day')`);
+    }
+
+    // Device serial lookup (cross-entity → installed_devices).
+    const serial = typeof req.query.serial === 'string' ? req.query.serial.trim() : '';
+    if (serial) {
+      params.push(`%${serial}%`);
+      conditions.push(`EXISTS (SELECT 1 FROM installed_devices d WHERE d.customer_id = c.id AND d.serial_number ILIKE $${params.length})`);
+    }
+
+    // Has an installed device? (boolean)
+    const hasDevice = req.query.hasDevice;
+    if (hasDevice === 'yes' || hasDevice === 'no') {
+      const op = hasDevice === 'yes' ? 'EXISTS' : 'NOT EXISTS';
+      conditions.push(`${op} (SELECT 1 FROM installed_devices d WHERE d.customer_id = c.id)`);
+    }
+
+    // Has an active task of a given type (cross-entity → open_tasks). "Active" =
+    // any stage that isn't closed/cancelled/completed (confirmed with user).
+    const taskType = typeof req.query.taskType === 'string' ? req.query.taskType.trim() : '';
+    if (taskType) {
+      params.push(taskType);
+      conditions.push(`EXISTS (SELECT 1 FROM open_tasks ot WHERE ot.client_id = c.id AND ot.task_type = $${params.length} AND ot.status NOT IN ('closed', 'cancelled', 'completed'))`);
+    }
+
+    // Route line: clients whose address falls inside the route's covered areas.
+    // The frontend expands the route's points to their geo subtree (like geoIds).
+    const routeGeoIds = typeof req.query.routeGeoIds === 'string'
+      ? req.query.routeGeoIds.split(',').map(s => s.trim()).filter(s => /^\d+$/.test(s))
+      : [];
+    if (routeGeoIds.length > 0) {
+      params.push(routeGeoIds);
+      const ref = `$${params.length}::text[]`;
+      conditions.push(`(c.governorate::text = ANY(${ref}) OR c.district::text = ANY(${ref}) OR c.neighborhood::text = ANY(${ref}))`);
+    }
+
+    // Water source (admin list value) and data quality (fixed enum).
+    const waterSource = typeof req.query.waterSource === 'string' ? req.query.waterSource.trim() : '';
+    if (waterSource) {
+      params.push(waterSource);
+      conditions.push(`c.water_source = $${params.length}`);
+    }
+    const dataQuality = typeof req.query.dataQuality === 'string' ? req.query.dataQuality.trim() : '';
+    if (['correct', 'incorrect', 'needs_edit'].includes(dataQuality)) {
+      params.push(dataQuality);
+      conditions.push(`c.data_quality = $${params.length}`);
+    }
+
+    const where = ` WHERE ${conditions.join(' AND ')}`;
+
+    // Page query appends LIMIT/OFFSET after all shared params.
+    const pageParams = [...params];
+    pageParams.push(limit);
+    const limitRef = `$${pageParams.length}`;
+    pageParams.push(offset);
+    const offsetRef = `$${pageParams.length}`;
+
+    const [pageResult, statsResult] = await Promise.all([
+      pool.query(`${CLIENT_SELECT}${where} ORDER BY ${orderBy} LIMIT ${limitRef} OFFSET ${offsetRef}`, pageParams),
+      pool.query(
+        `SELECT (${buildClientLifecycleStatusSql('c')}) AS stage, COUNT(*)::int AS n
+           FROM clients c
+           LEFT JOIN branches b ON b.id = c.branch_id
+           ${where}
+          GROUP BY 1`,
+        params,
+      ),
+    ]);
+
+    // Lifecycle KPI counts (total derived from the grouped counts).
+    const kpis = { total: 0, leads: 0, fops: 0, ops: 0 };
+    for (const row of statsResult.rows) {
+      const n = Number(row.n);
+      kpis.total += n;
+      if (row.stage === 'OP') kpis.ops += n;
+      else if (row.stage === 'FOP') kpis.fops += n;
+      else kpis.leads += n;
+    }
+
+    // Defense-in-depth: ASSIGNED-scope users must not see other assignees' identities.
+    const items = listAccess.scope === 'ASSIGNED'
+      ? pageResult.rows.map((r: any) => {
+          const mapped = mapClientRow({ ...r, assignments: [] });
+          mapped.ownership = redactPersonalAssignments(mapped.ownership);
+          return mapped;
+        })
+      : pageResult.rows.map(mapClientRow);
+
+    res.json({ items, total: kpis.total, page, limit, kpis });
   } catch (err: any) {
     res.status(err.status || 500).json({ error: err.message });
   }
@@ -1339,6 +1669,76 @@ router.post('/:id/rating-history', requirePermission('clients.rating.edit'), asy
   } catch (err: any) {
     res.status(err.status || 500).json({ error: err.message });
   }
+});
+
+// All request appearances for one authorized client subject. Request-family
+// capabilities are applied per type so access to a client never widens access
+// to service/account requests.
+router.get('/:id/service-requests', requirePermission('clients.view'), async (req, res) => {
+  const authContext = getRequiredAuthContext(req);
+  const clientId = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
+  if (!Number.isInteger(clientId) || clientId <= 0) {
+    return res.status(400).json({ error: 'invalid_client_id' });
+  }
+
+  const subject = await loadClientSubject(clientId);
+  if (!subject) return res.status(404).json({ error: 'client_not_found' });
+
+  const access = canViewClient(authContext, subject);
+  if (!access.allowed) {
+    const branchIdsForRelatedAccess = authContext.actingBranchId != null
+      ? [authContext.actingBranchId]
+      : authContext.allowedBranchIds;
+    const canReadViaRelatedBranch =
+      hasBranchScopedClientGrant(authContext, 'clients.view')
+      && await hasClientDeviceOrContractInBranches(clientId, branchIdsForRelatedAccess);
+    if (!canReadViaRelatedBranch) return forbidClientAccess(res, access.reason);
+  }
+
+  const viewableTypes = Object.entries(CLIENT_REQUEST_VIEW_PERMISSION_BY_TYPE)
+    .filter(([, permission]) => authContext.isSuperAdmin || authorize(authContext, { permission }).allowed)
+    .map(([requestType]) => requestType);
+  if (viewableTypes.length === 0) return res.json({ items: [] });
+
+  const { rows } = await pool.query(
+    `SELECT sr.id,
+            sr.public_ref_number AS "publicRefNumber",
+            sr.request_type AS "requestType",
+            sr.status,
+            sr.created_at AS "createdAt",
+            sr.closed_at AS "closedAt",
+            sr.reviewed_by_user_id AS "reviewedByUserId",
+            reviewer.name AS "reviewedByUserName",
+            sr.branch_id AS "branchId",
+            branch.name AS "branchName",
+            ARRAY_REMOVE(ARRAY[
+              CASE WHEN sr.requester_client_id = $1 THEN 'requester'::text END,
+              CASE WHEN sr.beneficiary_client_id = $1 THEN 'beneficiary'::text END,
+              CASE WHEN sr.referrer_client_id = $1 THEN 'referrer'::text END
+            ], NULL) AS roles
+       FROM service_requests sr
+       LEFT JOIN hr_users reviewer ON reviewer.id = sr.reviewed_by_user_id
+       LEFT JOIN branches branch ON branch.id = sr.branch_id
+      WHERE sr.request_type = ANY($2::text[])
+        AND ($1 = sr.requester_client_id
+          OR $1 = sr.beneficiary_client_id
+          OR $1 = sr.referrer_client_id)
+      ORDER BY sr.created_at DESC, sr.id DESC`,
+    [clientId, viewableTypes],
+  );
+  return res.json({ items: rows });
+});
+
+// Level-2 client snapshot (docs/.../client-snapshot.md). Reused to render a
+// linked beneficiary/referrer inside other domains (e.g. service requests).
+router.get('/:id/snapshot', requirePermission('clients.view'), async (req, res) => {
+  const clientId = Number(req.params.id);
+  if (!Number.isInteger(clientId) || clientId <= 0) {
+    return res.status(400).json({ error: 'invalid_client_id' });
+  }
+  const snapshot = await buildClientSnapshot(pool, clientId);
+  if (!snapshot) return res.status(404).json({ error: 'not_found' });
+  res.json({ snapshot });
 });
 
 router.get('/:id', requirePermission('clients.view'), async (req, res) => {
@@ -1735,14 +2135,16 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
  *         description: Server error
  */
 router.post('/', requirePermission('clients.create'), async (req, res) => {
+  const db = await pool.connect();
   try {
     const authContext = getRequiredAuthContext(req);
+    const serviceRequestLink = readAtomicServiceRequestLink(req.body);
     const targetBranchId = resolveClientTargetBranch(req, req.body?.branchId);
     if (targetBranchId == null) {
       return res.status(400).json({ error: 'يجب تحديد الفرع المستهدف لهذه العملية' });
     }
 
-    const { rows: branchStatus } = await pool.query(
+    const { rows: branchStatus } = await db.query(
       'SELECT status FROM branches WHERE id = $1',
       [targetBranchId],
     );
@@ -1752,13 +2154,64 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
 
     // Resolve the list of users this client will be assigned to. An explicit
     // assignment list is authoritative; the actor is never added implicitly.
+    const sourceCandidateId = Number(req.body?.sourceCandidateId);
+    const hasSourceCandidate = Number.isInteger(sourceCandidateId) && sourceCandidateId > 0;
+    let sourceCandidateAssignees: number[] | null = null;
+    let sourceCandidateOccupation: string | null = null;
+    if (hasSourceCandidate) {
+      if (Array.isArray(req.body?.assignmentUserIds)) {
+        return res.status(400).json({
+          error: 'ملكية الزبون الناتج تُشتق من الاسم المقترح ولا تقبل إسناداً موازياً',
+          code: 'candidate_conversion_assignment_conflict',
+        });
+      }
+      const { rows: sourceRows } = await db.query(
+        `SELECT c.branch_id AS "branchId",
+                c.occupation,
+                COALESCE(
+                  (SELECT array_agg(ca.hr_user_id ORDER BY ca.assigned_at, ca.id)
+                     FROM candidate_assignments ca
+                    WHERE ca.candidate_id = c.id),
+                  '{}'::int[]
+                ) AS "assignedUserIds"
+           FROM candidates c
+          WHERE c.id = $1
+            AND c.status NOT IN ('Qualified', 'Junk')
+            AND c.converted_to_lead_id IS NULL`,
+        [sourceCandidateId],
+      );
+      const sourceCandidate = sourceRows[0];
+      if (!sourceCandidate) {
+        return res.status(409).json({
+          error: 'الاسم المقترح غير متاح للتحويل',
+          code: 'candidate_conversion_source_unavailable',
+        });
+      }
+      const candidateAccess = canEditCandidate(authContext, sourceCandidate);
+      if (!candidateAccess.allowed) {
+        return forbidClientAccess(res, candidateAccess.reason);
+      }
+      if (Number(sourceCandidate.branchId) !== targetBranchId) {
+        return res.status(400).json({
+          error: 'يجب إنشاء الزبون الناتج ضمن فرع الاسم المقترح نفسه',
+          code: 'candidate_conversion_branch_mismatch',
+        });
+      }
+      sourceCandidateAssignees = await getEligiblePersonalOwnerIds(
+        (sourceCandidate.assignedUserIds as any[]).map(Number),
+      );
+      sourceCandidateOccupation = sourceCandidate.occupation ?? null;
+    }
+
     const assignmentAccess = canManageClientAssignments(authContext, targetBranchId);
     const canManageAssignments = assignmentAccess.allowed;
     const hasExplicitAssignments = Array.isArray(req.body?.assignmentUserIds);
-    if (hasExplicitAssignments && !canManageAssignments) {
+    if (!hasSourceCandidate && hasExplicitAssignments && !canManageAssignments) {
       return forbidClientAccess(res, assignmentAccess.reason);
     }
-    const resolvedAssignees = hasExplicitAssignments
+    const resolvedAssignees = hasSourceCandidate
+      ? sourceCandidateAssignees!
+      : hasExplicitAssignments
       ? await resolveAssignmentUserIds(req.body.assignmentUserIds)
       : ((await isEligiblePersonalOwner(authContext.userId)) ? [authContext.userId] : []);
     if ('error' in resolvedAssignees) {
@@ -1777,6 +2230,9 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
       normalizeClientPayload(req.body ?? {}),
       { id: authContext.userId, name: req.user?.name || '' },
     ), { defaultReferralDate: currentDateKey() });
+    c.occupation = await resolveReferenceValueForWrite(db, 'occupation', c.occupation, {
+      currentValue: sourceCandidateOccupation,
+    });
     if (!c.mobile) {
       return res.status(400).json({ error: 'رقم الموبايل مطلوب' });
     }
@@ -1803,7 +2259,26 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
       }
     }
 
-    const { rows: [inserted] } = await pool.query(
+    await db.query('BEGIN');
+    if (hasSourceCandidate) {
+      const { rows: lockedSourceRows } = await db.query(
+        `SELECT id
+           FROM candidates
+          WHERE id = $1
+            AND status NOT IN ('Qualified', 'Junk')
+            AND converted_to_lead_id IS NULL
+          FOR UPDATE`,
+        [sourceCandidateId],
+      );
+      if (!lockedSourceRows[0]) {
+        throw Object.assign(new Error('الاسم المقترح لم يعد متاحاً للتحويل'), {
+          status: 409,
+          code: 'candidate_conversion_source_unavailable',
+        });
+      }
+    }
+
+    const { rows: [inserted] } = await db.query(
       `INSERT INTO clients (
         first_name, father_name, last_name, nickname,
         name, mobile, contacts, governorate, district, neighborhood,
@@ -1841,17 +2316,44 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
       ],
     );
 
-    await insertClientAssignments(inserted.id, resolvedAssignees, authContext.userId);
-    await pool.query(
+    await insertClientAssignments(inserted.id, resolvedAssignees, authContext.userId, db);
+    await db.query(
       `INSERT INTO client_rating_history (client_id, old_rating, new_rating, notes, changed_by, changed_at)
        VALUES ($1, NULL, 'Undefined', $2, $3, NOW())`,
       [inserted.id, 'التقييم الابتدائي عند إنشاء الزبون', authContext.userId],
     );
 
-    const { rows } = await pool.query(`${CLIENT_SELECT} WHERE c.id = $1`, [inserted.id]);
-    res.json(mapClientRow(rows[0]));
+    if (serviceRequestLink) {
+      await linkNewClientToServiceRequestParty({
+        db,
+        authContext,
+        serviceRequestId: serviceRequestLink.serviceRequestId,
+        clientId: Number(inserted.id),
+        clientBranchId: targetBranchId,
+        party: serviceRequestLink.party,
+      });
+    }
+
+    if (hasSourceCandidate) {
+      await db.query(
+        `UPDATE candidates
+            SET status = 'Qualified',
+                converted_to_lead_id = $2,
+                duplicate_flag = TRUE
+          WHERE id = $1`,
+        [sourceCandidateId, inserted.id],
+      );
+    }
+
+    const { rows } = await db.query(`${CLIENT_SELECT} WHERE c.id = $1`, [inserted.id]);
+    const response = mapClientRow(rows[0]);
+    await db.query('COMMIT');
+    res.json(response);
   } catch (err: any) {
-    res.status(err.status || 500).json({ error: err.message });
+    await db.query('ROLLBACK').catch(() => undefined);
+    res.status(err.status || 500).json({ error: err.message, code: err.code });
+  } finally {
+    db.release();
   }
 });
 
@@ -1946,7 +2448,7 @@ router.put('/:id', requirePermission('clients.edit', 'clients.contacts.edit'), a
 
     // Load existing client for comparison / audit
     const { rows: existingRows } = await pool.query(
-      'SELECT branch_id, candidate_status, is_active FROM clients WHERE id = $1',
+      'SELECT branch_id, candidate_status, is_active, occupation FROM clients WHERE id = $1',
       [clientId],
     );
     const existing = existingRows[0];
@@ -1955,6 +2457,9 @@ router.put('/:id', requirePermission('clients.edit', 'clients.contacts.edit'), a
       normalizeClientPayload(req.body ?? {}),
       { id: authContext.userId, name: req.user?.name || '' },
     ));
+    c.occupation = await resolveReferenceValueForWrite(pool, 'occupation', c.occupation, {
+      currentValue: existing?.occupation ?? null,
+    });
     if (!c.mobile) {
       return res.status(400).json({ error: 'رقم الموبايل مطلوب' });
     }
@@ -1979,23 +2484,26 @@ router.put('/:id', requirePermission('clients.edit', 'clients.contacts.edit'), a
       });
     }
 
-    // Guard: block branch change if client has in-progress or scheduled visits
-    const newBranchId = req.body?.branchId ?? existing?.branch_id;
-    if (newBranchId && existing?.branch_id && Number(newBranchId) !== Number(existing.branch_id)) {
-      const { rows: activeVisits } = await pool.query(
-        `SELECT 1 FROM field_visits WHERE client_id = $1 AND status IN ('in_progress', 'scheduled') LIMIT 1`,
-        [clientId],
-      );
-      if (activeVisits.length > 0) {
-        return res.status(400).json({
-          error: 'لا يمكن تغيير الفرع: الزبون لديه زيارة نشطة أو مجدولة',
-        });
-      }
+    // Branch is immutable via the edit form. The historic UPDATE below never
+    // wrote branch_id, so silently accepting a different branchId (and audit-
+    // logging a change that never happened) was misleading. Reject explicitly;
+    // cross-branch transfer will be a dedicated operation (constitution BR-5).
+    const requestedNewBranchId = req.body?.branchId;
+    if (
+      requestedNewBranchId != null &&
+      requestedNewBranchId !== '' &&
+      existing?.branch_id != null &&
+      Number(requestedNewBranchId) !== Number(existing.branch_id)
+    ) {
+      return res.status(400).json({
+        error: 'لا يمكن تغيير فرع الزبون من نموذج التعديل؛ النقل بين الفروع يتطلب عملية نقل مخصصة',
+        code: 'BRANCH_CHANGE_NOT_ALLOWED',
+      });
     }
 
     // Resolve assignment changes only if the caller explicitly provided a new list
     let newAssigneeIds: number[] | null = null;
-    const assignmentBranchId = newBranchId == null || newBranchId === '' ? null : Number(newBranchId);
+    const assignmentBranchId = existing?.branch_id == null ? null : Number(existing.branch_id);
     const assignmentAccess = canManageClientAssignments(
       authContext,
       Number.isInteger(assignmentBranchId) ? assignmentBranchId : null,
@@ -2065,9 +2573,6 @@ router.put('/:id', requirePermission('clients.edit', 'clients.contacts.edit'), a
     if (existing) {
       if (c.candidateStatus !== undefined && String(c.candidateStatus ?? '') !== String(existing.candidate_status ?? '')) {
         auditFields.push({ field: 'candidate_status', oldVal: existing.candidate_status, newVal: c.candidateStatus ?? null });
-      }
-      if (newBranchId && existing.branch_id && Number(newBranchId) !== Number(existing.branch_id)) {
-        auditFields.push({ field: 'branch_id', oldVal: String(existing.branch_id), newVal: String(newBranchId) });
       }
     }
     for (const af of auditFields) {
@@ -2234,47 +2739,13 @@ router.delete('/:id', requirePermission('clients.delete'), async (req, res) => {
  *         description: Unauthorized
  *       403:
  *         description: Forbidden
- *       500:
- *         description: Server error
+ *       410:
+ *         description: Bulk deletion is disabled; clients must be soft-deleted individually
  */
-router.post('/bulk-delete', requirePermission('clients.delete'), async (req, res) => {
-  try {
-    const authContext = getRequiredAuthContext(req);
-    const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
-    if (ids.length === 0) {
-      return res.json({ success: true });
-    }
-
-    const { rows } = await pool.query(
-      `SELECT
-         c.id,
-         c.branch_id AS "branchId",
-         COALESCE(
-           (SELECT array_agg(hr_user_id)
-              FROM client_assignments
-             WHERE client_id = c.id),
-           '{}'::int[]
-         ) AS "assignedUserIds"
-       FROM clients c
-      WHERE c.id = ANY($1)`,
-      [ids],
-    );
-
-    for (const row of rows) {
-      const access = canDeleteClient(authContext, {
-        branchId: row.branchId,
-        assignedUserIds: row.assignedUserIds,
-      });
-      if (!access.allowed) {
-        return forbidClientAccess(res, access.reason);
-      }
-    }
-
-    await pool.query('DELETE FROM clients WHERE id = ANY($1)', [ids]);
-    res.json({ success: true });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
+router.post('/bulk-delete', requirePermission('clients.delete'), (_req, res) => {
+  return res.status(410).json({
+    error: 'الحذف الجماعي للزبائن متوقف لحماية السجل. احذف كل زبون على حدة.',
+  });
 });
 
 // ============================================================================
@@ -2301,6 +2772,11 @@ router.post('/:id/cooldown', requirePermission('clients.contact_control.edit'), 
       return res.status(400).json({ error: 'clientId غير صالح' });
     }
     const authContext = getRequiredAuthContext(req);
+    const subject = await loadClientSubject(clientId);
+    if (!subject) return res.status(404).json({ error: 'الزبون غير موجود' });
+    if (!canEditClientContactControl(authContext, subject).allowed) {
+      return res.status(403).json({ error: 'ليس لديك صلاحية تغيير حالة التواصل لهذا الزبون' });
+    }
     const { days, reason } = req.body as { days?: number; reason?: string };
 
     if (!Number.isFinite(days) || !days || days <= 0) {
@@ -2310,20 +2786,40 @@ router.post('/:id/cooldown', requirePermission('clients.contact_control.edit'), 
       return res.status(400).json({ error: 'سبب التهدئة مطلوب (reason)' });
     }
 
-    const { rows } = await pool.query(
-      `UPDATE clients
-          SET cooldown_until  = CURRENT_DATE + ($1 || ' days')::INTERVAL,
-              cooldown_reason = $2,
-              cooldown_set_by = $3,
-              cooldown_set_at = NOW()
-        WHERE id = $4
-        RETURNING id,
-                  cooldown_until  AS "cooldownUntil",
-                  cooldown_reason AS "cooldownReason",
-                  cooldown_set_by AS "cooldownSetBy",
-                  cooldown_set_at AS "cooldownSetAt"`,
-      [Math.floor(days), reason.trim(), authContext.userId ?? null, clientId],
-    );
+    const db = await pool.connect();
+    let rows: any[] = [];
+    try {
+      await db.query('BEGIN');
+      await lockClientContactControlMutations(db, [clientId]);
+      const lockedSubject = await loadClientSubject(clientId, db, true);
+      if (!lockedSubject || !canEditClientContactControl(authContext, lockedSubject).allowed) {
+        await db.query('ROLLBACK');
+        return res.status(403).json({
+          error: 'تغير نطاق الزبون؛ لم يعد مسموحاً تغيير حالة التواصل.',
+        });
+      }
+      const result = await db.query(
+        `UPDATE clients
+            SET cooldown_until  = CURRENT_DATE + ($1 || ' days')::INTERVAL,
+                cooldown_reason = $2,
+                cooldown_set_by = $3,
+                cooldown_set_at = NOW()
+          WHERE id = $4
+          RETURNING id,
+                    cooldown_until  AS "cooldownUntil",
+                    cooldown_reason AS "cooldownReason",
+                    cooldown_set_by AS "cooldownSetBy",
+                    cooldown_set_at AS "cooldownSetAt"`,
+        [Math.floor(days), reason.trim(), authContext.userId ?? null, clientId],
+      );
+      rows = result.rows;
+      await db.query('COMMIT');
+    } catch (error) {
+      await db.query('ROLLBACK');
+      throw error;
+    } finally {
+      db.release();
+    }
     if (rows.length === 0) {
       return res.status(404).json({ error: 'الزبون غير موجود' });
     }
@@ -2351,17 +2847,43 @@ router.delete('/:id/cooldown', requirePermission('clients.cooldown_unlock'), asy
     if (!Number.isInteger(clientId) || clientId <= 0) {
       return res.status(400).json({ error: 'clientId غير صالح' });
     }
+    const authContext = getRequiredAuthContext(req);
+    const subject = await loadClientSubject(clientId);
+    if (!subject) return res.status(404).json({ error: 'الزبون غير موجود' });
+    if (!canUnlockClientCooldown(authContext, subject).allowed) {
+      return res.status(403).json({ error: 'ليس لديك صلاحية فك فترة التهدئة لهذا الزبون' });
+    }
 
-    const { rows } = await pool.query(
-      `UPDATE clients
-          SET cooldown_until  = NULL,
-              cooldown_reason = NULL,
-              cooldown_set_by = NULL,
-              cooldown_set_at = NULL
-        WHERE id = $1
-        RETURNING id`,
-      [clientId],
-    );
+    const db = await pool.connect();
+    let rows: any[] = [];
+    try {
+      await db.query('BEGIN');
+      await lockClientContactControlMutations(db, [clientId]);
+      const lockedSubject = await loadClientSubject(clientId, db, true);
+      if (!lockedSubject || !canUnlockClientCooldown(authContext, lockedSubject).allowed) {
+        await db.query('ROLLBACK');
+        return res.status(403).json({
+          error: 'تغير نطاق الزبون؛ لم يعد مسموحاً فك فترة التهدئة.',
+        });
+      }
+      const result = await db.query(
+        `UPDATE clients
+            SET cooldown_until  = NULL,
+                cooldown_reason = NULL,
+                cooldown_set_by = NULL,
+                cooldown_set_at = NULL
+          WHERE id = $1
+          RETURNING id`,
+        [clientId],
+      );
+      rows = result.rows;
+      await db.query('COMMIT');
+    } catch (error) {
+      await db.query('ROLLBACK');
+      throw error;
+    } finally {
+      db.release();
+    }
     if (rows.length === 0) {
       return res.status(404).json({ error: 'الزبون غير موجود' });
     }
@@ -2389,22 +2911,54 @@ router.patch('/:id/do-not-contact', requirePermission('clients.contact_control.e
     if (!Number.isInteger(clientId) || clientId <= 0) {
       return res.status(400).json({ error: 'clientId غير صالح' });
     }
+    const authContext = getRequiredAuthContext(req);
+    const subject = await loadClientSubject(clientId);
+    if (!subject) return res.status(404).json({ error: 'الزبون غير موجود' });
+    if (!canEditClientContactControl(authContext, subject).allowed) {
+      return res.status(403).json({ error: 'ليس لديك صلاحية تغيير حالة التواصل لهذا الزبون' });
+    }
     const { doNotContact } = req.body as { doNotContact?: boolean };
     if (typeof doNotContact !== 'boolean') {
       return res.status(400).json({ error: 'doNotContact (boolean) مطلوب' });
     }
 
-    const { rows } = await pool.query(
-      `UPDATE clients
-          SET do_not_contact = $1
-        WHERE id = $2
-        RETURNING id, do_not_contact AS "doNotContact"`,
-      [doNotContact, clientId],
-    );
-    if (rows.length === 0) {
-      return res.status(404).json({ error: 'الزبون غير موجود' });
+    const reasonText = typeof req.body?.reason === 'string'
+      ? req.body.reason.trim().slice(0, 500) || null
+      : null;
+    if (!reasonText) {
+      return res.status(400).json({ error: 'سبب تغيير حالة عدم التواصل مطلوب (reason)' });
     }
-    return res.json(rows[0]);
+    const db = await pool.connect();
+    try {
+      await db.query('BEGIN');
+      await lockClientContactControlMutations(db, [clientId]);
+      const lockedSubject = await loadClientSubject(clientId, db, true);
+      if (!lockedSubject || !canEditClientContactControl(authContext, lockedSubject).allowed) {
+        await db.query('ROLLBACK');
+        return res.status(403).json({
+          error: 'تغير نطاق الزبون؛ لم يعد مسموحاً تغيير حالة التواصل.',
+        });
+      }
+      const result = await applyClientDoNotContactState(db, {
+        clientIds: [clientId],
+        enable: doNotContact,
+        reasonCode: 'client_profile',
+        reasonText,
+        userId: authContext.userId,
+      });
+      await db.query('COMMIT');
+      return res.json({
+        id: clientId,
+        doNotContact,
+        releasedAssignments: result.releasedAssignments,
+        closedTargets: result.closedTargets,
+      });
+    } catch (error) {
+      await db.query('ROLLBACK');
+      throw error;
+    } finally {
+      db.release();
+    }
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

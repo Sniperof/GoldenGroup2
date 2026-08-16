@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Navigate } from 'react-router-dom';
-import { Settings, Database, Trash2, AlertTriangle, RefreshCw, CheckCircle2, Clock, Save } from 'lucide-react';
+import { Settings, Database, Trash2, AlertTriangle, RefreshCw, CheckCircle2, Clock, Save } from '../components/ui/icons';
 import { usePermissions } from '../hooks/usePermissions';
 import { api } from '../lib/api';
 import Button from '../components/ui/Button';
@@ -15,6 +15,20 @@ const PERIODIC_STATUS_OPTIONS = [
     { value: 'waiting_execution', label: 'بانتظار التنفيذ' },
 ];
 
+const TEAM_SLOT_OPTIONS = [
+    { value: 'SUPERVISOR', label: 'المشرف', description: 'المشرف الميداني للفريق' },
+    { value: 'TECHNICIAN', label: 'الفني', description: 'الفني المنفذ للزيارات' },
+    { value: 'TRAINEE', label: 'المتدرب', description: 'المتدرب المرافق للفريق' },
+    { value: 'TELEMARKETER', label: 'التيلماركتر', description: 'موظف الاتصالات' },
+] as const;
+
+type TeamSlot = typeof TEAM_SLOT_OPTIONS[number]['value'];
+
+function parseTeamSlots(raw: string): TeamSlot[] {
+    const configured = new Set(raw.split(',').map(value => value.trim().toUpperCase()).filter(Boolean));
+    return TEAM_SLOT_OPTIONS.map(option => option.value).filter(slot => configured.has(slot));
+}
+
 const DEFAULT_PERIODIC_SETTINGS = {
     periodic_auto_generate_enabled: 'true',
     periodic_manual_creation_enabled: 'true',
@@ -22,6 +36,24 @@ const DEFAULT_PERIODIC_SETTINGS = {
     periodic_attach_warning_days: '14',
     periodic_attach_allowed_statuses: '["open","assigned","in_scheduling","scheduled","waiting_execution"]',
 };
+const DEFAULT_NAME_NOMINATION_SETTINGS = {
+    name_nomination_max_names_per_request: '50',
+    name_nomination_daily_per_unverified_ip: '20',
+};
+
+const DAILY_IDENTITY_REQUEST_SETTINGS = [
+    ['water_check_daily_per_identity', 'فحص المياه'],
+    ['emergency_maintenance_daily_per_identity', 'الصيانة الطارئة'],
+    ['device_request_daily_per_identity', 'طلب جهاز'],
+    ['periodic_maintenance_daily_per_identity', 'الصيانة الدورية'],
+    ['golden_warranty_daily_per_identity', 'الضمان الذهبي'],
+    ['name_nomination_daily_per_identity', 'ترشيح الأسماء'],
+    ['agent_license_daily_per_identity', 'ترخيص الوكيل'],
+] as const;
+type DailyIdentitySettingKey = typeof DAILY_IDENTITY_REQUEST_SETTINGS[number][0];
+const DEFAULT_DAILY_IDENTITY_SETTINGS = Object.fromEntries(
+    DAILY_IDENTITY_REQUEST_SETTINGS.map(([key]) => [key, '5']),
+) as Record<DailyIdentitySettingKey, string>;
 
 export default function SystemSettings() {
     const { hasPermission } = usePermissions();
@@ -40,6 +72,21 @@ export default function SystemSettings() {
     const [savedPeriodicSettings, setSavedPeriodicSettings] = useState(DEFAULT_PERIODIC_SETTINGS);
     const [periodicSavingKey, setPeriodicSavingKey] = useState<string | null>(null);
     const [periodicMsg, setPeriodicMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+    const [visitJobInterval, setVisitJobInterval] = useState('15');
+    const [savedVisitJobInterval, setSavedVisitJobInterval] = useState('15');
+    const [visitJobSaving, setVisitJobSaving] = useState(false);
+    const [visitJobMsg, setVisitJobMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+    const [webLoginSlots, setWebLoginSlots] = useState<TeamSlot[]>([]);
+    const [savedWebLoginSlots, setSavedWebLoginSlots] = useState<TeamSlot[]>([]);
+    const [webLoginSaving, setWebLoginSaving] = useState(false);
+    const [webLoginMsg, setWebLoginMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+    const [showDeveloperSettings, setShowDeveloperSettings] = useState(false);
+    const [nameNominationSettings, setNameNominationSettings] = useState(DEFAULT_NAME_NOMINATION_SETTINGS);
+    const [savedNameNominationSettings, setSavedNameNominationSettings] = useState(DEFAULT_NAME_NOMINATION_SETTINGS);
+    const [nameNominationSavingKey, setNameNominationSavingKey] = useState<string | null>(null);
+    const [dailyIdentitySettings, setDailyIdentitySettings] = useState(DEFAULT_DAILY_IDENTITY_SETTINGS);
+    const [savedDailyIdentitySettings, setSavedDailyIdentitySettings] = useState(DEFAULT_DAILY_IDENTITY_SETTINGS);
+    const [dailyIdentitySavingKey, setDailyIdentitySavingKey] = useState<DailyIdentitySettingKey | null>(null);
 
     useEffect(() => {
         let cancelled = false;
@@ -56,6 +103,26 @@ export default function SystemSettings() {
                 }
                 setPeriodicSettings(nextPeriodic);
                 setSavedPeriodicSettings(nextPeriodic);
+                const visitInterval = res.settings.find((s) => s.key === 'visit_escalation_job_interval_minutes')?.value ?? '15';
+                setVisitJobInterval(visitInterval);
+                setSavedVisitJobInterval(visitInterval);
+                const allowedWebSlots = parseTeamSlots(
+                    res.settings.find((s) => s.key === 'web_login_allowed_team_slots')?.value ?? '',
+                );
+                setWebLoginSlots(allowedWebSlots);
+                setSavedWebLoginSlots(allowedWebSlots);
+                const nomination = { ...DEFAULT_NAME_NOMINATION_SETTINGS };
+                for (const key of Object.keys(nomination) as Array<keyof typeof nomination>) {
+                    nomination[key] = res.settings.find((s) => s.key === key)?.value ?? nomination[key];
+                }
+                setNameNominationSettings(nomination);
+                setSavedNameNominationSettings(nomination);
+                const dailyIdentity = { ...DEFAULT_DAILY_IDENTITY_SETTINGS };
+                for (const key of Object.keys(dailyIdentity) as DailyIdentitySettingKey[]) {
+                    dailyIdentity[key] = res.settings.find((s) => s.key === key)?.value ?? dailyIdentity[key];
+                }
+                setDailyIdentitySettings(dailyIdentity);
+                setSavedDailyIdentitySettings(dailyIdentity);
             })
             .catch(() => { if (!cancelled) setCleanupMsg({ type: 'err', text: 'تعذّر تحميل الإعداد.' }); })
             .finally(() => { if (!cancelled) setCleanupLoading(false); });
@@ -118,6 +185,71 @@ export default function SystemSettings() {
         }
     };
 
+    const saveVisitJobInterval = async () => {
+        setVisitJobSaving(true);
+        setVisitJobMsg(null);
+        try {
+            const res = await api.systemSettings.update('visit_escalation_job_interval_minutes', Number(visitJobInterval));
+            setVisitJobInterval(res.value);
+            setSavedVisitJobInterval(res.value);
+            setVisitJobMsg({ type: 'ok', text: 'تم الحفظ، وستُقرأ القيمة تلقائياً بعد دورة الفحص الحالية.' });
+        } catch (err: any) {
+            setVisitJobMsg({ type: 'err', text: err?.message ?? 'فشل حفظ فترة الفحص.' });
+        } finally {
+            setVisitJobSaving(false);
+        }
+    };
+
+    const saveNameNominationSetting = async (key: keyof typeof DEFAULT_NAME_NOMINATION_SETTINGS) => {
+        setNameNominationSavingKey(key);
+        try {
+            const res = await api.systemSettings.update(key, Number(nameNominationSettings[key]));
+            setNameNominationSettings((current) => ({ ...current, [key]: res.value }));
+            setSavedNameNominationSettings((current) => ({ ...current, [key]: res.value }));
+        } finally { setNameNominationSavingKey(null); }
+    };
+
+    const saveDailyIdentitySetting = async (key: DailyIdentitySettingKey) => {
+        setDailyIdentitySavingKey(key);
+        try {
+            const res = await api.systemSettings.update(key, Number(dailyIdentitySettings[key]));
+            setDailyIdentitySettings((current) => ({ ...current, [key]: res.value }));
+            setSavedDailyIdentitySettings((current) => ({ ...current, [key]: res.value }));
+        } finally {
+            setDailyIdentitySavingKey(null);
+        }
+    };
+
+    const setWebLoginSlot = (slot: TeamSlot, checked: boolean) => {
+        setWebLoginMsg(null);
+        setWebLoginSlots(current => {
+            const selected = new Set(current);
+            if (checked) selected.add(slot); else selected.delete(slot);
+            return TEAM_SLOT_OPTIONS.map(option => option.value).filter(value => selected.has(value));
+        });
+    };
+
+    const saveWebLoginSlots = async () => {
+        setWebLoginSaving(true);
+        setWebLoginMsg(null);
+        try {
+            const res = await api.systemSettings.update('web_login_allowed_team_slots', webLoginSlots);
+            const normalized = parseTeamSlots(res.value);
+            setWebLoginSlots(normalized);
+            setSavedWebLoginSlots(normalized);
+            setWebLoginMsg({
+                type: 'ok',
+                text: normalized.length === 0
+                    ? 'تم إيقاف تقييد الدخول من الهاتف والجهاز اللوحي.'
+                    : 'تم حفظ السياسة. ستُطبَّق على طلبات الويب التالية مباشرةً.',
+            });
+        } catch (err: any) {
+            setWebLoginMsg({ type: 'err', text: err?.message ?? 'فشل حفظ سياسة أجهزة الدخول.' });
+        } finally {
+            setWebLoginSaving(false);
+        }
+    };
+
     if (!hasPermission('settings.view')) {
         return <Navigate to="/" replace />;
     }
@@ -136,9 +268,15 @@ export default function SystemSettings() {
                 title="إعدادات النظام"
                 subtitle="تحكم ببيانات النظام والخيارات المتقدمة"
                 icon={
-                    <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center">
+                    <button
+                        type="button"
+                        aria-label="تبديل إعدادات المطور"
+                        aria-pressed={showDeveloperSettings}
+                        onClick={() => setShowDeveloperSettings(visible => !visible)}
+                        className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center"
+                    >
                         <Settings className="w-6 h-6 text-slate-600" />
-                    </div>
+                    </button>
                 }
             />
 
@@ -189,6 +327,92 @@ export default function SystemSettings() {
                         )}
                         {!canManageSettings && (
                             <p className="text-xs text-slate-400 mt-3">للعرض فقط — تعديل الإعداد يحتاج صلاحية «تعديل إعدادات النظام».</p>
+                        )}
+                    </div>
+                </motion.div>
+
+                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                    className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+                    <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex items-center gap-3">
+                        <Settings className="w-5 h-5 text-sky-600" />
+                        <div>
+                            <h2 className="text-lg font-bold text-slate-800">سقوف طلبات الموبايل لكل هوية</h2>
+                            <p className="text-xs text-slate-500 mt-1">عدد الطلبات المسموح به لكل نوع خلال نافذة متحركة مدتها 24 ساعة. القيمة 0 توقف السقف لهذا النوع.</p>
+                        </div>
+                    </div>
+                    <div className="p-6 grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {DAILY_IDENTITY_REQUEST_SETTINGS.map(([key, label]) => (
+                            <div key={key} className="border border-slate-100 rounded-xl p-4">
+                                <label className="block text-xs font-bold text-slate-600 mb-2">{label}</label>
+                                <div className="flex items-center gap-2">
+                                    <input type="number" min={0} value={dailyIdentitySettings[key]}
+                                        disabled={!canManageSettings || dailyIdentitySavingKey === key}
+                                        onChange={(event) => setDailyIdentitySettings((current) => ({ ...current, [key]: event.target.value }))}
+                                        className="w-24 px-3 py-2 border border-slate-200 rounded-xl text-sm font-bold" />
+                                    <Button variant="secondary" icon={Save} loading={dailyIdentitySavingKey === key}
+                                        disabled={!canManageSettings || dailyIdentitySettings[key] === savedDailyIdentitySettings[key] || Number(dailyIdentitySettings[key]) < 0}
+                                        onClick={() => saveDailyIdentitySetting(key)}>حفظ</Button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </motion.div>
+
+                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                    className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+                    <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex items-center gap-3">
+                        <Settings className="w-5 h-5 text-violet-600" />
+                        <h2 className="text-lg font-bold text-slate-800">إعدادات طلب ترشيح الأسماء</h2>
+                    </div>
+                    <div className="p-6 grid md:grid-cols-3 gap-4">
+                        {([
+                            ['name_nomination_max_names_per_request','الحد الأقصى للأسماء في الطلب',1],
+                            ['name_nomination_daily_per_unverified_ip','السقف اليومي لكل IP غير موثق',0],
+                        ] as const).map(([key,label,min])=><div key={key} className="border border-slate-100 rounded-xl p-4">
+                            <label className="block text-xs font-bold text-slate-600 mb-2">{label}</label>
+                            <div className="flex items-center gap-2"><input type="number" min={min}
+                                value={nameNominationSettings[key]} disabled={!canManageSettings||nameNominationSavingKey===key}
+                                onChange={(e)=>setNameNominationSettings((current)=>({...current,[key]:e.target.value}))}
+                                className="w-24 px-3 py-2 border border-slate-200 rounded-xl text-sm font-bold" />
+                                <Button variant="secondary" icon={Save} loading={nameNominationSavingKey===key}
+                                    disabled={!canManageSettings||nameNominationSettings[key]===savedNameNominationSettings[key]||Number(nameNominationSettings[key])<min}
+                                    onClick={()=>saveNameNominationSetting(key)}>حفظ</Button></div>
+                        </div>)}
+                    </div>
+                </motion.div>
+
+                {/* Periodic maintenance operational settings */}
+                <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm"
+                >
+                    <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex items-center gap-3">
+                        <Clock className="w-5 h-5 text-amber-600" />
+                        <h2 className="text-lg font-bold text-slate-800">فحص تنبيهات الزيارات</h2>
+                    </div>
+                    <div className="p-6">
+                        <p className="text-xs text-slate-500 leading-relaxed mb-5">
+                            عدد الدقائق بين دورات فحص الزيارات المعلقة قبل البدء والزيارات التي تنتظر التوثيق. المجال المسموح من دقيقة إلى 1440 دقيقة.
+                        </p>
+                        <div className="flex items-end gap-3 flex-wrap">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-600 mb-1.5">فترة الفحص بالدقائق</label>
+                                <input type="number" min={1} max={1440} value={visitJobInterval}
+                                    onChange={(e) => setVisitJobInterval(e.target.value)}
+                                    disabled={!canManageSettings || visitJobSaving}
+                                    className="w-32 px-3 py-2 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-200 disabled:bg-slate-50 disabled:text-slate-400" />
+                            </div>
+                            <Button variant="secondary" icon={Save} onClick={saveVisitJobInterval}
+                                loading={visitJobSaving}
+                                disabled={!canManageSettings || !visitJobInterval || visitJobInterval === savedVisitJobInterval}>
+                                حفظ
+                            </Button>
+                        </div>
+                        {visitJobMsg && (
+                            <p className={`text-xs font-bold mt-3 ${visitJobMsg.type === 'ok' ? 'text-emerald-600' : 'text-red-600'}`}>
+                                {visitJobMsg.text}
+                            </p>
                         )}
                     </div>
                 </motion.div>
@@ -303,6 +527,92 @@ export default function SystemSettings() {
                         )}
                     </div>
                 </motion.div>
+
+                {/* Web login device policy */}
+                {showDeveloperSettings && <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm"
+                >
+                    <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between gap-3 flex-wrap">
+                        <div className="flex items-center gap-3">
+                            <Settings className="w-5 h-5 text-sky-600" />
+                            <div>
+                                <h2 className="text-lg font-bold text-slate-800">الدخول إلى الويب من الهاتف والأجهزة اللوحية</h2>
+                                <p className="text-xs text-slate-500 mt-1">الحاسوب مسموح دائماً؛ التقييد يخص الهاتف والجهاز اللوحي فقط.</p>
+                            </div>
+                        </div>
+                        <span className={`px-2.5 py-1 rounded-full border text-xs font-bold ${webLoginSlots.length > 0
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+                            {webLoginSlots.length > 0 ? 'التقييد مفعّل' : 'التقييد متوقف'}
+                        </span>
+                    </div>
+
+                    <div className="p-6 space-y-5">
+                        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3">
+                            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                            <div className="text-xs text-amber-800 leading-relaxed">
+                                <p className="font-bold mb-1">اختر خانات الفريق المسموح لها باستخدام الهاتف أو الجهاز اللوحي.</p>
+                                <p>
+                                    عند اختيار أي خانة سيُمنع جميع من لا يملكون إحدى الخانات المختارة، دون استثناء لمدير النظام.
+                                    إزالة جميع الاختيارات توقف التقييد وتسمح بالدخول من كل الأجهزة.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="grid sm:grid-cols-2 gap-3">
+                            {TEAM_SLOT_OPTIONS.map(option => (
+                                <label
+                                    key={option.value}
+                                    className={`flex items-start gap-3 rounded-xl border p-4 transition-colors ${webLoginSlots.includes(option.value)
+                                        ? 'border-sky-200 bg-sky-50'
+                                        : 'border-slate-200 bg-white hover:bg-slate-50'}`}
+                                >
+                                    <input
+                                        type="checkbox"
+                                        checked={webLoginSlots.includes(option.value)}
+                                        disabled={!canManageSettings || cleanupLoading || webLoginSaving}
+                                        onChange={(event) => setWebLoginSlot(option.value, event.target.checked)}
+                                        className="h-4 w-4 mt-0.5 rounded border-slate-300 text-sky-600 focus:ring-sky-200"
+                                    />
+                                    <span>
+                                        <span className="block text-sm font-bold text-slate-700">{option.label}</span>
+                                        <span className="block text-xs text-slate-500 mt-0.5">{option.description}</span>
+                                    </span>
+                                </label>
+                            ))}
+                        </div>
+
+                        <div className="flex items-center gap-3 flex-wrap">
+                            <Button
+                                variant="primary"
+                                icon={Save}
+                                onClick={saveWebLoginSlots}
+                                loading={webLoginSaving}
+                                disabled={
+                                    !canManageSettings
+                                    || cleanupLoading
+                                    || webLoginSlots.join(',') === savedWebLoginSlots.join(',')
+                                }
+                            >
+                                حفظ سياسة الدخول
+                            </Button>
+                            {webLoginSlots.length === 0 && (
+                                <span className="text-xs font-bold text-slate-500">لا يوجد تقييد فعّال حالياً.</span>
+                            )}
+                        </div>
+
+                        {webLoginMsg && (
+                            <p className={`text-xs font-bold ${webLoginMsg.type === 'ok' ? 'text-emerald-600' : 'text-red-600'}`}>
+                                {webLoginMsg.text}
+                            </p>
+                        )}
+                        {!canManageSettings && (
+                            <p className="text-xs text-slate-400">للعرض فقط — تعديل السياسة يحتاج صلاحية «تعديل إعدادات النظام».</p>
+                        )}
+                    </div>
+                </motion.div>}
 
                 {/* Data Management Section */}
                 <motion.div

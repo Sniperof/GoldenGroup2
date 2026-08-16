@@ -14,13 +14,20 @@ function simpleUUID() {
 
 const normalizeTimeSlot = (value: string | null | undefined) => String(value || '').slice(0, 5);
 
+interface VisitBookingContactContext {
+    callLogId?: string | null;
+    telemarketerNotes?: string | null;
+    answeredBy?: 'customer' | 'spouse' | 'child' | 'other' | null;
+    fieldInstructions?: string | null;
+}
+
 interface TelemarketingStore {
     taskLists: TaskList[];
     appointments: Appointment[];
     callLogs: CallLog[];
     loadData: (date?: string, appointmentDate?: string) => Promise<void>;
-    addCallLog: (log: Omit<CallLog, 'id' | 'timestamp'>) => Promise<void>;
-    addAppointment: (appointment: Omit<Appointment, 'id' | 'createdAt'>, selectedTaskEntries?: SelectedTaskEntry[]) => Promise<void>;
+    addCallLog: (log: Omit<CallLog, 'id' | 'timestamp'>) => Promise<CallLog>;
+    addAppointment: (appointment: Omit<Appointment, 'id' | 'createdAt'>, selectedTaskEntries?: SelectedTaskEntry[], contactContext?: VisitBookingContactContext) => Promise<void>;
     addDirectAppointment: (appointment: Omit<Appointment, 'id' | 'createdAt'>, selectedTaskEntries: SelectedTaskEntry[]) => Promise<void>;
     updateTaskListItemStatus: (taskListId: string, itemId: string, status: TaskListItem['status'], outcome?: TelemarketingOutcomeCode) => Promise<void>;
     getTaskList: (teamKey: string, date: string) => TaskList | undefined;
@@ -61,9 +68,10 @@ export const useTelemarketingStore = create<TelemarketingStore>((set, get) => ({
 
         const saved = await api.telemarketing.createCallLog(newLog);
         set((state) => ({ callLogs: [saved, ...state.callLogs] }));
+        return saved;
     },
 
-    addAppointment: async (appointmentInput, selectedTaskEntries) => {
+    addAppointment: async (appointmentInput, selectedTaskEntries, contactContext) => {
         const isBooked = get().appointments.some(
             (appointment) =>
                 appointment.teamKey === appointmentInput.teamKey &&
@@ -104,7 +112,10 @@ export const useTelemarketingStore = create<TelemarketingStore>((set, get) => ({
                     occupation: appointmentInput.occupation,
                     waterSource: appointmentInput.waterSource,
                 },
-                notes: appointmentInput.notes,
+                callLogId: contactContext?.callLogId ?? undefined,
+                telemarketerNotes: contactContext?.telemarketerNotes ?? null,
+                answeredBy: contactContext?.answeredBy ?? null,
+                fieldInstructions: contactContext?.fieldInstructions ?? appointmentInput.notes ?? null,
             });
 
             saved = {
@@ -164,7 +175,7 @@ export const useTelemarketingStore = create<TelemarketingStore>((set, get) => ({
                 occupation: appointmentInput.occupation,
                 waterSource: appointmentInput.waterSource,
             },
-            notes: appointmentInput.notes,
+            fieldInstructions: appointmentInput.notes,
         });
 
         const saved: Appointment = {

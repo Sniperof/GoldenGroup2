@@ -6,19 +6,20 @@ import { uploadFile } from '../../lib/uploadFile';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { useSystemListsStore } from '../../hooks/useSystemLists';
 import { api } from '../../lib/api';
-import { findEmployeeByNumber, formatEmployeeMediatorLabel, toMediatorEmployee, MediatorEmployee } from '../../lib/employeeMediatorLookup';
+import { findEmployeeByNumber, formatEmployeeMediatorLabel, resolveEmployeeMediatorReference, toMediatorEmployee, MediatorEmployee } from '../../lib/employeeMediatorLookup';
 import GeoSmartSearch, { GeoSelection } from '../../components/GeoSmartSearch';
 import {
   ArrowRight, Send, AlertTriangle, CheckCircle, UserPlus,
   User, MapPin, Phone, Mail, GraduationCap, Briefcase, Info, Loader2,
   File, UploadCloud, Paperclip, ChevronDown, MessageCircle, Banknote,
   Car, Languages, Search, Building2, ClipboardCheck
-} from 'lucide-react';
+} from '../../components/ui/icons';
 import { motion, AnimatePresence } from 'framer-motion';
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import { SYRIAN_MOBILE_HINT, isValidSyrianMobile } from '../../lib/contactRules';
 import Select from '../../components/ui/Select';
+import DateField from '../../components/ui/DateField';
 
 // --- Types & Constants ---
 
@@ -216,7 +217,7 @@ export default function ManualApplicationEntry() {
 
   useEffect(() => {
     fetchLists();
-    authFetch('/api/admin/vacancies?status=Open')
+    authFetch('/api/admin/vacancies?status=Open&applicable=true')
       .then(res => res.json())
       .then(data => { if (Array.isArray(data)) setVacancies(data); })
       .catch(console.error);
@@ -241,13 +242,27 @@ export default function ManualApplicationEntry() {
     return () => { active = false; };
   }, []);
 
+  const clearFieldErrors = (...keys: string[]) => {
+    setFieldErrors(previous => {
+      const next = { ...previous };
+      let changed = false;
+      for (const key of keys) {
+        if (key in next) {
+          delete next[key];
+          changed = true;
+        }
+      }
+      return changed ? next : previous;
+    });
+  };
+
   const setA = (key: keyof ApplicantForm, val: any) => {
     setApplicant(p => ({ ...p, [key]: val }));
-    if (fieldErrors[key]) setFieldErrors(p => { const n = { ...p }; delete n[key]; return n; });
+    clearFieldErrors(key);
   };
   const setR = (key: keyof ReferrerForm, val: any) => {
     setReferrer(p => ({ ...p, [key]: val }));
-    if (fieldErrors[`referrer_${key}`]) setFieldErrors(p => { const n = { ...p }; delete n[`referrer_${key}`]; return n; });
+    clearFieldErrors(`referrer_${key}`);
   };
 
   const handleNameInput = (val: string, key: 'firstName' | 'lastName') => {
@@ -278,13 +293,6 @@ export default function ManualApplicationEntry() {
     setClientSearch('');
     setClientSuggestions([]);
     setEmployeeFound(null);
-    delete fieldErrors.referrer_type;
-    delete fieldErrors.referrer_employeeId;
-    delete fieldErrors.referrer_fullName;
-    delete fieldErrors.referrer_lastName;
-    delete fieldErrors.referrer_geoSelection;
-    delete fieldErrors.referrer_detailedAddress;
-    delete fieldErrors.referrer_referrerWork;
   };
 
   const handleEmployeeLookup = async () => {
@@ -298,9 +306,8 @@ export default function ManualApplicationEntry() {
       setSelectedClientId(null);
       setClientSearch('');
       setClientSuggestions([]);
-      delete fieldErrors.referrer_employeeId;
-      delete fieldErrors.referrer_fullName;
-        return;
+      clearFieldErrors('referrer_employeeId', 'referrer_fullName');
+      return;
     }
     setEmployeeFound(null);
     setFieldErrors(prev => ({ ...prev, referrer_employeeId: 'لم يتم العثور على الموظف' }));
@@ -376,18 +383,24 @@ export default function ManualApplicationEntry() {
 
       if (referrer.type === 'Employee') {
         if (!referrer.employeeId.trim()) e.referrer_employeeId = 'رقم الموظف مطلوب';
-        if (!employeeFound) e.referrer_employeeId = 'لم يتم العثور على الموظف';
+        if (!resolveEmployeeMediatorReference(referrer.employeeId, employeeFound)) {
+          e.referrer_employeeId = 'لم يتم العثور على الموظف';
+        }
       } else if (referrer.type === 'Client') {
         if (!selectedClientId) e.referrer_fullName = 'الرجاء اختيار الزبون الوسيط';
       }
     }
 
+    setFieldErrors(e);
     if (Object.keys(e).length > 0) { window.scrollTo({ top: 0, behavior: 'smooth' }); return false; }
     return true;
   };
 
   const handleSubmit = async () => {
     if (!validate()) return;
+    const employeeReference = referrer.type === 'Employee'
+      ? resolveEmployeeMediatorReference(referrer.employeeId, employeeFound)
+      : null;
     setSubmitResult(null);
     setSubmitting(true);
     try {
@@ -400,7 +413,7 @@ export default function ManualApplicationEntry() {
       let finalCvUrl = applicant.cvUrl;
       if (applicant.photoFile) finalPhotoUrl = await uploadFile(applicant.photoFile);
       if (applicant.cvFile) finalCvUrl = await uploadFile(applicant.cvFile);
-      // photoUrl stays null if not provided (validation catches missing photo above)
+      // The personal photo is optional for manual HR entry.
 
       const payload: any = {
         jobVacancyId: selectedVacancyId || null,
@@ -436,11 +449,11 @@ export default function ManualApplicationEntry() {
         payload.referrer = {
           type: referrer.type,
           sourceChannel: referrer.sourceChannel,
-          employeeId: referrer.employeeId ? parseInt(referrer.employeeId) : null,
+          employeeId: employeeReference?.employeeId ?? null,
           referralEntityId: referrer.type === 'Employee'
-            ? (referrer.employeeId ? parseInt(referrer.employeeId) : null)
+            ? (employeeReference?.referralEntityId ?? null)
             : (selectedClientId ?? null),
-          fullName: referrer.fullName.trim() || null, lastName: referrer.lastName.trim() || null,
+          fullName: employeeReference?.fullName ?? (referrer.fullName.trim() || null), lastName: referrer.lastName.trim() || null,
           governorate: getGeoName(referrer.geoSelection.govId) || null,
           cityOrArea: getGeoName(referrer.geoSelection.regionId) || null,
           subArea: getGeoName(referrer.geoSelection.subId) || null,
@@ -530,7 +543,10 @@ export default function ManualApplicationEntry() {
             <Field label="الشاغر الوظيفي المرتبط" required error={fieldErrors.vacancy}>
               <Select
                 value={selectedVacancyId === '' ? '' : String(selectedVacancyId)}
-                onChange={v => setSelectedVacancyId(v === '' ? '' : Number(v))}
+                onChange={v => {
+                  setSelectedVacancyId(v === '' ? '' : Number(v));
+                  clearFieldErrors('vacancy');
+                }}
                 placeholder="غير مرتبط بشاغر (يُربط لاحقاً)"
                 ariaLabel="الشاغر الوظيفي"
                 className="w-full"
@@ -552,7 +568,7 @@ export default function ManualApplicationEntry() {
             <Field label="مصدر الطلب" required error={fieldErrors.applicationSource}>
               <Select
                 value={applicationSource}
-                onChange={v => { setApplicationSource(v); delete fieldErrors.applicationSource; }}
+                onChange={v => { setApplicationSource(v); clearFieldErrors('applicationSource'); }}
                 placeholder="-- اختر المصدر --"
                 ariaLabel="مصدر الطلب"
                 className="w-full"
@@ -595,7 +611,7 @@ export default function ManualApplicationEntry() {
             <input value={applicant.lastName} onChange={e => handleNameInput(e.target.value, 'lastName')} className={inputCls(!!fieldErrors.lastName)} placeholder="مثال: العبادي" />
           </Field>
           <Field label="تاريخ الميلاد" required error={fieldErrors.dob}>
-            <input type="date" value={applicant.dob} onChange={e => setA('dob', e.target.value)} max={new Date().toISOString().split('T')[0]} className={inputCls(!!fieldErrors.dob)} />
+            <DateField value={applicant.dob} onChange={v => setA('dob', v)} max={new Date().toISOString().split('T')[0]} className={inputCls(!!fieldErrors.dob)} />
           </Field>
           <Field label="الجنس" required error={fieldErrors.gender}>
             <Select
@@ -630,7 +646,7 @@ export default function ManualApplicationEntry() {
             <GeoSmartSearch
               label="التسلسل الهرمي للمنطقة"
               geoUnits={geoUnits} value={applicant.geoSelection}
-              onChange={v => { setA('geoSelection', v); delete fieldErrors.geoSelection; }}
+              onChange={v => setA('geoSelection', v)}
               placeholder="المحافظة > المنطقة > الناحية > الحي"
             />
             <p className="mt-2 text-xs text-slate-500">يمكن الحفظ بمحافظة + عنوان تفصيلي فقط، أما المنطقة والناحية والحي فهي اختيارية.</p>
@@ -758,7 +774,7 @@ export default function ManualApplicationEntry() {
         {/* ─── SECTION 5: Attachments ─── */}
         <SectionCard num={5} title="المرفقات" subtitle="صورة شخصية وسيرة ذاتية" icon={Paperclip} colorKey={5} delay={0.14}>
           <div>
-            <Field label="صورة شخصية" required error={fieldErrors.photoFile}>
+            <Field label="صورة شخصية" hint="اختياري" error={fieldErrors.photoFile}>
               <input type="file" id="photo-upload" accept=".png,.jpg,.jpeg" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) setA('photoFile', f); }} />
               <label htmlFor="photo-upload" className={`mt-1 flex flex-col items-center justify-center gap-2 p-6 rounded-xl border-2 border-dashed cursor-pointer transition-all ${applicant.photoFile ? 'border-emerald-400 bg-emerald-50' : fieldErrors.photoFile ? 'border-red-300 bg-red-50' : 'border-slate-200 bg-white hover:border-sky-300 hover:bg-sky-50'}`}>
                 {applicant.photoFile
@@ -811,7 +827,16 @@ export default function ManualApplicationEntry() {
                   <>
                     <Field label="رقم الموظف" required error={fieldErrors.referrer_employeeId}>
                       <div className="flex gap-2">
-                        <input value={referrer.employeeId} onChange={e => setR('employeeId', e.target.value)} className={inputCls(!!fieldErrors.referrer_employeeId)} placeholder="Emp-ID" />
+                        <input
+                          value={referrer.employeeId}
+                          onChange={e => {
+                            setR('employeeId', e.target.value);
+                            setEmployeeFound(null);
+                            setR('fullName', '');
+                          }}
+                          className={inputCls(!!fieldErrors.referrer_employeeId)}
+                          placeholder="Emp-ID"
+                        />
                         <button type="button" onClick={handleEmployeeLookup} className="px-4 bg-sky-500 hover:bg-sky-600 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5">
                           <Search className="w-3.5 h-3.5" /> جلب
                         </button>
