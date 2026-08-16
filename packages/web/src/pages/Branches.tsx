@@ -13,6 +13,7 @@ import Modal from '../components/ui/Modal';
 import IconButton from '../components/ui/IconButton';
 import Checkbox from '../components/ui/Checkbox';
 import GeoSmartSearch, { GeoSelection, getLocationBadgeProps, LocationBadge } from '../components/GeoSmartSearch';
+import { uploadMedia } from '../lib/uploadMedia';
 import {
   MapPin, Building2, Plus, Edit, Trash2, Network,
   Mail, Phone, Smartphone, Globe, Users, Briefcase,
@@ -64,13 +65,19 @@ function makeImageId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-function readImageAsDataUrl(file: File): Promise<BranchImage> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve({ id: makeImageId(), name: file.name, url: String(reader.result || '') });
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
+/**
+ * Uploads to the media store instead of inlining base64 into branches.images.
+ * A branch with 20 photos used to carry tens of MB inside its row, which the
+ * branch list endpoints selected on every request.
+ */
+async function uploadBranchImage(file: File): Promise<BranchImage> {
+  const media = await uploadMedia(file);
+  return {
+    id: makeImageId(),
+    name: file.name,
+    url: media.url,
+    ...(media.thumbUrl ? { thumbUrl: media.thumbUrl } : {}),
+  };
 }
 
 function buildGeoSelectionFromId(geoUnits: GeoUnit[], id?: number | null): GeoSelection {
@@ -110,6 +117,9 @@ export default function Branches() {
   const [publicDescription, setPublicDescription] = useState('');
   const [images, setImages] = useState<BranchImage[]>([]);
   const [primaryImageId, setPrimaryImageId] = useState<string | null>(null);
+  // Images upload to the server now, so the form needs progress and errors.
+  const [uploadingImages, setUploadingImages] = useState(false);
+  const [imageUploadError, setImageUploadError] = useState<string | null>(null);
   const [latitude, setLatitude] = useState('');
   const [longitude, setLongitude] = useState('');
 
@@ -220,9 +230,17 @@ export default function Branches() {
       alert('لا يمكن إضافة أكثر من 20 صورة للفرع.');
       return;
     }
-    const added = await Promise.all(Array.from(files).map(readImageAsDataUrl));
-    setImages(current => [...current, ...added]);
-    if (!primaryImageId && added[0]) setPrimaryImageId(added[0].id);
+    setUploadingImages(true);
+    setImageUploadError(null);
+    try {
+      const added = await Promise.all(Array.from(files).map(uploadBranchImage));
+      setImages(current => [...current, ...added]);
+      if (!primaryImageId && added[0]) setPrimaryImageId(added[0].id);
+    } catch (err: any) {
+      setImageUploadError(err?.message || 'فشل رفع الصورة');
+    } finally {
+      setUploadingImages(false);
+    }
   };
 
   const removeImage = (id: string) => {
@@ -494,6 +512,18 @@ export default function Branches() {
                         />
                       </label>
                     </div>
+
+                    {uploadingImages && (
+                      <div className="mb-3 rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-2.5 text-sm font-bold text-cyan-700">
+                        جارٍ رفع الصور…
+                      </div>
+                    )}
+                    {imageUploadError && (
+                      <div className="mb-3 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-bold text-red-700">
+                        {imageUploadError}
+                        <button type="button" onClick={() => setImageUploadError(null)} className="mr-auto text-red-400 hover:text-red-600">✕</button>
+                      </div>
+                    )}
 
                     {images.length === 0 ? (
                       <div className="py-7 text-center text-sm text-slate-400 bg-white border border-dashed border-cyan-200 rounded-xl">

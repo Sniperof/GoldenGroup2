@@ -43,6 +43,8 @@ export const PERMISSION_SUBMODULE_LABELS: Record<string, string> = {
   users: 'المستخدمون',
   task_types: 'أنواع المهام',
   emergency_action_types: 'أنواع إجراءات الطوارئ',
+  app_home_banners: 'بانرات الشاشة الرئيسية للتطبيق',
+  app_contact_links: 'روابط التواصل الخاصة بالتطبيق',
   branch_assignments: 'فروع المستخدمين المسموحة',
   departments: 'أقسام الفروع',
   clients: 'بيانات الزبائن',

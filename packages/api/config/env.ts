@@ -46,6 +46,12 @@ export const CORS_ORIGINS: string[] = process.env.CORS_ORIGINS
 // Override with UPLOADS_DIR=/var/lib/golden-crm/uploads in production.env.
 export const UPLOADS_DIR = process.env.UPLOADS_DIR || path.resolve(root, 'uploads');
 
+// Unified media store (migration 423) — every device / branch / banner image,
+// video and catalogue lives here, sharded by the file's public id.
+// In production this MUST point outside the deploy directory so a release does
+// not wipe it: MEDIA_DIR=/var/lib/golden-crm/media in production.env.
+export const MEDIA_DIR = process.env.MEDIA_DIR || path.resolve(root, 'media');
+
 // Reverse-proxy hop count / trust setting for Express `req.ip`.
 // Behind nginx this MUST be set (e.g. TRUST_PROXY=1) or every caller resolves
 // to 127.0.0.1 and the public rate limits collapse into one shared bucket.

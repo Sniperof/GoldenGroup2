@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
     Plus, Wrench, PenTool, GraduationCap, Truck, Package, Cog, X, Save,
     RefreshCw, Gem, Loader2, Image, Video, FileText, Star, ChevronRight,
-    AlertCircle, Pencil, Tag, ToggleLeft, ToggleRight, MapPin,
+    AlertCircle, AlertTriangle, Pencil, Tag, ToggleLeft, ToggleRight, MapPin,
 } from '../components/ui/icons';
 import IconButton from '../components/ui/IconButton';
 import Modal from '../components/ui/Modal';
@@ -16,6 +16,7 @@ import { motion } from 'framer-motion';
 import SmartTable from '../components/SmartTable';
 import type { ColumnDef, FilterDef } from '../components/SmartTable';
 import { usePermissions } from '../hooks/usePermissions';
+import { uploadMedia } from '../lib/uploadMedia';
 
 /* ------------------------------------------------------------------ */
 /*  Shared Config                                                       */
@@ -50,7 +51,7 @@ const warrantyPeriodOptions: Array<{ months: number; label: string }> = [
     { months: 36, label: '36 شهرًا' },
 ];
 
-type DeviceAttachment = { id: string; name: string; url: string };
+type DeviceAttachment = { id: string; name: string; url: string; thumbUrl?: string };
 type SupportedVisitType = DeviceModel['supportedVisitTypes'][number];
 
 const partTypeConfig: Record<MaintenancePartType, { label: string; color: string; bg: string; border: string; hint: string }> = {
@@ -117,13 +118,21 @@ function makeAttachmentId() {
     return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-function readFileAsDataUrl(file: File): Promise<DeviceAttachment> {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve({ id: makeAttachmentId(), name: file.name, url: String(reader.result || '') });
-        reader.onerror = () => reject(reader.error);
-        reader.readAsDataURL(file);
-    });
+/**
+ * Uploads to the media store and returns the attachment to persist.
+ *
+ * Replaces the previous readAsDataURL, which inlined the whole file as base64
+ * into device_models.images — a 2 MB photo became ~2.7 MB inside the row, read
+ * back on every catalogue list query and shipped to the mobile app verbatim.
+ */
+async function uploadAttachment(file: File): Promise<DeviceAttachment> {
+    const media = await uploadMedia(file);
+    return {
+        id: makeAttachmentId(),
+        name: file.name,
+        url: media.url,
+        ...(media.thumbUrl ? { thumbUrl: media.thumbUrl } : {}),
+    };
 }
 
 /* ------------------------------------------------------------------ */
@@ -228,6 +237,10 @@ function normalizeDeviceForm(device?: DeviceModel | null): Partial<DeviceModel> 
 function AddDevicePage({ device, onCancel, onSaved }: { device?: DeviceModel | null; onCancel: () => void; onSaved: (savedDevice?: DeviceModel) => void }) {
     const isEditing = !!device;
     const [newDevice, setNewDevice] = useState<Partial<DeviceModel>>(() => normalizeDeviceForm(device));
+    // Uploads now go to the server, so the form has to show progress and errors
+    // that the old synchronous base64 read never had.
+    const [uploadingField, setUploadingField] = useState<'images' | 'videos' | 'documents' | null>(null);
+    const [uploadError, setUploadError] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
     const [wpMonths, setWpMonths] = useState('');
@@ -274,7 +287,17 @@ function AddDevicePage({ device, onCancel, onSaved }: { device?: DeviceModel | n
 
     const addAttachments = async (field: 'images' | 'videos' | 'documents', files: FileList | null) => {
         if (!files || files.length === 0) return;
-        const attachments = await Promise.all(Array.from(files).map(readFileAsDataUrl));
+        setUploadingField(field);
+        setUploadError(null);
+        let attachments: DeviceAttachment[];
+        try {
+            attachments = await Promise.all(Array.from(files).map(uploadAttachment));
+        } catch (err: any) {
+            setUploadError(err?.message || 'فشل رفع الملف');
+            return;
+        } finally {
+            setUploadingField(null);
+        }
         setNewDevice(prev => {
             const current = (prev[field] || []) as DeviceAttachment[];
             const next = [...current, ...attachments];
@@ -600,6 +623,20 @@ function AddDevicePage({ device, onCancel, onSaved }: { device?: DeviceModel | n
                     {/* ── Section: الوسائط ── */}
                     <div className="bg-white rounded-xl border border-slate-200 p-5">
                         <h3 className="text-base font-bold text-slate-800 border-b border-slate-100 pb-3 mb-4">الصور والوسائط</h3>
+
+                        {uploadingField && (
+                            <div className="mb-3 flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-2.5 text-sm font-bold text-sky-700">
+                                <Loader2 className="w-4 h-4 animate-spin" /> جارٍ رفع الملفات…
+                            </div>
+                        )}
+                        {uploadError && (
+                            <div className="mb-3 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-bold text-red-700">
+                                <AlertTriangle className="w-4 h-4 shrink-0" /> {uploadError}
+                                <button type="button" onClick={() => setUploadError(null)} className="mr-auto p-1 text-red-400 hover:text-red-600">
+                                    <X className="w-4 h-4" />
+                                </button>
+                            </div>
+                        )}
 
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                             {/* Images */}

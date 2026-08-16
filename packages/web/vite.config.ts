@@ -42,6 +42,12 @@ export default defineConfig({
                 target: 'http://localhost:3000',
                 changeOrigin: true,
             },
+            // Unified media store (/m/<id>.webp) — device, branch and banner
+            // assets. Without this the dev server answers with index.html.
+            '/m': {
+                target: 'http://localhost:3000',
+                changeOrigin: true,
+            },
         },
     },
 })

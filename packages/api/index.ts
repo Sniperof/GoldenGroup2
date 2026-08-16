@@ -75,6 +75,11 @@ import appBranchCatalogRouter from './routes/appBranchCatalog.js';
 import appDeviceRequestPurposeCatalogRouter from './routes/appDeviceRequestPurposeCatalog.js';
 import appDevicesRouter from './routes/appDevices.js';
 import appVisitsRouter from './routes/appVisits.js';
+import appHomeRouter from './routes/appHome.js';
+import appHomeBannersRouter from './routes/appHomeBanners.js';
+import appContactLinksRouter from './routes/appContactLinks.js';
+import mediaRouter from './routes/media.js';
+import mediaServeRouter from './routes/mediaServe.js';
 import publicAccountDeletionRouter from './routes/publicAccountDeletion.js';
 import adminAccountRequestsRouter from './routes/adminAccountRequests.js';
 import adminAppAccountsRouter from './routes/adminAppAccounts.js';
@@ -198,6 +203,8 @@ app.use('/api/app/catalog/device-request-purposes', appDeviceRequestPurposeCatal
 // Customer mobile-app "My Devices" / "My Visits" read-only views. DEC-017.
 app.use('/api/app', appDevicesRouter);
 app.use('/api/app', appVisitsRouter);
+// Customer mobile-app home screen (rotating banner slider). Optional auth.
+app.use('/api/app', appHomeRouter);
 // Public account-deletion web page (Google Play). DEC-013 §8.
 app.use('/account-deletion', publicAccountDeletionRouter);
 // Web-portal admin review of account-creation requests. DEC-013 §2.5.
@@ -268,13 +275,24 @@ app.use('/api/public/areas', publicAreasRouter);
 app.use('/api/system-lists', systemListsRouter);
 app.use('/api/departments', departmentsRouter);
 app.use('/api/upload', uploadRouter);
+// Unified media store (migration 423) — staff-authenticated writes.
+app.use('/api/media', mediaRouter);
 app.use('/api/admin', rolesRouter);
 app.use('/api/admin/task-types', taskTypeConfigRouter);
 app.use('/api/admin/emergency-action-types', emergencyActionTypesRouter);
+// Admin control of the mobile home-screen slider.
+app.use('/api/admin/app-home-banners', appHomeBannersRouter);
+// Admin control of the mobile app's contact and social links.
+app.use('/api/admin/app-contact-links', appContactLinksRouter);
 app.use('/api/emergency-result', emergencyResultRouter);
 
-// Serve uploaded files (photos, CVs) — always active
+// Serve uploaded files (photos, CVs) — always active.
+// Legacy store: job-application CVs and pre-423 assets still live here.
 app.use('/uploads', express.static(UPLOADS_DIR));
+
+// Unified media store read path — short, immutable URLs (/m/<id>.webp).
+// Must stay above the production SPA catch-all below or it would 404 into index.html.
+app.use('/m', mediaServeRouter);
 
 // ── Swagger API Documentation ─────────────────────────────────────────────────
 setupSwagger(app);

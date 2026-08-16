@@ -2,6 +2,8 @@ import { Router } from 'express';
 import pool from '../db.js';
 import { requirePermission } from '../middleware/permission.js';
 import { authorize } from '../services/authorizationService.js';
+import { isAcceptedMediaUrl } from '../services/media/mediaAttachments.js';
+import { syncMediaOwnership } from '../services/media/mediaOwnership.js';
 import type { AuthContext } from '@golden-crm/shared';
 
 const router = Router();
@@ -34,6 +36,10 @@ export function validateBranchImages(images: unknown, primaryImageId: unknown): 
     const url = typeof (image as any).url === 'string' ? (image as any).url.trim() : '';
     if (!id || !name || !url) return 'كل صورة يجب أن تحتوي id و name و url';
     if (ids.has(id)) return 'معرفات الصور يجب أن تكون فريدة';
+    // Any string used to pass here, so branch photos were stored as multi-MB
+    // base64 inside the row and shipped on every branch list query. Only files
+    // this server hosts are accepted now (migration 423).
+    if (!isAcceptedMediaUrl(url)) return 'يجب رفع صور الفرع عبر النظام';
     ids.add(id);
   }
   const primary = typeof primaryImageId === 'string' ? primaryImageId.trim() : '';
@@ -391,6 +397,7 @@ router.post('/', requirePermission('branches.manage'), async (req, res) => {
     const newBranch = rows[0];
 
     await syncBranchGeoCoverage(client as any, newBranch.id, ids);
+    await syncMediaOwnership(client, 'branch', newBranch.id, req.body.images);
 
     await client.query('COMMIT');
     res.json({ ...newBranch, coveredGeoIds: ids });
@@ -564,6 +571,12 @@ router.put('/:id', requirePermission('branches.edit', 'branches.manage'), async 
 
     if (coveredGeoIds !== undefined) {
       await syncBranchGeoCoverage(client as any, branchId, ids);
+    }
+    // Only when images were part of this request — the UPDATE leaves the column
+    // untouched otherwise, so re-syncing would release every image on any
+    // unrelated branch edit.
+    if (Object.prototype.hasOwnProperty.call(req.body, 'images')) {
+      await syncMediaOwnership(client, 'branch', branchId, req.body.images);
     }
 
     await client.query('COMMIT');

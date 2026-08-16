@@ -16,8 +16,8 @@ import {
     ClipboardList, UsersRound, MapPinned, ChevronDown, Gem, Eye,
     Briefcase, Calendar, AlertTriangle, DollarSign, RefreshCw, RotateCcw, PhoneCall,
     FileText, FilePlus2, Headset, Settings, UserPlus, Menu, X as CloseIcon,
-    ChevronLeft, ChevronRight, BadgeCheck, GraduationCap, Mic2, LogOut, Building2, SlidersHorizontal, ShieldCheck, ListChecks, Shield, Monitor, Settings2,
-    Bell, Wrench, Gift, Inbox, LayoutGrid, UserCheck, CalendarCheck, Layers, HardDrive, Unplug, Beaker, Package, ClipboardCheck,
+    ChevronLeft, ChevronRight, BadgeCheck, GraduationCap, Mic2, LogOut, Building2, SlidersHorizontal, ShieldCheck, ListChecks, Shield, Monitor, Settings2, GalleryHorizontal,
+    Bell, Wrench, Gift, Inbox, LayoutGrid, UserCheck, CalendarCheck, Layers, HardDrive, Unplug, Beaker, Package, ClipboardCheck, Link2,
 } from '../components/ui/icons';
 
 const navItems = [
@@ -834,6 +834,40 @@ export default function MainLayout() {
                         >
                             <Settings2 className={`w-5 h-5 ${isCollapsed ? 'lg:w-6 lg:h-6' : ''}`} />
                             <span className={`${isCollapsed ? 'lg:hidden' : 'block'}`}>إعدادات أنواع المهام</span>
+                        </NavLink>
+                    )}
+
+                    {/* 10d. Mobile home-screen banners */}
+                    {canAccessAdminSurface('admin.app_home_banners.view') && (
+                        <NavLink
+                            to="/admin/app-home-banners"
+                            onClick={() => setIsMobileMenuOpen(false)}
+                            className={({ isActive }: { isActive: boolean }) =>
+                                `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
+                                    ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500'
+                                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                                } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
+                            }
+                        >
+                            <GalleryHorizontal className={`w-5 h-5 ${isCollapsed ? 'lg:w-6 lg:h-6' : ''}`} />
+                            <span className={`${isCollapsed ? 'lg:hidden' : 'block'}`}>بانرات التطبيق</span>
+                        </NavLink>
+                    )}
+
+                    {/* 10e. Mobile contact/social links */}
+                    {canAccessAdminSurface('admin.app_contact_links.view') && (
+                        <NavLink
+                            to="/admin/app-contact-links"
+                            onClick={() => setIsMobileMenuOpen(false)}
+                            className={({ isActive }: { isActive: boolean }) =>
+                                `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
+                                    ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500'
+                                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                                } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
+                            }
+                        >
+                            <Link2 className={`w-5 h-5 ${isCollapsed ? 'lg:w-6 lg:h-6' : ''}`} />
+                            <span className={`${isCollapsed ? 'lg:hidden' : 'block'}`}>روابط التطبيق</span>
                         </NavLink>
                     )}
 

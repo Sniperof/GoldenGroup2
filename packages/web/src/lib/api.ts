@@ -40,6 +40,53 @@ export interface AccountStatementResponse {
 
 // GET /clients/paged — server-side pagination companion to clients.list()
 // (isolated: list() is unchanged). See docs/analysis/clients-records-performance-and-filters.md
+// ── Mobile home-screen banners (migration 422) ──────────────────────────────
+
+export type AppHomeBannerTargetKind = 'none' | 'device' | 'service_request' | 'external_url';
+export type AppHomeBannerAudience = 'all' | 'customers' | 'guests';
+
+export interface AppHomeBannerInput {
+  titleAr: string | null;
+  /** Must be a '/m/<id>.webp' returned by uploadMedia() (or a legacy '/uploads/' path); the API rejects anything else. */
+  imageUrl: string;
+  sortOrder: number;
+  displaySeconds: number;
+  startsAt: string | null;
+  endsAt: string | null;
+  targetKind: AppHomeBannerTargetKind;
+  targetDeviceModelId: number | null;
+  targetRequestType: string | null;
+  targetUrl: string | null;
+  audience: AppHomeBannerAudience;
+  isActive: boolean;
+}
+
+export interface AppHomeBanner extends AppHomeBannerInput {
+  id: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AppHomeBannerTargetOptions {
+  devices: { id: number; nameAr: string; category: string | null }[];
+  /** Only the request types the mobile app can currently open a form for. */
+  requestTypes: { requestType: string; labelAr: string }[];
+}
+
+// ── Mobile contact/social links (migration 424) ─────────────────────────────
+
+export interface AppContactLinksInput {
+  facebookUrl: string | null;
+  websiteUrl: string | null;
+  instagramUrl: string | null;
+  whatsappNumber: string | null;
+  telegramNumber: string | null;
+}
+
+export interface AppContactLinks extends AppContactLinksInput {
+  updatedAt: string;
+}
+
 export interface PagedClientsResponse {
   items: any[];
   total: number;
@@ -581,6 +628,30 @@ export const api = {
       update: (id: number, data: { arabicLabel?: string; description?: string; displayOrder?: number; isActive?: boolean }) =>
         request<any>(`/admin/emergency-action-types/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
       delete: (id: number) => request<any>(`/admin/emergency-action-types/${id}`, { method: 'DELETE' }),
+    },
+    // Mobile home-screen slider. Targets are deliberately narrow: a banner is
+    // shown to every app user (visitors included), so a device target is a
+    // public-catalog device_models id, never a customer's installed device.
+    appHomeBanners: {
+      list: () => request<AppHomeBanner[]>('/admin/app-home-banners'),
+      targetOptions: () => request<AppHomeBannerTargetOptions>('/admin/app-home-banners/target-options'),
+      create: (data: AppHomeBannerInput) =>
+        request<AppHomeBanner>('/admin/app-home-banners', { method: 'POST', body: JSON.stringify(data) }),
+      // Full replace, not a patch: the target is one coherent shape (kind plus
+      // exactly one value), so the server validates the whole row at once.
+      update: (id: number, data: AppHomeBannerInput) =>
+        request<AppHomeBanner>(`/admin/app-home-banners/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+      reorder: (ids: number[]) =>
+        request<AppHomeBanner[]>('/admin/app-home-banners/reorder', { method: 'PATCH', body: JSON.stringify({ ids }) }),
+      delete: (id: number) => request<{ success: true }>(`/admin/app-home-banners/${id}`, { method: 'DELETE' }),
+    },
+    appContactLinks: {
+      get: () => request<AppContactLinks>('/admin/app-contact-links'),
+      update: (data: AppContactLinksInput) =>
+        request<AppContactLinks>('/admin/app-contact-links', {
+          method: 'PUT',
+          body: JSON.stringify(data),
+        }),
     },
   },
   employees: {

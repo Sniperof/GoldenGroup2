@@ -1,14 +1,9 @@
 import { Router } from 'express';
 import { optionalAppAuth, requireAppAuth } from '../middleware/appAuth.js';
 import pool from '../db.js';
-import {
-  evaluateMobileIntakeAvailability,
-  getMobileIntakeHandler,
-} from '../services/serviceRequests/mobileIntakeRegistry.js';
-import {
-  getServiceRequestTypeDefinition,
-  listActiveServiceRequestTypeDefinitions,
-} from '../services/serviceRequests/serviceRequestTypeRegistry.js';
+import { evaluateMobileIntakeAvailability } from '../services/serviceRequests/mobileIntakeRegistry.js';
+import { getServiceRequestTypeDefinition } from '../services/serviceRequests/serviceRequestTypeRegistry.js';
+import { listExecutableMobileRequestTypes } from '../services/serviceRequests/mobileExecutableTypes.js';
 import { executeMobileIntake } from '../services/serviceRequests/mobileIntakeExecution.js';
 import { sendAppError } from '../utils/appErrors.js';
 import {
@@ -38,25 +33,16 @@ const router = Router();
  */
 router.get('/types', async (_req, res) => {
   try {
-    const definitions = await listActiveServiceRequestTypeDefinitions();
-    const items = definitions.flatMap((definition) => {
-      const handler = getMobileIntakeHandler(definition.requestType);
-      if (
-        !handler ||
-        !definition.channels.includes('mobile_app') ||
-        handler.formVersion !== definition.defaultFormVersion ||
-        definition.submissionModes.length === 0
-      ) return [];
-      return [{
-        requestType: definition.requestType,
-        labelAr: definition.labelAr,
-        descriptionAr: definition.descriptionAr,
-        formVersion: definition.defaultFormVersion,
-        formSource: definition.formSource,
-        submitterTiers: definition.submitterTiers,
-        submissionModes: definition.submissionModes,
-      }];
-    });
+    const executable = await listExecutableMobileRequestTypes();
+    const items = executable.map(({ definition }) => ({
+      requestType: definition.requestType,
+      labelAr: definition.labelAr,
+      descriptionAr: definition.descriptionAr,
+      formVersion: definition.defaultFormVersion,
+      formSource: definition.formSource,
+      submitterTiers: definition.submitterTiers,
+      submissionModes: definition.submissionModes,
+    }));
     return res.json({ items });
   } catch (err) {
     console.error('[app:serviceRequests.types]', err);
