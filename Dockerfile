@@ -55,9 +55,11 @@ COPY migrations ./migrations
 # Built frontend from Stage 2
 COPY --from=builder /app/packages/web/dist ./packages/web/dist
 
-# Uploads volume mount point
-RUN mkdir -p /app/uploads && chown -R golden:golden /app
+# Migration script for inline media (one-off job)
+COPY scripts/migrate-inline-media.ts ./scripts/migrate-inline-media.ts
 
+# Uploads + media volume mount points
+RUN mkdir -p /app/uploads /app/media && chown -R golden:golden /app
 USER golden
 
 ENV NODE_ENV=production
