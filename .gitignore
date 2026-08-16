@@ -15,7 +15,7 @@ packages/*/dist/
 
 # runtime data
 uploads/
-media/
+/media/
 logs/
 tmp/
 *.log

@@ -2,7 +2,7 @@ name: golden-crm
 
 services:
 
-  # ── Application  ───────────────────────────────────────────────────────────────
+  # ── Application ───────────────────────────────────────────────────────────────
   app:
     build:
       context: .
@@ -17,8 +17,11 @@ services:
     environment:
       NODE_ENV: qa
       PORT: "3000"
+      MEDIA_DIR: /app/media
+      UPLOADS_DIR: /app/uploads
     volumes:
       - uploads:/app/uploads
+      - media:/app/media
     depends_on:
       db:
         condition: service_healthy
@@ -73,6 +76,7 @@ services:
 volumes:
   pgdata:
   uploads:
+  media:
 
 networks:
   internal:
