@@ -16,7 +16,9 @@ test('contact-links page separates view and manage capabilities', () => {
 test('contact-links page uses one full replacement save and null for blank fields', () => {
   assert.match(page, /api\.admin\.appContactLinks\.get\(\)/);
   assert.match(page, /api\.admin\.appContactLinks\.update\(payload\(values\)\)/);
-  assert.match(page, /FIELD_KEYS\.map\(key => \[key, value\[key\]\.trim\(\) \|\| null\]\)/);
+  for (const key of ['facebookUrl', 'websiteUrl', 'instagramUrl', 'whatsappNumber', 'telegramNumber']) {
+    assert.match(page, new RegExp(`${key}: value\\.${key}\\.trim\\(\\) \\|\\| null`));
+  }
   assert.doesNotMatch(page, /Object\.entries\(value\)/);
 });
 

@@ -47,7 +47,13 @@ function editable(value: AppContactLinksInput): Record<FieldKey, string> {
 }
 
 function payload(value: Record<FieldKey, string>): AppContactLinksInput {
-  return Object.fromEntries(FIELD_KEYS.map(key => [key, value[key].trim() || null])) as AppContactLinksInput;
+  return {
+    facebookUrl: value.facebookUrl.trim() || null,
+    websiteUrl: value.websiteUrl.trim() || null,
+    instagramUrl: value.instagramUrl.trim() || null,
+    whatsappNumber: value.whatsappNumber.trim() || null,
+    telegramNumber: value.telegramNumber.trim() || null,
+  };
 }
 
 function fieldError(field: typeof FIELDS[number], value: string): string | null {
