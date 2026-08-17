@@ -73,6 +73,9 @@ export default function DeviceProfilePage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { hasPermission } = usePermissions();
+  const canCreateComplaint = hasPermission('complaints.create_internal')
+    && hasPermission('clients.view_list')
+    && (hasPermission('clients.devices.view') || hasPermission('installed_devices.view'));
   const deviceId = Number(id);
   const canViewPossession = hasPermission('installed_devices.possession.view');
   const visibleSections = useMemo(
@@ -230,6 +233,12 @@ export default function DeviceProfilePage() {
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
+            {canCreateComplaint && (
+              <button onClick={() => navigate(`/complaints/new?deviceId=${device.id}`)}
+                className="inline-flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700 hover:bg-amber-100">
+                <AlertTriangle className="h-4 w-4" /> تسجيل شكوى على الجهاز
+              </button>
+            )}
             <DeviceStatusBadge status={device.status} />
             {headerWarranty && (
               <WarrantyStatusBadge

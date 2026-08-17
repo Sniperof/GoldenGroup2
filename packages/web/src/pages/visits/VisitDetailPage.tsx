@@ -239,6 +239,9 @@ export default function VisitDetailPage() {
     const [gpsReasonAction, setGpsReasonAction] = useState<'start' | 'end' | null>(null);
     const [cancelOpen, setCancelOpen] = useState(false);
     const hasPermission = useAuthStore((s) => s.hasPermission);
+    const canCreateComplaint = hasPermission('complaints.create_internal')
+        && hasPermission('clients.view_list')
+        && (hasPermission('clients.visits.view') || hasPermission('field_visits.view'));
     const canReopen = hasPermission('field_visits.reopen_closed');
 
     const visitId = Number(id);
@@ -453,6 +456,12 @@ export default function VisitDetailPage() {
 
                 {/* Action buttons */}
                 <div className="flex items-center gap-2">
+                    {canCreateComplaint && (
+                        <button onClick={() => navigate(`/complaints/new?visitId=${visit.id}`)}
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 text-sm font-bold hover:bg-amber-100 transition-colors">
+                            <AlertTriangle className="w-4 h-4" /><span>تسجيل شكوى</span>
+                        </button>
+                    )}
                     {canStart && (
                         <button onClick={handleStart} disabled={actionLoading === 'start'}
                             className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 text-white text-sm font-bold hover:bg-blue-500 disabled:opacity-60 transition-colors">

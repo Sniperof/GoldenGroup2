@@ -25,8 +25,8 @@ import {
 import { getOtpSender } from './otpSender.js';
 import { SR_ACTIVE_STATUSES } from '../serviceRequests/_shared.js';
 
-export type OtpPurpose = 'account_creation' | 'login' | 'account_deletion' | 'request_status' | 'service_request';
-const PURPOSES: OtpPurpose[] = ['account_creation', 'login', 'account_deletion', 'request_status', 'service_request'];
+export type OtpPurpose = 'account_creation' | 'login' | 'account_deletion' | 'request_status' | 'service_request' | 'complaint' | 'complaint_tracking';
+const PURPOSES: OtpPurpose[] = ['account_creation', 'login', 'account_deletion', 'request_status', 'service_request', 'complaint', 'complaint_tracking'];
 
 export interface SendOtpInput {
   phone: string;

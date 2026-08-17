@@ -7,3 +7,4 @@ export * from './telemarketingOutcomes.js';
 export * from './membraneEfficiency.js';
 export * from './deviceTaskEligibility.js';
 export * from './taskResultPolicy.js';
+export * from './complaints.js';

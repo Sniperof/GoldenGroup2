@@ -46,6 +46,7 @@
 | تركيب جهاز | [features/device-installation-task.md](features/device-installation-task.md) | ⚠️ قديم |
 | تخطيط الاتصال | [features/planning-contact-targets.md](features/planning-contact-targets.md) | ⚠️ قديم |
 | جدولة الفرق | [features/team-scheduling.md](features/team-scheduling.md) | ⚠️ قديم |
+| الشكاوى | [features/complaints.md](features/complaints.md) | 🟢 منفذ برمجياً — غير منشور |
 
 ---
 
@@ -123,6 +124,7 @@
 | القرار | التاريخ | الموضوع | الحالة |
 |---|---|---|---|
 | DEC-001 | 2026-05-27 | [معضلة تعدد الفروع في خدمة الزباين](decisions/DEC-001-multi-branch-client-service.md) | ⏳ قيد المراجعة |
+| DEC-018 | 2026-08-17 | [دومين الشكاوى المستقل](decisions/DEC-018-independent-complaints-domain.md) | 🟢 معتمد ومنفذ برمجياً — غير منشور |
 
 ---
 

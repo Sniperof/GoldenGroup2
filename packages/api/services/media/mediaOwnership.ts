@@ -13,7 +13,7 @@
 import type { PoolClient } from 'pg';
 import { publicIdFromUrl } from './mediaStorage.js';
 
-export type MediaOwnerType = 'device_model' | 'branch' | 'app_home_banner';
+export type MediaOwnerType = 'device_model' | 'branch' | 'app_home_banner' | 'complaint_attachment';
 
 /**
  * Pulls every /m/ id out of an arbitrary attachment payload. Accepts the shapes

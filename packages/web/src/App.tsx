@@ -76,6 +76,9 @@ import NameNominationRequestsPage from './pages/service-requests/NameNominationR
 import AgentLicenseRequestsPage from './pages/service-requests/AgentLicenseRequestsPage';
 import AccountRequestsListPage from './pages/account-requests/AccountRequestsListPage';
 import AccountRequestDetailPage from './pages/account-requests/AccountRequestDetailPage';
+import ComplaintsListPage from './pages/complaints/ComplaintsListPage';
+import ComplaintDetailPage from './pages/complaints/ComplaintDetailPage';
+import NewComplaintPage from './pages/complaints/NewComplaintPage';
 
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -167,6 +170,9 @@ export default function App() {
                         <Route path="/service-requests/:id" element={<ServiceRequestDetailPage />} />
                         <Route path="/account-requests" element={<AccountRequestsListPage />} />
                         <Route path="/account-requests/:id" element={<AccountRequestDetailPage />} />
+                        <Route path="/complaints" element={<ComplaintsListPage />} />
+                        <Route path="/complaints/new" element={<NewComplaintPage />} />
+                        <Route path="/complaints/:id" element={<ComplaintDetailPage />} />
                         {/* Group 3 — visit management is a single-branch supervisory surface (§6).
                             Hidden on "all branches"; super-admin / GLOBAL must pick a branch. The
                             field team uses the standalone "زياراتي" page instead. */}

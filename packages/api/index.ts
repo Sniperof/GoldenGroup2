@@ -78,6 +78,8 @@ import appVisitsRouter from './routes/appVisits.js';
 import appHomeRouter from './routes/appHome.js';
 import appHomeBannersRouter from './routes/appHomeBanners.js';
 import appContactLinksRouter from './routes/appContactLinks.js';
+import appComplaintsRouter from './routes/appComplaints.js';
+import complaintsRouter from './routes/complaints.js';
 import mediaRouter from './routes/media.js';
 import mediaServeRouter from './routes/mediaServe.js';
 import publicAccountDeletionRouter from './routes/publicAccountDeletion.js';
@@ -205,6 +207,7 @@ app.use('/api/app', appDevicesRouter);
 app.use('/api/app', appVisitsRouter);
 // Customer mobile-app home screen (rotating banner slider). Optional auth.
 app.use('/api/app', appHomeRouter);
+app.use('/api/app', appComplaintsRouter);
 // Public account-deletion web page (Google Play). DEC-013 §8.
 app.use('/account-deletion', publicAccountDeletionRouter);
 // Web-portal admin review of account-creation requests. DEC-013 §2.5.
@@ -236,6 +239,7 @@ app.use('/api/maintenance-requests', ...branchOnly, maintenanceRequestsRouter);
 app.use('/api/emergency-tickets', ...branchOnly, emergencyTicketsRouter);
 // service_requests intake (٠.١٦ — GLOBAL by design, no branch context required)
 app.use('/api/service-requests', requireAuth, serviceRequestsRouter);
+app.use('/api/complaints', complaintsRouter);
 app.use('/api/schedules', ...branchOnly, schedulesRouter);
 app.use('/api/route-assignments', ...branchOnly, routeAssignmentsRouter);
 app.use('/api/planning/zone-study', ...branchOnly, zoneStudyRouter);

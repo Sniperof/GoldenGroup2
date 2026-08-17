@@ -181,6 +181,7 @@ export default function MainLayout() {
     const isRequestsActive = location.pathname.startsWith('/service-requests');
     const isVisitsActive = location.pathname.startsWith('/field-visits');
     const isContractsActive = location.pathname.startsWith('/contracts');
+    const isComplaintsActive = location.pathname.startsWith('/complaints');
     const isGeoActive = location.pathname === '/geo' || location.pathname === '/routes';
     const isRecordsActive = visibleRecordsChildren.some(child => location.pathname.startsWith(child.path));
     const isAppointmentsActive = location.pathname.startsWith('/telemarketer');
@@ -370,6 +371,23 @@ export default function MainLayout() {
                     >
                         <MapPinned className={`w-5 h-5 ${isCollapsed ? 'lg:w-6 lg:h-6' : ''}`} />
                         <span className={`${isCollapsed ? 'lg:hidden' : 'block'}`}>الزيارات</span>
+                    </NavLink>
+                    )}
+
+                    {/* Complaints are an independent domain, intentionally outside Requests. */}
+                    {can('complaints.view_list') && (
+                    <NavLink
+                        to="/complaints"
+                        onClick={() => setIsMobileMenuOpen(false)}
+                        className={({ isActive }: { isActive: boolean }) =>
+                            `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive || isComplaintsActive
+                                ? 'bg-amber-50 text-amber-700 border-r-4 border-amber-500'
+                                : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                            } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
+                        }
+                    >
+                        <AlertTriangle className={`w-5 h-5 ${isCollapsed ? 'lg:w-6 lg:h-6' : ''}`} />
+                        <span className={`${isCollapsed ? 'lg:hidden' : 'block'}`}>إدارة الشكاوى</span>
                     </NavLink>
                     )}
 
