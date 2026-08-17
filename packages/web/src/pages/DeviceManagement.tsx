@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
     Plus, Wrench, PenTool, GraduationCap, Truck, Package, Cog, X, Save,
     RefreshCw, Gem, Loader2, Image, Video, FileText, Star, ChevronRight,
@@ -285,13 +285,13 @@ function AddDevicePage({ device, onCancel, onSaved }: { device?: DeviceModel | n
         setNewDevice(prev => ({ ...prev, warrantyPeriods: (prev.warrantyPeriods || []).filter(p => p.months !== months) }));
     };
 
-    const addAttachments = async (field: 'images' | 'videos' | 'documents', files: FileList | null) => {
-        if (!files || files.length === 0) return;
+    const addAttachments = async (field: 'images' | 'videos' | 'documents', files: File[]) => {
+        if (files.length === 0) return;
         setUploadingField(field);
         setUploadError(null);
         let attachments: DeviceAttachment[];
         try {
-            attachments = await Promise.all(Array.from(files).map(uploadAttachment));
+            attachments = await Promise.all(files.map(uploadAttachment));
         } catch (err: any) {
             setUploadError(err?.message || 'فشل رفع الملف');
             return;
@@ -307,6 +307,16 @@ function AddDevicePage({ device, onCancel, onSaved }: { device?: DeviceModel | n
                 primaryImageId: field === 'images' && !prev.primaryImageId && next[0] ? next[0].id : prev.primaryImageId,
             };
         });
+    };
+
+    const handleAttachmentInput = (
+        field: 'images' | 'videos' | 'documents',
+        event: React.ChangeEvent<HTMLInputElement>,
+    ) => {
+        const files = Array.from(event.currentTarget.files || []);
+        // Allow selecting the same file again after removing or replacing it.
+        event.currentTarget.value = '';
+        void addAttachments(field, files);
     };
 
     const removeAttachment = (field: 'images' | 'videos' | 'documents', id: string) => {
@@ -351,9 +361,9 @@ function AddDevicePage({ device, onCancel, onSaved }: { device?: DeviceModel | n
                 ? await api.deviceModels.update(device.id, payload)
                 : await api.deviceModels.create(payload);
             onSaved(saved);
-        } catch (err) {
+        } catch (err: any) {
             console.error('Failed to save device:', err);
-            setError('حدث خطأ أثناء الحفظ');
+            setError(err?.message || 'حدث خطأ أثناء الحفظ');
         } finally {
             setSaving(false);
         }
@@ -647,7 +657,7 @@ function AddDevicePage({ device, onCancel, onSaved }: { device?: DeviceModel | n
                                 <label className="flex flex-col items-center justify-center gap-1.5 h-20 rounded-xl border-2 border-dashed border-slate-300 hover:border-sky-400 hover:bg-sky-50 cursor-pointer transition-all text-slate-400 hover:text-sky-500">
                                     <Plus className="w-5 h-5" />
                                     <span className="text-xs font-medium">إضافة صور</span>
-                                    <input type="file" multiple accept="image/*" className="hidden" onChange={e => addAttachments('images', e.target.files)} />
+                                    <input type="file" multiple accept="image/*" className="hidden" onChange={e => handleAttachmentInput('images', e)} />
                                 </label>
                                 <ImageGrid
                                     images={images}
@@ -665,7 +675,7 @@ function AddDevicePage({ device, onCancel, onSaved }: { device?: DeviceModel | n
                                 <label className="flex flex-col items-center justify-center gap-1.5 h-20 rounded-xl border-2 border-dashed border-slate-300 hover:border-purple-400 hover:bg-purple-50 cursor-pointer transition-all text-slate-400 hover:text-purple-500">
                                     <Plus className="w-5 h-5" />
                                     <span className="text-xs font-medium">إضافة فيديو</span>
-                                    <input type="file" multiple accept="video/*" className="hidden" onChange={e => addAttachments('videos', e.target.files)} />
+                                    <input type="file" multiple accept="video/*" className="hidden" onChange={e => handleAttachmentInput('videos', e)} />
                                 </label>
                                 <VideoList videos={videos} onRemove={id => removeAttachment('videos', id)} />
                             </div>
@@ -677,8 +687,8 @@ function AddDevicePage({ device, onCancel, onSaved }: { device?: DeviceModel | n
                                 </label>
                                 <label className="flex flex-col items-center justify-center gap-1.5 h-20 rounded-xl border-2 border-dashed border-slate-300 hover:border-emerald-400 hover:bg-emerald-50 cursor-pointer transition-all text-slate-400 hover:text-emerald-500">
                                     <Plus className="w-5 h-5" />
-                                    <span className="text-xs font-medium">إضافة مستند</span>
-                                    <input type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,image/*" className="hidden" onChange={e => addAttachments('documents', e.target.files)} />
+                                    <span className="text-xs font-medium">إضافة مستند PDF</span>
+                                    <input type="file" multiple accept="application/pdf,.pdf" className="hidden" onChange={e => handleAttachmentInput('documents', e)} />
                                 </label>
                                 <DocumentList documents={documents} onRemove={id => removeAttachment('documents', id)} />
                             </div>
@@ -691,11 +701,11 @@ function AddDevicePage({ device, onCancel, onSaved }: { device?: DeviceModel | n
                             إلغاء
                         </button>
                         <button
-                            type="submit" disabled={saving}
+                            type="submit" disabled={saving || uploadingField !== null}
                             className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-sky-600 text-white rounded-xl hover:bg-sky-500 font-semibold text-sm transition-colors disabled:opacity-60"
                         >
-                            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                            {saving ? 'جاري الحفظ...' : isEditing ? 'حفظ التعديلات' : 'حفظ الجهاز'}
+                            {(saving || uploadingField) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                            {uploadingField ? 'جاري رفع الملفات...' : saving ? 'جاري الحفظ...' : isEditing ? 'حفظ التعديلات' : 'حفظ الجهاز'}
                         </button>
                     </div>
                 </div>
@@ -959,9 +969,10 @@ function DeviceSalesBranchesModal({ device, onClose }: {
 
 const DeviceManagement = () => {
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
     const { hasAnyPermission } = usePermissions();
-    const canManageDeviceModels = hasAnyPermission('device_models.manage', 'catalog.manage', 'devices.manage');
-    const canManageSpareParts = hasAnyPermission('spare_parts.manage', 'catalog.manage', 'devices.manage');
+    const canManageDeviceModels = hasAnyPermission('device_models.manage', 'catalog.manage');
+    const canManageSpareParts = hasAnyPermission('spare_parts.manage', 'catalog.manage');
     const canManageSparePartPrices = hasAnyPermission('spare_parts.prices.manage', 'catalog.manage');
     const [activeTab, setActiveTab] = useState<ActiveTab>('devices');
     const [loading, setLoading] = useState(true);
@@ -997,6 +1008,24 @@ const DeviceManagement = () => {
 
     useEffect(() => { fetchData(); }, []);
 
+    const requestedEditDeviceId = searchParams.get('edit');
+    useEffect(() => {
+        if (loading || isAddingDevice || !requestedEditDeviceId) return;
+
+        const deviceId = Number(requestedEditDeviceId);
+        const requestedDevice = Number.isInteger(deviceId)
+            ? devices.find(device => device.id === deviceId)
+            : undefined;
+
+        if (!canManageDeviceModels || !requestedDevice) {
+            navigate('/devices', { replace: true });
+            return;
+        }
+
+        setEditingDevice(requestedDevice);
+        setIsAddingDevice(true);
+    }, [canManageDeviceModels, devices, isAddingDevice, loading, navigate, requestedEditDeviceId]);
+
     const openCreateDevice = () => {
         if (!canManageDeviceModels) return;
         setEditingDevice(null);
@@ -1012,6 +1041,7 @@ const DeviceManagement = () => {
     const closeDeviceForm = () => {
         setIsAddingDevice(false);
         setEditingDevice(null);
+        if (requestedEditDeviceId) navigate('/devices', { replace: true });
     };
 
     const openPartForm = (part?: SparePart) => {
