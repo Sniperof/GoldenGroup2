@@ -53,6 +53,17 @@ function optionalBoolean(value:unknown,field:string):boolean|null{
   if(value==null)return null;if(typeof value!=='boolean')throw httpError(400,`invalid_${field}`);return value;
 }
 
+export function getComplaintSecondaryContact(contacts: unknown, primaryMobile: unknown): any | null {
+  if (!Array.isArray(contacts)) return null;
+  const primary = normalizePhone(primaryMobile);
+  return contacts.find((contact: any) => {
+    if (contact?.type === 'landline') return false;
+    if (contact?.status && !['active', 'preferred'].includes(contact.status)) return false;
+    const phone = normalizePhone(contact?.number ?? contact?.value ?? contact?.mobile);
+    return isValidSyrianMobile(phone) && phone !== primary;
+  }) ?? null;
+}
+
 function rejectUnknownKeys(value: unknown, allowed: readonly string[], field: string): void {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw httpError(400, `invalid_${field}`);
   const unknownFields = Object.keys(value as Record<string, unknown>).filter((key) => !allowed.includes(key));
@@ -227,7 +238,7 @@ export async function getInternalComplaintContext(context: AuthContext, kind: 'v
   if(!sourceAllowed)throw httpError(403,'complaint_related_lookup_forbidden');
   const snapshot=await buildClientSnapshot(pool,Number(row.clientId)); if(!snapshot)throw httpError(404,'linked_client_record_not_found');
   const primary=snapshot.contacts.find((x:any)=>normalizePhone(x?.number??x?.value??x?.mobile)===normalizePhone(snapshot.primaryMobile));
-  const secondary=snapshot.contacts.find((x:any)=>{const p=normalizePhone(x?.number??x?.value??x?.mobile);return p&&p!==normalizePhone(snapshot.primaryMobile);});
+  const secondary=getComplaintSecondaryContact(snapshot.contacts,snapshot.primaryMobile);
   const level=(n:number)=>snapshot.address.geoPath.find(x=>x.level===n)?.id??null;
   return {kind,record:{...row},clientSnapshot:snapshot,requester:{firstName:snapshot.firstName,fatherName:snapshot.fatherName,lastName:snapshot.lastName,
     primaryPhone:normalizePhone(snapshot.primaryMobile),primaryPhoneHasWhatsapp:primary?.hasWhatsApp??null,
@@ -250,7 +261,8 @@ export async function getComplaint(context: AuthContext, id: number) {
   const subject = await loadComplaintSubject(pool, id);
   if (!canAccessComplaint(context, 'complaints.view_details', subject).allowed) throw httpError(403, 'complaint_forbidden');
   const { rows } = await pool.query(
-    `SELECT c.*, row_to_json(cr) AS requester,
+    `SELECT c.*, b.name AS handling_branch_name, u.name AS assigned_user_name,
+            row_to_json(cr) AS requester,
             row_to_json(td) AS "technicalDetails", row_to_json(dd) AS "deviceDetails",
             (SELECT COALESCE(json_agg(x ORDER BY x.created_at), '[]') FROM complaint_public_updates x WHERE x.complaint_id=c.id) AS "publicUpdates",
             (SELECT COALESCE(json_agg(x ORDER BY x.created_at), '[]') FROM complaint_status_history x WHERE x.complaint_id=c.id) AS "statusHistory",
@@ -258,6 +270,8 @@ export async function getComplaint(context: AuthContext, id: number) {
             (SELECT COALESCE(json_agg(x ORDER BY x.created_at), '[]') FROM complaint_resolutions x WHERE x.complaint_id=c.id) AS resolutions,
             (SELECT COALESCE(json_agg(json_build_object('id',ca.id,'mediaFileId',ca.media_file_id,'createdAt',ca.created_at) ORDER BY ca.created_at), '[]') FROM complaint_attachments ca WHERE ca.complaint_id=c.id) AS attachments
        FROM complaints c JOIN complaint_requesters cr ON cr.complaint_id=c.id
+       LEFT JOIN branches b ON b.id=c.handling_branch_id
+       LEFT JOIN hr_users u ON u.id=c.assigned_user_id
        LEFT JOIN complaint_technical_details td ON td.complaint_id=c.id
        LEFT JOIN complaint_device_details dd ON dd.complaint_id=c.id
       WHERE c.id=$1`, [id],
@@ -303,7 +317,7 @@ export async function createInternalComplaint(context: AuthContext, input: Recor
   const type = contextual?.type ?? enumValue(input.complaintType, COMPLAINT_TYPES, 'complaint_type');
   const { category, other } = validateCategory(type, input.categoryCode, input.otherCategoryText);
   const primaryContact=clientSnapshot?.contacts?.find((x:any)=>normalizePhone(x?.number??x?.value??x?.mobile)===normalizePhone(clientSnapshot.primaryMobile));
-  const secondaryContact=clientSnapshot?.contacts?.find((x:any)=>{const phone=normalizePhone(x?.number??x?.value??x?.mobile);return phone&&phone!==normalizePhone(clientSnapshot.primaryMobile);});
+  const secondaryContact=getComplaintSecondaryContact(clientSnapshot?.contacts,clientSnapshot?.primaryMobile);
   const level=(n:number)=>clientSnapshot?.address?.geoPath?.find((x:any)=>x.level===n)?.id??null;
   const requester=clientSnapshot?{
     firstName:clientSnapshot.firstName,fatherName:clientSnapshot.fatherName,lastName:clientSnapshot.lastName,primaryPhone:clientSnapshot.primaryMobile,
@@ -376,6 +390,12 @@ const PUBLIC_STATUS: Record<ComplaintStatus, string> = {
   rejected:'closed',withdrawn:'closed',
 };
 
+export const COMPLAINT_STATUS_UPDATE_SQL = `UPDATE complaints
+  SET status=$2::varchar(30),
+      current_resolution_id=COALESCE($3::bigint,current_resolution_id),
+      closed_at=CASE WHEN $2::varchar(30)='closed' THEN NOW() ELSE NULL END
+  WHERE id=$1`;
+
 export async function transitionComplaint(context: AuthContext, id: number, input: {
   to: ComplaintStatus; permission: string; reason?: unknown; outcome?: unknown; internalNotes?: unknown; publicSummary?: unknown;
 }) {
@@ -396,10 +416,7 @@ export async function transitionComplaint(context: AuthContext, id: number, inpu
       );
       resolutionId = Number(resolution.rows[0].id);
     }
-    await client.query(
-      `UPDATE complaints SET status=$2,current_resolution_id=COALESCE($3,current_resolution_id),closed_at=CASE WHEN $2='closed' THEN NOW() ELSE NULL END WHERE id=$1`,
-      [id,to,resolutionId],
-    );
+    await client.query(COMPLAINT_STATUS_UPDATE_SQL,[id,to,resolutionId]);
     const reason = optionalText(input.reason,'reason',2000);
     await client.query(`INSERT INTO complaint_status_history(complaint_id,from_status,to_status,reason,actor_user_id) VALUES($1,$2,$3,$4,$5)`,[id,subject.status,to,reason,context.userId]);
     const publicMessage = to === 'resolved' ? text(input.publicSummary,'public_summary',3,2000) : `تم تحديث حالة الشكوى إلى ${PUBLIC_STATUS[to]}`;
@@ -441,6 +458,26 @@ export async function assignComplaintHandler(context:AuthContext,id:number,userI
     await client.query(`INSERT INTO complaint_audit_log(complaint_id,event_type,actor_type,actor_user_id,metadata) VALUES($1,'handler_assigned','staff',$2,$3)`,[id,context.userId,JSON.stringify({from:subject.assignedUserId,to:userId})]);
     await client.query('COMMIT');return{id,assignedUserId:userId,status:subject.status==='triaged'?'assigned':subject.status};
   }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
+}
+
+export async function listComplaintAssignmentBranches(context:AuthContext,id:number){
+  const subject=await loadComplaintSubject(pool,id);
+  const permission=subject.handlingBranchId==null?'complaints.assign_branch':'complaints.transfer_branch';
+  if(!canAccessComplaint(context,permission,subject).allowed)throw httpError(403,'complaint_action_forbidden');
+  const {rows}=await pool.query(`SELECT id,name FROM branches WHERE status='active' ORDER BY name`);
+  return{items:rows};
+}
+
+export async function listComplaintAssignmentHandlers(context:AuthContext,id:number){
+  const subject=await loadComplaintSubject(pool,id);
+  if(!subject.handlingBranchId)throw httpError(409,'handling_branch_required');
+  const permission=subject.assignedUserId==null?'complaints.assign_handler':'complaints.reassign_handler';
+  if(!canAccessComplaint(context,permission,subject).allowed)throw httpError(403,'complaint_action_forbidden');
+  const {rows}=await pool.query(`SELECT DISTINCT u.id,u.name,u.username
+    FROM hr_users u JOIN user_branch_assignments uba ON uba.user_id=u.id
+    WHERE u.is_active=TRUE AND uba.branch_id=$1 AND uba.status='active'
+    ORDER BY u.name,u.username`,[subject.handlingBranchId]);
+  return{items:rows,handlingBranchId:subject.handlingBranchId};
 }
 
 export async function addComplaintText(context:AuthContext,id:number,kind:'note'|'update',value:unknown){

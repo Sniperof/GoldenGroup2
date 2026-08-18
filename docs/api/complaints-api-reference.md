@@ -439,6 +439,13 @@ CRM intake lookups are minimal projections and are always intersected with the c
 | `GET /api/complaints/lookups/clients/:id/devices?branchId=` | `clients.devices.view` |
 | `GET /api/complaints/lookups/clients/:id/visits?branchId=` | `clients.visits.view` |
 
+Detail-page assignment lookups are separate from intake lookups and authorize the loaded complaint subject before returning minimal labels:
+
+| Endpoint | Permission |
+|---|---|
+| `GET /api/complaints/:id/lookups/branches` | `complaints.assign_branch` or `complaints.transfer_branch` |
+| `GET /api/complaints/:id/lookups/handlers` | `complaints.assign_handler` or `complaints.reassign_handler`; returns active users assigned to the complaint handling branch |
+
 When `requesterClientId` is supplied, requester identity and SmartGeo address are derived by the server. Manual requesters send SmartGeo IDs selected by name in the UI; the server validates hierarchy and branch coverage. A manual device sends `deviceName` and `deviceSerialNumber`. A selected visit/device is reloaded and checked against the selected client and branch before insertion.
 
 ## 8. CRM commands

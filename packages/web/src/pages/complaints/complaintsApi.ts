@@ -20,6 +20,8 @@ export const complaintsApi = {
   clientOption: (clientId:number,branchId:number) => request<any>(`/lookups/clients/${clientId}?branchId=${branchId}`),
   clientDevices: (clientId:number,branchId:number) => request<{items:any[]}>(`/lookups/clients/${clientId}/devices?branchId=${branchId}`),
   clientVisits: (clientId:number,branchId:number) => request<{items:any[]}>(`/lookups/clients/${clientId}/visits?branchId=${branchId}`),
+  assignmentBranches: (id:string|number) => request<{items:Array<{id:number;name:string}>}>(`/${id}/lookups/branches`),
+  assignmentHandlers: (id:string|number) => request<{items:Array<{id:number;name:string;username:string}>;handlingBranchId:number}>(`/${id}/lookups/handlers`),
   command: (id: string | number, action: string, body: unknown = {}) => request<any>(`/${id}/${action}`, { method: 'POST', body: JSON.stringify(body) }),
   changePriority: (id: string | number, priority: string) => request<any>(`/${id}/change-priority`, { method: 'PATCH', body: JSON.stringify({ priority }) }),
   openAttachment: async (id:string|number,attachmentId:string|number) => {

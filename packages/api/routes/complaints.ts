@@ -12,6 +12,7 @@ import {
   changeComplaintType, linkComplaintEntity,
   getComplaintClientOption, listComplaintClientDevices, listComplaintClientOptions,
   listComplaintClientVisits, listComplaintCreateBranches,
+  listComplaintAssignmentBranches, listComplaintAssignmentHandlers,
 } from '../services/complaints/complaintService.js';
 
 const router = Router();
@@ -24,7 +25,10 @@ function id(value: unknown): number {
 
 function sendError(res: any, error: any) {
   const status = Number(error?.status) || 500;
-  if (status >= 500) console.error('Complaint route error:', error);
+  if (status >= 500) {
+    console.error('Complaint route error:', error);
+    return res.status(status).json({ error: 'تعذّر إتمام العملية. حاول لاحقاً.', details: { code: 'internal_error' } });
+  }
   return res.status(status).json({ error: error?.message ?? 'complaint_operation_failed', ...(error?.details ? { details: error.details } : {}) });
 }
 
@@ -78,6 +82,14 @@ router.put('/settings/:kind', requirePermission('complaints.manage_duplicate_set
 router.get('/:id', requirePermission('complaints.view_details'), async (req, res) => {
   try { res.json(await getComplaint(req.authContext!, id(req.params.id))); }
   catch (error) { sendError(res, error); }
+});
+
+router.get('/:id/lookups/branches',requirePermission('complaints.assign_branch','complaints.transfer_branch'),async(req,res)=>{
+  try{res.json(await listComplaintAssignmentBranches(req.authContext!,id(req.params.id)));}catch(error){sendError(res,error);}
+});
+
+router.get('/:id/lookups/handlers',requirePermission('complaints.assign_handler','complaints.reassign_handler'),async(req,res)=>{
+  try{res.json(await listComplaintAssignmentHandlers(req.authContext!,id(req.params.id)));}catch(error){sendError(res,error);}
 });
 
 router.get('/:id/audit', requirePermission('complaints.view_audit'), async(req,res)=>{
