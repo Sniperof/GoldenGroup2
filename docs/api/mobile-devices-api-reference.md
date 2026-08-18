@@ -51,15 +51,41 @@ Devices are ordered newest-first (`created_at DESC`). An empty result is returne
 | `deviceName` | string | Yes | Display name — device's own recorded name, else the catalog model's Arabic/English name, else the external device name. |
 | `serialNumber` | string | Yes | Serial number, when recorded. |
 | `status` | string | No | One of the 11 values in §3. Shown as-is — the app owns how it labels each status, there is no server-side simplification for devices (contrast with visit status, §3 of the visits reference). |
-| `contractId` | integer | No | The contract this device was delivered under. |
+| `contractId` | integer | Yes | The contract this device was delivered under; `null` for an external device. |
+| `contractNumber` | string | Yes | Customer-facing contract reference, when the device came from a company sale. |
 | `installationAddressText` | string | Yes | Free-text installation address, when recorded. |
+| `installationGeoUnitId` | integer | Yes | The stored geographic unit for the installation location. |
+| `installationGeoUnitName` | string | Yes | Display name of the stored installation geographic unit. |
 | `deliveryDate` | date (`YYYY-MM-DD`) | Yes | Date the device was delivered to the customer. |
 | `installationDate` | date (`YYYY-MM-DD`) | Yes | Date the device was installed. |
+| `activatedAt` | timestamp | Yes | When the device became operational, when recorded. |
+| `isGoldenWarranty` | boolean | No | Whether the installed device is covered by Golden Warranty. |
 | `warrantyType` | `"contract"` \| `"golden"` | Yes | Type of the device's most relevant warranty row (§4). `null` when the device has no warranty row at all. |
 | `warrantyStatus` | `"pending"` \| `"active"` \| `"cancelled"` \| `"expired"` | Yes | Status of that same warranty row. |
+| `warrantyStartDate` | date (`YYYY-MM-DD`) | Yes | Start date of the selected warranty row. |
+| `warrantyMonths` | integer | Yes | Duration of the selected warranty row in months, when configured. |
+| `warrantyVisits` | integer | Yes | Number of visits included by the selected warranty row, when configured. |
 | `warrantyEndDate` | date (`YYYY-MM-DD`) | Yes | End date of that same warranty row. `null` while `pending` (not yet started). |
 
-## 3. Device Status Values
+## 3. Device Detail
+
+`GET /api/app/me/devices/{deviceId}`
+
+The detail endpoint uses the same bearer authentication and ownership boundary as the list endpoint. The server requires both the requested device id and the authenticated account's linked `clientId` to match. A missing device and a device belonging to another customer both return `404`.
+
+The response includes the list fields plus:
+
+| Field | Type | Nullable | Description |
+|---|---|---:|---|
+| `serviceBranchName` | string | Yes | Name of the branch currently responsible for service, when recorded. |
+| `installationLat` | number | Yes | Installation latitude, when recorded. |
+| `installationLng` | number | Yes | Installation longitude, when recorded. |
+| `activeTaskCount` | integer | No | Number of non-terminal operational tasks currently linked to this device. |
+| `activeServiceAgreement` | object | Yes | Active service agreement summary, without fees or internal notes. |
+
+`activeServiceAgreement` contains `id`, `agreementNumber`, `maintenancePlan`, `visitsCount`, `startDate`, and `endDate`. Financial amounts, internal notes, technician notes, and raw technical-state records are intentionally excluded.
+
+## 4. Device Status Values
 
 ```text
 registered | pending_delivery | delivered | installed | active
@@ -68,13 +94,13 @@ faulty | in_workshop | ready | out_of_service | retrieved | contract_cancelled
 
 `contract_cancelled` means the device's owning contract was cancelled — the device is permanently out of service and dropped from periodic-maintenance generation. It is a terminal state distinct from `retrieved` (device physically taken back, eligible for reissue) and `out_of_service` (temporarily disconnected). The app should still show these devices in the list (§1) with a clearly non-active label; do not hide them.
 
-## 4. Which Warranty Row Is Shown
+## 5. Which Warranty Row Is Shown
 
 A device can have more than one `device_warranties` row over its lifetime (a `contract` warranty, later superseded by a `golden` one, per the unified warranty model — DEC-CT-16/17). This endpoint surfaces exactly one, chosen as: the row with `status = 'active'` if one exists, otherwise the most recently created row. This mirrors "one active warranty at a time" — there is never more than one `active` row per device to disambiguate.
 
 Warranty **payment** history (`device_warranty_payments`) is financial detail and is never returned here (DEC-017 §5 — out of scope).
 
-## 5. Errors
+## 6. Errors
 
 | Status | Condition | Example body |
 |---:|---|---|
