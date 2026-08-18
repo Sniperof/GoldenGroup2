@@ -475,6 +475,8 @@ Every command loads the complaint, authorizes its subject, checks the current st
 
 Link commands use separate permissions: `link_requester`, `link_visit`, `link_device`, `link_target`, and `link_operational_work`.
 
+`POST /api/complaints/:id/triage` requires `{ "priority": "critical|high|normal|low" }`. Branch assignment is rejected while the complaint is still `new`. Handler lookup and assignment require an active assignment to the handling branch and effective grants for both `complaints.start_processing` and `complaints.resolve` (the explicit super-admin path remains valid).
+
 ## 9. Resolution payload
 
 ```json

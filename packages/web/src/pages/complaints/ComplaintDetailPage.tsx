@@ -9,9 +9,13 @@ import { usePermissions } from '../../hooks/usePermissions';
 import { complaintsApi } from './complaintsApi';
 import { COMPLAINT_CATEGORY_LABELS_AR } from '@golden-crm/shared';
 
-const STATUS: Record<string, string> = { new: 'جديدة', triaged: 'تم الفرز', assigned: 'معيّنة', in_progress: 'قيد المعالجة', awaiting_complainant: 'بانتظار المشتكي', resolved: 'محلولة', closed: 'مغلقة', rejected: 'مرفوضة', withdrawn: 'مسحوبة' };
+const STATUS: Record<string, string> = { new: 'جديدة', triaged: 'تمت المراجعة الأولية', assigned: 'معيّنة', in_progress: 'قيد المعالجة', awaiting_complainant: 'بانتظار المشتكي', resolved: 'محلولة', closed: 'مغلقة', rejected: 'مرفوضة', withdrawn: 'مسحوبة' };
 const TYPE: Record<string, string> = { technical: 'فنية', device: 'جهاز', general: 'عامة' };
-const PRIORITY: Record<string, string> = { low: 'منخفضة', normal: 'عادية', high: 'مرتفعة', urgent: 'عاجلة' };
+const PRIORITY: Record<string, string> = { low: 'منخفضة', normal: 'عادية', high: 'مرتفعة', critical: 'حرجة' };
+const TRIAGE_PRIORITIES = [
+  { value: 'low', label: 'منخفضة' }, { value: 'normal', label: 'عادية' },
+  { value: 'high', label: 'مرتفعة' }, { value: 'critical', label: 'حرجة' },
+];
 const SOURCE: Record<string, string> = { mobile_app: 'تطبيق الموبايل', admin_portal: 'لوحة الإدارة', web: 'الموقع الإلكتروني' };
 const ENTRY: Record<string, string> = { home: 'الرئيسية', visit: 'تفاصيل الزيارة', device: 'تفاصيل الجهاز', admin: 'لوحة الإدارة' };
 const OUTCOMES = [
@@ -19,7 +23,7 @@ const OUTCOMES = [
   { value: 'not_upheld', label: 'الشكوى غير محقة' }, { value: 'service_recovery_completed', label: 'تم تصحيح الخدمة' },
   { value: 'redirected_to_service', label: 'تم تحويلها إلى خدمة' }, { value: 'duplicate_confirmed', label: 'شكوى مكررة' },
 ];
-type DialogKind = 'branch' | 'handler' | 'update' | 'note' | 'resolve' | 'reject' | 'reopen';
+type DialogKind = 'triage' | 'branch' | 'handler' | 'update' | 'note' | 'resolve' | 'reject' | 'reopen';
 type DialogState = { kind: DialogKind; title: string; action: string } | null;
 
 function Card({ title, icon: Icon, children, className = '' }: { title: string; icon?: ElementType; children: ReactNode; className?: string }) {
@@ -44,6 +48,7 @@ export default function ComplaintDetailPage() {
   const [outcome, setOutcome] = useState('');
   const [internalNotes, setInternalNotes] = useState('');
   const [publicSummary, setPublicSummary] = useState('');
+  const [triagePriority, setTriagePriority] = useState('');
 
   const load = async () => { try { setData(await complaintsApi.detail(id!)); } catch (caught) { setError((caught as Error).message); } };
   useEffect(() => { void load(); }, [id]);
@@ -64,6 +69,7 @@ export default function ComplaintDetailPage() {
   const openText = (kind: 'update' | 'note' | 'reject' | 'reopen', action: string, title: string) => { setTextValue(''); setDialog({ kind, action, title }); };
   const submitDialog = (event: FormEvent) => {
     event.preventDefault(); if (!dialog) return;
+    if (dialog.kind === 'triage') return void command(dialog.action, { priority: triagePriority });
     if (dialog.kind === 'branch') return void command(dialog.action, { branchId: selectedId });
     if (dialog.kind === 'handler') return void command(dialog.action, { userId: selectedId });
     if (dialog.kind === 'update') return void command(dialog.action, { message: textValue });
@@ -76,7 +82,8 @@ export default function ComplaintDetailPage() {
   const requester = data.requester ?? {};
   const address = requester.address_snapshot ?? {};
   const category = data.category_code === 'other' ? 'أخرى' + (data.other_category_text ? ' — ' + data.other_category_text : '') : COMPLAINT_CATEGORY_LABELS_AR[data.category_code as keyof typeof COMPLAINT_CATEGORY_LABELS_AR] ?? '—';
-  const canAssignHandler = data.status !== 'new' && Boolean(data.handling_branch_id);
+  const canAssignBranchOrHandler = ['triaged', 'assigned', 'in_progress', 'awaiting_complainant'].includes(data.status);
+  const canAssignHandler = canAssignBranchOrHandler && Boolean(data.handling_branch_id);
 
   return <div dir="rtl" className="min-h-full bg-slate-50/70 p-4 md:p-6"><div className="mx-auto max-w-[1500px] space-y-5">
     <header className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -95,9 +102,9 @@ export default function ComplaintDetailPage() {
     </main>
 
     <aside className="space-y-5 xl:sticky xl:top-5"><Card title="إجراءات المعالجة" icon={CheckCircle2}><div className="space-y-2">
-      {hasPermission('complaints.triage') && data.status === 'new' && <Button fullWidth loading={busy} onClick={() => void command('triage')}>فرز الشكوى</Button>}
-      {hasPermission('complaints.assign_branch') && !data.handling_branch_id && <Button fullWidth variant="secondary" icon={Building2} onClick={() => void openAssignment('branch', 'assign-branch', 'تعيين فرع المعالجة')}>تعيين فرع المعالجة</Button>}
-      {hasPermission('complaints.transfer_branch') && data.handling_branch_id && <Button fullWidth variant="secondary" icon={Building2} onClick={() => void openAssignment('branch', 'transfer-branch', 'نقل فرع المعالجة')}>نقل فرع المعالجة</Button>}
+      {hasPermission('complaints.triage') && data.status === 'new' && <Button fullWidth loading={busy} onClick={() => { setTriagePriority(''); setDialog({ kind: 'triage', action: 'triage', title: 'المراجعة الأولية للشكوى' }); }}>مراجعة وفرز الشكوى</Button>}
+      {canAssignBranchOrHandler && hasPermission('complaints.assign_branch') && !data.handling_branch_id && <Button fullWidth variant="secondary" icon={Building2} onClick={() => void openAssignment('branch', 'assign-branch', 'تعيين فرع المعالجة')}>تعيين فرع المعالجة</Button>}
+      {canAssignBranchOrHandler && hasPermission('complaints.transfer_branch') && data.handling_branch_id && <Button fullWidth variant="secondary" icon={Building2} onClick={() => void openAssignment('branch', 'transfer-branch', 'نقل فرع المعالجة')}>نقل فرع المعالجة</Button>}
       {canAssignHandler && hasPermission('complaints.assign_handler') && !data.assigned_user_id && <Button fullWidth variant="secondary" icon={UserRound} onClick={() => void openAssignment('handler', 'assign-handler', 'تعيين معالج')}>تعيين معالج</Button>}
       {canAssignHandler && hasPermission('complaints.reassign_handler') && data.assigned_user_id && <Button fullWidth variant="secondary" icon={UserRound} onClick={() => void openAssignment('handler', 'reassign-handler', 'إعادة تعيين المعالج')}>إعادة تعيين المعالج</Button>}
       {hasPermission('complaints.start_processing') && data.status === 'assigned' && <Button fullWidth onClick={() => void command('start-processing')}>بدء المعالجة</Button>}
@@ -110,8 +117,9 @@ export default function ComplaintDetailPage() {
     </div></Card><Card title="سجل الحالة">{data.statusHistory?.length ? <div className="space-y-4">{data.statusHistory.map((item: any) => <div key={item.id} className="relative border-r-2 border-slate-200 pr-4"><span className="absolute -right-[5px] top-1 h-2 w-2 rounded-full bg-sky-500" /><div className="text-sm font-bold text-slate-800">{STATUS[item.to_status] ?? item.to_status}</div><div className="mt-1 text-xs text-slate-400">{new Date(item.created_at).toLocaleString('ar-SY')}</div></div>)}</div> : <Empty>لا يوجد سجل حالة.</Empty>}</Card></aside></div>
   </div>
 
-  <Modal isOpen={Boolean(dialog)} onClose={() => !busy && setDialog(null)} title={dialog?.title} size={dialog?.kind === 'resolve' ? 'lg' : 'md'} footer={<><Button variant="secondary" disabled={busy} onClick={() => setDialog(null)}>إلغاء</Button><Button type="submit" form="complaint-action-form" loading={busy} disabled={((dialog?.kind === 'branch' || dialog?.kind === 'handler') && selectedId === '') || (dialog?.kind === 'resolve' && outcome === '')}>حفظ</Button></>}>
+  <Modal isOpen={Boolean(dialog)} onClose={() => !busy && setDialog(null)} title={dialog?.title} size={dialog?.kind === 'resolve' ? 'lg' : 'md'} footer={<><Button variant="secondary" disabled={busy} onClick={() => setDialog(null)}>إلغاء</Button><Button type="submit" form="complaint-action-form" loading={busy} disabled={((dialog?.kind === 'branch' || dialog?.kind === 'handler') && selectedId === '') || (dialog?.kind === 'resolve' && outcome === '') || (dialog?.kind === 'triage' && triagePriority === '')}>حفظ</Button></>}>
     <form id="complaint-action-form" onSubmit={submitDialog} className="space-y-5 p-5">
+      {dialog?.kind === 'triage' && <div><p className="mb-4 text-sm leading-6 text-slate-600">راجع بيانات الشكوى وحدد أولويتها قبل إرسالها إلى فرع المعالجة.</p><label className="mb-2 block text-sm font-bold text-slate-700">أولوية الشكوى</label><Select value={triagePriority} onChange={setTriagePriority} options={TRIAGE_PRIORITIES} placeholder="اختر الأولوية" /></div>}
       {(dialog?.kind === 'branch' || dialog?.kind === 'handler') && <div><label className="mb-2 block text-sm font-bold text-slate-700">{dialog.kind === 'branch' ? 'اختر الفرع' : 'اختر المعالج'}</label><Select value={selectedId} onChange={setSelectedId} options={options} placeholder={options.length ? 'اختر من القائمة' : 'لا توجد خيارات متاحة'} disabled={!options.length} /></div>}
       {dialog?.kind === 'resolve' && <><div><label className="mb-2 block text-sm font-bold text-slate-700">نتيجة المعالجة</label><Select value={outcome} onChange={setOutcome} options={OUTCOMES} placeholder="اختر النتيجة" /></div><div><label className="mb-2 block text-sm font-bold text-slate-700">ملاحظات الحل الداخلية</label><textarea required minLength={3} maxLength={4000} value={internalNotes} onChange={event => setInternalNotes(event.target.value)} className="min-h-28 w-full rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-100" /></div><div><label className="mb-2 block text-sm font-bold text-slate-700">ملخص الحل الظاهر للمشتكي</label><textarea required minLength={3} maxLength={2000} value={publicSummary} onChange={event => setPublicSummary(event.target.value)} className="min-h-24 w-full rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-100" /></div></>}
       {dialog && ['update', 'note', 'reject', 'reopen'].includes(dialog.kind) && <div><label className="mb-2 block text-sm font-bold text-slate-700">{dialog.kind === 'update' ? 'النص الظاهر للمشتكي' : dialog.kind === 'note' ? 'الملاحظة الداخلية' : 'السبب'}</label><textarea autoFocus required minLength={3} maxLength={2000} value={textValue} onChange={event => setTextValue(event.target.value)} className="min-h-28 w-full rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-100" /></div>}

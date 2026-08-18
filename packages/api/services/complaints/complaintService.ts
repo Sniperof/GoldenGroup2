@@ -85,6 +85,17 @@ function validateCategory(type: ComplaintType, value: unknown, other: unknown): 
   return { category, other: category === 'other' ? text(other, 'other_category_text', 1, 300) : null };
 }
 
+export const COMPLAINT_BRANCH_ASSIGNABLE_STATUSES: readonly ComplaintStatus[] = [
+  'triaged', 'assigned', 'in_progress', 'awaiting_complainant',
+];
+export const REQUIRED_COMPLAINT_HANDLER_PERMISSIONS = [
+  'complaints.start_processing', 'complaints.resolve',
+] as const;
+
+export function validateComplaintTriagePriority(value: unknown): ComplaintPriority {
+  return enumValue(value, COMPLAINT_PRIORITIES, 'priority') as ComplaintPriority;
+}
+
 export async function listComplaints(context: AuthContext, raw: Record<string, unknown>) {
   const plan = getComplaintListAccessPlan(context);
   if (plan.scope === 'NONE') throw httpError(403, 'complaint_list_forbidden');
@@ -397,9 +408,10 @@ export const COMPLAINT_STATUS_UPDATE_SQL = `UPDATE complaints
   WHERE id=$1`;
 
 export async function transitionComplaint(context: AuthContext, id: number, input: {
-  to: ComplaintStatus; permission: string; reason?: unknown; outcome?: unknown; internalNotes?: unknown; publicSummary?: unknown;
+  to: ComplaintStatus; permission: string; reason?: unknown; outcome?: unknown; internalNotes?: unknown; publicSummary?: unknown; priority?: unknown;
 }) {
   const to = enumValue(input.to, COMPLAINT_STATUSES, 'status');
+  const triagePriority = to === 'triaged' ? validateComplaintTriagePriority(input.priority) : null;
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -416,19 +428,39 @@ export async function transitionComplaint(context: AuthContext, id: number, inpu
       );
       resolutionId = Number(resolution.rows[0].id);
     }
+    if (triagePriority) await client.query(`UPDATE complaints SET priority=$2 WHERE id=$1`,[id,triagePriority]);
     await client.query(COMPLAINT_STATUS_UPDATE_SQL,[id,to,resolutionId]);
     const reason = optionalText(input.reason,'reason',2000);
     await client.query(`INSERT INTO complaint_status_history(complaint_id,from_status,to_status,reason,actor_user_id) VALUES($1,$2,$3,$4,$5)`,[id,subject.status,to,reason,context.userId]);
     const publicMessage = to === 'resolved' ? text(input.publicSummary,'public_summary',3,2000) : `تم تحديث حالة الشكوى إلى ${PUBLIC_STATUS[to]}`;
     await client.query(`INSERT INTO complaint_public_updates(complaint_id,public_status,message,is_system,published_by_user_id) VALUES($1,$2,$3,TRUE,$4)`,[id,PUBLIC_STATUS[to],publicMessage,context.userId]);
-    await client.query(`INSERT INTO complaint_audit_log(complaint_id,event_type,actor_type,actor_user_id,metadata) VALUES($1,'status_changed','staff',$2,$3)`,[id,context.userId,JSON.stringify({ from:subject.status,to })]);
+    await client.query(`INSERT INTO complaint_audit_log(complaint_id,event_type,actor_type,actor_user_id,metadata) VALUES($1,'status_changed','staff',$2,$3)`,[id,context.userId,JSON.stringify({ from:subject.status,to,...(triagePriority?{priority:triagePriority}:{}) })]);
     await client.query('COMMIT');
-    return { id, status: to };
+    return { id, status: to, ...(triagePriority ? { priority: triagePriority } : {}) };
   } catch(error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
+}
+
+export async function listEligibleComplaintHandlers(db:Queryable,branchId:number,userId:number|null=null){
+  const {rows}=await db.query(`SELECT DISTINCT u.id,u.name,u.username
+    FROM hr_users u
+    JOIN user_branch_assignments uba ON uba.user_id=u.id
+    WHERE u.is_active=TRUE
+      AND uba.branch_id=$1
+      AND uba.status='active'
+      AND ($2::int IS NULL OR u.id=$2::int)
+      AND (u.is_super_admin=TRUE OR (
+        EXISTS(SELECT 1 FROM role_permission_grants rpg JOIN permissions p ON p.id=rpg.permission_id
+          WHERE rpg.role_id=u.role_id AND p.key=$3 AND rpg.scope_type IN ('GLOBAL','BRANCH','ASSIGNED'))
+        AND EXISTS(SELECT 1 FROM role_permission_grants rpg JOIN permissions p ON p.id=rpg.permission_id
+          WHERE rpg.role_id=u.role_id AND p.key=$4 AND rpg.scope_type IN ('GLOBAL','BRANCH','ASSIGNED'))
+      ))
+    ORDER BY u.name,u.username`,[branchId,userId,...REQUIRED_COMPLAINT_HANDLER_PERMISSIONS]);
+  return rows;
 }
 
 export async function assignComplaintBranch(context: AuthContext,id:number,branchId:number,reason?:unknown,mode?:'assign'|'transfer') {
   const subject=await loadComplaintSubject(pool,id);
+  if(!COMPLAINT_BRANCH_ASSIGNABLE_STATUSES.includes(subject.status))throw httpError(409,subject.status==='new'?'complaint_triage_required':'complaint_branch_assignment_not_allowed');
   const permission=subject.handlingBranchId == null?'complaints.assign_branch':'complaints.transfer_branch';
   if ((mode === 'assign' && subject.handlingBranchId != null) || (mode === 'transfer' && subject.handlingBranchId == null)) throw httpError(409,'complaint_assignment_mode_mismatch');
   if (!canAccessComplaint(context,permission,subject).allowed) throw httpError(403,'complaint_action_forbidden');
@@ -443,12 +475,13 @@ export async function assignComplaintBranch(context: AuthContext,id:number,branc
 
 export async function assignComplaintHandler(context:AuthContext,id:number,userId:number,reason?:unknown,mode?:'assign'|'reassign'){
   const subject=await loadComplaintSubject(pool,id);
+  if(!COMPLAINT_BRANCH_ASSIGNABLE_STATUSES.includes(subject.status))throw httpError(409,subject.status==='new'?'complaint_triage_required':'complaint_handler_assignment_not_allowed');
   if (!subject.handlingBranchId) throw httpError(409,'handling_branch_required');
   const permission=subject.assignedUserId==null?'complaints.assign_handler':'complaints.reassign_handler';
   if((mode==='assign'&&subject.assignedUserId!=null)||(mode==='reassign'&&subject.assignedUserId==null))throw httpError(409,'complaint_assignment_mode_mismatch');
   if(!canAccessComplaint(context,permission,subject).allowed) throw httpError(403,'complaint_action_forbidden');
-  const eligible=await pool.query(`SELECT 1 FROM hr_users u WHERE u.id=$1 AND u.is_active=TRUE AND EXISTS(SELECT 1 FROM user_branch_assignments uba WHERE uba.user_id=u.id AND uba.branch_id=$2 AND uba.status='active')`,[userId,subject.handlingBranchId]);
-  if(!eligible.rowCount) throw httpError(400,'handler_not_in_handling_branch');
+  const eligible=await listEligibleComplaintHandlers(pool,subject.handlingBranchId,userId);
+  if(!eligible.length) throw httpError(400,'handler_not_eligible_for_complaints');
   const client=await pool.connect();
   try{await client.query('BEGIN');
     await client.query(`UPDATE complaints SET assigned_user_id=$2,status=CASE WHEN status='triaged' THEN 'assigned' ELSE status END WHERE id=$1`,[id,userId]);
@@ -462,6 +495,7 @@ export async function assignComplaintHandler(context:AuthContext,id:number,userI
 
 export async function listComplaintAssignmentBranches(context:AuthContext,id:number){
   const subject=await loadComplaintSubject(pool,id);
+  if(!COMPLAINT_BRANCH_ASSIGNABLE_STATUSES.includes(subject.status))throw httpError(409,subject.status==='new'?'complaint_triage_required':'complaint_branch_assignment_not_allowed');
   const permission=subject.handlingBranchId==null?'complaints.assign_branch':'complaints.transfer_branch';
   if(!canAccessComplaint(context,permission,subject).allowed)throw httpError(403,'complaint_action_forbidden');
   const {rows}=await pool.query(`SELECT id,name FROM branches WHERE status='active' ORDER BY name`);
@@ -470,13 +504,11 @@ export async function listComplaintAssignmentBranches(context:AuthContext,id:num
 
 export async function listComplaintAssignmentHandlers(context:AuthContext,id:number){
   const subject=await loadComplaintSubject(pool,id);
+  if(!COMPLAINT_BRANCH_ASSIGNABLE_STATUSES.includes(subject.status))throw httpError(409,subject.status==='new'?'complaint_triage_required':'complaint_handler_assignment_not_allowed');
   if(!subject.handlingBranchId)throw httpError(409,'handling_branch_required');
   const permission=subject.assignedUserId==null?'complaints.assign_handler':'complaints.reassign_handler';
   if(!canAccessComplaint(context,permission,subject).allowed)throw httpError(403,'complaint_action_forbidden');
-  const {rows}=await pool.query(`SELECT DISTINCT u.id,u.name,u.username
-    FROM hr_users u JOIN user_branch_assignments uba ON uba.user_id=u.id
-    WHERE u.is_active=TRUE AND uba.branch_id=$1 AND uba.status='active'
-    ORDER BY u.name,u.username`,[subject.handlingBranchId]);
+  const rows=await listEligibleComplaintHandlers(pool,subject.handlingBranchId);
   return{items:rows,handlingBranchId:subject.handlingBranchId};
 }
 
