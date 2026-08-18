@@ -5,6 +5,7 @@ import type { ComplaintType } from '@golden-crm/shared';
 import { COMPLAINT_TYPES } from '@golden-crm/shared';
 import pool from '../../db.js';
 import { getMyProfile } from '../appAccounts/appProfileService.js';
+import type { ClientClassification } from '../../lib/clientClassification.js';
 import { resolveAndValidateAddress } from '../geo/administrativeAddress.js';
 import { isValidSyrianMobile, normalizePhone } from '../../utils/contactValidation.js';
 import { DEVICE_COMPLAINT_CATEGORIES, TECHNICAL_COMPLAINT_CATEGORIES } from '@golden-crm/shared';
@@ -37,6 +38,12 @@ function publicText(...values: unknown[]): string | null {
 function publicDate(value: unknown): string | null {
   if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0, 10);
   return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value) ? value.slice(0, 10) : null;
+}
+
+export function toComplaintClassificationSnapshot(
+  classification: ClientClassification,
+): 'LEAD' | 'FOP' | 'OP' {
+  return classification === 'Lead' ? 'LEAD' : classification;
 }
 
 export function buildPublicComplaintSubjectContext(row: PublicComplaintRow, includeEntityIds: boolean) {
@@ -260,7 +267,7 @@ async function requester(db:PoolClient,identity:ComplaintIdentity,body:Record<st
     return{first:p.firstName.trim(),middle:p.fatherName?.trim()||null,last:p.lastName.trim(),phone:normalizePhone(p.primaryMobile),
       primaryWhatsapp:p.primaryMobileHasWhatsapp,secondary:secondary||null,secondaryWhatsapp:secondary?(optionalBoolean(body.secondaryPhoneHasWhatsapp,'secondary_phone_has_whatsapp') ?? p.secondaryMobileHasWhatsapp):null,
       governorate:p.address.governorateId,region:p.address.cityOrAreaId,subdistrict:p.address.subAreaId,neighborhood:p.address.neighborhoodId,
-      detailedAddress:p.address.detailedAddress,addressLabels:{governorate:p.address.governorate,cityOrArea:p.address.cityOrArea,subArea:p.address.subArea,neighborhood:p.address.neighborhood},classification:p.classification};
+      detailedAddress:p.address.detailedAddress,addressLabels:{governorate:p.address.governorate,cityOrArea:p.address.cityOrArea,subArea:p.address.subArea,neighborhood:p.address.neighborhood},classification:toComplaintClassificationSnapshot(p.classification)};
   }
   const v=body.visitor??{}; const phone=normalizePhone(v.primaryPhone);
   rejectUnknownKeys(v,['firstName','middleName','lastName','primaryPhone','primaryPhoneHasWhatsapp','secondaryPhone','secondaryPhoneHasWhatsapp','governorate','region','subdistrict','neighborhood','detailedAddress'],'visitor');

@@ -1,6 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { toPublicComplaintResponse } from './mobileComplaintService.js';
+import {
+  toComplaintClassificationSnapshot,
+  toPublicComplaintResponse,
+} from './mobileComplaintService.js';
+
+test('mobile account classifications use the database snapshot casing', () => {
+  assert.equal(toComplaintClassificationSnapshot('Lead'), 'LEAD');
+  assert.equal(toComplaintClassificationSnapshot('FOP'), 'FOP');
+  assert.equal(toComplaintClassificationSnapshot('OP'), 'OP');
+});
 
 test('registered owner receives a visit id and safe visit snapshot fields', () => {
   const result = toPublicComplaintResponse({
