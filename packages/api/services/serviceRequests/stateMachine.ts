@@ -504,6 +504,10 @@ export async function transitionStatus(
       }
     }
 
+    // Customer notification is NOT emitted here (DEC-019 D-N15). The outbox
+    // trigger on service_requests.status captures this transition — and the
+    // seven other places that write `promoted` without passing through here —
+    // in one mechanism, so a notification cannot be lost by forgetting a site.
     await commitTx(tx);
     return {
       ok: true,

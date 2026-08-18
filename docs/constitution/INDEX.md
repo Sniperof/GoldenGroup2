@@ -125,6 +125,7 @@
 |---|---|---|---|
 | DEC-001 | 2026-05-27 | [معضلة تعدد الفروع في خدمة الزباين](decisions/DEC-001-multi-branch-client-service.md) | ⏳ قيد المراجعة |
 | DEC-018 | 2026-08-17 | [دومين الشكاوى المستقل](decisions/DEC-018-independent-complaints-domain.md) | 🟢 معتمد ومنفذ برمجياً — غير منشور |
+| DEC-019 | 2026-08-17 | [إشعارات تطبيق العميل](decisions/DEC-019-app-notifications.md) | 🟢 معتمد ومنفذ بالكامل (1-7) |
 
 ---
 

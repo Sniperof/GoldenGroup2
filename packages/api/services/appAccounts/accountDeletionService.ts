@@ -73,6 +73,14 @@ export async function deleteAccountByVerifiedHandle(input: {
         WHERE app_account_id = $1 AND revoked_at IS NULL`,
       [appAccountId],
     );
+    // DEC-019 D-N12. Deletion here is soft, so the ON DELETE CASCADE on the
+    // registration rows never fires and the handset would keep receiving push
+    // for an account its owner just deleted. Revoking the refresh token closes
+    // the app's way IN; this closes our way OUT.
+    await tx.client.query(
+      `DELETE FROM app_notification_registrations WHERE app_account_id = $1`,
+      [appAccountId],
+    );
     await tx.client.query(
       `INSERT INTO audit_logs
          (entity_type, entity_id, action_type, performed_by_role, performed_by_user_id, new_value)

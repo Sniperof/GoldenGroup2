@@ -42,6 +42,57 @@ export interface AccountStatementResponse {
 // (isolated: list() is unchanged). See docs/analysis/clients-records-performance-and-filters.md
 // ── Mobile home-screen banners (migration 422) ──────────────────────────────
 
+// ── Free-form app notifications (DEC-019 D-N6/D-N7) ──────────────────────────
+export type BroadcastDestination =
+  | 'service_request' | 'device' | 'warranty' | 'complaint' | 'visit';
+
+export interface BroadcastAudienceInput {
+  /** Optional narrowing. The server applies the operator's branch ceiling on top. */
+  branchId?: number | null;
+  /** Geo subtree of the deepest selected level, as GeoCascadeFilter emits it. */
+  geoIds?: string[];
+  clientId?: number | null;
+}
+
+export interface BroadcastAudiencePreview {
+  audience: BroadcastAudienceInput;
+  /** Inboxes that would receive the notification. */
+  accounts: number;
+  /** Distinct customers behind those inboxes. */
+  clients: number;
+  /** Of those, how many have a registered device; the rest see it only in-app. */
+  reachableByPush: number;
+}
+
+export interface BroadcastInput {
+  title: string;
+  message: string;
+  locale: 'ar' | 'en';
+  destination?: BroadcastDestination | null;
+  destinationId?: string | null;
+  audience: BroadcastAudienceInput;
+  /** What the operator was shown, stored beside what was actually written. */
+  previewedCount?: number | null;
+}
+
+export interface BroadcastRecord {
+  id: string;
+  title: string;
+  message: string;
+  locale: 'ar' | 'en';
+  destination: BroadcastDestination | null;
+  destinationId: string | null;
+  audience: BroadcastAudienceInput;
+  previewedCount: number | null;
+  notificationCount: number;
+  branchId: number | null;
+  branchName: string | null;
+  sentBy: string | null;
+  createdAt: string;
+  completedAt: string | null;
+  lastError: string | null;
+}
+
 export type AppHomeBannerTargetKind = 'none' | 'device' | 'service_request' | 'external_url';
 export type AppHomeBannerAudience = 'all' | 'customers' | 'guests';
 
@@ -644,6 +695,23 @@ export const api = {
       reorder: (ids: number[]) =>
         request<AppHomeBanner[]>('/admin/app-home-banners/reorder', { method: 'PATCH', body: JSON.stringify({ ids }) }),
       delete: (id: number) => request<{ success: true }>(`/admin/app-home-banners/${id}`, { method: 'DELETE' }),
+    },
+    // Free-form customer notification (DEC-019 D-N6). `audiencePreview` is not
+    // optional politeness: a send is irreversible and leaves the system, so the
+    // count the operator confirms against comes from the same predicate the
+    // send itself uses.
+    appNotifications: {
+      audiencePreview: (audience: BroadcastAudienceInput) =>
+        request<BroadcastAudiencePreview>('/admin/app-notifications/audience-preview', {
+          method: 'POST',
+          body: JSON.stringify(audience),
+        }),
+      send: (data: BroadcastInput) =>
+        request<{ broadcastId: string; notificationCount: number; pushed: number }>(
+          '/admin/app-notifications/broadcasts',
+          { method: 'POST', body: JSON.stringify(data) },
+        ),
+      history: () => request<{ items: BroadcastRecord[] }>('/admin/app-notifications/broadcasts'),
     },
     appContactLinks: {
       get: () => request<AppContactLinks>('/admin/app-contact-links'),

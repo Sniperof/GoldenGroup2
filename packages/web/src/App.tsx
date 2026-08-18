@@ -59,6 +59,7 @@ import PermissionSettings from './pages/admin/PermissionSettings';
 import TaskTypes from './pages/admin/TaskTypes';
 import EmergencyActionTypes from './pages/admin/EmergencyActionTypes';
 import AppHomeBanners from './pages/admin/AppHomeBanners';
+import AppNotifications from './pages/admin/AppNotifications';
 import AppContactLinks from './pages/admin/AppContactLinks';
 import VisitsListPage from './pages/visits/VisitsListPage';
 import MyVisitsPage from './pages/visits/MyVisitsPage';
@@ -217,6 +218,7 @@ export default function App() {
                         <Route path="/admin/task-types" element={<TaskTypes />} />
                         <Route path="/admin/emergency-action-types" element={<EmergencyActionTypes />} />
                         <Route path="/admin/app-home-banners" element={<AppHomeBanners />} />
+                        <Route path="/admin/app-notifications" element={<AppNotifications />} />
                         <Route path="/admin/app-contact-links" element={<AppContactLinks />} />
                     </Route>
                 </Routes>
