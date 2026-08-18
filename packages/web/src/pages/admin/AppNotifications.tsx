@@ -24,6 +24,9 @@ const DESTINATION_LABELS: Record<'none' | BroadcastDestination, string> = {
   visit: 'زيارة',
 };
 
+const DESTINATION_OPTIONS = (Object.keys(DESTINATION_LABELS) as ('none' | BroadcastDestination)[])
+  .map((value) => ({ value, label: DESTINATION_LABELS[value] }));
+
 /**
  * The mobile app resolves `warranty` without an id (§E.1 of the contract), so it
  * is the only destination that may be sent bare. Everything else needs the id of
@@ -131,13 +134,13 @@ export default function AppNotifications() {
   };
 
   const columns: ColumnDef<BroadcastRecord>[] = [
-    { key: 'createdAt', header: 'التاريخ', accessor: (r) => new Date(r.createdAt).toLocaleString('ar') },
-    { key: 'title', header: 'العنوان', accessor: (r) => r.title },
-    { key: 'message', header: 'النص', accessor: (r) => r.message },
+    { key: 'createdAt', label: 'التاريخ', render: (r) => new Date(r.createdAt).toLocaleString('ar') },
+    { key: 'title', label: 'العنوان', render: (r) => r.title },
+    { key: 'message', label: 'النص', render: (r) => r.message },
     {
       key: 'audience',
-      header: 'الجمهور',
-      accessor: (r) => {
+      label: 'الجمهور',
+      render: (r) => {
         const parts: string[] = [];
         if (r.branchName) parts.push(`فرع ${r.branchName}`);
         if (r.audience?.geoIds?.length) parts.push('منطقة محددة');
@@ -147,14 +150,14 @@ export default function AppNotifications() {
     },
     {
       key: 'notificationCount',
-      header: 'المستقبلون',
+      label: 'المستقبلون',
       // Both numbers, deliberately: the gap between what was previewed and what
       // was written is the audit question worth answering at a glance.
-      accessor: (r) => (r.previewedCount != null && r.previewedCount !== r.notificationCount
+      render: (r) => (r.previewedCount != null && r.previewedCount !== r.notificationCount
         ? `${r.notificationCount} (المعاينة ${r.previewedCount})`
         : String(r.notificationCount)),
     },
-    { key: 'sentBy', header: 'أرسله', accessor: (r) => r.sentBy ?? '—' },
+    { key: 'sentBy', label: 'أرسله', render: (r) => r.sentBy ?? '—' },
   ];
 
   return (
@@ -180,10 +183,14 @@ export default function AppNotifications() {
             </div>
             <div>
               <label className="block text-sm text-slate-600 mb-1">اللغة</label>
-              <Select value={locale} onChange={(e) => setLocale(e.target.value as 'ar' | 'en')}>
-                <option value="ar">العربية</option>
-                <option value="en">English</option>
-              </Select>
+              <Select
+                value={locale}
+                onChange={(value) => setLocale(value)}
+                options={[
+                  { value: 'ar', label: 'العربية' },
+                  { value: 'en', label: 'English' },
+                ]}
+              />
             </div>
           </div>
 
@@ -205,15 +212,12 @@ export default function AppNotifications() {
               <label className="block text-sm text-slate-600 mb-1">الوجهة عند النقر</label>
               <Select
                 value={destination}
-                onChange={(e) => {
-                  setDestination(e.target.value as 'none' | BroadcastDestination);
+                onChange={(value) => {
+                  setDestination(value);
                   setDestinationId('');
                 }}
-              >
-                {Object.entries(DESTINATION_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>{label}</option>
-                ))}
-              </Select>
+                options={DESTINATION_OPTIONS}
+              />
             </div>
             {needsId && (
               <div>
@@ -286,15 +290,17 @@ export default function AppNotifications() {
         </div>
       )}
 
-      <div className="bg-white rounded-xl border border-slate-200 p-5">
-        <h3 className="font-semibold text-slate-800 mb-3">سجل الإرسالات</h3>
-        <SmartTable
-          data={history}
-          columns={columns}
-          getRowId={(r) => r.id}
-          emptyMessage="لا توجد إرسالات بعد"
-        />
-      </div>
+      <SmartTable
+        title="سجل الإرسالات"
+        icon={BellRing}
+        data={history}
+        columns={columns}
+        getId={(r) => r.id}
+        emptyIcon={BellRing}
+        emptyMessage="لا توجد إرسالات بعد"
+        defaultSortKey="createdAt"
+        defaultSortDir="desc"
+      />
 
       <Modal
         isOpen={confirmOpen}
