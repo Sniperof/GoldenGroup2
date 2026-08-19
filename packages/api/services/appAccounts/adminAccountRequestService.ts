@@ -111,6 +111,8 @@ export async function listAccountRequests(filters: ListFilters) {
             sr.requester_external->>'primary_phone' AS primary_phone,
             COALESCE(sr.service_address->'labels'->>'governorate',
                      sr.service_address->>'governorate')  AS governorate,
+            sr.branch_id, sr.branch_resolution_status,
+            sr.branch_resolution_reason, sr.branch_resolution_geo_unit_id,
             sr.duplicate_flag, sr.review_required_flag, sr.escalated_at, sr.archived_at,
             sr.beneficiary_client_id, sr.created_at,
             sr.reviewed_by_user_id,
@@ -130,6 +132,8 @@ export async function getAccountRequestDetails(id: number) {
   const { rows } = await pool.query(
     `SELECT sr.id, sr.public_ref_number, sr.status, sr.request_type, sr.channel, sr.submitter_tier,
             sr.submitted_payload, sr.requester_external, sr.service_address,
+            sr.branch_id, sr.branch_resolution_status,
+            sr.branch_resolution_reason, sr.branch_resolution_geo_unit_id,
             sr.duplicate_flag, sr.review_required_flag, sr.duplicate_of_request_id,
             sr.escalated_at, sr.escalated_by_user_id, sr.escalation_reason,
             sr.beneficiary_client_id, sr.rejected_by_user_id, sr.rejection_reason,

@@ -7,6 +7,14 @@ import { UserPlus } from 'lucide-react';
 import { api } from '../../lib/api';
 import RequestsListView, { type NormalizedRequestRow } from '../../components/requests/RequestsListView';
 
+const BRANCH_STATUS_LABELS: Record<string, string> = {
+  resolved: 'مغطى',
+  no_coverage: 'خارج التغطية',
+  ambiguous: 'أكثر من فرع',
+  missing_geo: 'جغرافيا غير محسومة',
+  not_applicable: 'غير محسوم',
+};
+
 export default function AccountRequestsListPage() {
   return (
     <RequestsListView
@@ -53,6 +61,18 @@ export default function AccountRequestsListPage() {
           label: 'المحافظة',
           getValue: (r) => r.raw.governorate ?? '',
           render: (r) => <span className="text-sm text-slate-600">{r.raw.governorate ?? '—'}</span>,
+        },
+        {
+          key: 'branchResolution',
+          label: 'تغطية العنوان',
+          getValue: (r) => r.raw.branch_resolution_status ?? '',
+          render: (r) => {
+            const status = r.raw.branch_resolution_status as string | null | undefined;
+            const outside = status != null && status !== 'resolved' && status !== 'not_applicable';
+            return <span className={`text-sm font-semibold ${outside ? 'text-amber-700' : 'text-emerald-700'}`}>
+              {status ? (BRANCH_STATUS_LABELS[status] ?? status) : '—'}
+            </span>;
+          },
         },
       ]}
       detailPath={(r) => `/account-requests/${r.id}`}

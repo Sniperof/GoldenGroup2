@@ -50,6 +50,13 @@ const OUTCOME_LABELS: Record<string, string> = {
   linked_to_client: 'مرتبط بزبون قائم',
 };
 
+const BRANCH_RESOLUTION_LABELS: Record<string, string> = {
+  no_coverage: 'لا يوجد فرع يغطي هذا العنوان',
+  ambiguous: 'العنوان مشترك بين أكثر من فرع',
+  missing_geo: 'تعذّر تحديد الوحدة الجغرافية',
+  resolved: 'تم تحديد الفرع',
+};
+
 const ACTIVE = ['received', 'in_review', 'awaiting_customer_info'];
 
 function Field({ label, value }: { label: string; value: any }) {
@@ -256,6 +263,16 @@ export default function AccountRequestDetailPage() {
                     : 'سجل قائم'}
                 {typeof dup?.score === 'number' && ` — درجة التطابق ${Math.round(dup.score * 100)}%`}. مراجعة إلزامية.
               </span>
+            </div>
+          )}
+          {r.branch_resolution_status && r.branch_resolution_status !== 'resolved' && r.branch_resolution_status !== 'not_applicable' && (
+            <div className="bg-amber-50 border border-amber-300 rounded p-3 mb-3 text-sm text-amber-900 flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+              <div>
+                <div className="font-bold">حالة تغطية العنوان: {BRANCH_RESOLUTION_LABELS[r.branch_resolution_status] ?? r.branch_resolution_status}</div>
+                <div className="mt-1">يمكن اعتماد الحساب وتفعيله، لكن هذا العنوان حالياً خارج تغطية الفروع أو يحتاج مراجعة.</div>
+                {r.branch_resolution_reason && <div className="mt-1 text-xs text-amber-800">{r.branch_resolution_reason}</div>}
+              </div>
             </div>
           )}
           {!r.duplicate_flag && r.review_required_flag && (

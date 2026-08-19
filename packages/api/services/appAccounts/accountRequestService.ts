@@ -23,6 +23,7 @@ import {
   buildMobileAddressLabels,
   buildMobileServiceAddress,
 } from '../geo/mobileServiceAddress.js';
+import { resolveBranchForServiceGeoUnit } from '../serviceRequests/branchResolutionService.js';
 import { detectAccountRequestDuplicate } from './accountDuplicatePolicy.js';
 import {
   acquireTx,
@@ -414,6 +415,13 @@ export async function createAccountRequest(
     subArea: form.subArea,
     neighborhood: form.neighborhood,
   });
+  // Account creation remains allowed outside service coverage, but the
+  // reviewer must receive an explicit, immutable resolution result.
+  const branchResolutionGeoUnitId = address.ids.neighborhood
+    ?? address.ids.subArea
+    ?? address.ids.cityOrArea
+    ?? address.ids.governorate;
+  const branchResolution = await resolveBranchForServiceGeoUnit(branchResolutionGeoUnitId);
 
   const tx = await acquireTx();
   try {
@@ -510,9 +518,12 @@ export async function createAccountRequest(
     const { rows: ins } = await tx.client.query<{ id: number; created_at: string }>(
       `INSERT INTO service_requests
          (public_ref_number, request_type, channel, submitter_tier, submission_type,
-          problem_description, submitted_payload, requester_external, service_address, status)
+          problem_description, submitted_payload, requester_external, service_address, status,
+          branch_id, branch_resolution_status, branch_resolution_reason,
+          branch_resolution_geo_unit_id)
        VALUES ($1, 'account_creation', 'mobile_app', 'visitor', 'apply',
-          $2, $3::jsonb, $4::jsonb, $5::jsonb, 'received')
+          $2, $3::jsonb, $4::jsonb, $5::jsonb, 'received',
+          $6, $7, $8, $9)
        RETURNING id, created_at`,
       [
         ref,
@@ -520,6 +531,10 @@ export async function createAccountRequest(
         JSON.stringify(submittedPayload),
         JSON.stringify(requesterExternal),
         JSON.stringify(serviceAddress),
+        branchResolution.branchId,
+        branchResolution.status,
+        branchResolution.reason,
+        branchResolution.geoUnitId,
       ],
     );
     const requestId = ins[0].id;
@@ -539,6 +554,8 @@ export async function createAccountRequest(
         channel: 'mobile_app',
         public_ref_number: ref,
         primary_phone: phone,
+        branch_resolution_status: branchResolution.status,
+        branch_resolution_geo_unit_id: branchResolution.geoUnitId,
       },
     });
 

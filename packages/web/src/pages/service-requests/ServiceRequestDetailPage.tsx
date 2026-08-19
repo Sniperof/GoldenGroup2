@@ -93,6 +93,8 @@ export default function ServiceRequestDetailPage() {
   const [deviceDemoReasons, setDeviceDemoReasons] = useState<{ value: string; label: string }[]>([]);
   const [beneficiaryDevices, setBeneficiaryDevices] = useState<any[]>([]);
   const [deviceLinkChoice, setDeviceLinkChoice] = useState('');
+  const [beneficiaryRelinkOpen, setBeneficiaryRelinkOpen] = useState(false);
+  const [beneficiaryRelinkReason, setBeneficiaryRelinkReason] = useState('');
   const [deviceModels, setDeviceModels] = useState<any[]>([]);
   const [externalModelChoice, setExternalModelChoice] = useState('');
 
@@ -622,6 +624,11 @@ export default function ServiceRequestDetailPage() {
     return error?.payload ?? error?.response?.data ?? null;
   }
 
+  function isPartyAlreadyLinkedError(error: any) {
+    const payload = getApiPayload(error);
+    return payload?.code === 'service_request_party_already_linked';
+  }
+
   async function createWaterCheckClientFromRequest() {
     setWaterCheckClientDraft(getWaterCheckClientPayload());
     setWaterCheckClientModalOpen(true);
@@ -653,7 +660,11 @@ export default function ServiceRequestDetailPage() {
       await reload();
     } catch (e: any) {
       const payload = getApiPayload(e);
-      if (payload?.status === 'MATCH_VISIBLE') {
+      if (isPartyAlreadyLinkedError(e)) {
+        setWaterCheckClientModalOpen(false);
+        showToast('تم ربط المستفيد بالفعل؛ جرى تحديث بيانات الطلب دون إنشاء سجل آخر.', 'success');
+        await reload();
+      } else if (payload?.status === 'MATCH_VISIBLE') {
         showToast(`الرقم موجود مسبقاً: ${payload.client?.name ?? `#${payload.client?.id}`}. راجع المقارنة قبل الربط.`, 'error');
       } else if (payload?.status === 'MATCH_RESTRICTED') {
         showToast(payload.message ?? 'الرقم موجود مسبقاً خارج نطاق عرضك.', 'error');
@@ -717,7 +728,13 @@ export default function ServiceRequestDetailPage() {
       showToast('تم إنشاء سجل مقدم الطلب وربطه', 'success');
       await reload();
     } catch (e: any) {
-      showToast(e?.message ?? 'تعذر إنشاء سجل مقدم الطلب', 'error');
+      if (isPartyAlreadyLinkedError(e)) {
+        setRequesterClientModalOpen(false);
+        showToast('تم ربط مقدم الطلب بالفعل؛ جرى تحديث بيانات الطلب دون إنشاء سجل آخر.', 'success');
+        await reload();
+      } else {
+        showToast(e?.message ?? 'تعذر إنشاء سجل مقدم الطلب', 'error');
+      }
     } finally {
       setBusy(false);
     }
@@ -796,7 +813,11 @@ export default function ServiceRequestDetailPage() {
       await reload();
     } catch (e: any) {
       const p = getApiPayload(e);
-      if (p?.status === 'MATCH_VISIBLE') {
+      if (isPartyAlreadyLinkedError(e)) {
+        setMediatorClientModalOpen(false);
+        showToast('تم ربط الوسيط بالفعل؛ جرى تحديث بيانات الطلب دون إنشاء سجل آخر.', 'success');
+        await reload();
+      } else if (p?.status === 'MATCH_VISIBLE') {
         showToast(`الرقم موجود مسبقاً: ${p.client?.name ?? `#${p.client?.id}`}. اربطه من قائمة المقترحات.`, 'error');
       } else if (p?.status === 'MATCH_RESTRICTED') {
         showToast(p.message ?? 'الرقم موجود مسبقاً خارج نطاق عرضك.', 'error');
@@ -893,10 +914,46 @@ export default function ServiceRequestDetailPage() {
       showToast(`${requestKindLabel} يمكن ربطه بزبون فقط.`, 'error');
       return;
     }
-    await api.serviceRequests.link(requestId, {
+    const currentSource = req.beneficiaryClientId != null
+      ? 'client'
+      : req.beneficiaryCandidateId != null ? 'candidate' : null;
+    const currentId = currentSource === 'client'
+      ? Number(req.beneficiaryClientId)
+      : currentSource === 'candidate' ? Number(req.beneficiaryCandidateId) : null;
+    if (currentSource === m.source && currentId === m.id) {
+      showToast('هذا السجل هو المربوط حالياً.', 'error');
+      return;
+    }
+
+    const target = {
       [m.source === 'client' ? 'beneficiaryClientId' : 'beneficiaryCandidateId']: m.id,
-    });
-    await reload();
+    };
+    const isChanging = currentSource != null;
+    const reason = beneficiaryRelinkReason.trim()
+      || (currentSource === 'candidate' && m.source === 'client'
+        ? 'ترقية ربط المستفيد من مرشح إلى زبون'
+        : '');
+    if (isChanging && !reason) {
+      showToast('اكتب سبب تغيير ربط المستفيد أولاً.', 'error');
+      return;
+    }
+
+    setBusy(true);
+    try {
+      if (isChanging) {
+        await api.serviceRequests.changeLinkage(requestId, { ...target, reason });
+      } else {
+        await api.serviceRequests.link(requestId, target);
+      }
+      setBeneficiaryRelinkOpen(false);
+      setBeneficiaryRelinkReason('');
+      showToast(isChanging ? 'تم تغيير ربط المستفيد' : 'تم ربط المستفيد', 'success');
+      await reload();
+    } catch (e: any) {
+      showToast(e?.message ?? 'تعذر ربط المستفيد', 'error');
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function linkRequesterSuggested(match: { source: 'client' | 'candidate'; id: number }) {
@@ -1486,12 +1543,57 @@ export default function ServiceRequestDetailPage() {
                     <ClientSnapshot data={beneficiarySnapshot} />
                   </div>
                 )}
+                {canReview && canLink && (
+                  <div className="mt-3 space-y-3">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={busy}
+                      onClick={() => setBeneficiaryRelinkOpen((open) => !open)}
+                    >
+                      {beneficiaryRelinkOpen ? 'إلغاء تغيير الربط' : 'تغيير الربط'}
+                    </Button>
+                    {beneficiaryRelinkOpen && (
+                      <div className="rounded-xl border border-amber-200 bg-white p-3">
+                        <label className="block text-sm font-semibold text-slate-700">
+                          سبب تغيير الربط <span className="text-red-500">*</span>
+                          <textarea
+                            className="mt-1 min-h-20 w-full resize-y rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
+                            value={beneficiaryRelinkReason}
+                            onChange={(event) => setBeneficiaryRelinkReason(event.target.value)}
+                            placeholder="مثال: تم اختيار سجل مشابه بالخطأ"
+                          />
+                        </label>
+                        <div className="mt-3">
+                          <SuggestedMatchesPanel
+                            serviceRequestId={requestId}
+                            request={req}
+                            onLink={linkSuggested}
+                            sources={isEmergencyMaintenance ? 'all' : 'clients'}
+                            heading="اختر السجل البديل للمستفيد"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </>
             ) : (
               <>
                 {req.beneficiaryCandidateId ? (
-                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                    المستفيد مرتبط مؤقتاً بسجل المرشح: <strong>{req.beneficiaryCandidateName ?? `#${req.beneficiaryCandidateId}`}</strong>. يلزم ربطه بسجل زبون قبل الحسم أو التسليم.
+                  <div className="space-y-3">
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                      المستفيد مرتبط مؤقتاً بسجل المرشح: <strong>{req.beneficiaryCandidateName ?? `#${req.beneficiaryCandidateId}`}</strong>. يلزم ربطه بسجل زبون قبل الحسم أو التسليم.
+                    </div>
+                    <label className="block text-sm font-semibold text-slate-700">
+                      سبب استبدال الربط
+                      <textarea
+                        className="mt-1 min-h-20 w-full resize-y rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
+                        value={beneficiaryRelinkReason}
+                        onChange={(event) => setBeneficiaryRelinkReason(event.target.value)}
+                        placeholder="مثال: تم التحقق من سجل الزبون الصحيح"
+                      />
+                    </label>
                   </div>
                 ) : (
                   <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">

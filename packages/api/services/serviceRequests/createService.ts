@@ -103,6 +103,13 @@ export interface CreatedServiceRequest {
 function validateMandatory(
   input: CreateServiceRequestInput,
 ): ServiceResult<void> {
+  if (input.beneficiaryClientId != null && input.beneficiaryCandidateId != null) {
+    return {
+      ok: false,
+      code: 'beneficiary_target_must_be_exclusive',
+      message: 'A service request beneficiary must be either a client or a candidate, never both.',
+    };
+  }
   if (!input.problemDescription || input.problemDescription.trim().length === 0) {
     return { ok: false, code: 'missing_problem_description' };
   }
