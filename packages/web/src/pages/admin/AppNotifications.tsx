@@ -25,7 +25,21 @@ const DESTINATION_LABELS: Record<'none' | BroadcastDestination, string> = {
   service_request_form: 'نموذج تقديم طلب (يفتح النموذج لا الطلب)',
 };
 
+/**
+ * `service_request` is deliberately absent from the picker.
+ *
+ * The app resolves it to `/service-request`, which is the intake form and casts
+ * `state.extra` to `ServiceRequestArgs` — so a tap carrying a request id fails at
+ * runtime. `visit` and `complaint` stay offered because the app does NOT know
+ * them and falls back to the inbox harmlessly; this one is dangerous precisely
+ * because it IS recognised. The API still accepts the value (it is a contract
+ * destination, and mobile may build the screen) — we just do not hand an operator
+ * a way to break the app. Restore it here once handoff §1.5 is answered.
+ */
+const HIDDEN_DESTINATIONS: BroadcastDestination[] = ['service_request'];
+
 const DESTINATION_OPTIONS = (Object.keys(DESTINATION_LABELS) as ('none' | BroadcastDestination)[])
+  .filter((value) => !HIDDEN_DESTINATIONS.includes(value as BroadcastDestination))
   .map((value) => ({ value, label: DESTINATION_LABELS[value] }));
 
 /**

@@ -68,13 +68,18 @@ test('a request with no linked client is a silent no-op, not an error', async ()
   assert.equal(inserts.length, 0);
 });
 
-test('the request id travels as the navigation target', async () => {
+test('the request id is carried without pointing the app at a screen', async () => {
   const { db, inserts } = mockDb();
   const [push] = await notifyServiceRequestStatusChanged(db, {
     serviceRequestId: 123, clientId: 3, requestType: 'water_check', status: 'promoted',
   });
-  assert.equal(JSON.parse(String(inserts[0][5])).destination_id, '123');
-  assert.equal(push.data.destination, 'service_request');
+  const data = JSON.parse(String(inserts[0][5]));
+  // The id is preserved for when a request-details screen exists...
+  assert.equal(data.service_request_id, '123');
+  // ...but no destination is sent, because the app's service_request route is
+  // the intake form and would fail on a raw id.
+  assert.equal(data.destination, undefined);
+  assert.equal(push.data.destination, undefined);
 });
 
 test('a database failure is swallowed — an operation is never rolled back by a notification', async () => {

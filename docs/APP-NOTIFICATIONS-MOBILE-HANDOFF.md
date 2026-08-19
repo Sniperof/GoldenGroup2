@@ -48,7 +48,7 @@ everything else to `unknown`. The backend now emits ten values:
 
 | `data.type` | When it is sent | `data.destination` | `destination_id` |
 |---|---|---|---|
-| `service_request_status_changed` | request reached `promoted` / `completed` / `rejected` / `cancelled` | `service_request` | request id |
+| `service_request_status_changed` | request reached `promoted` / `completed` / `rejected` / `cancelled` | **none — see §1.5** | — (id in `data.service_request_id`) |
 | `visit_scheduled` | a visit was booked for the customer | `visit` | visit id |
 | `visit_cancelled` | a booked visit was cancelled | `visit` | visit id |
 | `visit_completed` | the visit was closed out | `visit` | visit id |
@@ -126,8 +126,15 @@ has no valid target. Two ways out, your call:
    `destination` on that notification so it stays in the inbox instead of
    pointing at a route that cannot accept it.
 
-Until you pick one, treat an incoming `service_request` destination defensively:
-land on the notifications list rather than attempting the cast.
+**What we did in the meantime (2026-08-18):** we stopped sending a
+`destination` on `service_request_status_changed` entirely. It now lands in the
+inbox and nowhere else, because `service_request` is the one destination your app
+*recognises* — so unlike `visit` and `complaint`, which fall back harmlessly, it
+would attempt the `ServiceRequestArgs` cast and fail at runtime. The request id
+still travels as `data.service_request_id`, a plain key you preserve and ignore,
+so turning the deep link back on is one line on our side once you answer.
+
+You do not need to add defensive handling for it — nothing sends it today.
 
 ### 1.6 Nothing else changes
 

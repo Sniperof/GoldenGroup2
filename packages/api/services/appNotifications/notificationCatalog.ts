@@ -150,7 +150,23 @@ type Catalog = { [T in NotificationType]: CatalogEntry<T> };
 
 export const NOTIFICATION_CATALOG: Catalog = {
   service_request_status_changed: {
-    destination: 'service_request',
+    /**
+     * DEPARKED to null 2026-08-18. The app has no request-details screen: its
+     * `service_request` destination routes to `/service-request`, which is the
+     * INTAKE form and casts `state.extra` to `ServiceRequestArgs` — so a tap
+     * carrying a request id fails at runtime rather than degrading.
+     *
+     * Unlike `visit` and `complaint`, which the app does not recognise and
+     * therefore safely falls back to the inbox for, `service_request` IS
+     * recognised — so sending it is the one case that can break the app instead
+     * of merely landing dully. The notification stays in the inbox until mobile
+     * either builds that screen or tells us it never will (handoff §1.5).
+     *
+     * The request id is not lost: it rides in `data.service_request_id` (see
+     * notify.ts), which the app preserves verbatim, so restoring the deep link
+     * later is a one-line change here.
+     */
+    destination: null,
     family: 'reactive',
     deduped: false,
     text: (locale, { requestId, status }) => {

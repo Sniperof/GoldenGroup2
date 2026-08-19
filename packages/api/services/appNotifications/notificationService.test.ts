@@ -68,11 +68,9 @@ test('the stored data map and the push data map agree (§E.2)', async () => {
   });
 
   const storedData = JSON.parse(String(inserts[0][5]));
-  assert.deepEqual(storedData, {
-    type: 'service_request_status_changed',
-    destination: 'service_request',
-    destination_id: '123',
-  });
+  // No destination on this type today — the app has no screen to land on, and
+  // its `service_request` route would fail the cast. See the catalog note.
+  assert.deepEqual(storedData, { type: 'service_request_status_changed' });
   // The push adds notification_id and changes nothing else.
   assert.deepEqual(push.data, { ...storedData, notification_id: push.notificationId });
 });

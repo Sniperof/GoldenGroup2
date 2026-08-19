@@ -59,7 +59,11 @@ export async function notifyServiceRequestStatusChanged(
     return await createNotifications({
       type: 'service_request_status_changed',
       clientId: input.clientId,
-      destinationId: input.serviceRequestId,
+      // No destinationId: the catalog currently sends this type with no
+      // destination at all (see the note there). The id travels as a plain data
+      // key so the payload stays complete and the deep link can be turned back
+      // on without a data migration.
+      extraData: { service_request_id: String(input.serviceRequestId) },
       vars: {
         requestId: input.serviceRequestId,
         status: input.status as NotifiableRequestStatus,
