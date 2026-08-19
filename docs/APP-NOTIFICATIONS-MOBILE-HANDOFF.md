@@ -57,13 +57,14 @@ everything else to `unknown`. The backend now emits ten values:
 | `warranty_expiring` | 30 days, then 7 days before expiry (configurable) | `warranty` | device id |
 | `warranty_activated` | a warranty was activated | `warranty` | device id |
 | `complaint_update` | a public update was published on the customer's complaint | `complaint` | complaint id |
+| `general` with `destination: service_request_form` | an administrator invites the customer to submit a request | `service_request_form` | **request_type slug** |
 | `general` | free-form message sent by an administrator | *(varies or absent)* | *(varies or absent)* |
 
 `general` is the one your report said had **no** wire value today. It now has
 one, literally `general`, and it is not optional: the admin free-form composer is
 built and shipping, so without this mapping those messages render as `unknown`.
 
-### 1.3 Two new `data.destination` values — `visit` and `complaint`
+### 1.3 Three new `data.destination` values — `visit`, `complaint`, `service_request_form`
 
 **Change:** two entries in `NotificationDestinationResolver` +
 `NotificationDestinationRoute`.
@@ -77,6 +78,21 @@ notification types open the notifications list instead of the visit.
 `destination_id` as the complaint id. Lower priority than `visit` — a complaint
 update's body text is self-contained, so landing on the inbox is a degraded
 experience rather than a broken one.
+
+`service_request_form` is the one that should be **cheapest of all**, and it is
+different in kind from every other destination: its `destination_id` is a
+**request_type slug** (`water_check`, `periodic_maintenance`, `device_request`,
+`emergency_maintenance`, `golden_warranty`, `name_nomination`,
+`agent_license`), not a numeric row id. It should open the **intake form** for
+that request type — the same target a home banner's `target_request_type`
+already opens today. So there is no new screen to build: build
+`ServiceRequestArgs` from the slug and route to the flow you already have.
+
+This exists because the app has **no "my requests" and no "request details"
+screen**: `/service-request` takes `ServiceRequestArgs` and *is* the intake
+flow. So "here is your request" has nowhere to land, while "submit this request"
+does. Which also means §1.5 below is not really a deep-link bug — see the note
+there.
 
 We send the correct destination value **today**, before you ship this. Your
 existing fallback (unknown destination → notifications list) handles it safely in
@@ -93,14 +109,25 @@ handset goes **silent** until the next sign-in, which can be months. The backend
 deletes tokens that FCM reports as `UNREGISTERED`, so the dead row is cleaned up
 — but nothing replaces it until the app re-registers.
 
-### 1.5 Fix the `service_request` route mismatch (§E.3 of your report)
+### 1.5 Decide what `service_request` should mean (§E.3 of your report)
 
-**Change:** yours to design — we are not working around it.
+**Change:** yours to decide — we are not working around it.
 
 You flagged that `NotificationDestinationRoute` passes `destination_id` as the
 route `extra` while `/service-request` casts `state.extra` to
-`ServiceRequestArgs`. We send `destination` and `destination_id` as specified;
-the deep link cannot work until this is reconciled on your side.
+`ServiceRequestArgs`. Now that we know `/service-request` is the intake flow and
+there is no request-details screen, this is not a wiring slip — the destination
+has no valid target. Two ways out, your call:
+
+1. Build a request-details screen and route `service_request` + the request id to
+   it. This is what `service_request_status_changed` wants ("your request is now
+   completed" → open the request).
+2. Tell us there will be no such screen, and we will stop sending a
+   `destination` on that notification so it stays in the inbox instead of
+   pointing at a route that cannot accept it.
+
+Until you pick one, treat an incoming `service_request` destination defensively:
+land on the notifications list rather than attempting the cast.
 
 ### 1.6 Nothing else changes
 

@@ -22,6 +22,7 @@ const DESTINATION_LABELS: Record<'none' | BroadcastDestination, string> = {
   warranty: 'الكفالة',
   complaint: 'شكوى',
   visit: 'زيارة',
+  service_request_form: 'نموذج تقديم طلب (يفتح النموذج لا الطلب)',
 };
 
 const DESTINATION_OPTIONS = (Object.keys(DESTINATION_LABELS) as ('none' | BroadcastDestination)[])
@@ -33,8 +34,15 @@ const DESTINATION_OPTIONS = (Object.keys(DESTINATION_LABELS) as ('none' | Broadc
  * the thing it opens, and the API rejects the half-configured case.
  */
 const DESTINATIONS_NEEDING_ID: BroadcastDestination[] = [
-  'service_request', 'device', 'complaint', 'visit',
+  'service_request', 'device', 'complaint', 'visit', 'service_request_form',
 ];
+
+/**
+ * The one destination whose id is a request_type slug, picked from a list, rather
+ * than a row id typed by hand. Kept separate so the numeric input never strips
+ * the underscores out of `water_check`.
+ */
+const REQUEST_FORM_DESTINATION = 'service_request_form';
 
 const MAX_TITLE = 150;
 const MAX_MESSAGE = 2000;
@@ -81,6 +89,18 @@ export default function AppNotifications() {
       .catch(() => setHistory([]));
   };
   useEffect(() => { if (canView) loadHistory(); }, [canView]);
+
+  // Options for the intake-form destination. Typing the slug by hand would invite
+  // a silent dead tap, so the operator picks from what the app can actually open.
+  // Declared with the other hooks, ABOVE the permission redirect below: a hook
+  // after an early return runs conditionally and breaks the hook order.
+  const [requestTypes, setRequestTypes] = useState<{ requestType: string; labelAr: string }[]>([]);
+  useEffect(() => {
+    if (!canSend) return;
+    api.admin.appNotifications.requestTypes()
+      .then((res) => setRequestTypes(res.items))
+      .catch(() => setRequestTypes([]));
+  }, [canSend]);
 
   if (!canView && !canSend) return <Navigate to="/" replace />;
 
@@ -219,7 +239,21 @@ export default function AppNotifications() {
                 options={DESTINATION_OPTIONS}
               />
             </div>
-            {needsId && (
+            {needsId && destination === REQUEST_FORM_DESTINATION && (
+              <div>
+                <label className="block text-sm text-slate-600 mb-1">نوع الطلب</label>
+                <Select
+                  value={destinationId}
+                  onChange={(value) => setDestinationId(value)}
+                  placeholder="اختر نوع الطلب"
+                  options={requestTypes.map((t) => ({ value: t.requestType, label: t.labelAr }))}
+                />
+                <p className="text-xs text-slate-500 mt-1">
+                  يفتح نموذج تقديم هذا الطلب في التطبيق — لا طلباً قائماً.
+                </p>
+              </div>
+            )}
+            {needsId && destination !== REQUEST_FORM_DESTINATION && (
               <div>
                 <label className="block text-sm text-slate-600 mb-1">معرّف الوجهة</label>
                 <input

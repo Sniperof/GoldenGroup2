@@ -41,7 +41,21 @@ export type NotificationDestination =
   | 'visit'
   | 'device'
   | 'warranty'
-  | 'complaint';
+  | 'complaint'
+  /**
+   * Opens the INTAKE FORM for a request type — not an existing request.
+   *
+   * The odd one out: its `destination_id` is a request_type slug
+   * (`water_check`, `periodic_maintenance`, …), not a numeric entity id. The app
+   * already has this route — it is the same target a home banner's
+   * `target_request_type` opens — so nothing new has to be built there, only the
+   * destination value mapped.
+   *
+   * Needed because the app has no "my requests" or "request details" screen at
+   * all: `/service-request` takes `ServiceRequestArgs` and IS the intake flow.
+   * So "here is your request" cannot be linked, while "submit this request" can.
+   */
+  | 'service_request_form';
 
 /** Which machinery produces the type — see DEC-019 D-N1. */
 export type NotificationFamily = 'reactive' | 'scheduled' | 'manual';

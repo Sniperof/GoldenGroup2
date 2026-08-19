@@ -44,7 +44,9 @@ export interface AccountStatementResponse {
 
 // ── Free-form app notifications (DEC-019 D-N6/D-N7) ──────────────────────────
 export type BroadcastDestination =
-  | 'service_request' | 'device' | 'warranty' | 'complaint' | 'visit';
+  | 'service_request' | 'device' | 'warranty' | 'complaint' | 'visit'
+  /** Intake FORM for a request type — its id is a request_type slug, not a row id. */
+  | 'service_request_form';
 
 export interface BroadcastAudienceInput {
   /** Optional narrowing. The server applies the operator's branch ceiling on top. */
@@ -712,6 +714,10 @@ export const api = {
           { method: 'POST', body: JSON.stringify(data) },
         ),
       history: () => request<{ items: BroadcastRecord[] }>('/admin/app-notifications/broadcasts'),
+      // Options for the intake-form destination, whose id is a request_type slug.
+      requestTypes: () => request<{ items: { requestType: string; labelAr: string }[] }>(
+        '/admin/app-notifications/request-types',
+      ),
     },
     appContactLinks: {
       get: () => request<AppContactLinks>('/admin/app-contact-links'),

@@ -18,6 +18,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
 import { resolveListAccessScope } from '../services/authorizationService.js';
 import { toPublicAppError, appError } from '../utils/appErrors.js';
+import { getExecutableMobileRequestTypeLabels } from '../services/serviceRequests/mobileExecutableTypes.js';
 import {
   previewAudience,
   sendBroadcast,
@@ -31,7 +32,11 @@ router.use(requireAuth);
 const VIEW = 'admin.app_notifications.view';
 const SEND = 'admin.app_notifications.send';
 
-const DESTINATIONS = new Set(['service_request', 'device', 'warranty', 'complaint', 'visit']);
+const DESTINATIONS = new Set([
+  'service_request', 'device', 'warranty', 'complaint', 'visit', 'service_request_form',
+]);
+/** The only destination whose id is a slug rather than a row id. */
+const REQUEST_FORM_DESTINATION = 'service_request_form';
 const MAX_TITLE = 150;
 const MAX_MESSAGE = 2000;
 
@@ -159,6 +164,19 @@ router.post('/broadcasts', requirePermission(SEND), async (req, res) => {
     if (destination && destination !== 'warranty' && !destinationId) {
       throw appError(400, 'معرّف الوجهة مطلوب', { code: 'destination_id_required' });
     }
+    // The intake-form destination carries a request_type, and an unknown or
+    // non-executable one produces a tap that opens nothing. Validated against the
+    // same list the home banners use, so the two surfaces cannot disagree about
+    // which request types the app can actually open.
+    if (destination === REQUEST_FORM_DESTINATION) {
+      const labels = await getExecutableMobileRequestTypeLabels();
+      if (!labels.has(destinationId!)) {
+        throw appError(400, 'نوع الطلب غير متاح في التطبيق', {
+          code: 'request_type_not_executable',
+          available: [...labels.keys()],
+        });
+      }
+    }
 
     const audience = resolveAudience(req, SEND);
     const result = await sendBroadcast({
@@ -174,6 +192,30 @@ router.post('/broadcasts', requirePermission(SEND), async (req, res) => {
     return res.status(201).json(result);
   } catch (err) {
     return fail(res, err, 'appNotifications.send');
+  }
+});
+
+/**
+ * @swagger
+ * /api/admin/app-notifications/request-types:
+ *   get:
+ *     tags: [Admin - App Notifications]
+ *     summary: Request types the app can actually open an intake form for
+ *     description: >
+ *       Options for the `service_request_form` destination. Same source the home
+ *       banners use, so an admin cannot aim a notification at a request type the
+ *       app has no intake handler for.
+ *     responses:
+ *       200: { description: Executable request types }
+ */
+router.get('/request-types', requirePermission(SEND), async (_req, res) => {
+  try {
+    const labels = await getExecutableMobileRequestTypeLabels();
+    return res.json({
+      items: [...labels.entries()].map(([requestType, labelAr]) => ({ requestType, labelAr })),
+    });
+  } catch (err) {
+    return fail(res, err, 'appNotifications.requestTypes');
   }
 });
 
