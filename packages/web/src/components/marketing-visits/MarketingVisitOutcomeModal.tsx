@@ -26,6 +26,7 @@ import type {
   SystemList,
 } from '@golden-crm/shared';
 import { api } from '../../lib/api';
+import { createUiId } from '../../lib/uiId';
 
 interface MarketingVisitOutcomeModalProps {
   isOpen: boolean;
@@ -355,7 +356,7 @@ export default function MarketingVisitOutcomeModal({
         };
 
         group.offers.push({
-          id: crypto.randomUUID(),
+          id: createUiId(),
           openTaskPreOfferId: (offer as any).openTaskPreOfferId ?? null,
           offerType: offer.offerType,
           quantity: offer.quantity ?? 1,
@@ -427,7 +428,7 @@ export default function MarketingVisitOutcomeModal({
         };
 
         group.offers.push({
-          id: crypto.randomUUID(),
+          id: createUiId(),
           openTaskPreOfferId: offer.openTaskPreOfferId ?? null,
           offerType: offer.offerType,
           quantity: offer.quantity ?? 1,
@@ -664,7 +665,7 @@ export default function MarketingVisitOutcomeModal({
     const appliedDeviceDiscountId = parsePositiveInteger(offerEditor.draft.appliedDeviceDiscountId);
 
     const nextOffer: DeviceOffer = {
-      id: offerEditor.offerId ?? crypto.randomUUID(),
+      id: offerEditor.offerId ?? createUiId(),
       offerType: offerEditor.draft.offerType,
       quantity,
       totalAmount,
