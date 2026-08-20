@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { resolveRequestedFile } from '../services/media/mediaStorage.js';
+import { publicIdFromUrl } from '../services/media/mediaStorage.js';
+import pool from '../db.js';
 
 const router = Router();
 
@@ -23,17 +25,30 @@ const MIME_BY_EXTENSION: Record<string, string> = {
  *     immutable — so we can hand out a one-year immutable cache and the mobile
  *     app re-downloads an image exactly once, ever.
  *
- * No auth: these are catalogue assets rendered by <img> tags in an app that has
- * no way to attach a bearer token to an image request. The ids are unguessable,
- * which is the access control.
+ * No auth is required here because the database gate below serves only rows
+ * marked public. Private complaint photos have a separate authorized route.
  */
-router.get('/:fileName', (req, res) => {
+router.get('/:fileName', async (req, res) => {
   const resolved = resolveRequestedFile(req.params.fileName);
   if (!resolved) return res.status(404).end();
 
   const extension = req.params.fileName.split('.').pop() ?? '';
   const contentType = MIME_BY_EXTENSION[extension];
   if (!contentType) return res.status(404).end();
+
+  const publicId = publicIdFromUrl(`/m/${req.params.fileName}`);
+  if (!publicId) return res.status(404).end();
+  try {
+    const { rowCount } = await pool.query(
+      `SELECT 1 FROM media_files
+        WHERE public_id=$1 AND extension=$2 AND visibility='public' AND detached_at IS NULL`,
+      [publicId, extension],
+    );
+    if (!rowCount) return res.status(404).end();
+  } catch (err) {
+    console.error('[media.serve.visibility]', err);
+    return res.status(500).end();
+  }
 
   res.sendFile(resolved, {
     headers: {

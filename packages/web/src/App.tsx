@@ -59,6 +59,7 @@ import PermissionSettings from './pages/admin/PermissionSettings';
 import TaskTypes from './pages/admin/TaskTypes';
 import EmergencyActionTypes from './pages/admin/EmergencyActionTypes';
 import AppHomeBanners from './pages/admin/AppHomeBanners';
+import AppNotifications from './pages/admin/AppNotifications';
 import AppContactLinks from './pages/admin/AppContactLinks';
 import VisitsListPage from './pages/visits/VisitsListPage';
 import MyVisitsPage from './pages/visits/MyVisitsPage';
@@ -76,6 +77,9 @@ import NameNominationRequestsPage from './pages/service-requests/NameNominationR
 import AgentLicenseRequestsPage from './pages/service-requests/AgentLicenseRequestsPage';
 import AccountRequestsListPage from './pages/account-requests/AccountRequestsListPage';
 import AccountRequestDetailPage from './pages/account-requests/AccountRequestDetailPage';
+import ComplaintsListPage from './pages/complaints/ComplaintsListPage';
+import ComplaintDetailPage from './pages/complaints/ComplaintDetailPage';
+import NewComplaintPage from './pages/complaints/NewComplaintPage';
 
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -167,6 +171,9 @@ export default function App() {
                         <Route path="/service-requests/:id" element={<ServiceRequestDetailPage />} />
                         <Route path="/account-requests" element={<AccountRequestsListPage />} />
                         <Route path="/account-requests/:id" element={<AccountRequestDetailPage />} />
+                        <Route path="/complaints" element={<ComplaintsListPage />} />
+                        <Route path="/complaints/new" element={<NewComplaintPage />} />
+                        <Route path="/complaints/:id" element={<ComplaintDetailPage />} />
                         {/* Group 3 — visit management is a single-branch supervisory surface (§6).
                             Hidden on "all branches"; super-admin / GLOBAL must pick a branch. The
                             field team uses the standalone "زياراتي" page instead. */}
@@ -211,6 +218,7 @@ export default function App() {
                         <Route path="/admin/task-types" element={<TaskTypes />} />
                         <Route path="/admin/emergency-action-types" element={<EmergencyActionTypes />} />
                         <Route path="/admin/app-home-banners" element={<AppHomeBanners />} />
+                        <Route path="/admin/app-notifications" element={<AppNotifications />} />
                         <Route path="/admin/app-contact-links" element={<AppContactLinks />} />
                     </Route>
                 </Routes>

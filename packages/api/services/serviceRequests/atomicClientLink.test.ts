@@ -27,6 +27,8 @@ function requestRow(overrides: Record<string, unknown> = {}) {
     escalated_at: null,
     submission_type: 'refer_a_candidate',
     requester_client_id: null,
+    beneficiary_client_id: null,
+    referrer_client_id: null,
     referrer_external: null,
     ...overrides,
   };
@@ -110,6 +112,34 @@ test('propagates a linkage failure so the caller can roll back client creation',
   );
 });
 
+test('rejects atomic creation when the requested party was linked by a concurrent operation', async () => {
+  const scenarios = [
+    { party: 'beneficiary' as const, row: { beneficiary_client_id: 91 } },
+    { party: 'requester' as const, row: { requester_client_id: 92 } },
+    {
+      party: 'referrer' as const,
+      row: { referrer_client_id: 93, referrer_external: { name: 'وسيط' } },
+    },
+  ];
+
+  for (const scenario of scenarios) {
+    const { db, statements } = fakeDb(requestRow(scenario.row));
+    await assert.rejects(
+      linkNewClientToServiceRequestParty({
+        db,
+        authContext: context('ASSIGNED'),
+        serviceRequestId: 102,
+        clientId: 60,
+        clientBranchId: 3,
+        party: scenario.party,
+      }),
+      (error: any) => error.status === 409 && error.code === 'service_request_party_already_linked',
+    );
+    assert.equal(statements.some(({ text }) => text.includes('UPDATE service_requests')), false);
+    assert.equal(statements.some(({ text }) => text.includes('INSERT INTO service_request_audit_log')), false);
+  }
+});
+
 test('requester and same-person referrer mirrors stay inside the same transaction', async () => {
   const { db, statements } = fakeDb(requestRow({
     referrer_external: { same_as_requester: true },
@@ -149,11 +179,14 @@ test('device-request beneficiary creation adopts the newly created client branch
   assert.equal(statements.some(({ text }) => text.includes('client_referral_attributions')), false);
 });
 
-test('supports typed client linkage for emergency, periodic, and golden-warranty requests', async () => {
+test('supports typed client linkage for every request type with shared client-party creation', async () => {
   const cases = [
     { requestType: 'emergency_maintenance', permission: 'service_requests.review' },
+    { requestType: 'water_check', permission: 'water_check.review' },
+    { requestType: 'device_request', permission: 'service_requests.review' },
     { requestType: 'periodic_maintenance', permission: 'periodic_maintenance.review' },
     { requestType: 'golden_warranty', permission: 'golden_warranty.review' },
+    { requestType: 'agent_license', permission: 'agent_license.review' },
   ];
 
   for (const entry of cases) {

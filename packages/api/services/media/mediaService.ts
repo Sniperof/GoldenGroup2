@@ -36,10 +36,22 @@ const WEBP_QUALITY = 82;
 const THUMBNAIL_QUALITY = 75;
 
 export interface StoredMedia {
+  mediaFileId: number;
   publicId: string;
   kind: MediaKind;
   url: string;
   thumbUrl: string | null;
+  width: number | null;
+  height: number | null;
+  byteSize: number;
+  mimeType: string;
+}
+
+export interface StoredPrivateMedia {
+  mediaFileId: number;
+  publicId: string;
+  kind: MediaKind;
+  extension: string;
   width: number | null;
   height: number | null;
   byteSize: number;
@@ -139,6 +151,44 @@ export async function storeMedia(
   options: { originalName?: string; uploadedBy?: number | null } = {},
   db: Pool | PoolClient = pool,
 ): Promise<StoredMedia> {
+  const stored = await storeMediaRecord(buffer, { ...options, visibility: 'public' }, db);
+  return {
+    mediaFileId: stored.mediaFileId,
+    publicId: stored.publicId,
+    kind: stored.kind,
+    url: publicUrlFor(stored.publicId, stored.extension),
+    thumbUrl: stored.hasThumbnail ? publicUrlFor(stored.publicId, stored.extension, true) : null,
+    width: stored.width,
+    height: stored.height,
+    byteSize: stored.byteSize,
+    mimeType: stored.mimeType,
+  };
+}
+
+/** Store complaint/sensitive media without creating or returning a public URL. */
+export async function storePrivateMedia(
+  buffer: Buffer,
+  options: { originalName?: string; uploadedBy?: number | null } = {},
+  db: Pool | PoolClient = pool,
+): Promise<StoredPrivateMedia> {
+  const stored = await storeMediaRecord(buffer, { ...options, visibility: 'private' }, db);
+  return {
+    mediaFileId: stored.mediaFileId,
+    publicId: stored.publicId,
+    kind: stored.kind,
+    extension: stored.extension,
+    width: stored.width,
+    height: stored.height,
+    byteSize: stored.byteSize,
+    mimeType: stored.mimeType,
+  };
+}
+
+async function storeMediaRecord(
+  buffer: Buffer,
+  options: { originalName?: string; uploadedBy?: number | null; visibility: 'public' | 'private' },
+  db: Pool | PoolClient,
+) {
   const processed = await processUpload(buffer, options.originalName);
   // Recorded for audit and duplicate REPORTING only. Deliberately not used to
   // return an existing file: media_files carries a single owner, so handing the
@@ -162,35 +212,32 @@ export async function storeMedia(
   }
 
   try {
-    await db.query(
+    const { rows } = await db.query<{ id: number }>(
       `INSERT INTO public.media_files
          (public_id, kind, mime_type, extension, byte_size, width, height,
-          has_thumbnail, checksum, original_name, uploaded_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+          has_thumbnail, checksum, original_name, uploaded_by, visibility)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+       RETURNING id`,
       [
         publicId, processed.kind, processed.mimeType, processed.extension,
         processed.body.length, processed.width, processed.height,
         processed.thumbnail != null, checksum,
         options.originalName?.slice(0, 255) ?? null, options.uploadedBy ?? null,
+        options.visibility,
       ],
     );
+    return {
+      mediaFileId: Number(rows[0].id), publicId, kind: processed.kind,
+      extension: processed.extension, hasThumbnail: processed.thumbnail != null,
+      width: processed.width, height: processed.height,
+      byteSize: processed.body.length, mimeType: processed.mimeType,
+    };
   } catch (err) {
     // Don't leave bytes on disk that no row points at — the GC works off the
     // registry, so an unregistered file would never be reclaimed.
     await removeFiles(publicId, processed.extension, processed.thumbnail != null);
     throw err;
   }
-
-  return {
-    publicId,
-    kind: processed.kind,
-    url: publicUrlFor(publicId, processed.extension),
-    thumbUrl: processed.thumbnail ? publicUrlFor(publicId, processed.extension, true) : null,
-    width: processed.width,
-    height: processed.height,
-    byteSize: processed.body.length,
-    mimeType: processed.mimeType,
-  };
 }
 
 export async function removeFiles(

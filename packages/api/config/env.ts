@@ -133,6 +133,55 @@ if (NODE_ENV === 'production' && RASEL_TRIAL_MODE) {
   );
 }
 
+// ── Push notifications (DEC-019 D-N14) ──────────────────────────────────────
+// Same port/adapter shape as OTP_PROVIDER above: the notification layer
+// (creation, storage, dedup, read state) is identical either way — only the
+// delivery step swaps.
+//   noop : logs the message, contacts nothing. Every phase except delivery is
+//          fully exercisable without a Firebase key.
+//   fcm  : real Firebase Cloud Messaging over the HTTP v1 API.
+export const PUSH_PROVIDERS = ['noop', 'fcm'] as const;
+export const PUSH_PROVIDER = (process.env.PUSH_PROVIDER || 'noop').toLowerCase();
+if (!(PUSH_PROVIDERS as readonly string[]).includes(PUSH_PROVIDER)) {
+  throw new Error(
+    `PUSH_PROVIDER="${process.env.PUSH_PROVIDER}" is not a known provider. ` +
+    `Known providers: ${PUSH_PROVIDERS.join(', ')}.`,
+  );
+}
+// Warned, not refused — unlike OTP. A production server running the inbox with
+// delivery still switched off is a legitimate intermediate state (DEC-019
+// phases 1-3 are useful on their own), so this must not block a deploy. It
+// does have to be loud: the symptom otherwise is notifications that exist in
+// the app but never wake the phone.
+if (NODE_ENV === 'production' && PUSH_PROVIDER === 'noop') {
+  console.warn(
+    '[boot] PUSH_PROVIDER=noop in production — notifications are stored and readable in the ' +
+    'app inbox, but NO push is delivered to any device. Set PUSH_PROVIDER=fcm once the ' +
+    'Firebase service account for this environment is installed.',
+  );
+}
+
+// Firebase service account (PUSH_PROVIDER=fcm). One project per environment, so
+// a staging notification can never reach a real customer's handset.
+export const FCM_PROJECT_ID = process.env.FCM_PROJECT_ID;
+export const FCM_CLIENT_EMAIL = process.env.FCM_CLIENT_EMAIL;
+// PEM newlines survive .env as literal "\n"; restore them here so every reader
+// gets a usable key.
+export const FCM_PRIVATE_KEY = (process.env.FCM_PRIVATE_KEY || '').replace(/\\n/g, '\n');
+export const FCM_TIMEOUT_MS = parseInt(process.env.FCM_TIMEOUT_MS || '10000');
+// Fast disable without a redeploy: flip this and `pm2 restart` (see CLAUDE.md).
+export const FCM_KILL_SWITCH = (process.env.FCM_KILL_SWITCH || 'false') === 'true';
+
+if (PUSH_PROVIDER === 'fcm') {
+  for (const [name, value] of [
+    ['FCM_PROJECT_ID', FCM_PROJECT_ID],
+    ['FCM_CLIENT_EMAIL', FCM_CLIENT_EMAIL],
+    ['FCM_PRIVATE_KEY', FCM_PRIVATE_KEY],
+  ] as const) {
+    if (!value) throw new Error(`PUSH_PROVIDER=fcm requires ${name} to be set.`);
+  }
+}
+
 // ── Customer app tokens (DEC-013 §6) ────────────────────────────────────────
 // Short access token + long rotating refresh token (separate from staff auth).
 export const APP_ACCESS_TTL = process.env.APP_ACCESS_TTL || '60m';
@@ -158,6 +207,18 @@ export const APP_RATE_INTAKE_WINDOW_S = parseInt(process.env.APP_RATE_INTAKE_WIN
 /** Reads (status, types, catalog, areas) — generous, just anti-scrape. */
 export const APP_RATE_READ = parseInt(process.env.APP_RATE_READ || '120');
 export const APP_RATE_READ_WINDOW_S = parseInt(process.env.APP_RATE_READ_WINDOW_S || '60');
+/**
+ * Notification writes (mark-read, token register/unregister) — DEC-019 D-N11.
+ *
+ * Deliberately far above APP_RATE_MUTATION: mark-read fires once per tapped
+ * notification, so a customer clearing a backlog would blow a 30-call budget in
+ * seconds. These buckets are keyed by IP, and customers on carrier NAT share
+ * one — under the general mutation cap they would throttle each other. The app
+ * treats mark-read as fire-and-forget and swallows the failure, so the symptom
+ * would be notifications that silently refuse to stop being unread.
+ */
+export const APP_RATE_NOTIF_WRITE = parseInt(process.env.APP_RATE_NOTIF_WRITE || '300');
+export const APP_RATE_NOTIF_WRITE_WINDOW_S = parseInt(process.env.APP_RATE_NOTIF_WRITE_WINDOW_S || '600');
 
 // ── Mobile service-request intake caps (identity level, DB-enforced) ────────
 /**
@@ -188,3 +249,10 @@ export const APP_WATER_CHECK_DAILY_PER_IP = parseInt(
 export const APP_SUBMITTED_PAYLOAD_MAX_CHARS = parseInt(
   process.env.APP_SUBMITTED_PAYLOAD_MAX_CHARS || '8000',
 );
+
+// ── Notification outbox worker (DEC-019 D-N15) ──────────────────────────────
+// How often the worker drains captured status changes, and how many rows it
+// takes per pass. 0 disables the worker entirely — which stops ALL delivery, so
+// startNotificationOutboxJob warns loudly when it sees that.
+export const NOTIF_OUTBOX_INTERVAL_S = parseInt(process.env.NOTIF_OUTBOX_INTERVAL_S || '20');
+export const NOTIF_OUTBOX_BATCH = parseInt(process.env.NOTIF_OUTBOX_BATCH || '50');

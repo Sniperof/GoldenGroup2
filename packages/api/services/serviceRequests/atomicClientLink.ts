@@ -118,10 +118,13 @@ export async function linkNewClientToServiceRequestParty(input: {
     escalated_at: string | null;
     submission_type: string;
     requester_client_id: number | null;
+    beneficiary_client_id: number | null;
+    referrer_client_id: number | null;
     referrer_external: Record<string, unknown> | null;
   }>(
     `SELECT request_type, status, branch_id, reviewed_by_user_id, escalated_at,
-            submission_type, requester_client_id, referrer_external
+            submission_type, requester_client_id, beneficiary_client_id,
+            referrer_client_id, referrer_external
        FROM service_requests
       WHERE id = $1
       FOR UPDATE`,
@@ -147,6 +150,18 @@ export async function linkNewClientToServiceRequestParty(input: {
   }
   if (request.escalated_at != null) {
     throw serviceError(423, 'request_is_escalated_actions_blocked');
+  }
+  const existingPartyClientId = party === 'beneficiary'
+    ? request.beneficiary_client_id
+    : party === 'requester'
+      ? request.requester_client_id
+      : request.referrer_client_id;
+  if (existingPartyClientId != null) {
+    throw serviceError(
+      409,
+      'service_request_party_already_linked',
+      'طرف الطلب مرتبط بسجل زبون بالفعل؛ استخدم عملية تغيير الربط الصريحة عند الحاجة.',
+    );
   }
   if (request.request_type === 'water_check'
       && (request.branch_id == null || Number(request.branch_id) !== clientBranchId)) {

@@ -105,6 +105,7 @@ export default function DeviceDetail() {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
     const { hasAnyPermission } = usePermissions();
+    const canManageDeviceModels = hasAnyPermission('device_models.manage', 'catalog.manage');
     const canViewDiscounts = hasAnyPermission('devices.discounts.view', 'devices.discounts.manage', 'catalog.manage');
     const canManageDiscounts = hasAnyPermission('devices.discounts.manage', 'catalog.manage');
     const canViewPrices = hasAnyPermission('devices.prices.view', 'devices.prices.manage', 'catalog.manage');
@@ -253,6 +254,16 @@ export default function DeviceDetail() {
                 </button>
                 <span className="text-slate-300">/</span>
                 <span className="text-sm font-semibold text-slate-800">{device.nameAr || device.name}</span>
+                {canManageDeviceModels && (
+                    <button
+                        type="button"
+                        onClick={() => navigate(`/devices?edit=${device.id}`)}
+                        className="mr-auto inline-flex items-center gap-2 rounded-xl bg-sky-600 px-4 py-2 text-sm font-bold text-white shadow-sm transition-colors hover:bg-sky-700"
+                    >
+                        <Pencil className="h-4 w-4" />
+                        تعديل الجهاز والوسائط
+                    </button>
+                )}
             </div>
 
             {/* Scrollable content */}
