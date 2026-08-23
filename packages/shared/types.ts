@@ -295,7 +295,10 @@ export interface BranchContact {
 export interface BranchImage {
   id: string;
   name: string;
+  /** Media-store URL (/m/<id>.webp). Legacy rows may still hold /uploads/ paths. */
   url: string;
+  /** 400px variant for list screens; absent on pre-423 images. */
+  thumbUrl?: string;
 }
 
 export interface Branch {

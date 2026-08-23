@@ -69,6 +69,7 @@ test('each tier is capped by its own key', async () => {
       db: db([{ n: '0' }], capture),
       requestType: 'water_check',
       identity,
+      limit: 5,
     });
     assert.match(capture.sql[0], pattern);
     assert.ok(capture.params[0].includes(key));
@@ -78,7 +79,7 @@ test('each tier is capped by its own key', async () => {
 test('an identity with no usable key is refused, not counted as zero', async () => {
   const keyless = { kind: 'unverified', deviceId: '', ip: null } as MobileIntakeIdentity;
   await assert.rejects(
-    () => assertRequesterDailyQuota({ db: db([{ n: '0' }]), requestType: 'water_check', identity: keyless }),
+    () => assertRequesterDailyQuota({ db: db([{ n: '0' }]), requestType: 'water_check', identity: keyless, limit: 5 }),
     /requester_identity_unavailable/,
   );
   await assert.rejects(

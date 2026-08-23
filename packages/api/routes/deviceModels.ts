@@ -7,6 +7,12 @@ import {
   getDeviceModelSalesBranches,
   replaceDeviceModelSalesBranches,
 } from '../services/deviceModelSalesBranchesService.js';
+import {
+  validateMediaAttachments,
+  validatePrimaryImageId,
+} from '../services/media/mediaAttachments.js';
+import { syncMediaOwnership } from '../services/media/mediaOwnership.js';
+import { toPublicAppError } from '../utils/appErrors.js';
 
 const router = Router();
 const CATALOG_NOW_SQL = `(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Damascus')`;
@@ -76,11 +82,39 @@ function normalizeDevicePayload(body: any) {
     isActive: Object.prototype.hasOwnProperty.call(body, 'isActive') ? body.isActive !== false : undefined,
     description: String(body.description ?? '').trim() || null,
     descriptionEn: String(body.descriptionEn ?? '').trim() || null,
-    images: Array.isArray(body.images) ? body.images : [],
-    primaryImageId: body.primaryImageId || null,
-    videos: Array.isArray(body.videos) ? body.videos : [],
-    documents: Array.isArray(body.documents) ? body.documents : [],
+    ...normalizeDeviceMedia(body),
     code: String(body.code ?? '').trim() || null,
+  };
+}
+
+/**
+ * There is no global Express error handler in this app, so a thrown validation
+ * error would surface as a 500 with a stack. Callers get the mapped status here.
+ */
+function parseDevicePayload(body: any):
+  | { value: ReturnType<typeof normalizeDevicePayload> }
+  | { status: number; error: { error: string; details?: Record<string, unknown> } } {
+  try {
+    return { value: normalizeDevicePayload(body) };
+  } catch (err) {
+    const { status, body: mapped, isInternal } = toPublicAppError(err);
+    if (isInternal) console.error('[deviceModels.payload]', err);
+    return { status, error: mapped };
+  }
+}
+
+/**
+ * Media was previously passed through with only an Array.isArray() check, so a
+ * base64 blob or arbitrary JSON reached the jsonb column and the mobile app.
+ * Throws a client-visible 400 on anything malformed.
+ */
+function normalizeDeviceMedia(body: any) {
+  const images = validateMediaAttachments(body.images, 'الصور');
+  return {
+    images,
+    primaryImageId: validatePrimaryImageId(body.primaryImageId, images),
+    videos: validateMediaAttachments(body.videos, 'الفيديوهات'),
+    documents: validateMediaAttachments(body.documents, 'الكتالوجات'),
   };
 }
 
@@ -523,7 +557,9 @@ router.get(
  *         description: Server error
  */
 router.post('/', requirePermission('device_models.manage', 'catalog.manage'), async (req, res) => {
-  const d = normalizeDevicePayload(req.body);
+  const parsed = parseDevicePayload(req.body);
+  if ('error' in parsed) return res.status(parsed.status).json(parsed.error);
+  const d = parsed.value;
   if (!d.nameAr) return res.status(400).json({ error: 'اسم الجهاز باللغة العربية مطلوب' });
   if (!d.nameEn) return res.status(400).json({ error: 'اسم الجهاز بالإنكليزية مطلوب' });
   if (!Number.isFinite(d.basePrice) || d.basePrice <= 0) return res.status(400).json({ error: 'السعر الأساسي مطلوب' });
@@ -557,6 +593,9 @@ router.post('/', requirePermission('device_models.manage', 'catalog.manage'), as
        VALUES ($1, $2, 'SYP', ${CATALOG_NOW_SQL}, $3, $4)`,
       [rows[0].id, d.basePrice, 'Initial catalog price', req.user?.id ?? null],
     );
+    // Inside the transaction: if the insert rolls back, so does the claim on
+    // the uploaded files, which then fall to the GC as unreferenced.
+    await syncMediaOwnership(client, 'device_model', rows[0].id, [d.images, d.videos, d.documents]);
     await client.query('COMMIT');
     res.json(serializeDevice(rows[0]));
   } catch (err) {
@@ -619,7 +658,9 @@ router.post('/', requirePermission('device_models.manage', 'catalog.manage'), as
  *         description: Server error
  */
 router.put('/:id', requirePermission('device_models.manage', 'catalog.manage'), async (req, res) => {
-  const d = normalizeDevicePayload(req.body);
+  const parsed = parseDevicePayload(req.body);
+  if ('error' in parsed) return res.status(parsed.status).json(parsed.error);
+  const d = parsed.value;
   if (!d.nameAr) return res.status(400).json({ error: 'اسم الجهاز باللغة العربية مطلوب' });
   if (!d.nameEn) return res.status(400).json({ error: 'اسم الجهاز بالإنكليزية مطلوب' });
   if (!Number.isFinite(d.basePrice) || d.basePrice <= 0) return res.status(400).json({ error: 'السعر الأساسي مطلوب' });
@@ -627,27 +668,41 @@ router.put('/:id', requirePermission('device_models.manage', 'catalog.manage'), 
     return res.status(400).json({ error: 'يجب اختيار فترة كفالة ذهبية واحدة على الأقل' });
   }
 
-  const { rows } = await pool.query(
-    `UPDATE device_models SET
-      name=$1, brand=$2, name_ar=$3, name_en=$4, category=$5, maintenance_interval=$6,
-      supported_visit_types=$7,
-      is_golden_warranty=$8, golden_warranty_periods=$9, warranty_periods=$10, is_featured=$11,
-      is_active=COALESCE($12, is_active),
-      description=$13, description_en=$14, images=$15, primary_image_id=$16, videos=$17, documents=$18,
-      code=$19
-     WHERE id=$20 AND deleted_at IS NULL RETURNING ${selectFields}`,
-    [
-      d.name, d.brand, d.nameAr, d.nameEn, d.category, d.maintenanceInterval,
-      JSON.stringify(d.supportedVisitTypes),
-      d.isGoldenWarranty, JSON.stringify(d.goldenWarrantyPeriods), JSON.stringify(d.warrantyPeriods), d.isFeatured,
-      d.isActive ?? null, d.description, d.descriptionEn, JSON.stringify(d.images), d.primaryImageId,
-      JSON.stringify(d.videos), JSON.stringify(d.documents), d.code, req.params.id,
-    ]
-  );
-  if (!rows[0]) {
-    return res.status(404).json({ error: 'الجهاز غير موجود' });
+  // Transaction so the media re-claim and the row update land together: an
+  // image removed here must not be released if the update then fails.
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      `UPDATE device_models SET
+        name=$1, brand=$2, name_ar=$3, name_en=$4, category=$5, maintenance_interval=$6,
+        supported_visit_types=$7,
+        is_golden_warranty=$8, golden_warranty_periods=$9, warranty_periods=$10, is_featured=$11,
+        is_active=COALESCE($12, is_active),
+        description=$13, description_en=$14, images=$15, primary_image_id=$16, videos=$17, documents=$18,
+        code=$19
+       WHERE id=$20 AND deleted_at IS NULL RETURNING ${selectFields}`,
+      [
+        d.name, d.brand, d.nameAr, d.nameEn, d.category, d.maintenanceInterval,
+        JSON.stringify(d.supportedVisitTypes),
+        d.isGoldenWarranty, JSON.stringify(d.goldenWarrantyPeriods), JSON.stringify(d.warrantyPeriods), d.isFeatured,
+        d.isActive ?? null, d.description, d.descriptionEn, JSON.stringify(d.images), d.primaryImageId,
+        JSON.stringify(d.videos), JSON.stringify(d.documents), d.code, req.params.id,
+      ]
+    );
+    if (!rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'الجهاز غير موجود' });
+    }
+    await syncMediaOwnership(client, 'device_model', rows[0].id, [d.images, d.videos, d.documents]);
+    await client.query('COMMIT');
+    return res.json(serializeDevice(rows[0]));
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
   }
-  res.json(serializeDevice(rows[0]));
 });
 
 /**

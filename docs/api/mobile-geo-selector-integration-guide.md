@@ -257,7 +257,7 @@ Before showing the water-check entry point, call:
 GET /api/app/service-requests/types
 ```
 
-Display the form only when `water_check` is returned as active and its form version is `water_check.mobile.v3`.
+Display the form only when `water_check` is returned as active and its form version is `water_check.mobile.v4`.
 
 Map the normalized selection to either accepted water-check vocabulary. Prefer
 the shared account-form names when the same SmartGeo form model is reused:
@@ -282,7 +282,7 @@ X-Device-Id: 550e8400-e29b-41d4-a716-446655440000
 ```json
 {
   "requestType": "water_check",
-  "formVersion": "water_check.mobile.v3",
+  "formVersion": "water_check.mobile.v4",
   "submissionMode": "for_self",
   "firstName": "Layla",
   "fatherName": "Mohammad",
@@ -317,7 +317,7 @@ Content-Type: application/json
 ```json
 {
   "requestType": "water_check",
-  "formVersion": "water_check.mobile.v3",
+  "formVersion": "water_check.mobile.v4",
   "submissionMode": "for_self",
   "secondaryPhone": "0944444444",
   "secondaryPhoneHasWhatsapp": false,

@@ -2,7 +2,10 @@ import type { PoolClient } from 'pg';
 import { APP_SUBMITTED_PAYLOAD_MAX_CHARS } from '../../config/env.js';
 import type { MobileIntakeIdentity } from './mobileIntakeIdentity.js';
 import { createServiceRequest } from './createService.js';
+import { resolveAndValidateAddress } from '../geo/administrativeAddress.js';
+import { buildMobileServiceAddress } from '../geo/mobileServiceAddress.js';
 import { appendAudit } from './_shared.js';
+import { resolveBranchForServiceGeoUnit } from './branchResolutionService.js';
 import { assertRequesterDailyQuota, assertRequesterIpQuota } from './mobileIntakeThrottle.js';
 import { positiveInt, sanitizeMobileSubmittedPayload, text } from './mobileWaterCheckIntake.js';
 import { resolveMobileRequestPeople } from './mobileEmergencyMaintenanceIntake.js';
@@ -64,6 +67,16 @@ export async function submitMobileGoldenWarranty(
   const installedDeviceId = positiveInt(body, 'installedDeviceId');
   const deviceModelId = positiveInt(body, 'deviceModelId');
   const serialNumber = text(body, 'serialNumber') || null;
+  const governorate = positiveInt(body, 'governorateId', 'governorate');
+  const cityOrArea = positiveInt(body, 'regionId', 'region', 'cityOrArea');
+  const subArea = positiveInt(body, 'subdistrictId', 'subdistrict', 'subArea');
+  const neighborhood = positiveInt(body, 'neighborhoodId', 'neighborhood');
+  const detailedAddress = text(body, 'detailedAddress', 'detailed_address');
+  const addressWasSupplied = [
+    'governorateId', 'governorate', 'regionId', 'region', 'cityOrArea',
+    'subdistrictId', 'subdistrict', 'subArea', 'neighborhoodId', 'neighborhood',
+    'detailedAddress', 'detailed_address',
+  ].some((key) => body[key] != null);
   let resolvedDeviceId: number | null = null;
   let resolvedModelId: number;
   let branchId: number | null = null;
@@ -119,6 +132,33 @@ export async function submitMobileGoldenWarranty(
     periods = normalizePeriods(rows[0].golden_warranty_periods);
   }
 
+  if (resolvedDeviceId == null && (!governorate || !detailedAddress)) {
+    throw httpError(400, 'missing_required_fields', {
+      fields: [!governorate && 'governorate', !detailedAddress && 'detailedAddress'].filter(Boolean),
+    });
+  }
+  if (addressWasSupplied && (!governorate || !detailedAddress)) {
+    throw httpError(400, 'missing_required_fields', {
+      fields: [!governorate && 'governorate', !detailedAddress && 'detailedAddress'].filter(Boolean),
+    });
+  }
+
+  const resolvedAddress = governorate
+    ? await resolveAndValidateAddress({ governorate, cityOrArea, subArea, neighborhood }, db)
+    : null;
+  const deepestGeoUnitId = resolvedAddress == null ? null
+    : resolvedAddress.ids.neighborhood ?? resolvedAddress.ids.subArea
+      ?? resolvedAddress.ids.cityOrArea ?? resolvedAddress.ids.governorate;
+  const serviceAddress = resolvedAddress == null ? null : buildMobileServiceAddress({
+    resolved: resolvedAddress,
+    deepestGeoUnitId: deepestGeoUnitId!,
+    detailedAddress,
+    location: null,
+  });
+  const geoBranch = await resolveBranchForServiceGeoUnit(deepestGeoUnitId, db);
+  const registeredDeviceBranchId = branchId;
+  if (branchId == null) branchId = geoBranch.branchId;
+
   const period = periods.find((item) => item.months === requestedMonths);
   if (!period) throw httpError(400, 'requested_warranty_period_not_supported');
   const periodSnapshot = { months: period.months, label: period.label };
@@ -157,7 +197,16 @@ export async function submitMobileGoldenWarranty(
     requesterClientId: people.parties.requesterClientId,
     requesterExternal: people.parties.requesterExternal,
     beneficiaryClientId: people.parties.beneficiaryClientId,
-    beneficiaryExternal: people.beneficiaryExternal,
+    beneficiaryExternal: resolvedAddress == null ? people.beneficiaryExternal : {
+      ...(people.beneficiaryExternal ?? {}),
+      detailedAddress,
+      geoUnitId: deepestGeoUnitId,
+      governorateId: resolvedAddress.ids.governorate,
+      regionId: resolvedAddress.ids.cityOrArea,
+      subdistrictId: resolvedAddress.ids.subArea,
+      neighborhoodId: resolvedAddress.ids.neighborhood,
+      addressLabels: resolvedAddress.labels,
+    },
     referrerClientId: null,
     referrerExternal: null,
     submissionType: people.submissionMode === 'for_another' ? 'refer_a_candidate' : 'apply',
@@ -170,11 +219,14 @@ export async function submitMobileGoldenWarranty(
     problemDescription: text(body, 'notes'),
     attachments: [],
     safetyIndicatorCodes: [],
-    serviceAddress: null,
+    serviceAddress,
     priority: null,
     branchId,
-    branchResolutionStatus: branchId == null ? 'not_applicable' : 'resolved',
-    branchResolutionReason: branchId == null ? 'device_link_required' : 'registered_device_branch',
+    branchResolutionStatus: branchId == null ? geoBranch.status : 'resolved',
+    branchResolutionReason: registeredDeviceBranchId != null
+      ? 'registered_device_branch'
+      : geoBranch.reason,
+    branchResolutionGeoUnitId: deepestGeoUnitId,
     actorUserId: null,
     actorRole: 'customer',
   }, db);
@@ -200,7 +252,7 @@ export async function submitMobileGoldenWarranty(
       payload: {
         reasons: [
           ...(identity.kind === 'unverified' ? ['submitter_unverified'] : []),
-          ...(branchId == null ? ['installed_device_link_required'] : []),
+          ...(branchId == null ? [resolvedDeviceId == null ? 'branch_resolution_required' : 'installed_device_link_required'] : []),
         ],
         auto: true,
       },

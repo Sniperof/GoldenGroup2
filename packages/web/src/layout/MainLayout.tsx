@@ -16,8 +16,8 @@ import {
     ClipboardList, UsersRound, MapPinned, ChevronDown, Gem, Eye,
     Briefcase, Calendar, AlertTriangle, DollarSign, RefreshCw, RotateCcw, PhoneCall,
     FileText, FilePlus2, Headset, Settings, UserPlus, Menu, X as CloseIcon,
-    ChevronLeft, ChevronRight, BadgeCheck, GraduationCap, Mic2, LogOut, Building2, SlidersHorizontal, ShieldCheck, ListChecks, Shield, Monitor, Settings2,
-    Bell, Wrench, Gift, Inbox, LayoutGrid, UserCheck, CalendarCheck, Layers, HardDrive, Unplug, Beaker, Package,
+    ChevronLeft, ChevronRight, BadgeCheck, GraduationCap, Mic2, LogOut, Building2, SlidersHorizontal, ShieldCheck, ListChecks, Shield, Monitor, Settings2, GalleryHorizontal, BellRing,
+    Bell, Wrench, Gift, Inbox, LayoutGrid, UserCheck, CalendarCheck, Layers, HardDrive, Unplug, Beaker, Package, ClipboardCheck, Link2,
 } from '../components/ui/icons';
 
 const navItems = [
@@ -72,6 +72,8 @@ const operationsChildren = [
 
 // Requests — intake parent section (currently only maintenance; will grow).
 const requestsChildren = [
+    { path: '/service-requests/agent-license', label: 'طلبات ترخيص الوكلاء', icon: ClipboardCheck, permission: 'agent_license.view' },
+    { path: '/service-requests/name-nomination', label: 'طلبات ترشيح الأسماء', icon: UserCheck, permission: 'name_nomination.view' },
     { path: '/service-requests/golden-warranty', label: 'طلبات الكفالة الذهبية', icon: ShieldCheck, permission: 'golden_warranty.view' },
     { path: '/account-requests',                label: 'طلبات إنشاء الحساب',     icon: UserPlus, permission: 'account_requests.view' },
     { path: '/service-requests/water-check',    label: 'طلبات فحص المياه',       icon: Beaker,   permission: 'water_check.view' },
@@ -179,6 +181,7 @@ export default function MainLayout() {
     const isRequestsActive = location.pathname.startsWith('/service-requests');
     const isVisitsActive = location.pathname.startsWith('/field-visits');
     const isContractsActive = location.pathname.startsWith('/contracts');
+    const isComplaintsActive = location.pathname.startsWith('/complaints');
     const isGeoActive = location.pathname === '/geo' || location.pathname === '/routes';
     const isRecordsActive = visibleRecordsChildren.some(child => location.pathname.startsWith(child.path));
     const isAppointmentsActive = location.pathname.startsWith('/telemarketer');
@@ -371,6 +374,23 @@ export default function MainLayout() {
                     </NavLink>
                     )}
 
+                    {/* Complaints are an independent domain, intentionally outside Requests. */}
+                    {can('complaints.view_list') && (
+                    <NavLink
+                        to="/complaints"
+                        onClick={() => setIsMobileMenuOpen(false)}
+                        className={({ isActive }: { isActive: boolean }) =>
+                            `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive || isComplaintsActive
+                                ? 'bg-amber-50 text-amber-700 border-r-4 border-amber-500'
+                                : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                            } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
+                        }
+                    >
+                        <AlertTriangle className={`w-5 h-5 ${isCollapsed ? 'lg:w-6 lg:h-6' : ''}`} />
+                        <span className={`${isCollapsed ? 'lg:hidden' : 'block'}`}>إدارة الشكاوى</span>
+                    </NavLink>
+                    )}
+
                     {/* 3. Contracts (Single) */}
                     {can('contracts.view_list') && (
                     <NavLink
@@ -519,7 +539,7 @@ export default function MainLayout() {
                     {/* 5b. Requests — parent section for all intake layers.
                         Visible with any request-family view key (contract §5). */}
                     {canSeeBranchModules
-                      && (can('service_requests.view') || can('water_check.view') || can('periodic_maintenance.view') || can('golden_warranty.view') || can('account_requests.view')) && (
+                      && (can('service_requests.view') || can('water_check.view') || can('periodic_maintenance.view') || can('golden_warranty.view') || can('name_nomination.view') || can('agent_license.view') || can('account_requests.view')) && (
                     <div className={isCollapsed ? 'lg:hidden' : 'block'}>
                         <button
                             onClick={() => setRequestsOpen((o: boolean) => !o)}
@@ -832,6 +852,57 @@ export default function MainLayout() {
                         >
                             <Settings2 className={`w-5 h-5 ${isCollapsed ? 'lg:w-6 lg:h-6' : ''}`} />
                             <span className={`${isCollapsed ? 'lg:hidden' : 'block'}`}>إعدادات أنواع المهام</span>
+                        </NavLink>
+                    )}
+
+                    {/* 10d. Mobile home-screen banners */}
+                    {canAccessAdminSurface('admin.app_home_banners.view') && (
+                        <NavLink
+                            to="/admin/app-home-banners"
+                            onClick={() => setIsMobileMenuOpen(false)}
+                            className={({ isActive }: { isActive: boolean }) =>
+                                `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
+                                    ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500'
+                                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                                } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
+                            }
+                        >
+                            <GalleryHorizontal className={`w-5 h-5 ${isCollapsed ? 'lg:w-6 lg:h-6' : ''}`} />
+                            <span className={`${isCollapsed ? 'lg:hidden' : 'block'}`}>بانرات التطبيق</span>
+                        </NavLink>
+                    )}
+
+                    {/* 10d-bis. Free-form app notifications (DEC-019 D-N6) */}
+                    {canAccessAdminSurface('admin.app_notifications.view') && (
+                        <NavLink
+                            to="/admin/app-notifications"
+                            onClick={() => setIsMobileMenuOpen(false)}
+                            className={({ isActive }: { isActive: boolean }) =>
+                                `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
+                                    ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500'
+                                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                                } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
+                            }
+                        >
+                            <BellRing className={`w-5 h-5 ${isCollapsed ? 'lg:w-6 lg:h-6' : ''}`} />
+                            <span className={`${isCollapsed ? 'lg:hidden' : 'block'}`}>إشعارات التطبيق</span>
+                        </NavLink>
+                    )}
+
+                    {/* 10e. Mobile contact/social links */}
+                    {canAccessAdminSurface('admin.app_contact_links.view') && (
+                        <NavLink
+                            to="/admin/app-contact-links"
+                            onClick={() => setIsMobileMenuOpen(false)}
+                            className={({ isActive }: { isActive: boolean }) =>
+                                `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
+                                    ? 'bg-sky-50 text-sky-600 border-r-4 border-sky-500'
+                                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                                } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
+                            }
+                        >
+                            <Link2 className={`w-5 h-5 ${isCollapsed ? 'lg:w-6 lg:h-6' : ''}`} />
+                            <span className={`${isCollapsed ? 'lg:hidden' : 'block'}`}>روابط التطبيق</span>
                         </NavLink>
                     )}
 

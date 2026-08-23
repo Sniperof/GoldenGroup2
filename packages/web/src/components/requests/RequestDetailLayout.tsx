@@ -197,24 +197,36 @@ export default function RequestDetailLayout(props: RequestDetailLayoutProps) {
       {/* Tabs and content are one continuous detail workspace. */}
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-100 bg-slate-50/70 px-3 py-2.5 md:px-4">
-        <nav className="flex flex-wrap gap-1" aria-label="أقسام تفاصيل الطلب">
+        <nav className="flex flex-wrap gap-1" aria-label="أقسام تفاصيل الطلب" role="tablist">
           {tabs.map((t) => (
             <button
               key={t.id}
+              id={`request-tab-${t.id}`}
+              type="button"
+              role="tab"
               onClick={() => setTab(t.id)}
               className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${
                 current.id === t.id
                   ? 'bg-white text-sky-700 shadow-sm ring-1 ring-slate-100'
                   : 'text-slate-500 hover:bg-white/70 hover:text-slate-700'
               }`}
-              aria-current={current.id === t.id ? 'page' : undefined}
+              aria-selected={current.id === t.id}
+              aria-controls={`request-panel-${t.id}`}
+              tabIndex={current.id === t.id ? 0 : -1}
             >
               {t.label}
             </button>
           ))}
         </nav>
         </div>
-        <div className="bg-slate-50/35 p-4 md:p-5">{current.content}</div>
+        <div
+          id={`request-panel-${current.id}`}
+          role="tabpanel"
+          aria-labelledby={`request-tab-${current.id}`}
+          className="bg-slate-50/35 p-4 md:p-5"
+        >
+          {current.content}
+        </div>
       </section>
 
       {props.overlays}

@@ -27,8 +27,13 @@ test('account request snapshot returns the full name and WhatsApp flags for crea
       primary_mobile_has_whatsapp: true,
       secondary_mobile: '0998765432',
       secondary_mobile_has_whatsapp: false,
+      governorate: 1,
+      city_or_area: 12,
+      sub_area: 123,
+      neighborhood: 1234,
       address_labels: { governorate: 'دمشق' },
       detailed_address: 'شارع الثورة',
+      location: { lat: 33.5138, lng: 36.2765 },
     },
     '0912345678',
   );
@@ -40,6 +45,18 @@ test('account request snapshot returns the full name and WhatsApp flags for crea
   assert.equal(snapshot.primaryMobileHasWhatsapp, true);
   assert.equal(snapshot.secondaryMobile, '0998765432');
   assert.equal(snapshot.secondaryMobileHasWhatsapp, false);
+  assert.deepEqual(snapshot.address, {
+    governorateId: 1,
+    cityOrAreaId: 12,
+    subAreaId: 123,
+    neighborhoodId: 1234,
+    governorate: 'دمشق',
+    cityOrArea: null,
+    subArea: null,
+    neighborhood: null,
+    detailedAddress: 'شارع الثورة',
+    mapLocation: { lat: 33.5138, lng: 36.2765 },
+  });
 });
 
 test('legacy account request snapshots remain readable with safe defaults', () => {
@@ -55,6 +72,8 @@ test('legacy account request snapshots remain readable with safe defaults', () =
   assert.equal(snapshot.primaryMobileHasWhatsapp, null);
   assert.equal(snapshot.secondaryMobile, null);
   assert.equal(snapshot.secondaryMobileHasWhatsapp, null);
+  assert.equal(snapshot.address.governorateId, null);
+  assert.equal(snapshot.address.mapLocation, null);
 });
 
 test('account creation requires father name and the primary WhatsApp flag before database work', async () => {

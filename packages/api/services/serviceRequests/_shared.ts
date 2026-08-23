@@ -95,6 +95,9 @@ export const SR_AUDIT_EVENT_TYPES = [
   'problem_soft_deleted',
   'problem_restored',
   'problem_audit_admin_override',
+  'name_nomination_item_converted',
+  'name_nomination_item_skipped',
+  'name_nomination_completed',
 ] as const;
 export type ServiceRequestAuditEventType = (typeof SR_AUDIT_EVENT_TYPES)[number];
 

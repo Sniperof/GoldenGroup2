@@ -28,7 +28,7 @@ import {
 interface ClientModalProps {
     isOpen: boolean;
     onClose: () => void;
-    onSave: (client: Client) => void;
+    onSave: (client: Client) => void | Promise<void>;
     initialData: Client | null;
     geoUnits: GeoUnit[];
     lockedPhone?: string;
@@ -125,6 +125,8 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
     const [assignmentUserIds, setAssignmentUserIds] = useState<number[]>([]);
     const [assignDropdownOpen, setAssignDropdownOpen] = useState(false);
     const assignDropdownRef = useRef<HTMLDivElement>(null);
+    const saveInFlightRef = useRef(false);
+    const [isSaving, setIsSaving] = useState(false);
 
     // Identity fields
     const [firstName, setFirstName] = useState('');
@@ -624,7 +626,8 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
     const lockedCls = 'bg-amber-50/40 border-amber-200 text-amber-800 cursor-not-allowed focus:ring-0';
 
     // -- Save --
-    const handleSave = () => {
+    const handleSave = async () => {
+        if (saveInFlightRef.current) return;
         const employeeReference = referralType === 'Employee'
             ? resolveEmployeeMediatorReference(employeeIdInput, employeeFound)
             : null;
@@ -710,7 +713,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
             }]
             : [];
 
-        onSave({
+        const clientPayload = {
             ...formData,
             firstName: firstName.trim(),
             fatherName: fatherName.trim(),
@@ -741,13 +744,32 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
             notes: notes.trim() || undefined,
             branchId: effectiveBranchId == null ? undefined : Number(effectiveBranchId),
             assignmentUserIds: canChooseAssignedOwner && assignmentUserIds.length > 0 ? assignmentUserIds : undefined,
-        } as Client);
+        } as Client;
+
+        // A ref closes the same-tick double-click window before React can
+        // render the disabled state. Awaiting onSave keeps every ClientModal
+        // consumer protected until its API operation has actually settled.
+        saveInFlightRef.current = true;
+        setIsSaving(true);
+        try {
+            await onSave(clientPayload);
+        } finally {
+            saveInFlightRef.current = false;
+            setIsSaving(false);
+        }
+    };
+
+    const handleClose = () => {
+        if (!saveInFlightRef.current) onClose();
     };
 
     return (
         <Modal
             isOpen={isOpen}
-            onClose={onClose}
+            onClose={handleClose}
+            closeOnBackdrop={!isSaving}
+            closeOnEsc={!isSaving}
+            hideCloseButton={isSaving}
             size="4xl"
             title={isEditMode ? 'تعديل بيانات الزبون' : 'إضافة زبون جديد'}
             footer={
@@ -759,17 +781,18 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                         </div>
                     ) : <div />}
                     <div className="flex gap-3">
-                        <button onClick={onClose} className="px-5 py-2 rounded-lg text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 font-medium transition-all">
+                        <button disabled={isSaving} onClick={handleClose} className="px-5 py-2 rounded-lg text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed">
                             إلغاء
                         </button>
                         <button
                             onClick={handleSave}
-                            disabled={Boolean(primaryDup)}
+                            disabled={Boolean(primaryDup) || isSaving}
+                            aria-busy={isSaving}
                             title={primaryDup ? `الرقم الأساسي مكرر عند: ${primaryDup.name}` : undefined}
                             className="px-5 py-2 rounded-lg text-white bg-sky-600 hover:bg-sky-500 shadow-lg shadow-sky-500/20 font-bold transition-all flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none"
                         >
                             <Save className="w-4 h-4" />
-                            <span>{isEditMode ? 'حفظ التعديلات' : 'إضافة'}</span>
+                            <span>{isSaving ? 'جارٍ الحفظ...' : isEditMode ? 'حفظ التعديلات' : 'إضافة'}</span>
                         </button>
                     </div>
                 </div>

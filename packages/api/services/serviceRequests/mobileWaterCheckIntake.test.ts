@@ -27,6 +27,14 @@ test('SmartGeo account-style address keys map to every water-check level', () =>
 });
 
 const beneficiary = { name: 'Beneficiary', primary_phone: '0999999999' };
+const referrerAddress = {
+  governorateId: 1,
+  regionId: 2,
+  subdistrictId: 3,
+  neighborhoodId: null,
+  detailedAddress: '',
+  mapLocation: null,
+};
 const account = { appAccountId: 7, clientId: 42, phone: '0911111111' };
 const requester: PersonSnapshot = {
   firstName: 'سالم', fatherName: 'أحمد', lastName: 'الحلبي', name: 'سالم أحمد الحلبي',
@@ -67,12 +75,20 @@ test('registered for another supports no mediator', () => {
 test('registered for another can make the immutable requester the mediator', () => {
   const result = resolveMobileRequesterParties({
     submissionMode: 'for_another', referrerMode: 'requester', appAccount: account,
-    requesterPerson: requester, beneficiaryExternal: beneficiary, referrerPerson: requester,
+    requesterPerson: requester, beneficiaryExternal: beneficiary, referrerPerson: requester, referrerAddress,
   });
   assert.equal(result.requesterClientId, 42);
   assert.equal(result.referrerClientId, 42);
   assert.equal(result.referrerExternal?.same_as_requester, true);
   assert.equal(result.referrerExternal?.primary_phone, requester.primaryPhone);
+  assert.equal(result.referrerExternal?.governorateId, 1);
+});
+
+test('every mediator snapshot requires an independently resolved address', () => {
+  assert.throws(() => resolveMobileRequesterParties({
+    submissionMode: 'for_another', referrerMode: 'requester', appAccount: account,
+    requesterPerson: requester, beneficiaryExternal: beneficiary, referrerPerson: requester,
+  }), /referrer_address_required/);
 });
 
 test('registered customer cannot introduce a separate mediator', () => {
@@ -96,6 +112,7 @@ for (const identity of [
         referrerPerson: mode === 'separate_person'
           ? separateReferrer
           : mode === 'requester' ? { ...requester, source: 'submitted' } : null,
+        referrerAddress: mode === 'none' ? null : referrerAddress,
       });
       assert.equal(result.requesterClientId, null);
       assert.equal(result.beneficiaryClientId, null);
@@ -110,7 +127,7 @@ for (const identity of [
 test('for self rejects every mediator mode other than none', () => {
   assert.throws(() => resolveMobileRequesterParties({
     submissionMode: 'for_self', referrerMode: 'requester', appAccount: account,
-    requesterPerson: requester, beneficiaryExternal: beneficiary, referrerPerson: requester,
+    requesterPerson: requester, beneficiaryExternal: beneficiary, referrerPerson: requester, referrerAddress,
   }), /for_self_referrer_forbidden/);
 });
 

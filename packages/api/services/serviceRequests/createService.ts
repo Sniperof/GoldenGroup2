@@ -103,6 +103,13 @@ export interface CreatedServiceRequest {
 function validateMandatory(
   input: CreateServiceRequestInput,
 ): ServiceResult<void> {
+  if (input.beneficiaryClientId != null && input.beneficiaryCandidateId != null) {
+    return {
+      ok: false,
+      code: 'beneficiary_target_must_be_exclusive',
+      message: 'A service request beneficiary must be either a client or a candidate, never both.',
+    };
+  }
   if (!input.problemDescription || input.problemDescription.trim().length === 0) {
     return { ok: false, code: 'missing_problem_description' };
   }
@@ -141,7 +148,13 @@ function validateMandatory(
   // robust for future channels that may still send the address explicitly.
   const addr = input.serviceAddress ?? {};
   const hasAddr = !!(addr['governorate'] && addr['detailed_address']);
-  if (!hasAddr && !input.installedDeviceId && input.requestType !== 'device_request') {
+  if (
+    !hasAddr
+    && !input.installedDeviceId
+    && input.requestType !== 'device_request'
+    && input.requestType !== 'name_nomination'
+    && input.requestType !== 'agent_license'
+  ) {
     return {
       ok: false,
       code: 'service_address_required',

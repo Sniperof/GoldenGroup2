@@ -125,9 +125,11 @@ type HandoffControls = {
 export default function WaterCheckRequestDetailPanel({
   request,
   handoff,
+  showPartySummary = true,
 }: {
   request: any;
   handoff?: HandoffControls;
+  showPartySummary?: boolean;
 }) {
   const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
 
@@ -191,7 +193,7 @@ export default function WaterCheckRequestDetailPanel({
 
   return (
     <div className="space-y-4">
-      {request.submissionType === 'refer_a_candidate' && (
+      {showPartySummary && request.submissionType === 'refer_a_candidate' && (
         <section className="rounded-2xl border border-sky-200 bg-sky-50/40 p-4 shadow-sm">
           <div className="mb-4 flex items-center gap-2">
             <User className="h-5 w-5 text-sky-600" />
@@ -209,7 +211,7 @@ export default function WaterCheckRequestDetailPanel({
         </section>
       )}
 
-      <section className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+      {showPartySummary && <section className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
         <div className="mb-4 flex flex-wrap items-center gap-2">
           <Beaker className="h-5 w-5 text-sky-600" />
           <h2 className="text-lg font-bold text-slate-800">
@@ -249,9 +251,9 @@ export default function WaterCheckRequestDetailPanel({
             </div>
           </div>
         </div>
-      </section>
+      </section>}
 
-      {mediator && (
+      {showPartySummary && mediator && (
         <section className="rounded-2xl border border-amber-200 bg-amber-50/40 p-4 shadow-sm">
           <div className="mb-4 flex items-center gap-2">
             <User className="h-5 w-5 text-amber-600" />
@@ -280,7 +282,7 @@ export default function WaterCheckRequestDetailPanel({
         </section>
       )}
 
-      <section className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+      {showPartySummary && <section className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
         <div className="mb-4 flex items-center gap-2">
           <MapPin className="h-5 w-5 text-sky-600" />
           <h2 className="text-lg font-bold text-slate-800">العنوان والتغطية</h2>
@@ -297,7 +299,7 @@ export default function WaterCheckRequestDetailPanel({
             <span>{request.branchResolutionReason ?? 'يحتاج الطلب إلى مراجعة ربط الفرع.'}</span>
           </div>
         )}
-      </section>
+      </section>}
 
       {mapUrl && (
         <section className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">

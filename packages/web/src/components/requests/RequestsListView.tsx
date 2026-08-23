@@ -10,6 +10,7 @@
 // ============================================================
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { toast } from 'sonner';
 import type { LucideIcon } from 'lucide-react';
 import {
   AlertTriangle,
@@ -72,7 +73,10 @@ export const REQUEST_CHANNEL_LABELS: Record<string, string> = {
 
 /** Canonical label + declared per-type display overlays (contract §9). */
 export function requestStatusLabel(status: string, requestType?: string | null): string {
+  if (requestType === 'name_nomination' && status === 'promoted') return 'تمت معالجة الطلب وتحويل أسماء مقترحة';
+  if (requestType === 'name_nomination' && status === 'resolved_at_intake') return 'تمت مراجعة الطلب دون اعتماد أسماء';
   if (requestType === 'account_creation' && status === 'completed') return 'مُعتمَد ومُفعَّل';
+  if (requestType === 'agent_license' && status === 'completed') return 'تمت الموافقة وإكمال المراجعة';
   return REQUEST_STATUS_LABELS[status] ?? status;
 }
 
@@ -182,12 +186,17 @@ export default function RequestsListView(props: RequestsListViewProps) {
   const [searchInput, setSearchInput] = useState('');
   const [rows, setRows] = useState<NormalizedRequestRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const items = await props.fetchRows(filters);
       setRows(items.map(props.normalize));
+    } catch (error: any) {
+      setRows([]);
+      setLoadError(error?.message ?? 'تعذر تحميل الطلبات.');
     } finally {
       setLoading(false);
     }
@@ -202,9 +211,10 @@ export default function RequestsListView(props: RequestsListViewProps) {
     if (!props.claim) return;
     try {
       await props.claim(id);
+      toast.success('تم تولّي الطلب');
       await load();
     } catch (e: any) {
-      alert(e?.message ?? 'فَشل الاستلام');
+      toast.error(e?.message ?? 'فَشل الاستلام');
     }
   }
 
@@ -391,7 +401,7 @@ export default function RequestsListView(props: RequestsListViewProps) {
           <Input
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
-            placeholder="بحث: اسم / رقم / مرجع"
+            placeholder="بحث: اسم / هاتف / مرجع / جهاز"
             inputSize="sm"
             className="sm:w-72"
             leading={<Search className="h-4 w-4" />}
@@ -408,6 +418,17 @@ export default function RequestsListView(props: RequestsListViewProps) {
       {loading ? (
         <div className="flex items-center justify-center py-16 text-slate-400">
           <Loader2 className="h-8 w-8 animate-spin" />
+        </div>
+      ) : loadError ? (
+        <div className="flex flex-col items-center justify-center gap-3 px-5 py-16 text-center">
+          <AlertTriangle className="h-9 w-9 text-red-500" />
+          <div>
+            <div className="font-black text-red-700">تعذر تحميل قائمة الطلبات</div>
+            <div className="mt-1 text-sm text-slate-500">{loadError}</div>
+          </div>
+          <Button variant="secondary" size="sm" icon={RefreshCw} onClick={() => void load()}>
+            إعادة المحاولة
+          </Button>
         </div>
       ) : (
         <SmartTable

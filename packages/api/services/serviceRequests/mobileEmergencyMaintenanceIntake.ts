@@ -12,12 +12,14 @@ import {
   IDENTITY_BODY_KEYS,
   REQUESTER_BODY_KEYS,
   REFERRER_BODY_KEYS,
+  REFERRER_IDENTITY_BODY_KEYS,
   buildSubmittedPerson,
   hasOwn,
   mapLocation,
   personFromCustomerSnapshot,
   positiveInt,
   resolveMobileRequesterParties,
+  resolveMobileReferrerAddress,
   sanitizeMobileSubmittedPayload,
   suppliedKeys,
   text,
@@ -136,14 +138,20 @@ export async function resolveMobileRequestPeople(input: {
 
   let referrerPerson: PersonSnapshot | null = null;
   const referrerFields = suppliedKeys(body, REFERRER_BODY_KEYS);
+  const referrerIdentityFields = suppliedKeys(body, REFERRER_IDENTITY_BODY_KEYS);
   if (referrerMode === 'none') {
     if (referrerFields.length) throw httpError(400, 'referrer_fields_not_accepted', { fields: referrerFields });
   } else if (referrerMode === 'requester') {
-    if (referrerFields.length) throw httpError(400, 'referrer_fields_not_accepted', { fields: referrerFields });
+    if (referrerIdentityFields.length) {
+      throw httpError(400, 'referrer_fields_not_accepted', { fields: referrerIdentityFields });
+    }
     referrerPerson = requesterPerson;
   } else {
     referrerPerson = buildSubmittedPerson({ body, role: 'referrer' });
   }
+  const referrerAddress = referrerMode === 'none'
+    ? null
+    : await resolveMobileReferrerAddress(body, db);
 
   const beneficiaryExternal = externalPerson(beneficiaryPerson, 'beneficiary');
   const parties = resolveMobileRequesterParties({
@@ -155,6 +163,7 @@ export async function resolveMobileRequestPeople(input: {
     requesterPerson,
     beneficiaryExternal,
     referrerPerson,
+    referrerAddress,
   });
   return { appAccount, submissionMode, referrerMode, beneficiaryPerson, beneficiaryExternal, parties };
 }
@@ -292,6 +301,7 @@ async function normalizeAttachments(
         AND identity_key = $3
         AND consumed_at IS NULL
         AND expires_at > NOW()
+        AND media_type IN ('image','video')
       FOR UPDATE`,
     [requested.map((item) => item.uploadToken), identity.kind, identityKey],
   );

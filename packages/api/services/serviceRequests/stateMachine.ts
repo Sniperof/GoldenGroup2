@@ -88,6 +88,8 @@ const RESOLVE_AT_INTAKE_LIST_BY_REQUEST_TYPE: Record<string, string> = {
 const REJECT_LIST_BY_REQUEST_TYPE: Record<string, string> = {
   periodic_maintenance: 'service_request_rejection_periodic_maintenance',
   golden_warranty: 'service_request_rejection_golden_warranty',
+  name_nomination: 'service_request_rejection_name_nomination',
+  agent_license: 'service_request_rejection_agent_license',
 };
 
 // Terminals whose outcome list is admin-managed per request type (system_lists),
@@ -196,6 +198,20 @@ export async function transitionStatus(
     }
     const row = rows[0];
 
+    if (
+      row.request_type === 'name_nomination'
+      && (input.toStatus === 'rejected' || input.toStatus === 'cancelled')
+    ) {
+      const { rows: decisionRows } = await tx.client.query<{ n: number }>(
+        `SELECT COUNT(*)::int AS n FROM service_request_name_nomination_items
+          WHERE service_request_id=$1 AND status<>'pending'`, [input.serviceRequestId],
+      );
+      if (Number(decisionRows[0]?.n ?? 0) > 0) {
+        await rollbackTx(tx);
+        return { ok: false, code: 'name_nomination_terminal_decision_already_started' };
+      }
+    }
+
     if (row.request_type === 'periodic_maintenance' && input.toStatus === 'cancelled') {
       await rollbackTx(tx);
       return { ok: false, code: 'action_not_supported_for_request_type' };
@@ -262,6 +278,8 @@ export async function transitionStatus(
     // side-effect itself, so its reject path cannot depend on that link.
     if (
       row.request_type !== 'account_creation'
+      && row.request_type !== 'name_nomination'
+      && row.request_type !== 'agent_license'
       && (input.toStatus === 'resolved_at_intake' || input.toStatus === 'rejected')
       && row.beneficiary_client_id == null
     ) {
@@ -305,7 +323,9 @@ export async function transitionStatus(
       }
     }
 
-    let terminalOutcome = input.triageOutcome ?? null;
+    let terminalOutcome = row.request_type === 'agent_license' && input.toStatus === 'completed'
+      ? 'approved'
+      : input.triageOutcome ?? null;
     let decisionReasonSnapshot: Record<string, unknown> | null = null;
     if (isTerminal(input.toStatus)) {
       // SR-R006: every terminal needs a triage_outcome from the per-terminal list.
@@ -313,6 +333,7 @@ export async function transitionStatus(
       const decisionReasonId = Number(input.decisionReasonId) || null;
       const requiresDecisionReasonId = (
         row.request_type === 'periodic_maintenance' || row.request_type === 'golden_warranty'
+        || row.request_type === 'name_nomination' || row.request_type === 'agent_license'
       ) && listCategory != null;
       if (requiresDecisionReasonId) {
         if (decisionReasonId == null) {
@@ -349,7 +370,8 @@ export async function transitionStatus(
       }
       const allowedOutcomes = listCategory && !requiresDecisionReasonId
         ? await loadListOutcomes(tx.client, listCategory)
-        : listCategory ? [] : (TRIAGE_OUTCOMES_BY_TERMINAL[input.toStatus] ?? []);
+        : listCategory ? [] : row.request_type === 'agent_license' && input.toStatus === 'completed'
+          ? ['approved'] : (TRIAGE_OUTCOMES_BY_TERMINAL[input.toStatus] ?? []);
       if (
         !requiresDecisionReasonId
         && (!terminalOutcome || !allowedOutcomes.includes(terminalOutcome))
@@ -369,7 +391,12 @@ export async function transitionStatus(
       // SR-AUTH-01: reject requires the request to be either escalated
       // (escalated_at set) or carry review_required_flag (duplicate/branch/reopen).
       // The two are decoupled (SR-ESC-02) but both open the reject door.
-      if (input.toStatus === 'rejected' && !row.review_required_flag && row.escalated_at == null) {
+      if (
+        input.toStatus === 'rejected'
+        && row.request_type !== 'name_nomination'
+        && !row.review_required_flag
+        && row.escalated_at == null
+      ) {
         await rollbackTx(tx);
         return {
           ok: false,
@@ -477,6 +504,10 @@ export async function transitionStatus(
       }
     }
 
+    // Customer notification is NOT emitted here (DEC-019 D-N15). The outbox
+    // trigger on service_requests.status captures this transition — and the
+    // seven other places that write `promoted` without passing through here —
+    // in one mechanism, so a notification cannot be lost by forgetting a site.
     await commitTx(tx);
     return {
       ok: true,

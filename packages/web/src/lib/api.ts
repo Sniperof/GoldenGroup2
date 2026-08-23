@@ -40,6 +40,106 @@ export interface AccountStatementResponse {
 
 // GET /clients/paged — server-side pagination companion to clients.list()
 // (isolated: list() is unchanged). See docs/analysis/clients-records-performance-and-filters.md
+// ── Mobile home-screen banners (migration 422) ──────────────────────────────
+
+// ── Free-form app notifications (DEC-019 D-N6/D-N7) ──────────────────────────
+export type BroadcastDestination =
+  | 'service_request' | 'device' | 'warranty' | 'complaint' | 'visit'
+  /** Intake FORM for a request type — its id is a request_type slug, not a row id. */
+  | 'service_request_form';
+
+export interface BroadcastAudienceInput {
+  /** Optional narrowing. The server applies the operator's branch ceiling on top. */
+  branchId?: number | null;
+  /** Geo subtree of the deepest selected level, as GeoCascadeFilter emits it. */
+  geoIds?: string[];
+  clientId?: number | null;
+}
+
+export interface BroadcastAudiencePreview {
+  audience: BroadcastAudienceInput;
+  /** Inboxes that would receive the notification. */
+  accounts: number;
+  /** Distinct customers behind those inboxes. */
+  clients: number;
+  /** Of those, how many have a registered device; the rest see it only in-app. */
+  reachableByPush: number;
+}
+
+export interface BroadcastInput {
+  title: string;
+  message: string;
+  locale: 'ar' | 'en';
+  destination?: BroadcastDestination | null;
+  destinationId?: string | null;
+  audience: BroadcastAudienceInput;
+  /** What the operator was shown, stored beside what was actually written. */
+  previewedCount?: number | null;
+}
+
+export interface BroadcastRecord {
+  id: string;
+  title: string;
+  message: string;
+  locale: 'ar' | 'en';
+  destination: BroadcastDestination | null;
+  destinationId: string | null;
+  audience: BroadcastAudienceInput;
+  previewedCount: number | null;
+  notificationCount: number;
+  branchId: number | null;
+  branchName: string | null;
+  sentBy: string | null;
+  createdAt: string;
+  completedAt: string | null;
+  lastError: string | null;
+}
+
+export type AppHomeBannerTargetKind = 'none' | 'device' | 'service_request' | 'external_url';
+export type AppHomeBannerAudience = 'all' | 'customers' | 'guests';
+
+export interface AppHomeBannerInput {
+  titleAr: string | null;
+  /** Must be a '/m/<id>.webp' returned by uploadMedia() (or a legacy '/uploads/' path); the API rejects anything else. */
+  imageUrl: string;
+  sortOrder: number;
+  displaySeconds: number;
+  startsAt: string | null;
+  endsAt: string | null;
+  targetKind: AppHomeBannerTargetKind;
+  targetDeviceModelId: number | null;
+  targetRequestType: string | null;
+  targetUrl: string | null;
+  audience: AppHomeBannerAudience;
+  isActive: boolean;
+}
+
+export interface AppHomeBanner extends AppHomeBannerInput {
+  id: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AppHomeBannerTargetOptions {
+  devices: { id: number; nameAr: string; category: string | null }[];
+  /** Only the request types the mobile app can currently open a form for. */
+  requestTypes: { requestType: string; labelAr: string }[];
+}
+
+// ── Mobile contact/social links (migration 424) ─────────────────────────────
+
+export interface AppContactLinksInput {
+  facebookUrl: string | null;
+  websiteUrl: string | null;
+  instagramUrl: string | null;
+  whatsappNumber: string | null;
+  telegramNumber: string | null;
+}
+
+export interface AppContactLinks extends AppContactLinksInput {
+  updatedAt: string;
+}
+
 export interface PagedClientsResponse {
   items: any[];
   total: number;
@@ -581,6 +681,51 @@ export const api = {
       update: (id: number, data: { arabicLabel?: string; description?: string; displayOrder?: number; isActive?: boolean }) =>
         request<any>(`/admin/emergency-action-types/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
       delete: (id: number) => request<any>(`/admin/emergency-action-types/${id}`, { method: 'DELETE' }),
+    },
+    // Mobile home-screen slider. Targets are deliberately narrow: a banner is
+    // shown to every app user (visitors included), so a device target is a
+    // public-catalog device_models id, never a customer's installed device.
+    appHomeBanners: {
+      list: () => request<AppHomeBanner[]>('/admin/app-home-banners'),
+      targetOptions: () => request<AppHomeBannerTargetOptions>('/admin/app-home-banners/target-options'),
+      create: (data: AppHomeBannerInput) =>
+        request<AppHomeBanner>('/admin/app-home-banners', { method: 'POST', body: JSON.stringify(data) }),
+      // Full replace, not a patch: the target is one coherent shape (kind plus
+      // exactly one value), so the server validates the whole row at once.
+      update: (id: number, data: AppHomeBannerInput) =>
+        request<AppHomeBanner>(`/admin/app-home-banners/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+      reorder: (ids: number[]) =>
+        request<AppHomeBanner[]>('/admin/app-home-banners/reorder', { method: 'PATCH', body: JSON.stringify({ ids }) }),
+      delete: (id: number) => request<{ success: true }>(`/admin/app-home-banners/${id}`, { method: 'DELETE' }),
+    },
+    // Free-form customer notification (DEC-019 D-N6). `audiencePreview` is not
+    // optional politeness: a send is irreversible and leaves the system, so the
+    // count the operator confirms against comes from the same predicate the
+    // send itself uses.
+    appNotifications: {
+      audiencePreview: (audience: BroadcastAudienceInput) =>
+        request<BroadcastAudiencePreview>('/admin/app-notifications/audience-preview', {
+          method: 'POST',
+          body: JSON.stringify(audience),
+        }),
+      send: (data: BroadcastInput) =>
+        request<{ broadcastId: string; notificationCount: number; pushed: number }>(
+          '/admin/app-notifications/broadcasts',
+          { method: 'POST', body: JSON.stringify(data) },
+        ),
+      history: () => request<{ items: BroadcastRecord[] }>('/admin/app-notifications/broadcasts'),
+      // Options for the intake-form destination, whose id is a request_type slug.
+      requestTypes: () => request<{ items: { requestType: string; labelAr: string }[] }>(
+        '/admin/app-notifications/request-types',
+      ),
+    },
+    appContactLinks: {
+      get: () => request<AppContactLinks>('/admin/app-contact-links'),
+      update: (data: AppContactLinksInput) =>
+        request<AppContactLinks>('/admin/app-contact-links', {
+          method: 'PUT',
+          body: JSON.stringify(data),
+        }),
     },
   },
   employees: {
@@ -1775,10 +1920,24 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(data),
       }),
+    approveAgentLicense: (id: number, note?: string | null) =>
+      request<any>(`/service-requests/${id}/approve-agent-license`, {
+        method: 'POST', body: JSON.stringify({ note: note ?? null }),
+      }),
     handoffGoldenWarranty: (id: number, body: any = {}) =>
       request<any>(`/service-requests/${id}/handoff-golden-warranty`, {
         method: 'POST',
         body: JSON.stringify(body),
+      }),
+    refreshNameNominationBranches: (id: number) =>
+      request<any>(`/service-requests/${id}/name-nomination/refresh-branches`, { method: 'POST', body: '{}' }),
+    convertNameNominationItems: (id: number, itemIds: number[]) =>
+      request<any>(`/service-requests/${id}/name-nomination/convert`, {
+        method: 'POST', body: JSON.stringify({ itemIds }),
+      }),
+    skipNameNominationItems: (id: number, itemIds: number[], reasonId: number) =>
+      request<any>(`/service-requests/${id}/name-nomination/skip`, {
+        method: 'POST', body: JSON.stringify({ itemIds, reasonId }),
       }),
     handoffDeviceRequest: (id: number, data: {
       employeeId: number;

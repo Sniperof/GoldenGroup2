@@ -1,6 +1,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { normalizeSettingValue } from './systemSettingsValidation';
+import { DAILY_IDENTITY_SETTING_BY_REQUEST_TYPE } from '../services/serviceRequests/mobileRequestQuotaSettings';
+import { isEditableKey, normalizeSettingValue } from './systemSettingsValidation';
+
+test('every mobile request identity ceiling is editable as a non-negative integer', () => {
+  for (const key of Object.values(DAILY_IDENTITY_SETTING_BY_REQUEST_TYPE)) {
+    assert.equal(isEditableKey(key), true, `${key} must be exposed by the settings API`);
+    assert.equal(normalizeSettingValue(key, 0), '0');
+    assert.equal(normalizeSettingValue(key, 7), '7');
+    assert.throws(() => normalizeSettingValue(key, -1));
+    assert.throws(() => normalizeSettingValue(key, 1.5));
+  }
+});
 
 test('web login slots accept an explicit empty list to disable the policy', () => {
   assert.equal(normalizeSettingValue('web_login_allowed_team_slots', []), '');

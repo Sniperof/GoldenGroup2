@@ -1,12 +1,13 @@
 import { Router } from 'express';
+import type { PoolClient } from 'pg';
 import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { getOrBuildAuthContext, requirePermission } from '../middleware/permission.js';
 import { authorize, resolveActingBranch } from '../services/authorizationService.js';
 import { assertGeoUnitInScope } from '../services/geoScopeService.js';
 import {
-  linkNewClientToWaterCheckParty,
-  type WaterCheckClientParty,
+  linkNewClientToServiceRequestParty,
+  type ServiceRequestClientParty,
 } from '../services/serviceRequests/atomicClientLink.js';
 import {
   canCreateClient,
@@ -54,6 +55,7 @@ const CLIENT_REQUEST_VIEW_PERMISSION_BY_TYPE: Record<string, string> = {
   device_request: 'service_requests.view',
   periodic_maintenance: 'periodic_maintenance.view',
   golden_warranty: 'golden_warranty.view',
+  name_nomination: 'name_nomination.view',
   account_creation: 'account_requests.view',
 };
 
@@ -185,7 +187,7 @@ const toJson = (value: unknown, fallback: unknown) => JSON.stringify(value ?? fa
 
 function readAtomicServiceRequestLink(body: any): {
   serviceRequestId: number;
-  party: WaterCheckClientParty;
+  party: ServiceRequestClientParty;
 } | null {
   if (body?.serviceRequestLink == null) return null;
   const serviceRequestId = Number(body.serviceRequestLink.serviceRequestId);
@@ -557,6 +559,7 @@ function phoneNormalizationSql(expression: string): string {
 async function findDuplicateClientByPhone(
   normalizedPhone: string,
   excludeClientId?: number | null,
+  queryDb: Pick<PoolClient, 'query'> = pool,
 ): Promise<{
   id: number;
   name: string;
@@ -570,7 +573,7 @@ async function findDuplicateClientByPhone(
     return null;
   }
 
-  const { rows } = await pool.query(
+  const { rows } = await queryDb.query(
     `
       SELECT
         c.id,
@@ -2235,14 +2238,6 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
     if (!c.mobile) {
       return res.status(400).json({ error: 'رقم الموبايل مطلوب' });
     }
-    const duplicate = await findDuplicateClientByPhone(c.mobile);
-    if (duplicate) {
-      return res.status(409).json({
-        error: 'DUPLICATE_CLIENT_PHONE',
-        ...buildSmartMatchResponse(authContext, duplicate, c.mobile),
-      });
-    }
-
     // Geo-coverage enforcement — neighborhood is the deepest geo unit on a
     // client; serviceGeoIds includes all descendants of branch coverage so
     // checking the leaf is sufficient. Enforce against the TARGET branch
@@ -2259,6 +2254,23 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
     }
 
     await db.query('BEGIN');
+    // Serialize creations by canonical primary phone. The previous preflight
+    // check happened outside the transaction, so two near-simultaneous request
+    // party creations could both observe "no duplicate" and insert two client
+    // rows. The transaction-scoped advisory lock makes the in-transaction
+    // recheck authoritative without relying on UI timing.
+    await db.query(
+      'SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))',
+      [c.mobile],
+    );
+    const duplicate = await findDuplicateClientByPhone(c.mobile, null, db);
+    if (duplicate) {
+      await db.query('ROLLBACK');
+      return res.status(409).json({
+        error: 'DUPLICATE_CLIENT_PHONE',
+        ...buildSmartMatchResponse(authContext, duplicate, c.mobile),
+      });
+    }
     if (hasSourceCandidate) {
       const { rows: lockedSourceRows } = await db.query(
         `SELECT id
@@ -2323,7 +2335,7 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
     );
 
     if (serviceRequestLink) {
-      await linkNewClientToWaterCheckParty({
+      await linkNewClientToServiceRequestParty({
         db,
         authContext,
         serviceRequestId: serviceRequestLink.serviceRequestId,

@@ -2,7 +2,7 @@ import { assertPayloadWithinLimit, type FormValidationIssue, type FormValidation
 
 export { assertPayloadWithinLimit };
 
-export const EMERGENCY_MAINTENANCE_FORM_VERSION = 'emergency_maintenance.mobile.v1';
+export const EMERGENCY_MAINTENANCE_FORM_VERSION = 'emergency_maintenance.mobile.v2';
 
 const ENVELOPE_KEYS = new Set(['requestType', 'formVersion', 'handle']);
 const STRING_LIMITS: Record<string, number> = {
@@ -21,6 +21,7 @@ const STRING_LIMITS: Record<string, number> = {
   referrerLastName: 60,
   referrerPhone: 20,
   referrerSecondaryPhone: 20,
+  referrerDetailedAddress: 500,
   phoneNumber: 20,
   primaryPhone: 20,
   phone: 20,
@@ -42,8 +43,9 @@ const GEO_KEYS = new Set([
   'governorateId', 'governorate', 'regionId', 'region', 'cityOrArea',
   'subdistrictId', 'subdistrict', 'subArea', 'neighborhoodId', 'neighborhood',
   'installedDeviceId', 'deviceModelId',
+  'referrerGovernorate', 'referrerCityOrArea', 'referrerSubArea', 'referrerNeighborhood',
 ]);
-const LOCATION_KEYS = new Set(['mapLocation', 'map_location', 'location']);
+const LOCATION_KEYS = new Set(['mapLocation', 'map_location', 'location', 'referrerMapLocation']);
 const ARRAY_KEYS = new Set(['safetyIndicatorCodes', 'attachments']);
 
 function issueFor(key: string, value: unknown): FormValidationIssue | null {

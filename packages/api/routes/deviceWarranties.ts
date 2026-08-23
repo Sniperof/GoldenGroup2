@@ -4,6 +4,8 @@ import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
 import { authorize } from '../services/authorizationService.js';
 import { insertTechnicalState } from '../services/visitTaskResultReflection.js';
+import { notifyWarrantyActivated } from '../services/appNotifications/notify.js';
+import { dispatchPreparedPushes } from '../services/appNotifications/pushDispatcher.js';
 
 const router = express.Router();
 router.use(requireAuth);
@@ -341,7 +343,13 @@ router.post('/golden/offer-result', requirePermission('contracts.edit'), async (
     await recomputeGoldenWarrantyEndDate(client, deviceId);
     await client.query(`UPDATE open_tasks SET status = 'completed' WHERE id = $1`, [taskId]);
 
+    // DEC-019 D-N1: the receipt IS the activation, so this is the moment the
+    // customer's coverage actually starts. Written inside the transaction,
+    // dispatched after it.
+    const pushes = await notifyWarrantyActivated(client, { deviceId });
+
     await client.query('COMMIT');
+    await dispatchPreparedPushes(pushes);
     res.status(201).json(mapWarranty(warranty));
   } catch (err: any) {
     await client.query('ROLLBACK');

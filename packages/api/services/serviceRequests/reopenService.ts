@@ -53,8 +53,8 @@ export async function reopen(
 
   const tx = await acquireTx(db);
   try {
-    const { rows } = await tx.client.query<{ status: string; archived_at: string | null }>(
-      `SELECT status, archived_at FROM service_requests
+    const { rows } = await tx.client.query<{ status: string; archived_at: string | null; request_type: string }>(
+      `SELECT status, archived_at, request_type FROM service_requests
         WHERE id = $1 FOR UPDATE`,
       [input.serviceRequestId],
     );
@@ -63,6 +63,16 @@ export async function reopen(
       return { ok: false, code: 'not_found' };
     }
     const row = rows[0];
+
+    if (row.request_type === 'agent_license') {
+      await rollbackTx(tx);
+      return { ok: false, code: 'agent_license_cannot_be_reopened' };
+    }
+
+    if (row.request_type === 'name_nomination' && row.status === 'resolved_at_intake') {
+      await rollbackTx(tx);
+      return { ok: false, code: 'completed_name_nomination_cannot_be_reopened' };
+    }
 
     if (row.status === 'promoted') {
       await rollbackTx(tx);

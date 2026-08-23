@@ -26,8 +26,11 @@ export const PERMISSION_MODULE_LABELS: Record<string, string> = {
   water_check: 'طلبات فحص المياه',
   periodic_maintenance: 'طلبات الصيانة الدورية',
   golden_warranty: 'طلبات الكفالة الذهبية',
+  name_nomination: 'طلبات ترشيح الأسماء',
+  agent_license: 'طلبات ترخيص الوكلاء',
   account_requests: 'طلبات إنشاء الحساب',
   app_accounts: 'حسابات التطبيق',
+  complaints: 'إدارة الشكاوى',
 };
 
 export const PERMISSION_SUBMODULE_LABELS: Record<string, string> = {
@@ -43,6 +46,8 @@ export const PERMISSION_SUBMODULE_LABELS: Record<string, string> = {
   users: 'المستخدمون',
   task_types: 'أنواع المهام',
   emergency_action_types: 'أنواع إجراءات الطوارئ',
+  app_home_banners: 'بانرات الشاشة الرئيسية للتطبيق',
+  app_contact_links: 'روابط التواصل الخاصة بالتطبيق',
   branch_assignments: 'فروع المستخدمين المسموحة',
   departments: 'أقسام الفروع',
   clients: 'بيانات الزبائن',
@@ -109,6 +114,15 @@ export const PERMISSION_SUBMODULE_LABELS: Record<string, string> = {
   spare_part_prices: 'أسعار قطع الغيار',
   devices: 'الأجهزة',
   contracts: 'العقود',
+  complaints: 'سجلات الشكاوى',
+  attachments: 'مرفقات الشكاوى',
+  audit: 'سجل تدقيق الشكاوى',
+  links: 'ربط الشكاوى بالسجلات',
+  notes: 'الملاحظات الداخلية',
+  reports: 'تقارير الشكاوى',
+  settings: 'إعدادات الشكاوى',
+  updates: 'التحديثات الظاهرة للمشتكي',
+  workflow: 'دورة معالجة الشكوى',
 };
 
 function readableIdentifier(identifier: string): string {

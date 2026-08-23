@@ -19,6 +19,7 @@
 - `manual-application-entry`
 - `contract-form`
 - `visit-detail`
+- `complaints` — دومين الشكاوى المستقل للموبايل وCRM (DEC-018؛ منفذ برمجياً وغير منشور)
 
 ## ملاحظات
 - الفيتشر لا يُعرَّف هنا تفصيليًا.

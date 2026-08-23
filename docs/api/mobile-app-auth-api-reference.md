@@ -103,6 +103,8 @@
 | `429` | `{ retryAfterSeconds: integer }` | لم تنقضِ نافذة إعادة الإرسال (60 ثانية). |
 | `429` | `{ code: "daily_cap_reached", limit, windowHours: 24 }` | **جديد** — تجاوز الرقم سقفه اليومي من رسائل التحقق عبر **كل** الأغراض مجتمعةً (10 افتراضياً). لا تُعد المحاولة اليوم. |
 | `429` | `{ code: "rate_limited", retryAfterSeconds }` | **جديد** — حدّ معدّل الطلبات لعنوان العميل (5 نداءات / 10 دقائق على `send`). راجع §6.1. |
+| `502` | `{ code: "sms_provider_failed" }` | **جديد (2026-08-13)** — مزوّد الرسائل رفض الإرسال. لا رمز صالح لهذه المحاولة؛ اعرض رسالة عامة واسمح بإعادة المحاولة عبر ضغطة المستخدم (لا تكرار تلقائي). |
+| `503` | `{ code: "sms_provider_unavailable" }` | **جديد (2026-08-13)** — تعذّر الوصول للمزوّد (انتهاء وقت/تعطّل مؤقت). نفس التعامل: رسالة عامة، لا تكرار تلقائي. |
 
 > **الطلب المرفوض لا يحجب:** بعد رفض طلب يستطيع المستخدم إرسال `account_creation` جديد بحرية — قاعدة «طلب مفتوح واحد» تخصّ المعلّق فقط. مصير الطلب المرفوض وسببه يُعرَضان بلا حجب لصاحب الرقم عبر `account/status?ref=` (§3.1) أو `…/mine` (§3.2.2).
 
@@ -278,9 +280,9 @@
 | `primaryMobileHasWhatsapp` | `boolean \| null` | حالة واتساب للرقم الرئيسي؛ `null` لطلب تاريخي لم يخزّنها. |
 | `secondaryMobile` | `string \| null` | الرقم الثانوي. |
 | `secondaryMobileHasWhatsapp` | `boolean \| null` | حالة واتساب للرقم الثانوي؛ `false` عند عدمه في الطلب الجديد، و`null` لطلب تاريخي لم يخزّنها. |
-| `address` | `object` | `{ governorate, cityOrArea, subArea, neighborhood, detailedAddress }` — **أسماءً** من لقطة الطلب. |
+| `address` | `object` | الكائن الموحّد: المعرّفات والأسماء والعنوان التفصيلي و`mapLocation` من لقطة الطلب. |
 | `notes` | `string \| null` | الملاحظات. |
-| `location` | `object \| null` | `{ lat, lng }` إن أُرسلت. |
+| `location` | `object \| null` | حقل توافق قديم؛ يطابق `address.mapLocation`. |
 
 **الأخطاء:** `400` (handle غير معروف / غير مُتحقَّق / منتهٍ / الرقم لا يطابق)، `404` مع `code = "no_pending_request"` (لا طلب معلّقاً ولا مرفوضاً غير مؤرشف)، `409` (handle مُستهلَك).
 
@@ -297,7 +299,12 @@
 - إذا وُجدت ترويسة Authorization غير صالحة أو منتهية أو لحساب موقوف يُرفض الطلب؛ لا يحدث سقوط صامت إلى مسار الزائر.
 - لا يُخزَّن `handle` ضمن `submitted_payload`. تُحفظ بيانات النموذج كلقطة، وتُحفظ هوية المرسل في روابط مستقلة.
 
-الحد الأدنى للجسم: `requestType`, `submissionMode`, `firstName`, `lastName`, `phoneNumber`, `governorateId`, `detailedAddress`، إضافةً إلى `handle` للزائر فقط. الاستجابة `201` تعيد `id`, `publicRefNumber`, `status`, `requesterAuth`, ونتيجة حل الفرع.
+الحد الأدنى للجسم يختلف حسب نوع الطلب وهوية المرسل ونمط التقديم؛ يحدده مرجع
+النوع ونسخة `formVersion`. في كل أنواع طلبات الخدمة التي تجمع بيانات مستفيد،
+تبقى `fatherName` و`secondaryPhone` و`secondaryPhoneHasWhatsapp` اختيارية.
+وفي الأنواع التي تدعم وسيطاً مستقلاً تبقى النظائر ذات السابقة `referrer`
+اختيارية أيضاً. غياب علم واتساب للرقم الثانوي يعني `false` ولا يؤدي إلى رفض
+الطلب. الاستجابة `201` تعيد المرجع العام والحالة وأعلام المراجعة المناسبة.
 
 الأخطاء المغلقة المهمة: `unknown_request_type`، `request_type_inactive`، `request_type_not_implemented`، `request_type_not_available_on_mobile`، `request_type_not_available_for_requester`، `unsupported_submission_mode`، `unsupported_form_version`، و`request_type_configuration_mismatch`.
 
@@ -318,7 +325,7 @@
 | قائمة الفروع المنشورة | `GET /api/app/catalog/branches` | `{ items: PublicBranchListItem[] }` |
 | تفاصيل فرع منشور | `GET /api/app/catalog/branches/:branchId` | `PublicBranchDetails` |
 
-القائمة مصفّحة خادمياً: تقبل `page` (الافتراضي `1`) و`limit` (الافتراضي `12`، والأقصى `50`) إضافةً إلى `featured=true|false` و`category` و`search` (حتى 100 محرف). `items` تمثل الصفحة المطلوبة فقط؛ وعلى التطبيق تصفير النتائج والعودة إلى الصفحة الأولى عند تغيير أي فلتر. كلا المسارين يعيدان فقط `device_models` التي تحقق `is_active = true` و`deleted_at IS NULL`؛ لذلك يعيد مسار التفاصيل `404` للجهاز غير الموجود أو غير الفعال أو المحذوف.
+القائمة مصفّحة خادمياً: تقبل `page` (الافتراضي `1`) و`limit` (الافتراضي `12`، والأقصى `50`) إضافةً إلى `featured=true|false` و`category` و`search` (حتى 100 محرف). تقبل أيضاً `fields=names` للمنتقيات الخفيفة؛ عندها يحوي كل عنصر فقط `id`, `nameAr`, `nameEn`، بينما حذف `fields` أو إرسال `fields=full` يعيد بطاقة الكتالوج الكاملة. `items` تمثل الصفحة المطلوبة فقط؛ وعلى التطبيق تصفير النتائج والعودة إلى الصفحة الأولى عند تغيير أي فلتر. كلا المسارين يعيدان فقط `device_models` التي تحقق `is_active = true` و`deleted_at IS NULL`؛ لذلك يعيد مسار التفاصيل `404` للجهاز غير الموجود أو غير الفعال أو المحذوف.
 
 بيانات العرض العامة تشمل الاسمين العربي والإنكليزي، ورمز الموديل `code`، والتصنيف والوصف والصورة الأساسية والوسائط وفترات الصيانة والكفالات، إضافةً إلى `services` بالقيم العامة المعتمدة: `تسليم`، `تركيب`، `صيانة`، `تعليم`. تضيف استجابة القائمة `goldenWarrantyAvailable` لبيان دعم موديل الجهاز للكفالة الذهبية، و`activeDiscount` الاختياري بالشكل `{ label, percentage, validUntil }` للخصم الفعال حالياً بتوقيت دمشق، أو `null` عند عدم وجود خصم. وتضيف استجابة التفاصيل مزايا الشراء، وفروع البيع المعتمدة، والإكسسوارات الفعالة المتوافقة، وملفات الكاتلوك العامة. يبقى اسم التخزين الداخلي `supportedVisitTypes` غير مكشوف، ولا يعيد المساران السعر أو علاقات الأقسام.
 
@@ -390,19 +397,24 @@
 | `secondaryMobileHasWhatsapp` | `boolean` | حالة واتساب للرقم الثانوي المُعاد. |
 | `secondaryMobiles` | `string[]` | أرقام إضافية من `contacts` (مطبَّعة، بلا تكرار، وبلا الرقم الرئيسي). |
 | `classification` | `enum(OP, FOP, Lead)` | تصنيف السجل. `OP`/`FOP` حالتا ترقية؛ وكل ما عداهما `Lead` افتراضاً. **لا يكون `null` أبداً.** |
-| `address` | `object` | العنوان بالأسماء — للعرض (أدناه). |
-| `addressIds` | `object` | نفس المستويات بمعرّفات `geo_units` — للمنتقي (أدناه). |
-| `geoUnitId` | `integer \| null` | أعمق مستوى متوفّر. |
+| `address` | `object` | العنوان الموحّد: المعرّفات والأسماء والتفصيل واللوكيشن (أدناه). |
+| `addressIds` | `object` | حقل توافق قديم لمعرّفات `geo_units`؛ استخدم المعرّفات داخل `address` في البناء الجديد. |
+| `geoUnitId` | `integer \| null` | حقل توافق قديم: أعمق مستوى متوفّر. |
 
-**كائن `address` (أسماء للعرض):**
+**كائن `address` الموحّد:**
 
 | الحقل | النوع | الوصف |
 |---|---|---|
+| `governorateId` | `integer \| null` | معرّف المحافظة (مستوى 1). |
+| `cityOrAreaId` | `integer \| null` | معرّف المنطقة (مستوى 2). |
+| `subAreaId` | `integer \| null` | معرّف الناحية (مستوى 3). |
+| `neighborhoodId` | `integer \| null` | معرّف الحي (مستوى 4). |
 | `governorate` | `string \| null` | اسم المحافظة (مستوى 1). |
 | `cityOrArea` | `string \| null` | اسم المنطقة (مستوى 2). |
 | `subArea` | `string \| null` | اسم الناحية (مستوى 3). |
 | `neighborhood` | `string \| null` | اسم الحي (مستوى 4). |
 | `detailedAddress` | `string \| null` | العنوان التفصيلي النصّي. |
+| `mapLocation` | `{ lat, lng } \| null` | إحداثيات العنوان إن كانت مخزّنة وصالحة. |
 
 **كائن `addressIds` (معرّفات — أُضيف 2026-08-02):**
 
@@ -413,8 +425,8 @@
 | `subArea` | `integer \| null` | `subArea` (ويُقبل `subdistrictId`) |
 | `neighborhood` | `integer \| null` | `neighborhood` (ويُقبل `neighborhoodId`) |
 
-استعمل `addressIds` لضبط المنتقي التتالي مسبقاً، ثم مرّرها كما هي إلى
-`POST /api/app/service-requests` حسب جدول المقابلة أعلاه. **لا تطابق بالأسماء**:
+استعمل حقول `*Id` داخل `address` لضبط المنتقي التتالي مسبقاً، ثم مرّرها إلى
+`POST /api/app/service-requests`. يبقى `addressIds` لفترة توافق فقط. **لا تطابق بالأسماء**:
 الأسماء تتكرّر بين المحافظات، وإعادة تسمية وحدة تُبطل المطابقة صامتةً.
 
 السلسلة **مضمونة الاتّصال دائماً** (لا فجوة بين مستوى وما فوقه)، لأنها تُبنى

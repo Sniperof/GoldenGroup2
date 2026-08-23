@@ -23,6 +23,7 @@ import {
   buildMobileAddressLabels,
   buildMobileServiceAddress,
 } from '../geo/mobileServiceAddress.js';
+import { resolveBranchForServiceGeoUnit } from '../serviceRequests/branchResolutionService.js';
 import { detectAccountRequestDuplicate } from './accountDuplicatePolicy.js';
 import {
   acquireTx,
@@ -169,6 +170,23 @@ const REJECTION_REASON_LABELS: Record<string, string> = {
   device_not_company: 'الجهاز ليس من أجهزة الشركة',
 };
 
+function snapshotGeoId(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function snapshotMapLocation(value: unknown): { lat: number; lng: number } | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  const lat = Number(raw.lat);
+  const lng = Number(raw.lng);
+  return Number.isFinite(lat) && Number.isFinite(lng)
+    && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180
+    ? { lat, lng }
+    : null;
+}
+
 /** The pending-screen payload, built from the immutable submitted snapshot. */
 export interface PendingRequestSnapshot {
   status: 'pending' | 'rejected';
@@ -185,11 +203,16 @@ export interface PendingRequestSnapshot {
   secondaryMobile: string | null;
   secondaryMobileHasWhatsapp: boolean | null;
   address: {
+    governorateId: number | null;
+    cityOrAreaId: number | null;
+    subAreaId: number | null;
+    neighborhoodId: number | null;
     governorate: string | null;
     cityOrArea: string | null;
     subArea: string | null;
     neighborhood: string | null;
     detailedAddress: string | null;
+    mapLocation: { lat: number; lng: number } | null;
   };
   notes: string | null;
   location: { lat: number; lng: number } | null;
@@ -231,11 +254,16 @@ export function buildSnapshot(
       ? p.secondary_mobile_has_whatsapp
       : null,
     address: {
+      governorateId: snapshotGeoId(p.governorate),
+      cityOrAreaId: snapshotGeoId(p.city_or_area),
+      subAreaId: snapshotGeoId(p.sub_area),
+      neighborhoodId: snapshotGeoId(p.neighborhood),
       governorate: labels.governorate ?? null,
       cityOrArea: labels.city_or_area ?? null,
       subArea: labels.sub_area ?? null,
       neighborhood: labels.neighborhood ?? null,
       detailedAddress: p.detailed_address ?? null,
+      mapLocation: snapshotMapLocation(p.location),
     },
     notes: p.notes ?? null,
     location: p.location ?? null,
@@ -387,6 +415,13 @@ export async function createAccountRequest(
     subArea: form.subArea,
     neighborhood: form.neighborhood,
   });
+  // Account creation remains allowed outside service coverage, but the
+  // reviewer must receive an explicit, immutable resolution result.
+  const branchResolutionGeoUnitId = address.ids.neighborhood
+    ?? address.ids.subArea
+    ?? address.ids.cityOrArea
+    ?? address.ids.governorate;
+  const branchResolution = await resolveBranchForServiceGeoUnit(branchResolutionGeoUnitId);
 
   const tx = await acquireTx();
   try {
@@ -483,9 +518,12 @@ export async function createAccountRequest(
     const { rows: ins } = await tx.client.query<{ id: number; created_at: string }>(
       `INSERT INTO service_requests
          (public_ref_number, request_type, channel, submitter_tier, submission_type,
-          problem_description, submitted_payload, requester_external, service_address, status)
+          problem_description, submitted_payload, requester_external, service_address, status,
+          branch_id, branch_resolution_status, branch_resolution_reason,
+          branch_resolution_geo_unit_id)
        VALUES ($1, 'account_creation', 'mobile_app', 'visitor', 'apply',
-          $2, $3::jsonb, $4::jsonb, $5::jsonb, 'received')
+          $2, $3::jsonb, $4::jsonb, $5::jsonb, 'received',
+          $6, $7, $8, $9)
        RETURNING id, created_at`,
       [
         ref,
@@ -493,6 +531,10 @@ export async function createAccountRequest(
         JSON.stringify(submittedPayload),
         JSON.stringify(requesterExternal),
         JSON.stringify(serviceAddress),
+        branchResolution.branchId,
+        branchResolution.status,
+        branchResolution.reason,
+        branchResolution.geoUnitId,
       ],
     );
     const requestId = ins[0].id;
@@ -512,6 +554,8 @@ export async function createAccountRequest(
         channel: 'mobile_app',
         public_ref_number: ref,
         primary_phone: phone,
+        branch_resolution_status: branchResolution.status,
+        branch_resolution_geo_unit_id: branchResolution.geoUnitId,
       },
     });
 

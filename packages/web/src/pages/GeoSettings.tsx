@@ -196,13 +196,23 @@ export default function GeoSettings() {
         </button>
     );
 
+    const idColumn: ColumnDef<GeoUnit> = {
+        key: 'id',
+        label: 'ID',
+        sortable: true,
+        render: (u) => <span className="font-mono text-sm font-semibold text-slate-600">{u.id}</span>,
+        getValue: (u) => u.id,
+    };
+
     const govColumns: ColumnDef<GeoUnit>[] = [
+        idColumn,
         { key: 'name', label: 'اسم المحافظة', sortable: true, render: (u) => <span className="text-sm font-semibold text-slate-800">{u.name}</span> },
         { key: 'children', label: 'عدد المناطق', sortable: true, render: (u) => <span className="text-sm text-slate-600">{geoUnits.filter(c => c.parentId === u.id).length}</span>, getValue: (u) => geoUnits.filter(c => c.parentId === u.id).length },
         { key: 'status', label: 'الحالة', render: (u) => <StatusBadge unit={u} />, getValue: (u) => u.status ?? 'active' },
     ];
 
     const regionColumns: ColumnDef<GeoUnit>[] = [
+        idColumn,
         { key: 'name', label: 'اسم المنطقة', sortable: true, render: (u) => <span className="text-sm font-semibold text-slate-800">{u.name}</span> },
         { key: 'parentId', label: 'المحافظة', sortable: true, render: (u) => <span className="px-2.5 py-1 rounded-full bg-sky-50 text-sky-700 text-xs font-medium border border-sky-100">{getParentName(u.parentId)}</span>, getValue: (u) => getParentName(u.parentId) },
         { key: 'children', label: 'عدد النواحي', sortable: true, render: (u) => <span className="text-sm text-slate-600">{geoUnits.filter(c => c.parentId === u.id).length}</span>, getValue: (u) => geoUnits.filter(c => c.parentId === u.id).length },
@@ -210,6 +220,7 @@ export default function GeoSettings() {
     ];
 
     const subDistrictColumns: ColumnDef<GeoUnit>[] = [
+        idColumn,
         { key: 'name', label: 'اسم الناحية', sortable: true, render: (u) => <span className="text-sm font-semibold text-slate-800">{u.name}</span> },
         { key: 'path', label: 'المسار', render: (u) => <span className="text-xs text-slate-500">{getPath(u)}</span>, getValue: (u) => getPath(u) },
         { key: 'children', label: 'عدد الأحياء', sortable: true, render: (u) => <span className="text-sm text-slate-600">{geoUnits.filter(c => c.parentId === u.id).length}</span>, getValue: (u) => geoUnits.filter(c => c.parentId === u.id).length },
@@ -217,6 +228,7 @@ export default function GeoSettings() {
     ];
 
     const neighborhoodColumns: ColumnDef<GeoUnit>[] = [
+        idColumn,
         { key: 'name', label: 'اسم الحي', sortable: true, render: (u) => <span className="text-sm font-semibold text-slate-800">{u.name}</span> },
         { key: 'path', label: 'المسار', render: (u) => <span className="text-xs text-slate-500">{getPath(u)}</span>, getValue: (u) => getPath(u) },
         { key: 'status', label: 'الحالة', render: (u) => <StatusBadge unit={u} />, getValue: (u) => u.status ?? 'active' },

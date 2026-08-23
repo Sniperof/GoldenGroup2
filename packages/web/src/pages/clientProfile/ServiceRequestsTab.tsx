@@ -5,10 +5,13 @@ import { api } from '../../lib/api';
 import { REQUEST_STATUS_COLORS, requestStatusLabel } from '../../components/requests/RequestsListView';
 
 const REQUEST_TYPE_LABELS: Record<string, string> = {
+  name_nomination: 'طلب ترشيح أسماء',
   emergency_maintenance: 'طلب صيانة طارئة',
   water_check: 'طلب فحص مياه',
   periodic_maintenance: 'طلب صيانة دورية',
   golden_warranty: 'طلب كفالة ذهبية',
+  device_request: 'طلب جهاز',
+  agent_license: 'طلب ترخيص وكيل',
   account_creation: 'طلب إنشاء حساب',
 };
 

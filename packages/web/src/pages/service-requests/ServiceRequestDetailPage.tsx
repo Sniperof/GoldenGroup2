@@ -29,6 +29,11 @@ import MergeOrSplitModal from '../../components/service-requests/MergeOrSplitMod
 import TerminalTransitionModal, { type ModalMode } from '../../components/service-requests/TerminalTransitionModal';
 import WaterCheckRequestDetailPanel from '../../components/service-requests/WaterCheckRequestDetailPanel';
 import { DeviceRequestDetailPanel, DeviceRequestHandoffModal } from '../../components/service-requests/DeviceRequestPanel';
+import NameNominationPanel from '../../components/service-requests/NameNominationPanel';
+import AgentLicensePanel from '../../components/service-requests/AgentLicensePanel';
+import RequestOverviewSummary from '../../components/service-requests/RequestOverviewSummary';
+import RequestHandoffReadiness from '../../components/service-requests/RequestHandoffReadiness';
+import RequestActionConfirmModal, { type RequestConfirmationAction } from '../../components/service-requests/RequestActionConfirmModal';
 import RequestDetailLayout from '../../components/requests/RequestDetailLayout';
 import type { Client, GeoUnit } from '../../lib/types';
 import { reviewRequiredReasons } from '../../lib/serviceRequestDisplay';
@@ -66,6 +71,7 @@ export default function ServiceRequestDetailPage() {
   const [busy, setBusy] = useState(false);
   // Phase 4 polish — modal for the 4 in_review actions; toasts via sonner
   const [actionModal, setActionModal] = useState<ModalMode | null>(null);
+  const [confirmationAction, setConfirmationAction] = useState<RequestConfirmationAction | null>(null);
   const [waterCheckClientModalOpen, setWaterCheckClientModalOpen] = useState(false);
   const [waterCheckClientDraft, setWaterCheckClientDraft] = useState<any | null>(null);
   const [mediatorClientModalOpen, setMediatorClientModalOpen] = useState(false);
@@ -87,6 +93,8 @@ export default function ServiceRequestDetailPage() {
   const [deviceDemoReasons, setDeviceDemoReasons] = useState<{ value: string; label: string }[]>([]);
   const [beneficiaryDevices, setBeneficiaryDevices] = useState<any[]>([]);
   const [deviceLinkChoice, setDeviceLinkChoice] = useState('');
+  const [beneficiaryRelinkOpen, setBeneficiaryRelinkOpen] = useState(false);
+  const [beneficiaryRelinkReason, setBeneficiaryRelinkReason] = useState('');
   const [deviceModels, setDeviceModels] = useState<any[]>([]);
   const [externalModelChoice, setExternalModelChoice] = useState('');
 
@@ -192,16 +200,44 @@ export default function ServiceRequestDetailPage() {
   }
 
   const req = data.request;
+  const isEmergencyMaintenance = req.requestType === 'emergency_maintenance';
   const isWaterCheck = req.requestType === 'water_check';
   const isDeviceRequest = req.requestType === 'device_request';
   const isPeriodicMaintenance = req.requestType === 'periodic_maintenance';
   const isGoldenWarranty = req.requestType === 'golden_warranty';
+  const isNameNomination = req.requestType === 'name_nomination';
+  const isAgentLicense = req.requestType === 'agent_license';
+  const hasPartyLinkage = isEmergencyMaintenance || isWaterCheck || isDeviceRequest
+    || isPeriodicMaintenance || isGoldenWarranty;
+  const requestKindLabel = isEmergencyMaintenance
+    ? 'طلب الصيانة الطارئة'
+    : isWaterCheck
+      ? 'طلب فحص المياه'
+      : isDeviceRequest
+        ? 'طلب الجهاز'
+        : isPeriodicMaintenance
+          ? 'طلب الصيانة الدورية'
+          : isGoldenWarranty
+            ? 'طلب الكفالة الذهبية'
+            : isNameNomination
+              ? 'طلب ترشيح الأسماء'
+              : isAgentLicense ? 'طلب ترخيص وكيل' : 'طلب الخدمة';
+  const beneficiaryRoleLabel = isDeviceRequest
+    ? 'المستفيد من طلب الجهاز'
+    : isWaterCheck
+      ? 'المستفيد من فحص المياه'
+      : isEmergencyMaintenance
+        ? 'المستفيد من الصيانة الطارئة'
+        : isPeriodicMaintenance
+          ? 'المستفيد من الصيانة الدورية'
+          : isGoldenWarranty ? 'المستفيد من الكفالة الذهبية' : 'المستفيد';
   const isOwner = req.reviewedByUserId === user?.id;
   // Permission family per request type (request-section-contract.md §5).
   const permFamily = isWaterCheck
     ? 'water_check'
     : isPeriodicMaintenance ? 'periodic_maintenance'
-      : isGoldenWarranty ? 'golden_warranty' : 'service_requests';
+      : isGoldenWarranty ? 'golden_warranty' : isNameNomination ? 'name_nomination'
+        : isAgentLicense ? 'agent_license' : 'service_requests';
   const canReview = hasPermission(`${permFamily}.review`);
   const canDecide = hasPermission(`${permFamily}.decide`);
   const canResolveEscalation = hasPermission(`${permFamily}.resolve_escalation`);
@@ -214,37 +250,36 @@ export default function ServiceRequestDetailPage() {
   const reviewReasons = reviewRequiredReasons(data.auditLog);
   const canOfferReject = req.status === 'in_review'
     && req.reviewedByUserId != null
-    && (req.reviewRequiredFlag || isEscalated)
+    && (req.reviewRequiredFlag || isEscalated || isNameNomination || isAgentLicense)
     && canDecide;
-  const canReject = canOfferReject && hasBeneficiaryClient;
+  const canReject = canOfferReject && (hasBeneficiaryClient || isNameNomination || isAgentLicense);
   // SR-LINK-01 — linking (and create-from-request) requires the request to be
   // claimed first. Only available in_review and while not escalated.
   const canLink = req.status === 'in_review' && !isEscalated;
-  const canCreateWaterCheckClient =
-    (isWaterCheck || isDeviceRequest || isGoldenWarranty)
+  const canCreateBeneficiaryClient =
+    (isWaterCheck || isDeviceRequest || isPeriodicMaintenance || isGoldenWarranty)
     && canLink
     && !req.beneficiaryClientId
-    && (isDeviceRequest || (req.branchId && req.branchResolutionStatus === 'resolved'))
+    && (isDeviceRequest || isGoldenWarranty || (req.branchId && req.branchResolutionStatus === 'resolved'))
     && hasPermission('clients.create');
   const canCreateCandidateFromRequest =
-    !isWaterCheck && !isDeviceRequest && !isPeriodicMaintenance && !isGoldenWarranty
+    !isWaterCheck && !isDeviceRequest && !isPeriodicMaintenance && !isGoldenWarranty && !isNameNomination && !isAgentLicense
     && canLink
     && !req.beneficiaryClientId
     && !req.beneficiaryCandidateId
     && hasPermission('candidates.create');
   const hasMediator = !!req.referrerExternal;
-  const hasIndependentRequester = (isWaterCheck || isDeviceRequest || isPeriodicMaintenance || isGoldenWarranty)
+  const hasIndependentRequester = hasPartyLinkage
     && req.submissionType === 'refer_a_candidate';
   const canCreateRequesterClient =
     hasIndependentRequester
-    && !isPeriodicMaintenance
     && canLink
     && !req.requesterClientId
-    && (isDeviceRequest || !!req.branchId)
+    && (isDeviceRequest || isGoldenWarranty || !!req.branchId)
     && hasPermission('clients.create');
   const canCreateMediatorClient =
-    (isWaterCheck || isDeviceRequest || isPeriodicMaintenance || isGoldenWarranty)
-    && !isPeriodicMaintenance
+    hasPartyLinkage
+    && !isGoldenWarranty
     && canLink
     && hasMediator
     && !req.referrerClientId
@@ -254,12 +289,13 @@ export default function ServiceRequestDetailPage() {
   // V1.0 promote pre-conditions (maintenance-v1.md §١٢)
   const activeProblems = data.problems.filter((p) => p.deletedAt == null);
   const promoteMissing: string[] = [];
+  if (isEmergencyMaintenance && req.status !== 'in_review') promoteMissing.push('تولّي الطلب');
   if (!req.beneficiaryClientId) promoteMissing.push('ربط زبون');
   if (req.deviceSource === 'external_device') {
     if (!req.reportedDeviceModelId && !externalModelChoice) promoteMissing.push('ربط الجهاز الآخر بطراز مسجل');
   } else if (!req.installedDeviceId) promoteMissing.push('ربط جهاز من أجهزة المستفيد');
   if (activeProblems.length === 0) promoteMissing.push('عطل واحد على الأقل في اللائحة');
-  const canDoPromote = !isWaterCheck && !isDeviceRequest && !isPeriodicMaintenance && !isGoldenWarranty && promoteMissing.length === 0;
+  const canDoPromote = !isWaterCheck && !isDeviceRequest && !isPeriodicMaintenance && !isGoldenWarranty && !isNameNomination && !isAgentLicense && promoteMissing.length === 0;
   const periodicHandoffMissing: string[] = [];
   if (isPeriodicMaintenance && !req.linkedOpenTaskId) {
     if (req.status !== 'in_review') periodicHandoffMissing.push('تولّي الطلب');
@@ -364,23 +400,22 @@ export default function ServiceRequestDetailPage() {
         res = await api.serviceRequests.promote(requestId, promoteBody);
       } catch (error: any) {
         if (error?.code !== 'device_location_decision_required') throw error;
-        const useRegisteredLocation = window.confirm(
-          'الموقع المبلّغ عنه يختلف عن موقع الجهاز المسجل. اضغط موافق لاعتماد موقع الجهاز المسجل للمهمة، أو إلغاء للعودة وإنشاء مهمة نقل جهاز منفصلة.',
-        );
-        if (!useRegisteredLocation) return;
-        res = await api.serviceRequests.promote(requestId, {
-          ...promoteBody,
-          deviceLocationDecision: 'registered_location_confirmed',
+        setConfirmationAction({
+          kind: 'promote_registered_location',
+          title: 'اعتماد موقع الجهاز المسجل',
+          description: 'الموقع المبلّغ عنه يختلف عن موقع الجهاز المسجل. المتابعة ستعتمد موقع الجهاز المسجل للمهمة؛ وإلا يجب معالجة نقل الجهاز أولاً.',
+          confirmLabel: 'اعتماد الموقع وإنشاء المهمة',
         });
+        return;
       }
       if ('collision' in res && res.collision) {
         setCollision(res.collision);
       } else {
-        alert(`تَمَّت الترقية — open_task #${res.ok?.newOpenTaskId}`);
+        showToast(`تَمَّت الترقية — المهمة #${res.ok?.newOpenTaskId}`);
         await reload();
       }
     } catch (e: any) {
-      alert(e?.message ?? 'فَشل الترقية');
+      showToast(e?.message ?? 'فَشل الترقية', 'error');
     } finally {
       setBusy(false);
     }
@@ -394,13 +429,13 @@ export default function ServiceRequestDetailPage() {
         result = await api.serviceRequests.handoffPeriodicMaintenance(requestId);
       } catch (error: any) {
         if (error?.code !== 'device_location_decision_required') throw error;
-        const confirmed = window.confirm(
-          'عنوان الطلب يختلف عن موقع الجهاز المسجل. اضغط موافق لاعتماد موقع الجهاز المسجل، أو إلغاء لمعالجة نقل الجهاز أولاً.',
-        );
-        if (!confirmed) return;
-        result = await api.serviceRequests.handoffPeriodicMaintenance(requestId, {
-          deviceLocationDecision: 'registered_location_confirmed',
+        setConfirmationAction({
+          kind: 'periodic_registered_location',
+          title: 'اعتماد موقع الجهاز المسجل',
+          description: 'عنوان الطلب يختلف عن موقع الجهاز المسجل. المتابعة ستعتمد موقع الجهاز المسجل؛ وإلا يجب معالجة نقل الجهاز أولاً.',
+          confirmLabel: 'اعتماد الموقع وإنشاء المهمة',
         });
+        return;
       }
       showToast(`تم إنشاء مهمة الصيانة الدورية #${result.openTaskId}`, 'success');
       await reload();
@@ -413,6 +448,45 @@ export default function ServiceRequestDetailPage() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function doApproveAgentLicense() {
+    setConfirmationAction({
+      kind: 'approve_agent',
+      title: 'الموافقة على طلب ترخيص الوكيل',
+      description: 'سيُغلق الطلب بحالة مكتملة. تعني الموافقة اكتمال مراجعة الطلب، ولا تُنشئ ترخيصاً تشغيلياً مستقلاً.',
+      confirmLabel: 'الموافقة وإكمال المراجعة',
+      noteLabel: 'ملاحظة الموافقة (اختيارية)',
+    });
+  }
+
+  async function confirmRequestAction(note: string) {
+    if (!confirmationAction) return;
+    const kind = confirmationAction.kind;
+    if (kind === 'promote_registered_location') {
+      const result = await api.serviceRequests.promote(requestId, {
+        ...(externalModelChoice ? { externalDeviceModelId: Number(externalModelChoice) } : {}),
+        deviceLocationDecision: 'registered_location_confirmed',
+      });
+      if ('collision' in result && result.collision) setCollision(result.collision);
+      else showToast(`تَمَّت الترقية — المهمة #${result.ok?.newOpenTaskId}`);
+    } else if (kind === 'periodic_registered_location') {
+      const result = await api.serviceRequests.handoffPeriodicMaintenance(requestId, {
+        deviceLocationDecision: 'registered_location_confirmed',
+      });
+      showToast(`تم إنشاء مهمة الصيانة الدورية #${result.openTaskId}`);
+    } else if (kind === 'approve_agent') {
+      await api.serviceRequests.approveAgentLicense(requestId, note || null);
+      showToast('تمت الموافقة على الطلب وإكمال مراجعته');
+    } else if (kind === 'resolve_escalation') {
+      await api.serviceRequests.resolveEscalation(requestId, note || null);
+      showToast('تم فك التصعيد وعادت الإجراءات');
+    } else if (kind === 'archive') {
+      await api.serviceRequests.archive(requestId, note || null);
+      showToast('تمت أرشفة الطلب');
+    }
+    setConfirmationAction(null);
+    await reload();
   }
 
   async function doGoldenWarrantyHandoff() {
@@ -471,7 +545,7 @@ export default function ServiceRequestDetailPage() {
   }
 
   function getWaterCheckClientPayload() {
-    const sourceLabel = isDeviceRequest ? 'طلب جهاز' : 'طلب فحص المياه';
+    const sourceLabel = requestKindLabel;
     const external = req.beneficiaryExternal ?? req.requesterExternal ?? {};
     const submitted = req.submittedPayload?.data ?? {};
     const address = req.serviceAddress ?? {};
@@ -550,6 +624,11 @@ export default function ServiceRequestDetailPage() {
     return error?.payload ?? error?.response?.data ?? null;
   }
 
+  function isPartyAlreadyLinkedError(error: any) {
+    const payload = getApiPayload(error);
+    return payload?.code === 'service_request_party_already_linked';
+  }
+
   async function createWaterCheckClientFromRequest() {
     setWaterCheckClientDraft(getWaterCheckClientPayload());
     setWaterCheckClientModalOpen(true);
@@ -560,7 +639,7 @@ export default function ServiceRequestDetailPage() {
       ...clientData,
       branchId: clientData.branchId ?? req.branchId,
       isCandidate: false,
-      referralReason: (clientData as any).referralReason ?? `${isDeviceRequest ? 'طلب جهاز' : 'طلب فحص المياه'} ${req.publicRefNumber ?? requestId}`,
+      referralReason: (clientData as any).referralReason ?? `${requestKindLabel} ${req.publicRefNumber ?? requestId}`,
     };
     if (!payload.firstName || !payload.lastName || !payload.mobile) {
       showToast('الاسم الأول والكنية ورقم الموبايل الأساسي حقول مطلوبة قبل إنشاء الزبون.', 'error');
@@ -577,11 +656,15 @@ export default function ServiceRequestDetailPage() {
         serviceRequestLink: { serviceRequestId: requestId, party: 'beneficiary' },
       });
       setWaterCheckClientModalOpen(false);
-      showToast(`تم إنشاء سجل جديد وربطه بـ${isDeviceRequest ? 'طلب الجهاز' : 'طلب فحص المياه'}`, 'success');
+      showToast(`تم إنشاء سجل جديد وربطه بـ${requestKindLabel}`, 'success');
       await reload();
     } catch (e: any) {
       const payload = getApiPayload(e);
-      if (payload?.status === 'MATCH_VISIBLE') {
+      if (isPartyAlreadyLinkedError(e)) {
+        setWaterCheckClientModalOpen(false);
+        showToast('تم ربط المستفيد بالفعل؛ جرى تحديث بيانات الطلب دون إنشاء سجل آخر.', 'success');
+        await reload();
+      } else if (payload?.status === 'MATCH_VISIBLE') {
         showToast(`الرقم موجود مسبقاً: ${payload.client?.name ?? `#${payload.client?.id}`}. راجع المقارنة قبل الربط.`, 'error');
       } else if (payload?.status === 'MATCH_RESTRICTED') {
         showToast(payload.message ?? 'الرقم موجود مسبقاً خارج نطاق عرضك.', 'error');
@@ -618,8 +701,8 @@ export default function ServiceRequestDetailPage() {
       branchId: req.branchId,
       referrerType: 'Unknown',
       sourceChannel: 'App',
-      referralReason: `${roleLabel} طلب فحص المياه ${req.publicRefNumber ?? requestId}`,
-      notes: `تم إنشاء هذا السجل من ${roleLabel} طلب فحص المياه ${req.publicRefNumber ?? requestId}.`,
+      referralReason: `${roleLabel} ${requestKindLabel} ${req.publicRefNumber ?? requestId}`,
+      notes: `تم إنشاء هذا السجل من ${roleLabel} ${requestKindLabel} ${req.publicRefNumber ?? requestId}.`,
       isCandidate: false,
     };
   }
@@ -645,7 +728,13 @@ export default function ServiceRequestDetailPage() {
       showToast('تم إنشاء سجل مقدم الطلب وربطه', 'success');
       await reload();
     } catch (e: any) {
-      showToast(e?.message ?? 'تعذر إنشاء سجل مقدم الطلب', 'error');
+      if (isPartyAlreadyLinkedError(e)) {
+        setRequesterClientModalOpen(false);
+        showToast('تم ربط مقدم الطلب بالفعل؛ جرى تحديث بيانات الطلب دون إنشاء سجل آخر.', 'success');
+        await reload();
+      } else {
+        showToast(e?.message ?? 'تعذر إنشاء سجل مقدم الطلب', 'error');
+      }
     } finally {
       setBusy(false);
     }
@@ -658,6 +747,7 @@ export default function ServiceRequestDetailPage() {
     const lastName = String(m.lastName || '').trim();
     const primaryPhone = String(m.primary_phone || '').trim();
     const detailedAddress = String(m.detailedAddress || '').trim();
+    const gpsCoordinates = m.location || m.mapLocation || null;
     const contacts = primaryPhone ? [{
       id: 'mediator-primary',
       type: 'mobile',
@@ -679,12 +769,13 @@ export default function ServiceRequestDetailPage() {
       district: Number(m.regionId) || null,
       neighborhood: Number(m.neighborhoodId ?? m.subdistrictId) || null,
       detailedAddress,
+      gpsCoordinates,
       referrerType: 'Unknown',
       sourceChannel: 'App',
-      referralReason: `وسيط طلب فحص المياه ${req.publicRefNumber ?? requestId}`,
-      referralNotes: `أُنشئ كوسيط لطلب فحص المياه ${req.publicRefNumber ?? requestId}.`,
+      referralReason: `وسيط ${requestKindLabel} ${req.publicRefNumber ?? requestId}`,
+      referralNotes: `أُنشئ كوسيط لـ${requestKindLabel} ${req.publicRefNumber ?? requestId}.`,
       notes: [
-        `تم إنشاء هذا السجل كوسيط لطلب فحص المياه ${req.publicRefNumber ?? requestId}.`,
+        `تم إنشاء هذا السجل كوسيط لـ${requestKindLabel} ${req.publicRefNumber ?? requestId}.`,
         m.notes || null,
       ].filter(Boolean).join('\n'),
       isCandidate: false,
@@ -701,7 +792,7 @@ export default function ServiceRequestDetailPage() {
       ...clientData,
       branchId: clientData.branchId ?? req.branchId,
       isCandidate: false,
-      referralReason: (clientData as any).referralReason ?? `وسيط طلب فحص المياه ${req.publicRefNumber ?? requestId}`,
+      referralReason: (clientData as any).referralReason ?? `وسيط ${requestKindLabel} ${req.publicRefNumber ?? requestId}`,
     };
     if (!payload.firstName || !payload.lastName || !payload.mobile) {
       showToast('الاسم الأول والكنية ورقم الموبايل الأساسي حقول مطلوبة قبل إنشاء الوسيط.', 'error');
@@ -722,7 +813,11 @@ export default function ServiceRequestDetailPage() {
       await reload();
     } catch (e: any) {
       const p = getApiPayload(e);
-      if (p?.status === 'MATCH_VISIBLE') {
+      if (isPartyAlreadyLinkedError(e)) {
+        setMediatorClientModalOpen(false);
+        showToast('تم ربط الوسيط بالفعل؛ جرى تحديث بيانات الطلب دون إنشاء سجل آخر.', 'success');
+        await reload();
+      } else if (p?.status === 'MATCH_VISIBLE') {
         showToast(`الرقم موجود مسبقاً: ${p.client?.name ?? `#${p.client?.id}`}. اربطه من قائمة المقترحات.`, 'error');
       } else if (p?.status === 'MATCH_RESTRICTED') {
         showToast(p.message ?? 'الرقم موجود مسبقاً خارج نطاق عرضك.', 'error');
@@ -815,14 +910,50 @@ export default function ServiceRequestDetailPage() {
   }
 
   async function linkSuggested(m: { source: 'client' | 'candidate'; id: number }) {
-    if ((isWaterCheck || isDeviceRequest) && m.source !== 'client') {
-      showToast('طلب فحص المياه يمكن ربطه بزبون فقط.', 'error');
+    if ((isWaterCheck || isDeviceRequest || isPeriodicMaintenance || isGoldenWarranty) && m.source !== 'client') {
+      showToast(`${requestKindLabel} يمكن ربطه بزبون فقط.`, 'error');
       return;
     }
-    await api.serviceRequests.link(requestId, {
+    const currentSource = req.beneficiaryClientId != null
+      ? 'client'
+      : req.beneficiaryCandidateId != null ? 'candidate' : null;
+    const currentId = currentSource === 'client'
+      ? Number(req.beneficiaryClientId)
+      : currentSource === 'candidate' ? Number(req.beneficiaryCandidateId) : null;
+    if (currentSource === m.source && currentId === m.id) {
+      showToast('هذا السجل هو المربوط حالياً.', 'error');
+      return;
+    }
+
+    const target = {
       [m.source === 'client' ? 'beneficiaryClientId' : 'beneficiaryCandidateId']: m.id,
-    });
-    await reload();
+    };
+    const isChanging = currentSource != null;
+    const reason = beneficiaryRelinkReason.trim()
+      || (currentSource === 'candidate' && m.source === 'client'
+        ? 'ترقية ربط المستفيد من مرشح إلى زبون'
+        : '');
+    if (isChanging && !reason) {
+      showToast('اكتب سبب تغيير ربط المستفيد أولاً.', 'error');
+      return;
+    }
+
+    setBusy(true);
+    try {
+      if (isChanging) {
+        await api.serviceRequests.changeLinkage(requestId, { ...target, reason });
+      } else {
+        await api.serviceRequests.link(requestId, target);
+      }
+      setBeneficiaryRelinkOpen(false);
+      setBeneficiaryRelinkReason('');
+      showToast(isChanging ? 'تم تغيير ربط المستفيد' : 'تم ربط المستفيد', 'success');
+      await reload();
+    } catch (e: any) {
+      showToast(e?.message ?? 'تعذر ربط المستفيد', 'error');
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function linkRequesterSuggested(match: { source: 'client' | 'candidate'; id: number }) {
@@ -838,7 +969,21 @@ export default function ServiceRequestDetailPage() {
   const modalLabelClass = 'space-y-1 text-sm font-semibold text-slate-700';
 
   const backPath = isWaterCheck ? '/service-requests/water-check'
-    : isDeviceRequest ? '/service-requests/device-requests' : '/service-requests';
+    : isDeviceRequest ? '/service-requests/device-requests'
+      : isPeriodicMaintenance ? '/service-requests/periodic-maintenance'
+        : isGoldenWarranty ? '/service-requests/golden-warranty'
+      : isNameNomination ? '/service-requests/name-nomination'
+        : isAgentLicense ? '/service-requests/agent-license' : '/service-requests';
+
+  const overviewHandoff = isEmergencyMaintenance
+    ? { title: 'مهمة صيانة طارئة', missing: promoteMissing, permissionDenied: !canDecide }
+    : isDeviceRequest
+      ? { title: 'مهمة عرض جهاز', missing: deviceRequestHandoffMissing, permissionDenied: !canDecide || !hasPermission('open_tasks.edit') }
+      : isPeriodicMaintenance
+        ? { title: 'مهمة صيانة دورية', missing: periodicHandoffMissing, permissionDenied: !canDecide }
+        : isGoldenWarranty
+          ? { title: 'مهمة عرض الكفالة الذهبية', missing: goldenHandoffMissing, permissionDenied: !canDecide || !hasPermission('open_tasks.edit') }
+          : null;
 
   return (
     <RequestDetailLayout
@@ -927,10 +1072,13 @@ export default function ServiceRequestDetailPage() {
                     variant="secondary"
                     size="sm"
                     disabled={busy}
-                    onClick={() => safeRun(
-                      () => api.serviceRequests.resolveEscalation(requestId, prompt('سبب فكّ التصعيد (اختياري):') ?? null),
-                      '✓ تَمَّ فكّ التصعيد — عادت الإجراءات',
-                    )}
+                    onClick={() => setConfirmationAction({
+                      kind: 'resolve_escalation',
+                      title: 'فكّ تصعيد الطلب',
+                      description: 'ستعود إجراءات المراجعة والحسم المعتادة لهذا الطلب.',
+                      confirmLabel: 'فكّ التصعيد',
+                      noteLabel: 'سبب فكّ التصعيد (اختياري)',
+                    })}
                   >
                     فكّ التصعيد
                   </Button>
@@ -948,7 +1096,7 @@ export default function ServiceRequestDetailPage() {
           )}
           {req.status === 'in_review' && !isEscalated && canDecide && (
             <>
-              {!isWaterCheck && !isDeviceRequest && !isPeriodicMaintenance && !isGoldenWarranty && (
+              {!isWaterCheck && !isDeviceRequest && !isPeriodicMaintenance && !isGoldenWarranty && !isNameNomination && !isAgentLicense && (
                 <Button
                   size="sm"
                   icon={ArrowUpCircle}
@@ -1019,7 +1167,7 @@ export default function ServiceRequestDetailPage() {
                   إنشاء مهمة عرض الكفالة الذهبية
                 </Button>
               )}
-              <Button
+              {!isNameNomination && !isAgentLicense && <Button
                 size="sm"
                 icon={ClipboardCheck}
                 disabled={busy || !hasBeneficiaryClient
@@ -1028,7 +1176,15 @@ export default function ServiceRequestDetailPage() {
                 title={hasBeneficiaryClient ? 'حل الطلب عند الاستلام' : 'اربط المستفيد بسجل زبون أولاً'}
               >
                 حُلَّ في الاستلام
-              </Button>
+              </Button>}
+              {isAgentLicense && <Button
+                size="sm"
+                icon={ClipboardCheck}
+                disabled={busy}
+                onClick={doApproveAgentLicense}
+              >
+                الموافقة وإكمال الطلب
+              </Button>}
             </>
           )}
           {canOfferReject && (
@@ -1043,7 +1199,7 @@ export default function ServiceRequestDetailPage() {
               رَفض (مدقّق)
             </Button>
           )}
-          {req.status === 'in_review' && canDecide && !hasBeneficiaryClient && (
+          {req.status === 'in_review' && canDecide && !hasBeneficiaryClient && !isNameNomination && !isAgentLicense && (
             <span className="text-xs font-semibold text-amber-700">اربط المستفيد بسجل زبون قبل الرفض أو الحل عند الاستلام.</span>
           )}
           {isActive && canDecide && req.status !== 'received' && !isEscalated && !isPeriodicMaintenance && (
@@ -1061,7 +1217,13 @@ export default function ServiceRequestDetailPage() {
               variant="secondary"
               size="sm"
               disabled={busy}
-              onClick={() => safeRun(() => api.serviceRequests.archive(requestId, prompt('سبب الأرشفة (اختياري):') ?? null))}
+              onClick={() => setConfirmationAction({
+                kind: 'archive',
+                title: 'أرشفة الطلب',
+                description: 'سيختفي الطلب من قائمة الطلبات النشطة، ويمكن عرضه لاحقاً من فلتر الطلبات المؤرشفة.',
+                confirmLabel: 'أرشفة الطلب',
+                noteLabel: 'سبب الأرشفة (اختياري)',
+              })}
             >
               أرشفة
             </Button>
@@ -1081,9 +1243,24 @@ export default function ServiceRequestDetailPage() {
           )}
         </div>
       }
-      submittedData={isWaterCheck ? (
+      submittedData={(
+        <div className="space-y-4">
+          <RequestOverviewSummary
+            request={req}
+            showDevice={isEmergencyMaintenance || isDeviceRequest || isPeriodicMaintenance || isGoldenWarranty}
+            requesterSnapshot={requesterSnapshot}
+            beneficiarySnapshot={beneficiarySnapshot}
+            referrerSnapshot={referrerSnapshot}
+          />
+          {isAgentLicense ? (
+        <AgentLicensePanel request={req} />
+      ) : isNameNomination ? (
+        <NameNominationPanel request={req} canDecide={canDecide && isOwner}
+          canCreateCandidates={hasPermission('candidates.create')} onChanged={reload} />
+      ) : isWaterCheck ? (
         <WaterCheckRequestDetailPanel
           request={req}
+          showPartySummary={false}
           handoff={{
             permissionDenied: !canWaterCheckHandoffByPermission,
             missing: waterCheckHandoffMissing,
@@ -1105,12 +1282,6 @@ export default function ServiceRequestDetailPage() {
         <div className="space-y-4">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <DetailField
-              label="الجهاز كما ورد في الطلب"
-              value={req.reportedDeviceSnapshot?.modelName
-                ?? (req.installedDeviceId ? `جهاز مسجل #${req.installedDeviceId}` : null)}
-            />
-            <DetailField label="الرقم التسلسلي" value={req.reportedDeviceSnapshot?.serialNumber} />
-            <DetailField
               label="المدة المطلوبة المقفلة"
               value={req.requestedWarrantyPeriodSnapshot?.label
                 ?? (req.requestedWarrantyMonths ? `${req.requestedWarrantyMonths} شهر` : null)}
@@ -1119,7 +1290,6 @@ export default function ServiceRequestDetailPage() {
               label="موافقة التواصل مع المستفيد"
               value={req.beneficiaryContactConsentConfirmed ? 'مؤكدة' : 'غير مؤكدة'}
             />
-            <DetailField label="الجهاز المثبت" value={req.installedDeviceId ? `#${req.installedDeviceId}` : null} />
             <DetailField
               label="كفالة فعالة"
               value={req.activeDeviceWarranty?.id
@@ -1138,19 +1308,7 @@ export default function ServiceRequestDetailPage() {
       ) : isPeriodicMaintenance ? (
         <div className="space-y-4">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <DetailField
-              label="الجهاز كما أبلغ عنه منشئ الطلب"
-              value={req.reportedDeviceSnapshot?.deviceName
-                ?? req.reportedDeviceSnapshot?.modelName
-                ?? (req.installedDeviceId ? `جهاز مسجل #${req.installedDeviceId}` : null)}
-            />
-            <DetailField label="الرقم التسلسلي المبلّغ عنه" value={req.reportedDeviceSnapshot?.serialNumber} />
             <DetailField label="سبب طلب الصيانة الدورية" value={req.periodicMaintenanceReasonSnapshot?.label} />
-            <DetailField label="الجهاز المثبت" value={req.installedDeviceId ? `#${req.installedDeviceId}` : null} />
-            <DetailField
-              label="عنوان الطلب"
-              value={req.serviceAddress?.detailed_address ?? req.serviceAddress?.address_text}
-            />
             <DetailField
               label="المهمة الدورية النشطة"
               value={req.activePeriodicMaintenanceTask?.id
@@ -1162,13 +1320,6 @@ export default function ServiceRequestDetailPage() {
       ) : (
         <div className="space-y-3">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <DetailField
-              label="الجهاز كما أبلغ عنه مقدم الطلب"
-              value={req.reportedDeviceSnapshot?.deviceName
-                ?? req.reportedDeviceSnapshot?.modelName
-                ?? req.externalDeviceName
-                ?? (req.installedDeviceId ? `جهاز مسجل #${req.installedDeviceId}` : null)}
-            />
             <DetailField
               label="مصدر الطلب الهاتفي"
               value={req.sourceCallLogId ? `سجل اتصال ${req.sourceCallLogId}` : null}
@@ -1189,14 +1340,7 @@ export default function ServiceRequestDetailPage() {
           {/* V1.0 §١٢ — promote readiness checklist (visible in in_review only). */}
           {!isWaterCheck && !isDeviceRequest && !isPeriodicMaintenance && !isGoldenWarranty && req.status === 'in_review' && !canDoPromote && (
             <div className="bg-yellow-50 border border-yellow-200 rounded p-3 text-sm">
-              <div className="font-semibold text-yellow-900 mb-1">
-                للترقية إلى مهمة، ينقصك:
-              </div>
-              <ul className="list-disc pr-5 text-yellow-800 space-y-0.5">
-                {promoteMissing.map((m) => (
-                  <li key={m}>{m}</li>
-                ))}
-              </ul>
+              <div className="font-semibold text-yellow-900 mb-1">إجراءات استكمال متطلبات التسليم</div>
               <div className="mt-2 flex gap-2 flex-wrap">
                 {!req.beneficiaryClientId && (
                   <Button variant="gold" size="sm" onClick={() => setTab('linkage')}>
@@ -1265,44 +1409,23 @@ export default function ServiceRequestDetailPage() {
             </p>
           </div>
 
-          <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
-            <h3 className="mb-3 flex items-center gap-1.5 font-bold text-slate-800">
-              <UserCheck className="h-4 w-4 text-sky-500" />
-              البيانات والربط
-            </h3>
-            <div className="grid gap-3 md:grid-cols-3">
-              <DetailField label="صاحب الطلب" value={req.requesterExternal?.name} />
-              <DetailField label="رقم الهاتف" value={req.requesterExternal?.primary_phone} />
-              <DetailField
-                label="عنوان الخدمة"
-                value={req.serviceAddress ? `${req.serviceAddress.governorate ?? ''} — ${req.serviceAddress.detailed_address ?? ''}` : ''}
-              />
-              <DetailField label="الزبون المربوط" value={req.beneficiaryClientId ? `#${req.beneficiaryClientId}` : ''} />
-              <DetailField label="الجهاز المربوط" value={req.installedDeviceId ? `#${req.installedDeviceId}` : ''} />
-              <DetailField
-                label="الأولوية"
-                value={PRIORITY_LABELS[req.priority] ?? req.priority}
-              />
-            </div>
-          </div>
-
-          {req.linkedOpenTaskId && (
-            <div className="rounded-2xl border border-purple-200 bg-purple-50 p-4 shadow-sm">
-              <h3 className="mb-2 font-bold text-purple-800">المهمة المُرتبطة</h3>
-              <button
-                onClick={() => {
-                  const detailPath = getOpenTaskDetailPath(req.requestType ?? 'emergency_maintenance', req.linkedOpenTaskId);
-                  if (detailPath) navigate(detailPath);
-                }}
-                className="text-sm font-semibold text-purple-700 hover:underline"
-              >
-                فتح المهمة رقم {req.linkedOpenTaskId} ←
-              </button>
-            </div>
+        </div>
+      )}
+          {overviewHandoff && (
+            <RequestHandoffReadiness
+              request={req}
+              title={overviewHandoff.title}
+              missing={overviewHandoff.missing}
+              permissionDenied={overviewHandoff.permissionDenied}
+              onOpenTask={(taskId) => {
+                const detailPath = getOpenTaskDetailPath(req.linkedOpenTaskType ?? req.requestType, taskId);
+                if (detailPath) navigate(detailPath);
+              }}
+            />
           )}
         </div>
       )}
-      extraTabs={!isWaterCheck && !isDeviceRequest && !isPeriodicMaintenance && !isGoldenWarranty ? [{
+      extraTabs={isEmergencyMaintenance ? [{
         id: 'problems',
         label: `الأعطال (${data.problems.filter((p) => p.deletedAt == null).length})`,
         content: (
@@ -1317,15 +1440,20 @@ export default function ServiceRequestDetailPage() {
       }] : undefined}
       audit={<AuditLogTimeline events={data.auditLog} />}
       linkage={
-        <div>
-          {(isWaterCheck || isDeviceRequest || isPeriodicMaintenance || isGoldenWarranty) && (
+        isAgentLicense ? <section className="rounded-2xl border border-sky-200 bg-sky-50/40 p-4">
+          <h3 className="font-bold text-slate-800">الربط الاختياري للمتقدم</h3>
+          <p className="mb-3 mt-1 text-sm text-slate-500">يمكن ربط المتقدم بزبون موجود، ولا يشترط الربط للموافقة.</p>
+          {req.requesterClientId ? <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">
+            مرتبط بسجل الزبون: {req.requesterClientName ?? `#${req.requesterClientId}`}
+          </div> : canReview && canLink ? <SuggestedMatchesPanel
+            serviceRequestId={requestId} request={req} party="requester" sources="clients"
+            onLink={linkRequesterSuggested} heading="سجلات زبائن مقترحة للمتقدم"
+          /> : canReview && isActive ? <div className="text-sm text-sky-800">تولَّ الطلب أولاً لإتاحة الربط الاختياري.</div> : null}
+        </section> : isNameNomination ? undefined : <div>
+          {hasPartyLinkage && (
         <div className="space-y-4">
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h2 className="text-base font-bold text-slate-800">أطراف {isDeviceRequest
-              ? 'طلب الجهاز'
-              : isPeriodicMaintenance
-                ? 'طلب الصيانة الدورية'
-                : isGoldenWarranty ? 'طلب الكفالة الذهبية' : 'طلب فحص المياه'}</h2>
+            <h2 className="text-base font-bold text-slate-800">أطراف {requestKindLabel}</h2>
             <p className="mt-1 text-sm text-slate-500">
               يعرض كل قسم الطرف المقصود وحالة ربطه. ربط المستفيد مطلوب قبل تحويل الطلب إلى مهمة، أما ربط مقدم الطلب والوسيط فاختياري.
             </p>
@@ -1341,7 +1469,11 @@ export default function ServiceRequestDetailPage() {
               <div className={`rounded-xl border p-3 ${req.beneficiaryClientId ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
                 <div className="text-xs font-semibold text-slate-500">المستفيد</div>
                 <div className={`mt-1 text-sm font-bold ${req.beneficiaryClientId ? 'text-emerald-800' : 'text-amber-800'}`}>
-                  {req.beneficiaryClientId ? `مرتبط: ${req.beneficiaryClientName ?? `#${req.beneficiaryClientId}`}` : 'غير مرتبط · مطلوب'}
+                  {req.beneficiaryClientId
+                    ? `مرتبط بزبون: ${req.beneficiaryClientName ?? `#${req.beneficiaryClientId}`}`
+                    : req.beneficiaryCandidateId
+                      ? `مرتبط بمرشح مؤقتاً: ${req.beneficiaryCandidateName ?? `#${req.beneficiaryCandidateId}`} · يلزم ربط زبون`
+                      : 'غير مرتبط · مطلوب'}
                 </div>
               </div>
               {hasMediator && (
@@ -1395,12 +1527,12 @@ export default function ServiceRequestDetailPage() {
           <section className={`rounded-2xl border p-4 ${req.beneficiaryClientId ? 'border-emerald-200 bg-emerald-50/40' : 'border-amber-300 bg-amber-50/60'}`}>
             <h3 className="flex items-center gap-1.5 text-base font-bold text-slate-800">
               <UserCheck className={`h-4 w-4 ${req.beneficiaryClientId ? 'text-emerald-600' : 'text-amber-600'}`} />
-              {isDeviceRequest ? 'المستفيد من طلب الجهاز' : 'المستفيد من فحص المياه'}
-              {!req.beneficiaryClientId && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800">مطلوب الربط</span>}
+              {beneficiaryRoleLabel}
+              {!req.beneficiaryClientId && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800">مطلوب ربط زبون</span>}
             </h3>
-            <p className="mb-3 mt-1 text-sm text-slate-500">{isDeviceRequest
-              ? 'الشخص المعني بالاستفسار أو العرض أو الشراء، ومن فرعه يُعتمد فرع الطلب.'
-              : 'الشخص الذي سيستفيد من الفحص وفي عنوانه ستُنفذ الخدمة.'}</p>
+            <p className="mb-3 mt-1 text-sm text-slate-500">
+              الشخص الذي سيستفيد فعلياً من الخدمة، ويجب تثبيت هويته وربطه بالسجل المقصود قبل الحسم أو التسليم.
+            </p>
             {req.beneficiaryClientId ? (
               <>
                 <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">
@@ -1411,12 +1543,63 @@ export default function ServiceRequestDetailPage() {
                     <ClientSnapshot data={beneficiarySnapshot} />
                   </div>
                 )}
+                {canReview && canLink && (
+                  <div className="mt-3 space-y-3">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={busy}
+                      onClick={() => setBeneficiaryRelinkOpen((open) => !open)}
+                    >
+                      {beneficiaryRelinkOpen ? 'إلغاء تغيير الربط' : 'تغيير الربط'}
+                    </Button>
+                    {beneficiaryRelinkOpen && (
+                      <div className="rounded-xl border border-amber-200 bg-white p-3">
+                        <label className="block text-sm font-semibold text-slate-700">
+                          سبب تغيير الربط <span className="text-red-500">*</span>
+                          <textarea
+                            className="mt-1 min-h-20 w-full resize-y rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
+                            value={beneficiaryRelinkReason}
+                            onChange={(event) => setBeneficiaryRelinkReason(event.target.value)}
+                            placeholder="مثال: تم اختيار سجل مشابه بالخطأ"
+                          />
+                        </label>
+                        <div className="mt-3">
+                          <SuggestedMatchesPanel
+                            serviceRequestId={requestId}
+                            request={req}
+                            onLink={linkSuggested}
+                            sources={isEmergencyMaintenance ? 'all' : 'clients'}
+                            heading="اختر السجل البديل للمستفيد"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </>
             ) : (
               <>
-                <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                  الطرف المطلوب ربطه الآن هو <strong>المستفيد</strong>، وليس مقدم الطلب. اختر سجله أدناه أو أنشئ له سجل زبون جديداً.
-                </div>
+                {req.beneficiaryCandidateId ? (
+                  <div className="space-y-3">
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                      المستفيد مرتبط مؤقتاً بسجل المرشح: <strong>{req.beneficiaryCandidateName ?? `#${req.beneficiaryCandidateId}`}</strong>. يلزم ربطه بسجل زبون قبل الحسم أو التسليم.
+                    </div>
+                    <label className="block text-sm font-semibold text-slate-700">
+                      سبب استبدال الربط
+                      <textarea
+                        className="mt-1 min-h-20 w-full resize-y rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
+                        value={beneficiaryRelinkReason}
+                        onChange={(event) => setBeneficiaryRelinkReason(event.target.value)}
+                        placeholder="مثال: تم التحقق من سجل الزبون الصحيح"
+                      />
+                    </label>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                    الطرف المطلوب ربطه الآن هو <strong>المستفيد</strong>، وليس مقدم الطلب. اختر سجله أدناه أو أنشئ له سجلاً جديداً.
+                  </div>
+                )}
                 {canReview && isActive && !canLink && (
                   <div className="mt-3 rounded border border-sky-200 bg-sky-50 p-3 text-sm text-sky-800">
                     تولَّ الطلب أولاً (زر «تَولّي الطلب») قبل ربط المستفيد.
@@ -1428,12 +1611,12 @@ export default function ServiceRequestDetailPage() {
                       serviceRequestId={requestId}
                       request={req}
                       onLink={linkSuggested}
-                      sources="clients"
-                      canCreateFromRequest={!!canCreateWaterCheckClient}
+                      sources={isEmergencyMaintenance ? 'all' : 'clients'}
+                      canCreateFromRequest={isEmergencyMaintenance ? canCreateCandidateFromRequest : !!canCreateBeneficiaryClient}
                       createBusy={busy}
-                      onCreateFromRequest={createWaterCheckClientFromRequest}
-                      heading="سجلات زبائن مقترحة للمستفيد"
-                      createLabel="إنشاء سجل زبون جديد للمستفيد"
+                      onCreateFromRequest={isEmergencyMaintenance ? createCandidateFromRequest : createWaterCheckClientFromRequest}
+                      heading={isEmergencyMaintenance ? 'سجلات زبائن ومرشحين مقترحة للمستفيد' : 'سجلات زبائن مقترحة للمستفيد'}
+                      createLabel={isEmergencyMaintenance ? 'إنشاء سجل مرشح جديد للمستفيد' : 'إنشاء سجل زبون جديد للمستفيد'}
                     />
                   </div>
                 )}
@@ -1480,7 +1663,7 @@ export default function ServiceRequestDetailPage() {
           )}
         </div>
           )}
-          {!isWaterCheck && !isDeviceRequest && (
+          {!hasPartyLinkage && (
         <div className="space-y-3">
           {req.beneficiaryClientId ? (
             <div className="bg-green-50 border border-green-200 rounded p-3 text-sm">
@@ -1711,6 +1894,13 @@ export default function ServiceRequestDetailPage() {
           requestType={req.requestType}
           onClose={() => setActionModal(null)}
           onConfirm={handleModalConfirm}
+        />
+      )}
+      {confirmationAction && (
+        <RequestActionConfirmModal
+          action={confirmationAction}
+          onClose={() => setConfirmationAction(null)}
+          onConfirm={confirmRequestAction}
         />
       )}
         </>

@@ -45,7 +45,7 @@ const router = Router();
  *                 example: "0912345678"
  *               purpose:
  *                 type: string
- *                 enum: [account_creation, login, account_deletion, request_status, service_request]
+ *                 enum: [account_creation, login, account_deletion, request_status, service_request, complaint, complaint_tracking]
  *     responses:
  *       200:
  *         description: OTP sent
@@ -105,7 +105,7 @@ router.post('/send', async (req, res) => {
  *               code: { type: string, example: "482913" }
  *               purpose:
  *                 type: string
- *                 enum: [account_creation, login, account_deletion, request_status, service_request]
+ *                 enum: [account_creation, login, account_deletion, request_status, service_request, complaint, complaint_tracking]
  *     responses:
  *       200:
  *         description: Verified

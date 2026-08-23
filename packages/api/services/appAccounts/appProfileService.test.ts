@@ -13,14 +13,19 @@ const FULL_PATH = [
   { id: 248, level: 1, name: 'دمشق' },
 ];
 
-test('a four-level chain yields paired names and ids', () => {
-  const r = buildProfileAddress(FULL_PATH, 'شارع بغداد');
+test('a four-level chain yields one mobile-ready address with names, ids, and location', () => {
+  const r = buildProfileAddress(FULL_PATH, 'شارع بغداد', { lat: 33.5138, lng: 36.2765 });
   assert.deepEqual(r.address, {
+    governorateId: 248,
+    cityOrAreaId: 2,
+    subAreaId: 303,
+    neighborhoodId: 402,
     governorate: 'دمشق',
     cityOrArea: 'دمشق القديمة',
     subArea: 'الحميدية',
     neighborhood: 'باب شرقي',
     detailedAddress: 'شارع بغداد',
+    mapLocation: { lat: 33.5138, lng: 36.2765 },
   });
   assert.deepEqual(r.addressIds, {
     governorate: 248, cityOrArea: 2, subArea: 303, neighborhood: 402,
@@ -50,6 +55,15 @@ test('a client with no geography yields nulls, never a partial guess', () => {
   });
   assert.equal(r.geoUnitId, null);
   assert.equal(r.address.governorate, null);
+  assert.equal(r.address.governorateId, null);
+  assert.equal(r.address.mapLocation, null);
+});
+
+test('stored JSON map location is normalized and invalid coordinates are hidden', () => {
+  assert.deepEqual(buildProfileAddress([], null, '{"lat":33.5,"lng":36.2}').address.mapLocation, {
+    lat: 33.5, lng: 36.2,
+  });
+  assert.equal(buildProfileAddress([], null, { lat: 100, lng: 36.2 }).address.mapLocation, null);
 });
 
 test('detailedAddress passes through untouched, including null', () => {

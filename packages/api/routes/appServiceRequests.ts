@@ -1,14 +1,9 @@
 import { Router } from 'express';
 import { optionalAppAuth, requireAppAuth } from '../middleware/appAuth.js';
 import pool from '../db.js';
-import {
-  evaluateMobileIntakeAvailability,
-  getMobileIntakeHandler,
-} from '../services/serviceRequests/mobileIntakeRegistry.js';
-import {
-  getServiceRequestTypeDefinition,
-  listActiveServiceRequestTypeDefinitions,
-} from '../services/serviceRequests/serviceRequestTypeRegistry.js';
+import { evaluateMobileIntakeAvailability } from '../services/serviceRequests/mobileIntakeRegistry.js';
+import { getServiceRequestTypeDefinition } from '../services/serviceRequests/serviceRequestTypeRegistry.js';
+import { listExecutableMobileRequestTypes } from '../services/serviceRequests/mobileExecutableTypes.js';
 import { executeMobileIntake } from '../services/serviceRequests/mobileIntakeExecution.js';
 import { sendAppError } from '../utils/appErrors.js';
 import {
@@ -38,25 +33,16 @@ const router = Router();
  */
 router.get('/types', async (_req, res) => {
   try {
-    const definitions = await listActiveServiceRequestTypeDefinitions();
-    const items = definitions.flatMap((definition) => {
-      const handler = getMobileIntakeHandler(definition.requestType);
-      if (
-        !handler ||
-        !definition.channels.includes('mobile_app') ||
-        handler.formVersion !== definition.defaultFormVersion ||
-        definition.submissionModes.length === 0
-      ) return [];
-      return [{
-        requestType: definition.requestType,
-        labelAr: definition.labelAr,
-        descriptionAr: definition.descriptionAr,
-        formVersion: definition.defaultFormVersion,
-        formSource: definition.formSource,
-        submitterTiers: definition.submitterTiers,
-        submissionModes: definition.submissionModes,
-      }];
-    });
+    const executable = await listExecutableMobileRequestTypes();
+    const items = executable.map(({ definition }) => ({
+      requestType: definition.requestType,
+      labelAr: definition.labelAr,
+      descriptionAr: definition.descriptionAr,
+      formVersion: definition.defaultFormVersion,
+      formSource: definition.formSource,
+      submitterTiers: definition.submitterTiers,
+      submissionModes: definition.submissionModes,
+    }));
     return res.json({ items });
   } catch (err) {
     console.error('[app:serviceRequests.types]', err);
@@ -161,6 +147,31 @@ router.get('/periodic-maintenance/options', async (_req, res) => {
   });
 });
 
+/** Visitor-safe vocabularies and live limits for the name-nomination form. */
+router.get('/name-nomination/options', async (_req, res) => {
+  const [{ rows }, settings] = await Promise.all([
+    pool.query<{ value: string; display_order: number }>(
+      `SELECT value,display_order FROM system_lists
+        WHERE category='occupation' AND is_active=TRUE ORDER BY display_order,id`,
+    ),
+    pool.query<{ key: string; value: string }>(
+      `SELECT key,value FROM system_settings WHERE key=ANY($1::text[])`,
+      [[
+        'name_nomination_max_names_per_request',
+        'name_nomination_daily_per_identity',
+        'name_nomination_daily_per_unverified_ip',
+      ]],
+    ),
+  ]);
+  const setting = new Map(settings.rows.map((row) => [row.key, Number(row.value)]));
+  return res.json({
+    occupations: rows.map((row) => row.value),
+    maxNamesPerRequest: setting.get('name_nomination_max_names_per_request') ?? 50,
+    dailyPerIdentity: setting.get('name_nomination_daily_per_identity') ?? 5,
+    dailyPerUnverifiedIp: setting.get('name_nomination_daily_per_unverified_ip') ?? 20,
+  });
+});
+
 /** Visitor-safe, admin-managed vocabularies used by the emergency form. */
 router.get('/emergency-maintenance/options', async (_req, res) => {
   const { rows } = await pool.query<{
@@ -201,6 +212,11 @@ router.post(
 );
 
 /**
+ * Agent-license mobile contract: see docs/api/mobile-agent-license-api-reference.md.
+ * The generic gateway below rejects undeclared fields and derives self_only.
+ */
+
+/**
  * Mobile intake gateway. A valid app bearer token identifies a registered
  * customer. With no token, enabled request types accept either the migration-period OTP
  * visitor handle or an unverified stable X-Device-Id. Invalid bearer tokens
@@ -226,21 +242,45 @@ router.post(
  *             required: [requestType, formVersion, submissionMode]
  *             properties:
  *               requestType: { type: string, example: emergency_maintenance }
- *               formVersion: { type: string, example: emergency_maintenance.mobile.v1 }
+ *               formVersion: { type: string, example: emergency_maintenance.mobile.v2 }
  *               submissionMode: { type: string, enum: [for_self, for_another] }
  *               referrerMode:
  *                 type: string
  *                 enum: [none, requester, separate_person]
  *                 description: Required only for for_another. Registered customers may use none or requester.
  *               handle: { type: string, format: uuid, description: Visitor only }
+ *               firstName: { type: string, description: Beneficiary first name }
+ *               fatherName: { type: string, nullable: true, description: Optional beneficiary father name }
+ *               lastName: { type: string, description: Beneficiary last name }
+ *               phoneNumber: { type: string, description: Beneficiary primary phone }
+ *               primaryPhoneHasWhatsapp: { type: boolean }
+ *               secondaryPhone: { type: string, nullable: true, description: Optional beneficiary secondary phone }
+ *               secondaryPhoneHasWhatsapp: { type: boolean, description: Optional; defaults to false when secondaryPhone is supplied }
  *               requesterFirstName: { type: string, description: External for_another requester; optional with referrerMode none }
+ *               requesterFatherName: { type: string, nullable: true }
  *               requesterPhone: { type: string }
  *               requesterPhoneHasWhatsapp: { type: boolean }
+ *               requesterSecondaryPhone: { type: string, nullable: true }
+ *               requesterSecondaryPhoneHasWhatsapp: { type: boolean, description: Optional; defaults to false when requesterSecondaryPhone is supplied }
  *               referrerFirstName: { type: string, description: Required with separate_person }
  *               referrerLastName: { type: string }
  *               referrerFatherName: { type: string, nullable: true }
  *               referrerPhone: { type: string }
  *               referrerPhoneHasWhatsapp: { type: boolean }
+ *               referrerSecondaryPhone: { type: string, nullable: true }
+ *               referrerSecondaryPhoneHasWhatsapp: { type: boolean, description: Optional; defaults to false when referrerSecondaryPhone is supplied }
+ *               referrerGovernorate: { type: integer, description: Required SmartGeo level 1 whenever a referrer exists }
+ *               referrerCityOrArea: { type: integer, description: Required SmartGeo level 2 whenever a referrer exists }
+ *               referrerSubArea: { type: integer, description: Required SmartGeo level 3 whenever a referrer exists }
+ *               referrerNeighborhood: { type: integer, nullable: true, description: Optional SmartGeo level 4 for the referrer }
+ *               referrerDetailedAddress: { type: string, nullable: true, description: Optional detailed referrer address }
+ *               referrerMapLocation:
+ *                 type: object
+ *                 nullable: true
+ *                 description: Optional referrer coordinates
+ *                 properties:
+ *                   lat: { type: number }
+ *                   lng: { type: number }
  *               governorate: { type: integer, description: SmartGeo level 1; governorateId is also accepted }
  *               cityOrArea: { type: integer, nullable: true, description: SmartGeo level 2; regionId is also accepted }
  *               subArea: { type: integer, nullable: true, description: SmartGeo level 3; subdistrictId is also accepted }
@@ -268,7 +308,9 @@ router.post('/', optionalAppAuth, async (req, res) => {
       (requestType === 'emergency_maintenance'
         || requestType === 'device_request'
         || requestType === 'periodic_maintenance'
-        || requestType === 'golden_warranty')
+        || requestType === 'golden_warranty'
+        || requestType === 'name_nomination'
+        || requestType === 'agent_license')
       && !req.get('Idempotency-Key')
     ) {
       return res.status(400).json({ error: 'idempotency_key_required' });

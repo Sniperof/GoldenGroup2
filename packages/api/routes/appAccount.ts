@@ -145,13 +145,23 @@ router.get('/account/status', async (req, res) => {
  *                 address:
  *                   type: object
  *                   properties:
+ *                     governorateId: { type: integer, nullable: true }
+ *                     cityOrAreaId: { type: integer, nullable: true }
+ *                     subAreaId: { type: integer, nullable: true }
+ *                     neighborhoodId: { type: integer, nullable: true }
  *                     governorate: { type: string, nullable: true }
  *                     cityOrArea: { type: string, nullable: true }
  *                     subArea: { type: string, nullable: true }
  *                     neighborhood: { type: string, nullable: true }
  *                     detailedAddress: { type: string, nullable: true }
+ *                     mapLocation:
+ *                       type: object
+ *                       nullable: true
+ *                       properties:
+ *                         lat: { type: number }
+ *                         lng: { type: number }
  *                 notes: { type: string, nullable: true }
- *                 location: { type: object, nullable: true }
+ *                 location: { type: object, nullable: true, deprecated: true, description: Legacy alias of address.mapLocation }
  *       400: { description: Invalid handle, mismatched phone, or missing fields }
  *       409: { description: Active account or a pending request already exists (see details.status) }
  */

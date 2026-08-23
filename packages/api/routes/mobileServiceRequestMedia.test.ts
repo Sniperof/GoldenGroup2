@@ -35,3 +35,10 @@ test('MP4 inspection derives duration from binary metadata', () => {
 test('media inspection rejects extension-only or malformed MP4 input', () => {
   assert.equal(inspectMobileServiceRequestMedia(Buffer.from('video.mp4')), null);
 });
+
+test('media inspection accepts a PDF by binary signature and classifies it as a document', () => {
+  assert.deepEqual(inspectMobileServiceRequestMedia(Buffer.from('%PDF-1.7\n1 0 obj\n')), {
+    mediaType: 'document', mimeType: 'application/pdf', extension: '.pdf', durationMs: null,
+  });
+  assert.equal(inspectMobileServiceRequestMedia(Buffer.from('application.pdf')), null);
+});

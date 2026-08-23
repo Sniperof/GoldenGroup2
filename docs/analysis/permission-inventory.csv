@@ -1,4 +1,8 @@
 "permission","defined","module","sub_module","action","allowed_scopes","definition_count","backend_uses","frontend_uses","sidebar_uses","files"
+"admin.app_contact_links.manage","yes","admin","app_contact_links","manage","GLOBAL","1","1","1","0","packages/api/routes/appContactLinks.ts|packages/web/src/pages/admin/AppContactLinks.tsx"
+"admin.app_contact_links.view","yes","admin","app_contact_links","view","GLOBAL","1","1","1","1","packages/api/routes/appContactLinks.ts|packages/web/src/layout/MainLayout.tsx|packages/web/src/pages/admin/AppContactLinks.tsx"
+"admin.app_home_banners.manage","yes","admin","app_home_banners","manage","GLOBAL","1","4","1","0","packages/api/routes/appHomeBanners.ts|packages/web/src/pages/admin/AppHomeBanners.tsx"
+"admin.app_home_banners.view","yes","admin","app_home_banners","view","GLOBAL","1","2","1","1","packages/api/routes/appHomeBanners.ts|packages/web/src/layout/MainLayout.tsx|packages/web/src/pages/admin/AppHomeBanners.tsx"
 "account_requests.archive","yes","account_requests","account_requests","archive","GLOBAL","1","2","1","0","packages/api/routes/adminAccountRequests.ts|packages/web/src/pages/account-requests/AccountRequestDetailPage.tsx"
 "account_requests.decide","yes","account_requests","account_requests","decide","GLOBAL","1","3","1","0","packages/api/routes/adminAccountRequests.ts|packages/web/src/pages/account-requests/AccountRequestDetailPage.tsx"
 "account_requests.escalate","yes","account_requests","account_requests","escalate","GLOBAL","1","0","0","0",""

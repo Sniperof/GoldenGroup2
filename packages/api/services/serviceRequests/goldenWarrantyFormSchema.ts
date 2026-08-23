@@ -20,6 +20,8 @@ const STRING_LIMITS: Record<string, number> = {
   requesterPhone: 20,
   requesterSecondaryPhone: 20,
   serialNumber: 100,
+  detailedAddress: 500,
+  detailed_address: 500,
   notes: 1000,
 };
 const BOOLEAN_KEYS = new Set([
@@ -27,7 +29,13 @@ const BOOLEAN_KEYS = new Set([
   'requesterPhoneHasWhatsapp', 'requesterSecondaryPhoneHasWhatsapp',
   'beneficiaryContactConsentConfirmed',
 ]);
-const NUMBER_KEYS = new Set(['installedDeviceId', 'deviceModelId', 'requestedWarrantyMonths']);
+const NUMBER_KEYS = new Set([
+  'installedDeviceId', 'deviceModelId', 'requestedWarrantyMonths',
+  'governorateId', 'governorate',
+  'regionId', 'region', 'cityOrArea',
+  'subdistrictId', 'subdistrict', 'subArea',
+  'neighborhoodId', 'neighborhood',
+]);
 
 function issueFor(key: string, value: unknown): FormValidationIssue | null {
   if (value == null) return null;

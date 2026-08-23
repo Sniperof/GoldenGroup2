@@ -22,6 +22,8 @@ import {
   APP_RATE_INTAKE_WINDOW_S,
   APP_RATE_READ,
   APP_RATE_READ_WINDOW_S,
+  APP_RATE_NOTIF_WRITE,
+  APP_RATE_NOTIF_WRITE_WINDOW_S,
 } from './config/env.js';
 import { rateLimit } from './middleware/rateLimit.js';
 import { UPLOADS_DIR } from './storage/uploader.js';
@@ -73,6 +75,17 @@ import appServiceRequestsRouter from './routes/appServiceRequests.js';
 import appDeviceCatalogRouter from './routes/appDeviceCatalog.js';
 import appBranchCatalogRouter from './routes/appBranchCatalog.js';
 import appDeviceRequestPurposeCatalogRouter from './routes/appDeviceRequestPurposeCatalog.js';
+import appDevicesRouter from './routes/appDevices.js';
+import appVisitsRouter from './routes/appVisits.js';
+import appHomeRouter from './routes/appHome.js';
+import appNotificationsRouter from './routes/appNotifications.js';
+import appHomeBannersRouter from './routes/appHomeBanners.js';
+import adminAppNotificationsRouter from './routes/adminAppNotifications.js';
+import appContactLinksRouter from './routes/appContactLinks.js';
+import appComplaintsRouter from './routes/appComplaints.js';
+import complaintsRouter from './routes/complaints.js';
+import mediaRouter from './routes/media.js';
+import mediaServeRouter from './routes/mediaServe.js';
 import publicAccountDeletionRouter from './routes/publicAccountDeletion.js';
 import adminAccountRequestsRouter from './routes/adminAccountRequests.js';
 import adminAppAccountsRouter from './routes/adminAppAccounts.js';
@@ -140,15 +153,24 @@ app.use('/api/app/service-requests', (req, res, next) => (
         message: 'طلبات كثيرة. حاول بعد قليل.',
       })(req, res, next)
 ));
-app.use('/api/app', (req, res, next) => (
-  req.method === 'GET'
-    ? appReadLimiter(req, res, next)
-    : rateLimit({
-        bucket: 'app:mutation',
-        limit: APP_RATE_MUTATION,
-        windowSeconds: APP_RATE_MUTATION_WINDOW_S,
-      })(req, res, next)
-));
+// Notification writes get their own generous bucket instead of the shared
+// mutation one (DEC-019 D-N11) — mark-read fires per tapped notification, so a
+// customer clearing a backlog would exhaust the mutation budget and, on carrier
+// NAT, take other customers down with them.
+const appNotifWriteLimiter = rateLimit({
+  bucket: 'app:notif:write',
+  limit: APP_RATE_NOTIF_WRITE,
+  windowSeconds: APP_RATE_NOTIF_WRITE_WINDOW_S,
+});
+app.use('/api/app', (req, res, next) => {
+  if (req.method === 'GET') return appReadLimiter(req, res, next);
+  if (req.path.startsWith('/notifications/')) return appNotifWriteLimiter(req, res, next);
+  return rateLimit({
+    bucket: 'app:mutation',
+    limit: APP_RATE_MUTATION,
+    windowSeconds: APP_RATE_MUTATION_WINDOW_S,
+  })(req, res, next);
+});
 app.use('/api/public', appReadLimiter);
 if (!APP_RATE_LIMIT_ENABLED) {
   console.warn('[boot] APP_RATE_LIMIT_ENABLED=false — the public mobile surface is unthrottled.');
@@ -193,6 +215,16 @@ app.use('/api/app/catalog/devices', appDeviceCatalogRouter);
 // Public mobile branch catalog and branch detail pages.
 app.use('/api/app/catalog/branches', appBranchCatalogRouter);
 app.use('/api/app/catalog/device-request-purposes', appDeviceRequestPurposeCatalogRouter);
+// Customer mobile-app "My Devices" / "My Visits" read-only views. DEC-017.
+app.use('/api/app', appDevicesRouter);
+app.use('/api/app', appVisitsRouter);
+// Customer mobile-app home screen (rotating banner slider). Optional auth.
+app.use('/api/app', appHomeRouter);
+// Customer mobile-app notification inbox + FCM token registry. DEC-019 D-N10:
+// under /api/app, not the contract's root /notifications/, so it inherits the
+// rate limits above.
+app.use('/api/app/notifications', appNotificationsRouter);
+app.use('/api/app', appComplaintsRouter);
 // Public account-deletion web page (Google Play). DEC-013 §8.
 app.use('/account-deletion', publicAccountDeletionRouter);
 // Web-portal admin review of account-creation requests. DEC-013 §2.5.
@@ -224,6 +256,7 @@ app.use('/api/maintenance-requests', ...branchOnly, maintenanceRequestsRouter);
 app.use('/api/emergency-tickets', ...branchOnly, emergencyTicketsRouter);
 // service_requests intake (٠.١٦ — GLOBAL by design, no branch context required)
 app.use('/api/service-requests', requireAuth, serviceRequestsRouter);
+app.use('/api/complaints', complaintsRouter);
 app.use('/api/schedules', ...branchOnly, schedulesRouter);
 app.use('/api/route-assignments', ...branchOnly, routeAssignmentsRouter);
 app.use('/api/planning/zone-study', ...branchOnly, zoneStudyRouter);
@@ -263,13 +296,26 @@ app.use('/api/public/areas', publicAreasRouter);
 app.use('/api/system-lists', systemListsRouter);
 app.use('/api/departments', departmentsRouter);
 app.use('/api/upload', uploadRouter);
+// Unified media store (migration 423) — staff-authenticated writes.
+app.use('/api/media', mediaRouter);
 app.use('/api/admin', rolesRouter);
 app.use('/api/admin/task-types', taskTypeConfigRouter);
 app.use('/api/admin/emergency-action-types', emergencyActionTypesRouter);
+// Admin control of the mobile home-screen slider.
+app.use('/api/admin/app-home-banners', appHomeBannersRouter);
+// DEC-019 D-N6/D-N7: admin free-form notification send (preview + send + history).
+app.use('/api/admin/app-notifications', adminAppNotificationsRouter);
+// Admin control of the mobile app's contact and social links.
+app.use('/api/admin/app-contact-links', appContactLinksRouter);
 app.use('/api/emergency-result', emergencyResultRouter);
 
-// Serve uploaded files (photos, CVs) — always active
+// Serve uploaded files (photos, CVs) — always active.
+// Legacy store: job-application CVs and pre-423 assets still live here.
 app.use('/uploads', express.static(UPLOADS_DIR));
+
+// Unified media store read path — short, immutable URLs (/m/<id>.webp).
+// Must stay above the production SPA catch-all below or it would 404 into index.html.
+app.use('/m', mediaServeRouter);
 
 // ── Swagger API Documentation ─────────────────────────────────────────────────
 setupSwagger(app);
@@ -310,6 +356,15 @@ export async function start() {
       // DEC-006 D38: three-tier escalation for undocumented visits.
       void import('./services/visitEscalationJob.js').then((mod) =>
         mod.startVisitEscalationJob(),
+      );
+      // DEC-019 D-N15: drain captured status changes into customer notifications.
+      void import('./services/appNotifications/outboxJob.js').then((mod) =>
+        mod.startNotificationOutboxJob(),
+      );
+      // DEC-019 D-N4: daily time-based sweep (visit reminders, maintenance due,
+      // warranty expiry) with boot catch-up.
+      void import('./services/appNotifications/timeSweepJob.js').then((mod) =>
+        mod.startNotificationSweepJob(),
       );
       resolve();
     });

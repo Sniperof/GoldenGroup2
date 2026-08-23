@@ -1,6 +1,6 @@
 import type { FormValidationIssue, FormValidationResult } from './waterCheckFormSchema.js';
 
-export const DEVICE_REQUEST_FORM_VERSION = 'device_request.mobile.v1';
+export const DEVICE_REQUEST_FORM_VERSION = 'device_request.mobile.v2';
 
 const STRING_LIMITS: Record<string, number> = {
   submissionMode: 20,
@@ -23,6 +23,7 @@ const STRING_LIMITS: Record<string, number> = {
   referrerLastName: 60,
   referrerPhone: 20,
   referrerSecondaryPhone: 20,
+  referrerDetailedAddress: 500,
   detailedAddress: 500,
   detailed_address: 500,
   notes: 2000,
@@ -36,6 +37,7 @@ const BOOLEAN_KEYS = new Set([
 const NUMBER_KEYS = new Set([
   'purposeId', 'governorateId', 'governorate', 'regionId', 'region', 'cityOrArea',
   'subdistrictId', 'subdistrict', 'subArea', 'neighborhoodId', 'neighborhood',
+  'referrerGovernorate', 'referrerCityOrArea', 'referrerSubArea', 'referrerNeighborhood',
 ]);
 
 function issueFor(key: string, value: unknown): FormValidationIssue | null {
@@ -69,7 +71,7 @@ function issueFor(key: string, value: unknown): FormValidationIssue | null {
       && ids.every((id) => Number.isInteger(id) && id > 0)
       ? null : { field: key, rule: 'out_of_range' };
   }
-  if (key === 'mapLocation' || key === 'map_location' || key === 'location') {
+  if (key === 'mapLocation' || key === 'map_location' || key === 'location' || key === 'referrerMapLocation') {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return { field: key, rule: 'wrong_type' };
     const location = value as Record<string, unknown>;
     const extras = Object.keys(location).filter((part) => part !== 'lat' && part !== 'lng');

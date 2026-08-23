@@ -3,7 +3,16 @@ import type { PoolClient } from 'pg';
 import { canLinkServiceRequestParty } from '../../policies/serviceRequestPartyLinkPolicy.js';
 import { appendAudit } from './_shared.js';
 
-export type WaterCheckClientParty = 'beneficiary' | 'requester' | 'referrer';
+export type ServiceRequestClientParty = 'beneficiary' | 'requester' | 'referrer';
+
+const CLIENT_LINK_PERMISSION_BY_REQUEST_TYPE: Record<string, string> = {
+  emergency_maintenance: 'service_requests.review',
+  water_check: 'water_check.review',
+  device_request: 'service_requests.review',
+  periodic_maintenance: 'periodic_maintenance.review',
+  golden_warranty: 'golden_warranty.review',
+  agent_license: 'agent_license.review',
+};
 
 function serviceError(status: number, code: string, message?: string) {
   return Object.assign(new Error(message ?? code), { status, code });
@@ -88,17 +97,17 @@ export async function syncWaterCheckBeneficiaryReferrer(
 
 /**
  * Links a client created in the caller's open transaction to a supported
- * service-request party (water check or device request).
- * party. The caller owns BEGIN/COMMIT/ROLLBACK, so client creation and linkage
+ * service-request party. The caller owns BEGIN/COMMIT/ROLLBACK, so client
+ * creation and linkage
  * either become visible together or are both discarded.
  */
-export async function linkNewClientToWaterCheckParty(input: {
+export async function linkNewClientToServiceRequestParty(input: {
   db: PoolClient;
   authContext: AuthContext;
   serviceRequestId: number;
   clientId: number;
   clientBranchId: number;
-  party: WaterCheckClientParty;
+  party: ServiceRequestClientParty;
 }): Promise<void> {
   const { db, authContext, serviceRequestId, clientId, clientBranchId, party } = input;
   const { rows } = await db.query<{
@@ -109,10 +118,13 @@ export async function linkNewClientToWaterCheckParty(input: {
     escalated_at: string | null;
     submission_type: string;
     requester_client_id: number | null;
+    beneficiary_client_id: number | null;
+    referrer_client_id: number | null;
     referrer_external: Record<string, unknown> | null;
   }>(
     `SELECT request_type, status, branch_id, reviewed_by_user_id, escalated_at,
-            submission_type, requester_client_id, referrer_external
+            submission_type, requester_client_id, beneficiary_client_id,
+            referrer_client_id, referrer_external
        FROM service_requests
       WHERE id = $1
       FOR UPDATE`,
@@ -120,10 +132,13 @@ export async function linkNewClientToWaterCheckParty(input: {
   );
   const request = rows[0];
   if (!request) throw serviceError(404, 'service_request_not_found');
-  if (request.request_type !== 'water_check' && request.request_type !== 'device_request') {
+  const permission = CLIENT_LINK_PERMISSION_BY_REQUEST_TYPE[request.request_type];
+  if (!permission) {
     throw serviceError(400, 'wrong_request_type_for_atomic_client_link');
   }
-  const permission = request.request_type === 'water_check' ? 'water_check.review' : 'service_requests.review';
+  if (request.request_type === 'golden_warranty' && party === 'referrer') {
+    throw serviceError(400, 'golden_warranty_referrer_not_supported');
+  }
   const access = canLinkServiceRequestParty(authContext, {
     permission,
     branchId: request.branch_id,
@@ -136,13 +151,30 @@ export async function linkNewClientToWaterCheckParty(input: {
   if (request.escalated_at != null) {
     throw serviceError(423, 'request_is_escalated_actions_blocked');
   }
+  const existingPartyClientId = party === 'beneficiary'
+    ? request.beneficiary_client_id
+    : party === 'requester'
+      ? request.requester_client_id
+      : request.referrer_client_id;
+  if (existingPartyClientId != null) {
+    throw serviceError(
+      409,
+      'service_request_party_already_linked',
+      'طرف الطلب مرتبط بسجل زبون بالفعل؛ استخدم عملية تغيير الربط الصريحة عند الحاجة.',
+    );
+  }
   if (request.request_type === 'water_check'
       && (request.branch_id == null || Number(request.branch_id) !== clientBranchId)) {
     throw serviceError(400, 'service_request_client_branch_mismatch');
   }
   const branchAffectingLink = party === 'beneficiary'
     || (party === 'requester' && request.submission_type === 'apply');
-  if (request.request_type === 'device_request' && branchAffectingLink) {
+  if (
+    (request.request_type === 'device_request'
+      || request.request_type === 'periodic_maintenance'
+      || request.request_type === 'golden_warranty')
+    && branchAffectingLink
+  ) {
     const targetAccess = canLinkServiceRequestParty(authContext, {
       permission,
       branchId: clientBranchId,

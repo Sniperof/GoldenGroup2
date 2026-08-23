@@ -606,6 +606,7 @@ export default function ClientProfile() {
       'water_check.view',
       'periodic_maintenance.view',
       'golden_warranty.view',
+      'name_nomination.view',
       'account_requests.view',
     );
     const canEditRating = hasPermission('clients.rating.edit');

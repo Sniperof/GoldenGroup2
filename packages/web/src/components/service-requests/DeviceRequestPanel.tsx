@@ -69,6 +69,7 @@ export function DeviceRequestHandoffModal({ request, onClose, onCompleted }: {
   const [operatorNote, setOperatorNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [inactiveConfirmation, setInactiveConfirmation] = useState(false);
 
   useEffect(() => {
     Promise.all([api.employees.list(request.branchId), api.deviceModels.list()])
@@ -90,6 +91,7 @@ export function DeviceRequestHandoffModal({ request, onClose, onCompleted }: {
     }
     setBusy(true);
     setError('');
+    if (inactiveModelsConfirmed) setInactiveConfirmation(false);
     try {
       await api.serviceRequests.handoffDeviceRequest(Number(request.id), {
         employeeId: Number(employeeId), deviceModelIds: selectedIds,
@@ -97,9 +99,10 @@ export function DeviceRequestHandoffModal({ request, onClose, onCompleted }: {
       });
       onCompleted();
     } catch (cause: any) {
-      if (cause?.code === 'inactive_device_models_confirmation_required' && window.confirm('بعض الأجهزة غير نشطة حالياً. هل تريد المتابعة بعد المراجعة؟')) {
-        setBusy(false);
-        return submit(true);
+      if (cause?.code === 'inactive_device_models_confirmation_required') {
+        setInactiveConfirmation(true);
+        setError('بعض الأجهزة المختارة غير نشطة حالياً. راجع الاختيار ثم أكد المتابعة صراحةً.');
+        return;
       }
       setError(cause?.message ?? 'تعذر إنشاء المهمة');
     } finally {
@@ -114,6 +117,16 @@ export function DeviceRequestHandoffModal({ request, onClose, onCompleted }: {
     </>}>
       <div className="space-y-4 p-4">
         {error && <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+        {inactiveConfirmation && (
+          <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+            <div className="font-bold">تأكيد استخدام أجهزة غير نشطة</div>
+            <p className="mt-1">المتابعة ستنشئ المهمة بعد تسجيل التأكيد.</p>
+            <div className="mt-3 flex gap-2">
+              <Button size="sm" disabled={busy} onClick={() => submit(true)}>تأكيد المتابعة</Button>
+              <Button size="sm" variant="secondary" disabled={busy} onClick={() => setInactiveConfirmation(false)}>مراجعة الاختيار</Button>
+            </div>
+          </div>
+        )}
         <Select value={employeeId} onChange={setEmployeeId} placeholder="اختر الموظف" ariaLabel="الموظف" options={employees.map((employee) => ({ value: String(employee.id), label: employee.name ?? `#${employee.id}` }))} />
         <div>
           <div className="mb-2 text-sm font-bold text-slate-700">أجهزة المهمة</div>
