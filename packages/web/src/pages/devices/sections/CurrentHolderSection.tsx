@@ -10,7 +10,9 @@ interface Props {
 }
 
 function PossessionEmpty({ status }: { status?: string }) {
-  const reason = status === 'pending_delivery'
+  const reason = status === 'delivery_suspended'
+    ? 'تسليم الجهاز معلّق إدارياً، وما زال محجوزاً للعقد دون حيازة للزبون.'
+    : status === 'pending_delivery'
     ? 'الجهاز بانتظار التسليم، لذلك لا يوجد سجل حيازة مفتوح بعد.'
     : 'لم يتم فتح سجل حيازة لهذا الجهاز بعد.';
   return (

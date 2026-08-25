@@ -12,6 +12,10 @@ import {
   normalizeDeviceSerialNumber,
 } from '../services/deviceSerialIntegrity.js';
 import { TECH_STATE_FIELDS, mapTechState } from './emergencyResult.js';
+import {
+  changeDeviceDeliverySuspension,
+  DeviceDeliverySuspensionError,
+} from '../services/deviceDeliverySuspension.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -55,7 +59,6 @@ const selectFields = `
   b.name                      AS "branchName",
   gu.name                     AS "installationGeoUnitName",
   jsonb_strip_nulls(jsonb_build_object(
-    'serialNumber', CASE WHEN d.serial_number IS NULL OR btrim(d.serial_number) = '' THEN 'missing' END,
     'branchName', CASE WHEN b.name IS NULL THEN 'missing' END,
     'installationLocation', CASE
       WHEN d.installation_geo_unit_id IS NULL
@@ -177,7 +180,7 @@ router.get('/paged', requirePermission('installed_devices.view', 'clients.device
       );
     }
 
-    const DEVICE_STATUSES = ['registered', 'pending_delivery', 'delivered', 'installed', 'active', 'faulty', 'in_workshop', 'ready', 'out_of_service', 'retrieved', 'contract_cancelled'];
+    const DEVICE_STATUSES = ['registered', 'pending_delivery', 'delivery_suspended', 'delivered', 'installed', 'active', 'faulty', 'in_workshop', 'ready', 'out_of_service', 'retrieved', 'contract_cancelled'];
     const status = typeof req.query.status === 'string' ? req.query.status.trim() : '';
     if (DEVICE_STATUSES.includes(status)) { params.push(status); conditions.push(`d.status = $${params.length}`); }
 
@@ -295,9 +298,6 @@ router.post('/external', requirePermission('installed_devices.create_external'),
     }
     if (!Number.isInteger(deviceModelId) || deviceModelId <= 0) {
       return res.status(400).json({ error: 'Device model is required' });
-    }
-    if (!serialNumber) {
-      return res.status(400).json({ error: 'Serial number is required' });
     }
     const allowedExternalStatuses = new Set(['delivered', 'installed', 'active', 'faulty']);
     if (!allowedExternalStatuses.has(requestedStatus)) {
@@ -660,11 +660,108 @@ router.get('/:id/technical-states', requirePermission('installed_devices.view', 
   res.json(rows.map(mapTechState));
 });
 
+// GET /api/installed-devices/:id/delivery-suspension-history
+router.get(
+  '/:id/delivery-suspension-history',
+  requirePermission('installed_devices.view', 'clients.devices.view', 'contracts.view_list'),
+  async (req, res) => {
+    const deviceId = Number(req.params.id);
+    if (!Number.isInteger(deviceId) || deviceId <= 0) {
+      return res.status(400).json({ error: 'معرف الجهاز غير صالح' });
+    }
+    const { rows: deviceRows } = await pool.query(
+      'SELECT branch_id AS "branchId" FROM installed_devices WHERE id = $1',
+      [deviceId],
+    );
+    if (!deviceRows[0]) return res.status(404).json({ error: 'الجهاز غير موجود' });
+    const authContext = req.authContext!;
+    const access = {
+      allowed:
+        authorize(authContext, { permission: 'installed_devices.view', branchId: deviceRows[0].branchId }).allowed ||
+        authorize(authContext, { permission: 'clients.devices.view', branchId: deviceRows[0].branchId }).allowed ||
+        authorize(authContext, { permission: 'contracts.view_list', branchId: deviceRows[0].branchId }).allowed,
+    };
+    if (!access.allowed) return res.status(403).json({ error: 'غير مسموح' });
+    const { rows } = await pool.query(
+      `SELECT al.id,
+              al.action_type AS "actionType",
+              al.old_value AS "oldStatus",
+              al.new_value AS "newStatus",
+              al.internal_reason AS details,
+              al.performed_by_user_id AS "performedByUserId",
+              COALESCE(e.name, u.username) AS "performedByName",
+              al."timestamp" AS "createdAt"
+         FROM audit_logs al
+         LEFT JOIN hr_users u ON u.id = al.performed_by_user_id
+         LEFT JOIN employees e ON e.id = u.employee_id
+        WHERE al.entity_type = 'InstalledDevice'
+          AND al.entity_id = $1
+          AND al.action_type IN ('delivery_suspended', 'delivery_resumed')
+        ORDER BY al."timestamp" DESC, al.id DESC`,
+      [deviceId],
+    );
+    return res.json(rows);
+  },
+);
+
+async function executeDeliverySuspensionChange(req: any, res: any, action: 'suspend' | 'resume') {
+  const deviceId = Number(req.params.id);
+  const notes = typeof req.body?.notes === 'string' ? req.body.notes.trim() : '';
+  if (!Number.isInteger(deviceId) || deviceId <= 0) {
+    return res.status(400).json({ error: 'معرف الجهاز غير صالح' });
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await changeDeviceDeliverySuspension(client, {
+      deviceId,
+      action,
+      notes,
+      authContext: req.authContext!,
+      actorRole: req.user?.role ?? null,
+    });
+    await client.query('COMMIT');
+    return res.json({ ok: true, ...result });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    if (error instanceof DeviceDeliverySuspensionError) {
+      return res.status(error.status).json({ error: error.message, code: error.code });
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+router.post(
+  '/:id/suspend-delivery',
+  requirePermission('installed_devices.delivery_suspension.manage'),
+  async (req, res, next) => {
+    try {
+      return await executeDeliverySuspensionChange(req, res, 'suspend');
+    } catch (error) {
+      return next(error);
+    }
+  },
+);
+
+router.post(
+  '/:id/resume-delivery',
+  requirePermission('installed_devices.delivery_suspension.manage'),
+  async (req, res, next) => {
+    try {
+      return await executeDeliverySuspensionChange(req, res, 'resume');
+    } catch (error) {
+      return next(error);
+    }
+  },
+);
+
 // PATCH /api/installed-devices/:id  — update physical device fields only
 router.patch('/:id', requirePermission('contracts.edit'), async (req, res) => {
   const authContext = req.authContext!;
   const { rows: existingRows } = await pool.query(
-    'SELECT branch_id AS "branchId" FROM installed_devices WHERE id = $1',
+    'SELECT branch_id AS "branchId", status FROM installed_devices WHERE id = $1',
     [req.params.id],
   );
   if (!existingRows[0]) return res.status(404).json({ error: 'الجهاز غير موجود' });
@@ -731,6 +828,12 @@ router.patch('/:id', requirePermission('contracts.edit'), async (req, res) => {
   for (const [camel, col] of Object.entries(fieldMap)) {
     if (req.body[camel] !== undefined) {
       let value = req.body[camel];
+      if (col === 'status' && (String(value) === 'delivery_suspended' || existingRows[0].status === 'delivery_suspended')) {
+        return res.status(409).json({
+          error: 'تعليق التسليم وإعادته متاحان فقط من الإجراء المخصص في تفاصيل الجهاز',
+          code: 'delivery_suspension_workflow_required',
+        });
+      }
       if (col === 'serial_number') {
         try {
           value = await assertDeviceSerialAvailable(

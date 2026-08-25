@@ -1189,7 +1189,6 @@ export default function ContractForm() {
         // Base fields — required for both draft and active.
         if (!selectedCustomer) issues.push('اختر الزبون');
         if (!deviceModelId) issues.push('اختر نموذج الجهاز');
-        if (!serialNumber.trim()) issues.push('أدخل الرقم التسلسلي للجهاز');
         if (!geoSelection.govId) issues.push('اختر المحافظة في عنوان التركيب');
         else if (!geoSelection.neighborhoodId) issues.push('اختر الحي (الموقع التفصيلي) في عنوان التركيب');
         if (saleType === 'tradein' && !oldContractNumber.trim()) {
@@ -1254,7 +1253,7 @@ export default function ContractForm() {
         // Financial validation already enforced above (applies to draft + active alike).
         return issues;
     }, [
-        selectedCustomer, deviceModelId, serialNumber, geoSelection,
+        selectedCustomer, deviceModelId, geoSelection,
         isDraftMode, nidIsValid, legalRequiredForActive, legalFieldsPresent,
         fatherNameOverride, nationalIdOverride, buyerMotherName, buyerGender,
         buyerBirthDate, buyerNationalIdRegistry, buyerNationalIdIssuedBy,
@@ -1284,7 +1283,7 @@ export default function ContractForm() {
                 selectedReferrers: (selectedCustomer?.referrers || []).filter(referrer => selectedReferrerIds.includes(String(referrer.id))),
                 deviceModelId,
                 deviceModelName: selectedDevice?.nameAr || selectedDevice?.name,
-                serialNumber,
+                serialNumber: serialNumber.trim() || null,
                 contractDate,
                 deliveryDate: deliveryDate || null,
                 installationDate: installationDate || null,
@@ -2222,7 +2221,7 @@ export default function ContractForm() {
                                 options={[{ value: '', label: 'اختر الموديل...' }, ...deviceModels.map(d => ({ value: String(d.id), label: d.nameAr || d.name }))]}
                             />
                         </Field>
-                        <Field label="الرقم التسلسلي" required>
+                        <Field label="الرقم التسلسلي (اختياري)">
                             <div className="relative">
                                 <Hash className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300 pointer-events-none" />
                                 <input type="text" value={serialNumber} onChange={e => setSerialNumber(e.target.value)} placeholder="SN-XXXXX" className={`${inputClass} pr-10 font-mono`} dir="ltr" />

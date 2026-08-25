@@ -799,6 +799,7 @@ const contractsSalesTrend: BreakdownDefinition = {
 // ── الأجهزة المركّبة — فرعية فقط عبر appendInstalledDeviceScope (فرع فقط). ──
 const DEVICE_STATUS_LABELS: Record<string, string> = {
   registered: 'مُسجّل', pending_delivery: 'بانتظار التسليم', delivered: 'مُسلّم', installed: 'مُركّب',
+  delivery_suspended: 'معلّق',
   active: 'فعّال', faulty: 'متعطّل', in_workshop: 'في الورشة', ready: 'جاهز',
   out_of_service: 'خارج الخدمة', retrieved: 'مُسترجَع', contract_cancelled: 'مُلغى (عقد)',
 };

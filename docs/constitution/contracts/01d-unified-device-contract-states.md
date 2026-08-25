@@ -1,7 +1,7 @@
 # Unified Device And Contract States
 
 > **تحديث قرارات (راجع [`08-resolved-decisions.md`](./08-resolved-decisions.md)):**
-> - **حالات الجهاز المعتمدة (DEC-CT-03):** `registered, pending_delivery, delivered, installed, active, faulty, in_workshop, ready, out_of_service, retrieved`.
+> - **حالات الجهاز المعتمدة (DEC-CT-03):** `registered, pending_delivery, delivery_suspended, delivered, installed, active, faulty, in_workshop, ready, out_of_service, retrieved, contract_cancelled`.
 > - migration للحالات القديمة: `under_maintenance → in_workshop`, `disconnected → out_of_service`.
 > - **حالات العقد المعتمدة (DEC-CT-01):** `draft / active / cancelled / completed / discarded`. `temporary` ليست حالة بعد اليوم.
 > - أي تعارض بين هذا القاموس والقرارات أعلاه يُحسم لصالح القرارات.
@@ -118,6 +118,7 @@
 |---|---|---|
 | `registered` | الجهاز مسجل في النظام لكن لم يبدأ مسار التنفيذ بعد | يمكن استكمال هويته وموقعه وتجهيزه للمسار المناسب |
 | `pending_delivery` | الجهاز بانتظار التسليم | يظهر في متابعة التوصيل ولا يعد مسلما بعد |
+| `delivery_suspended` | تسليم الجهاز معلّق إداريا بسبب غياب الزبون مدة طويلة | لا يعد مسلما، يبقى محجوزا للعقد، ويخرج من متابعة التسليم إلى أن يعاد يدويا إلى `pending_delivery` |
 | `delivered` | الجهاز سلم فعليا | يصبح مرشحا لمسار التركيب أو التفعيل |
 | `installed` | الجهاز ركب فعليا | يبدأ الاعتماد على موقعه الفعلي وتاريخه التشغيلي |
 | `active` | الجهاز فعال تشغيليا | يدخل المسار الطبيعي للخدمة والكفالة والمتابعة |
@@ -162,6 +163,12 @@
 المسار المرجعي الأساسي هو:
 
 `registered -> pending_delivery -> delivered -> installed -> active`
+
+يجوز إيقاف مرحلة التسليم إداريا دون تغيير العقد أو الذمم عبر المسار الجانبي المغلق:
+
+`pending_delivery <-> delivery_suspended`
+
+هذا التعليق لا ينتج عن دفعة أو قسط آليا، ولا يحرر الجهاز أو الرقم التسلسلي من العقد. عند التعليق تلغى مهمة التسليم والزيارة التي لم يبدأ تنفيذها، ويمنع الانتقال إذا بدأت الزيارة أو كانت نتيجتها قيد الحسم. العودة إلى `pending_delivery` لا تنشئ مهمة؛ بل تعيد إتاحة جدولتها يدويا.
 
 هذا المسار يعبّر عن:
 
@@ -231,6 +238,8 @@
 | `registered` | `active` | انتقال غير مرجعي، ويحتاج تبريرا خاصا إذا سُمح به لاحقا | ليس هو المسار المعتمد حاليا |
 | `registered` | `faulty` | انتقال غير مرجعي، ويحتاج تبريرا خاصا إذا سُمح به لاحقا | ليس هو نقطة البداية المعتمدة للأجهزة الخارجية |
 | `pending_delivery` | `delivered` | عند اكتمال التسليم الفعلي | لا يعني التركيب بعد |
+| `pending_delivery` | `delivery_suspended` | بقرار يدوي موثق عند توقف مسار التسليم لغياب الزبون | تلغى أعمال التسليم غير المنفذة، ولا تتغير الذمم أو العقد أو حجز الجهاز |
+| `delivery_suspended` | `pending_delivery` | بقرار يدوي موثق عند استئناف التواصل | لا تنشأ مهمة تلقائيا؛ تصبح جدولة التسليم متاحة يدويا |
 | `delivered` | `installed` | عند اكتمال التركيب الفعلي | الخطوة الطبيعية التالية |
 | `installed` | `active` | عند اكتمال التفعيل أو الجاهزية التشغيلية النهائية | بداية الحياة التشغيلية الطبيعية |
 | `active` | `faulty` | عند تعطل الجهاز أو توقفه عن العمل | يخرج من التشغيل الطبيعي |
@@ -431,7 +440,7 @@
 | `device_source_type` | `company_supplied`, `external` |
 | `device_program_type` | `sale`, `gift`, `temporary`, `service` |
 | `device_possession_ledger` | سجل حيازات تاريخي مستقل، راجع [01e-device-possession-ledger.md](./01e-device-possession-ledger.md) |
-| `device_operational_status` | `registered`, `pending_delivery`, `delivered`, `installed`, `active`, `faulty`, `in_workshop`, `ready`, `out_of_service`, `retrieved` |
+| `device_operational_status` | `registered`, `pending_delivery`, `delivery_suspended`, `delivered`, `installed`, `active`, `faulty`, `in_workshop`, `ready`, `out_of_service`, `retrieved`, `contract_cancelled` |
 
 ### العقد
 

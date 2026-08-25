@@ -1321,6 +1321,12 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
     if (!deviceIdFromContract) {
       return res.status(400).json({ error: 'device_delivery ظٹطھط·ظ„ط¨ installedDeviceId ط£ظˆ ط¹ظ‚ط¯ط§ظ‹ ظ…ط±ط¨ظˆط·ط§ظ‹ ط¨ط¬ظ‡ط§ط²' });
     }
+    if (deviceStatusFromCurrentDevice === 'delivery_suspended') {
+      return res.status(409).json({
+        code: 'device_delivery_suspended',
+        error: 'لا يمكن جدولة مهمة تسليم قبل إعادة الجهاز يدوياً إلى بانتظار التسليم',
+      });
+    }
     const { rows: activeDuplicateRows } = await pool.query(
       `SELECT id, status
          FROM open_tasks

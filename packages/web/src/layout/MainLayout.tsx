@@ -134,7 +134,6 @@ export default function MainLayout() {
 
     // Each operations table is shown only if its own view permission is granted.
     const visibleOperationsChildren = operationsChildren.filter(child => can(child.permission));
-
     // Requests children: gate only those that declare a permission (e.g. account requests).
     const visibleRequestsChildren = requestsChildren.filter(child => !(child as any).permission || can((child as any).permission));
 

@@ -30,6 +30,20 @@ test('preflight compares normalized serial globally and excludes the current dev
   assert.deepEqual(capturedParams, ['test-1', 9, 22]);
 });
 
+test('an omitted serial is accepted without running a duplicate lookup', async () => {
+  let queried = false;
+  const db = {
+    async query() {
+      queried = true;
+      return { rows: [] };
+    },
+  };
+
+  assert.equal(await assertDeviceSerialAvailable(db, '   '), null);
+  assert.equal(await assertDeviceSerialAvailable(db, null), null);
+  assert.equal(queried, false);
+});
+
 test('preflight rejects an existing normalized serial without exposing the other device', async () => {
   const db = { async query() { return { rows: [{ exists: true }] }; } };
   await assert.rejects(

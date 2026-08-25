@@ -14,6 +14,7 @@ import IconButton from '../components/ui/IconButton';
 import Checkbox from '../components/ui/Checkbox';
 import GeoSmartSearch, { GeoSelection, getLocationBadgeProps, LocationBadge } from '../components/GeoSmartSearch';
 import { uploadMedia } from '../lib/uploadMedia';
+import { createUiId } from '../lib/uiId';
 import {
   MapPin, Building2, Plus, Edit, Trash2, Network,
   Mail, Phone, Smartphone, Globe, Users, Briefcase,
@@ -53,7 +54,7 @@ const TYPE_COLORS: Record<BranchContactType, string> = {
 
 function newContact(): BranchContact {
   return {
-    id: crypto.randomUUID(),
+    id: createUiId(),
     type: 'phone',
     department: 'customer_service',
     value: '',

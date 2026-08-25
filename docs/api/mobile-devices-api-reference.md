@@ -50,7 +50,7 @@ Devices are ordered newest-first (`created_at DESC`). An empty result is returne
 | `deviceModelId` | integer | Yes | Catalog model ID. Null for a legacy/external device with no catalog link. |
 | `deviceName` | string | Yes | Display name — device's own recorded name, else the catalog model's Arabic/English name, else the external device name. |
 | `serialNumber` | string | Yes | Serial number, when recorded. |
-| `status` | string | No | One of the 11 values in §3. Shown as-is — the app owns how it labels each status, there is no server-side simplification for devices (contrast with visit status, §3 of the visits reference). |
+| `status` | string | No | One of the 12 values in §3. Shown as-is — the app owns how it labels each status, there is no server-side simplification for devices (contrast with visit status, §3 of the visits reference). |
 | `contractId` | integer | Yes | The contract this device was delivered under; `null` for an external device. |
 | `contractNumber` | string | Yes | Customer-facing contract reference, when the device came from a company sale. |
 | `installationAddressText` | string | Yes | Free-text installation address, when recorded. |
@@ -88,11 +88,13 @@ The response includes the list fields plus:
 ## 4. Device Status Values
 
 ```text
-registered | pending_delivery | delivered | installed | active
+registered | pending_delivery | delivery_suspended | delivered | installed | active
 faulty | in_workshop | ready | out_of_service | retrieved | contract_cancelled
 ```
 
 `contract_cancelled` means the device's owning contract was cancelled — the device is permanently out of service and dropped from periodic-maintenance generation. It is a terminal state distinct from `retrieved` (device physically taken back, eligible for reissue) and `out_of_service` (temporarily disconnected). The app should still show these devices in the list (§1) with a clearly non-active label; do not hide them.
+
+`delivery_suspended` means delivery was placed on an internal administrative hold before the customer received the device. The device remains reserved to its contract. The app should label it as «معلّق» and must not treat it as delivered or active. This repository contains no Flutter client, so the client-side enum/label must be updated before the migration is deployed to an environment consumed by the mobile app.
 
 ## 5. Which Warranty Row Is Shown
 

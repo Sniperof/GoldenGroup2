@@ -32,7 +32,7 @@
 | `branch_id` | `INTEGER` | ✅ | — | `FK → branches(id) ON DELETE SET NULL` | الفرع المسؤول عن خدمة الجهاز | `3` |
 | `device_model_id` | `INTEGER` | ✅ | — | `FK → device_models(id) ON DELETE SET NULL` | موديل الجهاز من الكتالوج | `5` |
 | `device_model_name` | `VARCHAR(255)` | ✅ | — | — | لقطة اسم الموديل وقت البيع | `"فلتر ذهبي 7 مراحل"` |
-| `serial_number` | `VARCHAR(255)` | ✅ | — | `UNIQUE lower(btrim(serial_number)) WHERE non-empty` | الرقم التسلسلي الفريد عالمياً لهذه الوحدة تحديداً؛ حالة الأحرف والمسافات الطرفية غير مؤثرة | `"GS-2026-001"` |
+| `serial_number` | `VARCHAR(255)` | ✅ | — | `UNIQUE lower(btrim(serial_number)) WHERE non-empty` | رقم اختياري يمكن استكماله لاحقاً؛ وعند إدخاله يكون فريداً عالمياً لهذه الوحدة، مع تجاهل حالة الأحرف والمسافات الطرفية | `"GS-2026-001"` أو `NULL` |
 | `status` | `VARCHAR(50)` | ❌ | `'pending_delivery'` | `CHECK (status IN (...))` | الحالة الفيزيائية الحالية للجهاز | `"installed"` |
 | `installation_geo_unit_id` | `INTEGER` | ✅ | — | `FK → geo_units(id) ON DELETE SET NULL` | المنطقة الجغرافية لموقع الجهاز | `123` |
 | `installation_address_text` | `TEXT` | ✅ | — | — | العنوان التفصيلي لموقع التركيب | `"المزة، بناية 5، طابق 2"` |
@@ -51,12 +51,17 @@
 #### قيود دورة الحياة `status`
 
 ```
-pending_delivery → delivered → installed → active → decommissioned
+pending_delivery ↔ delivery_suspended
+       ↓
+delivered → installed → active → decommissioned
 ```
 
 | القيمة | المعنى |
 |--------|--------|
 | `pending_delivery` | تم إنشاء العقد، الجهاز لم يُسلَّم بعد |
+| `delivery_suspended` | التسليم متوقف إدارياً لغياب الزبون؛ الجهاز لم يُسلّم ويبقى محجوزاً للعقد |
+
+`delivery_suspended` انتقال يدوي خاص بمرحلة ما قبل التسليم. لا يفحص الخادم وجود دفعة أو قسط، ولا يغيّر العقد أو الذمم أو مهام التحصيل. التعليق يلغي مهمة التسليم والزيارة غير المنفذة بسبب «تعليق التسليم لغياب الزبون»، ويُرفض إذا بدأ التنفيذ الميداني أو بقيت نتيجة قيد الحسم. العودة اليدوية إلى `pending_delivery` لا تنشئ مهمة تسليم تلقائيا.
 | `delivered` | سُلِّم الجهاز، لم يُركَّب بعد |
 | `installed` | رُكِّب في الموقع، قيد الاختبار |
 | `active` | فعّال ويعمل بشكل طبيعي |
@@ -140,6 +145,7 @@ contracts (0..1) ─────── (0..1) installed_devices
 - `serial_number` يعرّف وحدة فيزيائية واحدة عالمياً، بصرف النظر عن العقد أو الزبون أو الفرع أو `device_source` أو الموديل.
 - المقارنة تتجاهل حالة الأحرف والمسافات الطرفية؛ لذلك `TEST-1` و` test-1 ` و`test-1` رقم واحد.
 - يسمح بـ`NULL` عندما لم تُعرف الهوية النهائية بعد، لكن القيمة غير الفارغة لا يجوز أن تظهر على أكثر من صف.
+- غياب الرقم لا يمنع إنشاء الجهاز الخارجي أو حفظ العقد أو اعتماده، ولا يُصنّف وحده كسجل ناقص.
 - قاعدة البيانات هي الحارس النهائي ضد الطلبات المتزامنة، وتعيد واجهات الكتابة تعارضاً `409` بالكود `device_serial_conflict`.
 - لا يجوز إصلاح التكرارات التاريخية بحذف صف جهاز أو اختيار مالك الرقم آلياً؛ يجب أن يحدد فريق التشغيل الرقم الصحيح لكل سجل متأثر.
 
@@ -200,7 +206,8 @@ interval_days = floor((warranty_months × 30) / warranty_visits)
 |---------|------------------|--------|
 | قراءة القائمة `GET /` | `contracts.view_list` | مع دعم فلترة `?customerId`, `?branchId`, `?status` |
 | قراءة جهاز `GET /:id` | `contracts.view_list` | — |
-| تعديل جهاز `PATCH /:id` | `contracts.edit` | الحقول الفيزيائية فقط |
+| تعديل جهاز `PATCH /:id` | `contracts.edit` | الحقول الفيزيائية فقط؛ لا يقبل الدخول إلى `delivery_suspended` أو الخروج منها |
+| تعليق/إعادة التسليم | `installed_devices.delivery_suspension.manage` | من تفاصيل الجهاز فقط، بنطاق GLOBAL/BRANCH وسجل تدقيق إلزامي |
 | إنشاء `POST` | غير متاح مباشرةً | يُنشأ تلقائياً عند إنشاء `sale_contract` |
 | حذف `DELETE` | غير متاح | محمي بـ `ON DELETE RESTRICT` من جانب العقد |
 

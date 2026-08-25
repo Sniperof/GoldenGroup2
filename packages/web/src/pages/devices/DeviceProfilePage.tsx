@@ -55,7 +55,6 @@ const SECTIONS = [
 ];
 
 const MISSING_LABELS: Record<string, string> = {
-  serialNumber: 'الرقم التسلسلي غير مسجل',
   branchName: 'اسم الفرع غير متاح',
   installationLocation: 'موقع الجهاز غير مكتمل',
   deliveryDate: 'تاريخ التسليم غير مثبت بعد',
@@ -78,6 +77,7 @@ export default function DeviceProfilePage() {
     && (hasPermission('clients.devices.view') || hasPermission('installed_devices.view'));
   const deviceId = Number(id);
   const canViewPossession = hasPermission('installed_devices.possession.view');
+  const canManageDeliverySuspension = hasPermission('installed_devices.delivery_suspension.manage');
   const visibleSections = useMemo(
     () => canViewPossession
       ? SECTIONS
@@ -279,7 +279,12 @@ export default function DeviceProfilePage() {
 
       {/* All sections stacked; the tabs jump / scroll-spy through them */}
       <IdentitySection device={device} />
-      <OperationalStatusSection device={device} tasks={tasks} onTaskCreated={fetchAll} />
+      <OperationalStatusSection
+        device={device}
+        tasks={tasks}
+        canManageDeliverySuspension={canManageDeliverySuspension}
+        onTaskCreated={fetchAll}
+      />
       {canViewPossession && (
         <>
           <CurrentHolderSection device={device} currentPossession={currentPossession} />
