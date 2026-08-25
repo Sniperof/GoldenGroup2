@@ -39,6 +39,7 @@ interface Filter {
 const FILTERS: Filter[] = [
   { key: 'all',         label: 'الكل',         test: () => true },
   { key: 'active',      label: 'نشطة',         test: s => s === 'active' },
+  { key: 'delivery_suspended', label: 'معلّقة', test: s => s === 'delivery_suspended' },
   { key: 'in_workshop', label: 'في الورشة',    test: s => s === 'in_workshop' },
   { key: 'retrieved',   label: 'مستردة',       test: s => s === 'retrieved' },
   { key: 'out_of_service', label: 'خارج الخدمة', test: s => s === 'out_of_service' },
@@ -146,8 +147,8 @@ function ExternalDeviceModalV2({
             />
           </label>
           <label className="block space-y-1.5">
-            <span className="text-sm font-bold text-slate-700">الرقم التسلسلي</span>
-            <input value={serial} onChange={e => onSerialChange(e.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500" dir="ltr" />
+            <span className="text-sm font-bold text-slate-700">الرقم التسلسلي (اختياري)</span>
+            <input value={serial} onChange={e => onSerialChange(e.target.value)} placeholder="يمكن استكماله لاحقاً" className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500" dir="ltr" />
           </label>
           <label className="block space-y-1.5">
             <span className="text-sm font-bold text-slate-700">حالة الجهاز الحالية</span>
@@ -351,10 +352,6 @@ export function DevicesTab({ client }: Props) {
       setExternalError('اسم الجهاز الخارجي مطلوب.');
       return;
     }
-    if (!externalSerial.trim()) {
-      setExternalError('الرقم التسلسلي مطلوب.');
-      return;
-    }
     if (!externalStatus) {
       setExternalError('حالة الجهاز الحالية مطلوبة.');
       return;
@@ -373,7 +370,7 @@ export function DevicesTab({ client }: Props) {
       await api.installedDevices.createExternal({
         customerId: client.id,
         deviceModelId: Number(externalDeviceModelId),
-        serialNumber: externalSerial.trim(),
+        serialNumber: externalSerial.trim() || null,
         status: externalStatus,
         installationGeoUnitId: Number(externalGeoSelection.neighborhoodId),
         installationAddressText: externalAddress.trim(),

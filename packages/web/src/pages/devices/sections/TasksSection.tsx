@@ -79,6 +79,7 @@ const TASK_OPTIONS = [
 const DEVICE_STATUS_LABELS: Record<string, string> = {
   registered: 'مسجّل',
   pending_delivery: 'بانتظار التوصيل',
+  delivery_suspended: 'معلّق',
   delivered: 'تم التوصيل',
   installed: 'مركّب',
   active: 'نشط',

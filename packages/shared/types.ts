@@ -903,6 +903,7 @@ export type ContractType = 'sale_contract' | 'maintenance_contract';
 export type DeviceStatus =
   | 'registered'
   | 'pending_delivery'
+  | 'delivery_suspended'
   | 'delivered'
   | 'installed'
   | 'active'

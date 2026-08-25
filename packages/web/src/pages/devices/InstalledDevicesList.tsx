@@ -40,12 +40,13 @@ interface InstalledDevice {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Config — operational status dictionary (DEC-CT-03, 11 states)      */
+/*  Config — operational status dictionary (DEC-CT-03, 12 states)      */
 /* ------------------------------------------------------------------ */
 
 const statusConfig: Record<string, { label: string; style: string }> = {
     registered:        { label: 'مُسجّل',          style: 'bg-slate-50 text-slate-600 border-slate-200' },
     pending_delivery:  { label: 'بانتظار التسليم', style: 'bg-amber-50 text-amber-700 border-amber-200' },
+    delivery_suspended:{ label: 'معلّق',           style: 'bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200' },
     delivered:         { label: 'مُسلّم',          style: 'bg-sky-50 text-sky-700 border-sky-200' },
     installed:         { label: 'مُركّب',          style: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
     active:            { label: 'فعّال',           style: 'bg-emerald-50 text-emerald-700 border-emerald-200' },

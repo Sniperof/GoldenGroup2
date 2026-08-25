@@ -9,6 +9,7 @@ import type { DeviceStatus } from '@golden-crm/shared';
 const MAP: Record<string, { cls: string; label: string }> = {
   registered:       { cls: 'bg-indigo-100 text-indigo-700',  label: 'مسجّل' },
   pending_delivery: { cls: 'bg-amber-100 text-amber-700',    label: 'بانتظار التوصيل' },
+  delivery_suspended: { cls: 'bg-fuchsia-100 text-fuchsia-700', label: 'معلّق' },
   delivered:        { cls: 'bg-sky-100 text-sky-700',        label: 'تم التوصيل' },
   installed:        { cls: 'bg-emerald-100 text-emerald-700', label: 'مركّب' },
   active:           { cls: 'bg-green-100 text-green-700',    label: 'نشط' },

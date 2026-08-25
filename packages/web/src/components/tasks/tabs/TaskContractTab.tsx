@@ -33,6 +33,7 @@ const SALE_SUBTYPE_LABELS: Record<string, { label: string; cls: string }> = {
 
 const DEVICE_STATUS_LABELS: Record<string, { label: string; cls: string }> = {
   pending_delivery: { label: 'بانتظار التسليم', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+  delivery_suspended: { label: 'معلّق', cls: 'bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200' },
   delivered: { label: 'مُسلَّم', cls: 'bg-sky-50 text-sky-700 border-sky-200' },
   installed: { label: 'مُركَّب', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
   active: { label: 'نَشِط', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },

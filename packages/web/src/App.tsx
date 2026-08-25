@@ -6,6 +6,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import MainLayout from './layout/MainLayout';
 import RequireBranchContext from './components/RequireBranchContext';
 import Dashboard from './pages/Dashboard';
+import Reports from './pages/Reports';
 import SupervisorAlertsPage from './pages/supervisor/SupervisorAlertsPage';
 import GeoSettings from './pages/GeoSettings';
 import RouteManager from './pages/RouteManager';
@@ -111,6 +112,7 @@ export default function App() {
                     <Route path="/login" element={<Login />} />
                     <Route element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>
                         <Route path="/" element={<Dashboard />} />
+                        <Route path="/reports" element={<Reports />} />
                         <Route path="/devices" element={<DeviceManagement />} />
                         <Route path="/devices/:id" element={<DeviceDetail />} />
                         {/* Branch-scoped operational list of installed devices (Group 1) */}

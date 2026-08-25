@@ -28,6 +28,7 @@ export const PostSaleStepper: React.FC<PostSaleStepperProps> = ({ contract, task
   const activationTask = tasks.find(t => t.contractId === contract.id && t.taskType === 'device_activation');
 
   const currentStatus = contract.deviceStatus || 'pending_delivery';
+  const isPreDelivery = currentStatus === 'pending_delivery' || currentStatus === 'delivery_suspended';
 
   // Determine step states
   const steps = [
@@ -36,7 +37,7 @@ export const PostSaleStepper: React.FC<PostSaleStepperProps> = ({ contract, task
       label: 'تسليم الجهاز',
       description: 'نقل وتوصيل الجهاز للزبون',
       icon: Truck,
-      status: currentStatus === 'pending_delivery' ? 'current' : 'completed',
+      status: isPreDelivery ? 'current' : 'completed',
       task: deliveryTask
     },
     {
@@ -44,7 +45,7 @@ export const PostSaleStepper: React.FC<PostSaleStepperProps> = ({ contract, task
       label: 'تركيب الجهاز',
       description: 'تركيب الفلاتر والقطع وتثبيته',
       icon: Wrench,
-      status: currentStatus === 'pending_delivery' 
+      status: isPreDelivery
         ? 'pending' 
         : currentStatus === 'delivered' ? 'current' : 'completed',
       task: installationTask
@@ -54,7 +55,7 @@ export const PostSaleStepper: React.FC<PostSaleStepperProps> = ({ contract, task
       label: 'تشغيل الجهاز',
       description: 'بدء التشغيل وتنشيط العقد',
       icon: PlayCircle,
-      status: (currentStatus === 'pending_delivery' || currentStatus === 'delivered')
+      status: (isPreDelivery || currentStatus === 'delivered')
         ? 'pending'
         : currentStatus === 'installed' ? 'current' : 'completed',
       task: activationTask
@@ -167,7 +168,7 @@ export const PostSaleStepper: React.FC<PostSaleStepperProps> = ({ contract, task
           <div 
             className="h-full bg-gradient-to-r from-emerald-500 to-sky-500 transition-all duration-500" 
             style={{
-              width: currentStatus === 'pending_delivery' 
+              width: isPreDelivery
                 ? '0%' 
                 : currentStatus === 'delivered' 
                 ? '50%' 
@@ -255,10 +256,13 @@ export const PostSaleStepper: React.FC<PostSaleStepperProps> = ({ contract, task
                 {step.id === 'delivery' && (
                   <button
                     onClick={openDeliveryVisit}
-                    className="w-full flex items-center justify-center gap-2 bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs py-2 px-3 rounded-lg transition duration-200 shadow-sm"
+                    disabled={currentStatus === 'delivery_suspended'}
+                    className="w-full flex items-center justify-center gap-2 bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs py-2 px-3 rounded-lg transition duration-200 shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <ExternalLink className="w-3.5 h-3.5" />
-                    فتح الزيارة لتسجيل النتيجة
+                    {currentStatus === 'delivery_suspended'
+                      ? 'التسليم معلّق من تفاصيل الجهاز'
+                      : 'فتح الزيارة لتسجيل النتيجة'}
                   </button>
                 )}
 

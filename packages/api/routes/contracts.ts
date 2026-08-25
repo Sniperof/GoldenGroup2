@@ -373,6 +373,7 @@ async function fetchProjectedDuesByContractIds(dbClient: any, contractIds: numbe
  *           type: string
  *         serialNumber:
  *           type: string
+ *           nullable: true
  *         installedDeviceId:
  *           type: integer
  *           nullable: true
@@ -2043,7 +2044,6 @@ async function collectApprovalIssues(
             c.buyer_mother_name, c.buyer_gender, c.buyer_birth_date,
             c.buyer_national_id_registry, c.buyer_national_id_issued_by,
             c.buyer_national_id_issue_date, c.buyer_national_id_box,
-            COALESCE(d.serial_number, c.draft_device_payload->>'serialNumber') AS serial_number,
             COALESCE(d.installation_geo_unit_id,
                      NULLIF(c.draft_device_payload->>'installationGeoUnitId', '')::int) AS geo_unit_id,
             (SELECT cu.father_name FROM clients cu WHERE cu.id = c.customer_id) AS father_name,
@@ -2056,9 +2056,6 @@ async function collectApprovalIssues(
   const c = rows[0];
   if (!c) return ['العقد غير موجود'];
 
-  if (!c.serial_number || !String(c.serial_number).trim()) {
-    issues.push('الرقم التسلسلي للجهاز مطلوب');
-  }
   if (!c.geo_unit_id) issues.push('عنوان التركيب (المحافظة + الحي) مطلوب');
 
   const finalPrice = Number(c.final_price) || 0;

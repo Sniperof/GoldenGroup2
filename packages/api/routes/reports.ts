@@ -12,6 +12,8 @@ import type { AuthUser } from '../middleware/auth.js';
 import { getOrBuildAuthContext } from '../middleware/permission.js';
 import { getMetric, ReportingError, type GetMetricParams } from '../services/reporting/metricsService.js';
 import { getBreakdown } from '../services/reporting/breakdownService.js';
+import { buildVisibleReportCatalog } from '../services/reporting/tabularReportCatalog.js';
+import { exportTabularReportRun, generateTabularReport, getTabularReportRun } from '../services/reporting/tabularReportService.js';
 
 const router = Router();
 
@@ -29,9 +31,70 @@ function handleError(err: unknown, res: Response): void {
     res.status(err.status).json({ error: err.message });
     return;
   }
-  console.error('[reports] metric failed:', err);
-  res.status(500).json({ error: 'فشل حساب المؤشر' });
+  console.error('[reports] request failed:', err);
+  res.status(500).json({ error: 'فشل تجهيز بيانات التقرير' });
 }
+
+function readTabularParams(req: Request) {
+  return {
+    branchId: typeof req.query.branchId === 'string' ? req.query.branchId : undefined,
+    employeeId: typeof req.query.employeeId === 'string' ? req.query.employeeId : undefined,
+    geoUnitId: typeof req.query.geoUnitId === 'string' ? req.query.geoUnitId : undefined,
+    geoIds: typeof req.query.geoIds === 'string' ? req.query.geoIds : undefined,
+    fromDate: typeof req.query.fromDate === 'string' ? req.query.fromDate : undefined,
+    toDate: typeof req.query.toDate === 'string' ? req.query.toDate : undefined,
+    page: typeof req.query.page === 'string' ? req.query.page : undefined,
+    limit: typeof req.query.limit === 'string' ? req.query.limit : undefined,
+  };
+}
+
+// ── كتالوج وتقارير جدولية — قبل /:metricKey حتى لا تُفسّر كأسماء مؤشرات ──
+router.get('/catalog', async (req, res) => {
+  try {
+    const authContext = await getOrBuildAuthContext(req as Request & { user: AuthUser });
+    res.json({ groups: buildVisibleReportCatalog(authContext) });
+  } catch (err) {
+    handleError(err, res);
+  }
+});
+
+router.post('/tabular/:reportKey/generate', async (req, res) => {
+  try {
+    const authContext = await getOrBuildAuthContext(req as Request & { user: AuthUser });
+    const input = req.body ?? {};
+    const data = await generateTabularReport(authContext, req.params.reportKey, {
+      branchId: input.branchId, employeeId: input.employeeId, geoUnitId: input.geoUnitId, geoIds: input.geoIds,
+      fromDate: input.fromDate, toDate: input.toDate,
+    });
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json(data);
+  } catch (err) {
+    handleError(err, res);
+  }
+});
+
+router.get('/tabular/runs/:runId', async (req, res) => {
+  try {
+    const authContext = await getOrBuildAuthContext(req as Request & { user: AuthUser });
+    const data = await getTabularReportRun(authContext, req.params.runId, readTabularParams(req));
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json(data);
+  } catch (err) { handleError(err, res); }
+});
+
+router.get('/tabular/runs/:runId/export', async (req, res) => {
+  try {
+    const authContext = await getOrBuildAuthContext(req as Request & { user: AuthUser });
+    const output = await exportTabularReportRun(authContext, req.params.runId);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${output.filename}"`);
+    res.setHeader('X-Report-Exported-At', output.exportedAt.toISOString());
+    res.send(output.buffer);
+  } catch (err) {
+    handleError(err, res);
+  }
+});
 
 // ── المؤشرات التجميعية (Funnel/Bar/Donut) — مسار مستقل بمقطعين فلا يتصادم مع /:metricKey ──
 router.get('/breakdown/:metricKey', async (req, res) => {

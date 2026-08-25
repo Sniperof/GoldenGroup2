@@ -23,6 +23,8 @@
 - العقد `device_status = 'pending_delivery'`
 - ما في `device_delivery` task نشطة (`open`, `needs_follow_up`, `assigned`, `in_scheduling`, `scheduled`) مرتبطة بهاد العقد
 
+> الجهاز `delivery_suspended` غير مؤهل لإنشاء أو تنفيذ مهمة تسليم. يجب إعادته يدويا من تفاصيل الجهاز إلى `pending_delivery` أولا. التعليق يلغي المهمة والزيارة غير المنفذة، أما الزيارة التي بدأت أو تنتظر حسم النتيجة فتمنع التعليق.
+
 ### 1.3 حقول الإنشاء (الموظف بيملاهن)
 
 | # | الحقل | إلزامي | مصدره | الوصف |
@@ -84,7 +86,7 @@
 | # | الحقل | إلزامي | الوصف |
 |---|-------|--------|-------|
 | 1 | **النتيجة** (`outcome`) | ✅ | `delivered_successfully` / `customer_not_available` / `wrong_address` / `refused_delivery` |
-| 2 | **الرقم التسلسلي** | ✅ بس إذا `delivered_successfully` | الفني بيقرأه من الجهاز |
+| 2 | **الرقم التسلسلي** | ❌ | يُسجّل إن كان متاحاً، ويمكن استكماله لاحقاً مع بقاء التفرد للقيمة غير الفارغة |
 | 3 | **حالة الجهاز** (`delivery_condition`) | ✅ بس إذا `delivered_successfully` | `perfect` / `minor_damage` / `missing_accessories` |
 | 4 | **عنوان التسليم الفعلي** | ❌ | إذا اختلف عن العنوان المسجل |
 | 5 | **تاريخ التسليم الفعلي** | ❌ | افتراضي = اليوم |

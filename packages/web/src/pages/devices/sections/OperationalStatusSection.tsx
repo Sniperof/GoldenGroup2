@@ -1,7 +1,7 @@
 // Device operational status + lifecycle dates.
 
 import { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, Loader2, MapPin, Truck, Unplug, Wrench, Zap } from '../../../components/ui/icons';
+import { AlertCircle, History, Loader2, MapPin, PauseCircle, RotateCcw, Truck, Unplug, Wrench, Zap } from '../../../components/ui/icons';
 import { DeviceStatusBadge } from '../../../components/devices/DeviceStatusBadge';
 import { SectionShell } from './SectionShell';
 import { api } from '../../../lib/api';
@@ -15,6 +15,7 @@ import DateField from '../../../components/ui/DateField';
 interface Props {
   device: any;
   tasks?: any[];
+  canManageDeliverySuspension?: boolean;
   onTaskCreated?: () => void;
 }
 
@@ -106,7 +107,7 @@ const ALLOWED_NEXT_TASK: Record<string, { type: 'device_delivery' | 'device_inst
   active: { type: 'device_disconnection', label: 'جدولة مهمة فك', Icon: Unplug, reason: 'customer_request' },
 };
 
-export function OperationalStatusSection({ device, tasks, onTaskCreated }: Props) {
+export function OperationalStatusSection({ device, tasks, canManageDeliverySuspension = false, onTaskCreated }: Props) {
   const [busy, setBusy] = useState(false);
   const [showInstallationModal, setShowInstallationModal] = useState(false);
   const [showActivationModal, setShowActivationModal] = useState(false);
@@ -122,6 +123,9 @@ export function OperationalStatusSection({ device, tasks, onTaskCreated }: Props
   const [mapPosition, setMapPosition] = useState<[number, number] | null>(null);
   const [showMap, setShowMap] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
+  const [showSuspensionModal, setShowSuspensionModal] = useState(false);
+  const [suspensionNotes, setSuspensionNotes] = useState('');
+  const [suspensionHistory, setSuspensionHistory] = useState<any[]>([]);
   const [deliveryCreationReasons, setDeliveryCreationReasons] = useState<DeliveryCreationReason[]>(FALLBACK_DELIVERY_CREATION_REASONS);
   const [installationCreationReasons, setInstallationCreationReasons] = useState<CreationReasonOption[]>(FALLBACK_INSTALLATION_CREATION_REASONS);
   const [installationCreationReason, setInstallationCreationReason] = useState(FALLBACK_INSTALLATION_CREATION_REASONS[0].value);
@@ -140,6 +144,13 @@ export function OperationalStatusSection({ device, tasks, onTaskCreated }: Props
     )) ?? null;
   }, [tasks, device?.id, next]);
   const activeGeoUnits = useMemo(() => geoUnits.filter((unit) => unit?.status !== 'inactive'), [geoUnits]);
+
+  useEffect(() => {
+    if (!device?.id) return;
+    api.installedDevices.deliverySuspensionHistory(Number(device.id))
+      .then((rows) => setSuspensionHistory(Array.isArray(rows) ? rows : []))
+      .catch(() => setSuspensionHistory([]));
+  }, [device?.id, device?.status]);
 
   useEffect(() => {
     if (!showInstallationModal) return;
@@ -255,6 +266,36 @@ export function OperationalStatusSection({ device, tasks, onTaskCreated }: Props
     setDisconnectionCreationReason((current) => selectedCreationReason(current, options));
     setModalError(null);
     setShowDisconnectionModal(true);
+  }
+
+  function openSuspensionChange() {
+    setSuspensionNotes('');
+    setModalError(null);
+    setShowSuspensionModal(true);
+  }
+
+  async function submitSuspensionChange() {
+    const notes = suspensionNotes.trim();
+    if (!notes) {
+      setModalError('الملاحظات الإدارية مطلوبة.');
+      return;
+    }
+    setBusy(true);
+    setModalError(null);
+    try {
+      if (device?.status === 'delivery_suspended') {
+        await api.installedDevices.resumeDelivery(Number(device.id), notes);
+      } else {
+        await api.installedDevices.suspendDelivery(Number(device.id), notes);
+      }
+      setShowSuspensionModal(false);
+      setSuspensionNotes('');
+      onTaskCreated?.();
+    } catch (error: any) {
+      setModalError(error?.message ?? 'تعذر تغيير حالة تعليق التسليم.');
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function handleSchedule() {
@@ -433,25 +474,30 @@ export function OperationalStatusSection({ device, tasks, onTaskCreated }: Props
         id="operational"
         title="الحالة التشغيلية"
         subtitle="حالة الجهاز الحالية وتواريخ مراحل دورة حياته"
-        actions={
-          next && (
-            existingActiveTask ? (
+        actions={(
+          <div className="flex flex-wrap items-center gap-2">
+            {next && (existingActiveTask ? (
               <span className="inline-flex items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">
                 <AlertCircle className="h-3.5 w-3.5" />
                 يوجد مهمة {next.label.replace('جدولة مهمة ', '')} نشطة بالفعل #{existingActiveTask.id}
               </span>
             ) : (
-              <Button
-                size="sm"
-                icon={next.Icon}
-                onClick={handleSchedule}
-                loading={busy}
-              >
+              <Button size="sm" icon={next.Icon} onClick={handleSchedule} loading={busy}>
                 {next.label}
               </Button>
-            )
-          )
-        }
+            ))}
+            {canManageDeliverySuspension && device?.status === 'pending_delivery' && (
+              <Button size="sm" variant="secondary" icon={PauseCircle} onClick={openSuspensionChange}>
+                تعليق التسليم
+              </Button>
+            )}
+            {canManageDeliverySuspension && device?.status === 'delivery_suspended' && (
+              <Button size="sm" icon={RotateCcw} onClick={openSuspensionChange}>
+                إعادة إلى بانتظار التسليم
+              </Button>
+            )}
+          </div>
+        )}
       >
         <div className="grid grid-cols-2 gap-5 md:grid-cols-4">
           <div>
@@ -471,7 +517,74 @@ export function OperationalStatusSection({ device, tasks, onTaskCreated }: Props
             <LifecycleValue value={device?.activatedAt} reason="يثبت عند انتقال الجهاز إلى حالة active." />
           </div>
         </div>
+        {device?.status === 'delivery_suspended' && (
+          <div className="mt-5 rounded-xl border border-fuchsia-200 bg-fuchsia-50 px-4 py-3 text-sm text-fuchsia-800">
+            <div className="font-black">التسليم متوقف إدارياً</div>
+            <div className="mt-1 text-xs leading-relaxed">الجهاز لم يُسلّم للزبون وما زال محجوزاً للعقد. لا يمكن جدولة التسليم قبل إعادته إلى «بانتظار التسليم».</div>
+          </div>
+        )}
+        {suspensionHistory.length > 0 && (
+          <div className="mt-5 border-t border-slate-100 pt-4">
+            <div className="mb-3 flex items-center gap-2 text-xs font-black text-slate-600">
+              <History className="h-4 w-4" /> سجل تعليق التسليم
+            </div>
+            <div className="space-y-2">
+              {suspensionHistory.map((entry: any) => {
+                let details: any = {};
+                try { details = entry.details ? JSON.parse(entry.details) : {}; } catch { details = {}; }
+                return (
+                  <div key={entry.id} className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-bold text-slate-800">{entry.actionType === 'delivery_suspended' ? 'تم تعليق التسليم' : 'تمت إعادة الجهاز إلى بانتظار التسليم'}</span>
+                      <span>{entry.createdAt ? new Date(entry.createdAt).toLocaleString('ar-SY') : '—'}</span>
+                    </div>
+                    <div className="mt-1">المنفذ: {entry.performedByName || `#${entry.performedByUserId || '—'}`}</div>
+                    {details.notes && <div className="mt-1 whitespace-pre-wrap text-slate-500">{details.notes}</div>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </SectionShell>
+
+      <Modal
+        isOpen={showSuspensionModal}
+        onClose={() => setShowSuspensionModal(false)}
+        size="lg"
+        title={device?.status === 'delivery_suspended' ? 'إعادة الجهاز إلى بانتظار التسليم' : 'تعليق تسليم الجهاز'}
+        footer={(
+          <>
+            <Button variant="secondary" onClick={() => setShowSuspensionModal(false)}>إلغاء</Button>
+            <Button onClick={submitSuspensionChange} loading={busy}>
+              {device?.status === 'delivery_suspended' ? 'إعادة الحالة' : 'تعليق التسليم'}
+            </Button>
+          </>
+        )}
+      >
+        <div className="space-y-4 px-5 py-4">
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-800">
+            {device?.status === 'delivery_suspended'
+              ? 'ستعود حالة الجهاز إلى «بانتظار التسليم» دون إنشاء مهمة جديدة. ستظهر بعدها إمكانية جدولة مهمة تسليم يدوياً.'
+              : 'سيُلغى أي مسار تسليم لم يبدأ تنفيذه بسبب «تعليق التسليم لغياب الزبون». إذا بدأت زيارة ميدانية بالفعل فسيرفض الخادم العملية حتى تُحسم نتيجتها.'}
+          </div>
+          {modalError && (
+            <div className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+              <AlertCircle className="h-4 w-4" />{modalError}
+            </div>
+          )}
+          <label className="block space-y-1.5">
+            <span className="text-xs font-bold text-slate-600">الملاحظات الإدارية *</span>
+            <textarea
+              value={suspensionNotes}
+              onChange={(event) => setSuspensionNotes(event.target.value)}
+              rows={4}
+              className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+              placeholder="اشرح الواقع التشغيلي وسبب القرار..."
+            />
+          </label>
+        </div>
+      </Modal>
 
       <Modal
         isOpen={showDisconnectionModal}

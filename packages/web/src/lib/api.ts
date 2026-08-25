@@ -171,6 +171,51 @@ export interface PagedClientsParams {
   sortDir?: 'asc' | 'desc';
 }
 
+export interface ReportColumnDefinition {
+  key: string;
+  titleAr: string;
+  type: 'text' | 'integer' | 'date' | 'datetime' | 'link';
+  width: number;
+}
+
+export interface ReportCatalogItem {
+  key: string;
+  groupKey: string;
+  title: string;
+  description: string;
+  question: string;
+  grain: string;
+  viewScope: 'GLOBAL' | 'BRANCH' | 'ASSIGNED';
+  canExport: boolean;
+  exportScope: 'GLOBAL' | 'BRANCH' | 'ASSIGNED' | null;
+  columns: ReportColumnDefinition[];
+  filters: { dateRange: 'none' | 'required'; geography: boolean };
+  guide: {
+    framingTitle: string;
+    framingDescription: string;
+    rowDescription: string;
+    columnDescriptions: Record<string, string>;
+    note?: string;
+  };
+}
+
+export interface ReportCatalogGroup {
+  key: string;
+  title: string;
+  description: string;
+  reports: ReportCatalogItem[];
+}
+
+export interface TabularReportResponse {
+  runId: string;
+  report: Omit<ReportCatalogItem, 'viewScope' | 'canExport' | 'exportScope'>;
+  scope: 'GLOBAL' | 'BRANCH' | 'ASSIGNED';
+  branchIds: number[];
+  rows: Array<Record<string, unknown>>;
+  pagination: { page: number; limit: number; total: number; pages: number };
+  generatedAt: string;
+}
+
 // GET /contracts/paged — server pagination companion to contracts.list()
 // (isolated: list() unchanged). Contracts are branch-only (no ASSIGNED tier).
 export interface PagedContractsResponse {
@@ -539,6 +584,27 @@ function toQueryString(qs: URLSearchParams) {
 
 export const api = {
   reports: {
+    catalog: () => request<{ groups: ReportCatalogGroup[] }>('/reports/catalog'),
+    generateTabular: (key: string, filters?: Record<string, string | number | null | undefined>) =>
+      request<TabularReportResponse>(`/reports/tabular/${key}/generate`, { method: 'POST', body: JSON.stringify(filters ?? {}) }),
+    tabularRun: (runId: string, params?: Record<string, string | number | null | undefined>) => {
+      const query = new URLSearchParams();
+      Object.entries(params ?? {}).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '') query.set(k, String(v));
+      });
+      const suffix = query.toString() ? `?${query.toString()}` : '';
+      return request<TabularReportResponse>(`/reports/tabular/runs/${runId}${suffix}`);
+    },
+    exportTabularRun: async (runId: string) => {
+      const response = await authFetch(`${API_BASE}/reports/tabular/runs/${runId}/export`);
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || 'فشل تصدير التقرير');
+      }
+      const disposition = response.headers.get('Content-Disposition') ?? '';
+      const filename = disposition.match(/filename="([^"]+)"/)?.[1] ?? `report-${runId}.xlsx`;
+      return { blob: await response.blob(), filename, exportedAt: response.headers.get('X-Report-Exported-At') };
+    },
     metric: (key: string, params?: Record<string, string | number | null | undefined>) => {
       const query = new URLSearchParams();
       Object.entries(params ?? {}).forEach(([k, v]) => {
@@ -983,6 +1049,9 @@ export const api = {
       );
     },
     get: (id: number) => request<any>(`/installed-devices/${id}`),
+    deliverySuspensionHistory: (id: number) => request<any[]>(`/installed-devices/${id}/delivery-suspension-history`),
+    suspendDelivery: (id: number, notes: string) => request<any>(`/installed-devices/${id}/suspend-delivery`, { method: 'POST', body: JSON.stringify({ notes }) }),
+    resumeDelivery: (id: number, notes: string) => request<any>(`/installed-devices/${id}/resume-delivery`, { method: 'POST', body: JSON.stringify({ notes }) }),
     createExternal: (data: any) => request<any>('/installed-devices/external', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/installed-devices/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     createPeriodicMaintenance: (id: number, data: any) =>
