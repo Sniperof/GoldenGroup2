@@ -17,7 +17,7 @@ import {
     Briefcase, Calendar, AlertTriangle, DollarSign, RefreshCw, RotateCcw, PhoneCall,
     FileText, FilePlus2, Headset, Settings, UserPlus, Menu, X as CloseIcon,
     ChevronLeft, ChevronRight, BadgeCheck, GraduationCap, Mic2, LogOut, Building2, SlidersHorizontal, ShieldCheck, ListChecks, Shield, Monitor, Settings2, GalleryHorizontal, BellRing,
-    Bell, Wrench, Gift, Inbox, LayoutGrid, UserCheck, CalendarCheck, Layers, HardDrive, Unplug, Beaker, Package, ClipboardCheck, Link2, BarChart3,
+    Bell, Wrench, Gift, Inbox, LayoutGrid, UserCheck, CalendarCheck, Layers, HardDrive, Unplug, Beaker, Package, ClipboardCheck, Link2,
 } from '../components/ui/icons';
 
 const navItems = [
@@ -134,11 +134,6 @@ export default function MainLayout() {
 
     // Each operations table is shown only if its own view permission is granted.
     const visibleOperationsChildren = operationsChildren.filter(child => can(child.permission));
-    // The reports center is visible when at least one dedicated report-view
-    // capability is granted. The catalog still filters every report separately.
-    const canSeeReports = isSuperAdmin
-      || grants.some(grant => grant.permission.startsWith('reports.') && grant.permission.endsWith('.view'));
-
     // Requests children: gate only those that declare a permission (e.g. account requests).
     const visibleRequestsChildren = requestsChildren.filter(child => !(child as any).permission || can((child as any).permission));
 
@@ -295,22 +290,6 @@ export default function MainLayout() {
                             <span className={`${isCollapsed ? 'lg:hidden' : 'block'}`}>{item.label}</span>
                         </NavLink>
                     ))}
-
-                    {canSeeReports && (
-                    <NavLink
-                        to="/reports"
-                        onClick={() => setIsMobileMenuOpen(false)}
-                        className={({ isActive }: { isActive: boolean }) =>
-                            `w-full flex items-center gap-3 px-4 py-3 rounded-lg no-pill transition-all text-right ${isActive
-                                ? 'bg-teal-50 text-teal-700 border-r-4 border-teal-600'
-                                : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-                            } ${isCollapsed ? 'lg:justify-center lg:px-0 lg:border-r-0' : ''}`
-                        }
-                    >
-                        <BarChart3 className={`w-5 h-5 ${isCollapsed ? 'lg:w-6 lg:h-6' : ''}`} />
-                        <span className={`${isCollapsed ? 'lg:hidden' : 'block'}`}>التقارير</span>
-                    </NavLink>
-                    )}
 
                     {/* 1. Records Section */}
                     {visibleRecordsChildren.length > 0 && (
