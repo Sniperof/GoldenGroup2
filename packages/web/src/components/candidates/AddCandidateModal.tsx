@@ -471,7 +471,6 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
 
 
 
-    const candidatesList = useCandidateStore((state: any) => state.candidates);
 
     const validateForm = () => {
         if (!isDirectMode && !selectedSheetId) {

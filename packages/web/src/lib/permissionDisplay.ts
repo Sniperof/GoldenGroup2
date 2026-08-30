@@ -31,6 +31,7 @@ export const PERMISSION_MODULE_LABELS: Record<string, string> = {
   account_requests: 'طلبات إنشاء الحساب',
   app_accounts: 'حسابات التطبيق',
   complaints: 'إدارة الشكاوى',
+  reports: 'التقارير',
 };
 
 export const PERMISSION_SUBMODULE_LABELS: Record<string, string> = {
@@ -123,6 +124,11 @@ export const PERMISSION_SUBMODULE_LABELS: Record<string, string> = {
   settings: 'إعدادات الشكاوى',
   updates: 'التحديثات الظاهرة للمشتكي',
   workflow: 'دورة معالجة الشكوى',
+  work_files: 'تقارير ملفات العمل',
+  performance: 'تقارير الأداء',
+  human_resources: 'تقارير الموارد البشرية',
+  service: 'تقارير الخدمة',
+  daily_work: 'تقارير العمل اليومي',
 };
 
 function readableIdentifier(identifier: string): string {

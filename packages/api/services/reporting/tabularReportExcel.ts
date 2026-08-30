@@ -71,11 +71,13 @@ export async function buildTabularReportExcel(
       const column = columns[columnIndex - 1];
       cell.font = { name: 'Arial', size: 10, color: { argb: 'FF0F172A' } };
       cell.alignment = {
-        horizontal: column.type === 'integer' || column.type === 'link' ? 'center' : 'right',
+        horizontal: column.type === 'integer' || column.type === 'decimal' || column.type === 'link' ? 'center' : 'right',
         vertical: 'middle',
+        wrapText: column.type === 'text',
       };
       cell.border = { bottom: { style: 'hair', color: { argb: 'FFE2E8F0' } } };
       if (column.type === 'integer') cell.numFmt = '#,##0';
+      if (column.type === 'decimal') cell.numFmt = '#,##0.00';
       if (column.type === 'datetime') cell.numFmt = 'yyyy-mm-dd hh:mm';
       if (column.type === 'date') cell.numFmt = 'yyyy-mm-dd';
     });

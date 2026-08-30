@@ -148,6 +148,41 @@ export interface PagedClientsResponse {
   kpis: { total: number; leads: number; fops: number; ops: number };
 }
 
+/** GET /candidates/paged — `kpis` is keyed by candidate status; `total` is their sum. */
+export interface PagedCandidatesResponse {
+  items: any[];
+  total: number;
+  page: number;
+  limit: number;
+  kpis: Record<string, number>;
+}
+
+export interface PagedCandidatesParams {
+  branchId?: number | null;      // narrows a GLOBAL viewer to one branch (X-Branch-Id)
+  page?: number;
+  limit?: number;
+  sortKey?: string;              // createdAt | id | firstName | lastName | mobile | status | referralDate | branchName
+  sortDir?: 'asc' | 'desc';
+  ids?: string;                  // comma-joined ids — scoped batch lookup for surfaces needing specific rows
+  search?: string;               // name / nickname / mobile / referrer snapshot
+  status?: string;
+  branchFilterId?: number;       // explicit branch filter, always ANDed with the caller's scope
+                                 // (distinct from `branchId`, which becomes the X-Branch-Id header)
+  responsibleUserId?: number;
+  createdByUserId?: number;
+  converted?: 'converted' | 'unconverted' | '';
+  referralType?: string;
+  channel?: string;
+  duplicate?: 'yes' | 'no' | '';
+  confirmation?: string;
+  source?: 'fromSheet' | 'direct' | '';
+  referralSheetId?: number;
+  referralEntityId?: number;     // the referring entity (client id when referralType = Client)
+  geoUnitId?: number;
+  dateFrom?: string;             // YYYY-MM-DD
+  dateTo?: string;               // YYYY-MM-DD (inclusive)
+}
+
 export interface PagedClientsParams {
   branchId?: number | null;      // narrows a GLOBAL viewer to one branch (X-Branch-Id)
   page?: number;
@@ -160,6 +195,7 @@ export interface PagedClientsParams {
   routeGeoIds?: string;          // comma-joined subtree ids of a route's points
   owner?: string | number;       // assigned hr_user id
   rating?: string;               // Committed | NotCommitted | Undefined
+  referredByClientId?: number;   // clients this client referred (flat columns + referrers JSONB)
   waterSource?: string;          // admin-list value
   dataQuality?: string;          // correct | incorrect | needs_edit
   createdFrom?: string;          // YYYY-MM-DD
@@ -174,7 +210,7 @@ export interface PagedClientsParams {
 export interface ReportColumnDefinition {
   key: string;
   titleAr: string;
-  type: 'text' | 'integer' | 'date' | 'datetime' | 'link';
+  type: 'text' | 'integer' | 'decimal' | 'date' | 'datetime' | 'link';
   width: number;
 }
 
@@ -189,7 +225,25 @@ export interface ReportCatalogItem {
   canExport: boolean;
   exportScope: 'GLOBAL' | 'BRANCH' | 'ASSIGNED' | null;
   columns: ReportColumnDefinition[];
-  filters: { dateRange: 'none' | 'required'; geography: boolean };
+  filters: {
+    dateRange: 'none' | 'required';
+    geography: boolean;
+    supervisor: boolean;
+    technician: boolean;
+    telemarketer: boolean;
+    visitStatus: boolean;
+    taskType?: boolean;
+    search?: boolean;
+    deviceModel?: boolean;
+    deviceStatus?: boolean;
+    warrantyStatus?: boolean;
+    customerRating?: boolean;
+    contactEmployee?: boolean;
+    lastContactChannel?: boolean;
+    replacedParts?: boolean;
+    paidAmount?: boolean;
+    dateRanges?: Array<{ fromKey: string; toKey: string; label: string }>;
+  };
   guide: {
     framingTitle: string;
     framingDescription: string;
@@ -214,6 +268,19 @@ export interface TabularReportResponse {
   rows: Array<Record<string, unknown>>;
   pagination: { page: number; limit: number; total: number; pages: number };
   generatedAt: string;
+}
+
+export interface ReportFilterOptions {
+  supervisors: Array<{ value: string; label: string }>;
+  technicians: Array<{ value: string; label: string }>;
+  telemarketers: Array<{ value: string; label: string }>;
+  visitStatuses: Array<{ value: string; label: string }>;
+  taskTypes: Array<{ value: string; label: string }>;
+  deviceModels: Array<{ value: string; label: string }>;
+  deviceStatuses: Array<{ value: string; label: string }>;
+  warrantyStatuses: Array<{ value: string; label: string }>;
+  customerRatings: Array<{ value: string; label: string }>;
+  contactEmployees: Array<{ value: string; label: string }>;
 }
 
 // GET /contracts/paged — server pagination companion to contracts.list()
@@ -585,6 +652,14 @@ function toQueryString(qs: URLSearchParams) {
 export const api = {
   reports: {
     catalog: () => request<{ groups: ReportCatalogGroup[] }>('/reports/catalog'),
+    filterOptions: (key: string, params?: Record<string, string | number | null | undefined>) => {
+      const query = new URLSearchParams();
+      Object.entries(params ?? {}).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '') query.set(k, String(v));
+      });
+      const suffix = query.toString() ? `?${query.toString()}` : '';
+      return request<ReportFilterOptions>(`/reports/tabular/${key}/filter-options${suffix}`);
+    },
     generateTabular: (key: string, filters?: Record<string, string | number | null | undefined>) =>
       request<TabularReportResponse>(`/reports/tabular/${key}/generate`, { method: 'POST', body: JSON.stringify(filters ?? {}) }),
     tabularRun: (runId: string, params?: Record<string, string | number | null | undefined>) => {
@@ -864,7 +939,7 @@ export const api = {
       const suffix = query.size > 0 ? `?${query.toString()}` : '';
       return request<AccountStatementResponse>(`/clients/${id}/account-statement${suffix}`);
     },
-    smartMatch: (data: { phone?: string; mobile?: string; name?: string }) =>
+    smartMatch: (data: { phone?: string; mobile?: string; name?: string; branchId?: number }) =>
       request<any>('/clients/smart-match', { method: 'POST', body: JSON.stringify(data) }),
     create: (data: any) => request<any>('/clients', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/clients/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
@@ -910,6 +985,22 @@ export const api = {
       '/candidates',
       branchId != null ? { headers: { 'X-Branch-Id': String(branchId) } } : undefined,
     ),
+    // Server-paginated records surface. Added BESIDE `list` — every existing
+    // consumer of `list` keeps the exact endpoint and shape it had.
+    listPaged: (params: PagedCandidatesParams = {}) => {
+      const { branchId, ...rest } = params;
+      const query = new URLSearchParams();
+      Object.entries(rest).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '' && value !== 'all') {
+          query.set(key, String(value));
+        }
+      });
+      const suffix = query.size > 0 ? `?${query.toString()}` : '';
+      return request<PagedCandidatesResponse>(
+        `/candidates/paged${suffix}`,
+        branchId != null ? { headers: { 'X-Branch-Id': String(branchId) } } : undefined,
+      );
+    },
     get: (id: number) => request<import('@golden-crm/shared').CandidateDetail>(`/candidates/${id}`),
     create: (data: any) => request<any>('/candidates', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/candidates/${id}`, { method: 'PUT', body: JSON.stringify(data) }),

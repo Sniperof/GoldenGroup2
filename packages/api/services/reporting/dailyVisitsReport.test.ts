@@ -47,13 +47,32 @@ test('daily visit row uses one visit grain, primary phone and visit-level cancel
   assert.doesNotMatch(sql, /visit_task_results/);
 });
 
-test('geographic and employee filters are server-bound across effective team members', () => {
+test('visible report fields have independent server-side filters', () => {
   const { sql, params } = buildDailyVisitsQuery(
     { scope: 'GLOBAL', grantedScope: 'GLOBAL', branchIds: [], userId: 1 },
-    { fromDate: '2026-06-01', toDate: '2026-06-30', employeeId: 13, geoIds: '8,9' },
+    {
+      fromDate: '2026-06-01', toDate: '2026-06-30', geoIds: '8,9',
+      supervisorEmployeeId: 13, technicianEmployeeId: 17, telemarketerUserId: 21,
+      visitStatus: 'completed',
+    },
     { limit: 50 },
   );
-  assert.match(sql, /telemarketer_employee\.id/);
-  assert.match(sql, /COALESCE\(c\.neighborhood,c\.district\) = ANY\(\$4::int\[\]\)/);
-  assert.deepEqual(params.slice(0, 4), ['2026-06-01', '2026-06-30', 13, [8, 9]]);
+  assert.match(sql, /reassigned_supervisor_id.*= \$3/);
+  assert.match(sql, /reassigned_technician_id.*= \$4/);
+  assert.match(sql, /fv\.booked_by_telemarketer_id = \$5/);
+  assert.match(sql, /fv\.status = \$6/);
+  assert.match(sql, /COALESCE\(c\.neighborhood,c\.district\) = ANY\(\$7::int\[\]\)/);
+  assert.deepEqual(params.slice(0, 7), ['2026-06-01', '2026-06-30', 13, 17, 21, 'completed', [8, 9]]);
+  assert.doesNotMatch(sql, /vtr\.final_decision|vt\.task_type\s*=/);
+});
+
+test('unknown visit status is rejected instead of becoming a loose SQL filter', () => {
+  assert.throws(
+    () => buildDailyVisitsQuery(
+      { scope: 'GLOBAL', grantedScope: 'GLOBAL', branchIds: [], userId: 1 },
+      { fromDate: '2026-06-01', toDate: '2026-06-30', visitStatus: 'unknown_status' },
+      { limit: 50 },
+    ),
+    (error: unknown) => error instanceof ReportingError && error.status === 400,
+  );
 });

@@ -13,7 +13,7 @@ import { getOrBuildAuthContext } from '../middleware/permission.js';
 import { getMetric, ReportingError, type GetMetricParams } from '../services/reporting/metricsService.js';
 import { getBreakdown } from '../services/reporting/breakdownService.js';
 import { buildVisibleReportCatalog } from '../services/reporting/tabularReportCatalog.js';
-import { exportTabularReportRun, generateTabularReport, getTabularReportRun } from '../services/reporting/tabularReportService.js';
+import { exportTabularReportRun, generateTabularReport, getTabularReportFilterOptions, getTabularReportRun } from '../services/reporting/tabularReportService.js';
 
 const router = Router();
 
@@ -39,6 +39,32 @@ function readTabularParams(req: Request) {
   return {
     branchId: typeof req.query.branchId === 'string' ? req.query.branchId : undefined,
     employeeId: typeof req.query.employeeId === 'string' ? req.query.employeeId : undefined,
+    supervisorEmployeeId: typeof req.query.supervisorEmployeeId === 'string' ? req.query.supervisorEmployeeId : undefined,
+    technicianEmployeeId: typeof req.query.technicianEmployeeId === 'string' ? req.query.technicianEmployeeId : undefined,
+    telemarketerUserId: typeof req.query.telemarketerUserId === 'string' ? req.query.telemarketerUserId : undefined,
+    visitStatus: typeof req.query.visitStatus === 'string' ? req.query.visitStatus : undefined,
+    taskType: typeof req.query.taskType === 'string' ? req.query.taskType : undefined,
+    search: typeof req.query.search === 'string' ? req.query.search : undefined,
+    deviceModelId: typeof req.query.deviceModelId === 'string' ? req.query.deviceModelId : undefined,
+    deviceModel: typeof req.query.deviceModel === 'string' ? req.query.deviceModel : undefined,
+    deviceStatus: typeof req.query.deviceStatus === 'string' ? req.query.deviceStatus : undefined,
+    warrantyStatus: typeof req.query.warrantyStatus === 'string' ? req.query.warrantyStatus : undefined,
+    customerRating: typeof req.query.customerRating === 'string' ? req.query.customerRating : undefined,
+    contactEmployeeId: typeof req.query.contactEmployeeId === 'string' ? req.query.contactEmployeeId : undefined,
+    lastContactChannel: typeof req.query.lastContactChannel === 'string' ? req.query.lastContactChannel : undefined,
+    replacedParts: typeof req.query.replacedParts === 'string' ? req.query.replacedParts : undefined,
+    minPaidAmount: typeof req.query.minPaidAmount === 'string' ? req.query.minPaidAmount : undefined,
+    maxPaidAmount: typeof req.query.maxPaidAmount === 'string' ? req.query.maxPaidAmount : undefined,
+    installationFrom: typeof req.query.installationFrom === 'string' ? req.query.installationFrom : undefined,
+    installationTo: typeof req.query.installationTo === 'string' ? req.query.installationTo : undefined,
+    periodicMaintenanceFrom: typeof req.query.periodicMaintenanceFrom === 'string' ? req.query.periodicMaintenanceFrom : undefined,
+    periodicMaintenanceTo: typeof req.query.periodicMaintenanceTo === 'string' ? req.query.periodicMaintenanceTo : undefined,
+    completedVisitFrom: typeof req.query.completedVisitFrom === 'string' ? req.query.completedVisitFrom : undefined,
+    completedVisitTo: typeof req.query.completedVisitTo === 'string' ? req.query.completedVisitTo : undefined,
+    lastContactFrom: typeof req.query.lastContactFrom === 'string' ? req.query.lastContactFrom : undefined,
+    lastContactTo: typeof req.query.lastContactTo === 'string' ? req.query.lastContactTo : undefined,
+    incompleteVisitFrom: typeof req.query.incompleteVisitFrom === 'string' ? req.query.incompleteVisitFrom : undefined,
+    incompleteVisitTo: typeof req.query.incompleteVisitTo === 'string' ? req.query.incompleteVisitTo : undefined,
     geoUnitId: typeof req.query.geoUnitId === 'string' ? req.query.geoUnitId : undefined,
     geoIds: typeof req.query.geoIds === 'string' ? req.query.geoIds : undefined,
     fromDate: typeof req.query.fromDate === 'string' ? req.query.fromDate : undefined,
@@ -58,12 +84,36 @@ router.get('/catalog', async (req, res) => {
   }
 });
 
+router.get('/tabular/:reportKey/filter-options', async (req, res) => {
+  try {
+    const authContext = await getOrBuildAuthContext(req as Request & { user: AuthUser });
+    const data = await getTabularReportFilterOptions(authContext, req.params.reportKey, readTabularParams(req));
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json(data);
+  } catch (err) {
+    handleError(err, res);
+  }
+});
+
 router.post('/tabular/:reportKey/generate', async (req, res) => {
   try {
     const authContext = await getOrBuildAuthContext(req as Request & { user: AuthUser });
     const input = req.body ?? {};
     const data = await generateTabularReport(authContext, req.params.reportKey, {
-      branchId: input.branchId, employeeId: input.employeeId, geoUnitId: input.geoUnitId, geoIds: input.geoIds,
+      branchId: input.branchId, employeeId: input.employeeId,
+      supervisorEmployeeId: input.supervisorEmployeeId, technicianEmployeeId: input.technicianEmployeeId,
+      telemarketerUserId: input.telemarketerUserId, visitStatus: input.visitStatus,
+      taskType: input.taskType,
+      search: input.search, deviceModelId: input.deviceModelId, deviceModel: input.deviceModel, deviceStatus: input.deviceStatus,
+      warrantyStatus: input.warrantyStatus, customerRating: input.customerRating,
+      contactEmployeeId: input.contactEmployeeId, lastContactChannel: input.lastContactChannel,
+      replacedParts: input.replacedParts, minPaidAmount: input.minPaidAmount, maxPaidAmount: input.maxPaidAmount,
+      installationFrom: input.installationFrom, installationTo: input.installationTo,
+      periodicMaintenanceFrom: input.periodicMaintenanceFrom, periodicMaintenanceTo: input.periodicMaintenanceTo,
+      completedVisitFrom: input.completedVisitFrom, completedVisitTo: input.completedVisitTo,
+      lastContactFrom: input.lastContactFrom, lastContactTo: input.lastContactTo,
+      incompleteVisitFrom: input.incompleteVisitFrom, incompleteVisitTo: input.incompleteVisitTo,
+      geoUnitId: input.geoUnitId, geoIds: input.geoIds,
       fromDate: input.fromDate, toDate: input.toDate,
     });
     res.setHeader('Cache-Control', 'private, no-store');

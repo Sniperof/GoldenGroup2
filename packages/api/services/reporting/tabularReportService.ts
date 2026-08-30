@@ -5,7 +5,10 @@ import { resolveTabularExportAccess, resolveTabularReportAccess, positiveInt, ty
 import { buildTabularReportExcel } from './tabularReportExcel.js';
 import { ReportingError } from './reportingError.js';
 import { getWorkFilesGeoSupervisorsReport } from './workFilesGeoSupervisorsReport.js';
-import { getDailyVisitsReport } from './dailyVisitsReport.js';
+import { getDailyVisitsFilterOptions, getDailyVisitsReport } from './dailyVisitsReport.js';
+import { getServiceDevicesFilterOptions, getServiceDevicesReport } from './serviceDevicesReport.js';
+import { getGeographicPortfolioReport } from './geographicPortfolioReport.js';
+import { getSalesFollowUpFilterOptions, getSalesFollowUpTasksReport } from './salesFollowUpTasksReport.js';
 
 const DEFAULT_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 200;
@@ -20,7 +23,7 @@ type StoredRun = {
 
 export async function generateTabularReport(authContext: AuthContext, reportKey: string, params: TabularReportRequestParams) {
   const definition = requireDefinition(reportKey);
-  const access = resolveTabularReportAccess(authContext, definition.viewPermission, params);
+  const access = resolveTabularReportAccess(authContext, definition.viewPermission, params, definition.supportedScopes);
   const result = await executeReport(reportKey, access, params, { limit: MAX_REPORT_ROWS + 1 });
   if (result.rows.length > MAX_REPORT_ROWS) throw new ReportingError(413, `عدد صفوف التقرير يتجاوز الحد (${MAX_REPORT_ROWS})؛ ضيّق الفلاتر أولًا`);
   const columns = columnsForGrantedScope(definition, access.grantedScope);
@@ -77,9 +80,57 @@ export async function exportTabularReportRun(authContext: AuthContext, runId: st
   return { buffer, exportedAt, filename: `${definition.key.replaceAll('.', '-')}-${run.generatedAt.toISOString().replaceAll(':', '-').slice(0, 19)}.xlsx` };
 }
 
+export async function getTabularReportFilterOptions(
+  authContext: AuthContext,
+  reportKey: string,
+  params: TabularReportRequestParams,
+) {
+  const definition = requireDefinition(reportKey);
+  const access = resolveTabularReportAccess(authContext, definition.viewPermission, params, definition.supportedScopes);
+  if (reportKey === 'daily_work.visits_log') return getDailyVisitsFilterOptions(access);
+  if (reportKey === 'service.installed_devices') return getServiceDevicesFilterOptions(access);
+  if (reportKey === 'performance.sales_follow_up_tasks') {
+    const options = await getSalesFollowUpFilterOptions(access);
+    return {
+      ...options, telemarketers: [], visitStatuses: [], deviceModels: [], deviceStatuses: [],
+      warrantyStatuses: [], customerRatings: [], contactEmployees: [],
+    };
+  }
+  return {
+    supervisors: [], technicians: [], telemarketers: [], visitStatuses: [], taskTypes: [],
+    deviceModels: [], deviceStatuses: [], warrantyStatuses: [], customerRatings: [], contactEmployees: [],
+  };
+}
+
 function normalizedFilters(params: TabularReportRequestParams): TabularReportRequestParams {
   return {
     branchId: positiveInt(params.branchId), employeeId: positiveInt(params.employeeId),
+    supervisorEmployeeId: positiveInt(params.supervisorEmployeeId),
+    technicianEmployeeId: positiveInt(params.technicianEmployeeId),
+    telemarketerUserId: positiveInt(params.telemarketerUserId),
+    visitStatus: typeof params.visitStatus === 'string' ? params.visitStatus : null,
+    taskType: typeof params.taskType === 'string' ? params.taskType : null,
+    search: typeof params.search === 'string' ? params.search.trim() : null,
+    deviceModelId: positiveInt(params.deviceModelId),
+    deviceModel: typeof params.deviceModel === 'string' ? params.deviceModel : null,
+    deviceStatus: typeof params.deviceStatus === 'string' ? params.deviceStatus : null,
+    warrantyStatus: typeof params.warrantyStatus === 'string' ? params.warrantyStatus : null,
+    customerRating: typeof params.customerRating === 'string' ? params.customerRating : null,
+    contactEmployeeId: positiveInt(params.contactEmployeeId),
+    lastContactChannel: typeof params.lastContactChannel === 'string' ? params.lastContactChannel : null,
+    replacedParts: typeof params.replacedParts === 'string' ? params.replacedParts : null,
+    minPaidAmount: params.minPaidAmount == null || params.minPaidAmount === '' ? null : Number(params.minPaidAmount),
+    maxPaidAmount: params.maxPaidAmount == null || params.maxPaidAmount === '' ? null : Number(params.maxPaidAmount),
+    installationFrom: typeof params.installationFrom === 'string' ? params.installationFrom : null,
+    installationTo: typeof params.installationTo === 'string' ? params.installationTo : null,
+    periodicMaintenanceFrom: typeof params.periodicMaintenanceFrom === 'string' ? params.periodicMaintenanceFrom : null,
+    periodicMaintenanceTo: typeof params.periodicMaintenanceTo === 'string' ? params.periodicMaintenanceTo : null,
+    completedVisitFrom: typeof params.completedVisitFrom === 'string' ? params.completedVisitFrom : null,
+    completedVisitTo: typeof params.completedVisitTo === 'string' ? params.completedVisitTo : null,
+    lastContactFrom: typeof params.lastContactFrom === 'string' ? params.lastContactFrom : null,
+    lastContactTo: typeof params.lastContactTo === 'string' ? params.lastContactTo : null,
+    incompleteVisitFrom: typeof params.incompleteVisitFrom === 'string' ? params.incompleteVisitFrom : null,
+    incompleteVisitTo: typeof params.incompleteVisitTo === 'string' ? params.incompleteVisitTo : null,
     geoUnitId: positiveInt(params.geoUnitId), geoIds: typeof params.geoIds === 'string' ? params.geoIds : null,
     fromDate: typeof params.fromDate === 'string' ? params.fromDate : null,
     toDate: typeof params.toDate === 'string' ? params.toDate : null,
@@ -98,8 +149,8 @@ async function loadAuthorizedRun(authContext: AuthContext, runId: string, forExp
   run.id = String(run.id); run.branchIds = (run.branchIds ?? []).map(Number); run.rowCount = Number(run.rowCount); run.generatedAt = new Date(run.generatedAt);
   const definition = requireDefinition(run.reportKey);
   const current = forExport
-    ? resolveTabularExportAccess(authContext, definition.viewPermission, definition.exportPermission, run.filters)
-    : resolveTabularReportAccess(authContext, definition.viewPermission, run.filters);
+    ? resolveTabularExportAccess(authContext, definition.viewPermission, definition.exportPermission, run.filters, definition.supportedScopes)
+    : resolveTabularReportAccess(authContext, definition.viewPermission, run.filters, definition.supportedScopes);
   if (run.scopeType === 'GLOBAL' && current.grantedScope !== 'GLOBAL') throw new ReportingError(403, 'لم تعد صلاحيتك تسمح بهذه النسخة الشاملة');
   if (run.branchIds.length > 0 && current.grantedScope !== 'GLOBAL' && run.branchIds.some(id => !current.branchIds.includes(id))) throw new ReportingError(403, 'لم تعد فروع هذه النسخة ضمن صلاحيتك');
   return run;
@@ -118,5 +169,8 @@ function requireDefinition(reportKey: string) { const definition = findTabularRe
 async function executeReport(reportKey: string, access: ReturnType<typeof resolveTabularReportAccess>, params: TabularReportRequestParams, options: { offset?: number; limit: number }) {
   if (reportKey === 'work_files.geo_supervisors') return getWorkFilesGeoSupervisorsReport(access, params, options);
   if (reportKey === 'daily_work.visits_log') return getDailyVisitsReport(access, params, options);
+  if (reportKey === 'service.installed_devices') return getServiceDevicesReport(access, params, options);
+  if (reportKey === 'performance.geographic_portfolio') return getGeographicPortfolioReport(access, params, options);
+  if (reportKey === 'performance.sales_follow_up_tasks') return getSalesFollowUpTasksReport(access, params, options);
   throw new ReportingError(404, 'التقرير غير معروف');
 }

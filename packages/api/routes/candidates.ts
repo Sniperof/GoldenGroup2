@@ -29,6 +29,11 @@ import {
   normalizePhone,
 } from '../utils/contactValidation.js';
 import { resolveReferenceValueForWrite } from '../services/referenceValueService.js';
+import {
+  collectCandidatePhones,
+  detectCandidateDuplicate,
+} from '../services/candidateDuplicateDetection.js';
+import { recomputeReferralSheetStats } from '../services/referralSheetStats.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -56,6 +61,7 @@ const selectFieldsList = `
   c.duplicate_flag AS "duplicateFlag", c.duplicate_type AS "duplicateType",
   c.duplicate_reference_id AS "duplicateReferenceId",
   c.converted_to_lead_id AS "convertedToLeadId",
+  c.qualification_kind AS "qualificationKind",
   c.created_at AS "createdAt", c.created_by AS "createdBy",
   c.branch_id AS "branchId",
   b.name AS "branchName",
@@ -108,6 +114,7 @@ type LinkableCandidate = {
   status: string | null;
   convertedToLeadId: number | null;
   mobile: string | null;
+  contacts: unknown;
   referralType: string | null;
   referralOriginChannel: string | null;
   referralNameSnapshot: string | null;
@@ -209,6 +216,66 @@ function resolveCandidateListBranchFilter(req: any): number | null {
   return Number.isInteger(normalized) && normalized > 0 ? normalized : null;
 }
 
+/**
+ * The one place the candidate list scope is expressed in SQL. `GET /` and
+ * `GET /paged` share it so the two can never drift apart (standard §13 SH-1) —
+ * a drift here would be a silent visibility leak, not a visible bug.
+ * Conditions are appended to `params` and returned; the caller adds its own
+ * filters to the same arrays afterwards.
+ */
+function appendCandidateScopeConditions(
+  authContext: any,
+  requestedBranchId: number | null,
+  scope: string,
+  params: any[],
+): string[] {
+  const conditions: string[] = [];
+
+  if (requestedBranchId != null) {
+    params.push(requestedBranchId);
+    conditions.push(`c.branch_id = $${params.length}`);
+  }
+
+  if (scope === 'BRANCH') {
+    params.push(authContext.allowedBranchIds);
+    conditions.push(`c.branch_id = ANY($${params.length}::int[])`);
+  }
+
+  if (scope === 'ASSIGNED') {
+    params.push(authContext.userId);
+    conditions.push(`EXISTS (SELECT 1 FROM candidate_assignments WHERE candidate_id = c.id AND hr_user_id = $${params.length})`);
+    params.push(authContext.allowedBranchIds);
+    conditions.push(`c.branch_id = ANY($${params.length}::int[])`);
+  }
+
+  return conditions;
+}
+
+/**
+ * The search haystack for the paged list. Kept as one constant because
+ * migrations/438 builds a trigram index on this exact expression — any edit here
+ * must be mirrored there, or search silently degrades to a full scan.
+ */
+const CANDIDATE_SEARCH_EXPR =
+  `(COALESCE(c.first_name, '') || ' ' || COALESCE(c.nickname, '') || ' ' || COALESCE(c.last_name, '') || ' ' || COALESCE(c.mobile, '') || ' ' || COALESCE(c.referral_name_snapshot, ''))`;
+
+/** Sort keys the paged list accepts, mapped to SQL. Anything else falls back to createdAt. */
+const CANDIDATE_SORT_COLUMNS: Record<string, string> = {
+  createdAt: 'c.created_at',
+  id: 'c.id',
+  firstName: 'c.first_name',
+  lastName: 'c.last_name',
+  mobile: 'c.mobile',
+  status: 'c.status',
+  referralDate: 'c.referral_date',
+  branchName: 'b.name',
+};
+
+function toPositiveInt(value: unknown): number | null {
+  const n = Number(value);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
 async function loadCandidateSubject(candidateId: string | number): Promise<CandidateSubject | null> {
   const { rows } = await pool.query(
     `SELECT
@@ -236,6 +303,7 @@ async function loadLinkableCandidate(candidateId: string | number): Promise<Link
        status,
        converted_to_lead_id AS "convertedToLeadId",
        mobile,
+       contacts,
        referral_type AS "referralType",
        referral_origin_channel AS "referralOriginChannel",
        referral_name_snapshot AS "referralNameSnapshot",
@@ -463,32 +531,16 @@ router.get('/', requirePermission('candidates.view_list'), async (req, res) => {
       return forbidCandidateAccess(res, 'MISSING_PERMISSION');
     }
 
-    const conditions: string[] = [];
     const params: any[] = [];
-
-    if (requestedBranchId != null) {
-      params.push(requestedBranchId);
-      conditions.push(`c.branch_id = $${params.length}`);
-    }
-
-    if (listAccess.scope === 'BRANCH') {
-      params.push(authContext.allowedBranchIds);
-      conditions.push(`c.branch_id = ANY($${params.length}::int[])`);
-    }
-
-    if (listAccess.scope === 'ASSIGNED') {
-      params.push(authContext.userId);
-      conditions.push(`EXISTS (SELECT 1 FROM candidate_assignments WHERE candidate_id = c.id AND hr_user_id = $${params.length})`);
-      params.push(authContext.allowedBranchIds);
-      conditions.push(`c.branch_id = ANY($${params.length}::int[])`);
-    }
+    const conditions = appendCandidateScopeConditions(authContext, requestedBranchId, listAccess.scope, params);
 
     const where = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '';
     const { rows } = await pool.query(
+      // The sheets table is deliberately not joined here: selectFieldsList reads
+      // nothing from it, and at 100k+ names a dead join is pure cost.
       `SELECT ${selectFieldsList}
        FROM candidates c
        LEFT JOIN branches b ON b.id = c.branch_id
-       LEFT JOIN referral_sheets rs ON rs.id = c.referral_sheet_id
        LEFT JOIN hr_users cb ON cb.id = c.created_by
        LEFT JOIN roles r ON r.id = cb.role_id
        ${where}
@@ -498,6 +550,235 @@ router.get('/', requirePermission('candidates.view_list'), async (req, res) => {
     res.json(rows);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * @swagger
+ * /api/candidates/paged:
+ *   get:
+ *     tags: [Candidates]
+ *     summary: Server-paginated candidate records with filters and status KPIs
+ *     description: >
+ *       The records surface. Same scope rules as GET /api/candidates (shared
+ *       appendCandidateScopeConditions), but returns one page plus the status
+ *       counts for the whole filtered set. GET /api/candidates is left untouched
+ *       for its existing consumers.
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 25, maximum: 100 }
+ *       - in: query
+ *         name: sortKey
+ *         schema: { type: string, enum: [createdAt, id, firstName, lastName, mobile, status, referralDate, branchName] }
+ *       - in: query
+ *         name: sortDir
+ *         schema: { type: string, enum: [asc, desc] }
+ *       - in: query
+ *         name: ids
+ *         description: Comma-separated candidate ids — a scoped batch lookup for surfaces that need specific rows.
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: "{ items, total, page, limit, kpis }"
+ *       403:
+ *         description: Out of scope or missing permission
+ */
+// MUST stay above `/:id` — Express would otherwise match "paged" as an id.
+router.get('/paged', requirePermission('candidates.view_list'), async (req, res) => {
+  try {
+    const authContext = getRequiredAuthContext(req);
+    const requestedBranchId = resolveCandidateListBranchFilter(req);
+    const listAccess = getCandidateListAccessPlan(authContext);
+
+    if (!authContext.isSuperAdmin && authContext.allowedBranchIds.length === 0) {
+      return res.status(403).json({ error: 'لا يوجد فرع فعّال متاح لهذه العملية' });
+    }
+    if (requestedBranchId != null && !authContext.isSuperAdmin && !authContext.allowedBranchIds.includes(requestedBranchId)) {
+      return forbidCandidateAccess(res, 'BRANCH_FORBIDDEN');
+    }
+    if (listAccess.scope === 'NONE') {
+      return forbidCandidateAccess(res, 'MISSING_PERMISSION');
+    }
+
+    // An id-batch lookup is bounded by the ids themselves, so it may exceed the
+    // page cap — a caller asking for 300 known rows should not silently get 100.
+    const idsRaw = typeof req.query.ids === 'string' ? req.query.ids.trim() : '';
+    const maxLimit = idsRaw ? 500 : 100;
+
+    const page = toPositiveInt(req.query.page) ?? 1;
+    const limit = Math.min(maxLimit, Math.max(1, toPositiveInt(req.query.limit) ?? 25));
+    const offset = (page - 1) * limit;
+
+    // Default sort is createdAt DESC: it is what the page has always shown, so
+    // page 1 here is the same first screen the user saw before pagination.
+    const sortKey = typeof req.query.sortKey === 'string' && CANDIDATE_SORT_COLUMNS[req.query.sortKey]
+      ? req.query.sortKey
+      : 'createdAt';
+    const sortDir = req.query.sortDir === 'asc' ? 'ASC' : 'DESC';
+    const orderBy = `${CANDIDATE_SORT_COLUMNS[sortKey]} ${sortDir}, c.id ${sortDir}`;
+
+    // Scope first — every filter below only ever narrows it further.
+    const params: any[] = [];
+    const conditions = appendCandidateScopeConditions(authContext, requestedBranchId, listAccess.scope, params);
+
+    const str = (key: string): string =>
+      typeof req.query[key] === 'string' ? (req.query[key] as string).trim() : '';
+
+    // Scoped batch lookup by id — lets a surface fetch exactly the rows it
+    // needs instead of holding the whole table in memory.
+    if (idsRaw) {
+      const ids = idsRaw.split(',').map(v => Number(v.trim())).filter(v => Number.isInteger(v) && v > 0);
+      if (ids.length === 0) {
+        return res.json({ items: [], total: 0, page, limit, kpis: {} });
+      }
+      params.push(ids.slice(0, 500));
+      conditions.push(`c.id = ANY($${params.length}::int[])`);
+    }
+
+    const search = str('search');
+    if (search) {
+      params.push(`%${search}%`);
+      // One concatenated haystack, not five ORed columns: it reproduces the old
+      // in-browser search (which matched across name parts) AND it is the exact
+      // expression the trigram index in migration 438 is built on — the two must
+      // stay character-identical or the index is silently unused.
+      conditions.push(`${CANDIDATE_SEARCH_EXPR} ILIKE $${params.length}`);
+    }
+
+    const status = str('status');
+    if (status) {
+      params.push(status);
+      conditions.push(`c.status = $${params.length}`);
+    }
+
+    // An in-page branch filter, distinct from the X-Branch-Id scope header:
+    // it only ever narrows further, never widens what the scope already allows.
+    const branchFilterId = toPositiveInt(req.query.branchFilterId);
+    if (branchFilterId != null) {
+      params.push(branchFilterId);
+      conditions.push(`c.branch_id = $${params.length}`);
+    }
+
+    const responsibleUserId = toPositiveInt(req.query.responsibleUserId);
+    if (responsibleUserId != null) {
+      params.push(responsibleUserId);
+      conditions.push(`EXISTS (SELECT 1 FROM candidate_assignments f_ca WHERE f_ca.candidate_id = c.id AND f_ca.hr_user_id = $${params.length})`);
+    }
+
+    const createdByUserId = toPositiveInt(req.query.createdByUserId);
+    if (createdByUserId != null) {
+      params.push(createdByUserId);
+      conditions.push(`c.created_by = $${params.length}`);
+    }
+
+    const converted = str('converted');
+    if (converted === 'converted') conditions.push('c.converted_to_lead_id IS NOT NULL');
+    else if (converted === 'unconverted') conditions.push('c.converted_to_lead_id IS NULL');
+
+    const referralType = str('referralType');
+    if (referralType) {
+      params.push(referralType);
+      conditions.push(`c.referral_type = $${params.length}`);
+    }
+
+    const channel = str('channel');
+    if (channel) {
+      params.push(channel);
+      conditions.push(`c.referral_origin_channel = $${params.length}`);
+    }
+
+    const duplicate = str('duplicate');
+    if (duplicate === 'yes') conditions.push('c.duplicate_flag = TRUE');
+    else if (duplicate === 'no') conditions.push('COALESCE(c.duplicate_flag, FALSE) = FALSE');
+
+    const confirmation = str('confirmation');
+    if (confirmation) {
+      params.push(confirmation);
+      conditions.push(`c.referral_confirmation_status = $${params.length}`);
+    }
+
+    const source = str('source');
+    if (source === 'fromSheet') conditions.push('c.referral_sheet_id IS NOT NULL');
+    else if (source === 'direct') conditions.push('c.referral_sheet_id IS NULL');
+
+    const referralSheetId = toPositiveInt(req.query.referralSheetId);
+    if (referralSheetId != null) {
+      params.push(referralSheetId);
+      conditions.push(`c.referral_sheet_id = $${params.length}`);
+    }
+
+    // The referring entity (a client id when referralType = Client) — lets a
+    // client profile list the names it referred without loading the table.
+    const referralEntityId = toPositiveInt(req.query.referralEntityId);
+    if (referralEntityId != null) {
+      params.push(referralEntityId);
+      conditions.push(`c.referral_entity_id = $${params.length}`);
+    }
+
+    const geoUnitId = toPositiveInt(req.query.geoUnitId);
+    if (geoUnitId != null) {
+      params.push(geoUnitId);
+      conditions.push(`c.geo_unit_id = $${params.length}`);
+    }
+
+    const dateFrom = str('dateFrom');
+    if (dateFrom) {
+      params.push(dateFrom);
+      conditions.push(`c.created_at >= $${params.length}::date`);
+    }
+    const dateTo = str('dateTo');
+    if (dateTo) {
+      params.push(dateTo);
+      conditions.push(`c.created_at < ($${params.length}::date + INTERVAL '1 day')`);
+    }
+
+    const where = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '';
+
+    const pageParams = [...params];
+    pageParams.push(limit);
+    const limitRef = `$${pageParams.length}`;
+    pageParams.push(offset);
+    const offsetRef = `$${pageParams.length}`;
+
+    // One round trip for both: the page rows and the status counts the header
+    // shows. `total` is derived from the counts, so there is no third query.
+    const [pageResult, statsResult] = await Promise.all([
+      pool.query(
+        `SELECT ${selectFieldsList}
+           FROM candidates c
+           LEFT JOIN branches b ON b.id = c.branch_id
+           LEFT JOIN hr_users cb ON cb.id = c.created_by
+           LEFT JOIN roles r ON r.id = cb.role_id
+           ${where}
+          ORDER BY ${orderBy}
+          LIMIT ${limitRef} OFFSET ${offsetRef}`,
+        pageParams,
+      ),
+      pool.query(
+        `SELECT c.status AS status, COUNT(*)::int AS n
+           FROM candidates c
+           LEFT JOIN branches b ON b.id = c.branch_id
+           ${where}
+          GROUP BY 1`,
+        params,
+      ),
+    ]);
+
+    const kpis: Record<string, number> = {};
+    let total = 0;
+    for (const row of statsResult.rows) {
+      const n = Number(row.n);
+      total += n;
+      kpis[row.status ?? 'Unknown'] = n;
+    }
+
+    res.json({ items: pageResult.rows, total, page, limit, kpis });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 
@@ -535,6 +816,7 @@ router.get('/:id', requirePermission('candidates.view_list'), async (req, res) =
          c.duplicate_type AS "duplicateType",
          c.duplicate_reference_id AS "duplicateReferenceId",
          c.converted_to_lead_id AS "convertedToLeadId",
+         c.qualification_kind AS "qualificationKind",
          COALESCE(
            (SELECT array_agg(ca.hr_user_id ORDER BY ca.assigned_at, ca.id)
               FROM candidate_assignments ca
@@ -1006,6 +1288,13 @@ router.post('/', requirePermission('candidates.create'), async (req, res) => {
     }
 
     await db.query('BEGIN');
+
+    // BR-2: the server owns duplicate detection. Anything the client sent in
+    // duplicateFlag/duplicateType/duplicateReferenceId is ignored — it used to
+    // be computed in the browser against whatever slice of the clients table it
+    // had loaded, so the verdict changed with the caller's scope.
+    const duplicate = await detectCandidateDuplicate(db, collectCandidatePhones(c));
+
     const { rows } = await db.query(
       `INSERT INTO candidates (first_name, last_name, nickname, mobile, contacts, address_text, geo_unit_id,
         owner_user_id, status, referral_sheet_id, referral_date, referral_reason,
@@ -1019,13 +1308,17 @@ router.post('/', requirePermission('candidates.create'), async (req, res) => {
        c.referralDate || null, c.referralReason || null, c.referralType || null,
        c.referralOriginChannel || null, c.referralNameSnapshot || null,
        c.referralEntityId || null, c.referralConfirmationStatus || 'Pending',
-       c.occupation || null, c.candidateNotes || null, c.duplicateFlag || false, c.duplicateType || null,
-       c.duplicateReferenceId || null, c.convertedToLeadId || null, authContext.userId,
+       c.occupation || null, c.candidateNotes || null, duplicate.duplicateFlag, duplicate.duplicateType,
+       duplicate.duplicateReferenceId, c.convertedToLeadId || null, authContext.userId,
        targetBranchId]
     );
 
     const candidateId = rows[0].id;
     await replaceCandidateOwnership(db, candidateId, ownership, authContext.userId);
+
+    if (hasRequestedSheet) {
+      await recomputeReferralSheetStats(db, requestedSheetId);
+    }
 
     // Return full record with assignments and branch/user enrichment
     const { rows: full } = await db.query(
@@ -1197,14 +1490,36 @@ router.post('/:id/link-client', requirePermission('candidates.edit'), async (req
       await insertLinkedClientAssignments(db, clientId, transferableAssignmentIds, authContext.userId);
     }
 
+    // Linking records HOW the name was qualified. `duplicate_flag` is no longer
+    // asserted here: it is a detection result, not a side effect of the action.
+    // It is recomputed instead — and a linked name legitimately stays flagged,
+    // because the client it was attached to existed before it did.
+    const linkDuplicate = await detectCandidateDuplicate(
+      db,
+      collectCandidatePhones(candidate),
+      candidateId,
+    );
+
     await db.query(
       `UPDATE candidates
           SET status = 'Qualified',
               converted_to_lead_id = $2,
-              duplicate_flag = TRUE
+              qualification_kind = 'linked',
+              duplicate_flag = $3,
+              duplicate_type = $4,
+              duplicate_reference_id = $5
         WHERE id = $1`,
-      [candidateId, clientId],
+      [
+        candidateId,
+        clientId,
+        linkDuplicate.duplicateFlag,
+        linkDuplicate.duplicateType,
+        linkDuplicate.duplicateReferenceId,
+      ],
     );
+
+    // Conversion moves the sheet's quality/conversion percentages.
+    await recomputeReferralSheetStats(db, candidate.referralSheetId);
 
     await db.query('COMMIT');
 
@@ -1333,7 +1648,9 @@ router.put('/:id', requirePermission('candidates.edit'), async (req, res) => {
 
     await db.query('BEGIN');
     const { rows: lockedCandidateRows } = await db.query(
-      `SELECT status, converted_to_lead_id AS "convertedToLeadId"
+      `SELECT status,
+              converted_to_lead_id AS "convertedToLeadId",
+              referral_sheet_id AS "referralSheetId"
          FROM candidates
         WHERE id = $1
         FOR UPDATE`,
@@ -1351,6 +1668,16 @@ router.put('/:id', requirePermission('candidates.edit'), async (req, res) => {
         { status: 409, code: 'candidate_terminal_locked' },
       );
     }
+
+    // BR-2 re-evaluated on every edit (the numbers may have changed), excluding
+    // the record itself. Client-sent duplicate fields are ignored.
+    const duplicate = await detectCandidateDuplicate(
+      db,
+      collectCandidatePhones(c),
+      Number(candidateId),
+    );
+    const previousSheetId = lockedCandidateRows[0].referralSheetId ?? null;
+
     await db.query(
       `UPDATE candidates SET first_name=$1, last_name=$2, nickname=$3, mobile=$4,
         contacts=$5, address_text=$6, geo_unit_id=$7, status=$8, referral_sheet_id=$9,
@@ -1364,8 +1691,8 @@ router.put('/:id', requirePermission('candidates.edit'), async (req, res) => {
        c.referralDate || null, c.referralReason || null, c.referralType || null,
        c.referralOriginChannel || null, c.referralNameSnapshot || null,
        c.referralEntityId || null, c.referralConfirmationStatus || 'Pending',
-       c.occupation || null, c.candidateNotes || null, c.duplicateFlag || false, c.duplicateType || null,
-       c.duplicateReferenceId || null, c.convertedToLeadId || null, c.createdBy || null, targetBranchId,
+       c.occupation || null, c.candidateNotes || null, duplicate.duplicateFlag, duplicate.duplicateType,
+       duplicate.duplicateReferenceId, c.convertedToLeadId || null, c.createdBy || null, targetBranchId,
        candidateId]
     );
 
@@ -1375,6 +1702,14 @@ router.put('/:id', requirePermission('candidates.edit'), async (req, res) => {
         'UPDATE candidates SET owner_user_id = $2 WHERE id = $1',
         [candidateId, ownership.responsibleUserId],
       );
+    }
+
+    // Status / duplicate-flag / sheet membership all feed the sheet counters —
+    // refresh both the sheet left behind and the one joined.
+    const nextSheetId = c.referralSheetId || null;
+    await recomputeReferralSheetStats(db, previousSheetId);
+    if (String(nextSheetId ?? '') !== String(previousSheetId ?? '')) {
+      await recomputeReferralSheetStats(db, nextSheetId);
     }
 
     // Return full record with assignments and branch/user enrichment
@@ -1452,7 +1787,13 @@ router.delete('/:id', requirePermission('candidates.delete'), async (req, res) =
       return forbidCandidateAccess(res, deleteAccess.reason);
     }
 
-    await pool.query('DELETE FROM candidates WHERE id = $1', [candidateId]);
+    const { rows: deleted } = await pool.query(
+      'DELETE FROM candidates WHERE id = $1 RETURNING referral_sheet_id AS "referralSheetId"',
+      [candidateId],
+    );
+    // The browser never refreshed sheet counters after a delete, so a deleted
+    // name kept inflating its sheet's total. The server does it now.
+    await recomputeReferralSheetStats(pool, deleted[0]?.referralSheetId);
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

@@ -38,10 +38,15 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
     const { hasAnyPermission, hasPermission } = usePermissions();
     const referralSheets = useCandidateStore(state => state.referralSheets);
     const closeReferralSheet = useCandidateStore(state => state.closeReferralSheet);
-    const candidates = useCandidateStore(state => state.candidates);
+    const setLoadedCandidates = useCandidateStore(state => state.setLoadedCandidates);
     const qualifyCandidate = useCandidateStore(state => state.qualifyCandidate);
     const linkCandidateToClient = useCandidateStore(state => state.linkCandidateToClient);
     const markJunk = useCandidateStore(state => state.markJunk);
+
+    // This sheet's names, fetched for this sheet only.
+    const [sheetCandidateRows, setSheetCandidateRows] = useState<Candidate[]>([]);
+    const [sheetCandidatesRefreshKey, setSheetCandidatesRefreshKey] = useState(0);
+    const reloadSheetCandidates = () => setSheetCandidatesRefreshKey(k => k + 1);
 
     const [isQualifyModalOpen, setIsQualifyModalOpen] = useState(false);
     const [activeCandidateForQualify, setActiveCandidateForQualify] = useState<Candidate | null>(null);
@@ -61,6 +66,27 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
     });
     const canEditCandidates = hasPermission('candidates.edit');
     const canEditNameLists = hasAnyPermission('candidates.name_lists.edit');
+
+    // The sheet's names — one scoped request per open sheet, refreshed after every
+    // mutation here. `setLoadedCandidates` publishes them so the store's mutations
+    // (which resolve their subject from it) can act on the rows shown here.
+    useEffect(() => {
+        if (!isOpen || !sheetId) return;
+        let active = true;
+        api.candidates.listPaged({ referralSheetId: sheetId, limit: 100, sortKey: 'id', sortDir: 'desc' })
+            .then(res => {
+                if (!active) return;
+                setSheetCandidateRows(res.items as Candidate[]);
+                setLoadedCandidates(res.items as Candidate[]);
+            })
+            .catch((err: any) => {
+                if (!active) return;
+                console.error('Failed to load sheet candidates:', err);
+                setSheetCandidateRows([]);
+                setOperationError(err?.message ?? 'تعذّر تحميل أسماء اللائحة');
+            });
+        return () => { active = false; };
+    }, [isOpen, sheetId, sheetCandidatesRefreshKey, setLoadedCandidates]);
 
     useEffect(() => {
         if (!isOpen) return;
@@ -122,6 +148,7 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
         try {
             setOperationError(null);
             await qualifyCandidate(activeCandidateForQualify.id, clientData);
+            reloadSheetCandidates();
             setIsClientModalOpen(false);
             setClientInitialData(null);
             setActiveCandidateForQualify(null);
@@ -136,9 +163,10 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
     const sheet = referralSheets.find(s => s.id === sheetId);
     if (!sheet) return null;
 
-    const sheetCandidates = candidates
-        .filter(c => c.referralSheetId === sheetId)
-        .sort((a, b) => b.id - a.id);
+    // Fetched per sheet (see the effect above) instead of filtered out of a
+    // fully-loaded candidate array — this modal must not depend on the records
+    // page having pulled every name first.
+    const sheetCandidates = [...sheetCandidateRows].sort((a, b) => b.id - a.id);
     const selectedGiftDefinition = activeGiftDefinitions.find(definition => String(definition.id) === giftPromiseDraft.giftDefinitionId);
     const sheetReferralType = String(sheet.referralType ?? '').toLowerCase();
     const canCreateGiftPromiseForSheet = Boolean(
@@ -399,11 +427,22 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
                 onClose={() => setIsQualifyModalOpen(false)}
                 candidate={activeCandidateForQualify}
                 onQualified={handleQualificationConfirmed}
-                onJunk={(id) => { markJunk(id); setIsQualifyModalOpen(false); }}
+                onJunk={async (id) => {
+                    setOperationError(null);
+                    try {
+                        await markJunk(id);
+                        reloadSheetCandidates();
+                        setIsQualifyModalOpen(false);
+                    } catch (err: any) {
+                        console.error('Failed to mark candidate as junk:', err);
+                        setOperationError(err?.message ?? 'فشل رفض الاسم المقترح');
+                    }
+                }}
                 onLink={(candidateId, client) => {
                     setOperationError(null);
                     linkCandidateToClient(candidateId, client.id)
                         .then(() => {
+                            reloadSheetCandidates();
                             setIsQualifyModalOpen(false);
                             setActiveCandidateForQualify(null);
                         })

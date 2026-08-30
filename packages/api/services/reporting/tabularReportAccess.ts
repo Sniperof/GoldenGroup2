@@ -6,6 +6,32 @@ import type { ScopeMode } from './metricsCatalog.js';
 export interface TabularReportRequestParams {
   branchId?: string | number | null;
   employeeId?: string | number | null;
+  supervisorEmployeeId?: string | number | null;
+  technicianEmployeeId?: string | number | null;
+  telemarketerUserId?: string | number | null;
+  visitStatus?: string | null;
+  taskType?: string | null;
+  search?: string | null;
+  deviceModelId?: string | number | null;
+  deviceModel?: string | null;
+  deviceStatus?: string | null;
+  warrantyStatus?: string | null;
+  customerRating?: string | null;
+  contactEmployeeId?: string | number | null;
+  lastContactChannel?: string | null;
+  replacedParts?: string | null;
+  minPaidAmount?: string | number | null;
+  maxPaidAmount?: string | number | null;
+  installationFrom?: string | null;
+  installationTo?: string | null;
+  periodicMaintenanceFrom?: string | null;
+  periodicMaintenanceTo?: string | null;
+  completedVisitFrom?: string | null;
+  completedVisitTo?: string | null;
+  lastContactFrom?: string | null;
+  lastContactTo?: string | null;
+  incompleteVisitFrom?: string | null;
+  incompleteVisitTo?: string | null;
   geoUnitId?: string | number | null;
   geoIds?: string | null;
   fromDate?: string | null;
@@ -31,8 +57,10 @@ export function resolveTabularReportAccess(
   authContext: AuthContext,
   permission: string,
   params: TabularReportRequestParams,
+  supportedScopes?: Array<'GLOBAL' | 'BRANCH' | 'ASSIGNED'>,
 ): TabularReportAccess {
   const plan = resolveListAccessScope(authContext, permission);
+  assertSupportedScope(plan.scope, supportedScopes);
   return resolveAccessPlan(plan, params.branchId);
 }
 
@@ -41,6 +69,7 @@ export function resolveTabularExportAccess(
   viewPermission: string,
   exportPermission: string,
   params: TabularReportRequestParams,
+  supportedScopes?: Array<'GLOBAL' | 'BRANCH' | 'ASSIGNED'>,
 ): TabularReportAccess {
   const viewPlan = resolveListAccessScope(authContext, viewPermission);
   const exportPlan = resolveListAccessScope(authContext, exportPermission);
@@ -49,7 +78,17 @@ export function resolveTabularExportAccess(
   }
   const rank = { ASSIGNED: 1, BRANCH: 2, GLOBAL: 3 } as const;
   const effectivePlan = rank[viewPlan.scope] <= rank[exportPlan.scope] ? viewPlan : exportPlan;
+  assertSupportedScope(effectivePlan.scope, supportedScopes);
   return resolveAccessPlan(effectivePlan, params.branchId);
+}
+
+function assertSupportedScope(
+  scope: ListAccessPlan['scope'],
+  supportedScopes?: Array<'GLOBAL' | 'BRANCH' | 'ASSIGNED'>,
+) {
+  if (scope !== 'NONE' && supportedScopes && !supportedScopes.includes(scope)) {
+    throw new ReportingError(403, 'نطاق الصلاحية الحالي غير مدعوم لهذا التقرير');
+  }
 }
 
 export function resolveAccessPlan(plan: ListAccessPlan, branchId: unknown): TabularReportAccess {

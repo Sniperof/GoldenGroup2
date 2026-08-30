@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { ListAccessPlan } from '@golden-crm/shared';
 import { ReportingError } from './reportingError.js';
-import { resolveAccessPlan, resolveTabularExportAccess } from './tabularReportAccess.js';
+import { resolveAccessPlan, resolveTabularExportAccess, resolveTabularReportAccess } from './tabularReportAccess.js';
 
 function plan(scope: ListAccessPlan['scope'], allowedBranchIds = [3, 7]): ListAccessPlan {
   return { scope, allowedBranchIds, userId: 42 };
@@ -36,6 +36,23 @@ test('ASSIGNED report access keeps both branch and personal boundaries', () => {
 test('missing report permission is denied by default', () => {
   assert.throws(
     () => resolveAccessPlan(plan('NONE'), null),
+    (error: unknown) => error instanceof ReportingError && error.status === 403,
+  );
+});
+
+test('a report that supports GLOBAL and BRANCH rejects an ASSIGNED grant', () => {
+  const authContext = {
+    userId: 42, roleId: 8, isSuperAdmin: false,
+    grants: [{ permission: 'reports.service.installed_devices.view', scope: 'ASSIGNED' as const }],
+    allowedBranchIds: [3], actingBranchId: 3,
+  };
+  assert.throws(
+    () => resolveTabularReportAccess(
+      authContext,
+      'reports.service.installed_devices.view',
+      {},
+      ['GLOBAL', 'BRANCH'],
+    ),
     (error: unknown) => error instanceof ReportingError && error.status === 403,
   );
 });

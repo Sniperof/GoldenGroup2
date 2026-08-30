@@ -34,6 +34,30 @@ interface QueryOptions {
   limit: number;
 }
 
+const VISIT_STATUS_LABELS = {
+  scheduled: 'مجدولة',
+  in_progress: 'قيد التنفيذ',
+  ended: 'منتهية ميدانياً',
+  completed: 'مكتملة',
+  not_completed: 'لم تكتمل',
+  cancelled: 'ملغاة',
+  closed: 'مغلقة',
+} as const;
+
+type VisitStatus = keyof typeof VISIT_STATUS_LABELS;
+
+export interface DailyVisitFilterOption {
+  value: string;
+  label: string;
+}
+
+export interface DailyVisitFilterOptions {
+  supervisors: DailyVisitFilterOption[];
+  technicians: DailyVisitFilterOption[];
+  telemarketers: DailyVisitFilterOption[];
+  visitStatuses: DailyVisitFilterOption[];
+}
+
 function validIsoDate(value: unknown): value is string {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const date = new Date(`${value}T00:00:00Z`);
@@ -85,6 +109,32 @@ function appendVisitFilters(
       OR $${params.length} = COALESCE(fv.reassigned_trainee_id, NULLIF(fv.team_snapshot->>'traineeEmployeeId','')::int)
       OR $${params.length} = telemarketer_employee.id
     )`);
+  }
+
+  const supervisorEmployeeId = positiveInt(request.supervisorEmployeeId);
+  if (supervisorEmployeeId != null) {
+    params.push(supervisorEmployeeId);
+    filters.push(`COALESCE(fv.reassigned_supervisor_id, NULLIF(fv.team_snapshot->>'supervisorEmployeeId','')::int) = $${params.length}`);
+  }
+
+  const technicianEmployeeId = positiveInt(request.technicianEmployeeId);
+  if (technicianEmployeeId != null) {
+    params.push(technicianEmployeeId);
+    filters.push(`COALESCE(fv.reassigned_technician_id, NULLIF(fv.team_snapshot->>'technicianEmployeeId','')::int) = $${params.length}`);
+  }
+
+  const telemarketerUserId = positiveInt(request.telemarketerUserId);
+  if (telemarketerUserId != null) {
+    params.push(telemarketerUserId);
+    filters.push(`fv.booked_by_telemarketer_id = $${params.length}`);
+  }
+
+  if (request.visitStatus != null && request.visitStatus !== '') {
+    if (!(request.visitStatus in VISIT_STATUS_LABELS)) {
+      throw new ReportingError(400, 'حالة الزيارة المحددة غير صالحة');
+    }
+    params.push(request.visitStatus);
+    filters.push(`fv.status = $${params.length}`);
   }
 
   const geoIds = String(request.geoIds ?? request.geoUnitId ?? '')
@@ -211,5 +261,73 @@ export async function getDailyVisitsReport(
       taskCount: Number(row.taskCount),
       actualNamesCount: Number(row.actualNamesCount),
     } satisfies DailyVisitReportRow)),
+  };
+}
+
+function buildFilterOptionsAccess(access: TabularReportAccess) {
+  const params: unknown[] = [];
+  const filters: string[] = [];
+  if (access.branchIds.length > 0) {
+    params.push(access.branchIds);
+    filters.push(`fv.branch_id = ANY($${params.length}::int[])`);
+  }
+  if (access.scope === 'ASSIGNED') {
+    params.push(access.userId);
+    filters.push(`EXISTS (
+      SELECT 1 FROM hr_users scoped_user
+      WHERE scoped_user.id = $${params.length}
+        AND scoped_user.is_active = TRUE
+        AND (
+          fv.booked_by_telemarketer_id = scoped_user.id
+          OR scoped_user.employee_id = COALESCE(fv.reassigned_supervisor_id, NULLIF(fv.team_snapshot->>'supervisorEmployeeId','')::int)
+          OR scoped_user.employee_id = COALESCE(fv.reassigned_technician_id, NULLIF(fv.team_snapshot->>'technicianEmployeeId','')::int)
+          OR scoped_user.employee_id = COALESCE(fv.reassigned_trainee_id, NULLIF(fv.team_snapshot->>'traineeEmployeeId','')::int)
+        )
+    )`);
+  }
+  return { params, where: filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : '' };
+}
+
+function mapNamedOptions(rows: Array<{ value: unknown; label: unknown }>): DailyVisitFilterOption[] {
+  return rows
+    .filter(row => row.value != null && row.label != null && String(row.label).trim() !== '')
+    .map(row => ({ value: String(row.value), label: String(row.label) }));
+}
+
+export async function getDailyVisitsFilterOptions(access: TabularReportAccess): Promise<DailyVisitFilterOptions> {
+  const { params, where } = buildFilterOptionsAccess(access);
+  const [supervisors, technicians, telemarketers, statuses] = await Promise.all([
+    pool.query(
+      `SELECT DISTINCT employee.id AS value, employee.name AS label
+       FROM field_visits fv
+       JOIN employees employee ON employee.id=COALESCE(fv.reassigned_supervisor_id,NULLIF(fv.team_snapshot->>'supervisorEmployeeId','')::int)
+       ${where} ORDER BY label`,
+      params,
+    ),
+    pool.query(
+      `SELECT DISTINCT employee.id AS value, employee.name AS label
+       FROM field_visits fv
+       JOIN employees employee ON employee.id=COALESCE(fv.reassigned_technician_id,NULLIF(fv.team_snapshot->>'technicianEmployeeId','')::int)
+       ${where} ORDER BY label`,
+      params,
+    ),
+    pool.query(
+      `SELECT DISTINCT telemarketer_user.id AS value, COALESCE(telemarketer_employee.name,telemarketer_user.name) AS label
+       FROM field_visits fv
+       JOIN hr_users telemarketer_user ON telemarketer_user.id=fv.booked_by_telemarketer_id
+       LEFT JOIN employees telemarketer_employee ON telemarketer_employee.id=telemarketer_user.employee_id
+       ${where} ORDER BY label`,
+      params,
+    ),
+    pool.query(`SELECT DISTINCT fv.status AS value FROM field_visits fv ${where} ORDER BY value`, params),
+  ]);
+  return {
+    supervisors: mapNamedOptions(supervisors.rows),
+    technicians: mapNamedOptions(technicians.rows),
+    telemarketers: mapNamedOptions(telemarketers.rows),
+    visitStatuses: statuses.rows.flatMap(row => {
+      const value = String(row.value ?? '') as VisitStatus;
+      return value in VISIT_STATUS_LABELS ? [{ value, label: VISIT_STATUS_LABELS[value] }] : [];
+    }),
   };
 }

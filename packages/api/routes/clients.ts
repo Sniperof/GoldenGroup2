@@ -40,6 +40,12 @@ import {
   redactPersonalAssignments,
 } from '../services/customerOwnership.js';
 import { buildClientSnapshot } from '../lib/clientSnapshot.js';
+import { phoneNormalizationSql } from '../utils/phoneSql.js';
+import { recomputeReferralSheetStats } from '../services/referralSheetStats.js';
+import {
+  collectCandidatePhones,
+  detectCandidateDuplicate,
+} from '../services/candidateDuplicateDetection.js';
 import { resolveReferenceValueForWrite } from '../services/referenceValueService.js';
 import {
   applyClientDoNotContactState,
@@ -542,18 +548,6 @@ function enforcePersonalReferrer<T extends Record<string, any>>(
     referrerId: null,
     referralEntityId: null,
   };
-}
-
-function phoneNormalizationSql(expression: string): string {
-  const digits = `regexp_replace(COALESCE(${expression}, ''), '\\D', '', 'g')`;
-  return `
-    CASE
-      WHEN ${digits} ~ '^009639\\d{8}$' THEN '0' || right(${digits}, 9)
-      WHEN ${digits} ~ '^9639\\d{8}$' THEN '0' || right(${digits}, 9)
-      WHEN ${digits} ~ '^9\\d{8}$' THEN '0' || ${digits}
-      ELSE ${digits}
-    END
-  `;
 }
 
 async function findDuplicateClientByPhone(
@@ -1269,6 +1263,26 @@ router.get('/paged', requirePermission('clients.view_list'), async (req, res) =>
     if (['correct', 'incorrect', 'needs_edit'].includes(dataQuality)) {
       params.push(dataQuality);
       conditions.push(`c.data_quality = $${params.length}`);
+    }
+
+    // Clients referred BY a given client. Covers both storage shapes the row
+    // mapper already reconciles: the legacy flat columns and the `referrers`
+    // JSONB array. Lets the client profile list its referrals without the modal
+    // pulling the whole clients table to filter it in the browser.
+    const referredByClientId = toPositiveInt(req.query.referredByClientId as any);
+    if (referredByClientId != null) {
+      params.push(referredByClientId);
+      const ref = `$${params.length}`;
+      // Containment (@>) rather than expanding the array per row: it is the form
+      // the GIN index from migration 439 can answer. `referralEntityId` is stored
+      // as a JSON number, so the probe is built with jsonb_build_object to match
+      // the type exactly.
+      conditions.push(`(
+        (c.referral_entity_id = ${ref} AND c.referrer_type = 'Client')
+        OR c.referrers @> jsonb_build_array(
+             jsonb_build_object('referralEntityId', ${ref}::int, 'referrerType', 'Client')
+           )
+      )`);
     }
 
     const where = ` WHERE ${conditions.join(' AND ')}`;
@@ -2346,14 +2360,45 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
     }
 
     if (hasSourceCandidate) {
-      await db.query(
+      // Conversion records HOW the name was qualified, and re-derives the
+      // duplicate verdict EXCLUDING the client it just became — otherwise the
+      // name matches its own new client and every successful conversion counts
+      // as a duplicate, which is what used to push a fully-converted sheet's
+      // quality percentage to zero.
+      const { rows: candidatePhoneRows } = await db.query(
+        'SELECT mobile, contacts FROM candidates WHERE id = $1',
+        [sourceCandidateId],
+      );
+      const convertedDuplicate = await detectCandidateDuplicate(
+        db,
+        collectCandidatePhones(candidatePhoneRows[0] ?? {}),
+        Number(sourceCandidateId),
+        Number(inserted.id),
+      );
+
+      const { rows: convertedCandidate } = await db.query(
         `UPDATE candidates
             SET status = 'Qualified',
                 converted_to_lead_id = $2,
-                duplicate_flag = TRUE
-          WHERE id = $1`,
-        [sourceCandidateId, inserted.id],
+                qualification_kind = 'converted',
+                duplicate_flag = $3,
+                duplicate_type = $4,
+                duplicate_reference_id = $5
+          WHERE id = $1
+        RETURNING referral_sheet_id AS "referralSheetId"`,
+        [
+          sourceCandidateId,
+          inserted.id,
+          convertedDuplicate.duplicateFlag,
+          convertedDuplicate.duplicateType,
+          convertedDuplicate.duplicateReferenceId,
+        ],
       );
+      // Qualifying a name changes its sheet's quality/conversion percentages.
+      // Previously the browser recomputed them from the fully-loaded candidates
+      // array and PUT them back; the counters are now derived from the relation
+      // inside this same transaction.
+      await recomputeReferralSheetStats(db, convertedCandidate[0]?.referralSheetId);
     }
 
     const { rows } = await db.query(`${CLIENT_SELECT} WHERE c.id = $1`, [inserted.id]);

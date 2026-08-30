@@ -10,7 +10,6 @@ import { api } from '../lib/api';
 import { getOpenTaskDetailPath } from '../lib/taskRoutes';
 import IconButton from '../components/ui/IconButton';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
-import { useCandidateStore } from '../hooks/useCandidateStore';
 import { useClientStore } from '../hooks/useClientStore';
 import { OPEN_TASK_TYPE_LABELS, OPEN_TASK_REASON_LABELS, isHiddenOperationalTaskType, taskRequiresInstalledDevice } from '@golden-crm/shared';
 import type { OpenTask, OpenTaskType, OpenTaskReason } from '@golden-crm/shared';
@@ -37,7 +36,7 @@ import Modal from '../components/ui/Modal';
 import Badge from '../components/ui/Badge';
 import DataTable from '../components/ui/DataTable';
 import DatePicker from '../components/ui/DatePicker';
-import type { DaySchedule, Contract, Visit, TaskListItem, Appointment, CustomerOwnership, ContactEntry, Client } from '../lib/types';
+import type { DaySchedule, Contract, Visit, TaskListItem, Appointment, CustomerOwnership, ContactEntry, Client, Candidate } from '../lib/types';
 import type { TelemarketingOutcomeCode, GeoUnit } from '@golden-crm/shared';
 import { OUTCOME_MAP, getOutcomeMeta, normaliseOutcomeCode, PHONE_STATUS_TO_CONTACT_ENTRY } from '@golden-crm/shared';
 import { buildGeoHierarchyLabel } from '../utils/addressUtils';
@@ -270,7 +269,10 @@ const OwnershipBadge = ({ ownership }: { ownership?: CustomerOwnership | null })
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function TelemarketerWorkspace() {
-    const candidates = useCandidateStore(state => state.candidates);
+    // Candidate rows for the entities on today's task list. Fetched by id — this
+    // workspace used to read a globally-loaded array, so candidate cards lost their
+    // name and details whenever the records page had not been opened first.
+    const [candidates, setCandidates] = useState<Candidate[]>([]);
     const { clients, loadClients, updateClient } = useClientStore();
     const { taskLists, appointments, callLogs, loadData, addCallLog, addAppointment, addDirectAppointment, updateTaskListItemStatus, getTaskList, getAppointmentsForTeamDate } = useTelemarketingStore();
     const canBook = useAuthStore(state => state.hasPermission('telemarketing.appointments.book'));
@@ -482,6 +484,21 @@ export default function TelemarketerWorkspace() {
             window.clearInterval(timer);
         };
     }, [customerGroups, date]);
+
+    // One scoped request for exactly the candidate ids on the board.
+    const candidateIdsKey = useMemo(
+        () => customerGroups.filter(cg => cg.entityType === 'candidate').map(cg => cg.entityId).sort((a, b) => a - b).join(','),
+        [customerGroups],
+    );
+
+    useEffect(() => {
+        if (!candidateIdsKey) { setCandidates([]); return; }
+        let active = true;
+        api.candidates.listPaged({ ids: candidateIdsKey, limit: 500 })
+            .then(res => { if (active) setCandidates(res.items as Candidate[]); })
+            .catch(err => { if (active) { console.error('Failed to load board candidates:', err); setCandidates([]); } });
+        return () => { active = false; };
+    }, [candidateIdsKey]);
 
     // ── Rich-card attributes + filter inputs, computed per customer ──────────
     const clientsById = useMemo(() => new Map(clients.map(c => [c.id, c])), [clients]);
