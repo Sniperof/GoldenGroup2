@@ -145,19 +145,6 @@ export default function GiftPromiseInlinePanel({
             </select>
           </label>
 
-          <label className="text-xs font-bold text-slate-500">
-            حالة تحقق الشرط
-            <select
-              value={draft.conditionStatus}
-              onChange={event => setDraft(prev => ({ ...prev, conditionStatus: event.target.value as GiftConditionStatus }))}
-              className="mt-1 w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm text-slate-800"
-            >
-              {Object.entries(giftConditionStatusLabels).map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
-          </label>
-
           <label className="text-xs font-bold text-slate-500 md:col-span-2">
             شرط الوعد
             <input
@@ -168,7 +155,7 @@ export default function GiftPromiseInlinePanel({
           </label>
 
           <label className="text-xs font-bold text-slate-500">
-            العدد عند الاعتماد
+            الكمية الموعودة
             <input
               type="number"
               min={1}

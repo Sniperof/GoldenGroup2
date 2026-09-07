@@ -2,6 +2,7 @@ import pool from '../../db.js';
 import { buildClientLifecycleStatusSql, eligiblePersonalOwnerCondition } from '../customerOwnership.js';
 import type { TabularReportAccess, TabularReportRequestParams } from './tabularReportAccess.js';
 import { positiveInt } from './tabularReportAccess.js';
+import { buildTabularReportOrderBy } from './tabularReportSorting.js';
 
 const ACTIVE_DEVICE_DEMO_STATUSES = [
   'open',
@@ -37,6 +38,7 @@ export interface WorkFilesGeoSupervisorsResult {
 interface QueryOptions {
   offset?: number;
   limit: number;
+  includeTotalRows?: boolean;
 }
 
 function appendFilters(
@@ -293,15 +295,18 @@ export function buildWorkFilesGeoSupervisorsQuery(
       report_rows.fop_closed_demo_count AS "fopClosedDemoCount",
       report_rows.op_closed_demo_count AS "opClosedDemoCount",
       latest_visit.actual_end_time AS "lastVisitAt",
-      latest_visit.technician_name AS "lastVisitTechnicianName",
-      COUNT(*) OVER()::int AS "totalRows"
+      latest_visit.technician_name AS "lastVisitTechnicianName"
+      ${options.includeTotalRows === false ? '' : ', COUNT(*) OVER()::int AS "totalRows"'}
     FROM report_rows
     LEFT JOIN visit_candidates latest_visit
       ON latest_visit.branch_id = report_rows.branch_id
      AND latest_visit.supervisor_employee_id = report_rows.employee_id
      AND latest_visit.geo_unit_id = report_rows.geo_unit_id
      AND latest_visit.visit_rank = 1
-    ORDER BY report_rows.employee_name, report_rows.geo_unit_name, report_rows.employee_id, report_rows.geo_unit_id
+    ORDER BY ${buildTabularReportOrderBy(
+      'work_files.geo_supervisors', access, request,
+      'report_rows.employee_name, report_rows.geo_unit_name, report_rows.employee_id, report_rows.geo_unit_id',
+    )}
     LIMIT ${limitPlaceholder}${offsetSql}`;
 
   return { sql, params };

@@ -2,10 +2,12 @@ import pool from '../../db.js';
 import type { TabularReportAccess, TabularReportRequestParams } from './tabularReportAccess.js';
 import { positiveInt } from './tabularReportAccess.js';
 import { ReportingError } from './reportingError.js';
+import { buildTabularReportOrderBy } from './tabularReportSorting.js';
 
 interface QueryOptions {
   offset?: number;
   limit: number;
+  includeTotalRows?: boolean;
 }
 
 export interface ServiceDeviceReportRow {
@@ -227,8 +229,8 @@ export function buildServiceDevicesQuery(
       last_contact.call_date AS "lastContactAt",
       last_contact.employee_name AS "contactEmployeeName",
       NULLIF(last_contact.notes, '') AS "contactNotes",
-      TO_CHAR(last_incomplete_visit.visit_date, 'YYYY-MM-DD') AS "lastIncompleteVisitDate",
-      COUNT(*) OVER()::int AS "totalRows"
+      TO_CHAR(last_incomplete_visit.visit_date, 'YYYY-MM-DD') AS "lastIncompleteVisitDate"
+      ${options.includeTotalRows === false ? '' : ', COUNT(*) OVER()::int AS "totalRows"'}
     FROM installed_devices device
     JOIN clients client ON client.id = device.customer_id
     JOIN branches branch ON branch.id = device.branch_id
@@ -326,7 +328,9 @@ export function buildServiceDevicesQuery(
       ORDER BY visit.scheduled_date DESC NULLS LAST, visit.updated_at DESC, visit.id DESC LIMIT 1
     ) last_incomplete_visit ON TRUE
     WHERE ${filters.join('\n      AND ')}
-    ORDER BY client.name, device.id
+    ORDER BY ${buildTabularReportOrderBy(
+      'service.installed_devices', access, request, 'client.name, device.id',
+    )}
     LIMIT ${limitPlaceholder}${offsetSql}`;
 
   return { sql, params };

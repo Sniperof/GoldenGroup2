@@ -6,6 +6,7 @@ import {
     MapPin, PlusCircle, MessageSquare, ThumbsUp, Wrench, Activity, Briefcase,
     Search, ChevronLeft, ChevronRight, Layers, Eye, Edit3, X, Cpu, Gift, Loader2, RefreshCw,
 } from '../components/ui/icons';
+import { toCallInstant } from '../lib/callDateTime';
 import { api } from '../lib/api';
 import { getOpenTaskDetailPath } from '../lib/taskRoutes';
 import IconButton from '../components/ui/IconButton';
@@ -1099,7 +1100,7 @@ export default function TelemarketerWorkspace() {
                 answeredBy: extras?.answeredBy ?? null,
                 communicationChannel: extras?.communicationChannel ?? null,
                 status: extras?.status ?? 'completed',
-                callDate: extras?.callDateTime ?? null,
+                callDate: toCallInstant(extras?.callDateTime),
                 actionLog: {},
             }).catch(() => {});
         }
@@ -2403,7 +2404,7 @@ export default function TelemarketerWorkspace() {
                         contactId: pendingEmergencyCall.contactId,
                         contactNumber: pendingEmergencyCall.contactNumber,
                         contactLabel: pendingEmergencyCall.contactLabel,
-                        callDate: pendingEmergencyCall.extras?.callDateTime ?? null,
+                        callDate: toCallInstant(pendingEmergencyCall.extras?.callDateTime),
                         taskListItemId: selectedCustomer.primaryItem.id,
                         answeredBy: pendingEmergencyCall.extras?.answeredBy ?? null,
                         communicationChannel: pendingEmergencyCall.extras?.communicationChannel ?? null,

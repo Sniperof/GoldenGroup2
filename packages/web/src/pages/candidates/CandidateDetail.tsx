@@ -3,13 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import type { CandidateDetail as CandidateDetailDto } from '../../lib/types';
 import { api } from '../../lib/api';
 import { usePermissions } from '../../hooks/usePermissions';
-import type { GiftRecordPrototype } from '../../data/giftsPrototype';
-import {
-    giftConditionClasses,
-    giftConditionStatusLabels,
-    giftStatusClasses,
-    giftStatusLabels,
-} from '../../data/giftsPrototype';
+import ReferralGiftPromisesPanel from '../../components/gifts/ReferralGiftPromisesPanel';
 import {
     AlertCircle,
     ArrowLeft,
@@ -115,9 +109,6 @@ export default function CandidateDetail() {
     const { hasPermission } = usePermissions();
     const candidateId = Number(id);
     const [candidate, setCandidate] = useState<CandidateDetailDto | null>(null);
-    const [giftPromises, setGiftPromises] = useState<GiftRecordPrototype[]>([]);
-    const [giftPromisesLoading, setGiftPromisesLoading] = useState(false);
-    const [giftPromisesError, setGiftPromisesError] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const canViewGiftPromises = hasPermission('contract_gifts.view');
@@ -143,37 +134,6 @@ export default function CandidateDetail() {
             });
         return () => { active = false; };
     }, [candidateId]);
-
-    useEffect(() => {
-        let active = true;
-        if (
-            !canViewGiftPromises
-            || !candidate
-            || candidate.id !== candidateId
-            || !Number.isInteger(candidateId)
-            || candidateId <= 0
-        ) {
-            setGiftPromises([]);
-            setGiftPromisesError(null);
-            setGiftPromisesLoading(false);
-            return () => { active = false; };
-        }
-
-        setGiftPromisesLoading(true);
-        setGiftPromisesError(null);
-        api.gifts.records.list({ candidateId })
-            .then((records) => {
-                if (active) setGiftPromises(records);
-            })
-            .catch((err: any) => {
-                if (active) setGiftPromisesError(err?.message || 'تعذر تحميل وعود الهدايا');
-            })
-            .finally(() => {
-                if (active) setGiftPromisesLoading(false);
-            });
-
-        return () => { active = false; };
-    }, [candidate, candidateId, canViewGiftPromises]);
 
     const geoPath = useMemo(
         () => candidate?.address.geoPath.map((unit) => unit.name).join(' ← ') || EMPTY,
@@ -409,64 +369,10 @@ export default function CandidateDetail() {
 
             {canViewGiftPromises ? (
                 <Card title="وعود الهدايا" icon={Gift}>
-                    {giftPromisesLoading ? (
-                        <div className="flex min-h-28 items-center justify-center">
-                            <div className="h-7 w-7 animate-spin rounded-full border-4 border-sky-100 border-t-sky-600" />
-                        </div>
-                    ) : giftPromisesError ? (
-                        <div className="flex items-center gap-2 rounded-xl border border-red-100 bg-red-50 p-4 text-sm font-bold text-red-700">
-                            <AlertCircle className="h-4 w-4 shrink-0" />
-                            {giftPromisesError}
-                        </div>
-                    ) : giftPromises.length === 0 ? (
-                        <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm font-bold text-slate-500">
-                            لا توجد وعود هدايا مسجلة لهذا الاسم أو لائحته.
-                        </div>
-                    ) : (
-                        <div className="grid gap-3 lg:grid-cols-2">
-                            {giftPromises.map((record) => (
-                                <article key={record.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                                    <div className="flex flex-wrap items-start justify-between gap-3">
-                                        <div>
-                                            <p className="text-base font-black text-slate-900">{record.giftName}</p>
-                                            <p className="mt-1 text-xs font-bold text-slate-500">
-                                                الوعد: {record.promisedQuantity} {record.unitLabel}
-                                                {record.approvedQuantity != null
-                                                    ? ` · المعتمد: ${record.approvedQuantity} ${record.unitLabel}`
-                                                    : ''}
-                                            </p>
-                                        </div>
-                                        <Pill className={giftStatusClasses[record.status]}>{giftStatusLabels[record.status]}</Pill>
-                                    </div>
-                                    <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                                        <Field label="المستفيد" value={record.beneficiaryName} />
-                                        <Field label="تاريخ الوعد" value={formatDate(record.createdAt)} />
-                                        <Field label="الشرط" value={record.conditionLabel} />
-                                        <Field
-                                            label="حالة الشرط"
-                                            value={(
-                                                <Pill className={giftConditionClasses[record.conditionStatus]}>
-                                                    {giftConditionStatusLabels[record.conditionStatus]}
-                                                </Pill>
-                                            )}
-                                        />
-                                    </div>
-                                    {record.sources.length > 0 ? (
-                                        <div className="mt-3 rounded-xl border border-slate-100 bg-white px-4 py-3">
-                                            <p className="text-xs font-bold text-slate-400">مصدر الوعد</p>
-                                            <div className="mt-2 flex flex-wrap gap-2">
-                                                {record.sources.map((source) => (
-                                                    <span key={source.id} className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600">
-                                                        {source.label}
-                                                    </span>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    ) : null}
-                                </article>
-                            ))}
-                        </div>
-                    )}
+                    <ReferralGiftPromisesPanel
+                        candidateId={candidateId}
+                        emptyText="لا توجد وعود هدايا مسجلة لهذا الاسم أو لائحته."
+                    />
                 </Card>
             ) : null}
         </div>

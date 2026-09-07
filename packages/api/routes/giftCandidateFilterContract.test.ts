@@ -20,4 +20,6 @@ test('gift record list filters a candidate through direct and source-sheet promi
   assert.match(route, /getGiftListAccessPlan/);
   assert.match(route, /accessPlan\.scope === 'BRANCH'/);
   assert.match(route, /accessPlan\.scope === 'ASSIGNED'/);
+  assert.match(route, /candidate_assignment\.hr_user_id/);
+  assert.match(route, /sheet_subject\.assigned_hr_user_id/);
 });

@@ -34,6 +34,10 @@ import {
   detectCandidateDuplicate,
 } from '../services/candidateDuplicateDetection.js';
 import { recomputeReferralSheetStats } from '../services/referralSheetStats.js';
+import {
+  createReferralGiftPromise,
+  ReferralGiftPromiseError,
+} from '../services/referralGiftPromises.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -1316,6 +1320,15 @@ router.post('/', requirePermission('candidates.create'), async (req, res) => {
     const candidateId = rows[0].id;
     await replaceCandidateOwnership(db, candidateId, ownership, authContext.userId);
 
+    if (!hasRequestedSheet && req.body?.giftPromise) {
+      await createReferralGiftPromise(db, {
+        sourceType: 'candidate',
+        sourceId: candidateId,
+        draft: req.body.giftPromise,
+        actorUserId: authContext.userId,
+      });
+    }
+
     if (hasRequestedSheet) {
       await recomputeReferralSheetStats(db, requestedSheetId);
     }
@@ -1334,8 +1347,10 @@ router.post('/', requirePermission('candidates.create'), async (req, res) => {
     res.json(full[0]);
   } catch (err: any) {
     await db.query('ROLLBACK').catch(() => undefined);
-    const status = err instanceof CandidateOwnershipError ? err.status : (err.status || 500);
-    res.status(status).json({ error: err.message, code: err.code });
+    const status = err instanceof CandidateOwnershipError || err instanceof ReferralGiftPromiseError
+      ? err.status
+      : (err.status || 500);
+    res.status(status).json({ error: err.message, code: err.code, ...(err.details ?? {}) });
   } finally {
     db.release();
   }

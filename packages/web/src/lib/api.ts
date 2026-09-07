@@ -212,6 +212,7 @@ export interface ReportColumnDefinition {
   titleAr: string;
   type: 'text' | 'integer' | 'decimal' | 'date' | 'datetime' | 'link';
   width: number;
+  sortable?: boolean;
 }
 
 export interface ReportCatalogItem {
@@ -243,6 +244,48 @@ export interface ReportCatalogItem {
     replacedParts?: boolean;
     paidAmount?: boolean;
     dateRanges?: Array<{ fromKey: string; toKey: string; label: string }>;
+    primaryDateRanges?: Array<{ fromKey: string; toKey: string; label: string }>;
+    candidateNameSearch?: boolean;
+    candidateSourceType?: boolean;
+    candidateStatus?: boolean;
+    candidateOutcome?: boolean;
+    candidateDuplicateStatus?: boolean;
+    referralSheetNumber?: boolean;
+    mediatorName?: boolean;
+    mediatorType?: boolean;
+    accompanyingTechnician?: boolean;
+    giftPromiseStatus?: boolean;
+    occupation?: boolean;
+    contractStatus?: boolean;
+    contractSeller?: boolean;
+    contractSellerDepartment?: boolean;
+    contractPaymentType?: boolean;
+    contractExecutionStage?: boolean;
+    contractSaleType?: boolean;
+    reportDeviceModels?: boolean;
+    reportDeviceModelsRequired?: boolean;
+    callEmployee?: boolean;
+    callOutcome?: boolean;
+    departmentType?: boolean;
+    contractSaleSubtype?: boolean;
+    contractRemainingBalance?: boolean;
+    contractSale?: boolean;
+    financialAsOfDate?: boolean;
+    collectionOwner?: boolean;
+    saleCloser?: boolean;
+    latestCollectionResult?: boolean;
+    faultType?: boolean;
+    faultStatus?: boolean;
+    faultDiscoveryPhase?: boolean;
+    repairTechnician?: boolean;
+    faultDuration?: boolean;
+    faultPartsUsage?: boolean;
+    retrievalPurpose?: boolean;
+    retrievalTechnician?: boolean;
+    retrievedDeviceStatus?: boolean;
+    giftConditionStatus?: boolean;
+    giftDeliveryResult?: boolean;
+    giftDefinition?: boolean;
   };
   guide: {
     framingTitle: string;
@@ -262,13 +305,31 @@ export interface ReportCatalogGroup {
 
 export interface TabularReportResponse {
   runId: string;
+  status: 'completed';
   report: Omit<ReportCatalogItem, 'viewScope' | 'canExport' | 'exportScope'>;
   scope: 'GLOBAL' | 'BRANCH' | 'ASSIGNED';
   branchIds: number[];
+  filters: Record<string, unknown>;
   rows: Array<Record<string, unknown>>;
   pagination: { page: number; limit: number; total: number; pages: number };
   generatedAt: string;
+  requestedAt: string;
+  expiresAt: string;
+  progress: { rows: number; batches: number };
 }
+
+export interface TabularReportPendingResponse {
+  runId: string;
+  status: 'queued' | 'running' | 'failed';
+  requestedAt: string;
+  expiresAt: string;
+  startedAt?: string | null;
+  generatedAt?: string | null;
+  progress: { rows: number; batches: number };
+  error?: string | null;
+}
+
+export type TabularReportRunResponse = TabularReportResponse | TabularReportPendingResponse;
 
 export interface ReportFilterOptions {
   supervisors: Array<{ value: string; label: string }>;
@@ -281,6 +342,23 @@ export interface ReportFilterOptions {
   warrantyStatuses: Array<{ value: string; label: string }>;
   customerRatings: Array<{ value: string; label: string }>;
   contactEmployees: Array<{ value: string; label: string }>;
+  candidateStatuses: Array<{ value: string; label: string }>;
+  accompanyingTechnicians: Array<{ value: string; label: string }>;
+  giftPromiseStatuses: Array<{ value: string; label: string }>;
+  contractStatuses: Array<{ value: string; label: string }>;
+  contractSellers: Array<{ value: string; label: string }>;
+  contractSellerDepartments: Array<{ value: string; label: string }>;
+  contractSales: Array<{ value: string; label: string }>;
+  collectionOwners: Array<{ value: string; label: string }>;
+  saleClosers: Array<{ value: string; label: string }>;
+  departmentTypes: Array<{ value: string; label: string }>;
+  callEmployees: Array<{ value: string; label: string }>;
+  callOutcomes: Array<{ value: string; label: string }>;
+  faultTypes: Array<{ value: string; label: string }>;
+  repairTechnicians: Array<{ value: string; label: string }>;
+  retrievalTechnicians: Array<{ value: string; label: string }>;
+  retrievedDeviceStatuses: Array<{ value: string; label: string }>;
+  giftDefinitions: Array<{ value: string; label: string }>;
 }
 
 // GET /contracts/paged — server pagination companion to contracts.list()
@@ -661,14 +739,14 @@ export const api = {
       return request<ReportFilterOptions>(`/reports/tabular/${key}/filter-options${suffix}`);
     },
     generateTabular: (key: string, filters?: Record<string, string | number | null | undefined>) =>
-      request<TabularReportResponse>(`/reports/tabular/${key}/generate`, { method: 'POST', body: JSON.stringify(filters ?? {}) }),
+      request<TabularReportPendingResponse>(`/reports/tabular/${key}/generate`, { method: 'POST', body: JSON.stringify(filters ?? {}) }),
     tabularRun: (runId: string, params?: Record<string, string | number | null | undefined>) => {
       const query = new URLSearchParams();
       Object.entries(params ?? {}).forEach(([k, v]) => {
         if (v !== undefined && v !== null && v !== '') query.set(k, String(v));
       });
       const suffix = query.toString() ? `?${query.toString()}` : '';
-      return request<TabularReportResponse>(`/reports/tabular/runs/${runId}${suffix}`);
+      return request<TabularReportRunResponse>(`/reports/tabular/runs/${runId}${suffix}`);
     },
     exportTabularRun: async (runId: string) => {
       const response = await authFetch(`${API_BASE}/reports/tabular/runs/${runId}/export`);
@@ -755,6 +833,8 @@ export const api = {
           });
         }
       },
+      updateReferralPromise: (id: number | string, data: { giftDefinitionId: number; conditionLabel: string; promisedQuantity: number }) =>
+        request<any>(`/gifts/records/${id}/referral-promise`, { method: 'PATCH', body: JSON.stringify(data) }),
       updateCondition: (id: number | string, data: { conditionStatus: string; conditionNotes?: string }) =>
         request<any>(`/gifts/records/${id}/condition`, { method: 'PATCH', body: JSON.stringify(data) }),
       approve: (id: number | string, data?: { approvedQuantity?: number; approvalNotes?: string }) =>
@@ -1002,7 +1082,25 @@ export const api = {
       );
     },
     get: (id: number) => request<import('@golden-crm/shared').CandidateDetail>(`/candidates/${id}`),
-    create: (data: any) => request<any>('/candidates', { method: 'POST', body: JSON.stringify(data) }),
+    create: async (data: any) => {
+      try {
+        return await request<any>('/candidates', { method: 'POST', body: JSON.stringify(data) });
+      } catch (error: any) {
+        if (error?.payload?.code !== 'similar_gift_promises' || !data?.giftPromise) throw error;
+        const count = Number(error.payload?.similarCount) || 0;
+        const proceed = window.confirm(
+          `تنبيه: يوجد ${count} وعد/وعود غير منتهية مشابهة لهذا الوسيط. هل تريد حفظ الاسم ووعد جديد مستقل؟`,
+        );
+        if (!proceed) throw new Error('تم إيقاف الحفظ بعد تنبيه الوعود المشابهة');
+        return request<any>('/candidates', {
+          method: 'POST',
+          body: JSON.stringify({
+            ...data,
+            giftPromise: { ...data.giftPromise, similarPromiseWarningAcknowledged: true },
+          }),
+        });
+      }
+    },
     update: (id: number, data: any) => request<any>(`/candidates/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     linkToClient: (id: number, clientId: number) =>
       request<any>(`/candidates/${id}/link-client`, { method: 'POST', body: JSON.stringify({ clientId }) }),
@@ -1014,7 +1112,25 @@ export const api = {
       '/referral-sheets',
       branchId != null ? { headers: { 'X-Branch-Id': String(branchId) } } : undefined,
     ),
-    create: (data: any) => request<any>('/referral-sheets', { method: 'POST', body: JSON.stringify(data) }),
+    create: async (data: any) => {
+      try {
+        return await request<any>('/referral-sheets', { method: 'POST', body: JSON.stringify(data) });
+      } catch (error: any) {
+        if (error?.payload?.code !== 'similar_gift_promises' || !data?.giftPromise) throw error;
+        const count = Number(error.payload?.similarCount) || 0;
+        const proceed = window.confirm(
+          `تنبيه: يوجد ${count} وعد/وعود غير منتهية مشابهة لهذا الوسيط. هل تريد حفظ اللائحة ووعد جديد مستقل؟`,
+        );
+        if (!proceed) throw new Error('تم إيقاف الحفظ بعد تنبيه الوعود المشابهة');
+        return request<any>('/referral-sheets', {
+          method: 'POST',
+          body: JSON.stringify({
+            ...data,
+            giftPromise: { ...data.giftPromise, similarPromiseWarningAcknowledged: true },
+          }),
+        });
+      }
+    },
     update: (id: number, data: any) => request<any>(`/referral-sheets/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   },
   routes: {

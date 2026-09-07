@@ -3,11 +3,17 @@ import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { getOrBuildAuthContext, requirePermission } from '../middleware/permission.js';
 import { canAccessGift, getGiftListAccessPlan } from '../policies/giftPolicy.js';
+import { canEditCandidate } from '../policies/candidatePolicy.js';
+import { canEditReferralSheet } from '../policies/referralSheetPolicy.js';
 import {
   GiftDeliveryTaskCreationError,
   insertGiftDeliveryLinkedEvents,
   mapGiftDeliveryCreationDatabaseError,
 } from '../services/giftDeliveryTaskCreation.js';
+import {
+  ReferralGiftPromiseError,
+  updateReferralGiftPromise,
+} from '../services/referralGiftPromises.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -462,6 +468,7 @@ router.get('/records', requirePermission('contract_gifts.view'), async (req, res
   const employeeId = normalizePositiveInt(req.query.employeeId);
   const contractId = normalizePositiveInt(req.query.contractId);
   const candidateId = normalizePositiveInt(req.query.candidateId);
+  const referralSheetId = normalizePositiveInt(req.query.referralSheetId);
 
   if (branchId != null) {
     params.push(branchId);
@@ -509,6 +516,16 @@ router.get('/records', requirePermission('contract_gifts.view'), async (req, res
       )
     )`);
   }
+  if (referralSheetId != null) {
+    params.push(referralSheetId);
+    conditions.push(`EXISTS (
+      SELECT 1
+      FROM gift_record_sources sheet_source
+      WHERE sheet_source.gift_record_id = gr.id
+        AND sheet_source.source_type = 'name_list'
+        AND sheet_source.referral_sheet_id = $${params.length}
+    )`);
+  }
 
   if (accessPlan.scope === 'BRANCH') {
     params.push(accessPlan.allowedBranchIds);
@@ -530,6 +547,23 @@ router.get('/records', requirePermission('contract_gifts.view'), async (req, res
             AND ca.hr_user_id = $${userParam}
         )
         OR ($${employeeParam}::int IS NOT NULL AND gr.beneficiary_employee_id = $${employeeParam})
+        OR EXISTS (
+          SELECT 1
+            FROM gift_record_sources candidate_source
+            JOIN candidates candidate_subject ON candidate_subject.id = candidate_source.candidate_id
+            JOIN candidate_assignments candidate_assignment ON candidate_assignment.candidate_id = candidate_subject.id
+           WHERE candidate_source.gift_record_id = gr.id
+             AND candidate_source.source_type = 'candidate'
+             AND candidate_assignment.hr_user_id = $${userParam}
+        )
+        OR EXISTS (
+          SELECT 1
+            FROM gift_record_sources sheet_source
+            JOIN referral_sheets sheet_subject ON sheet_subject.id = sheet_source.referral_sheet_id
+           WHERE sheet_source.gift_record_id = gr.id
+             AND sheet_source.source_type = 'name_list'
+             AND sheet_subject.assigned_hr_user_id = $${userParam}
+        )
       )
     )`);
   }
@@ -549,6 +583,84 @@ router.get('/records', requirePermission('contract_gifts.view'), async (req, res
     params,
   );
   res.json(rows.map(mapRecord));
+});
+
+router.patch('/records/:id/referral-promise', async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'غير مصرح' });
+  const giftRecordId = normalizePositiveInt(req.params.id);
+  const giftDefinitionId = normalizePositiveInt(req.body?.giftDefinitionId);
+  const quantity = normalizePositiveInt(req.body?.promisedQuantity ?? req.body?.quantity);
+  if (!giftRecordId || !giftDefinitionId || !quantity) {
+    return res.status(400).json({ error: 'تعريف الهدية والكمية الموعودة مطلوبان' });
+  }
+
+  const authContext = await getOrBuildAuthContext(req as any);
+  const sourceResult = await pool.query(
+    `SELECT src.source_type, src.candidate_id, src.referral_sheet_id
+       FROM gift_record_sources src
+      WHERE src.gift_record_id=$1
+        AND src.source_type IN ('candidate','name_list')
+      ORDER BY src.id
+      LIMIT 1`,
+    [giftRecordId],
+  );
+  const source = sourceResult.rows[0];
+  if (!source) {
+    return res.status(409).json({ error: 'هذا الوعد ليس تابعاً لاسم مقترح أو لائحة أسماء' });
+  }
+
+  let allowed = false;
+  if (source.source_type === 'candidate' && source.candidate_id != null) {
+    const candidateResult = await pool.query(
+      `SELECT c.branch_id AS "branchId",
+              COALESCE(array_agg(ca.hr_user_id) FILTER (WHERE ca.hr_user_id IS NOT NULL), '{}') AS "assignedUserIds"
+         FROM candidates c
+         LEFT JOIN candidate_assignments ca ON ca.candidate_id=c.id
+        WHERE c.id=$1
+        GROUP BY c.id`,
+      [source.candidate_id],
+    );
+    const candidate = candidateResult.rows[0];
+    allowed = Boolean(candidate && canEditCandidate(authContext, {
+      branchId: candidate.branchId == null ? null : Number(candidate.branchId),
+      assignedUserIds: (candidate.assignedUserIds ?? []).map(Number),
+    }).allowed);
+  } else if (source.source_type === 'name_list' && source.referral_sheet_id != null) {
+    const sheetResult = await pool.query(
+      `SELECT branch_id AS "branchId", owner_user_id AS "ownerUserId",
+              assigned_hr_user_id AS "assignedHrUserId"
+         FROM referral_sheets
+        WHERE id=$1`,
+      [source.referral_sheet_id],
+    );
+    const sheet = sheetResult.rows[0];
+    allowed = Boolean(sheet && canEditReferralSheet(authContext, {
+      branchId: sheet.branchId == null ? null : Number(sheet.branchId),
+      ownerUserId: sheet.ownerUserId == null ? null : Number(sheet.ownerUserId),
+      assignedHrUserId: sheet.assignedHrUserId == null ? null : Number(sheet.assignedHrUserId),
+    }).allowed);
+  }
+  if (!allowed) return res.status(403).json({ error: 'غير مسموح بتعديل هذا الوعد' });
+
+  const db = await pool.connect();
+  try {
+    await db.query('BEGIN');
+    await updateReferralGiftPromise(db, {
+      giftRecordId,
+      giftDefinitionId,
+      conditionLabel: req.body?.conditionLabel,
+      quantity,
+      actorUserId: authContext.userId,
+    });
+    await db.query('COMMIT');
+    return res.json(await getRecordById(giftRecordId));
+  } catch (error: any) {
+    await db.query('ROLLBACK').catch(() => undefined);
+    const status = error instanceof ReferralGiftPromiseError ? error.status : (error.status || 500);
+    return res.status(status).json({ error: error.message, code: error.code });
+  } finally {
+    db.release();
+  }
 });
 
 router.post('/records', requirePermission('contract_gifts.manage'), async (req, res) => {

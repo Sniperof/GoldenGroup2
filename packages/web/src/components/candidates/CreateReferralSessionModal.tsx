@@ -297,36 +297,13 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
                 assignedHrUserId: assignmentOwnerId,
                 branchId: selectedBranchId === '' ? (contextBranchId ?? authUser?.branchId ?? undefined) : Number(selectedBranchId),
                 status: 'New',
-                createdBy: authUser?.id
+                createdBy: authUser?.id,
+                giftPromise: giftPromise ? {
+                    giftDefinitionId: giftPromise.giftDefinitionId,
+                    conditionLabel: giftPromise.conditionLabel,
+                    quantity: giftPromise.quantity,
+                } : null,
             });
-
-            // وعد هدية من لائحة الأسماء — يُنشأ كـ gift_record للوسيط الزبون (best-effort).
-            if (giftPromise && referralType === 'Client' && selectedClientId) {
-                const giftBranchId = selectedBranchId === '' ? (contextBranchId ?? authUser?.branchId ?? null) : Number(selectedBranchId);
-                try {
-                    await api.gifts.records.create({
-                        giftDefinitionId: Number(giftPromise.giftDefinitionId) || undefined,
-                        beneficiaryType: 'customer_referrer',
-                        beneficiaryClientId: selectedClientId,
-                        beneficiaryName: nameSnapshot,
-                        conditionLabel: giftPromise.conditionLabel,
-                        conditionStatus: giftPromise.conditionStatus,
-                        approvedQuantity: giftPromise.quantity,
-                        quantity: giftPromise.quantity,
-                        customerId: selectedClientId,
-                        sourceBranchId: giftBranchId,
-                        responsibleBranchId: giftBranchId,
-                        source: {
-                            sourceType: 'name_list',
-                            referralSheetId: newId,
-                            sourceLabel: `وعد من لائحة الأسماء #${newId}`,
-                            quantity: giftPromise.quantity,
-                        },
-                    });
-                } catch (giftErr) {
-                    console.error('Failed to create gift promise from name list:', giftErr);
-                }
-            }
 
             if (onSheetCreated) onSheetCreated(newId);
             resetState();

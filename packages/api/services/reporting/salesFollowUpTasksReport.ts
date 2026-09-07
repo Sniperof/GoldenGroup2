@@ -2,10 +2,12 @@ import pool from '../../db.js';
 import type { TabularReportAccess, TabularReportRequestParams } from './tabularReportAccess.js';
 import { positiveInt } from './tabularReportAccess.js';
 import { ReportingError } from './reportingError.js';
+import { buildTabularReportOrderBy } from './tabularReportSorting.js';
 
 interface QueryOptions {
   offset?: number;
   limit: number;
+  includeTotalRows?: boolean;
 }
 
 export interface SalesFollowUpTaskRow {
@@ -131,8 +133,8 @@ export function buildSalesFollowUpTasksQuery(
              COALESCE(neighborhood.name, 'غير محدد') AS "neighborhoodName",
              COALESCE(NULLIF(config.arabic_label,''), vt.task_type) AS "taskType",
              TO_CHAR(result.closed_at AT TIME ZONE 'Asia/Damascus', 'YYYY-MM-DD') AS "executedDate",
-             NULLIF(BTRIM(result.closing_notes),'') AS "resultNotes",
-             COUNT(*) OVER()::int AS "totalRows"
+             NULLIF(BTRIM(result.closing_notes),'') AS "resultNotes"
+             ${options.includeTotalRows === false ? '' : ', COUNT(*) OVER()::int AS "totalRows"'}
         FROM visit_tasks vt
         JOIN field_visits fv ON fv.id = vt.field_visit_id
         JOIN visit_task_results result ON result.visit_task_id = vt.id
@@ -174,7 +176,9 @@ export function buildSalesFollowUpTasksQuery(
           CASE WHEN location2.level=4 THEN location2.id END, CASE WHEN location3.level=4 THEN location3.id END,
           CASE WHEN location4.level=4 THEN location4.id END)
        WHERE ${filters.join('\n         AND ')}
-       ORDER BY result.closed_at DESC, vt.id DESC
+       ORDER BY ${buildTabularReportOrderBy(
+         'performance.sales_follow_up_tasks', access, request, 'result.closed_at DESC, vt.id DESC',
+       )}
        LIMIT ${limitRef}${offsetSql}`,
   };
 }

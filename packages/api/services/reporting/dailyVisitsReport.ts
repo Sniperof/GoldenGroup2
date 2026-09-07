@@ -2,6 +2,7 @@ import pool from '../../db.js';
 import { ReportingError } from './reportingError.js';
 import type { TabularReportAccess, TabularReportRequestParams } from './tabularReportAccess.js';
 import { positiveInt } from './tabularReportAccess.js';
+import { buildTabularReportOrderBy } from './tabularReportSorting.js';
 
 export interface DailyVisitReportRow {
   visitId: number;
@@ -32,6 +33,7 @@ export interface DailyVisitReportRow {
 interface QueryOptions {
   offset?: number;
   limit: number;
+  includeTotalRows?: boolean;
 }
 
 const VISIT_STATUS_LABELS = {
@@ -199,8 +201,8 @@ export function buildDailyVisitsQuery(
       CASE WHEN fv.status='cancelled' THEN cancellation_reason.value ELSE NULL END AS "cancellationReason",
       CASE WHEN fv.status='cancelled' THEN NULLIF(BTRIM(fv.cancellation_notes),'') ELSE NULL END AS "cancellationNotes",
       COALESCE(task_summary.task_count,0)::int AS "taskCount",
-      COALESCE(sheet_summary.actual_names_count,0)::int AS "actualNamesCount",
-      COUNT(*) OVER()::int AS "totalRows"
+      COALESCE(sheet_summary.actual_names_count,0)::int AS "actualNamesCount"
+      ${options.includeTotalRows === false ? '' : ', COUNT(*) OVER()::int AS "totalRows"'}
     FROM field_visits fv
     JOIN clients c ON c.id=fv.client_id
     JOIN branches branch ON branch.id=fv.branch_id
@@ -222,7 +224,10 @@ export function buildDailyVisitsQuery(
     ) sheet_summary ON TRUE
     WHERE fv.scheduled_date BETWEEN $1::date AND $2::date
       ${filters}
-    ORDER BY fv.scheduled_date DESC,LEFT(COALESCE(fv.scheduled_time,''),5) DESC,fv.id DESC
+    ORDER BY ${buildTabularReportOrderBy(
+      'daily_work.visits_log', access, request,
+      "fv.scheduled_date DESC,LEFT(COALESCE(fv.scheduled_time,''),5) DESC,fv.id DESC",
+    )}
     LIMIT ${limitPlaceholder}${offsetSql}`;
   return { sql, params };
 }

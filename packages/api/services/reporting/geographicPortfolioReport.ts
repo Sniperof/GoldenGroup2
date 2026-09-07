@@ -1,6 +1,7 @@
 import pool from '../../db.js';
 import type { TabularReportAccess, TabularReportRequestParams } from './tabularReportAccess.js';
 import { positiveInt } from './tabularReportAccess.js';
+import { buildTabularReportOrderBy } from './tabularReportSorting.js';
 
 const CHALLENGER_MODEL_ID = 1195;
 const AQUANOVA_MODEL_ID = 2462;
@@ -9,6 +10,7 @@ const SAFE_LIFE_MODEL_ID = 1300;
 interface QueryOptions {
   offset?: number;
   limit: number;
+  includeTotalRows?: boolean;
 }
 
 export interface GeographicPortfolioRow {
@@ -250,8 +252,8 @@ export function buildGeographicPortfolioQuery(
              ELSE 'منخفضة'
            END AS "evaluationConfidence",
            COALESCE(evaluation.evaluation_count, 0)::int AS "evaluationCount",
-           TO_CHAR(evaluation.latest_evaluation_at::date, 'YYYY-MM-DD') AS "latestEvaluationDate",
-           COUNT(*) OVER()::int AS "totalRows"
+           TO_CHAR(evaluation.latest_evaluation_at::date, 'YYYY-MM-DD') AS "latestEvaluationDate"
+           ${options.includeTotalRows === false ? '' : ', COUNT(*) OVER()::int AS "totalRows"'}
       FROM report_keys keys
       LEFT JOIN branches branch ON branch.id = keys.branch_id
       LEFT JOIN geo_units governorate ON governorate.id = keys.governorate_id
@@ -272,14 +274,13 @@ export function buildGeographicPortfolioQuery(
        AND evaluation.governorate_id IS NOT DISTINCT FROM keys.governorate_id
        AND evaluation.region_id IS NOT DISTINCT FROM keys.region_id
        AND evaluation.subarea_id IS NOT DISTINCT FROM keys.subarea_id
-     ORDER BY COALESCE(branch.name, 'غير محدد'),
-              COALESCE(governorate.name, 'غير محدد'),
-              COALESCE(region.name, 'غير محدد'),
-              COALESCE(subarea.name, 'غير محدد'),
-              keys.branch_id NULLS LAST,
-              keys.governorate_id NULLS LAST,
-              keys.region_id NULLS LAST,
-              keys.subarea_id NULLS LAST
+     ORDER BY ${buildTabularReportOrderBy(
+       'performance.geographic_portfolio', access, request,
+       `COALESCE(branch.name, 'غير محدد'), COALESCE(governorate.name, 'غير محدد'),
+        COALESCE(region.name, 'غير محدد'), COALESCE(subarea.name, 'غير محدد'),
+        keys.branch_id NULLS LAST, keys.governorate_id NULLS LAST,
+        keys.region_id NULLS LAST, keys.subarea_id NULLS LAST`,
+     )}
      LIMIT ${limitRef}${offsetSql}
   `;
 

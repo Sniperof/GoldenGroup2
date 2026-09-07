@@ -27,7 +27,11 @@ interface CandidateState {
      */
     setLoadedCandidates: (items: Candidate[]) => void;
 
-    addReferralSheet: (sheet: Omit<ReferralSheet, 'id' | 'createdAt' | 'stats' | 'ownerUserId' | 'createdBy'> & { ownerUserId?: number; createdBy?: number }) => Promise<number>;
+    addReferralSheet: (sheet: Omit<ReferralSheet, 'id' | 'createdAt' | 'stats' | 'ownerUserId' | 'createdBy'> & {
+        ownerUserId?: number;
+        createdBy?: number;
+        giftPromise?: { giftDefinitionId: string; conditionLabel: string; quantity: number } | null;
+    }) => Promise<number>;
     closeReferralSheet: (sheetId: number) => Promise<void>;
 
     addCandidate: (candidate: Omit<Candidate, 'id' | 'createdAt' | 'duplicateFlag' | 'duplicateType' | 'duplicateReferenceId' | 'status' | 'referralConfirmationStatus' | 'convertedToLeadId' | 'referralSheetId' | 'ownershipType'> & {
@@ -35,6 +39,7 @@ interface CandidateState {
         ownershipType?: 'PERSONAL' | 'BRANCH';
         responsibleUserId?: number | null;
         assignmentUserIds?: number[];
+        giftPromise?: { giftDefinitionId: string; conditionLabel: string; quantity: number } | null;
     }) => Promise<Candidate>;
     qualifyCandidate: (candidateId: number, clientData?: any) => Promise<void>;
     linkCandidateToClient: (candidateId: number, clientId: number) => Promise<void>;

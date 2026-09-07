@@ -69,6 +69,26 @@ function readTabularParams(req: Request) {
     geoIds: typeof req.query.geoIds === 'string' ? req.query.geoIds : undefined,
     fromDate: typeof req.query.fromDate === 'string' ? req.query.fromDate : undefined,
     toDate: typeof req.query.toDate === 'string' ? req.query.toDate : undefined,
+    saleType: typeof req.query.saleType === 'string' ? req.query.saleType : undefined,
+    saleSubtype: typeof req.query.saleSubtype === 'string' ? req.query.saleSubtype : undefined,
+    remainingBalance: typeof req.query.remainingBalance === 'string' ? req.query.remainingBalance : undefined,
+    contractId: typeof req.query.contractId === 'string' ? req.query.contractId : undefined,
+    deviceModelIds: typeof req.query.deviceModelIds === 'string' ? req.query.deviceModelIds : undefined,
+    callOutcome: typeof req.query.callOutcome === 'string' ? req.query.callOutcome : undefined,
+    departmentTypeId: typeof req.query.departmentTypeId === 'string' ? req.query.departmentTypeId : undefined,
+    financialAsOfDate: typeof req.query.financialAsOfDate === 'string' ? req.query.financialAsOfDate : undefined,
+    collectionOwnerId: typeof req.query.collectionOwnerId === 'string' ? req.query.collectionOwnerId : undefined,
+    saleCloserUserId: typeof req.query.saleCloserUserId === 'string' ? req.query.saleCloserUserId : undefined,
+    latestCollectionResult: typeof req.query.latestCollectionResult === 'string' ? req.query.latestCollectionResult : undefined,
+    opFrom: typeof req.query.opFrom === 'string' ? req.query.opFrom : undefined,
+    opTo: typeof req.query.opTo === 'string' ? req.query.opTo : undefined,
+    contractFrom: typeof req.query.contractFrom === 'string' ? req.query.contractFrom : undefined,
+    contractTo: typeof req.query.contractTo === 'string' ? req.query.contractTo : undefined,
+    giftDeliveryFrom: typeof req.query.giftDeliveryFrom === 'string' ? req.query.giftDeliveryFrom : undefined,
+    giftDeliveryTo: typeof req.query.giftDeliveryTo === 'string' ? req.query.giftDeliveryTo : undefined,
+    giftConditionStatus: typeof req.query.giftConditionStatus === 'string' ? req.query.giftConditionStatus : undefined,
+    giftDeliveryResult: typeof req.query.giftDeliveryResult === 'string' ? req.query.giftDeliveryResult : undefined,
+    giftDefinitionId: typeof req.query.giftDefinitionId === 'string' ? req.query.giftDefinitionId : undefined,
     page: typeof req.query.page === 'string' ? req.query.page : undefined,
     limit: typeof req.query.limit === 'string' ? req.query.limit : undefined,
   };
@@ -115,9 +135,38 @@ router.post('/tabular/:reportKey/generate', async (req, res) => {
       incompleteVisitFrom: input.incompleteVisitFrom, incompleteVisitTo: input.incompleteVisitTo,
       geoUnitId: input.geoUnitId, geoIds: input.geoIds,
       fromDate: input.fromDate, toDate: input.toDate,
+      page: input.page, limit: input.limit,
+      sortKey: input.sortKey, sortDir: input.sortDir,
+      candidateNameSearch: input.candidateNameSearch, candidateSourceType: input.candidateSourceType,
+      candidateStatus: input.candidateStatus, candidateOutcome: input.candidateOutcome,
+      candidateDuplicateStatus: input.candidateDuplicateStatus,
+      candidateAddedFrom: input.candidateAddedFrom, candidateAddedTo: input.candidateAddedTo,
+      referralSheetNumber: input.referralSheetNumber,
+      referralSheetFrom: input.referralSheetFrom, referralSheetTo: input.referralSheetTo,
+      mediatorName: input.mediatorName, mediatorType: input.mediatorType,
+      mediatorVisitFrom: input.mediatorVisitFrom, mediatorVisitTo: input.mediatorVisitTo,
+      accompanyingTechnicianId: input.accompanyingTechnicianId,
+      giftPromiseStatus: input.giftPromiseStatus, occupation: input.occupation,
+      contractStatus: input.contractStatus, sellerEmployeeId: input.sellerEmployeeId,
+      sellerDepartmentTypeId: input.sellerDepartmentTypeId,
+      paymentType: input.paymentType, executionStage: input.executionStage,
+      saleType: input.saleType, saleSubtype: input.saleSubtype,
+      remainingBalance: input.remainingBalance, contractId: input.contractId,
+      deviceModelIds: input.deviceModelIds, departmentTypeId: input.departmentTypeId,
+      callOutcome: input.callOutcome,
+      financialAsOfDate: input.financialAsOfDate,
+      collectionOwnerId: input.collectionOwnerId,
+      saleCloserUserId: input.saleCloserUserId,
+      latestCollectionResult: input.latestCollectionResult,
+      opFrom: input.opFrom, opTo: input.opTo,
+      contractFrom: input.contractFrom, contractTo: input.contractTo,
+      giftDeliveryFrom: input.giftDeliveryFrom, giftDeliveryTo: input.giftDeliveryTo,
+      giftConditionStatus: input.giftConditionStatus,
+      giftDeliveryResult: input.giftDeliveryResult,
+      giftDefinitionId: input.giftDefinitionId,
     });
     res.setHeader('Cache-Control', 'private, no-store');
-    res.json(data);
+    res.status(202).json(data);
   } catch (err) {
     handleError(err, res);
   }
@@ -140,7 +189,10 @@ router.get('/tabular/runs/:runId/export', async (req, res) => {
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="${output.filename}"`);
     res.setHeader('X-Report-Exported-At', output.exportedAt.toISOString());
-    res.send(output.buffer);
+    res.download(output.filePath, output.filename, err => {
+      void output.cleanup();
+      if (err && !res.headersSent) handleError(err, res);
+    });
   } catch (err) {
     handleError(err, res);
   }

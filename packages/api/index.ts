@@ -366,6 +366,12 @@ export async function start() {
       void import('./services/appNotifications/timeSweepJob.js').then((mod) =>
         mod.startNotificationSweepJob(),
       );
+      void import('./services/reporting/tabularReportWorker.js').then((mod) =>
+        mod.startTabularReportWorker(),
+      );
+      void import('./services/reporting/tabularReportCleanupJob.js').then((mod) =>
+        mod.startTabularReportCleanupJob(),
+      );
       resolve();
     });
   });
