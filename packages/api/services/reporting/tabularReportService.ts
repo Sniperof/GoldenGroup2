@@ -9,10 +9,10 @@ import { columnsForGrantedScope, findTabularReport, mergeTabularReportColumns, t
 import { resolveTabularExportAccess, resolveTabularReportAccess, positiveInt, type TabularReportRequestParams } from './tabularReportAccess.js';
 import { writeTabularReportExcelFile } from './tabularReportExcel.js';
 import { ReportingError } from './reportingError.js';
-import { buildWorkFilesGeoSupervisorsQuery } from './workFilesGeoSupervisorsReport.js';
+import { buildWorkFilesGeoSupervisorsQuery, getWorkFilesGeoSupervisorsFilterOptions } from './workFilesGeoSupervisorsReport.js';
 import { buildDailyVisitsQuery, getDailyVisitsFilterOptions } from './dailyVisitsReport.js';
 import { buildServiceDevicesQuery, getServiceDevicesFilterOptions } from './serviceDevicesReport.js';
-import { buildGeographicPortfolioQuery } from './geographicPortfolioReport.js';
+import { buildGeographicPortfolioQuery, getGeographicPortfolioFilterOptions } from './geographicPortfolioReport.js';
 import { buildSalesFollowUpTasksQuery, getSalesFollowUpFilterOptions } from './salesFollowUpTasksReport.js';
 import { buildWorkFilesNamesFileQuery, getWorkFilesNamesFileFilterOptions } from './workFilesNamesFileReport.js';
 import { buildDailyWorkSalesFileQuery, getDailyWorkSalesFileFilterOptions } from './dailyWorkSalesFileReport.js';
@@ -155,6 +155,12 @@ export async function getTabularReportFilterOptions(
 ) {
   const definition = requireDefinition(reportKey);
   const access = resolveTabularReportAccess(authContext, definition.viewPermission, params, definition.supportedScopes);
+  if (reportKey === 'work_files.geo_supervisors') {
+    return completeTabularReportFilterOptions(await getWorkFilesGeoSupervisorsFilterOptions(access));
+  }
+  if (reportKey === 'performance.geographic_portfolio') {
+    return completeTabularReportFilterOptions(await getGeographicPortfolioFilterOptions(access));
+  }
   if (reportKey === 'daily_work.visits_log') {
     return completeTabularReportFilterOptions(await getDailyVisitsFilterOptions(access));
   }
@@ -348,6 +354,27 @@ export function normalizedFilters(params: TabularReportRequestParams): TabularRe
     giftConditionStatus: typeof params.giftConditionStatus === 'string' ? params.giftConditionStatus : null,
     giftDeliveryResult: typeof params.giftDeliveryResult === 'string' ? params.giftDeliveryResult : null,
     giftDefinitionId: positiveInt(params.giftDefinitionId),
+    visitTechnicianEmployeeId: positiveInt(params.visitTechnicianEmployeeId),
+    retrievalSource: typeof params.retrievalSource === 'string' ? params.retrievalSource : null,
+    originBranchId: positiveInt(params.originBranchId),
+    lastVisitFrom: typeof params.lastVisitFrom === 'string' ? params.lastVisitFrom : null,
+    lastVisitTo: typeof params.lastVisitTo === 'string' ? params.lastVisitTo : null,
+    routeId: positiveInt(params.routeId),
+    areaEvaluation: typeof params.areaEvaluation === 'string' ? params.areaEvaluation : null,
+    evaluationConfidence: typeof params.evaluationConfidence === 'string' ? params.evaluationConfidence : null,
+    periodicPressure: typeof params.periodicPressure === 'string' ? params.periodicPressure : null,
+    departmentId: positiveInt(params.departmentId),
+    jobTitle: typeof params.jobTitle === 'string' ? params.jobTitle.trim() : null,
+    employmentStatus: typeof params.employmentStatus === 'string' ? params.employmentStatus : null,
+    technicianActivity: typeof params.technicianActivity === 'string' ? params.technicianActivity : null,
+    callBookingPresence: typeof params.callBookingPresence === 'string' ? params.callBookingPresence : null,
+    receivableSourceType: typeof params.receivableSourceType === 'string' ? params.receivableSourceType : null,
+    collectionAppointmentFrom: typeof params.collectionAppointmentFrom === 'string' ? params.collectionAppointmentFrom : null,
+    collectionAppointmentTo: typeof params.collectionAppointmentTo === 'string' ? params.collectionAppointmentTo : null,
+    collectionAppointmentPresence: typeof params.collectionAppointmentPresence === 'string' ? params.collectionAppointmentPresence : null,
+    taskResult: typeof params.taskResult === 'string' ? params.taskResult : null,
+    cancellationReasonId: positiveInt(params.cancellationReasonId),
+    visitOrigin: typeof params.visitOrigin === 'string' ? params.visitOrigin : null,
   };
 }
 

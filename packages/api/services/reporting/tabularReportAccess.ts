@@ -93,6 +93,83 @@ export interface TabularReportRequestParams {
   giftDeliveryResult?: string | null;
   giftDefinitionId?: string | number | null;
   callOutcome?: string | null;
+  visitTechnicianEmployeeId?: string | number | null;
+  retrievalSource?: string | null;
+  originBranchId?: string | number | null;
+  lastVisitFrom?: string | null;
+  lastVisitTo?: string | null;
+  routeId?: string | number | null;
+  areaEvaluation?: string | null;
+  evaluationConfidence?: string | null;
+  periodicPressure?: string | null;
+  departmentId?: string | number | null;
+  jobTitle?: string | null;
+  employmentStatus?: string | null;
+  technicianActivity?: string | null;
+  callBookingPresence?: string | null;
+  receivableSourceType?: string | null;
+  collectionAppointmentFrom?: string | null;
+  collectionAppointmentTo?: string | null;
+  collectionAppointmentPresence?: string | null;
+  taskResult?: string | null;
+  cancellationReasonId?: string | number | null;
+  visitOrigin?: string | null;
+}
+
+/**
+ * Every request key a report may read, in one place.
+ *
+ * Why a list and not two hand-written pick blocks: the HTTP layer used to spell out
+ * the keys it forwarded, and eleven of them (the whole fault and retrieval filter
+ * set) were never added — the UI sent them, the route dropped them, and the report
+ * generated as if the user had filtered nothing. A dropped filter that widens the
+ * result is exactly the silent fallback the permissions standard forbids, so the
+ * list lives beside the interface and `tabularReportAccess.test.ts` fails the build
+ * if a field is declared without being added here.
+ */
+export const TABULAR_REQUEST_PARAM_KEYS = [
+  'branchId', 'employeeId', 'supervisorEmployeeId', 'technicianEmployeeId', 'telemarketerUserId',
+  'visitStatus', 'taskType', 'search', 'deviceModelId', 'deviceModel', 'deviceStatus',
+  'warrantyStatus', 'customerRating', 'contactEmployeeId', 'lastContactChannel', 'replacedParts',
+  'minPaidAmount', 'maxPaidAmount',
+  'installationFrom', 'installationTo', 'periodicMaintenanceFrom', 'periodicMaintenanceTo',
+  'completedVisitFrom', 'completedVisitTo', 'lastContactFrom', 'lastContactTo',
+  'incompleteVisitFrom', 'incompleteVisitTo',
+  'geoUnitId', 'geoIds', 'fromDate', 'toDate', 'page', 'limit', 'sortKey', 'sortDir',
+  'candidateNameSearch', 'candidateSourceType', 'candidateStatus', 'candidateOutcome',
+  'candidateDuplicateStatus', 'candidateAddedFrom', 'candidateAddedTo',
+  'referralSheetNumber', 'referralSheetFrom', 'referralSheetTo',
+  'mediatorName', 'mediatorType', 'mediatorVisitFrom', 'mediatorVisitTo',
+  'accompanyingTechnicianId', 'giftPromiseStatus', 'occupation',
+  'contractStatus', 'sellerEmployeeId', 'sellerDepartmentTypeId', 'paymentType', 'executionStage',
+  'saleType', 'saleSubtype', 'remainingBalance', 'contractId', 'deviceModelIds', 'departmentTypeId',
+  'financialAsOfDate', 'collectionOwnerId', 'saleCloserUserId', 'latestCollectionResult',
+  'faultTypeId', 'faultStatus', 'faultDiscoveryPhase', 'repairTechnicianEmployeeId',
+  'faultResolvedFrom', 'faultResolvedTo', 'faultDurationBucket', 'faultPartsUsage',
+  'retrievalPurpose', 'retrievalTechnicianEmployeeId', 'retrievedDeviceStatus',
+  'opFrom', 'opTo', 'contractFrom', 'contractTo', 'giftDeliveryFrom', 'giftDeliveryTo',
+  'giftConditionStatus', 'giftDeliveryResult', 'giftDefinitionId', 'callOutcome',
+  'visitTechnicianEmployeeId', 'retrievalSource', 'originBranchId',
+  'lastVisitFrom', 'lastVisitTo', 'routeId',
+  'areaEvaluation', 'evaluationConfidence', 'periodicPressure',
+  'departmentId', 'jobTitle', 'employmentStatus', 'technicianActivity', 'callBookingPresence',
+  'receivableSourceType', 'collectionAppointmentFrom', 'collectionAppointmentTo',
+  'collectionAppointmentPresence', 'taskResult', 'cancellationReasonId', 'visitOrigin',
+] as const satisfies ReadonlyArray<keyof TabularReportRequestParams>;
+
+/**
+ * Lifts the known keys out of a query string or a JSON body. Only scalars pass:
+ * an object or array would otherwise reach a `= ANY(...)` predicate as a value the
+ * report never validated.
+ */
+export function readTabularReportRequestParams(source: unknown): TabularReportRequestParams {
+  const record = (source ?? {}) as Record<string, unknown>;
+  const params: Record<string, string | number> = {};
+  for (const key of TABULAR_REQUEST_PARAM_KEYS) {
+    const value = record[key];
+    if (typeof value === 'string' || typeof value === 'number') params[key] = value;
+  }
+  return params as TabularReportRequestParams;
 }
 
 export interface TabularReportAccess {

@@ -8,10 +8,42 @@ import type { TabularReportFilterOptions } from './tabularReportFilterOptions.js
 interface QueryOptions { offset?: number; limit: number; includeTotalRows?: boolean }
 
 const BRANCH_SQL = `COALESCE(contract.service_branch_id, contract.branch_id)`;
-const CUTOFF_SQL = `$CUTOFF::date + INTERVAL '1 day'`;
+/**
+ * The financial cut-off, pinned to a Damascus midnight instead of whatever timezone
+ * the database session happens to carry: read in UTC the same date would move the
+ * boundary three hours and quietly disagree with every other report's window.
+ */
+const CUTOFF_SQL = `(($CUTOFF::text::date + 1)::text || ' 00:00')::timestamp AT TIME ZONE 'Asia/Damascus'`;
 const CONTRACT_MONEY_SOURCES_SQL = `movement.source_type IN ('contract', 'contract_installment', 'contract_payment')`;
 const PAYMENT_TYPES = new Set(['cash', 'installment']);
 const COLLECTION_RESULTS = new Set(['paid_full', 'paid_partial', 'rescheduled', 'refused_to_pay', 'none']);
+/**
+ * What the receivable is owed for. The three codes are the schema's own CHECK on
+ * `open_tasks.receivable_source_type`, so the list cannot drift from the data (§9.7.5).
+ * An installment with no collection task yet carries no source type, and the report
+ * already reads such a row as the contract's own money — the filter reads it the same
+ * way through the COALESCE below, so it and the visible column never disagree.
+ */
+const RECEIVABLE_SOURCE_TYPES = new Set(['contract', 'maintenance_task', 'golden_warranty']);
+const RECEIVABLE_SOURCE_TYPE_SQL = `COALESCE(latest_task.receivable_source_type, 'contract')`;
+const COLLECTION_APPOINTMENT_PRESENCE = new Set(['scheduled', 'none']);
+
+/**
+ * The contract's device, reduced to one row before it reaches the grain: a contract
+ * carrying two devices must not double the installment. The «latest installed» rule
+ * is defined here once and consumed both by the device column and by `source_event`,
+ * so the report cannot name one device and date another.
+ */
+const CONTRACT_DEVICE_SQL = `
+          SELECT installed.installation_date,
+                 installed.device_model_id,
+                 COALESCE(model.name_ar, model.name_en, model.name,
+                          installed.device_model_name, installed.external_device_name) AS model_name
+            FROM installed_devices installed
+            LEFT JOIN device_models model ON model.id = installed.device_model_id
+           WHERE installed.contract_id = contract.id
+           ORDER BY installed.installation_date DESC NULLS LAST, installed.id DESC
+           LIMIT 1`;
 
 const PAYMENT_TYPE_LABEL_SQL = `CASE contract.payment_type
   WHEN 'cash' THEN 'نقدي'
@@ -138,6 +170,64 @@ export function buildServiceDuesQuery(
     }
   }
 
+  const receivableSourceType = textFilter(request.receivableSourceType);
+  if (receivableSourceType != null) {
+    if (!RECEIVABLE_SOURCE_TYPES.has(receivableSourceType)) {
+      throw new ReportingError(400, 'مصدر الاستحقاق غير صالح');
+    }
+    params.push(receivableSourceType);
+    filters.push(`${RECEIVABLE_SOURCE_TYPE_SQL} = $${params.length}`);
+  }
+
+  // Read off the one device the report names, not «any device on the contract»:
+  // otherwise a two-device contract could match a model the row never displays.
+  const deviceModelKey = typeof request.deviceModel === 'string' ? request.deviceModel : '';
+  const deviceModelId = positiveInt(
+    request.deviceModelId ?? (deviceModelKey.startsWith('catalog:') ? deviceModelKey.slice(8) : null),
+  );
+  if (deviceModelId != null) {
+    params.push(deviceModelId);
+    filters.push(`contract_device.device_model_id = $${params.length}`);
+  } else if (deviceModelKey.startsWith('external:')) {
+    params.push(deviceModelKey.slice(9));
+    filters.push(`contract_device.device_model_id IS NULL
+             AND COALESCE(contract_device.model_name, '') = $${params.length}`);
+  }
+
+  if (request.contactEmployeeId != null && request.contactEmployeeId !== '') {
+    const contactEmployeeId = positiveInt(request.contactEmployeeId);
+    if (contactEmployeeId == null) throw new ReportingError(400, 'موظف آخر اتصال غير صالح');
+    params.push(contactEmployeeId);
+    // The last contact the row shows, after the LIMIT 1 pick — not any earlier call.
+    filters.push(`last_contact.caller_id = $${params.length}`);
+  }
+
+  const appointmentFrom = dateFilter(request.collectionAppointmentFrom, 'بداية مدى موعد التحصيل القادم');
+  const appointmentTo = dateFilter(request.collectionAppointmentTo, 'نهاية مدى موعد التحصيل القادم');
+  if (appointmentFrom && appointmentTo && appointmentFrom > appointmentTo) {
+    throw new ReportingError(400, 'بداية مدى موعد التحصيل القادم يجب ألا تكون بعد نهايته');
+  }
+  if (appointmentFrom) {
+    params.push(appointmentFrom);
+    filters.push(`next_appointment.scheduled_date >= $${params.length}::date`);
+  }
+  if (appointmentTo) {
+    params.push(appointmentTo);
+    filters.push(`next_appointment.scheduled_date <= $${params.length}::date`);
+  }
+
+  // A range cannot express «no appointment at all», which is the actionable half of
+  // the question: those are the receivables nobody has scheduled a visit for.
+  const appointmentPresence = textFilter(request.collectionAppointmentPresence);
+  if (appointmentPresence != null) {
+    if (!COLLECTION_APPOINTMENT_PRESENCE.has(appointmentPresence)) {
+      throw new ReportingError(400, 'حالة موعد التحصيل غير صالحة');
+    }
+    filters.push(appointmentPresence === 'scheduled'
+      ? `next_appointment.scheduled_date IS NOT NULL`
+      : `next_appointment.scheduled_date IS NULL`);
+  }
+
   params.push(options.limit);
   const limitRef = `$${params.length}`;
   let offsetSql = '';
@@ -157,6 +247,12 @@ export function buildServiceDuesQuery(
              COALESCE(geo.neighborhood_name, 'غير محدد') AS "neighborhoodName",
              COALESCE(NULLIF(BTRIM(client.name), ''), NULLIF(BTRIM(contract.customer_name), ''), 'غير محدد') AS "customerName",
              COALESCE(NULLIF(BTRIM(latest_task.receivable_source_label), ''), 'عقد رقم ' || COALESCE(contract.contract_number, contract.id::text)) AS "receivableSource",
+             CASE ${RECEIVABLE_SOURCE_TYPE_SQL}
+               WHEN 'contract' THEN 'قيمة العقد'
+               WHEN 'maintenance_task' THEN 'مهمة صيانة'
+               WHEN 'golden_warranty' THEN 'كفالة ذهبية'
+             END AS "receivableSourceKind",
+             COALESCE(contract_device.model_name, 'غير محدد') AS "deviceModelName",
              TO_CHAR(source_event.event_date, 'YYYY-MM-DD') AS "sourceEventDate",
              TO_CHAR(installment.due_date, 'YYYY-MM-DD') AS "dueDate",
              COALESCE(contract.final_price, 0)::numeric AS "contractFinalValue",
@@ -223,20 +319,15 @@ export function buildServiceDuesQuery(
            ORDER BY task.created_at DESC, task.id DESC
            LIMIT 1
         ) latest_task ON TRUE
+        LEFT JOIN LATERAL (${CONTRACT_DEVICE_SQL}
+        ) contract_device ON TRUE
         LEFT JOIN LATERAL (
           SELECT CASE latest_task.receivable_source_type
             WHEN 'maintenance_task' THEN maintenance_result.completed_date
             WHEN 'golden_warranty' THEN warranty_event.event_date
-            ELSE device.installation_date
+            ELSE contract_device.installation_date
           END AS event_date
           FROM (SELECT 1) seed
-          LEFT JOIN LATERAL (
-            SELECT installed.installation_date
-              FROM installed_devices installed
-             WHERE installed.contract_id = contract.id
-             ORDER BY installed.installation_date DESC NULLS LAST, installed.id DESC
-             LIMIT 1
-          ) device ON TRUE
           LEFT JOIN LATERAL (
             SELECT (result.closed_at AT TIME ZONE 'Asia/Damascus')::date AS completed_date
               FROM visit_tasks visit_task
@@ -291,6 +382,7 @@ export function buildServiceDuesQuery(
         ) latest_result ON TRUE
         LEFT JOIN LATERAL (
           SELECT call.call_date,
+                 call.caller_id,
                  NULLIF(BTRIM(employee.name), '') AS employee_name,
                  NULLIF(BTRIM(call.notes), '') AS notes
             FROM open_tasks task
@@ -343,7 +435,8 @@ export async function getServiceDuesFilterOptions(
 
   const { rows } = await pool.query(`
     WITH scoped AS (
-      SELECT DISTINCT installment.collection_owner_id, contract.sale_owner_id, contract.closing_employee_id
+      SELECT DISTINCT installment.id AS installment_id, contract.id AS contract_id,
+             installment.collection_owner_id, contract.sale_owner_id, contract.closing_employee_id
         FROM contract_installments installment
         JOIN contracts contract ON contract.id = installment.contract_id
        WHERE ${filters.join('\n         AND ')}
@@ -363,7 +456,41 @@ export async function getServiceDuesFilterOptions(
         SELECT JSON_AGG(JSON_BUILD_OBJECT('value', user_row.id::text, 'label', user_row.name) ORDER BY user_row.name, user_row.id)
           FROM hr_users user_row
          WHERE user_row.id IN (SELECT closing_employee_id FROM scoped WHERE closing_employee_id IS NOT NULL)
-      ), '[]'::json) AS "saleClosers"
+      ), '[]'::json) AS "saleClosers",
+      -- Only the models and callers the report can actually put on a row, so neither
+      -- dropdown offers a choice that always returns nothing (§9.7.1). DISTINCT is
+      -- taken on the scalar pair and the JSON object is built afterwards: json has no
+      -- equality operator, so DISTINCT over a built object is a runtime error.
+      COALESCE((
+        SELECT JSON_AGG(JSON_BUILD_OBJECT('value', value, 'label', label) ORDER BY label)
+          FROM (
+            SELECT DISTINCT
+                   CASE WHEN installed.device_model_id IS NOT NULL
+                        THEN 'catalog:' || installed.device_model_id::text
+                        ELSE 'external:' || COALESCE(installed.external_device_name,
+                                                     installed.device_model_name, '') END AS value,
+                   COALESCE(model.name_ar, model.name_en, model.name,
+                            installed.external_device_name, installed.device_model_name) AS label
+              FROM installed_devices installed
+              LEFT JOIN device_models model ON model.id = installed.device_model_id
+             WHERE installed.contract_id IN (SELECT contract_id FROM scoped)
+               AND COALESCE(model.name_ar, model.name_en, model.name,
+                            installed.external_device_name, installed.device_model_name) IS NOT NULL
+          ) models
+      ), '[]'::json) AS "deviceModels",
+      COALESCE((
+        SELECT JSON_AGG(JSON_BUILD_OBJECT('value', value, 'label', label) ORDER BY label)
+          FROM (
+            SELECT DISTINCT caller.id::text AS value, caller.name AS label
+              FROM open_tasks task
+              JOIN call_task_links link ON link.task_id = task.id
+              JOIN customer_call_logs call ON call.id = link.call_id
+              JOIN hr_users caller ON caller.id = call.caller_id
+             WHERE task.task_type = 'installment_collection'
+               AND task.installment_id IN (SELECT installment_id FROM scoped)
+               AND NULLIF(BTRIM(caller.name), '') IS NOT NULL
+          ) callers
+      ), '[]'::json) AS "contactEmployees"
   `, params);
   return rows[0] ?? {};
 }

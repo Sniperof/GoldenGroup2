@@ -61,7 +61,9 @@ test('all report queries use the shared server-side ordering contract', () => {
   }
   const route = readFileSync('packages/api/routes/reports.ts', 'utf8');
   const page = readFileSync('packages/web/src/pages/Reports.tsx', 'utf8');
-  assert.match(route, /sortKey: input\.sortKey, sortDir: input\.sortDir/);
+  assert.match(route, /readTabularReportRequestParams\(req\.body\)/);
+  const access = readFileSync('packages/api/services/reporting/tabularReportAccess.ts', 'utf8');
+  assert.match(access, /'sortKey', 'sortDir'/);
   assert.match(page, /تغيّر ترتيب التقرير/);
   assert.match(page, /sortKey: sortKey \?\? undefined/);
   assert.match(page, /disabled=\{!data \|\| exporting \|\| snapshotDirty\}/);

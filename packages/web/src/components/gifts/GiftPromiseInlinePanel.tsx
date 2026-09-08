@@ -9,9 +9,17 @@ import {
 
 export interface InlineGiftPromiseDraft {
   giftDefinitionId: string;
-  conditionLabel: string;
+  conditionId: string;
+  conditionNotes: string;
   conditionStatus: GiftConditionStatus;
   quantity: number;
+}
+
+interface PromiseConditionOption {
+  id: number;
+  value: string;
+  label: string;
+  requiresNotes: boolean;
 }
 
 interface GiftPromiseInlinePanelProps {
@@ -23,9 +31,9 @@ interface GiftPromiseInlinePanelProps {
   onChange?: (promise: InlineGiftPromiseDraft | null) => void;
 }
 
-const defaultConditionBySource: Record<GiftPromiseInlinePanelProps['sourceType'], string> = {
-  name_list: 'شراء أي اسم مقترح ضمن هذه اللائحة',
-  direct_referral: 'شراء الاسم المقترح مباشرة',
+const defaultConditionValueBySource: Record<GiftPromiseInlinePanelProps['sourceType'], string> = {
+  name_list: 'name_list_referral_sale',
+  direct_referral: 'candidate_referral_sale',
 };
 
 const sourceLabelByType: Record<GiftPromiseInlinePanelProps['sourceType'], string> = {
@@ -41,38 +49,56 @@ export default function GiftPromiseInlinePanel({
   onChange,
 }: GiftPromiseInlinePanelProps) {
   const [activeGiftDefinitions, setActiveGiftDefinitions] = useState<GiftDefinitionPrototype[]>([]);
+  const [conditions, setConditions] = useState<PromiseConditionOption[]>([]);
   const [definitionsLoading, setDefinitionsLoading] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [savedPromise, setSavedPromise] = useState<InlineGiftPromiseDraft | null>(null);
   const [draft, setDraft] = useState<InlineGiftPromiseDraft>({
     giftDefinitionId: '',
-    conditionLabel: defaultConditionBySource[sourceType],
+    conditionId: '',
+    conditionNotes: '',
     conditionStatus: 'pending',
     quantity: 1,
   });
 
   const selectedDefinition = activeGiftDefinitions.find(definition => String(definition.id) === draft.giftDefinitionId);
+  const selectedCondition = conditions.find(condition => String(condition.id) === draft.conditionId);
 
   useEffect(() => {
     let active = true;
     setDefinitionsLoading(true);
-    api.gifts.definitions.list()
-      .then(definitions => {
+    Promise.all([
+      api.gifts.definitions.list(),
+      api.gifts.promiseConditions.list(),
+    ])
+      .then(([definitions, conditionRows]) => {
         if (!active) return;
         const activeDefinitions = definitions.filter(definition => definition.isActive);
+        const activeConditions = conditionRows.map(item => ({
+          id: Number(item.id),
+          value: String(item.value ?? ''),
+          label: String(item.label ?? item.value ?? item.id),
+          requiresNotes: item.requiresNotes === true,
+        }));
         setActiveGiftDefinitions(activeDefinitions);
-        setDraft(prev => prev.giftDefinitionId
-          ? prev
-          : { ...prev, giftDefinitionId: activeDefinitions[0]?.id != null ? String(activeDefinitions[0].id) : '' });
+        setConditions(activeConditions);
+        const preferredCondition = activeConditions.find(condition => condition.value === defaultConditionValueBySource[sourceType])
+          ?? activeConditions[0];
+        setDraft(prev => ({
+          ...prev,
+          giftDefinitionId: prev.giftDefinitionId || (activeDefinitions[0]?.id != null ? String(activeDefinitions[0].id) : ''),
+          conditionId: prev.conditionId || (preferredCondition?.id != null ? String(preferredCondition.id) : ''),
+        }));
       })
       .catch(() => {
         if (active) setActiveGiftDefinitions([]);
+        if (active) setConditions([]);
       })
       .finally(() => {
         if (active) setDefinitionsLoading(false);
       });
     return () => { active = false; };
-  }, []);
+  }, [sourceType]);
 
   useEffect(() => {
     if (!enabled && savedPromise) {
@@ -83,7 +109,8 @@ export default function GiftPromiseInlinePanel({
   }, [enabled]);
 
   const savePromise = () => {
-    if (!selectedDefinition) return;
+    if (!selectedDefinition || !selectedCondition) return;
+    if (selectedCondition.requiresNotes && !draft.conditionNotes.trim()) return;
     const promise = {
       ...draft,
       quantity: Math.max(1, Number(draft.quantity) || 1),
@@ -147,12 +174,26 @@ export default function GiftPromiseInlinePanel({
 
           <label className="text-xs font-bold text-slate-500 md:col-span-2">
             شرط الوعد
-            <input
-              value={draft.conditionLabel}
-              onChange={event => setDraft(prev => ({ ...prev, conditionLabel: event.target.value }))}
+            <select
+              value={draft.conditionId}
+              onChange={event => setDraft(prev => ({ ...prev, conditionId: event.target.value, conditionNotes: '' }))}
               className="mt-1 w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm text-slate-800"
-            />
+            >
+              {conditions.length === 0 && <option value="">لا توجد شروط وعود فعالة</option>}
+              {conditions.map(condition => <option key={condition.id} value={String(condition.id)}>{condition.label}</option>)}
+            </select>
           </label>
+
+          {selectedCondition?.requiresNotes && (
+            <label className="text-xs font-bold text-slate-500 md:col-span-2">
+              ملاحظات الشرط *
+              <textarea
+                value={draft.conditionNotes}
+                onChange={event => setDraft(prev => ({ ...prev, conditionNotes: event.target.value }))}
+                className="mt-1 min-h-20 w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm text-slate-800"
+              />
+            </label>
+          )}
 
           <label className="text-xs font-bold text-slate-500">
             الكمية الموعودة
@@ -176,7 +217,7 @@ export default function GiftPromiseInlinePanel({
             <button
               type="button"
               onClick={savePromise}
-              disabled={!selectedDefinition}
+              disabled={!selectedDefinition || !selectedCondition || (selectedCondition.requiresNotes && !draft.conditionNotes.trim())}
               className="h-9 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-xs font-bold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
             >
               حفظ الوعد
@@ -190,7 +231,7 @@ export default function GiftPromiseInlinePanel({
           <div className="min-w-0 text-xs leading-6">
             <p className="font-bold text-slate-800">{selectedDefinition?.name ?? 'هدية'}</p>
             <p className="text-slate-500">
-              {savedPromise.conditionLabel} - {giftConditionStatusLabels[savedPromise.conditionStatus]} - العدد: {savedPromise.quantity}
+              {conditions.find(condition => String(condition.id) === savedPromise.conditionId)?.label ?? 'شرط غير محدد'} - {giftConditionStatusLabels[savedPromise.conditionStatus]} - العدد: {savedPromise.quantity}
             </p>
           </div>
           <button

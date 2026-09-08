@@ -231,3 +231,27 @@ test('the migration seeds the approved family mapping and guards it in the schem
   }
   assert.match(migration, /BEGIN;[\s\S]*COMMIT;/);
 });
+
+test('picking one department drops the unattributed row with it', () => {
+  const { sql, params } = buildDepartmentResultsQuery(GLOBAL_ACCESS, { ...RANGE, departmentId: 12 }, { limit: 100 });
+
+  assert.match(sql, /AND dept\.id = \$3/);
+  // Work that could not be attributed to any department is not this department's
+  // work, so the «غير منسوب» row must not survive the choice.
+  assert.doesNotMatch(sql, /غير منسوب إلى قسم/);
+  assert.deepEqual(params.slice(0, 3), ['2026-08-01', '2026-08-31', 12]);
+});
+
+test('the department filter and the department-type filter are independent', () => {
+  const both = buildDepartmentResultsQuery(
+    GLOBAL_ACCESS, { ...RANGE, departmentTypeId: 4, departmentId: 12 }, { limit: 100 },
+  );
+  assert.match(both.sql, /AND dept\.department_type_id = \$3/);
+  assert.match(both.sql, /AND dept\.id = \$4/);
+  assert.deepEqual(both.params.slice(0, 4), ['2026-08-01', '2026-08-31', 4, 12]);
+
+  // Filtering by type alone keeps the unattributed row: a branch can still hold work
+  // that belongs to no department at all.
+  const typeOnly = buildDepartmentResultsQuery(GLOBAL_ACCESS, { ...RANGE, departmentTypeId: 4 }, { limit: 100 });
+  assert.match(typeOnly.sql, /غير منسوب إلى قسم/);
+});

@@ -10,11 +10,14 @@ test('filter-options contract fills fields omitted by a report-specific query', 
   assert.deepEqual(result.deviceModels, []);
   assert.deepEqual(result.taskTypes, []);
   assert.deepEqual(Object.keys(result).sort(), [
-    'accompanyingTechnicians', 'callEmployees', 'callOutcomes', 'candidateStatuses', 'collectionOwners', 'contactEmployees', 'contractSales',
+    'accompanyingTechnicians', 'callEmployees', 'callOutcomes', 'cancellationReasons',
+    'candidateStatuses', 'collectionOwners', 'contactEmployees', 'contractSales',
     'contractSellerDepartments', 'contractSellers', 'contractStatuses', 'customerRatings',
-    'departmentTypes', 'deviceModels', 'deviceStatuses',
-    'faultTypes', 'giftDefinitions', 'giftPromiseStatuses', 'repairTechnicians', 'retrievalTechnicians', 'retrievedDeviceStatuses',
-    'saleClosers', 'supervisors', 'taskTypes', 'technicians', 'telemarketers', 'visitStatuses', 'warrantyStatuses',
+    'departmentTypes', 'departments', 'deviceModels', 'deviceStatuses',
+    'faultTypes', 'giftDefinitions', 'giftPromiseStatuses', 'jobTitles', 'originBranches', 'repairTechnicians',
+    'retrievalTechnicians', 'retrievedDeviceStatuses', 'routes',
+    'saleClosers', 'supervisors', 'taskResults', 'taskTypes', 'technicians', 'telemarketers',
+    'visitStatuses', 'warrantyStatuses',
   ]);
 });
 

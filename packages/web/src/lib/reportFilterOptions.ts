@@ -36,5 +36,11 @@ export function normalizeReportFilterOptions(
     giftDefinitions: options(value?.giftDefinitions),
     callEmployees: options(value?.callEmployees),
     callOutcomes: options(value?.callOutcomes),
+    originBranches: options(value?.originBranches),
+    routes: options(value?.routes),
+    departments: options(value?.departments),
+    jobTitles: options(value?.jobTitles),
+    taskResults: options(value?.taskResults),
+    cancellationReasons: options(value?.cancellationReasons),
   };
 }

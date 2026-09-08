@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 import type { ListAccessPlan } from '@golden-crm/shared';
 import { ReportingError } from './reportingError.js';
-import { resolveAccessPlan, resolveTabularExportAccess, resolveTabularReportAccess } from './tabularReportAccess.js';
+import { readTabularReportRequestParams, resolveAccessPlan, resolveTabularExportAccess, resolveTabularReportAccess, TABULAR_REQUEST_PARAM_KEYS } from './tabularReportAccess.js';
 
 function plan(scope: ListAccessPlan['scope'], allowedBranchIds = [3, 7]): ListAccessPlan {
   return { scope, allowedBranchIds, userId: 42 };
@@ -142,4 +143,32 @@ test('names-file permission rejects missing grant, wrong branch and unassigned c
   const access = resolveTabularReportAccess(assigned, 'reports.work_files.names_file.view', {}, ['GLOBAL', 'BRANCH', 'ASSIGNED']);
   assert.equal(access.scope, 'ASSIGNED');
   assert.equal(access.userId, 42);
+});
+
+test('the request-param key list covers every field the interface declares', () => {
+  // Guards the bug this list was introduced for: eleven fault and retrieval filter
+  // fields existed on the interface and on the reports, but the HTTP layer never
+  // forwarded them, so the user filtered and the report ignored it. A new field
+  // added to the interface without a key here fails the build instead.
+  const source = readFileSync(new URL('./tabularReportAccess.ts', import.meta.url), 'utf8');
+  const body = source.slice(
+    source.indexOf('export interface TabularReportRequestParams {'),
+    source.indexOf('export const TABULAR_REQUEST_PARAM_KEYS'),
+  );
+  const declared = Array.from(body.matchAll(/^ {2}(\w+)\?:/gm)).map(match => match[1]);
+  assert.ok(declared.length > 80, `expected the interface fields to be found, saw ${declared.length}`);
+  const covered = new Set<string>(TABULAR_REQUEST_PARAM_KEYS);
+  assert.deepEqual(declared.filter(field => !covered.has(field)), []);
+});
+
+test('the request reader keeps scalars and drops anything a report cannot validate', () => {
+  const params = readTabularReportRequestParams({
+    faultTypeId: '71', retrievalPurpose: 'maintenance', routeId: 4,
+    geoIds: ['1', '2'], sortKey: { toString: () => 'x' }, unknownKey: 'dropped',
+  });
+  assert.deepEqual(params, { faultTypeId: '71', retrievalPurpose: 'maintenance', routeId: 4 });
+});
+
+test('the request reader survives a missing body', () => {
+  assert.deepEqual(readTabularReportRequestParams(undefined), {});
 });

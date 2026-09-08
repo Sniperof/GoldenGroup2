@@ -43,6 +43,7 @@ test('Excel export is a real readable XLSX with the canonical report columns', a
   assert.ok(definition);
   const buffer = await buildTabularReportExcel(definition, [{
     employeeName: 'مشرفة اختبار',
+    departmentName: 'قسم اختبار',
     geoUnitName: 'حي اختبار',
     leadCount: 3,
     salesFollowUpCount: 2,
@@ -59,10 +60,11 @@ test('Excel export is a real readable XLSX with the canonical report columns', a
   assert.ok(worksheet);
   assert.equal(worksheet.getCell('A4').value, 'المشرفة');
   assert.equal(worksheet.getCell('A5').value, 'مشرفة اختبار');
-  assert.equal(worksheet.getCell('C5').value, 3);
-  assert.equal(worksheet.getCell('E4').value, 'زبائن FOP');
-  assert.equal(worksheet.getCell('E5').value, 4);
-  assert.equal(worksheet.getCell('F5').value, 5);
+  assert.equal(worksheet.getCell('B4').value, 'قسم المشرفة');
+  assert.equal(worksheet.getCell('D5').value, 3);
+  assert.equal(worksheet.getCell('F4').value, 'زبائن FOP');
+  assert.equal(worksheet.getCell('F5').value, 4);
+  assert.equal(worksheet.getCell('G5').value, 5);
 });
 
 test('geographic portfolio export preserves numeric counts and evaluation metadata', async () => {
@@ -96,7 +98,8 @@ test('sales follow-up export preserves the agreed Arabic columns and execution d
   const buffer = await buildTabularReportExcel(definition, [{
     supervisorName: 'مشرفة اختبار', technicianName: 'فني اختبار', customerName: 'زبون اختبار',
     governorateName: 'دمشق', regionName: 'دمشق', subareaName: 'المزة', neighborhoodName: 'الشيخ سعد',
-    taskType: 'عرض جهاز', executedDate: '2026-08-30', resultNotes: 'تم تسجيل النتيجة',
+    taskType: 'عرض جهاز', taskResult: 'تقديم عرض',
+    executedDate: '2026-08-30', resultNotes: 'تم تسجيل النتيجة',
   }], { scope: 'BRANCH', branchIds: [3], generatedAt: new Date('2026-08-30T08:00:00.000Z') });
 
   const workbook = new ExcelJS.Workbook();
@@ -106,8 +109,10 @@ test('sales follow-up export preserves the agreed Arabic columns and execution d
   assert.equal(worksheet.getCell('A4').value, 'المشرفة');
   assert.equal(worksheet.getCell('H4').value, 'نوع المهمة');
   assert.equal(worksheet.getCell('H5').value, 'عرض جهاز');
-  assert.ok(worksheet.getCell('I5').value instanceof Date);
-  assert.equal(worksheet.getCell('J5').value, 'تم تسجيل النتيجة');
+  assert.equal(worksheet.getCell('I4').value, 'نتيجة المهمة');
+  assert.equal(worksheet.getCell('I5').value, 'تقديم عرض');
+  assert.ok(worksheet.getCell('J5').value instanceof Date);
+  assert.equal(worksheet.getCell('K5').value, 'تم تسجيل النتيجة');
 });
 
 test('names file export preserves one candidate row and Arabic source terminology', async () => {
@@ -140,7 +145,9 @@ test('service dues export preserves the financial snapshot columns and values', 
   assert.ok(definition);
   const buffer = await buildTabularReportExcel(definition, [{
     governorateName: 'طرطوس', regionName: 'منطقة طرطوس', subareaName: 'مدينة طرطوس', neighborhoodName: 'حي اختبار',
-    customerName: 'زبون اختبار', receivableSource: 'عقد C-1', sourceEventDate: '2026-08-10', dueDate: '2026-09-01',
+    customerName: 'زبون اختبار', receivableSource: 'عقد C-1',
+    receivableSourceKind: 'قيمة العقد', deviceModelName: 'تشالنجر',
+    sourceEventDate: '2026-08-10', dueDate: '2026-09-01',
     contractFinalValue: 120000, agreedPaymentType: 'تقسيط', installmentDueAmount: 30000,
     contractCollectedTotal: 100000, contractRemainingBalance: 20000,
     lastPaymentDate: '2026-08-20', lastPaymentAmount: 10000, lastPaymentMethod: 'شام كاش', collectionOwnerName: 'موظف تحصيل',
@@ -152,12 +159,16 @@ test('service dues export preserves the financial snapshot columns and values', 
   await workbook.xlsx.load(buffer as unknown as ExcelJS.Buffer);
   const worksheet = workbook.getWorksheet('التقرير');
   assert.ok(worksheet);
-  assert.equal(worksheet.getCell('H4').value, 'تاريخ الاستحقاق');
-  assert.ok(worksheet.getCell('H5').value instanceof Date);
-  assert.equal(worksheet.getCell('I4').value, 'قيمة العقد');
-  assert.equal(worksheet.getCell('I5').value, 120000);
-  assert.equal(worksheet.getCell('J4').value, 'نظام السداد المتفق عليه');
-  assert.equal(worksheet.getCell('M4').value, 'طريقة آخر دفعة');
-  assert.equal(worksheet.getCell('M5').value, 'شام كاش');
-  assert.equal(worksheet.getCell('P5').value, 30000);
+  assert.equal(worksheet.getCell('G4').value, 'نوع مصدر الاستحقاق');
+  assert.equal(worksheet.getCell('G5').value, 'قيمة العقد');
+  assert.equal(worksheet.getCell('H4').value, 'نوع الجهاز');
+  assert.equal(worksheet.getCell('H5').value, 'تشالنجر');
+  assert.equal(worksheet.getCell('J4').value, 'تاريخ الاستحقاق');
+  assert.ok(worksheet.getCell('J5').value instanceof Date);
+  assert.equal(worksheet.getCell('K4').value, 'قيمة العقد');
+  assert.equal(worksheet.getCell('K5').value, 120000);
+  assert.equal(worksheet.getCell('L4').value, 'نظام السداد المتفق عليه');
+  assert.equal(worksheet.getCell('O4').value, 'طريقة آخر دفعة');
+  assert.equal(worksheet.getCell('O5').value, 'شام كاش');
+  assert.equal(worksheet.getCell('R5').value, 30000);
 });

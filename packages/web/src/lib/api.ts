@@ -286,6 +286,23 @@ export interface ReportCatalogItem {
     giftConditionStatus?: boolean;
     giftDeliveryResult?: boolean;
     giftDefinition?: boolean;
+    visitTechnician?: boolean;
+    retrievalSource?: boolean;
+    originBranch?: boolean;
+    route?: boolean;
+    areaEvaluation?: boolean;
+    evaluationConfidence?: boolean;
+    periodicPressure?: boolean;
+    department?: boolean;
+    jobTitle?: boolean;
+    employmentStatus?: boolean;
+    technicianActivity?: boolean;
+    callBookingPresence?: boolean;
+    receivableSourceType?: boolean;
+    collectionAppointmentPresence?: boolean;
+    taskResult?: boolean;
+    cancellationReason?: boolean;
+    visitOrigin?: boolean;
   };
   guide: {
     framingTitle: string;
@@ -359,6 +376,12 @@ export interface ReportFilterOptions {
   retrievalTechnicians: Array<{ value: string; label: string }>;
   retrievedDeviceStatuses: Array<{ value: string; label: string }>;
   giftDefinitions: Array<{ value: string; label: string }>;
+  originBranches: Array<{ value: string; label: string }>;
+  routes: Array<{ value: string; label: string }>;
+  departments: Array<{ value: string; label: string }>;
+  jobTitles: Array<{ value: string; label: string }>;
+  taskResults: Array<{ value: string; label: string }>;
+  cancellationReasons: Array<{ value: string; label: string }>;
 }
 
 // GET /contracts/paged — server pagination companion to contracts.list()
@@ -792,14 +815,17 @@ export const api = {
     },
   },
   dashboardLayout: {
-    get: () => request<{ layout: DashboardWidget[] }>('/me/dashboard-layout'),
+    get: () => request<{ layout: DashboardWidget[]; customized: boolean }>('/me/dashboard-layout'),
     save: (layout: DashboardWidget[]) =>
-      request<{ layout: DashboardWidget[] }>('/me/dashboard-layout', {
+      request<{ layout: DashboardWidget[]; customized: boolean }>('/me/dashboard-layout', {
         method: 'PUT',
         body: JSON.stringify({ layout }),
       }),
   },
   gifts: {
+    promiseConditions: {
+      list: () => request<Array<{ id: number; value: string; label: string; requiresNotes: boolean; displayOrder: number }>>('/gifts/promise-conditions'),
+    },
     definitions: {
       list: () => request<any[]>('/gifts/definitions'),
       create: (data: any) => request<any>('/gifts/definitions', { method: 'POST', body: JSON.stringify(data) }),
@@ -833,7 +859,7 @@ export const api = {
           });
         }
       },
-      updateReferralPromise: (id: number | string, data: { giftDefinitionId: number; conditionLabel: string; promisedQuantity: number }) =>
+      updateReferralPromise: (id: number | string, data: { giftDefinitionId: number; conditionId: number; conditionNotes?: string; promisedQuantity: number }) =>
         request<any>(`/gifts/records/${id}/referral-promise`, { method: 'PATCH', body: JSON.stringify(data) }),
       updateCondition: (id: number | string, data: { conditionStatus: string; conditionNotes?: string }) =>
         request<any>(`/gifts/records/${id}/condition`, { method: 'PATCH', body: JSON.stringify(data) }),

@@ -4,8 +4,18 @@ import { positiveInt } from './tabularReportAccess.js';
 import { buildTabularReportOrderBy } from './tabularReportSorting.js';
 import { ReportingError } from './reportingError.js';
 import type { TabularReportFilterOptions } from './tabularReportFilterOptions.js';
+import { employeeDimensionConditions, getEmployeeDimensionOptions } from './reportEmployeeDimension.js';
 
 interface QueryOptions { offset?: number; limit: number; includeTotalRows?: boolean }
+
+const CALL_BOOKING_PRESENCE = new Set(['booked', 'not_booked']);
+
+function callBookingPresence(value: unknown): string | null {
+  if (value == null || value === '') return null;
+  const normalized = String(value);
+  if (!CALL_BOOKING_PRESENCE.has(normalized)) throw new ReportingError(400, 'نتيجة الحجز غير صالحة');
+  return normalized;
+}
 
 export interface CustomerCallsRow {
   branchId: number | null;
@@ -13,6 +23,7 @@ export interface CustomerCallsRow {
   branchName: string;
   employeeName: string;
   jobTitle: string | null;
+  departmentName: string | null;
   marketingAttempts: number;
   marketingAppointments: number;
   demosExecuted: number;
@@ -127,6 +138,18 @@ export function buildCustomerCallsQuery(
     filters.push(`call_log.outcome = $${params.length}`);
   }
 
+  filters.push(...employeeDimensionConditions(request, params, 'caller.employee_id'));
+
+  // «حجز» reads the «إجمالي المواعيد» column, which is the report's own answer to
+  // whether the calling turned into work. A «له مكالمات» filter would be inert
+  // instead: the row exists only because a call exists, so it can never be zero.
+  const bookingPresence = callBookingPresence(request.callBookingPresence);
+  const bookingSql = bookingPresence === 'booked'
+    ? 'WHERE COALESCE(task_totals.total_appointments, 0) > 0'
+    : bookingPresence === 'not_booked'
+      ? 'WHERE COALESCE(task_totals.total_appointments, 0) = 0'
+      : '';
+
   params.push(options.limit);
   const limitRef = `$${params.length}`;
   let offsetSql = '';
@@ -216,6 +239,7 @@ export function buildCustomerCallsQuery(
            COALESCE(NULLIF(BTRIM(branch.name), ''), 'غير محدد') AS "branchName",
            COALESCE(NULLIF(BTRIM(employee.name), ''), 'غير منسوب إلى موظف') AS "employeeName",
            NULLIF(BTRIM(employee.job_title), '') AS "jobTitle",
+           NULLIF(BTRIM(department.name), '') AS "departmentName",
            call_totals.marketing_attempts AS "marketingAttempts",
            COALESCE(task_totals.marketing_appointments, 0) AS "marketingAppointments",
            COALESCE(task_totals.demos_executed, 0) AS "demosExecuted",
@@ -250,6 +274,8 @@ export function buildCustomerCallsQuery(
             AND task_totals.employee_id IS NOT DISTINCT FROM call_totals.employee_id
       LEFT JOIN branches branch ON branch.id = call_totals.branch_id
       LEFT JOIN employees employee ON employee.id = call_totals.employee_id
+      LEFT JOIN departments department ON department.id = employee.department_id
+     ${bookingSql}
      ORDER BY ${buildTabularReportOrderBy(
        'performance.customer_calls', access, request,
        `call_totals.total_calls DESC, call_totals.branch_id ASC NULLS LAST, call_totals.employee_id ASC NULLS LAST`,
@@ -314,6 +340,7 @@ export async function getCustomerCallsFilterOptions(
   ]);
 
   return {
+    ...await getEmployeeDimensionOptions(access.branchIds),
     callEmployees: employees.rows.map(row => ({ value: String(row.value), label: String(row.label) })),
     callOutcomes: outcomes.rows.map(row => ({ value: String(row.value), label: String(row.label) })),
   };

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
-import { api, type ReportCatalogGroup, type ReportFilterOptions, type TabularReportResponse, type TabularReportRunResponse } from '../lib/api';
+import { api, type ReportCatalogGroup, type ReportCatalogItem, type ReportFilterOptions, type TabularReportResponse, type TabularReportRunResponse } from '../lib/api';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import { GeoCascadeFields, useGeoCascade } from '../components/filters/GeoCascadeFilter';
 import Select from '../components/ui/Select';
@@ -149,8 +149,65 @@ const EMPTY_FILTER_OPTIONS: ReportFilterOptions = {
   departmentTypes: [], callEmployees: [], callOutcomes: [],
   collectionOwners: [], saleClosers: [],
   faultTypes: [], repairTechnicians: [], retrievalTechnicians: [], retrievedDeviceStatuses: [],
-  giftDefinitions: [],
+  giftDefinitions: [], originBranches: [], routes: [], departments: [], jobTitles: [],
+  taskResults: [], cancellationReasons: [],
 };
+
+/**
+ * Filters whose choices come from the server's scoped options endpoint, as opposed
+ * to the fixed lists below. Kept as one array rather than a chain of negations:
+ * a filter left out of it renders with an empty dropdown and no error.
+ */
+const FILTERS_NEEDING_SERVER_OPTIONS: Array<keyof ReportCatalogItem['filters']> = [
+  'supervisor', 'technician', 'telemarketer', 'visitStatus', 'taskType',
+  'deviceModel', 'deviceStatus', 'warrantyStatus', 'customerRating', 'contactEmployee',
+  'candidateStatus', 'accompanyingTechnician', 'giftPromiseStatus',
+  'contractStatus', 'contractSeller', 'contractSellerDepartment', 'contractSale',
+  'departmentType', 'collectionOwner', 'reportDeviceModels', 'saleCloser',
+  'faultType', 'repairTechnician', 'visitTechnician',
+  'retrievalTechnician', 'retrievedDeviceStatus', 'originBranch',
+  'giftDefinition', 'giftConditionStatus', 'giftDeliveryResult',
+  'callEmployee', 'callOutcome', 'route', 'department', 'jobTitle',
+  'taskResult', 'cancellationReason',
+];
+
+const RECEIVABLE_SOURCE_TYPE_OPTIONS = [
+  { value: 'all', label: 'كل مصادر الاستحقاق' },
+  { value: 'contract', label: 'قيمة العقد' },
+  { value: 'maintenance_task', label: 'مهمة صيانة' },
+  { value: 'golden_warranty', label: 'كفالة ذهبية' },
+];
+
+const COLLECTION_APPOINTMENT_PRESENCE_OPTIONS = [
+  { value: 'all', label: 'كل الاستحقاقات' },
+  { value: 'scheduled', label: 'لها موعد تحصيل قادم' },
+  { value: 'none', label: 'بلا موعد تحصيل' },
+];
+
+const VISIT_ORIGIN_OPTIONS = [
+  { value: 'all', label: 'كل مصادر الزيارات' },
+  { value: 'telemarketing', label: 'حجز تسويق هاتفي' },
+  { value: 'field_initiated', label: 'زيارة ميدانية فورية' },
+  { value: 'expected_followup', label: 'متابعة متوقعة' },
+];
+
+const EMPLOYMENT_STATUS_OPTIONS = [
+  { value: 'all', label: 'كل حالات الخدمة' },
+  { value: 'active', label: 'على رأس العمل' },
+  { value: 'inactive', label: 'خارج الخدمة' },
+];
+
+const TECHNICIAN_ACTIVITY_OPTIONS = [
+  { value: 'all', label: 'كل الفنيين' },
+  { value: 'with_work', label: 'له عمل منفذ في المدة' },
+  { value: 'without_work', label: 'بلا عمل منفذ في المدة' },
+];
+
+const CALL_BOOKING_PRESENCE_OPTIONS = [
+  { value: 'all', label: 'كل الموظفين' },
+  { value: 'booked', label: 'حجز مواعيد في المدة' },
+  { value: 'not_booked', label: 'اتصل ولم يحجز' },
+];
 
 const EXECUTION_STAGE_OPTIONS = [
   { value: 'all', label: 'كل مراحل التنفيذ' },
@@ -232,6 +289,37 @@ const RETRIEVAL_PURPOSE_OPTIONS = [
   { value: 'all', label: 'كل أغراض السحب' },
   { value: 'maintenance', label: 'صيانة وإرجاع' },
   { value: 'replacement', label: 'استبدال الجهاز' },
+];
+
+const RETRIEVAL_SOURCE_OPTIONS = [
+  { value: 'all', label: 'كل مسارات السحب' },
+  { value: 'retrieval_task', label: 'مهمة سحب جهاز' },
+  { value: 'direct_workshop', label: 'سحب مباشر بعد صيانة طارئة' },
+];
+
+// The judgement labels are the report's own values, so they are sent as they read.
+const AREA_EVALUATION_OPTIONS = [
+  { value: 'all', label: 'كل التقييمات' },
+  { value: 'ممتازة', label: 'ممتازة' },
+  { value: 'جيدة', label: 'جيدة' },
+  { value: 'متوسطة', label: 'متوسطة' },
+  { value: 'ضعيفة', label: 'ضعيفة' },
+  { value: 'لا توجد بيانات كافية', label: 'لا توجد بيانات كافية' },
+];
+
+const EVALUATION_CONFIDENCE_OPTIONS = [
+  { value: 'all', label: 'كل مستويات الموثوقية' },
+  { value: 'مرتفعة', label: 'مرتفعة' },
+  { value: 'متوسطة', label: 'متوسطة' },
+  { value: 'منخفضة', label: 'منخفضة' },
+  { value: 'غير متاحة', label: 'غير متاحة' },
+];
+
+const PERIODIC_PRESSURE_OPTIONS = [
+  { value: 'all', label: 'كل المناطق' },
+  { value: 'overdue', label: 'فيها أجهزة متأخرة عن الدورية' },
+  { value: 'due_today', label: 'فيها أجهزة مستحقة اليوم' },
+  { value: 'none', label: 'لا استحقاق دورية فيها' },
 ];
 
 const GIFT_CONDITION_STATUS_OPTIONS = [
@@ -336,17 +424,7 @@ export default function Reports() {
       setFilterOptions(EMPTY_FILTER_OPTIONS);
       return;
     }
-    if (!selectedReport.filters.supervisor && !selectedReport.filters.technician && !selectedReport.filters.telemarketer
-      && !selectedReport.filters.visitStatus && !selectedReport.filters.taskType && !selectedReport.filters.deviceModel && !selectedReport.filters.deviceStatus
-      && !selectedReport.filters.warrantyStatus && !selectedReport.filters.customerRating && !selectedReport.filters.contactEmployee
-      && !selectedReport.filters.candidateStatus && !selectedReport.filters.accompanyingTechnician
-      && !selectedReport.filters.giftPromiseStatus && !selectedReport.filters.contractStatus
-      && !selectedReport.filters.contractSeller && !selectedReport.filters.contractSellerDepartment
-      && !selectedReport.filters.contractSale && !selectedReport.filters.departmentType && !selectedReport.filters.collectionOwner && !selectedReport.filters.reportDeviceModels
-      && !selectedReport.filters.saleCloser && !selectedReport.filters.faultType && !selectedReport.filters.repairTechnician
-      && !selectedReport.filters.retrievalTechnician && !selectedReport.filters.retrievedDeviceStatus
-      && !selectedReport.filters.giftDefinition && !selectedReport.filters.giftConditionStatus && !selectedReport.filters.giftDeliveryResult
-      && !selectedReport.filters.callEmployee && !selectedReport.filters.callOutcome) {
+    if (!FILTERS_NEEDING_SERVER_OPTIONS.some(key => selectedReport.filters[key])) {
       setFilterOptions(EMPTY_FILTER_OPTIONS);
       return;
     }
@@ -521,6 +599,23 @@ export default function Reports() {
         retrievalPurpose: selectedReport.filters.retrievalPurpose && specificFilters.retrievalPurpose && specificFilters.retrievalPurpose !== 'all' ? specificFilters.retrievalPurpose : undefined,
         retrievalTechnicianEmployeeId: selectedReport.filters.retrievalTechnician && specificFilters.retrievalTechnicianEmployeeId && specificFilters.retrievalTechnicianEmployeeId !== 'all' ? Number(specificFilters.retrievalTechnicianEmployeeId) : undefined,
         retrievedDeviceStatus: selectedReport.filters.retrievedDeviceStatus && specificFilters.retrievedDeviceStatus && specificFilters.retrievedDeviceStatus !== 'all' ? specificFilters.retrievedDeviceStatus : undefined,
+        visitTechnicianEmployeeId: selectedReport.filters.visitTechnician && specificFilters.visitTechnicianEmployeeId && specificFilters.visitTechnicianEmployeeId !== 'all' ? Number(specificFilters.visitTechnicianEmployeeId) : undefined,
+        retrievalSource: selectedReport.filters.retrievalSource && specificFilters.retrievalSource && specificFilters.retrievalSource !== 'all' ? specificFilters.retrievalSource : undefined,
+        originBranchId: selectedReport.filters.originBranch && specificFilters.originBranchId && specificFilters.originBranchId !== 'all' ? Number(specificFilters.originBranchId) : undefined,
+        routeId: selectedReport.filters.route && specificFilters.routeId && specificFilters.routeId !== 'all' ? Number(specificFilters.routeId) : undefined,
+        areaEvaluation: selectedReport.filters.areaEvaluation && specificFilters.areaEvaluation && specificFilters.areaEvaluation !== 'all' ? specificFilters.areaEvaluation : undefined,
+        evaluationConfidence: selectedReport.filters.evaluationConfidence && specificFilters.evaluationConfidence && specificFilters.evaluationConfidence !== 'all' ? specificFilters.evaluationConfidence : undefined,
+        periodicPressure: selectedReport.filters.periodicPressure && specificFilters.periodicPressure && specificFilters.periodicPressure !== 'all' ? specificFilters.periodicPressure : undefined,
+        departmentId: selectedReport.filters.department && specificFilters.departmentId && specificFilters.departmentId !== 'all' ? Number(specificFilters.departmentId) : undefined,
+        jobTitle: selectedReport.filters.jobTitle && specificFilters.jobTitle && specificFilters.jobTitle !== 'all' ? specificFilters.jobTitle : undefined,
+        employmentStatus: selectedReport.filters.employmentStatus && specificFilters.employmentStatus && specificFilters.employmentStatus !== 'all' ? specificFilters.employmentStatus : undefined,
+        technicianActivity: selectedReport.filters.technicianActivity && specificFilters.technicianActivity && specificFilters.technicianActivity !== 'all' ? specificFilters.technicianActivity : undefined,
+        callBookingPresence: selectedReport.filters.callBookingPresence && specificFilters.callBookingPresence && specificFilters.callBookingPresence !== 'all' ? specificFilters.callBookingPresence : undefined,
+        receivableSourceType: selectedReport.filters.receivableSourceType && specificFilters.receivableSourceType && specificFilters.receivableSourceType !== 'all' ? specificFilters.receivableSourceType : undefined,
+        collectionAppointmentPresence: selectedReport.filters.collectionAppointmentPresence && specificFilters.collectionAppointmentPresence && specificFilters.collectionAppointmentPresence !== 'all' ? specificFilters.collectionAppointmentPresence : undefined,
+        taskResult: selectedReport.filters.taskResult && specificFilters.taskResult && specificFilters.taskResult !== 'all' ? specificFilters.taskResult : undefined,
+        cancellationReasonId: selectedReport.filters.cancellationReason && specificFilters.cancellationReasonId && specificFilters.cancellationReasonId !== 'all' ? Number(specificFilters.cancellationReasonId) : undefined,
+        visitOrigin: selectedReport.filters.visitOrigin && specificFilters.visitOrigin && specificFilters.visitOrigin !== 'all' ? specificFilters.visitOrigin : undefined,
         giftDefinitionId: selectedReport.filters.giftDefinition && specificFilters.giftDefinitionId && specificFilters.giftDefinitionId !== 'all' ? Number(specificFilters.giftDefinitionId) : undefined,
         giftConditionStatus: selectedReport.filters.giftConditionStatus && specificFilters.giftConditionStatus !== 'all' ? specificFilters.giftConditionStatus : undefined,
         giftDeliveryResult: selectedReport.filters.giftDeliveryResult && specificFilters.giftDeliveryResult !== 'all' ? specificFilters.giftDeliveryResult : undefined,
@@ -570,7 +665,7 @@ export default function Reports() {
               {isGlobal && <SelectFilter label="الفرع" value={branchFilter} onChange={setBranchFilter} options={[{ value: 'all', label: 'كل الفروع' }, ...branches.map(branch => ({ value: String(branch.id), label: branch.name }))]} />}
               {selectedReport.filters.geography && <GeoCascadeFields cascade={geo} />}
               {selectedReport.filters.search && <FilterField label="بحث">
-                <input value={searchFilter} onChange={event => setSearchFilter(event.target.value)} placeholder="اسم الزبون، الرقم، أو الجهاز" className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-teal-500" />
+                <input value={searchFilter} onChange={event => setSearchFilter(event.target.value)} placeholder={selectedKey === 'service.device_faults' ? 'اسم الزبون، الرقم، رقم الطلب، أو التسلسلي' : selectedKey === 'service.retrieved_devices' ? 'اسم الزبون، الرقم، أو التسلسلي' : 'اسم الزبون، الرقم، أو الجهاز'} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-teal-500" />
               </FilterField>}
               {selectedReport.filters.candidateNameSearch && <FilterField label="اسم الشخص المقترح"><input value={specificFilters.candidateNameSearch ?? ''} onChange={event => setSpecificFilters(current => ({ ...current, candidateNameSearch: event.target.value }))} placeholder="البحث بالاسم" className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-teal-500" /></FilterField>}
               {selectedReport.filters.candidateSourceType && <SelectFilter label="مصدر الاسم" value={specificFilters.candidateSourceType ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, candidateSourceType: value }))} options={[{ value: 'all', label: 'كل المصادر' }, { value: 'direct', label: 'اقتراح مباشر' }, { value: 'name_list', label: 'لائحة أسماء' }]} />}
@@ -599,6 +694,23 @@ export default function Reports() {
               {selectedReport.filters.retrievalPurpose && <SelectFilter label="غرض السحب" value={specificFilters.retrievalPurpose ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, retrievalPurpose: value }))} options={RETRIEVAL_PURPOSE_OPTIONS} />}
               {selectedReport.filters.retrievalTechnician && <SelectFilter label="فني السحب" value={specificFilters.retrievalTechnicianEmployeeId ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, retrievalTechnicianEmployeeId: value }))} options={[{ value: 'all', label: 'كل فنيي السحب' }, ...filterOptions.retrievalTechnicians]} />}
               {selectedReport.filters.retrievedDeviceStatus && <SelectFilter label="حالة الجهاز الحالية" value={specificFilters.retrievedDeviceStatus ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, retrievedDeviceStatus: value }))} options={[{ value: 'all', label: 'كل الحالات الحالية' }, ...filterOptions.retrievedDeviceStatuses]} />}
+              {selectedReport.filters.visitTechnician && <SelectFilter label="فني الزيارة" value={specificFilters.visitTechnicianEmployeeId ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, visitTechnicianEmployeeId: value }))} options={[{ value: 'all', label: 'كل فنيي الزيارات' }, ...filterOptions.technicians]} />}
+              {selectedReport.filters.retrievalSource && <SelectFilter label="مسار السحب" value={specificFilters.retrievalSource ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, retrievalSource: value }))} options={RETRIEVAL_SOURCE_OPTIONS} />}
+              {selectedReport.filters.originBranch && <SelectFilter label="الفرع قبل السحب" value={specificFilters.originBranchId ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, originBranchId: value }))} options={[{ value: 'all', label: 'كل الفروع قبل السحب' }, ...filterOptions.originBranches]} />}
+              {selectedReport.filters.route && <SelectFilter label="خط السير" value={specificFilters.routeId ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, routeId: value }))} options={[{ value: 'all', label: 'كل خطوط السير' }, ...filterOptions.routes]} />}
+              {selectedReport.filters.areaEvaluation && <SelectFilter label="تقييم المنطقة" value={specificFilters.areaEvaluation ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, areaEvaluation: value }))} options={AREA_EVALUATION_OPTIONS} />}
+              {selectedReport.filters.evaluationConfidence && <SelectFilter label="موثوقية التقييم" value={specificFilters.evaluationConfidence ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, evaluationConfidence: value }))} options={EVALUATION_CONFIDENCE_OPTIONS} />}
+              {selectedReport.filters.periodicPressure && <SelectFilter label="استحقاق الصيانة الدورية" value={specificFilters.periodicPressure ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, periodicPressure: value }))} options={PERIODIC_PRESSURE_OPTIONS} />}
+              {selectedReport.filters.department && <SelectFilter label="القسم" value={specificFilters.departmentId ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, departmentId: value }))} options={[{ value: 'all', label: 'كل الأقسام' }, ...filterOptions.departments]} />}
+              {selectedReport.filters.jobTitle && <SelectFilter label="الصفة الوظيفية" value={specificFilters.jobTitle ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, jobTitle: value }))} options={[{ value: 'all', label: 'كل الصفات' }, ...filterOptions.jobTitles]} />}
+              {selectedReport.filters.employmentStatus && <SelectFilter label="حالة الخدمة" value={specificFilters.employmentStatus ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, employmentStatus: value }))} options={EMPLOYMENT_STATUS_OPTIONS} />}
+              {selectedReport.filters.technicianActivity && <SelectFilter label="حالة العمل" value={specificFilters.technicianActivity ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, technicianActivity: value }))} options={TECHNICIAN_ACTIVITY_OPTIONS} />}
+              {selectedReport.filters.callBookingPresence && <SelectFilter label="نتيجة الحجز" value={specificFilters.callBookingPresence ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, callBookingPresence: value }))} options={CALL_BOOKING_PRESENCE_OPTIONS} />}
+              {selectedReport.filters.receivableSourceType && <SelectFilter label="نوع مصدر الاستحقاق" value={specificFilters.receivableSourceType ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, receivableSourceType: value }))} options={RECEIVABLE_SOURCE_TYPE_OPTIONS} />}
+              {selectedReport.filters.collectionAppointmentPresence && <SelectFilter label="موعد التحصيل" value={specificFilters.collectionAppointmentPresence ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, collectionAppointmentPresence: value }))} options={COLLECTION_APPOINTMENT_PRESENCE_OPTIONS} />}
+              {selectedReport.filters.taskResult && <SelectFilter label="نتيجة المهمة" value={specificFilters.taskResult ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, taskResult: value }))} options={[{ value: 'all', label: 'كل النتائج' }, ...filterOptions.taskResults]} />}
+              {selectedReport.filters.cancellationReason && <SelectFilter label="سبب إلغاء الزيارة" value={specificFilters.cancellationReasonId ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, cancellationReasonId: value }))} options={[{ value: 'all', label: 'كل أسباب الإلغاء' }, ...filterOptions.cancellationReasons]} />}
+              {selectedReport.filters.visitOrigin && <SelectFilter label="مصدر الزيارة" value={specificFilters.visitOrigin ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, visitOrigin: value }))} options={VISIT_ORIGIN_OPTIONS} />}
               {selectedReport.filters.giftDefinition && <SelectFilter label="نوع الهدية" value={specificFilters.giftDefinitionId ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, giftDefinitionId: value }))} options={[{ value: 'all', label: 'كل أنواع الهدايا' }, ...filterOptions.giftDefinitions]} />}
               {selectedReport.filters.giftConditionStatus && <SelectFilter label="حالة الاستحقاق" value={specificFilters.giftConditionStatus ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, giftConditionStatus: value }))} options={GIFT_CONDITION_STATUS_OPTIONS} />}
               {selectedReport.filters.giftDeliveryResult && <SelectFilter label="نتيجة تسليم الهدية" value={specificFilters.giftDeliveryResult ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, giftDeliveryResult: value }))} options={GIFT_DELIVERY_RESULT_OPTIONS} />}
@@ -626,13 +738,13 @@ export default function Reports() {
               <div className="mt-3 grid gap-3 md:grid-cols-4">
                 {selectedReport.filters.warrantyStatus && <SelectFilter label="حالة الكفالة الذهبية" value={warrantyStatusFilter} onChange={setWarrantyStatusFilter} options={[{ value: 'all', label: 'كل حالات الكفالة' }, ...filterOptions.warrantyStatuses]} />}
                 {selectedReport.filters.customerRating && <SelectFilter label="تقييم الزبون" value={customerRatingFilter} onChange={setCustomerRatingFilter} options={[{ value: 'all', label: 'كل التقييمات' }, ...filterOptions.customerRatings]} />}
-                {selectedReport.filters.contactEmployee && <SelectFilter label="موظف آخر تواصل" value={contactEmployeeFilter} onChange={setContactEmployeeFilter} options={[{ value: 'all', label: 'كل الموظفين' }, ...filterOptions.contactEmployees]} />}
+                {selectedReport.filters.contactEmployee && <SelectFilter label={selectedKey === 'service.dues' ? 'موظف آخر اتصال' : 'موظف آخر تواصل'} value={contactEmployeeFilter} onChange={setContactEmployeeFilter} options={[{ value: 'all', label: 'كل الموظفين' }, ...filterOptions.contactEmployees]} />}
                 {selectedReport.filters.lastContactChannel && <SelectFilter label="وسيلة آخر تواصل" value={lastContactChannelFilter} onChange={setLastContactChannelFilter} options={[{ value: 'all', label: 'كل وسائل التواصل' }, { value: 'whatsapp', label: 'رسالة واتساب' }, { value: 'other', label: 'وسيلة أخرى' }]} />}
                 {selectedReport.filters.replacedParts && <SelectFilter label="قطع مبدلة في آخر زيارة" value={replacedPartsFilter} onChange={setReplacedPartsFilter} options={[{ value: 'all', label: 'الكل' }, { value: 'yes', label: 'توجد قطع' }, { value: 'no', label: 'لا توجد قطع' }]} />}
                 {selectedReport.filters.referralSheetNumber && <FilterField label="رقم لائحة الأسماء"><input type="number" min="1" value={specificFilters.referralSheetNumber ?? ''} onChange={event => setSpecificFilters(current => ({ ...current, referralSheetNumber: event.target.value }))} className="h-11 rounded-xl border border-slate-200 px-3" /></FilterField>}
                 {selectedReport.filters.mediatorName && <FilterField label="اسم الوسيط"><input value={specificFilters.mediatorName ?? ''} onChange={event => setSpecificFilters(current => ({ ...current, mediatorName: event.target.value }))} className="h-11 rounded-xl border border-slate-200 px-3" /></FilterField>}
                 {selectedReport.filters.mediatorType && <SelectFilter label="تصنيف الوسيط" value={specificFilters.mediatorType ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, mediatorType: value }))} options={[{ value: 'all', label: 'كل تصنيفات الوسطاء' }, { value: 'Client', label: 'زبون' }, { value: 'Employee', label: 'موظف' }, { value: 'Personal', label: 'شخصي' }, { value: 'unknown', label: 'غير محدد' }]} />}
-                {selectedReport.filters.accompanyingTechnician && <SelectFilter label="الفني المرافق لزيارة الوسيط" value={specificFilters.accompanyingTechnicianId ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, accompanyingTechnicianId: value }))} options={[{ value: 'all', label: 'كل الفنيين المرافقين' }, ...filterOptions.accompanyingTechnicians]} />}
+                {selectedReport.filters.accompanyingTechnician && <SelectFilter label={selectedKey === 'work_files.geo_supervisors' ? 'الفني المرافق لآخر زيارة' : 'الفني المرافق لزيارة الوسيط'} value={specificFilters.accompanyingTechnicianId ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, accompanyingTechnicianId: value }))} options={[{ value: 'all', label: 'كل الفنيين المرافقين' }, ...filterOptions.accompanyingTechnicians]} />}
                 {selectedReport.filters.giftPromiseStatus && <SelectFilter label="حالة وعد الهدية" value={specificFilters.giftPromiseStatus ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, giftPromiseStatus: value }))} options={[{ value: 'all', label: 'كل حالات وعود الهدايا' }, ...filterOptions.giftPromiseStatuses]} />}
                 {selectedReport.filters.occupation && <FilterField label="العمل"><input value={specificFilters.occupation ?? ''} onChange={event => setSpecificFilters(current => ({ ...current, occupation: event.target.value }))} placeholder="البحث في العمل" className="h-11 rounded-xl border border-slate-200 px-3" /></FilterField>}
                 {selectedReport.filters.paidAmount && <>

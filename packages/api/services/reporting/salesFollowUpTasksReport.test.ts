@@ -77,3 +77,25 @@ test('permission migration supports global branch and assigned scopes', () => {
   assert.match(migration, /role_permission_grants/);
   assert.doesNotMatch(migration, /role_permissions(?!_grants)/);
 });
+
+test('the task result filters on the stored code and displays the project wording', () => {
+  const { sql, params } = buildSalesFollowUpTasksQuery(GLOBAL_ACCESS, {
+    fromDate: '2026-08-01', toDate: '2026-08-31', taskResult: 'offer_presented',
+  }, { limit: 10 });
+
+  // The code is what the row was closed with; the label is display text that can be
+  // reworded without invalidating a stored run's filters.
+  assert.match(sql, /result\.final_decision = \$3/);
+  assert.match(sql, /WHEN 'offer_presented' THEN 'تقديم عرض'/);
+  assert.match(sql, /END AS "taskResult"/);
+  assert.deepEqual(params.slice(0, 3), ['2026-08-01', '2026-08-31', 'offer_presented']);
+});
+
+test('an untranslated outcome keeps its code instead of reading empty', () => {
+  const { sql } = buildSalesFollowUpTasksQuery(GLOBAL_ACCESS, {
+    fromDate: '2026-08-01', toDate: '2026-08-31',
+  }, { limit: 10 });
+  // A missing translation is a gap to fix, not a row to blank out in a report about
+  // executed work.
+  assert.match(sql, /ELSE NULLIF\(BTRIM\(result\.final_decision\), ''\)\s*\n\s*END AS "taskResult"/);
+});

@@ -282,6 +282,20 @@ const sourceGiftConditionValues: Record<string, string> = {
   candidate: 'candidate_referral_sale',
 };
 
+const giftConditionLabelsByValue: Record<string, string> = {
+  contract_referrer_gift: 'هدية وسيط العقد',
+  cash_contract: 'توقيع عقد نقدي',
+  after_second_installment: 'الاستحقاق بعد الدفعة الثانية',
+  multiple_contracts: 'شراء أكثر من عقد',
+  administrative_commitment: 'التزام إداري',
+  branch_manager_decision: 'قرار مدير الفرع',
+  gift_contract: 'عقد هدية معتمد',
+  other: 'أخرى',
+  name_list_referral_sale: 'شراء زبون من لائحة الأسماء',
+  direct_referral_sale: 'شراء الزبون المقترح مباشرة',
+  candidate_referral_sale: 'شراء الاسم المقترح',
+};
+
 async function resolveGiftDeliveryCreationReason(value: unknown) {
   const creationReason = normalizeText(value);
   const { rows } = await pool.query(
@@ -585,13 +599,31 @@ router.get('/records', requirePermission('contract_gifts.view'), async (req, res
   res.json(rows.map(mapRecord));
 });
 
+router.get('/promise-conditions', requirePermission('contract_gifts.view'), async (_req, res) => {
+  const { rows } = await pool.query(
+    `SELECT id, value, display_order AS "displayOrder", metadata
+       FROM system_lists
+      WHERE category='gift_promise_conditions'
+        AND is_active=TRUE
+      ORDER BY display_order, id`,
+  );
+  res.json(rows.map((row: any) => ({
+    id: Number(row.id),
+    value: String(row.value),
+    label: normalizeText(row.metadata?.label) || giftConditionLabelsByValue[row.value] || String(row.value),
+    requiresNotes: row.metadata?.requiresNotes === true || row.value === 'other',
+    displayOrder: Number(row.displayOrder ?? 0),
+  })));
+});
+
 router.patch('/records/:id/referral-promise', async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'غير مصرح' });
   const giftRecordId = normalizePositiveInt(req.params.id);
   const giftDefinitionId = normalizePositiveInt(req.body?.giftDefinitionId);
+  const conditionId = normalizePositiveInt(req.body?.conditionId);
   const quantity = normalizePositiveInt(req.body?.promisedQuantity ?? req.body?.quantity);
-  if (!giftRecordId || !giftDefinitionId || !quantity) {
-    return res.status(400).json({ error: 'تعريف الهدية والكمية الموعودة مطلوبان' });
+  if (!giftRecordId || !giftDefinitionId || !conditionId || !quantity) {
+    return res.status(400).json({ error: 'تعريف الهدية وشرط الوعد والكمية الموعودة مطلوبة' });
   }
 
   const authContext = await getOrBuildAuthContext(req as any);
@@ -648,7 +680,8 @@ router.patch('/records/:id/referral-promise', async (req, res) => {
     await updateReferralGiftPromise(db, {
       giftRecordId,
       giftDefinitionId,
-      conditionLabel: req.body?.conditionLabel,
+      conditionId,
+      conditionNotes: req.body?.conditionNotes,
       quantity,
       actorUserId: authContext.userId,
     });

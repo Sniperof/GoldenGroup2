@@ -18,6 +18,13 @@ interface Props {
   emptyText?: string;
 }
 
+interface PromiseConditionOption {
+  id: number;
+  value: string;
+  label: string;
+  requiresNotes: boolean;
+}
+
 function canEditBySource(record: GiftRecordPrototype, canEditCandidate: boolean, canEditSheet: boolean): boolean {
   if (record.status !== 'promised') return false;
   if (record.sources.some(source => source.sourceType === 'contract')) return false;
@@ -36,11 +43,13 @@ export default function ReferralGiftPromisesPanel({
   const canEditSheet = hasAnyPermission('candidates.name_lists.edit');
   const [records, setRecords] = useState<GiftRecordPrototype[]>([]);
   const [definitions, setDefinitions] = useState<GiftDefinitionPrototype[]>([]);
+  const [conditions, setConditions] = useState<PromiseConditionOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<GiftRecordPrototype | null>(null);
   const [giftDefinitionId, setGiftDefinitionId] = useState('');
-  const [conditionLabel, setConditionLabel] = useState('');
+  const [conditionId, setConditionId] = useState('');
+  const [conditionNotes, setConditionNotes] = useState('');
   const [quantity, setQuantity] = useState(1);
   const [saving, setSaving] = useState(false);
 
@@ -65,28 +74,47 @@ export default function ReferralGiftPromisesPanel({
 
   useEffect(() => {
     let active = true;
-    api.gifts.definitions.list()
-      .then(rows => { if (active) setDefinitions(rows.filter(row => row.isActive)); })
-      .catch(() => { if (active) setDefinitions([]); });
+    Promise.all([
+      api.gifts.definitions.list(),
+      api.gifts.promiseConditions.list(),
+    ])
+      .then(([definitionRows, conditionRows]) => {
+        if (!active) return;
+        setDefinitions(definitionRows.filter(row => row.isActive));
+        setConditions(conditionRows.map(item => ({
+          id: Number(item.id),
+          value: String(item.value ?? ''),
+          label: String(item.label ?? item.value ?? item.id),
+          requiresNotes: item.requiresNotes === true,
+        })));
+      })
+      .catch(() => {
+        if (active) setDefinitions([]);
+        if (active) setConditions([]);
+      });
     return () => { active = false; };
   }, []);
 
   const openEdit = (record: GiftRecordPrototype) => {
     setEditing(record);
     setGiftDefinitionId(String(record.giftDefinitionId ?? ''));
-    setConditionLabel(record.conditionLabel);
+    setConditionId(String(record.conditionId ?? ''));
+    setConditionNotes(record.conditionNotes ?? '');
     setQuantity(Math.max(1, Number(record.promisedQuantity) || 1));
     setError(null);
   };
 
   const save = async () => {
-    if (!editing || !Number(giftDefinitionId) || quantity < 1) return;
+    const selectedCondition = conditions.find(condition => String(condition.id) === conditionId);
+    if (!editing || !Number(giftDefinitionId) || !selectedCondition || quantity < 1) return;
+    if (selectedCondition.requiresNotes && !conditionNotes.trim()) return;
     setSaving(true);
     setError(null);
     try {
       await api.gifts.records.updateReferralPromise(editing.id, {
         giftDefinitionId: Number(giftDefinitionId),
-        conditionLabel: conditionLabel.trim(),
+        conditionId: Number(conditionId),
+        conditionNotes: conditionNotes.trim(),
         promisedQuantity: quantity,
       });
       setEditing(null);
@@ -157,7 +185,7 @@ export default function ReferralGiftPromisesPanel({
         footer={(
           <>
             <Button variant="secondary" onClick={() => setEditing(null)} disabled={saving}>إلغاء</Button>
-            <Button variant="gold" onClick={save} disabled={saving || !Number(giftDefinitionId) || quantity < 1}>
+            <Button variant="gold" onClick={save} disabled={saving || !Number(giftDefinitionId) || !Number(conditionId) || quantity < 1 || (conditions.find(condition => String(condition.id) === conditionId)?.requiresNotes === true && !conditionNotes.trim())}>
               {saving ? 'جارٍ الحفظ...' : 'حفظ التعديل'}
             </Button>
           </>
@@ -165,7 +193,8 @@ export default function ReferralGiftPromisesPanel({
       >
         <div className="space-y-4 p-5" dir="rtl">
           <label className="block"><span className="mb-1 block text-xs font-bold text-slate-500">نوع الهدية</span><select value={giftDefinitionId} onChange={event => setGiftDefinitionId(event.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm">{definitions.map(definition => <option key={definition.id} value={String(definition.id)}>{definition.name}</option>)}</select></label>
-          <label className="block"><span className="mb-1 block text-xs font-bold text-slate-500">شرط الوعد</span><input value={conditionLabel} onChange={event => setConditionLabel(event.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" /></label>
+          <label className="block"><span className="mb-1 block text-xs font-bold text-slate-500">شرط الوعد</span><select value={conditionId} onChange={event => { setConditionId(event.target.value); setConditionNotes(''); }} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm">{conditions.map(condition => <option key={condition.id} value={String(condition.id)}>{condition.label}</option>)}</select></label>
+          {conditions.find(condition => String(condition.id) === conditionId)?.requiresNotes && <label className="block"><span className="mb-1 block text-xs font-bold text-slate-500">ملاحظات الشرط *</span><textarea value={conditionNotes} onChange={event => setConditionNotes(event.target.value)} className="min-h-20 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" /></label>}
           <label className="block"><span className="mb-1 block text-xs font-bold text-slate-500">الكمية الموعودة</span><input type="number" min={1} value={quantity} onChange={event => setQuantity(Math.max(1, Number(event.target.value) || 1))} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" /></label>
           <p className="text-xs font-bold text-slate-500">حالة تحقق الشرط لا تتغير من تعديل الوعد.</p>
         </div>

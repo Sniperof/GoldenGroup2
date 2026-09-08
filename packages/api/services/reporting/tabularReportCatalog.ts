@@ -88,6 +88,35 @@ export interface TabularReportDefinition {
     giftConditionStatus?: boolean;
     giftDeliveryResult?: boolean;
     giftDefinition?: boolean;
+    /** The technician who attended the treatment visit, beside the one credited with the repair. */
+    visitTechnician?: boolean;
+    /** How the retrieval reached the workshop, and the branch the device left. */
+    retrievalSource?: boolean;
+    originBranch?: boolean;
+    /** Route stations, and the two survey-derived judgements of an area. */
+    route?: boolean;
+    areaEvaluation?: boolean;
+    evaluationConfidence?: boolean;
+    /** Whether the area carries overdue or due-today periodic maintenance. */
+    periodicPressure?: boolean;
+    /**
+     * The shared staff dimension of the person-grain roll-up reports: the named
+     * department, the job title, and whether the person is still on staff.
+     */
+    department?: boolean;
+    jobTitle?: boolean;
+    employmentStatus?: boolean;
+    /** Whether the row's own totals show any work, per report. */
+    technicianActivity?: boolean;
+    callBookingPresence?: boolean;
+    /** What the receivable is owed for, and the state of its next collection visit. */
+    receivableSourceType?: boolean;
+    collectionAppointmentPresence?: boolean;
+    /** The outcome a task was closed with. */
+    taskResult?: boolean;
+    /** Why a visit was cancelled, and how the visit came to exist. */
+    cancellationReason?: boolean;
+    visitOrigin?: boolean;
   };
   /**
     * Key of the column the per-run dynamic columns are inserted BEFORE. Without it
@@ -133,9 +162,15 @@ const workFilesGeoSupervisors: TabularReportDefinition = {
   grain: 'مشرفة واحدة في منطقة واحدة (ناحية أو حي)',
   viewPermission: 'reports.work_files.geo_supervisors.view',
   exportPermission: 'reports.work_files.geo_supervisors.export',
-  filters: { dateRange: 'none', geography: true, supervisor: false, technician: false, telemarketer: false, visitStatus: false },
+  filters: {
+    dateRange: 'none', geography: true, supervisor: true, technician: false,
+    telemarketer: false, visitStatus: false,
+    departmentType: true, accompanyingTechnician: true,
+    dateRanges: [{ fromKey: 'lastVisitFrom', toKey: 'lastVisitTo', label: 'آخر زيارة' }],
+  },
   columns: [
     { key: 'employeeName', titleAr: 'المشرفة', type: 'text', width: 22, sortable: true },
+    { key: 'departmentName', titleAr: 'قسم المشرفة', type: 'text', width: 20, sortable: true },
     { key: 'geoUnitName', titleAr: 'المنطقة (الناحية / الحي)', type: 'text', width: 28, sortable: true },
     { key: 'leadCount', titleAr: 'زبائن LEAD', type: 'integer', width: 17 },
     { key: 'salesFollowUpCount', titleAr: 'زبائن قيد متابعة', type: 'integer', width: 20 },
@@ -151,6 +186,7 @@ const workFilesGeoSupervisors: TabularReportDefinition = {
     columnDescriptions: {
       branchName: 'الفرع التنظيمي التابع له سجل المشرفة. يظهر هذا العمود عند صلاحية عرض كل الفروع.',
       employeeName: 'المشرفة التي يُنسب إليها ملف الزبائن الحالي أو مهمة عرض الجهاز المنفذة.',
+      departmentName: 'قسم المشرفة الحالي من سجلها الوظيفي، وهو ما يقرأه فلتر «نوع القسم». يظهر فارغًا للمشرفة غير المرتبطة بقسم.',
       geoUnitName: 'الموقع الجغرافي الحالي للزبائن الذين دخلوا في احتساب الصف.',
       leadCount: 'زبائن LEAD المملوكون حاليًا للمشرفة ضمن المنطقة، ويُحسب كل زبون مرة واحدة.',
       salesFollowUpCount: 'جميع الزبائن الذين لديهم مهمة عرض جهاز ما زالت قيد المتابعة أو التخطيط أو التنفيذ، بصرف النظر عن توصيف الزبون.',
@@ -159,7 +195,7 @@ const workFilesGeoSupervisors: TabularReportDefinition = {
       lastVisitAt: 'أحدث وقت انتهاء فعلي لزيارة نفذتها المشرفة في المنطقة، وليس موعد الزيارة المجدول.',
       lastVisitTechnicianName: 'الفني الموجود ضمن فريق آخر زيارة فعلية، وفق لقطة الفريق وقت الزيارة.',
     },
-    note: 'أعداد الزبائن مميزة حسب الزبون، فلا يتكرر الزبون بسبب تعدد المهام. ولا تدخل في عمودي FOP وOP إلا مهمة عرض جهاز مغلقة.',
+    note: 'أعداد الزبائن مميزة حسب الزبون، فلا يتكرر الزبون بسبب تعدد المهام. ولا تدخل في عمودي FOP وOP إلا مهمة عرض جهاز مغلقة. وفلترا «الفني المرافق» و«آخر زيارة» يقرآن الزيارة الظاهرة في العمودين لا أي زيارة سابقة، فاختيار أيهما يُسقط الصفوف التي لا زيارة مسجلة لها. والزيارة القديمة التي حُفظ اسم فنيها دون معرّفه لا تطابق أي اختيار في قائمة الفنيين.',
   },
 };
 
@@ -172,7 +208,11 @@ const dailyVisitsLog: TabularReportDefinition = {
   grain: 'زيارة واحدة',
   viewPermission: 'reports.daily_work.visits_log.view',
   exportPermission: 'reports.daily_work.visits_log.export',
-  filters: { dateRange: 'required', geography: true, supervisor: true, technician: true, telemarketer: true, visitStatus: true },
+  filters: {
+    dateRange: 'required', geography: true, supervisor: true, technician: true,
+    telemarketer: true, visitStatus: true,
+    cancellationReason: true, visitOrigin: true,
+  },
   columns: [
     { key: 'visitDate', titleAr: 'تاريخ الزيارة', type: 'date', width: 16 },
     { key: 'supervisorName', titleAr: 'المشرفة', type: 'text', width: 22, sortable: true },
@@ -180,6 +220,7 @@ const dailyVisitsLog: TabularReportDefinition = {
     { key: 'telemarketerName', titleAr: 'التلماركتر', type: 'text', width: 22, sortable: true },
     { key: 'traineeName', titleAr: 'المتدرب', type: 'text', width: 22, sortable: true },
     { key: 'visitTime', titleAr: 'وقت الزيارة', type: 'text', width: 14, sortable: true },
+    { key: 'visitOrigin', titleAr: 'مصدر الزيارة', type: 'text', width: 20, sortable: true },
     { key: 'appointmentNotes', titleAr: 'ملاحظات الموعد', type: 'text', width: 32 },
     { key: 'geoUnitName', titleAr: 'المنطقة (الناحية / الحي)', type: 'text', width: 28, sortable: true },
     { key: 'visitLocation', titleAr: 'موقع الزيارة', type: 'link', width: 18 },
@@ -206,6 +247,7 @@ const dailyVisitsLog: TabularReportDefinition = {
       telemarketerName: 'موظف التسويق الهاتفي الذي حجز الزيارة.',
       traineeName: 'المتدرب الفعلي ضمن فريق الزيارة.',
       visitTime: 'الوقت المحدد للزيارة.',
+      visitOrigin: 'كيف نشأت الزيارة: حجز تسويق هاتفي، أو زيارة ميدانية فورية أنشأها المشرف خارج الخطة، أو متابعة متوقعة. وهو سؤال مستقل عن حالة الزيارة.',
       appointmentNotes: 'تعليمات الموعد المحفوظة للفريق، ثم ملاحظات الحجز أو الزيارة عند عدم وجودها.',
       geoUnitName: 'الناحية أو الحي الحالي المرتبط بسجل الزبون.',
       visitLocation: 'رابط إلى موقع بدء الزيارة المسجل عبر GPS.',
@@ -220,7 +262,7 @@ const dailyVisitsLog: TabularReportDefinition = {
       taskCount: 'عدد المهام المرتبطة فعليًا بالزيارة، بما فيها المهام التي ألغيت نتيجة إلغاء الزيارة.',
       actualNamesCount: 'العدد الفعلي للأسماء المسجلة في لائحة الزيارة، وليس العدد المستهدف.',
     },
-    note: 'لا يعرض هذا التقرير أنواع المهام أو نتائجها؛ ستوضع تفاصيلها في تقرير مستقل.',
+    note: 'لا يعرض هذا التقرير أنواع المهام أو نتائجها؛ ستوضع تفاصيلها في تقرير مستقل. وقائمة أسباب الإلغاء في الفلتر تعرض ما سُجّل فعلًا داخل نطاق المستخدم لا كل ما تحويه القائمة الإدارية؛ واختيار سبب يقصر النتيجة على الزيارات الملغاة بحكم أن السبب لا يُسجّل على غيرها.',
   },
 };
 
@@ -315,6 +357,7 @@ const performanceGeographicPortfolio: TabularReportDefinition = {
   supportedScopes: ['GLOBAL', 'BRANCH'],
   filters: {
     dateRange: 'none', geography: true, supervisor: false, technician: false, telemarketer: false, visitStatus: false,
+    route: true, areaEvaluation: true, evaluationConfidence: true, periodicPressure: true,
   },
   columns: [
     { key: 'governorateName', titleAr: 'المحافظة', type: 'text', width: 18, sortable: true },
@@ -361,7 +404,7 @@ const performanceGeographicPortfolio: TabularReportDefinition = {
       evaluationCount: 'عدد استبيانات الزيارات المكتملة وغير المتخطاة التي دخلت في تقييم المنطقة.',
       latestEvaluationDate: 'تاريخ أحدث تقييم صالح دخل في حساب المنطقة.',
     },
-    note: 'موقع الزبون يأتي من عنوانه الحالي، وموقع الجهاز والصيانة يأتي من موقع تركيب الجهاز. لا تدخل مهام الغد في الاستحقاق، ولا تدخل الأجهزة بلا مهمة دورية نشطة في عمودي الصيانة.',
+    note: 'موقع الزبون يأتي من عنوانه الحالي، وموقع الجهاز والصيانة يأتي من موقع تركيب الجهاز. لا تدخل مهام الغد في الاستحقاق، ولا تدخل الأجهزة بلا مهمة دورية نشطة في عمودي الصيانة. وفلتر خط السير يوسّع محطاته إلى ما تحتها، فالمحطة المسجلة على ناحية تشمل أحياءها؛ أما فلترا التقييم والموثوقية وفلتر ضغط الصيانة الدورية فتُطبّق على نفس القيم الظاهرة في الأعمدة لا على حساب موازٍ لها.',
   },
 };
 
@@ -378,6 +421,7 @@ const performanceSalesFollowUpTasks: TabularReportDefinition = {
   filters: {
     dateRange: 'required', geography: true, supervisor: true, technician: true,
     telemarketer: false, visitStatus: false, taskType: true, search: false,
+    taskResult: true,
   },
   columns: [
     { key: 'supervisorName', titleAr: 'المشرفة', type: 'text', width: 22, sortable: true },
@@ -388,6 +432,7 @@ const performanceSalesFollowUpTasks: TabularReportDefinition = {
     { key: 'subareaName', titleAr: 'الناحية', type: 'text', width: 18, sortable: true },
     { key: 'neighborhoodName', titleAr: 'الحي', type: 'text', width: 18, sortable: true },
     { key: 'taskType', titleAr: 'نوع المهمة', type: 'text', width: 24, sortable: true },
+    { key: 'taskResult', titleAr: 'نتيجة المهمة', type: 'text', width: 22, sortable: true },
     { key: 'executedDate', titleAr: 'تاريخ تنفيذ المهمة', type: 'date', width: 20 },
     { key: 'resultNotes', titleAr: 'ملاحظات النتيجة', type: 'text', width: 38 },
   ],
@@ -405,6 +450,7 @@ const performanceSalesFollowUpTasks: TabularReportDefinition = {
       subareaName: 'الناحية ضمن موقع تنفيذ المهمة.',
       neighborhoodName: 'الحي ضمن موقع تنفيذ المهمة، أو «غير محدد» عند غيابه.',
       taskType: 'الاسم العربي لنوع المهمة من إعدادات أنواع المهام الحالية.',
+      taskResult: 'النتيجة التي أُغلقت بها المهمة، بمصطلحات المشروع. ولكل نوع مهمة قاموس نتائجه، فقائمة الفلتر تعرض ما هو مسجّل فعلًا داخل نطاق المستخدم لا كل النتائج الممكنة. والنتيجة التي لم تُترجم بعد تظهر برمزها المحفوظ لا فارغة، لأن ثغرة ترجمة تُصلح ولا تُخفى.',
       executedDate: 'تاريخ تسجيل نتيجة المهمة بتوقيت دمشق، وهو أساس نطاق التقرير.',
       resultNotes: 'ملاحظات الإغلاق المحفوظة مع نتيجة المهمة فقط، دون خلطها بملاحظات الزيارة أو الموعد.',
     },
@@ -709,6 +755,12 @@ const serviceDues: TabularReportDefinition = {
     telemarketer: false, visitStatus: false,
     financialAsOfDate: true, collectionOwner: true, contractSeller: true,
     saleCloser: true, contractPaymentType: true, latestCollectionResult: true,
+    receivableSourceType: true, deviceModel: true, contactEmployee: true,
+    collectionAppointmentPresence: true,
+    dateRanges: [{
+      fromKey: 'collectionAppointmentFrom', toKey: 'collectionAppointmentTo',
+      label: 'موعد التحصيل القادم',
+    }],
   },
   columns: [
     { key: 'governorateName', titleAr: 'المحافظة', type: 'text', width: 18, sortable: true },
@@ -717,6 +769,8 @@ const serviceDues: TabularReportDefinition = {
     { key: 'neighborhoodName', titleAr: 'الحي', type: 'text', width: 18, sortable: true },
     { key: 'customerName', titleAr: 'اسم الزبون', type: 'text', width: 25, sortable: true },
     { key: 'receivableSource', titleAr: 'مصدر الاستحقاق', type: 'text', width: 26, sortable: true },
+    { key: 'receivableSourceKind', titleAr: 'نوع مصدر الاستحقاق', type: 'text', width: 20, sortable: true },
+    { key: 'deviceModelName', titleAr: 'نوع الجهاز', type: 'text', width: 22, sortable: true },
     { key: 'sourceEventDate', titleAr: 'تاريخ التركيب أو الخدمة', type: 'date', width: 21 },
     { key: 'dueDate', titleAr: 'تاريخ الاستحقاق', type: 'date', width: 18 },
     { key: 'contractFinalValue', titleAr: 'قيمة العقد', type: 'decimal', width: 18 },
@@ -750,6 +804,8 @@ const serviceDues: TabularReportDefinition = {
       subareaName: 'الناحية الحالية ضمن عنوان الزبون.', neighborhoodName: 'الحي الحالي ضمن عنوان الزبون.',
       customerName: 'اسم الزبون الحالي، ثم الاسم المحفوظ على العقد عند غيابه.',
       receivableSource: 'الوصف المحفوظ لمصدر الذمة، ثم رقم العقد عند غياب وصف مستقل.',
+      receivableSourceKind: 'نوع المصدر الذي يقرأه الفلتر: قيمة العقد أو مهمة صيانة أو كفالة ذهبية. والاستحقاق الذي لم تُنشأ له مهمة تحصيل بعد يُقرأ «قيمة العقد»، وهو ما يعرضه عمود المصدر أيضًا.',
+      deviceModelName: 'موديل جهاز العقد. وعند تعدد أجهزة العقد يُقرأ أحدثها تركيبًا، وهو الجهاز نفسه الذي يُشتق منه «تاريخ التركيب أو الخدمة»، فلا يسمّي التقرير جهازًا ويؤرّخ آخر.',
       sourceEventDate: 'تاريخ تركيب الجهاز عندما يكون المصدر عقدًا، أو تاريخ تنفيذ الخدمة عندما يكون المصدر صيانة، أو بدء الكفالة عند كونها المصدر.',
       dueDate: 'تاريخ الاستحقاق الأصلي للقسط، وهو أساس نطاق التقرير.',
       contractFinalValue: 'قيمة العقد النهائية المتعاقد عليها بعد الحسم؛ وليست السعر المجرد لموديل الجهاز.',
@@ -770,7 +826,7 @@ const serviceDues: TabularReportDefinition = {
       latestVisitTechnicianName: 'الفني الفعلي في زيارة آخر نتيجة بعد تطبيق إعادة التعيين ثم لقطة الفريق.',
       latestResultNotes: 'ملاحظات آخر نتيجة تحصيل فقط.', collectionTaskNotes: 'ملاحظات أحدث مهمة تحصيل أنشئت حتى التاريخ المحدد.',
     },
-    note: 'يحدد تاريخ الحالة المالية ما إذا كان الاستحقاق ما يزال مفتوحًا وما هي الأنشطة المتاحة في اللقطة. أما آخر دفعة وإجمالي المسدد والمتبقي الظاهر فتُحسب قبل تاريخ استحقاق كل صف كما يقتضي تعريف التقرير. اسم الزبون وموقعه ومسؤول التحصيل وموظفو العقد، وحالة إلغاء موعد الزيارة، حقول مرجعية حالية لا تملك جميعها سجل تغيرات تاريخيًا مستقلًا.',
+    note: 'يحدد تاريخ الحالة المالية ما إذا كان الاستحقاق ما يزال مفتوحًا وما هي الأنشطة المتاحة في اللقطة. أما آخر دفعة وإجمالي المسدد والمتبقي الظاهر فتُحسب قبل تاريخ استحقاق كل صف كما يقتضي تعريف التقرير. اسم الزبون وموقعه ومسؤول التحصيل وموظفو العقد، وحالة إلغاء موعد الزيارة، حقول مرجعية حالية لا تملك جميعها سجل تغيرات تاريخيًا مستقلًا. وفلاتر موظف آخر اتصال وموعد التحصيل القادم تقرأ القيمة الظاهرة في عمودها بعد اختيار الأحدث، لا أي اتصال أو موعد أسبق؛ و«بلا موعد تحصيل» هو النصف العملي من السؤال لأن مدى التاريخ وحده لا يستطيع التعبير عنه.',
   },
 };
 
@@ -785,10 +841,10 @@ const serviceDeviceFaults: TabularReportDefinition = {
   exportPermission: 'reports.service.installed_devices.export',
   supportedScopes: ['GLOBAL', 'BRANCH'],
   filters: {
-    dateRange: 'required', geography: false, supervisor: false, technician: false,
-    telemarketer: false, visitStatus: false, search: false, deviceModel: true,
+    dateRange: 'required', geography: true, supervisor: false, technician: false,
+    telemarketer: false, visitStatus: false, search: true, deviceModel: true,
     faultType: true, faultStatus: true, faultDiscoveryPhase: true,
-    repairTechnician: true, faultDuration: true, faultPartsUsage: true,
+    repairTechnician: true, visitTechnician: true, faultDuration: true, faultPartsUsage: true,
     dateRanges: [{ fromKey: 'faultResolvedFrom', toKey: 'faultResolvedTo', label: 'تاريخ الإصلاح' }],
   },
   columns: [
@@ -797,6 +853,10 @@ const serviceDeviceFaults: TabularReportDefinition = {
     { key: 'reportedDate', titleAr: 'تاريخ تسجيل العطل', type: 'date', width: 19, sortable: true },
     { key: 'customerName', titleAr: 'اسم الزبون', type: 'text', width: 24, sortable: true },
     { key: 'primaryContactNumber', titleAr: 'رقم الهاتف', type: 'text', width: 19 },
+    { key: 'governorateName', titleAr: 'المحافظة', type: 'text', width: 18, sortable: true },
+    { key: 'regionName', titleAr: 'المنطقة', type: 'text', width: 18, sortable: true },
+    { key: 'subareaName', titleAr: 'الناحية', type: 'text', width: 18, sortable: true },
+    { key: 'neighborhoodName', titleAr: 'الحي', type: 'text', width: 18, sortable: true },
     { key: 'deviceModelName', titleAr: 'نوع الجهاز', type: 'text', width: 24, sortable: true },
     { key: 'serialNumber', titleAr: 'الرقم التسلسلي', type: 'text', width: 21, sortable: true },
     { key: 'faultType', titleAr: 'نوع العطل', type: 'text', width: 22, sortable: true },
@@ -824,6 +884,10 @@ const serviceDeviceFaults: TabularReportDefinition = {
       reportedDate: 'تاريخ إنشاء سجل العطل، وهو التاريخ الذي يحدد دخوله في الفترة.',
       customerName: 'مستفيد طلب الخدمة، أو مالك الجهاز عند غيابه.',
       primaryContactNumber: 'رقم التواصل الرئيسي الحالي للزبون.',
+      governorateName: 'محافظة موقع تركيب الجهاز، لا العنوان الحالي للزبون ولا موقع الفرع.',
+      regionName: 'المنطقة الإدارية لموقع التركيب.',
+      subareaName: 'ناحية موقع التركيب.',
+      neighborhoodName: 'حي موقع التركيب. يظهر فارغًا للجهاز المربوط بمستوى أعلى من الحي.',
       deviceModelName: 'موديل الجهاز من الكتالوج أو الاسم الخارجي المحفوظ.',
       serialNumber: 'الرقم التسلسلي المسجل للجهاز إن وجد.',
       faultType: 'نوع العطل من قائمة أنواع الأعطال المعتمدة.',
@@ -840,7 +904,7 @@ const serviceDeviceFaults: TabularReportDefinition = {
       resolutionDurationDays: 'عدد الأيام من تسجيل العطل إلى إصلاحه، أو إلى يوم التوليد إذا بقي غير محلول.',
       lastUpdatedAt: 'وقت آخر تحديث لسجل العطل.',
     },
-    note: 'لا ينسب التقرير القطع غير المرتبطة بعطل محدد، ولا يوزع تكلفة مهمة الصيانة على أعطالها.',
+    note: 'لا ينسب التقرير القطع غير المرتبطة بعطل محدد، ولا يوزع تكلفة مهمة الصيانة على أعطالها. والجغرافيا هنا جغرافيا موقع التركيب، ففلترها يقرأ الموقع نفسه الظاهر في الأعمدة الأربعة، واختيار مستوى يشمل ما تحته. وحقل البحث حقل واحد يغطي اسم الزبون ورقمه ورقم طلب الخدمة والرقم التسلسلي.',
   },
 };
 
@@ -855,9 +919,10 @@ const serviceRetrievedDevices: TabularReportDefinition = {
   exportPermission: 'reports.service.installed_devices.export',
   supportedScopes: ['GLOBAL', 'BRANCH'],
   filters: {
-    dateRange: 'required', geography: false, supervisor: false, technician: false,
-    telemarketer: false, visitStatus: false, search: false, deviceModel: true,
+    dateRange: 'required', geography: true, supervisor: false, technician: false,
+    telemarketer: false, visitStatus: false, search: true, deviceModel: true,
     retrievalPurpose: true, retrievalTechnician: true, retrievedDeviceStatus: true,
+    retrievalSource: true, originBranch: true,
   },
   columns: [
     { key: 'retrievalId', titleAr: 'رقم عملية السحب', type: 'integer', width: 17, sortable: true },
@@ -865,6 +930,8 @@ const serviceRetrievedDevices: TabularReportDefinition = {
     { key: 'customerName', titleAr: 'اسم الزبون', type: 'text', width: 24, sortable: true },
     { key: 'primaryContactNumber', titleAr: 'رقم الهاتف', type: 'text', width: 19 },
     { key: 'customerAddress', titleAr: 'عنوان الجهاز قبل السحب', type: 'text', width: 32 },
+    { key: 'governorateName', titleAr: 'المحافظة', type: 'text', width: 18, sortable: true },
+    { key: 'regionName', titleAr: 'المنطقة', type: 'text', width: 18, sortable: true },
     { key: 'subareaName', titleAr: 'الناحية', type: 'text', width: 20, sortable: true },
     { key: 'neighborhoodName', titleAr: 'الحي', type: 'text', width: 20, sortable: true },
     { key: 'deviceModelName', titleAr: 'نوع الجهاز', type: 'text', width: 24, sortable: true },
@@ -893,13 +960,16 @@ const serviceRetrievedDevices: TabularReportDefinition = {
       retrievalPurpose: 'صيانة وإرجاع أو استبدال الجهاز، وفق القيم التشغيلية المحفوظة حاليًا.',
       originBranchName: 'لقطة فرع الجهاز قبل نقله إلى فرع الخدمة.',
       customerAddress: 'لقطة عنوان الجهاز المحفوظة قبل السحب.',
+      governorateName: 'المحافظة المستخرجة من لقطة موقع الجهاز قبل السحب.',
+      regionName: 'المنطقة الإدارية المستخرجة من اللقطة نفسها.',
       subareaName: 'الناحية المستخرجة من لقطة موقع الجهاز قبل السحب.',
       neighborhoodName: 'الحي المستخرج من لقطة موقع الجهاز قبل السحب.',
       retrievalTechnicianName: 'فني الزيارة التي نُفذت فيها مهمة السحب.',
+      retrievalSource: 'مسار وصول الجهاز: مهمة سحب مخططة، أو سحب مباشر نفذه الفني في ختام صيانة طارئة. وهو ما يقرأه فلتر مسار السحب.',
       currentDeviceStatus: 'حالة الجهاز لحظة توليد التقرير، وقد تتغير بعد إرجاعه أو نقله.',
       disconnectionNotes: 'ملاحظات أحدث عملية فك ناجحة سبقت السحب للجهاز نفسه.',
     },
-    note: 'النظام الحالي يحفظ غرض السحب كصيانة أو استبدال؛ لا توجد قيمة مستقلة للإتلاف ضمن بيانات السحب.',
+    note: 'النظام الحالي يحفظ غرض السحب كصيانة أو استبدال؛ لا توجد قيمة مستقلة للإتلاف ضمن بيانات السحب. والجغرافيا هنا لقطة موقع الجهاز قبل السحب لا عنوان الزبون الحالي، فاختيار مستوى فيها يشمل ما تحته. وفلتر «الفرع قبل السحب» مستقل عن نطاق الفرع في التقرير: النطاق يقيّد فرع الخدمة المستلم، وهذا الفلتر يقيّد الفرع الذي خرج منه الجهاز.',
   },
 };
 
@@ -972,12 +1042,12 @@ const performanceDepartmentResults: TabularReportDefinition = {
   filters: {
     dateRange: 'required', geography: false, supervisor: false, technician: false,
     telemarketer: false, visitStatus: false,
-    departmentType: true, reportDeviceModels: true,
+    departmentType: true, department: true, reportDeviceModels: true,
   },
   columns: [
     { key: 'branchName', titleAr: 'الفرع', type: 'text', width: 18, sortable: true },
     { key: 'departmentName', titleAr: 'القسم', type: 'text', width: 24, sortable: true },
-    { key: 'dealerCount', titleAr: 'عدد البائع', type: 'integer', width: 13 },
+    { key: 'dealerCount', titleAr: 'عدد البائع (حالي)', type: 'integer', width: 18 },
     { key: 'scheduledDemoTasks', titleAr: 'عدد مواعيد التسويق', type: 'integer', width: 19 },
     { key: 'executedDemoTasks', titleAr: 'عدد العروض', type: 'integer', width: 14 },
     { key: 'offerRate', titleAr: 'نسبة العروض %', type: 'decimal', width: 16 },
@@ -1005,7 +1075,7 @@ const performanceDepartmentResults: TabularReportDefinition = {
     columnDescriptions: {
       branchName: 'الفرع، وهو جزء من هوية الصف لا عمودًا إضافيًا.',
       departmentName: 'القسم داخل الفرع. والقسم غير البيعي يظهر بأصفار ولا يُحجب؛ ولعزل الأقسام البيعية يُستعمل فلتر نوع القسم.',
-      dealerCount: 'عدد بائعي القسم النشطين، ومسمى البائع يختلف بحسب نوع القسم: في التسويق والمبيعات هو الديلر أو مندوب التسويق، وفي الصيانة وخدمة العملاء هي المشرفة لأنها من تزور وتعرض وتبيع. والخريطة مخزنة على نوع القسم وتعدلها الإدارة من قوائم النظام، فنوع القسم الذي لا مسمى بائع معرفًا له يقرأ العمود فارغًا لا صفرًا — لأن «لا دور بيعي هنا» ليس «صفر بائعين».',
+      dealerCount: '**عمود حالي لا يتبع مدة التقرير**: يعد بائعي القسم النشطين اليوم لا من كان موظفًا خلال المدة، لأن سجل الموظف يحمل تاريخ التعيين ولا يحمل تاريخ انتهاء الخدمة فلا يمكن معرفة من كان على رأس عمله في مدة ماضية. عدد بائعي القسم النشطين، ومسمى البائع يختلف بحسب نوع القسم: في التسويق والمبيعات هو الديلر أو مندوب التسويق، وفي الصيانة وخدمة العملاء هي المشرفة لأنها من تزور وتعرض وتبيع. والخريطة مخزنة على نوع القسم وتعدلها الإدارة من قوائم النظام، فنوع القسم الذي لا مسمى بائع معرفًا له يقرأ العمود فارغًا لا صفرًا — لأن «لا دور بيعي هنا» ليس «صفر بائعين».',
       scheduledDemoTasks: 'مهام عرض الجهاز المجدولة في زيارات المدة، منسوبة إلى قسم مشرفة الزيارة الفعلية بعد أي إعادة تعيين.',
       executedDemoTasks: 'ما نُفذ من تلك المهام، أي ما سُجلت له نتيجة. وهو مجموعة فرعية من المواعيد، فنسبة العروض لا تتجاوز مئة بالمئة.',
       offerRate: 'العروض ÷ المواعيد × ١٠٠. يبقى فارغًا لا صفرًا عندما لا يكون للقسم مواعيد في المدة.',
@@ -1027,7 +1097,7 @@ const performanceDepartmentResults: TabularReportDefinition = {
       totalRevenue: 'مبالغ المبيعات + إيرادات الخدمة + إيرادات الذمم. ثلاث حصص نقدية لا تتقاطع، فالمجموع يمثل ما دخل الصندوق في المدة.',
       selectedDevicesTotal: 'مجموع العقود القطعية التي جهازها أحد الأجهزة المختارة قبل التوليد.',
     },
-    note: 'إسناد القسم مختلط بحكم البيانات: البيعات ومالها بمالك البيعة، والأسماء بمالك الاسم، والمواعيد والعروض والدورية بمن نفذها — لأن ملفات الزبائن بلا مُلاك عمليًا فكان إسناد العروض بالملكية سيُخرج أصفارًا لا لغياب العمل بل لغياب التسجيل. وما لا يُسند يسكن صف «غير منسوب إلى قسم» ولا يُسقط بصمت. والأرقام المالية كلها نقد محصل لا استحقاق. ونسبة الأسماء ونسبة البيع معاملان لا نسبتان مئويتان.',
+    note: 'إسناد القسم مختلط بحكم البيانات: البيعات ومالها بمالك البيعة، والأسماء بمالك الاسم، والمواعيد والعروض والدورية بمن نفذها — لأن ملفات الزبائن بلا مُلاك عمليًا فكان إسناد العروض بالملكية سيُخرج أصفارًا لا لغياب العمل بل لغياب التسجيل. وما لا يُسند يسكن صف «غير منسوب إلى قسم» ولا يُسقط بصمت. والأرقام المالية كلها نقد محصل لا استحقاق. ونسبة الأسماء ونسبة البيع معاملان لا نسبتان مئويتان. وفلتر «القسم» يختار قسمًا بعينه ويُسقط معه صف «غير منسوب إلى قسم»، لأن العمل الذي لا يُسند إلى قسم ليس عمل هذا القسم؛ وهو مستقل عن فلتر «نوع القسم» الذي يعزل عائلة أقسام بأكملها.',
   },
 };
 
@@ -1048,6 +1118,7 @@ const performanceSalesCount: TabularReportDefinition = {
     telemarketer: false, visitStatus: false,
     reportDeviceModels: true, reportDeviceModelsRequired: true,
     contractSeller: true, departmentType: true,
+    department: true, jobTitle: true, employmentStatus: true,
   },
   columns: [
     { key: 'branchName', titleAr: 'الفرع', type: 'text', width: 18, sortable: true },
@@ -1069,7 +1140,7 @@ const performanceSalesCount: TabularReportDefinition = {
       totalSales: 'عدد العقود القطعية في المدة التي جهازها أحد الأجهزة المختارة. وهو مجموع أعمدة الأجهزة بالضبط، فالصف يقفل حسابه.',
       salesPoints: 'مجموع أوزان نقاط الأجهزة المباعة نفسها. والموديل الذي لا يحمل وزنًا مسجلًا تُعد بيعته ولا تُنقط — لا يُحسب بواحد افتراضًا ولا تُحجب بيعته، فالصف الذي بيعاته موجبة ونقاطه صفر بائع باع أجهزة بلا وزن لا بائع خامل. ويظهر وزن كل جهاز بجانب اسمه في منسدل الاختيار.',
     },
-    note: 'البيعة المعدودة هنا عقد قطعي نشط أو مكتمل: المسودة ليست بيعة بعد، والملغاة بيعة انتهت، والمؤقتة والمجانية ليستا بيعًا قطعيًا. ولا يحمل هذا التقرير عمود فريق: النظام لا يخزن للفريق هوية ثابتة — مفتاح الفريق موضعي داخل جدول اليوم — فالبيع يُنسب إلى شخص لا إلى فريق. والحد الأعلى للاختيار عشرة أجهزة في التوليد الواحد.',
+    note: 'البيعة المعدودة هنا عقد قطعي نشط أو مكتمل: المسودة ليست بيعة بعد، والملغاة بيعة انتهت، والمؤقتة والمجانية ليستا بيعًا قطعيًا. ولا يحمل هذا التقرير عمود فريق: النظام لا يخزن للفريق هوية ثابتة — مفتاح الفريق موضعي داخل جدول اليوم — فالبيع يُنسب إلى شخص لا إلى فريق. والحد الأعلى للاختيار عشرة أجهزة في التوليد الواحد. وفلاتر القسم والصفة وحالة الخدمة تقرأ سجل البائع الحالي لا حالته وقت البيع، فتُسقط صف «غير منسوب إلى بائع»؛ والفلتر على القسم بعينه مستقل عن الفلتر على نوعه.',
   },
 };
 
@@ -1088,11 +1159,13 @@ const performanceCustomerCalls: TabularReportDefinition = {
     dateRange: 'required', geography: false, supervisor: false, technician: false,
     telemarketer: false, visitStatus: false,
     callEmployee: true, callOutcome: true,
+    department: true, jobTitle: true, employmentStatus: true, callBookingPresence: true,
   },
   columns: [
     { key: 'branchName', titleAr: 'الفرع', type: 'text', width: 18, sortable: true },
     { key: 'employeeName', titleAr: 'الموظف', type: 'text', width: 24, sortable: true },
     { key: 'jobTitle', titleAr: 'الصفة الوظيفية', type: 'text', width: 18, sortable: true },
+    { key: 'departmentName', titleAr: 'القسم', type: 'text', width: 20, sortable: true },
     { key: 'marketingAttempts', titleAr: 'محاولات اتصال تسويق', type: 'integer', width: 20 },
     { key: 'marketingAppointments', titleAr: 'مواعيد تسويق', type: 'integer', width: 16 },
     { key: 'demosExecuted', titleAr: 'عروض منفذة', type: 'integer', width: 15 },
@@ -1125,6 +1198,7 @@ const performanceCustomerCalls: TabularReportDefinition = {
       branchName: 'فرع المكالمة، وهو جزء من هوية الصف لا عمودًا إضافيًا.',
       employeeName: 'موظف الحساب الذي أجرى المكالمة.',
       jobTitle: 'المسمى الوظيفي كما هو مسجل على الموظف. والاتصال ليس وظيفة قسم واحد: التلماركتر يتصل، والمشرفة تتصل، ومدخل البيانات يتصل — فالعمود يقول من اتصل لا يقيده.',
+      departmentName: 'القسم الحالي للموظف من سجله الوظيفي، وهو ما يقرأه فلتر القسم. يظهر فارغًا لصف «غير منسوب إلى موظف» ولمن لا قسم له.',
       marketingAttempts: 'مكالمات موضوعها مهمة عرض جهاز. وموضوع المكالمة هو المهمة الموسومة موضوعًا عند التسجيل، أو المهمة الوحيدة المرتبطة إن كانت واحدة؛ فالمكالمة تُربط تلقائيًا بكل مهام جهة التواصل لعرضها على صفحاتها، والربط وحده لا يعني أنها كانت عنها.',
       marketingAppointments: 'مهام العرض المتمايزة التي حُجز لها موعد في تلك المكالمات. المهمة التي اتُصل بها مرتين موعد واحد لا اثنان.',
       demosExecuted: 'من تلك المواعيد ما سُجلت له نتيجة تنفيذ فعلية.',
@@ -1149,7 +1223,7 @@ const performanceCustomerCalls: TabularReportDefinition = {
       distinctCustomers: 'عدد الزبائن المتمايزين. الفرق بينه وبين إجمالي المكالمات هو تكرار المحاولة على الزبون نفسه.',
       callsPerActiveDay: 'إجمالي المكالمات ÷ عدد الأيام التي سجل فيها الموظف اتصالًا فعلًا. والعنوان يقول «اليوم النشط» لا «اليومي» لأن المقام أيام نشاط لا أيام دوام: لا يحمل النظام سجل حضور، فلا يُقرأ الرقم كإنتاجية مقابل دوام كامل.',
     },
-    note: 'المصدر سجل مكالمات الزبائن وحده، وهو يغطي مكالمات الزبائن لا الأسماء المقترحة. وموضوع المكالمة يُحدد بالوسم أو بالرابط الوحيد، وما تعذر تحديده يُعد في «محاولات أخرى». والمواعيد تُعد مهامًا متمايزة لا مكالمات، أما المحاولات فتُعد مكالمات. وأعمدة الاستحقاق تُقاس لحظة الاتصال لا لحظة التنفيذ: تحديد تاريخ الموعد يملكه المتصل، أما التنفيذ في موعده فيملكه الفريق الميداني.',
+    note: 'المصدر سجل مكالمات الزبائن وحده، وهو يغطي مكالمات الزبائن لا الأسماء المقترحة. وموضوع المكالمة يُحدد بالوسم أو بالرابط الوحيد، وما تعذر تحديده يُعد في «محاولات أخرى». والمواعيد تُعد مهامًا متمايزة لا مكالمات، أما المحاولات فتُعد مكالمات. وأعمدة الاستحقاق تُقاس لحظة الاتصال لا لحظة التنفيذ: تحديد تاريخ الموعد يملكه المتصل، أما التنفيذ في موعده فيملكه الفريق الميداني. وفلاتر القسم والصفة وحالة الخدمة تقرأ سجل الموظف الحالي، فتُسقط صف «غير منسوب إلى موظف» لأنه لا يخص موظفًا بعينه. ولا يوجد فلتر «له مكالمات» لأن الصف لا ينشأ إلا من مكالمة، فيقوم مقامه فلتر «نتيجة الحجز» الذي يقرأ عمود «إجمالي المواعيد» نفسه.',
   },
 };
 
@@ -1167,10 +1241,14 @@ const performanceTechnicianWork: TabularReportDefinition = {
   filters: {
     dateRange: 'required', geography: false, supervisor: false, technician: true,
     telemarketer: false, visitStatus: false,
+    department: true, jobTitle: true, employmentStatus: true, technicianActivity: true,
   },
   columns: [
     { key: 'branchName', titleAr: 'الفرع', type: 'text', width: 18, sortable: true },
     { key: 'technicianName', titleAr: 'اسم الفني', type: 'text', width: 24, sortable: true },
+    { key: 'jobTitle', titleAr: 'الصفة الوظيفية', type: 'text', width: 18, sortable: true },
+    { key: 'departmentName', titleAr: 'القسم', type: 'text', width: 20, sortable: true },
+    { key: 'employmentStatus', titleAr: 'حالة الخدمة', type: 'text', width: 16, sortable: true },
     { key: 'periodicDone', titleAr: 'دورية', type: 'integer', width: 12 },
     { key: 'periodicCollected', titleAr: 'مبالغ الدورية', type: 'decimal', width: 17 },
     { key: 'emergencyDone', titleAr: 'طارئة', type: 'integer', width: 12 },
@@ -1197,6 +1275,9 @@ const performanceTechnicianWork: TabularReportDefinition = {
     columnDescriptions: {
       branchName: 'فرع الفني، وهو جزء من هوية الصف لا عمودًا إضافيًا.',
       technicianName: 'الفني كما هو مسجل في الموظفين. ويُضاف إلى الفنيين النشطين كل من نفذ عملًا داخل المدة ولو انتهت خدمته، فلا يسقط تاريخ.',
+      jobTitle: 'الصفة الوظيفية الحالية للفني من سجله، وهي ما يقرأه فلتر الصفة. وقائمة الصفات في الفلتر محصورة بما تعدّه إعدادات النظام صفة فني.',
+      departmentName: 'القسم الحالي للفني من سجله الوظيفي، وهو ما يقرأه فلتر القسم. يظهر فارغًا للفني غير المرتبط بقسم.',
+      employmentStatus: 'حالة خدمة الفني الحالية لا حالته خلال المدة: «خارج الخدمة» تعني أنه ظهر في التقرير لأنه نفذ عملًا داخل المدة ثم انتهت خدمته قبل التوليد.',
       periodicDone: 'مهام الصيانة الدورية التي أُغلقت نتيجتها داخل المدة والفني فني زيارتها.',
       periodicCollected: 'ما حُصل نقدًا على تلك المهام. والمال المستحق غير المحصل لا يظهر هنا، فالعمود يقرأ صفرًا حين لا يُسجل تحصيل ميداني — وهو غياب تسجيل لا غياب عمل.',
       emergencyDone: 'مهام الصيانة الطارئة المنفذة له.',
@@ -1216,7 +1297,7 @@ const performanceTechnicianWork: TabularReportDefinition = {
       goldenWarrantyOffers: 'مهام عرض الكفالة الذهبية التي نفذها. ولا يشمل تسليم بطاقة الكفالة لأنه مناولة إدارية لا عرضًا.',
       temporaryContracts: 'العقود المؤقتة غير الملغاة التي تاريخها داخل المدة وهو مالك بيعتها.',
     },
-    note: 'إسناد العمل هنا مكتمل: كل مهمة منفذة تحمل فنيها من لقطة فريق الزيارة بعد إعادة التعيين، فلا صف «غير منسوب» في هذا التقرير. والمال كله محصل لا مستحق. وتاريخ استحقاق الدورية قابل للتعديل ولا يسجل سجل أحداث المهمة تعديله، فعمودا الالتزام يقرآن الاستحقاق الحالي.',
+    note: 'إسناد العمل هنا مكتمل: كل مهمة منفذة تحمل فنيها من لقطة فريق الزيارة بعد إعادة التعيين، فلا صف «غير منسوب» في هذا التقرير. والمال كله محصل لا مستحق. وتاريخ استحقاق الدورية قابل للتعديل ولا يسجل سجل أحداث المهمة تعديله، فعمودا الالتزام يقرآن الاستحقاق الحالي. وفلتر «حالة العمل» يقرأ عمود «إجمالي مواعيد منفذة» نفسه، فلا يختلف عنه؛ وهو فلتر لا سلوك افتراضي لأن ظهور الفني بلا عمل هو المعلومة المطلوبة لا صف يُخفى.',
   },
 };
 

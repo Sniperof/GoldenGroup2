@@ -16,6 +16,9 @@ test('details expose edit only for an editable unmaterialized referral promise',
   assert.match(source, /source\.sourceType === 'name_list'/);
   assert.match(source, /source\.sourceType === 'candidate'/);
   assert.match(source, /updateReferralPromise/);
+  assert.match(source, /api\.gifts\.promiseConditions\.list\(\)/);
+  assert.match(source, /conditionId: Number\(conditionId\)/);
+  assert.doesNotMatch(source, /setConditionLabel/);
   assert.doesNotMatch(source, /records\.create/);
   assert.doesNotMatch(source, /إضافة وعد/);
 });

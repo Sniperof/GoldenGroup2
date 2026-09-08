@@ -71,3 +71,64 @@ test('permission migration defines independent GLOBAL and BRANCH report capabili
   assert.match(migration, /ARRAY\['GLOBAL','BRANCH'\]/);
   assert.doesNotMatch(migration, /'ASSIGNED'/);
 });
+
+test('the route filter expands its stations downward on customers and devices alike', () => {
+  const { sql, params } = buildGeographicPortfolioQuery(GLOBAL_ACCESS, { routeId: 9 }, { limit: 100 });
+
+  // A station recorded at a ناحية must still reach the أحياء beneath it, so the
+  // route's points are walked down the tree rather than matched as-is.
+  assert.match(sql, /WITH RECURSIVE/);
+  assert.match(sql, /point\.route_id = \$1/);
+  assert.match(sql, /JOIN route_geo parent ON child\.parent_id = parent\.id/);
+  assert.match(sql, /COALESCE\(client\.neighborhood, client\.district, client\.governorate\) IN \(SELECT id FROM route_geo\)/);
+  assert.match(sql, /device\.installation_geo_unit_id IN \(SELECT id FROM route_geo\)/);
+  assert.deepEqual(params, [9, 100]);
+});
+
+test('the evaluation filters compare against the expression the columns display', () => {
+  const { sql, params } = buildGeographicPortfolioQuery(
+    GLOBAL_ACCESS,
+    { areaEvaluation: 'ضعيفة', evaluationConfidence: 'مرتفعة' },
+    { limit: 100 },
+  );
+
+  assert.match(sql, /WHERE\s*\n?\s*CASE\s*\n\s*WHEN COALESCE\(evaluation\.evaluation_count, 0\) = 0 THEN 'لا توجد بيانات كافية'/);
+  assert.match(sql, /END = \$1/);
+  assert.match(sql, /END = \$2/);
+  assert.deepEqual(params, ['ضعيفة', 'مرتفعة', 100]);
+});
+
+test('the periodic-pressure filter reads the same aggregate as the two device columns', () => {
+  const overdue = buildGeographicPortfolioQuery(GLOBAL_ACCESS, { periodicPressure: 'overdue' }, { limit: 100 });
+  assert.match(overdue.sql, /WHERE COALESCE\(devices\.overdue_periodic_devices, 0\) > 0/);
+  assert.deepEqual(overdue.params, [100]);
+
+  const dueToday = buildGeographicPortfolioQuery(GLOBAL_ACCESS, { periodicPressure: 'due_today' }, { limit: 100 });
+  assert.match(dueToday.sql, /WHERE COALESCE\(devices\.periodic_due_today_devices, 0\) > 0/);
+
+  // «no pressure» is both counters at zero, not the negation of one of them.
+  const none = buildGeographicPortfolioQuery(GLOBAL_ACCESS, { periodicPressure: 'none' }, { limit: 100 });
+  assert.match(none.sql, /COALESCE\(devices\.overdue_periodic_devices, 0\) = 0/);
+  assert.match(none.sql, /AND COALESCE\(devices\.periodic_due_today_devices, 0\) = 0/);
+});
+
+test('an unrecognised evaluation or pressure value is refused, never widened to everything', () => {
+  assert.throws(
+    () => buildGeographicPortfolioQuery(GLOBAL_ACCESS, { areaEvaluation: 'excellent' }, { limit: 100 }),
+    /تقييم المنطقة غير صالح/,
+  );
+  assert.throws(
+    () => buildGeographicPortfolioQuery(GLOBAL_ACCESS, { evaluationConfidence: 'high' }, { limit: 100 }),
+    /موثوقية التقييم غير صالح/,
+  );
+  assert.throws(
+    () => buildGeographicPortfolioQuery(GLOBAL_ACCESS, { periodicPressure: 'late' }, { limit: 100 }),
+    /ضغط الصيانة الدورية غير صالح/,
+  );
+});
+
+test('a run with no row filters keeps the final select unfiltered', () => {
+  const { sql } = buildGeographicPortfolioQuery(GLOBAL_ACCESS, {}, { limit: 100 });
+  assert.doesNotMatch(sql, /WHERE\s+CASE/);
+  assert.doesNotMatch(sql, /route_geo/);
+});

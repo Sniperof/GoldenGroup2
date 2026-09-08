@@ -9,36 +9,27 @@
 import { Router, type Request, type Response } from 'express';
 import type { AuthUser } from '../middleware/auth.js';
 import { getOrBuildAuthContext } from '../middleware/permission.js';
+import { resolveListAccessScope } from '../services/authorizationService.js';
+import { resolveEffectiveScope } from '../services/reporting/metricsService.js';
+import { DashboardLayoutValidationError, normalizeDashboardLayout } from '../services/reporting/dashboardLayoutPolicy.js';
 import pool from '../db.js';
 
 const router = Router();
 
-interface LayoutItem {
-  key: string;
-  size: 'sm' | 'md' | 'lg';
-  scope: { branchId?: number } | null;
-}
-
-const SIZES = new Set(['sm', 'md', 'lg']);
-
-function sanitizeLayout(input: unknown): LayoutItem[] {
-  if (!Array.isArray(input)) return [];
-  const out: LayoutItem[] = [];
-  for (const raw of input) {
-    if (!raw || typeof raw !== 'object') continue;
-    const key = (raw as any).key;
-    if (typeof key !== 'string' || key.length === 0 || key.length > 80) continue;
-    const size = SIZES.has((raw as any).size) ? (raw as any).size : 'sm';
-    let scope: LayoutItem['scope'] = null;
-    const rawScope = (raw as any).scope;
-    if (rawScope && typeof rawScope === 'object') {
-      const b = Number(rawScope.branchId);
-      if (Number.isInteger(b) && b > 0) scope = { branchId: b };
+function normalizeForUser(authContext: Awaited<ReturnType<typeof getOrBuildAuthContext>>, input: unknown, strict: boolean) {
+  return normalizeDashboardLayout(input, (permission, branchId) => {
+    const plan = resolveListAccessScope(authContext, permission);
+    if (plan.scope === 'NONE') {
+      throw new DashboardLayoutValidationError(403, 'لا تملك صلاحية عرض أحد المؤشرات المختارة');
     }
-    out.push({ key, size, scope });
-    if (out.length >= 60) break; // حدّ أعلى دفاعي
-  }
-  return out;
+    if (branchId != null) {
+      try {
+        resolveEffectiveScope({ scope: plan.scope, allowedBranchIds: plan.allowedBranchIds }, { preset: 'month', branchId });
+      } catch {
+        throw new DashboardLayoutValidationError(403, 'لا يمكنك تثبيت مؤشر على فرع غير مسموح');
+      }
+    }
+  }, strict);
 }
 
 router.get('/dashboard-layout', async (req, res) => {
@@ -48,7 +39,8 @@ router.get('/dashboard-layout', async (req, res) => {
       'SELECT layout FROM user_dashboard_layouts WHERE user_id = $1 LIMIT 1',
       [authContext.userId],
     );
-    res.json({ layout: rows[0]?.layout ?? [] });
+    const customized = rows.length > 0;
+    res.json({ layout: normalizeForUser(authContext, rows[0]?.layout ?? [], false), customized });
   } catch (err) {
     console.error('[dashboard-layout] load failed:', err);
     res.status(500).json({ error: 'فشل تحميل تخطيط الداشبورد' });
@@ -58,16 +50,20 @@ router.get('/dashboard-layout', async (req, res) => {
 router.put('/dashboard-layout', async (req: Request, res: Response) => {
   try {
     const authContext = await getOrBuildAuthContext(req as Request & { user: AuthUser });
-    const layout = sanitizeLayout(req.body?.layout);
+    const layout = normalizeForUser(authContext, req.body?.layout, true);
     await pool.query(
       `INSERT INTO user_dashboard_layouts (user_id, layout, updated_at)
        VALUES ($1, $2::jsonb, NOW())
        ON CONFLICT (user_id) DO UPDATE SET layout = EXCLUDED.layout, updated_at = NOW()`,
       [authContext.userId, JSON.stringify(layout)],
     );
-    res.json({ layout });
+    res.json({ layout, customized: true });
   } catch (err) {
     console.error('[dashboard-layout] save failed:', err);
+    if (err instanceof DashboardLayoutValidationError) {
+      res.status(err.status).json({ error: err.message });
+      return;
+    }
     res.status(500).json({ error: 'فشل حفظ تخطيط الداشبورد' });
   }
 });

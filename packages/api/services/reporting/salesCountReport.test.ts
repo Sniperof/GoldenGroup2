@@ -183,3 +183,25 @@ test('the migration declares both permissions with ASSIGNED and seeds its own ti
   assert.match(migration, /jsonb_build_array\('مشرفة', 'فني صيانة'\)/);
   assert.match(migration, /jsonb_build_array\('ديلر', 'مندوب التسويق'\)/);
 });
+
+test('the seller dimension narrows the leaderboard by department and title', () => {
+  const { sql, params } = buildSalesCountQuery(GLOBAL_ACCESS, {
+    ...RANGE, deviceModelIds: '5', departmentId: 2, jobTitle: 'ديلر', employmentStatus: 'active',
+  }, { limit: 100 });
+
+  assert.match(sql, /dimension_employee\.id = contract\.sale_owner_id/);
+  assert.match(sql, /dimension_employee\.department_id = \$4/);
+  assert.match(sql, /BTRIM\(dimension_employee\.job_title\) = \$5/);
+  assert.match(sql, /dimension_employee\.status = 'active'/);
+  assert.deepEqual(params.slice(0, 5), ['2026-08-01', '2026-08-31', [5], 2, 'ديلر']);
+});
+
+test('the department filter is not the department-type filter', () => {
+  const byType = buildSalesCountQuery(GLOBAL_ACCESS, { ...RANGE, deviceModelIds: '5', departmentTypeId: 3 }, { limit: 100 });
+  assert.match(byType.sql, /department\.department_type_id = \$4/);
+  assert.doesNotMatch(byType.sql, /dimension_employee\.department_id/);
+
+  const byDepartment = buildSalesCountQuery(GLOBAL_ACCESS, { ...RANGE, deviceModelIds: '5', departmentId: 3 }, { limit: 100 });
+  assert.match(byDepartment.sql, /dimension_employee\.department_id = \$4/);
+  assert.doesNotMatch(byDepartment.sql, /department\.department_type_id/);
+});

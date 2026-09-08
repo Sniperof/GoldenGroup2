@@ -138,7 +138,11 @@ test('the catalog declares the report, its scopes, filters and every column', ()
   assert.equal(definition.filters.callEmployee, true);
   assert.equal(definition.filters.callOutcome, true);
   assert.equal(definition.rowIsBranch, true);
-  assert.equal(definition.columns.length, 26);
+  assert.equal(definition.filters.department, true);
+  assert.equal(definition.filters.jobTitle, true);
+  assert.equal(definition.filters.employmentStatus, true);
+  assert.equal(definition.filters.callBookingPresence, true);
+  assert.equal(definition.columns.length, 27);
   const { sql } = buildCustomerCallsQuery(GLOBAL_ACCESS, RANGE, { limit: 100 });
   for (const column of definition.columns) {
     assert.match(sql, new RegExp(`AS "${column.key}"`), `${column.key} must be selected`);
@@ -158,4 +162,33 @@ test('the migration declares both permissions with ASSIGNED and adds its indexes
   assert.doesNotMatch(migration, /customer_calls\.export'\s*\)\s*INSERT INTO public\.role_permission_grants/);
   assert.match(migration, /idx_customer_call_logs_branch_date/);
   assert.match(migration, /idx_customer_call_logs_caller/);
+});
+
+test('the staff dimension filters the calls by the caller own record', () => {
+  const { sql, params } = buildCustomerCallsQuery(GLOBAL_ACCESS, {
+    ...RANGE, departmentId: 6, jobTitle: 'تلماركتر', employmentStatus: 'active',
+  }, { limit: 100 });
+
+  // Keyed on the caller's employee link, so the «غير منسوب إلى موظف» row — whose
+  // employee id is NULL — matches none of the three and drops out, as it should.
+  assert.match(sql, /dimension_employee\.id = caller\.employee_id/);
+  assert.match(sql, /dimension_employee\.department_id = \$3/);
+  assert.match(sql, /BTRIM\(dimension_employee\.job_title\) = \$4/);
+  assert.match(sql, /dimension_employee\.status = 'active'/);
+  assert.match(sql, /NULLIF\(BTRIM\(department\.name\), ''\) AS "departmentName"/);
+  assert.deepEqual(params.slice(0, 4), ['2026-08-01', '2026-08-31', 6, 'تلماركتر']);
+});
+
+test('the booking filter reads the appointment total the report publishes', () => {
+  const booked = buildCustomerCallsQuery(GLOBAL_ACCESS, { ...RANGE, callBookingPresence: 'booked' }, { limit: 100 });
+  assert.match(booked.sql, /WHERE COALESCE\(task_totals\.total_appointments, 0\) > 0/);
+  assert.match(booked.sql, /COALESCE\(task_totals\.total_appointments, 0\) AS "totalAppointments"/);
+
+  const idle = buildCustomerCallsQuery(GLOBAL_ACCESS, { ...RANGE, callBookingPresence: 'not_booked' }, { limit: 100 });
+  assert.match(idle.sql, /WHERE COALESCE\(task_totals\.total_appointments, 0\) = 0/);
+
+  assert.throws(
+    () => buildCustomerCallsQuery(GLOBAL_ACCESS, { ...RANGE, callBookingPresence: 'maybe' }, { limit: 100 }),
+    /نتيجة الحجز غير صالحة/,
+  );
 });

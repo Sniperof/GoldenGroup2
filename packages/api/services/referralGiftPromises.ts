@@ -6,7 +6,8 @@ export type ReferralGiftPromiseSourceType = 'candidate' | 'name_list';
 
 export interface ReferralGiftPromiseDraft {
   giftDefinitionId?: number | string | null;
-  conditionLabel?: string | null;
+  conditionId?: number | string | null;
+  conditionNotes?: string | null;
   quantity?: number | string | null;
   similarPromiseWarningAcknowledged?: boolean;
 }
@@ -36,6 +37,24 @@ function normalizedReferralType(value: unknown): 'client' | 'employee' | null {
   if (normalized === 'client' || normalized === 'customer') return 'client';
   if (normalized === 'employee') return 'employee';
   return null;
+}
+
+const giftConditionLabelsByValue: Record<string, string> = {
+  contract_referrer_gift: 'هدية وسيط العقد',
+  cash_contract: 'توقيع عقد نقدي',
+  after_second_installment: 'الاستحقاق بعد الدفعة الثانية',
+  multiple_contracts: 'شراء أكثر من عقد',
+  administrative_commitment: 'التزام إداري',
+  branch_manager_decision: 'قرار مدير الفرع',
+  gift_contract: 'عقد هدية معتمد',
+  other: 'أخرى',
+  name_list_referral_sale: 'شراء زبون من لائحة الأسماء',
+  direct_referral_sale: 'شراء الزبون المقترح مباشرة',
+  candidate_referral_sale: 'شراء الاسم المقترح',
+};
+
+function conditionLabel(condition: any): string {
+  return text(condition.label) || giftConditionLabelsByValue[String(condition.value)] || text(condition.value);
 }
 
 async function loadSource(db: Db, sourceType: ReferralGiftPromiseSourceType, sourceId: number) {
@@ -80,29 +99,29 @@ async function resolveDefinition(db: Db, giftDefinitionId: number) {
   }
 }
 
-async function resolveCondition(db: Db, sourceType: ReferralGiftPromiseSourceType) {
+async function resolveCondition(
+  db: Db,
+  sourceType: ReferralGiftPromiseSourceType,
+  requestedConditionId?: unknown,
+) {
   const conditionValue = sourceType === 'name_list'
     ? 'name_list_referral_sale'
     : 'candidate_referral_sale';
+  const conditionId = positiveInt(requestedConditionId);
   const { rows } = await db.query(
-    `SELECT id, value
+    `SELECT id, value, COALESCE(NULLIF(metadata->>'label',''), value) AS label,
+            COALESCE((metadata->>'requiresNotes')::boolean, FALSE) AS requires_notes
        FROM system_lists
       WHERE category = 'gift_promise_conditions'
-        AND value = $1
+        AND (($1::int IS NOT NULL AND id = $1) OR ($1::int IS NULL AND value = $2))
         AND is_active = TRUE
       LIMIT 1`,
-    [conditionValue],
+    [conditionId, conditionValue],
   );
   if (!rows[0]) {
     throw new ReferralGiftPromiseError('شرط وعد الهدية الخاص بالمصدر غير متاح', 400, 'gift_condition_unavailable');
   }
   return rows[0];
-}
-
-function defaultConditionLabel(sourceType: ReferralGiftPromiseSourceType): string {
-  return sourceType === 'name_list'
-    ? 'شراء زبون من لائحة الأسماء'
-    : 'شراء الاسم المقترح مباشرة';
 }
 
 export async function createReferralGiftPromise(
@@ -159,13 +178,17 @@ export async function createReferralGiftPromise(
   }
 
   await resolveDefinition(db, giftDefinitionId);
-  const condition = await resolveCondition(db, input.sourceType);
+  const condition = await resolveCondition(db, input.sourceType, input.draft.conditionId);
   const beneficiaryType = referralType === 'client' ? 'customer_referrer' : 'employee_referrer';
   const beneficiaryClientId = referralType === 'client' ? referralEntityId : null;
   const beneficiaryEmployeeId = referralType === 'employee' ? referralEntityId : null;
   const beneficiaryName = text(source.referral_name_snapshot) || (referralType === 'client' ? 'وسيط زبون' : 'وسيط موظف');
   const promisedQuantity = positiveInt(input.draft.quantity) ?? 1;
-  const conditionLabel = text(input.draft.conditionLabel) || defaultConditionLabel(input.sourceType);
+  const selectedConditionLabel = conditionLabel(condition);
+  const conditionNotes = text(input.draft.conditionNotes) || null;
+  if ((condition.requires_notes === true || condition.value === 'other') && !conditionNotes) {
+    throw new ReferralGiftPromiseError('ملاحظات شرط الوعد مطلوبة لهذا الخيار', 400, 'gift_condition_notes_required');
+  }
 
   const similar = await db.query(
     `SELECT id
@@ -191,11 +214,11 @@ export async function createReferralGiftPromise(
     `INSERT INTO gift_records (
        gift_definition_id, beneficiary_type, beneficiary_client_id,
        beneficiary_employee_id, beneficiary_name_snapshot, customer_id,
-       condition_id, condition_label, condition_status,
+       condition_id, condition_label, condition_status, condition_notes,
        promised_quantity, approved_quantity,
        source_branch_id, responsible_branch_id, assigned_user_id,
        created_by, updated_by
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'pending',$9,NULL,$10,$10,$11,$12,$12)
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'pending',$9,$10,NULL,$11,$11,$12,$13,$13)
      RETURNING id`,
     [
       giftDefinitionId,
@@ -205,7 +228,8 @@ export async function createReferralGiftPromise(
       beneficiaryName,
       beneficiaryClientId,
       Number(condition.id),
-      conditionLabel,
+      selectedConditionLabel,
+      conditionNotes,
       promisedQuantity,
       sourceBranchId,
       positiveInt(source.assigned_user_id),
@@ -252,14 +276,21 @@ export async function updateReferralGiftPromise(
   input: {
     giftRecordId: number;
     giftDefinitionId: number;
-    conditionLabel?: string | null;
+    conditionId: number;
+    conditionNotes?: string | null;
     quantity: number;
     actorUserId: number | null;
   },
 ) {
   await resolveDefinition(db, input.giftDefinitionId);
+  const condition = await resolveCondition(db, 'candidate', input.conditionId);
+  const conditionNotes = text(input.conditionNotes) || null;
+  if ((condition.requires_notes === true || condition.value === 'other') && !conditionNotes) {
+    throw new ReferralGiftPromiseError('ملاحظات شرط الوعد مطلوبة لهذا الخيار', 400, 'gift_condition_notes_required');
+  }
   const current = await db.query(
-    `SELECT gr.id, gr.status, gr.gift_definition_id, gr.condition_label,
+    `SELECT gr.id, gr.status, gr.gift_definition_id, gr.condition_id, gr.condition_label,
+            gr.condition_notes,
             gr.promised_quantity,
             EXISTS (
               SELECT 1 FROM gift_record_sources contract_source
@@ -282,17 +313,26 @@ export async function updateReferralGiftPromise(
       'referral_gift_promise_locked',
     );
   }
-  const conditionLabel = text(input.conditionLabel) || text(record.condition_label);
   const updated = await db.query(
     `UPDATE gift_records
         SET gift_definition_id=$2,
-            condition_label=$3,
-            promised_quantity=$4,
-            updated_by=$5,
+            condition_id=$3,
+            condition_label=$4,
+            condition_notes=$5,
+            promised_quantity=$6,
+            updated_by=$7,
             updated_at=NOW()
       WHERE id=$1
       RETURNING id`,
-    [input.giftRecordId, input.giftDefinitionId, conditionLabel, input.quantity, input.actorUserId],
+    [
+      input.giftRecordId,
+      input.giftDefinitionId,
+      Number(condition.id),
+      conditionLabel(condition),
+      conditionNotes,
+      input.quantity,
+      input.actorUserId,
+    ],
   );
   await db.query(
     `UPDATE gift_record_sources
@@ -310,7 +350,9 @@ export async function updateReferralGiftPromise(
       input.actorUserId,
       JSON.stringify({
         previousGiftDefinitionId: Number(record.gift_definition_id),
+        previousConditionId: Number(record.condition_id),
         previousConditionLabel: record.condition_label,
+        previousConditionNotes: record.condition_notes,
         previousPromisedQuantity: Number(record.promised_quantity),
       }),
     ],

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 import type { AuthContext } from '@golden-crm/shared';
 import { REPORT_GROUPS, TABULAR_REPORTS, buildVisibleReportCatalog } from './tabularReportCatalog.js';
 
@@ -47,6 +48,23 @@ test('GLOBAL viewers receive the branch column while narrower viewers do not', (
   assert.equal(branch[0]?.reports[0]?.columns.some(column => column.key === 'branchName'), false);
 });
 
+test('the geo-supervisors report offers the row subject as a filter, not only as a column', () => {
+  const report = buildVisibleReportCatalog(context([
+    { permission: 'reports.work_files.geo_supervisors.view', scope: 'BRANCH' },
+  ])).flatMap(group => group.reports).find(item => item.key === 'work_files.geo_supervisors');
+
+  assert.ok(report);
+  // The row IS a supervisor in an area, so «المشرفة» is the report's primary filter.
+  // The query supported it from the start; only the catalogue kept it switched off,
+  // which left the UI with a single geography dropdown for the whole report.
+  assert.equal(report.filters.supervisor, true);
+  assert.equal(report.filters.departmentType, true);
+  assert.equal(report.filters.accompanyingTechnician, true);
+  assert.deepEqual(report.filters.dateRanges?.map(range => range.fromKey), ['lastVisitFrom']);
+  assert.ok(report.columns.some(column => column.key === 'departmentName'));
+  assert.ok(report.guide.columnDescriptions.departmentName);
+});
+
 test('daily visits report appears under work files with required dates', () => {
   const catalog = buildVisibleReportCatalog(context([
     { permission: 'reports.daily_work.visits_log.view', scope: 'GLOBAL' },
@@ -86,7 +104,7 @@ test('service devices report supports GLOBAL and BRANCH only with the agreed dev
   assert.equal(assignedCatalog.flatMap(group => group.reports).some(item => item.key === 'service.installed_devices'), false);
 });
 
-test('device faults report has structured filters without text search and reuses service device access', () => {
+test('device faults report carries its geography, identifier search, and structured filters', () => {
   const report = buildVisibleReportCatalog(context([
     { permission: 'reports.service.installed_devices.view', scope: 'GLOBAL' },
     { permission: 'reports.service.installed_devices.export', scope: 'GLOBAL' },
@@ -97,12 +115,14 @@ test('device faults report has structured filters without text search and reuses
   assert.equal(report.title, 'تقرير الأعطال');
   assert.equal(report.grain, 'عطل واحد مسجل على جهاز');
   assert.equal(report.filters.dateRange, 'required');
-  assert.equal(report.filters.search, false);
+  assert.equal(report.filters.geography, true);
+  assert.equal(report.filters.search, true);
   assert.equal(report.filters.deviceModel, true);
   assert.equal(report.filters.faultType, true);
   assert.equal(report.filters.faultStatus, true);
   assert.equal(report.filters.faultDiscoveryPhase, true);
   assert.equal(report.filters.repairTechnician, true);
+  assert.equal(report.filters.visitTechnician, true);
   assert.equal(report.filters.faultDuration, true);
   assert.equal(report.filters.faultPartsUsage, true);
   assert.deepEqual(report.filters.dateRanges?.map(range => range.fromKey), ['faultResolvedFrom']);
@@ -117,7 +137,7 @@ test('device faults report has structured filters without text search and reuses
   assert.equal(assigned, undefined);
 });
 
-test('retrieved devices report contains successful withdrawal fields without search', () => {
+test('retrieved devices report contains successful withdrawal fields, geography, and retrieval path', () => {
   const report = buildVisibleReportCatalog(context([
     { permission: 'reports.service.installed_devices.view', scope: 'GLOBAL' },
     { permission: 'reports.service.installed_devices.export', scope: 'GLOBAL' },
@@ -128,13 +148,17 @@ test('retrieved devices report contains successful withdrawal fields without sea
   assert.equal(report.title, 'تقرير الأجهزة المسحوبة للشركة');
   assert.equal(report.grain, 'عملية سحب ناجحة واحدة لجهاز');
   assert.equal(report.filters.dateRange, 'required');
-  assert.equal(report.filters.search, false);
+  assert.equal(report.filters.geography, true);
+  assert.equal(report.filters.search, true);
   assert.equal(report.filters.deviceModel, true);
   assert.equal(report.filters.retrievalPurpose, true);
   assert.equal(report.filters.retrievalTechnician, true);
   assert.equal(report.filters.retrievedDeviceStatus, true);
+  assert.equal(report.filters.retrievalSource, true);
+  assert.equal(report.filters.originBranch, true);
   for (const key of [
-    'retrievalDate', 'customerName', 'subareaName', 'neighborhoodName', 'deviceModelName', 'serialNumber', 'retrievalPurpose',
+    'retrievalDate', 'customerName', 'governorateName', 'regionName', 'subareaName', 'neighborhoodName',
+    'deviceModelName', 'serialNumber', 'retrievalPurpose', 'retrievalSource', 'originBranchName',
     'retrievalTechnicianName', 'currentDeviceStatus', 'disconnectionNotes', 'retrievalNotes',
   ]) assert.ok(report.columns.some(column => column.key === key), key);
 });
@@ -150,6 +174,10 @@ test('geographic portfolio report exposes the agreed current geographic columns 
   assert.equal(report.title, 'تقييم محطات المسارات حسب نوع الزبائن والأجهزة');
   assert.equal(report.filters.dateRange, 'none');
   assert.equal(report.filters.geography, true);
+  assert.equal(report.filters.route, true);
+  assert.equal(report.filters.areaEvaluation, true);
+  assert.equal(report.filters.evaluationConfidence, true);
+  assert.equal(report.filters.periodicPressure, true);
   assert.equal(report.columns[0].key, 'branchName');
   for (const key of [
     'governorateName', 'regionName', 'subareaName', 'totalCustomers', 'suggestedCustomers',
@@ -178,11 +206,12 @@ test('sales follow-up task report exposes only visible task-result fields and al
   assert.equal(report.filters.supervisor, true);
   assert.equal(report.filters.technician, true);
   assert.equal(report.filters.taskType, true);
+  assert.equal(report.filters.taskResult, true);
   assert.equal(report.filters.search, false);
   assert.equal(report.columns[0].key, 'branchName');
   assert.deepEqual(report.columns.slice(1).map(column => column.key), [
     'supervisorName', 'technicianName', 'customerName', 'governorateName', 'regionName',
-    'subareaName', 'neighborhoodName', 'taskType', 'executedDate', 'resultNotes',
+    'subareaName', 'neighborhoodName', 'taskType', 'taskResult', 'executedDate', 'resultNotes',
   ]);
 
   const assigned = buildVisibleReportCatalog(context([
@@ -312,4 +341,51 @@ test('service dues exposes only open-installment fields and the approved histori
   assert.equal(report.columns.find(column => column.key === 'agreedPaymentType')?.titleAr, 'نظام السداد المتفق عليه');
   assert.equal(report.columns.find(column => column.key === 'lastPaymentMethod')?.titleAr, 'طريقة آخر دفعة');
   assert.equal(report.columns.some(column => column.titleAr.includes('تسكير مع')), false);
+});
+
+test('every filter a report declares is rendered and sent by the report page', () => {
+  // A flag switched on in the catalogue but not wired in the page is a filter the
+  // user is promised and never gets — the same failure mode as a filter the HTTP
+  // layer drops. Both ends are checked here so neither can drift alone.
+  const page = readFileSync('packages/web/src/pages/Reports.tsx', 'utf8');
+  const declared = new Set<string>();
+  for (const report of TABULAR_REPORTS) {
+    for (const [flag, value] of Object.entries(report.filters)) {
+      if (value === true) declared.add(flag);
+    }
+    for (const range of [...(report.filters.primaryDateRanges ?? []), ...(report.filters.dateRanges ?? [])]) {
+      declared.add(range.fromKey);
+      declared.add(range.toKey);
+    }
+  }
+  // Named ranges are rendered generically from the definition, so their keys only
+  // need to reach the request; the flags need a render site as well.
+  const rangeKeys = new Set(TABULAR_REPORTS.flatMap(report =>
+    [...(report.filters.primaryDateRanges ?? []), ...(report.filters.dateRanges ?? [])]
+      .flatMap(range => [range.fromKey, range.toKey])));
+  const missing = [...declared].filter(flag =>
+    !rangeKeys.has(flag) && !page.includes(`filters.${flag}`));
+  assert.deepEqual(missing, []);
+  assert.match(page, /primaryDateRanges \?\? \[\]/);
+  assert.match(page, /dateRanges \?\? \[\]/);
+});
+
+test('every scoped picker a report declares is fetched from the options endpoint', () => {
+  const page = readFileSync('packages/web/src/pages/Reports.tsx', 'utf8');
+  const service = readFileSync('packages/api/services/reporting/tabularReportService.ts', 'utf8');
+  const gate = page.slice(
+    page.indexOf('const FILTERS_NEEDING_SERVER_OPTIONS'),
+    page.indexOf('const EXECUTION_STAGE_OPTIONS'),
+  );
+  // Reports whose pickers are server-scoped must have an options provider wired,
+  // or the dropdown renders empty with no error to explain it.
+  for (const report of TABULAR_REPORTS) {
+    const needsOptions = Object.entries(report.filters)
+      .some(([flag, value]) => value === true && gate.includes(`'${flag}'`));
+    if (!needsOptions) continue;
+    assert.ok(
+      service.includes(`reportKey === '${report.key}'`),
+      `${report.key} declares a scoped picker but has no filter-options provider`,
+    );
+  }
 });

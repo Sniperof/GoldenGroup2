@@ -30,7 +30,7 @@ interface CandidateState {
     addReferralSheet: (sheet: Omit<ReferralSheet, 'id' | 'createdAt' | 'stats' | 'ownerUserId' | 'createdBy'> & {
         ownerUserId?: number;
         createdBy?: number;
-        giftPromise?: { giftDefinitionId: string; conditionLabel: string; quantity: number } | null;
+        giftPromise?: { giftDefinitionId: string; conditionId: string; conditionNotes?: string; quantity: number } | null;
     }) => Promise<number>;
     closeReferralSheet: (sheetId: number) => Promise<void>;
 
@@ -39,7 +39,7 @@ interface CandidateState {
         ownershipType?: 'PERSONAL' | 'BRANCH';
         responsibleUserId?: number | null;
         assignmentUserIds?: number[];
-        giftPromise?: { giftDefinitionId: string; conditionLabel: string; quantity: number } | null;
+        giftPromise?: { giftDefinitionId: string; conditionId: string; conditionNotes?: string; quantity: number } | null;
     }) => Promise<Candidate>;
     qualifyCandidate: (candidateId: number, clientData?: any) => Promise<void>;
     linkCandidateToClient: (candidateId: number, clientId: number) => Promise<void>;

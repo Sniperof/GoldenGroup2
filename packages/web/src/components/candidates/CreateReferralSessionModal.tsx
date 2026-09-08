@@ -300,7 +300,8 @@ export default function CreateReferralSheetModal({ isOpen, onClose, onSheetCreat
                 createdBy: authUser?.id,
                 giftPromise: giftPromise ? {
                     giftDefinitionId: giftPromise.giftDefinitionId,
-                    conditionLabel: giftPromise.conditionLabel,
+                    conditionId: giftPromise.conditionId,
+                    conditionNotes: giftPromise.conditionNotes,
                     quantity: giftPromise.quantity,
                 } : null,
             });

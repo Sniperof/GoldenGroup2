@@ -24,6 +24,7 @@ export interface DailyVisitReportRow {
   primaryContactNumber: string | null;
   actualStartAt: string | null;
   visitStatus: string;
+  visitOrigin: string | null;
   cancellationReason: string | null;
   cancellationNotes: string | null;
   taskCount: number;
@@ -48,6 +49,18 @@ const VISIT_STATUS_LABELS = {
 
 type VisitStatus = keyof typeof VISIT_STATUS_LABELS;
 
+/**
+ * How the visit came to exist, which is a different question from its status: a
+ * telemarketing booking, a supervisor's off-plan instant visit (DEC-011), or a visit
+ * raised from an expected follow-up. Held as a map so an unknown value is refused
+ * rather than passed into the query.
+ */
+const VISIT_ORIGIN_LABELS: Record<string, string> = {
+  telemarketing: 'حجز تسويق هاتفي',
+  field_initiated: 'زيارة ميدانية فورية',
+  expected_followup: 'متابعة متوقعة',
+};
+
 export interface DailyVisitFilterOption {
   value: string;
   label: string;
@@ -58,6 +71,7 @@ export interface DailyVisitFilterOptions {
   technicians: DailyVisitFilterOption[];
   telemarketers: DailyVisitFilterOption[];
   visitStatuses: DailyVisitFilterOption[];
+  cancellationReasons: DailyVisitFilterOption[];
 }
 
 function validIsoDate(value: unknown): value is string {
@@ -139,6 +153,23 @@ function appendVisitFilters(
     filters.push(`fv.status = $${params.length}`);
   }
 
+  // Read from the managed reasons list, so a reason the admin renames keeps matching
+  // the rows it was recorded on. It is only ever set on a cancelled visit, which is
+  // exactly what the «سبب إلغاء الزيارة» column shows.
+  const cancellationReasonId = positiveInt(request.cancellationReasonId);
+  if (cancellationReasonId != null) {
+    params.push(cancellationReasonId);
+    filters.push(`fv.cancellation_reason_id = $${params.length}`);
+  }
+
+  const visitOrigin = typeof request.visitOrigin === 'string' && request.visitOrigin.trim()
+    ? request.visitOrigin.trim() : null;
+  if (visitOrigin != null) {
+    if (!VISIT_ORIGIN_LABELS[visitOrigin]) throw new ReportingError(400, 'مصدر الزيارة غير صالح');
+    params.push(visitOrigin);
+    filters.push(`fv.origin_type = $${params.length}`);
+  }
+
   const geoIds = String(request.geoIds ?? request.geoUnitId ?? '')
     .split(',')
     .map(value => positiveInt(value))
@@ -177,6 +208,12 @@ export function buildDailyVisitsQuery(
       COALESCE(telemarketer_employee.name,telemarketer_user.name) AS "telemarketerName",
       COALESCE(trainee.name,NULLIF(fv.team_snapshot->>'traineeName','')) AS "traineeName",
       NULLIF(LEFT(fv.scheduled_time,5),'') AS "visitTime",
+      CASE fv.origin_type
+        WHEN 'telemarketing' THEN 'حجز تسويق هاتفي'
+        WHEN 'field_initiated' THEN 'زيارة ميدانية فورية'
+        WHEN 'expected_followup' THEN 'متابعة متوقعة'
+        ELSE NULLIF(BTRIM(fv.origin_type),'')
+      END AS "visitOrigin",
       COALESCE(NULLIF(BTRIM(fv.field_instructions),''),NULLIF(BTRIM(fv.telemarketer_notes),''),NULLIF(BTRIM(fv.field_notes),'')) AS "appointmentNotes",
       COALESCE(c.neighborhood,c.district) AS "geoUnitId",
       geo.name AS "geoUnitName",
@@ -261,6 +298,7 @@ export async function getDailyVisitsReport(
       primaryContactNumber: row.primaryContactNumber == null ? null : String(row.primaryContactNumber),
       actualStartAt: row.actualStartAt == null ? null : new Date(row.actualStartAt).toISOString(),
       visitStatus: String(row.visitStatus),
+      visitOrigin: row.visitOrigin == null ? null : String(row.visitOrigin),
       cancellationReason: row.cancellationReason == null ? null : String(row.cancellationReason),
       cancellationNotes: row.cancellationNotes == null ? null : String(row.cancellationNotes),
       taskCount: Number(row.taskCount),
@@ -301,7 +339,7 @@ function mapNamedOptions(rows: Array<{ value: unknown; label: unknown }>): Daily
 
 export async function getDailyVisitsFilterOptions(access: TabularReportAccess): Promise<DailyVisitFilterOptions> {
   const { params, where } = buildFilterOptionsAccess(access);
-  const [supervisors, technicians, telemarketers, statuses] = await Promise.all([
+  const [supervisors, technicians, telemarketers, statuses, cancellationReasons] = await Promise.all([
     pool.query(
       `SELECT DISTINCT employee.id AS value, employee.name AS label
        FROM field_visits fv
@@ -325,6 +363,16 @@ export async function getDailyVisitsFilterOptions(access: TabularReportAccess): 
       params,
     ),
     pool.query(`SELECT DISTINCT fv.status AS value FROM field_visits fv ${where} ORDER BY value`, params),
+    // Only reasons actually recorded inside the caller's scope: the managed list holds
+    // every reason the admin ever defined, and offering all of them would fill the
+    // dropdown with choices that return nothing.
+    pool.query(
+      `SELECT DISTINCT reason.id AS value, reason.value AS label
+       FROM field_visits fv
+       JOIN system_lists reason ON reason.id = fv.cancellation_reason_id
+       ${where} ORDER BY label`,
+      params,
+    ),
   ]);
   return {
     supervisors: mapNamedOptions(supervisors.rows),
@@ -334,5 +382,6 @@ export async function getDailyVisitsFilterOptions(access: TabularReportAccess): 
       const value = String(row.value ?? '') as VisitStatus;
       return value in VISIT_STATUS_LABELS ? [{ value, label: VISIT_STATUS_LABELS[value] }] : [];
     }),
+    cancellationReasons: mapNamedOptions(cancellationReasons.rows),
   };
 }

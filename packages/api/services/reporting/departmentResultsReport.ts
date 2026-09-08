@@ -4,6 +4,7 @@ import { positiveInt } from './tabularReportAccess.js';
 import { buildTabularReportOrderBy } from './tabularReportSorting.js';
 import { ReportingError } from './reportingError.js';
 import type { TabularReportFilterOptions } from './tabularReportFilterOptions.js';
+import { getEmployeeDimensionOptions } from './reportEmployeeDimension.js';
 import { parseDeviceModelIds } from './salesByTypeReport.js';
 
 interface QueryOptions { offset?: number; limit: number; includeTotalRows?: boolean }
@@ -129,6 +130,21 @@ export function buildDepartmentResultsQuery(
     departmentTypeSql = ` AND dept.department_type_id = $${params.length}`;
   }
 
+  // One named department, beside the existing filter on its type. The row grain is a
+  // department, so this narrows which rows exist and leaves every measure computed
+  // over that department's own work. The «غير منسوب» row per branch is dropped with
+  // it: work attributed to no department is not this department's work.
+  const departmentId = positiveInt(request.departmentId);
+  let departmentIdSql = '';
+  let unattributedSql = `
+      UNION ALL
+      SELECT NULL::int, branch.id, 'غير منسوب إلى قسم', NULL::text[] FROM scope_branches branch`;
+  if (departmentId != null) {
+    params.push(departmentId);
+    departmentIdSql = ` AND dept.id = $${params.length}`;
+    unattributedSql = '';
+  }
+
   const factor = paceFactor(fromDate, toDate);
   let paceSql = 'NULL::numeric AS "pace"';
   if (factor != null) {
@@ -171,9 +187,7 @@ export function buildDepartmentResultsQuery(
         FROM departments dept
         JOIN scope_branches branch ON branch.id = dept.branch_id
         LEFT JOIN system_lists dept_type ON dept_type.id = dept.department_type_id
-       WHERE TRUE${departmentTypeSql}
-      UNION ALL
-      SELECT NULL::int, branch.id, 'غير منسوب إلى قسم', NULL::text[] FROM scope_branches branch
+       WHERE TRUE${departmentTypeSql}${departmentIdSql}${unattributedSql}
     )
     SELECT row.branch_id AS "branchId",
            row.department_id AS "departmentId",
@@ -363,6 +377,7 @@ export async function getDepartmentResultsFilterOptions(
     `),
   ]);
   return {
+    ...await getEmployeeDimensionOptions(access.branchIds),
     departmentTypes: types.rows.map(row => ({ value: String(row.value), label: String(row.label) })),
     deviceModels: models.rows.map(row => ({ value: String(row.value), label: String(row.label) })),
   };

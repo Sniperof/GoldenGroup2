@@ -111,8 +111,10 @@ test('names-file filters are wired through the API and grouped in the report UI'
   const route = readFileSync('packages/api/routes/reports.ts', 'utf8');
   const service = readFileSync('packages/api/services/reporting/tabularReportService.ts', 'utf8');
   const page = readFileSync('packages/web/src/pages/Reports.tsx', 'utf8');
-  assert.match(route, /candidateNameSearch: input\.candidateNameSearch/);
-  assert.match(route, /giftPromiseStatus: input\.giftPromiseStatus/);
+  assert.match(route, /readTabularReportRequestParams\(req\.body\)/);
+  const access = readFileSync('packages/api/services/reporting/tabularReportAccess.ts', 'utf8');
+  assert.match(access, /'candidateNameSearch'/);
+  assert.match(access, /'giftPromiseStatus'/);
   assert.match(service, /getWorkFilesNamesFileFilterOptions/);
   for (const label of ['اسم الشخص المقترح', 'مصدر الاسم', 'حالة الاسم', 'مآل الاسم', 'حالة التكرار', 'رقم لائحة الأسماء', 'اسم الوسيط', 'تصنيف الوسيط', 'الفني المرافق لزيارة الوسيط', 'حالة وعد الهدية', 'العمل']) {
     assert.ok(page.includes(label), label);

@@ -2,10 +2,43 @@ import pool from '../../db.js';
 import type { TabularReportAccess, TabularReportRequestParams } from './tabularReportAccess.js';
 import { positiveInt } from './tabularReportAccess.js';
 import { buildTabularReportOrderBy } from './tabularReportSorting.js';
+import { ReportingError } from './reportingError.js';
+import type { TabularReportFilterOptions } from './tabularReportFilterOptions.js';
 
 const CHALLENGER_MODEL_ID = 1195;
 const AQUANOVA_MODEL_ID = 2462;
 const SAFE_LIFE_MODEL_ID = 1300;
+
+/**
+ * The evaluation label and its confidence are held as constants because the filters
+ * must read the very expression that feeds the visible column, not a parallel
+ * rewrite of it (§9.7.1). Both are computed from the weighted survey aggregate, and
+ * a row with no survey at all keeps its «لا توجد بيانات كافية» value here rather
+ * than dropping out of the report.
+ */
+const AREA_EVALUATION_SQL = `
+           CASE
+             WHEN COALESCE(evaluation.evaluation_count, 0) = 0 THEN 'لا توجد بيانات كافية'
+             WHEN evaluation.weak_weight >= evaluation.total_weight / 2 THEN 'ضعيفة'
+             WHEN evaluation.weak_weight + evaluation.medium_weight >= evaluation.total_weight / 2 THEN 'متوسطة'
+             WHEN evaluation.weak_weight + evaluation.medium_weight + evaluation.good_weight >= evaluation.total_weight / 2 THEN 'جيدة'
+             ELSE 'ممتازة'
+           END`;
+
+const EVALUATION_CONFIDENCE_SQL = `
+           CASE
+             WHEN COALESCE(evaluation.evaluation_count, 0) = 0 THEN 'غير متاحة'
+             WHEN evaluation.evaluation_count >= 10
+              AND evaluation.recent_evaluation_count >= 5
+              AND evaluation.latest_evaluation_at >= NOW() - INTERVAL '90 days' THEN 'مرتفعة'
+             WHEN evaluation.evaluation_count >= 5
+              AND evaluation.latest_evaluation_at >= NOW() - INTERVAL '180 days' THEN 'متوسطة'
+             ELSE 'منخفضة'
+           END`;
+
+const AREA_EVALUATIONS = new Set(['لا توجد بيانات كافية', 'ضعيفة', 'متوسطة', 'جيدة', 'ممتازة']);
+const EVALUATION_CONFIDENCES = new Set(['غير متاحة', 'مرتفعة', 'متوسطة', 'منخفضة']);
+const PERIODIC_PRESSURE_VALUES = new Set(['overdue', 'due_today', 'none']);
 
 interface QueryOptions {
   offset?: number;
@@ -68,6 +101,13 @@ function locationProjection(alias: string): string {
   `;
 }
 
+function allowListed(value: unknown, allowed: Set<string>, label: string): string | null {
+  if (value == null || value === '') return null;
+  const normalized = String(value);
+  if (!allowed.has(normalized)) throw new ReportingError(400, `${label} غير صالح`);
+  return normalized;
+}
+
 function locationJoins(sourceExpression: string, alias: string): string {
   return `
     LEFT JOIN geo_units ${alias}0 ON ${alias}0.id = ${sourceExpression}
@@ -101,6 +141,56 @@ export function buildGeographicPortfolioQuery(
     deviceFilters.push(`device.installation_geo_unit_id = ANY(${geoRef})`);
   }
 
+  // The report's title is about route stations, so the route is a first-class filter:
+  // the chosen route's points are expanded downward, because a point pinned at a
+  // ناحية must still match the customers and devices pinned at حي beneath it.
+  const routeId = positiveInt(request.routeId);
+  let routeCteSql = '';
+  if (routeId != null) {
+    params.push(routeId);
+    routeCteSql = `
+    route_geo AS (
+      SELECT point.geo_unit_id AS id
+        FROM route_points point
+       WHERE point.route_id = $${params.length}
+      UNION
+      SELECT child.id
+        FROM geo_units child
+        JOIN route_geo parent ON child.parent_id = parent.id
+    ),`;
+    clientFilters.push(
+      `COALESCE(client.neighborhood, client.district, client.governorate) IN (SELECT id FROM route_geo)`,
+    );
+    deviceFilters.push(`device.installation_geo_unit_id IN (SELECT id FROM route_geo)`);
+  }
+
+  // Read off the same aggregates the visible columns show, so «مناطق متأخرة» always
+  // agrees with the «أجهزة متأخرة عن الصيانة الدورية» column beside it.
+  const rowFilters: string[] = [];
+  const areaEvaluation = allowListed(request.areaEvaluation, AREA_EVALUATIONS, 'تقييم المنطقة');
+  if (areaEvaluation != null) {
+    params.push(areaEvaluation);
+    rowFilters.push(`${AREA_EVALUATION_SQL} = $${params.length}`);
+  }
+  const evaluationConfidence = allowListed(
+    request.evaluationConfidence, EVALUATION_CONFIDENCES, 'موثوقية التقييم',
+  );
+  if (evaluationConfidence != null) {
+    params.push(evaluationConfidence);
+    rowFilters.push(`${EVALUATION_CONFIDENCE_SQL} = $${params.length}`);
+  }
+  const periodicPressure = allowListed(
+    request.periodicPressure, PERIODIC_PRESSURE_VALUES, 'ضغط الصيانة الدورية',
+  );
+  if (periodicPressure === 'overdue') {
+    rowFilters.push('COALESCE(devices.overdue_periodic_devices, 0) > 0');
+  } else if (periodicPressure === 'due_today') {
+    rowFilters.push('COALESCE(devices.periodic_due_today_devices, 0) > 0');
+  } else if (periodicPressure === 'none') {
+    rowFilters.push(`COALESCE(devices.overdue_periodic_devices, 0) = 0
+       AND COALESCE(devices.periodic_due_today_devices, 0) = 0`);
+  }
+
   params.push(options.limit);
   const limitRef = `$${params.length}`;
   let offsetSql = '';
@@ -110,7 +200,8 @@ export function buildGeographicPortfolioQuery(
   }
 
   const sql = `
-    WITH client_base AS MATERIALIZED (
+    WITH RECURSIVE ${routeCteSql}
+    client_base AS MATERIALIZED (
       SELECT client.id,
              client.branch_id,
              client.candidate_status,
@@ -235,22 +326,8 @@ export function buildGeographicPortfolioQuery(
            COALESCE(devices.other_devices, 0)::int AS "otherDevices",
            COALESCE(devices.periodic_due_today_devices, 0)::int AS "periodicDueTodayDevices",
            COALESCE(devices.overdue_periodic_devices, 0)::int AS "overduePeriodicDevices",
-           CASE
-             WHEN COALESCE(evaluation.evaluation_count, 0) = 0 THEN 'لا توجد بيانات كافية'
-             WHEN evaluation.weak_weight >= evaluation.total_weight / 2 THEN 'ضعيفة'
-             WHEN evaluation.weak_weight + evaluation.medium_weight >= evaluation.total_weight / 2 THEN 'متوسطة'
-             WHEN evaluation.weak_weight + evaluation.medium_weight + evaluation.good_weight >= evaluation.total_weight / 2 THEN 'جيدة'
-             ELSE 'ممتازة'
-           END AS "areaEvaluation",
-           CASE
-             WHEN COALESCE(evaluation.evaluation_count, 0) = 0 THEN 'غير متاحة'
-             WHEN evaluation.evaluation_count >= 10
-              AND evaluation.recent_evaluation_count >= 5
-              AND evaluation.latest_evaluation_at >= NOW() - INTERVAL '90 days' THEN 'مرتفعة'
-             WHEN evaluation.evaluation_count >= 5
-              AND evaluation.latest_evaluation_at >= NOW() - INTERVAL '180 days' THEN 'متوسطة'
-             ELSE 'منخفضة'
-           END AS "evaluationConfidence",
+           ${AREA_EVALUATION_SQL} AS "areaEvaluation",
+           ${EVALUATION_CONFIDENCE_SQL} AS "evaluationConfidence",
            COALESCE(evaluation.evaluation_count, 0)::int AS "evaluationCount",
            TO_CHAR(evaluation.latest_evaluation_at::date, 'YYYY-MM-DD') AS "latestEvaluationDate"
            ${options.includeTotalRows === false ? '' : ', COUNT(*) OVER()::int AS "totalRows"'}
@@ -274,6 +351,7 @@ export function buildGeographicPortfolioQuery(
        AND evaluation.governorate_id IS NOT DISTINCT FROM keys.governorate_id
        AND evaluation.region_id IS NOT DISTINCT FROM keys.region_id
        AND evaluation.subarea_id IS NOT DISTINCT FROM keys.subarea_id
+     ${rowFilters.length > 0 ? `WHERE ${rowFilters.join('\n       AND ')}` : ''}
      ORDER BY ${buildTabularReportOrderBy(
        'performance.geographic_portfolio', access, request,
        `COALESCE(branch.name, 'غير محدد'), COALESCE(governorate.name, 'غير محدد'),
@@ -320,4 +398,47 @@ export async function getGeographicPortfolioReport(
     })),
     total,
   };
+}
+
+/**
+ * Only the routes this report can actually group rows under: a route whose points
+ * touch no customer and no device inside the granted branches would offer the user a
+ * choice that always returns zero rows (§9.7.1).
+ */
+export async function getGeographicPortfolioFilterOptions(
+  access: TabularReportAccess,
+): Promise<Partial<TabularReportFilterOptions>> {
+  const scopeIds = access.branchIds.length > 0 ? access.branchIds : null;
+  const { rows } = await pool.query(`
+    WITH RECURSIVE route_geo AS (
+      SELECT point.route_id, point.geo_unit_id AS id
+        FROM route_points point
+      UNION
+      SELECT parent.route_id, child.id
+        FROM geo_units child
+        JOIN route_geo parent ON child.parent_id = parent.id
+    )
+    SELECT route.id::text AS value, route.name AS label
+      FROM routes route
+     WHERE EXISTS (
+             SELECT 1
+               FROM route_geo covered
+              WHERE covered.route_id = route.id
+                AND (
+                  EXISTS (
+                    SELECT 1 FROM clients client
+                     WHERE client.deleted_at IS NULL
+                       AND COALESCE(client.neighborhood, client.district, client.governorate) = covered.id
+                       AND ($1::int[] IS NULL OR client.branch_id = ANY($1::int[]))
+                  )
+                  OR EXISTS (
+                    SELECT 1 FROM installed_devices device
+                     WHERE device.installation_geo_unit_id = covered.id
+                       AND ($1::int[] IS NULL OR device.branch_id = ANY($1::int[]))
+                  )
+                )
+           )
+     ORDER BY label
+  `, [scopeIds]);
+  return { routes: rows.map(row => ({ value: String(row.value), label: String(row.label) })) };
 }

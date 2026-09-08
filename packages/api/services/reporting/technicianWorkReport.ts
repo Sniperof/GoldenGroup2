@@ -4,6 +4,16 @@ import { positiveInt } from './tabularReportAccess.js';
 import { buildTabularReportOrderBy } from './tabularReportSorting.js';
 import { ReportingError } from './reportingError.js';
 import type { TabularReportFilterOptions } from './tabularReportFilterOptions.js';
+import { employeeDimensionConditions, getEmployeeDimensionOptions } from './reportEmployeeDimension.js';
+
+const TECHNICIAN_ACTIVITY = new Set(['with_work', 'without_work']);
+
+function optionalAllowListed(value: unknown, allowed: Set<string>, label: string): string | null {
+  if (value == null || value === '') return null;
+  const normalized = String(value);
+  if (!allowed.has(normalized)) throw new ReportingError(400, `${label} غير صالحة`);
+  return normalized;
+}
 
 interface QueryOptions { offset?: number; limit: number; includeTotalRows?: boolean }
 
@@ -12,6 +22,9 @@ export interface TechnicianWorkRow {
   employeeId: number;
   branchName: string;
   technicianName: string;
+  jobTitle: string | null;
+  departmentName: string | null;
+  employmentStatus: string;
   periodicDone: number;
   periodicCollected: string;
   emergencyDone: number;
@@ -106,6 +119,19 @@ export function buildTechnicianWorkQuery(
     rowFilters.push(`employee.id = $${params.length}`);
   }
 
+  rowFilters.push(...employeeDimensionConditions(request, params, 'employee.id'));
+
+  // «له عمل» reads the same aggregate as the «إجمالي مواعيد منفذة» column, so the
+  // filter and the column can never disagree. It is a filter and not the default
+  // because the row set is the staff list on purpose: a technician who executed
+  // nothing all month is the finding, not a blank to hide (§9.7.1).
+  const activity = optionalAllowListed(request.technicianActivity, TECHNICIAN_ACTIVITY, 'حالة العمل');
+  const activitySql = activity === 'with_work'
+    ? 'WHERE COALESCE(tasks.total_done, 0) > 0'
+    : activity === 'without_work'
+      ? 'WHERE COALESCE(tasks.total_done, 0) = 0'
+      : '';
+
   params.push(options.limit);
   const limitRef = `$${params.length}`;
   let offsetSql = '';
@@ -133,7 +159,8 @@ export function buildTechnicianWorkQuery(
        WHERE result.closed_at >= ${fromStampSql}
          AND result.closed_at < ${toStampSql}
     ), report_rows AS (
-      SELECT employee.id, employee.branch_id, employee.name
+      SELECT employee.id, employee.branch_id, employee.name,
+             employee.job_title, employee.status, employee.department_id
         FROM employees employee
        WHERE (
                (employee.status = 'active'
@@ -146,6 +173,9 @@ export function buildTechnicianWorkQuery(
            row.id AS "employeeId",
            COALESCE(NULLIF(BTRIM(branch.name), ''), 'غير محدد') AS "branchName",
            COALESCE(NULLIF(BTRIM(row.name), ''), 'فني #' || row.id::text) AS "technicianName",
+           NULLIF(BTRIM(row.job_title), '') AS "jobTitle",
+           NULLIF(BTRIM(department.name), '') AS "departmentName",
+           CASE WHEN row.status = 'active' THEN 'على رأس العمل' ELSE 'خارج الخدمة' END AS "employmentStatus",
            COALESCE(tasks.periodic_done, 0) AS "periodicDone",
            COALESCE(periodic_money.collected, 0)::numeric AS "periodicCollected",
            COALESCE(tasks.emergency_done, 0) AS "emergencyDone",
@@ -168,6 +198,7 @@ export function buildTechnicianWorkQuery(
            ${options.includeTotalRows === false ? '' : ', COUNT(*) OVER()::int AS "totalRows"'}
       FROM report_rows row
       LEFT JOIN branches branch ON branch.id = row.branch_id
+      LEFT JOIN departments department ON department.id = row.department_id
       LEFT JOIN LATERAL (
         SELECT COUNT(*)::int AS total_done,
                COUNT(*) FILTER (WHERE executed.task_type = 'periodic_maintenance')::int AS periodic_done,
@@ -258,6 +289,7 @@ export function buildTechnicianWorkQuery(
            AND candidate.created_at >= ${fromStampSql}
            AND candidate.created_at < ${toStampSql}
       ) names ON TRUE
+     ${activitySql}
      ORDER BY ${buildTabularReportOrderBy(
        'performance.technician_work', access, request,
        `COALESCE(tasks.total_done, 0) DESC, row.branch_id ASC NULLS LAST, row.id ASC`,
@@ -277,11 +309,19 @@ export async function getTechnicianWorkReport(
   return { rows, total: rows.length };
 }
 
-/** The technician picker offers the same people the report can show (§9.7.1). */
+/**
+ * The technician picker offers the same people the report can show (§9.7.1), and the
+ * job-title picker is narrowed to the titles the admin setting counts as «فني» — the
+ * report has no rows for a «مشرفة», so offering her title would be a dead choice.
+ */
 export async function getTechnicianWorkFilterOptions(
   access: TabularReportAccess,
 ): Promise<Partial<TabularReportFilterOptions>> {
   const scopeIds = access.branchIds.length > 0 ? access.branchIds : null;
+  const dimension = await getEmployeeDimensionOptions(
+    access.branchIds,
+    `AND BTRIM(employee.job_title) IN (${TECHNICIAN_TITLES_SQL})`,
+  );
   const { rows } = await pool.query(`
     WITH technician_titles AS (
       ${TECHNICIAN_TITLES_SQL}
@@ -303,6 +343,7 @@ export async function getTechnicianWorkFilterOptions(
      ORDER BY label
   `, [scopeIds]);
   return {
+    ...dimension,
     technicians: rows.map(row => ({ value: String(row.value), label: String(row.label) })),
   };
 }

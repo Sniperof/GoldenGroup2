@@ -6,6 +6,7 @@ import { ReportingError } from './reportingError.js';
 import type { TabularReportColumn } from './tabularReportCatalog.js';
 import type { TabularReportFilterOptions } from './tabularReportFilterOptions.js';
 import { parseDeviceModelIds } from './salesByTypeReport.js';
+import { employeeDimensionConditions, getEmployeeDimensionOptions } from './reportEmployeeDimension.js';
 
 interface QueryOptions { offset?: number; limit: number; includeTotalRows?: boolean }
 
@@ -130,6 +131,10 @@ export function buildSalesCountQuery(
     params.push(departmentTypeId);
     filters.push(`department.department_type_id = $${params.length}`);
   }
+
+  // The report already shows the seller's department and title; these narrow by them
+  // rather than leaving the reader to scan the whole leaderboard for one department.
+  filters.push(...employeeDimensionConditions(request, params, 'contract.sale_owner_id'));
 
   const deviceColumnsSql = deviceModelIds.map(id => `,
            COUNT(*) FILTER (WHERE ${DEVICE_MODEL_ID_SQL} = ${id})::int AS "deviceModel_${id}"`).join('');
@@ -281,6 +286,7 @@ export async function getSalesCountFilterOptions(
   ]);
 
   return {
+    ...await getEmployeeDimensionOptions(access.branchIds),
     contractSellers: sellers.rows.map(row => ({ value: String(row.value), label: String(row.label) })),
     departmentTypes: types.rows.map(row => ({ value: String(row.value), label: String(row.label) })),
     deviceModels: models.rows.map(row => ({ value: String(row.value), label: String(row.label) })),

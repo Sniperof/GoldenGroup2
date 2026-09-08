@@ -3,6 +3,8 @@ import { buildClientLifecycleStatusSql, eligiblePersonalOwnerCondition } from '.
 import type { TabularReportAccess, TabularReportRequestParams } from './tabularReportAccess.js';
 import { positiveInt } from './tabularReportAccess.js';
 import { buildTabularReportOrderBy } from './tabularReportSorting.js';
+import { ReportingError } from './reportingError.js';
+import type { TabularReportFilterOptions } from './tabularReportFilterOptions.js';
 
 const ACTIVE_DEVICE_DEMO_STATUSES = [
   'open',
@@ -20,6 +22,7 @@ export interface WorkFilesGeoSupervisorRow {
   branchName: string;
   employeeId: number;
   employeeName: string;
+  departmentName: string | null;
   geoUnitId: number;
   geoUnitName: string;
   leadCount: number;
@@ -41,6 +44,34 @@ interface QueryOptions {
   includeTotalRows?: boolean;
 }
 
+function parseGeoIds(request: TabularReportRequestParams): number[] {
+  return Array.from(new Set(String(request.geoIds ?? request.geoUnitId ?? '')
+    .split(',').map(value => positiveInt(value))
+    .filter((value): value is number => value != null)));
+}
+
+/**
+ * The row's subject is the supervisor, so her department is read off her employee
+ * record through the department's type — the same admin-managed list every other
+ * report's «نوع القسم» filter uses.
+ */
+function departmentTypeCondition(supervisorAlias: string, placeholder: string): string {
+  return `EXISTS (
+        SELECT 1 FROM departments supervisor_department
+         WHERE supervisor_department.id = ${supervisorAlias}.department_id
+           AND supervisor_department.department_type_id = ${placeholder}
+      )`;
+}
+
+function dateOnly(value: unknown, label: string): string | null {
+  if (value == null || value === '') return null;
+  const normalized = String(value).trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized) || Number.isNaN(new Date(`${normalized}T00:00:00Z`).getTime())) {
+    throw new ReportingError(400, `${label} غير صالح`);
+  }
+  return normalized;
+}
+
 function appendFilters(
   access: TabularReportAccess,
   request: TabularReportRequestParams,
@@ -56,15 +87,19 @@ function appendFilters(
     filters.push(`owner.id = $${params.length}`);
   }
 
-  const employeeId = positiveInt(request.employeeId);
-  if (employeeId != null) {
-    params.push(employeeId);
+  const supervisorEmployeeId = positiveInt(request.supervisorEmployeeId);
+  if (supervisorEmployeeId != null) {
+    params.push(supervisorEmployeeId);
     filters.push(`employee.id = $${params.length}`);
   }
-  const geoIds = String(request.geoIds ?? request.geoUnitId ?? '')
-    .split(',').map(value => positiveInt(value)).filter((value): value is number => value != null);
+  const departmentTypeId = positiveInt(request.departmentTypeId);
+  if (departmentTypeId != null) {
+    params.push(departmentTypeId);
+    filters.push(departmentTypeCondition('employee', `$${params.length}`));
+  }
+  const geoIds = parseGeoIds(request);
   if (geoIds.length > 0) {
-    params.push(Array.from(new Set(geoIds)));
+    params.push(geoIds);
     filters.push(`COALESCE(c.neighborhood, c.district) = ANY($${params.length}::int[])`);
   }
   return filters.length > 0 ? ` AND ${filters.join(' AND ')}` : '';
@@ -77,11 +112,46 @@ function appendClosedDemoFilters(access: TabularReportAccess, request: TabularRe
     params.push(access.userId);
     filters.push(`EXISTS (SELECT 1 FROM hr_users scoped_user WHERE scoped_user.id=$${params.length} AND scoped_user.employee_id=demo_supervisor.id)`);
   }
-  const employeeId = positiveInt(request.employeeId);
-  if (employeeId != null) { params.push(employeeId); filters.push(`demo_supervisor.id = $${params.length}`); }
-  const geoIds = String(request.geoIds ?? request.geoUnitId ?? '').split(',').map(value => positiveInt(value)).filter((value): value is number => value != null);
-  if (geoIds.length > 0) { params.push(Array.from(new Set(geoIds))); filters.push(`COALESCE(c.neighborhood,c.district) = ANY($${params.length}::int[])`); }
+  const supervisorEmployeeId = positiveInt(request.supervisorEmployeeId);
+  if (supervisorEmployeeId != null) { params.push(supervisorEmployeeId); filters.push(`demo_supervisor.id = $${params.length}`); }
+  const departmentTypeId = positiveInt(request.departmentTypeId);
+  if (departmentTypeId != null) {
+    params.push(departmentTypeId);
+    filters.push(departmentTypeCondition('demo_supervisor', `$${params.length}`));
+  }
+  const geoIds = parseGeoIds(request);
+  if (geoIds.length > 0) { params.push(geoIds); filters.push(`COALESCE(c.neighborhood,c.district) = ANY($${params.length}::int[])`); }
   return filters.length ? ` AND ${filters.join(' AND ')}` : '';
+}
+
+/**
+ * Filters that read the «آخر زيارة» pair. They cannot sit inside the CTEs: the
+ * displayed values are whatever survived the rank=1 pick, so narrowing earlier would
+ * promote an older visit into the columns and answer a different question (§9.7.1).
+ * Both therefore drop rows with no recorded visit at all, which is what «آخر زيارة
+ * ضمن هذا المدى» and «الفني المرافق فلان» each mean.
+ */
+function latestVisitConditions(request: TabularReportRequestParams, params: unknown[]): string {
+  const conditions: string[] = [];
+  const technicianId = positiveInt(request.accompanyingTechnicianId);
+  if (technicianId != null) {
+    params.push(technicianId);
+    conditions.push(`latest_visit.technician_employee_id = $${params.length}`);
+  }
+  const from = dateOnly(request.lastVisitFrom, 'بداية مدى آخر زيارة');
+  const to = dateOnly(request.lastVisitTo, 'نهاية مدى آخر زيارة');
+  if (from && to && from > to) {
+    throw new ReportingError(400, 'بداية مدى آخر زيارة يجب ألا تكون بعد نهايته');
+  }
+  if (from) {
+    params.push(from);
+    conditions.push(`latest_visit.actual_end_time >= ($${params.length}::text || ' 00:00')::timestamp AT TIME ZONE 'Asia/Damascus'`);
+  }
+  if (to) {
+    params.push(to);
+    conditions.push(`latest_visit.actual_end_time < (($${params.length}::text::date + 1)::text || ' 00:00')::timestamp AT TIME ZONE 'Asia/Damascus'`);
+  }
+  return conditions.length > 0 ? `\n    WHERE ${conditions.join('\n      AND ')}` : '';
 }
 
 export function buildWorkFilesGeoSupervisorsQuery(
@@ -92,6 +162,7 @@ export function buildWorkFilesGeoSupervisorsQuery(
   const params: unknown[] = [ACTIVE_DEVICE_DEMO_STATUSES];
   const filters = appendFilters(access, request, params);
   const closedDemoFilters = appendClosedDemoFilters(access, request, params);
+  const latestVisitFilters = latestVisitConditions(request, params);
   params.push(options.limit);
   const limitPlaceholder = `$${params.length}`;
   let offsetSql = '';
@@ -260,6 +331,13 @@ export function buildWorkFilesGeoSupervisorsQuery(
             snapshot_technician.name
           )
         END AS technician_name,
+        -- The identity behind that name, for the picker. A legacy snapshot that kept
+        -- only a name has no id, so such a row matches no technician choice rather
+        -- than being matched by a name comparison that Arabic spelling can break.
+        COALESCE(
+          fv.reassigned_technician_id,
+          NULLIF(fv.team_snapshot->>'technicianEmployeeId', '')::int
+        ) AS technician_employee_id,
         ROW_NUMBER() OVER (
           PARTITION BY
             fv.branch_id,
@@ -288,6 +366,7 @@ export function buildWorkFilesGeoSupervisorsQuery(
       report_rows.branch_name AS "branchName",
       report_rows.employee_id AS "employeeId",
       report_rows.employee_name AS "employeeName",
+      NULLIF(BTRIM(supervisor_department.name), '') AS "departmentName",
       report_rows.geo_unit_id AS "geoUnitId",
       report_rows.geo_unit_name AS "geoUnitName",
       report_rows.lead_count AS "leadCount",
@@ -298,11 +377,13 @@ export function buildWorkFilesGeoSupervisorsQuery(
       latest_visit.technician_name AS "lastVisitTechnicianName"
       ${options.includeTotalRows === false ? '' : ', COUNT(*) OVER()::int AS "totalRows"'}
     FROM report_rows
+    LEFT JOIN employees supervisor_employee ON supervisor_employee.id = report_rows.employee_id
+    LEFT JOIN departments supervisor_department ON supervisor_department.id = supervisor_employee.department_id
     LEFT JOIN visit_candidates latest_visit
       ON latest_visit.branch_id = report_rows.branch_id
      AND latest_visit.supervisor_employee_id = report_rows.employee_id
      AND latest_visit.geo_unit_id = report_rows.geo_unit_id
-     AND latest_visit.visit_rank = 1
+     AND latest_visit.visit_rank = 1${latestVisitFilters}
     ORDER BY ${buildTabularReportOrderBy(
       'work_files.geo_supervisors', access, request,
       'report_rows.employee_name, report_rows.geo_unit_name, report_rows.employee_id, report_rows.geo_unit_id',
@@ -326,6 +407,7 @@ export async function getWorkFilesGeoSupervisorsReport(
       branchName: String(row.branchName),
       employeeId: Number(row.employeeId),
       employeeName: String(row.employeeName),
+      departmentName: row.departmentName == null ? null : String(row.departmentName),
       geoUnitId: Number(row.geoUnitId),
       geoUnitName: String(row.geoUnitName),
       leadCount: Number(row.leadCount),
@@ -335,5 +417,59 @@ export async function getWorkFilesGeoSupervisorsReport(
       lastVisitAt: row.lastVisitAt == null ? null : new Date(row.lastVisitAt).toISOString(),
       lastVisitTechnicianName: row.lastVisitTechnicianName == null ? null : String(row.lastVisitTechnicianName),
     })),
+  };
+}
+
+/**
+ * Each picker offers only what this report can put in a row for this user (§9.7.1):
+ * supervisors are the ones holding a SUPERVISOR team slot inside the granted
+ * branches, and the technicians are those who actually appear on a recorded visit
+ * there — never the full staff directory.
+ */
+export async function getWorkFilesGeoSupervisorsFilterOptions(
+  access: TabularReportAccess,
+): Promise<Partial<TabularReportFilterOptions>> {
+  const scopeIds = access.branchIds.length > 0 ? access.branchIds : null;
+  const [supervisors, technicians, departmentTypes] = await Promise.all([
+    pool.query(
+      `SELECT DISTINCT employee.id::text AS value, employee.name AS label
+         FROM hr_users supervisor_user
+         JOIN roles supervisor_role ON supervisor_role.id = supervisor_user.role_id
+         JOIN employees employee ON employee.id = supervisor_user.employee_id
+        WHERE supervisor_role.team_slot_type = 'SUPERVISOR'
+          AND ($1::int[] IS NULL OR employee.branch_id = ANY($1::int[]))
+          AND NULLIF(BTRIM(employee.name), '') IS NOT NULL
+        ORDER BY label`,
+      [scopeIds],
+    ),
+    pool.query(
+      `SELECT DISTINCT employee.id::text AS value, employee.name AS label
+         FROM field_visits fv
+         JOIN visit_geo_logs vgl ON vgl.visit_id = fv.id AND vgl.actual_end_time IS NOT NULL
+         JOIN employees employee
+           ON employee.id = COALESCE(fv.reassigned_technician_id,
+                                     NULLIF(fv.team_snapshot->>'technicianEmployeeId', '')::int)
+        WHERE ($1::int[] IS NULL OR fv.branch_id = ANY($1::int[]))
+          AND NULLIF(BTRIM(employee.name), '') IS NOT NULL
+        ORDER BY label`,
+      [scopeIds],
+    ),
+    pool.query(
+      `SELECT DISTINCT department_type.id::text AS value, department_type.value AS label
+         FROM hr_users supervisor_user
+         JOIN roles supervisor_role ON supervisor_role.id = supervisor_user.role_id
+         JOIN employees employee ON employee.id = supervisor_user.employee_id
+         JOIN departments department ON department.id = employee.department_id
+         JOIN system_lists department_type ON department_type.id = department.department_type_id
+        WHERE supervisor_role.team_slot_type = 'SUPERVISOR'
+          AND ($1::int[] IS NULL OR employee.branch_id = ANY($1::int[]))
+        ORDER BY label`,
+      [scopeIds],
+    ),
+  ]);
+  return {
+    supervisors: supervisors.rows.map(row => ({ value: String(row.value), label: String(row.label) })),
+    accompanyingTechnicians: technicians.rows.map(row => ({ value: String(row.value), label: String(row.label) })),
+    departmentTypes: departmentTypes.rows.map(row => ({ value: String(row.value), label: String(row.label) })),
   };
 }

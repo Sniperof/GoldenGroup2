@@ -24,6 +24,8 @@ test('referral editing authorizes the concrete candidate or name-list subject', 
   assert.match(route, /canEditCandidate/);
   assert.match(route, /canEditReferralSheet/);
   assert.match(route, /updateReferralGiftPromise/);
+  assert.match(route, /conditionId = normalizePositiveInt\(req\.body\?\.conditionId\)/);
+  assert.doesNotMatch(route, /conditionLabel: req\.body/);
 });
 
 test('contract promises are still materialized only from contract approval', () => {

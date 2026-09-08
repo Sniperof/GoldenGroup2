@@ -11,6 +11,14 @@ interface QueryOptions {
 }
 
 const RETRIEVAL_PURPOSES = new Set(['maintenance', 'replacement']);
+/**
+ * The two paths a retrieval can arrive by, mirroring the «مسار السحب» column: the
+ * planned retrieval task, and the direct pull a technician performs at the end of an
+ * emergency visit. They are derived from `open_tasks.creation_reason`, so the filter
+ * reads the same expression the column does rather than a parallel one (§9.7.1).
+ */
+const RETRIEVAL_SOURCES = new Set(['retrieval_task', 'direct_workshop']);
+const DIRECT_WORKSHOP_REASON = 'emergency_direct_workshop_retrieval';
 const DEVICE_STATUSES = new Set([
   'registered', 'pending_delivery', 'delivery_suspended', 'delivered', 'installed',
   'active', 'faulty', 'in_workshop', 'ready', 'out_of_service', 'retrieved',
@@ -41,6 +49,35 @@ const TECHNICIAN_ID_SQL = `COALESCE(
   NULLIF(visit.team_snapshot->>'technicianEmployeeId', '')::int
 )`;
 
+/**
+ * The device's location before it was pulled, resolved up its `geo_units` chain so
+ * the report can name each level and so the geography filter can match a selection
+ * made at any level: the row keeps every ancestor id, and the request carries the
+ * chosen node's subtree, so «المحافظة» matches a device pinned to a حي beneath it.
+ */
+const GEO_LATERAL_SQL = `
+        WITH RECURSIVE ancestors AS (
+          SELECT unit.id, unit.name, unit.level, unit.parent_id
+            FROM geo_units unit
+           WHERE unit.id = open_task.pre_retrieval_geo_unit_id
+          UNION ALL
+          SELECT parent.id, parent.name, parent.level, parent.parent_id
+            FROM geo_units parent
+            JOIN ancestors child ON child.parent_id = parent.id
+        )
+        SELECT MAX(name) FILTER (WHERE level = 1) AS governorate_name,
+               MAX(name) FILTER (WHERE level = 2) AS region_name,
+               MAX(name) FILTER (WHERE level = 3) AS subarea_name,
+               MAX(name) FILTER (WHERE level = 4) AS neighborhood_name,
+               COALESCE(ARRAY_AGG(id), ARRAY[]::int[]) AS unit_ids
+          FROM ancestors`;
+
+function parseGeoIds(request: TabularReportRequestParams): number[] {
+  return Array.from(new Set(String(request.geoIds ?? request.geoUnitId ?? '')
+    .split(',').map(value => positiveInt(value))
+    .filter((value): value is number => value != null)));
+}
+
 export function buildRetrievedDevicesQuery(
   access: TabularReportAccess,
   request: TabularReportRequestParams,
@@ -54,8 +91,8 @@ export function buildRetrievedDevicesQuery(
   const params: unknown[] = [];
   const filters = [
     `retrieval.final_decision = 'retrieved_successfully'`,
-    `result.closed_at >= $${params.push(fromDate)}::date`,
-    `result.closed_at < $${params.push(toDate)}::date + INTERVAL '1 day'`,
+    `result.closed_at >= ($${params.push(fromDate)}::text || ' 00:00')::timestamp AT TIME ZONE 'Asia/Damascus'`,
+    `result.closed_at < (($${params.push(toDate)}::text::date + 1)::text || ' 00:00')::timestamp AT TIME ZONE 'Asia/Damascus'`,
   ];
   if (access.branchIds.length > 0) {
     filters.push(`retrieval.service_branch_id = ANY($${params.push(access.branchIds)}::int[])`);
@@ -69,6 +106,36 @@ export function buildRetrievedDevicesQuery(
 
   const technicianId = positiveInt(request.retrievalTechnicianEmployeeId);
   if (technicianId != null) filters.push(`${TECHNICIAN_ID_SQL} = $${params.push(technicianId)}`);
+
+  const geoIds = parseGeoIds(request);
+  if (geoIds.length > 0) {
+    filters.push(`geo.unit_ids && $${params.push(geoIds)}::int[]`);
+  }
+
+  const retrievalSource = allowListed(request.retrievalSource, RETRIEVAL_SOURCES, 'مسار السحب');
+  if (retrievalSource === 'direct_workshop') {
+    filters.push(`open_task.creation_reason = $${params.push(DIRECT_WORKSHOP_REASON)}`);
+  } else if (retrievalSource === 'retrieval_task') {
+    filters.push(`open_task.creation_reason IS DISTINCT FROM $${params.push(DIRECT_WORKSHOP_REASON)}`);
+  }
+
+  // The branch the device sat in before the pull. Its names are already on every row
+  // the user can see, so offering them as a filter reveals nothing new (§9.7.1).
+  const originBranchId = positiveInt(request.originBranchId);
+  if (originBranchId != null) {
+    filters.push(`open_task.pre_retrieval_branch_id = $${params.push(originBranchId)}`);
+  }
+
+  const search = typeof request.search === 'string' ? request.search.trim() : '';
+  if (search) {
+    const searchRef = `$${params.push(`%${search}%`)}`;
+    filters.push(`(
+      client.name ILIKE ${searchRef}
+      OR client.mobile ILIKE ${searchRef}
+      OR device.serial_number ILIKE ${searchRef}
+      OR device.external_device_serial ILIKE ${searchRef}
+    )`);
+  }
 
   const deviceModelKey = typeof request.deviceModel === 'string' ? request.deviceModel : '';
   const deviceModelId = positiveInt(
@@ -105,6 +172,8 @@ export function buildRetrievedDevicesQuery(
         END AS "retrievalPurpose",
         origin_branch.name AS "originBranchName",
         NULLIF(BTRIM(open_task.pre_retrieval_address_text), '') AS "customerAddress",
+        geo.governorate_name AS "governorateName",
+        geo.region_name AS "regionName",
         geo.subarea_name AS "subareaName",
         geo.neighborhood_name AS "neighborhoodName",
         NULLIF(BTRIM(technician.name), '') AS "retrievalTechnicianName",
@@ -149,19 +218,7 @@ export function buildRetrievedDevicesQuery(
       JOIN branches service_branch ON service_branch.id = retrieval.service_branch_id
       LEFT JOIN branches origin_branch ON origin_branch.id = open_task.pre_retrieval_branch_id
       LEFT JOIN device_models device_model ON device_model.id = device.device_model_id
-      LEFT JOIN LATERAL (
-        WITH RECURSIVE ancestors AS (
-          SELECT unit.id, unit.name, unit.level, unit.parent_id
-            FROM geo_units unit
-           WHERE unit.id = open_task.pre_retrieval_geo_unit_id
-          UNION ALL
-          SELECT parent.id, parent.name, parent.level, parent.parent_id
-            FROM geo_units parent
-            JOIN ancestors child ON child.parent_id = parent.id
-        )
-        SELECT MAX(name) FILTER (WHERE level = 3) AS subarea_name,
-               MAX(name) FILTER (WHERE level = 4) AS neighborhood_name
-          FROM ancestors
+      LEFT JOIN LATERAL (${GEO_LATERAL_SQL}
       ) geo ON TRUE
       JOIN field_visits visit ON visit.id = visit_task.field_visit_id
       LEFT JOIN employees technician ON technician.id = ${TECHNICIAN_ID_SQL}
@@ -210,7 +267,7 @@ export async function getRetrievedDevicesFilterOptions(access: TabularReportAcce
     JOIN field_visits visit ON visit.id = visit_task.field_visit_id
     WHERE retrieval.final_decision = 'retrieved_successfully' ${branchCondition}`;
 
-  const [deviceModels, technicians, statuses] = await Promise.all([
+  const [deviceModels, technicians, statuses, originBranches] = await Promise.all([
     pool.query(
       `SELECT DISTINCT
          CASE WHEN device.device_model_id IS NOT NULL THEN 'catalog:' || device.device_model_id::text
@@ -243,11 +300,21 @@ export async function getRetrievedDevicesFilterOptions(access: TabularReportAcce
        ORDER BY label`,
       params,
     ),
+    pool.query(
+      `SELECT DISTINCT origin_branch.id::text AS value, origin_branch.name AS label
+       ${base.replace(
+         'WHERE retrieval',
+         'JOIN branches origin_branch ON origin_branch.id = open_task.pre_retrieval_branch_id WHERE retrieval',
+       )}
+       ORDER BY label`,
+      params,
+    ),
   ]);
 
   return {
     deviceModels: deviceModels.rows,
     retrievalTechnicians: technicians.rows,
     retrievedDeviceStatuses: statuses.rows,
+    originBranches: originBranches.rows,
   };
 }

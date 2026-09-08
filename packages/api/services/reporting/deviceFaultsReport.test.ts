@@ -15,10 +15,45 @@ test('device faults preserves one problem row and aggregates linked parts', () =
   assert.match(sql, /FROM service_request_problems problem/);
   assert.match(sql, /part\.linked_problem_id = problem\.id/);
   assert.match(sql, /STRING_AGG\(part\.part_name_snapshot/);
-  assert.match(sql, /problem\.created_at >= \$1::date/);
-  assert.match(sql, /problem\.created_at < \$2::date \+ INTERVAL '1 day'/);
+  assert.match(sql, /problem\.created_at >= \(\$1::text \|\| ' 00:00'\)::timestamp AT TIME ZONE 'Asia\/Damascus'/);
+  assert.match(sql, /problem\.created_at < \(\(\$2::text::date \+ 1\)::text \|\| ' 00:00'\)::timestamp AT TIME ZONE 'Asia\/Damascus'/);
   assert.match(sql, /COUNT\(\*\) OVER\(\)::int AS "totalRows"/);
   assert.deepEqual(params.slice(0, 2), ['2026-08-01', '2026-08-31']);
+});
+
+test('device faults locates the fault at the installation site, not the customer address', () => {
+  const { sql, params } = buildDeviceFaultsQuery(globalAccess, {
+    fromDate: '2026-08-01', toDate: '2026-08-31', geoIds: '30,31',
+  }, { limit: 10 });
+
+  assert.match(sql, /unit\.id = device\.installation_geo_unit_id/);
+  assert.match(sql, /geo\.governorate_name AS "governorateName"/);
+  assert.match(sql, /geo\.neighborhood_name AS "neighborhoodName"/);
+  assert.match(sql, /geo\.unit_ids && \$3::int\[\]/);
+  assert.doesNotMatch(sql, /unit\.id = client\./);
+  assert.deepEqual(params.slice(0, 3), ['2026-08-01', '2026-08-31', [30, 31]]);
+});
+
+test('device faults filters the visit technician apart from the repair technician', () => {
+  const { sql, params } = buildDeviceFaultsQuery(globalAccess, {
+    fromDate: '2026-08-01', toDate: '2026-08-31',
+    repairTechnicianEmployeeId: 33, visitTechnicianEmployeeId: 44,
+  }, { limit: 10 });
+
+  assert.match(sql, /problem\.repaired_by_employee_id = \$3/);
+  assert.match(sql, /resolution_visit\.reassigned_technician_id,\s*\n\s*NULLIF\(resolution_visit\.team_snapshot->>'technicianEmployeeId', ''\)::int\s*\n\s*\) = \$4/);
+  assert.deepEqual(params.slice(0, 4), ['2026-08-01', '2026-08-31', 33, 44]);
+});
+
+test('device faults searches identifiers and the customer name in one field', () => {
+  const { sql, params } = buildDeviceFaultsQuery(globalAccess, {
+    fromDate: '2026-08-01', toDate: '2026-08-31', search: 'SR-42',
+  }, { limit: 10 });
+
+  assert.match(sql, /service_request\.public_ref_number ILIKE \$3/);
+  assert.match(sql, /device\.serial_number ILIKE \$3/);
+  assert.match(sql, /client\.name ILIKE \$3/);
+  assert.deepEqual(params.slice(0, 3), ['2026-08-01', '2026-08-31', '%SR-42%']);
 });
 
 test('device faults applies branch and structured filters without text search', () => {

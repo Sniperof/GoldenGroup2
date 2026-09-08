@@ -21,6 +21,7 @@ export interface SalesFollowUpTaskRow {
   subareaName: string;
   neighborhoodName: string;
   taskType: string;
+  taskResult: string | null;
   executedDate: string;
   resultNotes: string | null;
 }
@@ -29,7 +30,48 @@ export interface SalesFollowUpFilterOptions {
   supervisors: Array<{ value: string; label: string }>;
   technicians: Array<{ value: string; label: string }>;
   taskTypes: Array<{ value: string; label: string }>;
+  taskResults: Array<{ value: string; label: string }>;
 }
+
+/**
+ * The recorded outcome of the task, in the project's own wording.
+ *
+ * The report spans device-demo and every service-classified task type, and each
+ * carries its own decision vocabulary — so the map is held once here and used by
+ * BOTH the visible column and the labels of its filter's option list. An outcome
+ * nobody has translated yet falls through to its stored code rather than being
+ * hidden: a row with no readable outcome is a translation gap to fix, not a row to
+ * drop out of a report about executed work.
+ */
+const TASK_RESULT_LABEL_SQL = `CASE result.final_decision
+          WHEN 'offer_presented' THEN 'تقديم عرض'
+          WHEN 'device_sold' THEN 'تم البيع'
+          WHEN 'rescheduled' THEN 'إعادة جدولة'
+          WHEN 'cancelled' THEN 'إلغاء'
+          WHEN 'delivered_successfully' THEN 'تم التسليم'
+          WHEN 'delivered' THEN 'تم التسليم'
+          WHEN 'refused_delivery' THEN 'رفض التسليم'
+          WHEN 'installed_successfully' THEN 'تم التركيب'
+          WHEN 'installation_incomplete' THEN 'التركيب غير مكتمل'
+          WHEN 'refused_installation' THEN 'رفض التركيب'
+          WHEN 'activated_successfully' THEN 'تم التشغيل'
+          WHEN 'activated' THEN 'تم التشغيل'
+          WHEN 'device_issue' THEN 'مشكلة في الجهاز'
+          WHEN 'disconnected_successfully' THEN 'تم الفك'
+          WHEN 'retrieved_successfully' THEN 'تم السحب'
+          WHEN 'returned_successfully' THEN 'تم الإرجاع'
+          WHEN 'transferred_successfully' THEN 'تم النقل'
+          WHEN 'resolved' THEN 'تم الإصلاح'
+          WHEN 'unresolved' THEN 'لم يُحَل بالكامل'
+          WHEN 'needs_follow_up' THEN 'بحاجة متابعة'
+          WHEN 'refused_gift' THEN 'رفض الهدية'
+          WHEN 'customer_not_available' THEN 'الزبون غير متوفر'
+          WHEN 'wrong_address' THEN 'عنوان خاطئ'
+          WHEN 'paid_full' THEN 'تم التسديد بالكامل'
+          WHEN 'paid_partial' THEN 'تم التسديد جزئيًا'
+          WHEN 'refused_to_pay' THEN 'رفض الدفع'
+          ELSE NULLIF(BTRIM(result.final_decision), '')
+        END`;
 
 function validIsoDate(value: unknown): value is string {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -105,6 +147,12 @@ export function buildSalesFollowUpTasksQuery(
     params.push(request.taskType.trim());
     filters.push(`vt.task_type = $${params.length}`);
   }
+  // The stable decision code, never its Arabic label: the label is display text that
+  // can be reworded, while the code is what the row was closed with.
+  if (typeof request.taskResult === 'string' && request.taskResult.trim() !== '') {
+    params.push(request.taskResult.trim());
+    filters.push(`result.final_decision = $${params.length}`);
+  }
   const geoIds = parseGeoIds(request);
   if (geoIds.length > 0) {
     params.push(geoIds);
@@ -132,6 +180,7 @@ export function buildSalesFollowUpTasksQuery(
              COALESCE(subarea.name, 'غير محدد') AS "subareaName",
              COALESCE(neighborhood.name, 'غير محدد') AS "neighborhoodName",
              COALESCE(NULLIF(config.arabic_label,''), vt.task_type) AS "taskType",
+             ${TASK_RESULT_LABEL_SQL} AS "taskResult",
              TO_CHAR(result.closed_at AT TIME ZONE 'Asia/Damascus', 'YYYY-MM-DD') AS "executedDate",
              NULLIF(BTRIM(result.closing_notes),'') AS "resultNotes"
              ${options.includeTotalRows === false ? '' : ', COUNT(*) OVER()::int AS "totalRows"'}
@@ -203,6 +252,7 @@ export async function getSalesFollowUpTasksReport(
       subareaName: String(row.subareaName),
       neighborhoodName: String(row.neighborhoodName),
       taskType: String(row.taskType),
+      taskResult: row.taskResult == null ? null : String(row.taskResult),
       executedDate: String(row.executedDate),
       resultNotes: row.resultNotes == null ? null : String(row.resultNotes),
     })),
@@ -215,7 +265,7 @@ export async function getSalesFollowUpFilterOptions(access: TabularReportAccess)
   appendAccessFilters(access, params, filters);
   const where = `WHERE ${filters.join(' AND ')}`;
   const base = `FROM visit_tasks vt JOIN field_visits fv ON fv.id=vt.field_visit_id LEFT JOIN task_type_config config ON config.task_type=vt.task_type`;
-  const [supervisors, technicians, taskTypes] = await Promise.all([
+  const [supervisors, technicians, taskTypes, taskResults] = await Promise.all([
     pool.query(
       `SELECT DISTINCT employee.id AS value, employee.name AS label ${base}
        JOIN employees employee ON employee.id=COALESCE(fv.reassigned_supervisor_id,NULLIF(fv.team_snapshot->>'supervisorEmployeeId','')::int)
@@ -230,7 +280,20 @@ export async function getSalesFollowUpFilterOptions(access: TabularReportAccess)
       `SELECT DISTINCT vt.task_type AS value, COALESCE(NULLIF(config.arabic_label,''),vt.task_type) AS label ${base}
        ${where} ORDER BY label`, params,
     ),
+    // Labelled by the very expression the column shows, so the choice the user picks
+    // reads exactly as the value they saw in the table.
+    pool.query(
+      `SELECT DISTINCT result.final_decision AS value, ${TASK_RESULT_LABEL_SQL} AS label ${base}
+       JOIN visit_task_results result ON result.visit_task_id = vt.id
+       ${where} AND vt.status = 'completed' AND result.final_decision IS NOT NULL
+       ORDER BY label`, params,
+    ),
   ]);
-  const map = (rows: Array<{ value: unknown; label: unknown }>) => rows.map(row => ({ value: String(row.value), label: String(row.label) }));
-  return { supervisors: map(supervisors.rows), technicians: map(technicians.rows), taskTypes: map(taskTypes.rows) };
+  const map = (rows: Array<{ value: unknown; label: unknown }>) => rows
+    .filter(row => row.value != null && row.label != null)
+    .map(row => ({ value: String(row.value), label: String(row.label) }));
+  return {
+    supervisors: map(supervisors.rows), technicians: map(technicians.rows),
+    taskTypes: map(taskTypes.rows), taskResults: map(taskResults.rows),
+  };
 }

@@ -1,160 +1,88 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { BarChart3, Briefcase, ClipboardList, LayoutDashboard, LayoutGrid, Sparkles, UsersRound, FileText, HardDrive } from '../components/ui/icons';
-import { useSearchParams } from 'react-router-dom';
+import { LayoutDashboard, LayoutGrid, RefreshCw, SlidersHorizontal, Sparkles } from '../components/ui/icons';
 import { usePermissions } from '../hooks/usePermissions';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import ScopeFilterBar from '../components/dashboard/ScopeFilterBar';
 import MetricWidget from '../components/dashboard/MetricWidget';
 import BreakdownWidget from '../components/dashboard/BreakdownWidget';
+import DashboardCustomizer from '../components/dashboard/DashboardCustomizer';
 import { WIDGET_REGISTRY, type ScopeState, type WidgetDef, type TimePreset } from '../components/dashboard/widgetRegistry';
+import { api, type DashboardWidget } from '../lib/api';
 
 const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.06 } } };
 const item = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } };
+const MAX_DEFAULT_WIDGETS = 8;
+const DEFAULT_WIDGET_PRIORITY = [
+  'clients.new_count', 'clients.active_total', 'candidates.new_count', 'candidates.conversion_rate',
+  'candidates.qualified_unconverted', 'contracts.count', 'contracts.sales_value', 'devices.active_base',
+  'devices.warranty_expiring', 'applications.new_count', 'vacancies.open_count',
+];
 
-type DashboardSection = 'summary' | 'clients' | 'candidates' | 'name-lists' | 'contracts' | 'devices' | 'recruitment';
-
-const SECTION_META: Record<DashboardSection, {
-  label: string;
-  title: string;
-  description: string;
-  icon: typeof BarChart3;
-}> = {
-  summary: {
-    label: 'الملخص',
-    title: 'ملخص الأداء',
-    description: 'أهم المؤشرات المشتركة خلال الفترة المختارة',
-    icon: LayoutDashboard,
-  },
-  clients: {
-    label: 'الزبائن',
-    title: 'تحليلات الزبائن',
-    description: 'نمو المحفظة، دورة الحياة، جودة البيانات ومصادر الاكتساب',
-    icon: BarChart3,
-  },
-  candidates: {
-    label: 'الأسماء المقترحة',
-    title: 'تحليلات الأسماء المقترحة',
-    description: 'جودة القمع، توزيع المسؤوليات ومصادر الترشيح',
-    icon: UsersRound,
-  },
-  'name-lists': {
-    label: 'لوائح الأسماء',
-    title: 'أداء لوائح الأسماء',
-    description: 'قراءة جودة اللوائح والتحويل حسب الفريق',
-    icon: ClipboardList,
-  },
-  contracts: {
-    label: 'العقود',
-    title: 'تحليلات العقود والمبيعات',
-    description: 'قيمة المبيعات، نوع البيع، أداء البائعين ومعدّل الإلغاء',
-    icon: FileText,
-  },
-  devices: {
-    label: 'الأجهزة',
-    title: 'تحليلات الأجهزة المركّبة',
-    description: 'القاعدة المركّبة الحيّة، الكفالات، التوزيع حسب الحالة والموديل والفرع',
-    icon: HardDrive,
-  },
-  recruitment: {
-    label: 'التوظيف',
-    title: 'تحليلات التوظيف والاستقطاب',
-    description: 'قمع التوظيف، الشواغر والمقاعد، زمن الدورة وأداء المقابلات',
-    icon: Briefcase,
-  },
-};
-
-function isNameListWidget(widget: WidgetDef): boolean {
-  return widget.key.startsWith('referral_sheets.');
+export function buildDefaultDashboardLayout(availableWidgets: WidgetDef[]): DashboardWidget[] {
+  const byKey = new Map(availableWidgets.map(widget => [widget.key, widget]));
+  const ordered = [
+    ...DEFAULT_WIDGET_PRIORITY.map(key => byKey.get(key)).filter((widget): widget is WidgetDef => Boolean(widget)),
+    ...availableWidgets.filter(widget => (!widget.kind || widget.kind === 'kpi') && !DEFAULT_WIDGET_PRIORITY.includes(widget.key)),
+  ];
+  const unique = ordered.filter((widget, index, all) => all.findIndex(candidate => candidate.key === widget.key) === index);
+  return unique.slice(0, MAX_DEFAULT_WIDGETS).map(widget => ({ key: widget.key, size: widget.defaultSize, scope: null }));
 }
 
-function widgetsForSection(section: DashboardSection, widgets: WidgetDef[]): WidgetDef[] {
-  // الملخص يجمع كل بطاقات KPI القانونية فقط؛ الرسوم التفصيلية تبقى داخل أقسامها.
-  if (section === 'summary') return widgets.filter(widget => !widget.kind || widget.kind === 'kpi');
-  if (section === 'clients') return widgets.filter(widget => widget.department === 'الزبائن');
-  if (section === 'name-lists') return widgets.filter(isNameListWidget);
-  if (section === 'contracts') return widgets.filter(widget => widget.department === 'العقود');
-  if (section === 'devices') return widgets.filter(widget => widget.department === 'الأجهزة');
-  if (section === 'recruitment') return widgets.filter(widget => widget.department === 'التوظيف');
-  return widgets.filter(widget => widget.department === 'الأسماء المقترحة' && !isNameListWidget(widget));
-}
-
-function SectionHeading({ icon: Icon, title, description }: {
-  icon: typeof BarChart3;
-  title: string;
-  description: string;
-}) {
-  return (
-    <div className="mb-4 flex items-center gap-3">
-      <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-sky-100 bg-sky-50 text-sky-600">
-        <Icon className="h-5 w-5" />
-      </div>
-      <div>
-        <h2 className="text-base font-black text-slate-800">{title}</h2>
-        <p className="mt-0.5 text-xs text-slate-500">{description}</p>
-      </div>
-    </div>
-  );
+function sanitizeClientLayout(layout: DashboardWidget[], availableWidgets: WidgetDef[]): DashboardWidget[] {
+  const allowed = new Map(availableWidgets.map(widget => [widget.key, widget]));
+  const seen = new Set<string>();
+  return layout.flatMap(saved => {
+    const definition = allowed.get(saved.key);
+    if (!definition || seen.has(saved.key)) return [];
+    seen.add(saved.key);
+    return [{ key: saved.key, size: saved.size === 'sm' || saved.size === 'md' || saved.size === 'lg' ? saved.size : definition.defaultSize, scope: saved.scope ?? null }];
+  });
 }
 
 export default function Dashboard() {
   const { hasPermission } = usePermissions();
-  const [searchParams, setSearchParams] = useSearchParams();
   const [preset, setPreset] = useState<TimePreset>('month');
-
-  // Branch scope has a SINGLE source of truth app-wide: the external branch
-  // switcher (branch context). The dashboard no longer owns a branch picker —
-  // it reads the selected branch and applies it to every widget's scope.
-  const contextBranchId = useBranchContextStore(s => s.branchId);
+  const [layout, setLayout] = useState<DashboardWidget[]>([]);
+  const [layoutLoading, setLayoutLoading] = useState(true);
+  const [layoutError, setLayoutError] = useState<string | null>(null);
+  const [customizerOpen, setCustomizerOpen] = useState(false);
+  const contextBranchId = useBranchContextStore(state => state.branchId);
   const scope = useMemo<ScopeState>(() => ({ preset, branchId: contextBranchId ?? null }), [preset, contextBranchId]);
+  const visibleWidgets = useMemo(() => WIDGET_REGISTRY.filter(widget => hasPermission(widget.permission)), [hasPermission]);
+  const visibleSignature = visibleWidgets.map(widget => widget.key).join('|');
+  const defaultLayout = useMemo(() => buildDefaultDashboardLayout(visibleWidgets), [visibleSignature]);
+  const widgetByKey = useMemo(() => new Map(visibleWidgets.map(widget => [widget.key, widget])), [visibleSignature]);
 
-  // §8.1 — لا يدخل أي مؤشر إلى الواجهة قبل اجتياز بوابة صلاحية مصدره.
-  const visibleWidgets = useMemo(
-    () => WIDGET_REGISTRY.filter(widget => hasPermission(widget.permission)),
-    [hasPermission],
-  );
+  const loadLayout = useCallback(async () => {
+    setLayoutLoading(true);
+    setLayoutError(null);
+    try {
+      const response = await api.dashboardLayout.get();
+      setLayout(response.customized ? sanitizeClientLayout(response.layout, visibleWidgets) : defaultLayout);
+    } catch (error) {
+      setLayoutError(error instanceof Error ? error.message : 'تعذر تحميل تخطيط لوحة المتابعة');
+    } finally {
+      setLayoutLoading(false);
+    }
+  }, [visibleSignature, defaultLayout]);
 
-  const availableSections = useMemo(() => {
-    const sections: DashboardSection[] = [];
-    if (widgetsForSection('summary', visibleWidgets).length > 0) sections.push('summary');
-    if (widgetsForSection('clients', visibleWidgets).length > 0) sections.push('clients');
-    if (widgetsForSection('candidates', visibleWidgets).length > 0) sections.push('candidates');
-    if (widgetsForSection('name-lists', visibleWidgets).length > 0) sections.push('name-lists');
-    if (widgetsForSection('contracts', visibleWidgets).length > 0) sections.push('contracts');
-    if (widgetsForSection('devices', visibleWidgets).length > 0) sections.push('devices');
-    if (widgetsForSection('recruitment', visibleWidgets).length > 0) sections.push('recruitment');
-    return sections;
-  }, [visibleWidgets]);
+  useEffect(() => { void loadLayout(); }, [loadLayout]);
+  const selectedWidgets = useMemo(() => layout.flatMap(saved => {
+    const definition = widgetByKey.get(saved.key);
+    return definition ? [{ saved, definition }] : [];
+  }), [layout, widgetByKey]);
+  const selectedKeys = useMemo(() => layout.map(widget => widget.key), [layout]);
+  const defaultKeys = useMemo(() => defaultLayout.map(widget => widget.key), [defaultLayout]);
 
-  const requestedSection = searchParams.get('section') as DashboardSection | null;
-  const activeSection = requestedSection && availableSections.includes(requestedSection)
-    ? requestedSection
-    : (availableSections[0] ?? 'summary');
-  const activeWidgets = useMemo(
-    () => widgetsForSection(activeSection, visibleWidgets),
-    [activeSection, visibleWidgets],
-  );
-  const kpiWidgets = useMemo(
-    () => activeWidgets.filter(widget => !widget.kind || widget.kind === 'kpi'),
-    [activeWidgets],
-  );
-  const chartWidgets = useMemo(
-    () => activeWidgets.filter(widget => widget.kind && widget.kind !== 'kpi'),
-    [activeWidgets],
-  );
-  const sectionMeta = SECTION_META[activeSection];
-
-  useEffect(() => {
-    if (requestedSection === activeSection || availableSections.length === 0) return;
-    const next = new URLSearchParams(searchParams);
-    next.set('section', activeSection);
-    setSearchParams(next, { replace: true });
-  }, [activeSection, availableSections.length, requestedSection, searchParams, setSearchParams]);
-
-  const selectSection = (section: DashboardSection) => {
-    const next = new URLSearchParams(searchParams);
-    next.set('section', section);
-    setSearchParams(next);
+  const saveLayout = async (keys: string[]) => {
+    const current = new Map(layout.map(widget => [widget.key, widget]));
+    const next = keys.flatMap(key => {
+      const definition = widgetByKey.get(key);
+      return definition ? [current.get(key) ?? { key, size: definition.defaultSize, scope: null }] : [];
+    });
+    const response = await api.dashboardLayout.save(next);
+    setLayout(sanitizeClientLayout(response.layout, visibleWidgets));
   };
 
   return (
@@ -165,87 +93,35 @@ export default function Dashboard() {
           <div className="absolute -bottom-28 right-1/3 h-52 w-52 rounded-full bg-cyan-300/15 blur-3xl" />
           <div className="relative flex flex-col justify-between gap-5 md:flex-row md:items-end">
             <div>
-              <div className="mb-3 flex w-fit items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-bold text-sky-50 backdrop-blur-sm">
-                <Sparkles className="h-3.5 w-3.5" />
-                مركز المؤشرات
-              </div>
-              <h1 className="text-2xl font-black tracking-tight sm:text-3xl">نظرة عامة</h1>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-sky-100">
-                اختر القسم المطلوب لتحميل مؤشراته فقط، مع تطبيق الفترة والنطاق المصرّح لك به.
-              </p>
+              <div className="mb-3 flex w-fit items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-bold text-sky-50 backdrop-blur-sm"><Sparkles className="h-3.5 w-3.5" /> لوحتي</div>
+              <h1 className="text-2xl font-black tracking-tight sm:text-3xl">لوحة المتابعة</h1>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-sky-100">اختر المؤشرات والمخططات التي تحتاجها في عملك، ورتّبها مرة واحدة لتظهر لك بهذا الشكل دائماً.</p>
             </div>
-            <div className="flex items-center gap-3 rounded-2xl border border-white/15 bg-white/10 px-4 py-3 backdrop-blur-sm">
-              <sectionMeta.icon className="h-5 w-5 text-cyan-200" />
-              <div>
-                <p className="text-[11px] text-sky-100">القسم الحالي</p>
-                <p className="text-sm font-black">{sectionMeta.label}</p>
-              </div>
-            </div>
+            {visibleWidgets.length > 0 && <button type="button" onClick={() => setCustomizerOpen(true)} className="flex items-center justify-center gap-2 rounded-xl border border-white/25 bg-white/15 px-4 py-3 text-sm font-black text-white backdrop-blur-sm transition hover:bg-white/25"><SlidersHorizontal className="h-4 w-4" /> تخصيص اللوحة <span className="rounded-full bg-white/15 px-2 py-0.5 text-[11px]">{layout.length}</span></button>}
           </div>
         </section>
-
         <ScopeFilterBar preset={preset} onPresetChange={setPreset} />
 
-        {availableSections.length > 0 && (
-          <nav className="mb-7 mt-4 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm" aria-label="أقسام الداشبورد">
-            <div className="flex min-w-max gap-1">
-              {availableSections.map(section => {
-                const meta = SECTION_META[section];
-                const Icon = meta.icon;
-                const active = section === activeSection;
-                return (
-                  <button
-                    key={section}
-                    type="button"
-                    onClick={() => selectSection(section)}
-                    aria-current={active ? 'page' : undefined}
-                    className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-black transition-colors sm:text-sm ${
-                      active ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50 hover:text-sky-700'
-                    }`}
-                  >
-                    <Icon className="h-4 w-4" />
-                    {meta.label}
-                  </button>
-                );
-              })}
-            </div>
-          </nav>
-        )}
-
-        {visibleWidgets.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400 shadow-sm">
-            <LayoutGrid className="h-9 w-9 text-slate-300" />
-            <p className="text-sm font-bold">لا توجد مؤشرات متاحة لصلاحياتك بعد.</p>
-          </div>
+        {layoutLoading ? (
+          <div className="mt-5 flex min-h-48 items-center justify-center rounded-2xl border border-slate-200 bg-white text-sm font-bold text-slate-500 shadow-sm"><RefreshCw className="ml-2 h-4 w-4 animate-spin text-sky-600" /> جارٍ تحميل لوحتك…</div>
+        ) : layoutError ? (
+          <div className="mt-5 flex min-h-48 flex-col items-center justify-center gap-3 rounded-2xl border border-rose-200 bg-white p-8 text-center shadow-sm"><p className="text-sm font-bold text-rose-700">{layoutError}</p><button type="button" onClick={() => void loadLayout()} className="flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-bold text-white"><RefreshCw className="h-4 w-4" /> إعادة المحاولة</button></div>
+        ) : visibleWidgets.length === 0 ? (
+          <div className="mt-5 flex flex-col items-center gap-3 rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400 shadow-sm"><LayoutGrid className="h-9 w-9 text-slate-300" /><p className="text-sm font-bold">لا توجد مؤشرات متاحة لصلاحياتك حالياً.</p></div>
+        ) : selectedWidgets.length === 0 ? (
+          <div className="mt-5 flex flex-col items-center gap-4 rounded-2xl border border-dashed border-slate-300 bg-white p-12 text-center shadow-sm"><span className="rounded-2xl bg-sky-50 p-3 text-sky-600"><LayoutDashboard className="h-7 w-7" /></span><div><h2 className="font-black text-slate-800">لوحتك فارغة</h2><p className="mt-1 text-sm text-slate-500">أضف المؤشرات والمخططات التي تهمك لتبدأ المتابعة.</p></div><button type="button" onClick={() => setCustomizerOpen(true)} className="flex items-center gap-2 rounded-lg bg-sky-600 px-5 py-2.5 text-sm font-bold text-white"><SlidersHorizontal className="h-4 w-4" /> اختيار العناصر</button></div>
         ) : (
-          <motion.section
-            key={`${activeSection}-${scope.preset}-${scope.branchId ?? 'all'}`}
-            variants={container}
-            initial="hidden"
-            animate="show"
-          >
-            <SectionHeading icon={sectionMeta.icon} title={sectionMeta.title} description={sectionMeta.description} />
-
-            {kpiWidgets.length > 0 && (
-              <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                {kpiWidgets.map(def => (
-                  <motion.div key={def.key} variants={item}><MetricWidget def={def} scope={scope} /></motion.div>
-                ))}
-              </div>
-            )}
-
-            {chartWidgets.length > 0 && (
-              <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
-                {chartWidgets.map(def => (
-                  <motion.div key={def.key} variants={item} className="h-full">
-                    <BreakdownWidget def={def} scope={scope} />
-                  </motion.div>
-                ))}
-              </div>
-            )}
+          <motion.section key={`${scope.preset}-${scope.branchId ?? 'all'}`} variants={container} initial="hidden" animate="show" className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {selectedWidgets.map(({ saved, definition }) => {
+              const widgetScope = { ...scope, branchId: saved.scope?.branchId ?? scope.branchId };
+              const isChart = Boolean(definition.kind && definition.kind !== 'kpi');
+              const span = isChart || saved.size === 'lg' || saved.size === 'md' ? 'sm:col-span-2 xl:col-span-2' : '';
+              return <motion.div key={definition.key} variants={item} className={`min-w-0 ${span}`}>{isChart ? <BreakdownWidget def={definition} scope={widgetScope} /> : <MetricWidget def={definition} scope={widgetScope} />}</motion.div>;
+            })}
           </motion.section>
         )}
       </div>
+      <DashboardCustomizer open={customizerOpen} availableWidgets={visibleWidgets} selectedKeys={selectedKeys} defaultKeys={defaultKeys} onClose={() => setCustomizerOpen(false)} onSave={saveLayout} />
     </div>
   );
 }

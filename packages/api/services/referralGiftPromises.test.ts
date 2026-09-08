@@ -24,7 +24,7 @@ test('direct candidate promise derives its beneficiary and ownership from the pe
       }
       if (sql.includes('SELECT id FROM clients')) return { rows: [{ id: 23 }] };
       if (sql.includes('FROM gift_definitions')) return { rows: [{ id: 4 }] };
-      if (sql.includes('FROM system_lists')) return { rows: [{ id: 7, value: 'candidate_referral_sale' }] };
+      if (sql.includes('FROM system_lists')) return { rows: [{ id: 7, value: 'candidate_referral_sale', label: '', requires_notes: false }] };
       if (sql.includes('FROM gift_records')) return { rows: [] };
       if (sql.includes('INSERT INTO gift_records')) return { rows: [{ id: 101 }] };
       return { rows: [], rowCount: 1 };
@@ -34,7 +34,7 @@ test('direct candidate promise derives its beneficiary and ownership from the pe
   const id = await createReferralGiftPromise(db as any, {
     sourceType: 'candidate',
     sourceId: 41,
-    draft: { giftDefinitionId: 4, conditionLabel: 'عند تحول الاسم إلى زبون', quantity: 2 },
+    draft: { giftDefinitionId: 4, conditionId: 7, quantity: 2 },
     actorUserId: 9,
   });
 
@@ -44,7 +44,7 @@ test('direct candidate promise derives its beneficiary and ownership from the pe
   assert.match(recordInsert.sql, /approved_quantity[\s\S]*NULL/);
   assert.deepEqual(recordInsert.params, [
     4, 'customer_referrer', 23, null, 'الوسيط المثبت', 23, 7,
-    'عند تحول الاسم إلى زبون', 2, 2, 15, 9,
+    'شراء الاسم المقترح', null, 2, 2, 15, 9,
   ]);
   const sourceInsert = calls.find(call => call.sql.includes('INSERT INTO gift_record_sources'))!;
   assert.deepEqual(sourceInsert.params.slice(0, 4), [101, 'candidate', null, 41]);
@@ -76,6 +76,7 @@ test('referral promise editing refuses records materialized from a contract', as
   const db = {
     async query(sql: string) {
       if (sql.includes('FROM gift_definitions')) return { rows: [{ id: 4 }] };
+      if (sql.includes('FROM system_lists')) return { rows: [{ id: 7, value: 'candidate_referral_sale', label: 'شراء الاسم المقترح', requires_notes: false }] };
       if (sql.includes('FROM gift_records gr')) {
         return { rows: [{
           id: 101,
@@ -94,7 +95,7 @@ test('referral promise editing refuses records materialized from a contract', as
     updateReferralGiftPromise(db as any, {
       giftRecordId: 101,
       giftDefinitionId: 4,
-      conditionLabel: 'محاولة تعديل',
+      conditionId: 7,
       quantity: 2,
       actorUserId: 9,
     }),

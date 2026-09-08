@@ -553,7 +553,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                 referralSheetId: number | null;
                 ownershipType?: 'PERSONAL' | 'BRANCH';
                 responsibleUserId?: number | null;
-                giftPromise?: { giftDefinitionId: string; conditionLabel: string; quantity: number } | null;
+                giftPromise?: { giftDefinitionId: string; conditionId: string; conditionNotes?: string; quantity: number } | null;
             } = {
                 firstName,
                 lastName,
@@ -578,7 +578,8 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                 createdBy: authUser?.id ?? 0,
                 giftPromise: !initialData?.id && isDirectMode && giftPromiseDirect ? {
                     giftDefinitionId: giftPromiseDirect.giftDefinitionId,
-                    conditionLabel: giftPromiseDirect.conditionLabel,
+                    conditionId: giftPromiseDirect.conditionId,
+                    conditionNotes: giftPromiseDirect.conditionNotes,
                     quantity: giftPromiseDirect.quantity,
                 } : null,
             };

@@ -76,3 +76,41 @@ test('unknown visit status is rejected instead of becoming a loose SQL filter', 
     (error: unknown) => error instanceof ReportingError && error.status === 400,
   );
 });
+
+test('the cancellation reason filters on the managed list id, not its wording', () => {
+  const { sql, params } = buildDailyVisitsQuery(
+    { scope: 'GLOBAL', grantedScope: 'GLOBAL', branchIds: [], userId: 1 },
+    { fromDate: '2026-06-01', toDate: '2026-06-30', cancellationReasonId: 55 },
+    { limit: 10 },
+  );
+
+  // The id, so renaming a reason keeps it matching the rows it was recorded on.
+  assert.match(sql, /fv\.cancellation_reason_id = \$3/);
+  assert.match(sql, /LEFT JOIN system_lists cancellation_reason ON cancellation_reason\.id=fv\.cancellation_reason_id/);
+  assert.deepEqual(params.slice(0, 3), ['2026-06-01', '2026-06-30', 55]);
+});
+
+test('the visit origin is a separate question from the visit status', () => {
+  const { sql, params } = buildDailyVisitsQuery(
+    { scope: 'GLOBAL', grantedScope: 'GLOBAL', branchIds: [], userId: 1 },
+    { fromDate: '2026-06-01', toDate: '2026-06-30', visitOrigin: 'field_initiated', visitStatus: 'completed' },
+    { limit: 10 },
+  );
+
+  assert.match(sql, /fv\.status = \$3/);
+  assert.match(sql, /fv\.origin_type = \$4/);
+  assert.match(sql, /WHEN 'field_initiated' THEN 'زيارة ميدانية فورية'/);
+  assert.match(sql, /END AS "visitOrigin"/);
+  assert.deepEqual(params.slice(0, 4), ['2026-06-01', '2026-06-30', 'completed', 'field_initiated']);
+});
+
+test('an unknown visit origin is refused rather than passed into the query', () => {
+  assert.throws(
+    () => buildDailyVisitsQuery(
+      { scope: 'GLOBAL', grantedScope: 'GLOBAL', branchIds: [], userId: 1 },
+      { fromDate: '2026-06-01', toDate: '2026-06-30', visitOrigin: 'walk_in' },
+      { limit: 10 },
+    ),
+    (error: unknown) => error instanceof ReportingError && /مصدر الزيارة غير صالح/.test(error.message),
+  );
+});

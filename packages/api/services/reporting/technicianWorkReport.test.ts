@@ -11,7 +11,7 @@ const RANGE = { fromDate: '2026-08-01', toDate: '2026-08-31' };
 
 test('the rows come from the staff table, so a technician with no work still appears', () => {
   const { sql } = buildTechnicianWorkQuery(GLOBAL_ACCESS, RANGE, { limit: 100 });
-  assert.match(sql, /\), report_rows AS \(\s*\n\s*SELECT employee\.id, employee\.branch_id, employee\.name\s*\n\s*FROM employees employee/);
+  assert.match(sql, /\), report_rows AS \(\s*\n\s*SELECT employee\.id, employee\.branch_id, employee\.name,\s*\n\s*employee\.job_title, employee\.status, employee\.department_id\s*\n\s*FROM employees employee/);
   // Active technicians, plus anyone who did the work even after leaving.
   assert.match(sql, /employee\.status = 'active'\s*\n\s*AND BTRIM\(employee\.job_title\) IN \(SELECT job_title FROM technician_titles\)/);
   assert.match(sql, /OR EXISTS \(SELECT 1 FROM executed WHERE executed\.technician_id = employee\.id\)/);
@@ -129,7 +129,11 @@ test('the catalog declares the report, its scopes, filter and every column', () 
   assert.equal(definition.filters.dateRange, 'required');
   assert.equal(definition.filters.technician, true);
   assert.equal(definition.rowIsBranch, true);
-  assert.equal(definition.columns.length, 20);
+  assert.equal(definition.filters.department, true);
+  assert.equal(definition.filters.jobTitle, true);
+  assert.equal(definition.filters.employmentStatus, true);
+  assert.equal(definition.filters.technicianActivity, true);
+  assert.equal(definition.columns.length, 23);
   const { sql } = buildTechnicianWorkQuery(GLOBAL_ACCESS, RANGE, { limit: 100 });
   for (const column of definition.columns) {
     assert.match(sql, new RegExp(`AS "${column.key}"`), `${column.key} must be selected`);
@@ -147,4 +151,44 @@ test('the migration declares the permissions, the titles setting and its indexes
   assert.match(migration, /'technician_job_titles'/);
   assert.match(migration, /idx_visit_task_results_closed_at/);
   assert.match(migration, /idx_employees_status_job_title/);
+});
+
+test('the staff dimension narrows which technicians appear, not what they did', () => {
+  const { sql, params } = buildTechnicianWorkQuery(GLOBAL_ACCESS, {
+    ...RANGE, departmentId: 4, jobTitle: 'فني صيانة', employmentStatus: 'inactive',
+  }, { limit: 100 });
+
+  // All three sit on the row source, so a technician who survives them keeps every
+  // aggregate computed over her own whole period.
+  assert.match(sql, /report_rows AS \([\s\S]*dimension_employee\.id = employee\.id[\s\S]*\)\s*\n\s*SELECT row\.branch_id/);
+  assert.match(sql, /dimension_employee\.department_id = \$3/);
+  assert.match(sql, /BTRIM\(dimension_employee\.job_title\) = \$4/);
+  assert.match(sql, /dimension_employee\.status IS DISTINCT FROM 'active'/);
+  assert.deepEqual(params.slice(0, 4), ['2026-08-01', '2026-08-31', 4, 'فني صيانة']);
+});
+
+test('the work-presence filter reads the same total the column shows', () => {
+  const withWork = buildTechnicianWorkQuery(GLOBAL_ACCESS, { ...RANGE, technicianActivity: 'with_work' }, { limit: 100 });
+  // Placed after the aggregate laterals, so it compares the published total and not
+  // a second count of the same tasks.
+  assert.match(withWork.sql, /\) names ON TRUE\s*\n\s*WHERE COALESCE\(tasks\.total_done, 0\) > 0/);
+  assert.match(withWork.sql, /COALESCE\(tasks\.total_done, 0\) AS "totalExecutedTasks"/);
+
+  const without = buildTechnicianWorkQuery(GLOBAL_ACCESS, { ...RANGE, technicianActivity: 'without_work' }, { limit: 100 });
+  assert.match(without.sql, /WHERE COALESCE\(tasks\.total_done, 0\) = 0/);
+
+  // Unasked, the staff list stays whole: a technician with no work is the finding.
+  const plain = buildTechnicianWorkQuery(GLOBAL_ACCESS, RANGE, { limit: 100 });
+  assert.doesNotMatch(plain.sql, /WHERE COALESCE\(tasks\.total_done/);
+});
+
+test('an unknown work-presence or employment value is refused', () => {
+  assert.throws(
+    () => buildTechnicianWorkQuery(GLOBAL_ACCESS, { ...RANGE, technicianActivity: 'busy' }, { limit: 100 }),
+    /حالة العمل غير صالحة/,
+  );
+  assert.throws(
+    () => buildTechnicianWorkQuery(GLOBAL_ACCESS, { ...RANGE, employmentStatus: 'retired' }, { limit: 100 }),
+    /حالة الخدمة غير صالحة/,
+  );
 });

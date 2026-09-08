@@ -22,7 +22,11 @@ test('page and limit produce a server-side offset and invalid values fall back s
 test('generate and page endpoints both carry the explicit ten-row contract', () => {
   const route = readFileSync('packages/api/routes/reports.ts', 'utf8');
   const page = readFileSync('packages/web/src/pages/Reports.tsx', 'utf8');
-  assert.match(route, /page: input\.page, limit: input\.limit/);
+  // The route lifts the whole body through the report layer's key list, so pagination
+  // arrives with every other filter instead of being re-listed here by hand.
+  assert.match(route, /readTabularReportRequestParams\(req\.body\)/);
+  const access = readFileSync('packages/api/services/reporting/tabularReportAccess.ts', 'utf8');
+  assert.match(access, /'page', 'limit'/);
   assert.match(page, /const REPORT_PAGE_SIZE = 10/);
   assert.match(page, /page: 1,[\s\S]*limit: REPORT_PAGE_SIZE/);
   assert.match(page, /tabularRun\(data\.runId, \{ page, limit: REPORT_PAGE_SIZE \}\)/);

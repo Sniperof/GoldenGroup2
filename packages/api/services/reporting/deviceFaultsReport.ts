@@ -37,6 +37,42 @@ function optionalAllowListed(value: unknown, allowed: Set<string>, label: string
   return normalized;
 }
 
+function parseGeoIds(request: TabularReportRequestParams): number[] {
+  return Array.from(new Set(String(request.geoIds ?? request.geoUnitId ?? '')
+    .split(',').map(value => positiveInt(value))
+    .filter((value): value is number => value != null)));
+}
+
+/**
+ * The fault belongs to a device, and the device's location is its installation site —
+ * not the customer's current address and not the branch's. The chain is resolved
+ * upward so every level can be named and so a geography selection at any level
+ * matches: the row carries every ancestor id, the request carries the chosen
+ * node's subtree (§9.7.2).
+ */
+const GEO_LATERAL_SQL = `
+        WITH RECURSIVE ancestors AS (
+          SELECT unit.id, unit.name, unit.level, unit.parent_id
+            FROM geo_units unit
+           WHERE unit.id = device.installation_geo_unit_id
+          UNION ALL
+          SELECT parent.id, parent.name, parent.level, parent.parent_id
+            FROM geo_units parent
+            JOIN ancestors child ON child.parent_id = parent.id
+        )
+        SELECT MAX(name) FILTER (WHERE level = 1) AS governorate_name,
+               MAX(name) FILTER (WHERE level = 2) AS region_name,
+               MAX(name) FILTER (WHERE level = 3) AS subarea_name,
+               MAX(name) FILTER (WHERE level = 4) AS neighborhood_name,
+               COALESCE(ARRAY_AGG(id), ARRAY[]::int[]) AS unit_ids
+          FROM ancestors`;
+
+/** The technician who actually attended the treatment visit, after any reassignment. */
+const VISIT_TECHNICIAN_ID_SQL = `COALESCE(
+        resolution_visit.reassigned_technician_id,
+        NULLIF(resolution_visit.team_snapshot->>'technicianEmployeeId', '')::int
+      )`;
+
 export function buildDeviceFaultsQuery(
   access: TabularReportAccess,
   request: TabularReportRequestParams,
@@ -50,8 +86,8 @@ export function buildDeviceFaultsQuery(
   const params: unknown[] = [];
   const filters = [
     'problem.deleted_at IS NULL',
-    `problem.created_at >= $${params.push(fromDate)}::date`,
-    `problem.created_at < $${params.push(toDate)}::date + INTERVAL '1 day'`,
+    `problem.created_at >= ($${params.push(fromDate)}::text || ' 00:00')::timestamp AT TIME ZONE 'Asia/Damascus'`,
+    `problem.created_at < (($${params.push(toDate)}::text::date + 1)::text || ' 00:00')::timestamp AT TIME ZONE 'Asia/Damascus'`,
   ];
   const branchExpression = 'COALESCE(service_request.branch_id, device.branch_id)';
   if (access.branchIds.length > 0) {
@@ -70,6 +106,30 @@ export function buildDeviceFaultsQuery(
   const repairTechnicianId = positiveInt(request.repairTechnicianEmployeeId);
   if (repairTechnicianId != null) {
     filters.push(`problem.repaired_by_employee_id = $${params.push(repairTechnicianId)}`);
+  }
+
+  // Distinct from the repair technician: whoever attended the treatment visit is not
+  // always the one credited with the repair, and the report shows both columns.
+  const visitTechnicianId = positiveInt(request.visitTechnicianEmployeeId);
+  if (visitTechnicianId != null) {
+    filters.push(`${VISIT_TECHNICIAN_ID_SQL} = $${params.push(visitTechnicianId)}`);
+  }
+
+  const geoIds = parseGeoIds(request);
+  if (geoIds.length > 0) {
+    filters.push(`geo.unit_ids && $${params.push(geoIds)}::int[]`);
+  }
+
+  const search = typeof request.search === 'string' ? request.search.trim() : '';
+  if (search) {
+    const searchRef = `$${params.push(`%${search}%`)}`;
+    filters.push(`(
+      client.name ILIKE ${searchRef}
+      OR client.mobile ILIKE ${searchRef}
+      OR service_request.public_ref_number ILIKE ${searchRef}
+      OR device.serial_number ILIKE ${searchRef}
+      OR device.external_device_serial ILIKE ${searchRef}
+    )`);
   }
 
   const deviceModelKey = typeof request.deviceModel === 'string' ? request.deviceModel : '';
@@ -117,6 +177,10 @@ export function buildDeviceFaultsQuery(
         TO_CHAR(problem.created_at::date, 'YYYY-MM-DD') AS "reportedDate",
         client.name AS "customerName",
         NULLIF(client.mobile, '') AS "primaryContactNumber",
+        geo.governorate_name AS "governorateName",
+        geo.region_name AS "regionName",
+        geo.subarea_name AS "subareaName",
+        geo.neighborhood_name AS "neighborhoodName",
         COALESCE(device_model.name_ar, device_model.name_en, device_model.name,
                  device.device_model_name, device.external_device_name, 'جهاز غير محدد') AS "deviceModelName",
         COALESCE(NULLIF(device.serial_number, ''), NULLIF(device.external_device_serial, '')) AS "serialNumber",
@@ -162,10 +226,9 @@ export function buildDeviceFaultsQuery(
       LEFT JOIN visit_tasks resolution_task ON resolution_task.id = problem.resolution_visit_task_id
       LEFT JOIN field_visits resolution_visit ON resolution_visit.id = resolution_task.field_visit_id
       LEFT JOIN visit_task_results resolution_result ON resolution_result.visit_task_id = resolution_task.id
-      LEFT JOIN employees visit_technician ON visit_technician.id = COALESCE(
-        resolution_visit.reassigned_technician_id,
-        NULLIF(resolution_visit.team_snapshot->>'technicianEmployeeId', '')::int
-      )
+      LEFT JOIN employees visit_technician ON visit_technician.id = ${VISIT_TECHNICIAN_ID_SQL}
+      LEFT JOIN LATERAL (${GEO_LATERAL_SQL}
+      ) geo ON TRUE
       LEFT JOIN LATERAL (
         SELECT STRING_AGG(part.part_name_snapshot || ' × ' || part.quantity::text,
                           E'\n' ORDER BY part.part_name_snapshot, part.id) AS summary
@@ -194,7 +257,7 @@ export async function getDeviceFaultsFilterOptions(access: TabularReportAccess) 
     JOIN installed_devices device ON device.id = problem.installed_device_id`;
   const baseWhere = `WHERE problem.deleted_at IS NULL ${branchCondition}`;
 
-  const [faultTypes, deviceModels, repairTechnicians] = await Promise.all([
+  const [faultTypes, deviceModels, repairTechnicians, visitTechnicians] = await Promise.all([
     pool.query(
       `SELECT DISTINCT fault_type.id::text AS value, fault_type.value AS label
        ${baseFrom}
@@ -226,11 +289,22 @@ export async function getDeviceFaultsFilterOptions(access: TabularReportAccess) 
        ORDER BY label`,
       params,
     ),
+    pool.query(
+      `SELECT DISTINCT employee.id::text AS value, employee.name AS label
+       ${baseFrom}
+       JOIN visit_tasks resolution_task ON resolution_task.id = problem.resolution_visit_task_id
+       JOIN field_visits resolution_visit ON resolution_visit.id = resolution_task.field_visit_id
+       JOIN employees employee ON employee.id = ${VISIT_TECHNICIAN_ID_SQL}
+       ${baseWhere}
+       ORDER BY label`,
+      params,
+    ),
   ]);
 
   return {
     faultTypes: faultTypes.rows,
     deviceModels: deviceModels.rows,
     repairTechnicians: repairTechnicians.rows,
+    technicians: visitTechnicians.rows,
   };
 }
