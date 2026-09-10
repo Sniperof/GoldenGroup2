@@ -310,8 +310,13 @@ export default function RouteAssigner() {
             && savedStationOrderSnapshot === currentStationOrderSnapshot;
     }, [composition, extraZones, finalZoneIds, orderedFinalZoneIds, savedAssignmentForCurrentKey, selectedTeam]);
 
-    const selectableExtraZones = useMemo(() => {
-        return allGeoUnits.filter(unit => unit.level === 4 && !finalZoneIds.includes(unit.id) && !extraZones.includes(unit.id));
+    const extraZoneGeoUnits = useMemo(() => {
+        // Keep levels 1–2 in the collection so GeoSmartSearch can build the full
+        // breadcrumb, while allowing ناحية (3) and حي (4) as actual stations.
+        return allGeoUnits.filter(unit => (
+            unit.level < 3
+            || (!finalZoneIds.includes(unit.id) && !extraZones.includes(unit.id))
+        ));
     }, [allGeoUnits, extraZones, finalZoneIds]);
     const workCoverageLabel = getWorkCoverageLabel({
         routes: composition,
@@ -583,13 +588,13 @@ export default function RouteAssigner() {
                         <h3 className="text-slate-800 font-bold text-base flex items-center gap-2 mb-3"><MapPin className="w-4 h-4 text-orange-500" />مناطق إضافية</h3>
                         <div className="space-y-3 mb-3">
                             <GeoSmartSearch
-                                label="أضف حي"
-                                geoUnits={selectableExtraZones}
+                                label="أضف ناحية أو حي"
+                                geoUnits={extraZoneGeoUnits}
                                 value={extraZoneSelection}
                                 onChange={handleExtraZoneSelection}
                                 disabled={!selectedTeam}
-                                minSelectableLevel={4}
-                                placeholder={selectedTeam ? 'ابحث عن حي لإضافته...' : 'اختر الفريق أولاً...'}
+                                minSelectableLevel={3}
+                                placeholder={selectedTeam ? 'ابحث عن ناحية أو حي لإضافته...' : 'اختر الفريق أولاً...'}
                             />
                             <div className="flex items-center gap-2 flex-wrap">
                                 <button

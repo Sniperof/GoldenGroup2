@@ -1,4 +1,5 @@
 import type {
+  ClientReferrer,
   MarketingVisitCancelRequest,
   MarketingVisitRescheduleRequest,
   DevicePossessionEntry,
@@ -146,6 +147,81 @@ export interface PagedClientsResponse {
   page: number;
   limit: number;
   kpis: { total: number; leads: number; fops: number; ops: number };
+}
+
+export interface VisitContractCreationContext {
+  visitId: number;
+  branchId: number;
+  visitStatus: string;
+  saleOwnerId: number;
+  customer: {
+    id: number;
+    name: string;
+    mobile: string;
+    contacts: unknown[];
+    fatherName: string | null;
+    nationalId: string | null;
+    motherName: string | null;
+    birthDate: string | null;
+    gender: 'male' | 'female' | null;
+    nationalIdRegistry: string | null;
+    nationalIdIssuedBy: string | null;
+    nationalIdIssueDate: string | null;
+    nationalIdBox: string | null;
+    referrers: ClientReferrer[];
+  };
+  deviceDemoTask: {
+    visitTaskId: number;
+    sourceOpenTaskId: number;
+    status: string;
+    finalDecision: string;
+  };
+  acceptedOfferCount: number;
+  eligibleOffers: Array<{
+    id: number;
+    deviceModelId: number;
+    deviceName: string | null;
+    offerType: 'cash' | 'installment';
+    quantity: number;
+    totalAmount: number;
+    firstPaymentAmount: number;
+    installmentMonths: number;
+    currency: string;
+    discountPercentage: number;
+    appliedDeviceDiscountId: number | null;
+    closedByEmployeeId: number | null;
+    saleReferenceNumber: string | null;
+  }>;
+}
+
+export interface ContractCustomerLookupItem {
+  id: number;
+  name: string;
+  mobile: string;
+  branchName: string | null;
+  legalIdentityComplete: boolean;
+}
+
+export interface ContractCustomerLookupResponse {
+  items: ContractCustomerLookupItem[];
+  hasMore: boolean;
+}
+
+export interface ContractCustomerContext {
+  id: number;
+  name: string;
+  mobile: string;
+  contacts: unknown[];
+  fatherName: string | null;
+  nationalId: string | null;
+  motherName: string | null;
+  birthDate: string | null;
+  gender: 'male' | 'female' | null;
+  nationalIdRegistry: string | null;
+  nationalIdIssuedBy: string | null;
+  nationalIdIssueDate: string | null;
+  nationalIdBox: string | null;
+  referrers: ClientReferrer[];
 }
 
 /** GET /candidates/paged — `kpis` is keyed by candidate status; `total` is their sum. */
@@ -1197,6 +1273,14 @@ export const api = {
       );
     },
     get: (id: number) => request<any>(`/contracts/${id}`),
+    getCreationContextForVisit: (visitId: number) =>
+      request<VisitContractCreationContext>(`/contracts/creation-context/visit/${visitId}`),
+    searchCustomers: (query: string, signal?: AbortSignal) => {
+      const qs = new URLSearchParams({ q: query, limit: '20' });
+      return request<ContractCustomerLookupResponse>(`/contracts/customer-lookup?${qs.toString()}`, { signal });
+    },
+    getCustomerContext: (customerId: number, signal?: AbortSignal) =>
+      request<ContractCustomerContext>(`/contracts/customer-context/${customerId}`, { signal }),
     create: (data: any) => request<any>('/contracts', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/contracts/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id: number) => request<any>(`/contracts/${id}`, { method: 'DELETE' }),

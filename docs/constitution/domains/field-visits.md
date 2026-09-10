@@ -285,7 +285,17 @@
 
 ### BR-3: الترقية والمبيعات الميدانية (Device Offering & Sales Linkage)
 - في مهام عرض الأجهزة `device_demo` بالميدان، يعرض الفني عروض خصومات من `device_discounts` المتاحة للفرع.
-- في حال موافقة العميل على العرض والتعاقد الفعلي: يتم إنشاء عقد جديد بجدول `contracts` وربطه بالزيارة والمهمة المسببة تلقائياً عبر الحقول `contracts.source_visit_id` و `contracts.source_open_task_id` لتأمين التتبع المالي والجنائي للمبيعات الميدانية.
+- لا يُنشأ عقد تلقائياً بمجرد موافقة العميل على عرض. القبول يجعل العرض مؤهلاً للربط بعقد ينشئه مستخدم مصرح له لاحقاً.
+- عند إنشاء عقد من تفاصيل الزيارة، يثبت الخادم `contracts.source_visit_id` و`contracts.source_open_task_id` والزبون من سياق الزيارة. اختيار `source_task_offer_id` اختياري.
+- إذا اختير عرض، يجب أن يكون مقبولاً وتابعاً لمهمة العرض والزيارة والزبون والفرع أنفسهم، وألا يكون مرتبطاً بعقد حي آخر.
+- يمكن لمهمة العرض أن تحتوي عروضاً مقبولة متعددة، ويمكن إنشاء عقد واحد حي كحد أقصى لكل عرض. كما يجوز إنشاء عقد من الزيارة بلا ربط بعرض.
+- زيارة عرض الجهاز يجب أن تحتوي مهمة `device_demo` واحدة بالضبط، ولا يسمح بتكرارها داخل الزيارة الواحدة.
+
+### BR-3.1: صلاحية العقد من الزيارة
+- إسناد المشرفة للزيارة هو Subject للعملية، وليس نقلاً لملكية الزبون.
+- فعل إضافة العقد من الزيارة لا يظهر قبل تسجيل نتيجة `offer_presented` تتضمن عرضاً مقبولاً واحداً على الأقل؛ بعد ظهوره يبقى اختيار العرض داخل العقد اختيارياً.
+- يتطلب الفعل قدرة `contracts.create` مع تحقق خادمي من فرع الزيارة ومن أن المستخدم هو المسؤول الفعلي عنها وفق لقطة الفريق/إعادة الإسناد المعتمدة.
+- يُقرأ الزبون المحدد من الزيارة عبر lookup سياقي مفرد؛ لا يشترط مروره في نطاق قائمة `clients.view_list` العامة، ولا يمنح ذلك المستخدم حق تصفح أو تعديل بقية بيانات الزبون خارج العملية.
 
 ### BR-4: الحظر الصارم للتداخل وتوزيع المهام الجغرافي (Double-Booking & Assignment Gates)
 - عند إعادة تعيين الفريق التشغيلي للزيارة الميدانية (`POST /api/field-visits/:id/reassign`): يفرض النظام فحصاً جغرافياً لضمان بقاء الزيارة محصورة ضمن حدود الفرع المسؤول، مع توثيق لقطة الفريق الجاري بـ `reassigned_team_snapshot` لتسهيل الرقابة.
@@ -312,7 +322,7 @@ erDiagram
     visit_task_results ||--o| visit_task_emergency_technical_states : "emergency diagnostic"
     visit_task_results ||--o{ visit_task_emergency_parts_used : "emergency consumption"
     visit_task_results ||--o| visit_task_emergency_financials : "emergency payment"
-    visit_task_device_demo_results }o--|| contracts : "creates contract"
+    visit_task_device_demo_results ||--o{ contracts : "optional contract origins"
     visit_name_collections }o--|| referral_sheets : "links sheet"
 ```
 

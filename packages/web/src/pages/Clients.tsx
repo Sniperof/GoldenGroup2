@@ -311,48 +311,53 @@ export default function Clients() {
 
     // Owner options — eligible personal owners, scoped to the branch filter.
     useEffect(() => {
+        if (!filtersOpen) return;
         const branchParam = isGlobalClients ? branchContextId : null;
         api.admin.hrUsers.nameListAssignable(branchParam)
             .then(rows => setOwnerOptions((rows as any[]).map(u => ({ id: u.id, name: u.name }))))
             .catch(() => setOwnerOptions([]));
-    }, [isGlobalClients, branchContextId]);
+    }, [filtersOpen, isGlobalClients, branchContextId]);
 
     // Task-type options for the "has task of type" filter.
     useEffect(() => {
+        if (!filtersOpen) return;
         api.admin.taskTypes.list(true)
             .then(rows => setTaskTypeOptions((rows as any[]).map(t => ({
                 value: t.taskType ?? t.key,
                 label: t.labelAr ?? t.arabicLabel ?? t.label ?? t.taskType ?? t.key,
             }))))
             .catch(() => setTaskTypeOptions([]));
-    }, []);
+    }, [filtersOpen]);
 
     // Branch-scoped geo units for the cascade options: only the areas the branch
     // covers (national tree when GLOBAL is on "all branches"). Reset the cascade
     // when the scope changes so stale selections don't linger.
     useEffect(() => {
+        if (!filtersOpen) return;
         const branchParam = isGlobalClients ? branchContextId : null;
         api.geoUnits.list(branchParam)
             .then(rows => setScopedGeo(rows as GeoUnit[]))
             .catch(() => setScopedGeo([]));
         setFilterGov('all'); setFilterRegion('all'); setFilterSubarea('all'); setFilterHood('all');
-    }, [isGlobalClients, branchContextId]);
+    }, [filtersOpen, isGlobalClients, branchContextId]);
 
     // Route options (each carries its geo points for subtree expansion).
     useEffect(() => {
+        if (!filtersOpen) return;
         api.routes.list()
             .then(rows => setRouteOptions((rows as any[]).map(r => ({
                 id: r.id, name: r.name, points: Array.isArray(r.points) ? r.points.map((p: any) => ({ geoUnitId: p.geoUnitId })) : [],
             }))))
             .catch(() => setRouteOptions([]));
-    }, []);
+    }, [filtersOpen]);
 
     // Water-source options (same admin list the client form uses).
     useEffect(() => {
+        if (!filtersOpen) return;
         api.systemLists.list({ category: 'water_source', activeOnly: true })
             .then(rows => setWaterSourceOptions((rows as any[]).map(item => item.value)))
             .catch(() => setWaterSourceOptions([]));
-    }, []);
+    }, [filtersOpen]);
 
     // Branch list for the management filter (shown only when the filter is visible).
     useEffect(() => {

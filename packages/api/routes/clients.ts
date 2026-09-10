@@ -778,6 +778,39 @@ const CLIENT_SORT_COLUMNS: Record<string, string> = {
   lifecycleStage: `(${buildClientLifecycleStatusSql('c')})`,
 };
 
+function buildPagedClientRowsQuery(
+  where: string,
+  orderBy: string,
+  limitRef: string,
+  offsetRef: string,
+  scope: string,
+): string {
+  if (scope !== 'ASSIGNED') {
+    return `${CLIENT_SELECT}${where} ORDER BY ${orderBy} LIMIT ${limitRef} OFFSET ${offsetRef}`;
+  }
+
+  // With very few personal assignments, PostgreSQL may otherwise satisfy the
+  // descending client-id order first and run CLIENT_SELECT's lateral ownership
+  // enrichment for tens of thousands of branch-visible clients before the
+  // assignment semi-join rejects them. Materialize the authorized/filter-matched
+  // IDs first so enrichment runs only for rows the caller can actually receive.
+  const scopedSelect = CLIENT_SELECT.replace(
+    '  FROM clients c',
+    '  FROM scoped_client_ids scoped\n  JOIN clients c ON c.id = scoped.id',
+  );
+  return `
+    WITH scoped_client_ids AS MATERIALIZED (
+      SELECT c.id
+        FROM clients c
+        LEFT JOIN branches b ON b.id = c.branch_id
+        ${where}
+    )
+    ${scopedSelect}
+    ORDER BY ${orderBy}
+    LIMIT ${limitRef} OFFSET ${offsetRef}
+  `;
+}
+
 function hasBranchScopedClientGrant(authContext: any, permission: string): boolean {
   if (authContext.isSuperAdmin) return true;
   const grant = authContext.grants?.find((item: any) => item.permission === permission);
@@ -1293,9 +1326,16 @@ router.get('/paged', requirePermission('clients.view_list'), async (req, res) =>
     const limitRef = `$${pageParams.length}`;
     pageParams.push(offset);
     const offsetRef = `$${pageParams.length}`;
+    const pageQuery = buildPagedClientRowsQuery(
+      where,
+      orderBy,
+      limitRef,
+      offsetRef,
+      listAccess.scope,
+    );
 
     const [pageResult, statsResult] = await Promise.all([
-      pool.query(`${CLIENT_SELECT}${where} ORDER BY ${orderBy} LIMIT ${limitRef} OFFSET ${offsetRef}`, pageParams),
+      pool.query(pageQuery, pageParams),
       pool.query(
         `SELECT (${buildClientLifecycleStatusSql('c')}) AS stage, COUNT(*)::int AS n
            FROM clients c

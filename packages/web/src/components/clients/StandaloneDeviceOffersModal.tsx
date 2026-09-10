@@ -80,8 +80,8 @@ export default function StandaloneDeviceOffersModal({ isOpen, onClose, client, o
     setOffers([]);
     Promise.all([
       api.deviceModels.list({ activeOnly: true }),
-      api.employees.employeeClosers(),
-      api.systemLists.getItemsByCode('no_closing_reasons'),
+      api.employees.employeeClosers().catch(() => []),
+      api.systemLists.getItemsByCode('no_closing_reasons').catch(() => []),
     ])
       .then(([models, closerRows, noClosingRows]) => {
         setDeviceModels(models);

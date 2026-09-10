@@ -23,6 +23,18 @@ import {
 import { deriveContractWriteStatus } from '../services/contractLifecycle.js';
 import { normalizeContractTradeinDetails } from '../services/contractTradein.js';
 import {
+  bindContractInputToExistingProvenance,
+  bindContractInputToVisitContext,
+  contractSourceUniquenessConflictPayload,
+  ContractCreationContextError,
+  loadContractCreationContext,
+} from '../services/contractCreationContextService.js';
+import {
+  ContractCustomerLookupError,
+  loadContractCustomerContext,
+  searchContractCustomers,
+} from '../services/contractCustomerLookupService.js';
+import {
   cancelUpcomingPeriodicMaintenanceForContractCancel,
   PeriodicMaintenanceTransferError,
 } from '../services/periodicMaintenanceTasks.js';
@@ -39,7 +51,8 @@ router.use(requireAuth);
 const contractSelect = `
   c.id, c.contract_number AS "contractNumber", c.customer_id AS "customerId",
   c.customer_name AS "customerName", c.contract_date AS "contractDate",
-  c.source_visit AS "sourceVisit", c.device_model_id AS "deviceModelId",
+  c.source_visit AS "sourceVisit", c.source_visit_id AS "sourceVisitId",
+  c.device_model_id AS "deviceModelId",
   c.device_model_name AS "deviceModelName",
   c.maintenance_plan AS "maintenancePlan", c.base_price AS "basePrice",
   c.final_price AS "finalPrice", c.payment_type AS "paymentType",
@@ -695,6 +708,91 @@ router.get('/paged', requirePermission('contracts.view_list'), async (req, res) 
   }
 });
 
+// Read-only context for the visit-driven contract flow. This route intentionally
+// precedes '/:id' so Express never interprets "creation-context" as a contract id.
+router.get('/creation-context/visit/:visitId', requirePermission('contracts.create'), async (req, res) => {
+  const visitId = Number(req.params.visitId);
+  if (!Number.isInteger(visitId) || visitId <= 0) {
+    return res.status(400).json({
+      error: 'معرف الزيارة غير صالح',
+      code: 'INVALID_VISIT_ID',
+    });
+  }
+
+  try {
+    const context = await loadContractCreationContext(
+      pool,
+      req.authContext!,
+      Number.isInteger(req.user?.employeeId) && Number(req.user?.employeeId) > 0
+        ? Number(req.user?.employeeId)
+        : null,
+      visitId,
+    );
+    return res.json(context);
+  } catch (error) {
+    if (error instanceof ContractCreationContextError) {
+      return res.status(error.status).json({ error: error.message, code: error.code });
+    }
+    console.error('[contracts] creation context error:', error);
+    return res.status(500).json({ error: 'فشل في تجهيز سياق إنشاء العقد' });
+  }
+});
+
+// Lightweight, use-case-specific lookup for manual contract creation. It
+// deliberately avoids the full client projection, aggregate KPIs and COUNT(*)
+// used by the clients records page.
+router.get('/customer-lookup', requirePermission('contracts.create'), async (req, res) => {
+  const targetBranchId = resolveTargetBranchId(req, res);
+  if (targetBranchId == null) return;
+
+  const query = typeof req.query.q === 'string' ? req.query.q : '';
+  const requestedLimit = Number(req.query.limit ?? 20);
+  const limit = Number.isInteger(requestedLimit) ? requestedLimit : 20;
+
+  try {
+    return res.json(await searchContractCustomers(
+      pool,
+      req.authContext!,
+      targetBranchId,
+      query,
+      limit,
+    ));
+  } catch (error) {
+    if (error instanceof ContractCustomerLookupError) {
+      return res.status(error.status).json({ error: error.message, code: error.code });
+    }
+    console.error('[contracts] customer lookup error:', error);
+    return res.status(500).json({ error: 'فشل البحث عن الزبائن' });
+  }
+});
+
+// Load only the selected customer's fields needed by the contract form. The
+// same scope policy is re-applied instead of trusting an id returned by the UI.
+router.get('/customer-context/:clientId', requirePermission('contracts.create'), async (req, res) => {
+  const customerId = Number(req.params.clientId);
+  if (!Number.isInteger(customerId) || customerId <= 0) {
+    return res.status(400).json({ error: 'معرف الزبون غير صالح', code: 'INVALID_CUSTOMER_ID' });
+  }
+
+  const targetBranchId = resolveTargetBranchId(req, res);
+  if (targetBranchId == null) return;
+
+  try {
+    return res.json(await loadContractCustomerContext(
+      pool,
+      req.authContext!,
+      targetBranchId,
+      customerId,
+    ));
+  } catch (error) {
+    if (error instanceof ContractCustomerLookupError) {
+      return res.status(error.status).json({ error: error.message, code: error.code });
+    }
+    console.error('[contracts] customer context error:', error);
+    return res.status(500).json({ error: 'فشل تحميل بيانات الزبون' });
+  }
+});
+
 /**
  * @swagger
  * /api/contracts/{id}:
@@ -913,6 +1011,12 @@ router.get('/:id', requirePermission('contracts.view_list'), async (req, res) =>
  *                 type: string
  *               contractDate:
  *                 type: string
+ *               sourceVisitId:
+ *                 type: integer
+ *                 description: زيارة موحدة مصدَرية؛ عند وجودها يثبت الخادم الزبون والفرع والمهمة وصاحب البيعة
+ *               sourceTaskOfferId:
+ *                 type: integer
+ *                 description: عرض مقبول اختياري من سياق الزيارة
  *               deviceModelId:
  *                 type: integer
  *               deviceModelName:
@@ -940,7 +1044,33 @@ router.get('/:id', requirePermission('contracts.view_list'), async (req, res) =>
  *         description: Server error
  */
 router.post('/', requirePermission('contracts.create'), async (req, res) => {
-  const c = req.body;
+  let c = { ...req.body };
+  const rawSourceVisitId = c.sourceVisitId ?? c.source_visit_id ?? null;
+  if (rawSourceVisitId !== null && rawSourceVisitId !== '') {
+    const sourceVisitId = Number(rawSourceVisitId);
+    if (!Number.isInteger(sourceVisitId) || sourceVisitId <= 0) {
+      return res.status(400).json({ error: 'معرف الزيارة غير صالح', code: 'INVALID_VISIT_ID' });
+    }
+
+    try {
+      const visitContext = await loadContractCreationContext(
+        pool,
+        req.authContext!,
+        Number.isInteger(req.user?.employeeId) && Number(req.user?.employeeId) > 0
+          ? Number(req.user?.employeeId)
+          : null,
+        sourceVisitId,
+      );
+      c = bindContractInputToVisitContext(c, visitContext);
+    } catch (error) {
+      if (error instanceof ContractCreationContextError) {
+        return res.status(error.status).json({ error: error.message, code: error.code });
+      }
+      console.error('[contracts] visit-bound create validation error:', error);
+      return res.status(500).json({ error: 'فشل في التحقق من سياق الزيارة' });
+    }
+  }
+
   const tradeinDetails = normalizeContractTradeinDetails(
     c.saleType,
     c.oldContractNumber,
@@ -952,6 +1082,32 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
   const derivedStatus = deriveContractWriteStatus(c.status);
   const targetBranchId = resolveTargetBranchId(req, res, c.branchId);
   if (targetBranchId == null) return;
+
+  // Manual creation must not trust a posted customer id/name. Resolve the
+  // selected customer again through the same branch/assignment scope used by
+  // the picker. Visit-bound creation has its own authoritative context policy.
+  if (rawSourceVisitId === null || rawSourceVisitId === '') {
+    const customerId = Number(c.customerId);
+    if (!Number.isInteger(customerId) || customerId <= 0) {
+      return res.status(400).json({ error: 'يجب اختيار زبون صالح', code: 'INVALID_CUSTOMER_ID' });
+    }
+    try {
+      const customer = await loadContractCustomerContext(
+        pool,
+        req.authContext!,
+        targetBranchId,
+        customerId,
+      );
+      c.customerId = customer.id;
+      c.customerName = customer.name;
+    } catch (error) {
+      if (error instanceof ContractCustomerLookupError) {
+        return res.status(error.status).json({ error: error.message, code: error.code });
+      }
+      console.error('[contracts] manual customer validation error:', error);
+      return res.status(500).json({ error: 'فشل التحقق من الزبون المختار' });
+    }
+  }
 
   // Plan §3 — NID length guard (always, when provided).
   const nidCheck = normalizeNationalId(c.nationalId ?? c.buyerNationalId);
@@ -1052,10 +1208,10 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
     if (dupOfferId != null || dupSaleRef != null) {
       const { rows: dup } = await client.query(
         `SELECT id, contract_number FROM contracts
-          WHERE status NOT IN ('discarded', 'cancelled')
+          WHERE COALESCE(status, 'draft') NOT IN ('discarded', 'cancelled')
             AND (
               ($1::bigint IS NOT NULL AND source_task_offer_id = $1)
-              OR ($2::text IS NOT NULL AND sale_reference_number = $2)
+              OR ($2::text IS NOT NULL AND BTRIM(sale_reference_number) = $2)
             )
           LIMIT 1`,
         [dupOfferId, dupSaleRef],
@@ -1088,7 +1244,7 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
     // physical-device fields on the contract until approval materializes the row.
     const { rows } = await client.query(
       `INSERT INTO contracts (contract_number, customer_id, customer_name, contract_date,
-        source_visit, device_model_id, device_model_name, maintenance_plan,
+        source_visit, source_visit_id, device_model_id, device_model_name, maintenance_plan,
         base_price, final_price, payment_type, down_payment, installments_count,
         status, branch_id, service_branch_id, sale_type,
         discount_id, sale_source, closing_employee_id, invoice_notes,
@@ -1100,10 +1256,10 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
         no_closing_reason_id, sale_subtype, created_by,
         sale_owner_id, offer_team_snapshot, contract_referrers, draft_device_payload,
         old_contract_number, old_device_condition)
-      VALUES (NULLIF($1::text, ''),$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42)
+      VALUES (NULLIF($1::text, ''),$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43)
       RETURNING id`,
       [c.contractNumber, c.customerId, c.customerName, c.contractDate,
-       c.sourceVisit || null, c.deviceModelId, c.deviceModelName,
+       c.sourceVisit || null, c.sourceVisitId || null, c.deviceModelId, c.deviceModelName,
        null, c.basePrice || 0, c.finalPrice || 0, c.paymentType,
        c.downPayment || 0, c.installmentsCount || 0,
        derivedStatus, targetBranchId,
@@ -1213,6 +1369,8 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
     await client.query('ROLLBACK');
     const conflict = deviceSerialConflictPayload(err);
     if (conflict) return res.status(409).json(conflict);
+    const sourceConflict = contractSourceUniquenessConflictPayload(err);
+    if (sourceConflict) return res.status(409).json(sourceConflict);
     throw err;
   } finally {
     client.release();
@@ -1275,6 +1433,12 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
   // and trigger the auto-freeze of the legal copy.
   const { rows: existing } = await pool.query(
     `SELECT c.branch_id, c.status AS "prevStatus", c.device_model_id AS "deviceModelId",
+            c.customer_id AS "customerId", c.customer_name AS "customerName",
+            c.source_visit AS "sourceVisit", c.source_visit_id AS "sourceVisitId",
+            c.source_open_task_id AS "sourceOpenTaskId",
+            c.source_task_offer_id AS "sourceTaskOfferId",
+            c.sale_reference_number AS "saleReferenceNumber",
+            c.sale_owner_id AS "saleOwnerId",
             COALESCE(d.installation_geo_unit_id, NULLIF(c.draft_device_payload->>'installationGeoUnitId', '')::int) AS "installationGeoUnitId"
        FROM contracts c
        LEFT JOIN installed_devices d ON d.contract_id = c.id
@@ -1292,7 +1456,15 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
       status: prevStatus,
     });
   }
-  const c = req.body;
+  let c: Record<string, any>;
+  try {
+    c = bindContractInputToExistingProvenance(req.body, existing[0]);
+  } catch (error) {
+    if (error instanceof ContractCreationContextError) {
+      return res.status(error.status).json({ error: error.message, code: error.code });
+    }
+    throw error;
+  }
   const tradeinDetails = normalizeContractTradeinDetails(
     c.saleType,
     c.oldContractNumber,
@@ -1310,11 +1482,10 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
     return res.status(400).json({ error: 'الرقم الوطني يجب أن يكون 11 رقماً.' });
   }
 
-  // Plan §4 — sale_owner_id is frozen once the contract leaves draft.
-  //   • while draft        → editable subject to contracts.assign_sale_owner
-  //   • once active+       → frozen; payload value is ignored entirely.
+  // Visit provenance fixes the sale owner at creation. Manual contracts retain
+  // the established rule: editable in draft, frozen once they leave draft.
   const requestedSaleOwnerId = c.saleOwnerId ? Number(c.saleOwnerId) : null;
-  const saleOwnerFrozen = prevStatus !== 'draft';
+  const saleOwnerFrozen = prevStatus !== 'draft' || existing[0].sourceVisitId != null;
   if (!saleOwnerFrozen) {
     const currentUserEmployeeId = (req as any).user?.employeeId ?? null;
     if (!canAssignSaleOwner(authContext, existing[0].branch_id, currentUserEmployeeId, requestedSaleOwnerId)) {
@@ -1469,6 +1640,8 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
     await pgClient.query('ROLLBACK');
     const conflict = deviceSerialConflictPayload(err);
     if (conflict) return res.status(409).json(conflict);
+    const sourceConflict = contractSourceUniquenessConflictPayload(err);
+    if (sourceConflict) return res.status(409).json(sourceConflict);
     throw err;
   } finally {
     pgClient.release();

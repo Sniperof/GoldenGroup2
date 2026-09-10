@@ -76,6 +76,8 @@
 ### المحور 8 — التفرّد
 **لا يُسمح بأكثر من `open_task` نشط من نوع `device_demo` لنفس `client_id`.** يفرضه `idx_open_tasks_unique_active`.
 
+زيارة عرض الجهاز تحتوي `visit_task` واحدة من نوع `device_demo` بالضبط، ولا يُسمح بتكرار هذا النوع داخل الزيارة الواحدة. الزيارات ذات الأغراض الأخرى لا يلزم أن تحتوي مهمة عرض. هذا لا يمنع أن تمتد قصة `open_task` الواحدة عبر زيارات متعددة؛ كل زيارة لاحقة تمثل محاولة جديدة واحدة.
+
 ---
 
 ## ج — التنفيذ والنتيجة
@@ -184,7 +186,7 @@
 | `visit_task_device_demo_results` | تفاصيل الـ Header لمهمة عرض الجهاز | لكل النتائج الثلاث المباشرة |
 | `customer_device_pre_offers` | العروض المتعدّدة وردود الزبون لكل واحد | فقط لـ `offer_presented` |
 | `open_task_pre_offers` | ربط العروض بالمهمة التي تسببت بها أو عُرضت ضمنها | فقط للعروض المرتبطة بمهمة عرض جهاز |
-| `contracts` | العقد الناتج | فقط لـ `offer_presented` بـ 1+ accepted |
+| `contracts` | عقد يُنشأ صراحة بعد الزيارة | اختياري؛ قد يرتبط بعرض `accepted` محدد أو يُنشأ بلا عرض |
 
 **تعديلات مطلوبة على `visit_task_device_demo_results`:**
 ```sql
@@ -215,8 +217,9 @@ ALTER TABLE visit_task_device_demo_results
 
 | المُطلِق | الـ artifact المولَّد |
 |---|---|
-| `offer_presented` بـ 1+ accepted | (أ) عقد جديد في `contracts` <br/> (ب) `open_task` جديد بـ `task_type='device_delivery'` و `creation_origin='system_trigger'` <br/> (ج) عند إكمال delivery: `open_task` جديد بـ `task_type='device_installation'` <br/> (د) عند إكمال installation: `open_task` جديد بـ `task_type='device_activation'` |
-| لو `offer_type='installment'` على العرض المقبول | `open_task` جديد بـ `task_type='collection'` للقسط الأول، `required_date` من جدول الأقساط |
+| `offer_presented` بـ 1+ accepted | يجعل كل عرض مقبول مؤهلاً للاختيار عند إنشاء عقد؛ **لا ينشئ العقد تلقائياً بمجرد تسجيل النتيجة** |
+| إنشاء/اعتماد عقد بيع فعلي | يطلق سلسلة `device_delivery` ثم `device_installation` ثم `device_activation` حسب دستور العقود |
+| عقد تقسيط مرتبط بعرض مقبول | يطلق مهام التحصيل من جدول الأقساط وفق دورة العقد، لا من مجرد قبول العرض |
 | `offer_presented` (0 accepted) | **لا cascading** |
 | `rescheduled` | **لا cascading** — فقط `expected_date` يُملأ |
 | `cancelled` | **لا cascading** |
@@ -238,6 +241,16 @@ ALTER TABLE visit_task_device_demo_results
 - تفاصيل العروض تظهر داخل تاب النتيجة فقط عندما تكون `final_decision='offer_presented'`. في حالات `rescheduled` و `cancelled` تُخفى تفاصيل العروض لأن لها تاباً مستقلاً باسم تفاصيل العرض.
 - زر `تسجيل نتيجة الزيارة` يظهر فقط عندما تكون هناك زيارة مرتبطة ومحاولة أحدث بلا نتيجة، وحالة الزيارة تسمح بالتنفيذ (`in_progress` أو `ended`) وحالة `open_task` ليست مغلقة/مكتملة/ملغاة.
 - إذا عادت المهمة إلى `needs_follow_up` بسبب إعادة جدولة أو مهلة، لا يُعاد استخدام نفس `visit_task`; عند الموعد التالي تُنشأ محاولة زيارة جديدة تحت نفس `open_task`.
+
+### المحور 13.3 — إنشاء عقد من تفاصيل الزيارة
+
+- يظهر فعل «إضافة عقد» بعد تسجيل نتيجة `offer_presented` تتضمن عرضاً واحداً مقبولاً على الأقل، وللمستخدم الذي يملك `contracts.create` ويجتاز سياسة الزيارة المسندة والفرع.
+- يثبت النموذج `client_id` من `field_visits.client_id`، ويثبت `source_visit_id` و`source_open_task_id` من سياق الزيارة ومهمة العرض؛ لا يسمح بتبديل الزبون.
+- وجود عرض مقبول هو شرط ظهور الفعل من الزيارة، لكنه ليس اختياراً إلزامياً داخل نموذج العقد؛ يجوز حفظ العقد من السياق نفسه بلا `source_task_offer_id`.
+- إذا وُجدت عروض مقبولة غير مرتبطة بعقد حي، يعرضها النموذج كخيارات **اختيارية** ويختار المستخدم عرضاً واحداً فقط للعقد الجاري.
+- المهمة الواحدة قد تحتوي عدة عروض مقبولة، وكل عرض منها يمكن أن ينتج عقداً حياً واحداً كحد أقصى؛ لذلك يمكن أن تنتج المهمة عدة عقود، لكن لا ينتج العرض الواحد عدة عقود حية.
+- عند اختيار عرض، يتحقق الخادم من الحالة `accepted` ومن تطابق الزيارة والمهمة والزبون والفرع ومن عدم البيع المزدوج. عدم اختيار عرض يترك `source_task_offer_id` و`sale_reference_number` فارغين.
+- إسناد الزيارة يمنح سياق العملية فقط، ولا ينقل ملكية ملف الزبون ولا يوسّع قائمة زبائن المشرفة العامة.
 
 ---
 
@@ -264,10 +277,8 @@ Body موحَّد بـ discriminator على `final_decision`. الـ service ا�
 1. `visit_task_results`
 2. `visit_task_device_demo_results`
 3. `customer_device_pre_offers` + `open_task_pre_offers` (إن لزم)
-4. `contracts` (إن لزم)
-5. Reflection على `open_task.status`
-6. Cascading `open_tasks` جديدة
-7. `checkAndCompleteVisit(visitId)` لإنهاء الزيارة آلياً عند استيفاء الشروط
+4. Reflection على `open_task.status`
+5. `checkAndCompleteVisit(visitId)` لإنهاء الزيارة آلياً عند استيفاء الشروط
 
 الكل داخل transaction واحدة.
 
@@ -289,6 +300,9 @@ Body موحَّد بـ discriminator على `final_decision`. الـ service ا�
 - [ ] endpoint `POST /field-visits/:visitId/tasks/:taskId/result` يستدعي الـ service.
 - [ ] الـ wizard الحالي معاد توصيله للـ endpoint الجديد.
 - [ ] `TaskResultTab` يقرأ النتيجة الجديدة بدلاً من القيم القديمة.
+- [ ] حارس يمنع أكثر من `device_demo visit_task` واحدة داخل الزيارة.
+- [ ] فعل إنشاء عقد من تفاصيل الزيارة يثبت الزبون والمهمة ويجعل العرض اختيارياً.
+- [ ] تحقق خادمي لتطابق العرض المختار وتفرّد العقد الحي.
 - [x] الصلاحيات الأربع موجودة.
 
 ---

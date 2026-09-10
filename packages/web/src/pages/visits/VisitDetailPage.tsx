@@ -10,6 +10,7 @@ import {
     Repeat, XCircle, ChevronLeft,
 } from '../../components/ui/icons';
 import { api } from '../../lib/api';
+import type { VisitContractCreationContext } from '../../lib/api';
 import VisitSurveyModal from '../../components/fieldVisits/VisitSurveyModal';
 import ReferralSheetModal from '../../components/fieldVisits/ReferralSheetModal';
 import PullTaskModal from '../../components/fieldVisits/PullTaskModal';
@@ -229,6 +230,7 @@ export default function VisitDetailPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [actionLoading, setActionLoading] = useState<string | null>(null);
+    const [contractCreationContext, setContractCreationContext] = useState<VisitContractCreationContext | null>(null);
 
     const [surveyOpen, setSurveyOpen] = useState(false);
     const [referralOpen, setReferralOpen] = useState(false);
@@ -250,14 +252,21 @@ export default function VisitDetailPage() {
         setLoading(true);
         setError(null);
         try {
-            const data = await api.fieldVisits.get(visitId);
+            const [data, creationContext] = await Promise.all([
+                api.fieldVisits.get(visitId),
+                hasPermission('contracts.create')
+                    ? api.contracts.getCreationContextForVisit(visitId).catch(() => null)
+                    : Promise.resolve(null),
+            ]);
             setVisit(data);
+            setContractCreationContext(creationContext);
         } catch (err: any) {
             setError(err?.message ?? 'تعذّر تحميل الزيارة');
+            setContractCreationContext(null);
         } finally {
             setLoading(false);
         }
-    }, [visitId]);
+    }, [visitId, hasPermission]);
 
     useEffect(() => { load(); }, [load]);
 
@@ -735,6 +744,17 @@ export default function VisitDetailPage() {
                                             <button onClick={() => setResultTask(task)}
                                                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 text-xs font-bold hover:bg-indigo-100 transition-colors">
                                                 <ClipboardCheck className="w-3.5 h-3.5" /> تعديل النتيجة
+                                            </button>
+                                        )}
+                                        {contractCreationContext
+                                            && Number(task.id) === Number(contractCreationContext.deviceDemoTask.visitTaskId) && (
+                                            <button
+                                                type="button"
+                                                onClick={() => navigate(`/contracts/new?visitId=${visit.id}`)}
+                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-500 transition-colors"
+                                            >
+                                                <FileText className="w-3.5 h-3.5" />
+                                                إنشاء عقد للزبون
                                             </button>
                                         )}
                                         {!canRecord && hasResult && !canEditResult && (

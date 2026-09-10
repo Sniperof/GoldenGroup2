@@ -28,10 +28,13 @@ import { Router } from 'express';
 import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
+import { canEditClient } from '../policies/clientPolicy.js';
+import { authorize } from '../services/authorizationService.js';
 import {
   catalogUnavailablePayload,
   findUnavailableDeviceModelsForNewCommercialUse,
 } from '../services/catalogActiveStateService.js';
+import { assertDeviceModelInScope } from '../services/deviceScopeService.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -274,7 +277,7 @@ router.get(
 
 router.post(
   '/:id/pre-offers',
-  requirePermission('open_tasks.edit'),
+  requirePermission('clients.edit', 'open_tasks.edit'),
   async (req, res) => {
     const customerId = Number(req.params.id);
     if (!Number.isInteger(customerId) || customerId <= 0) {
@@ -287,7 +290,17 @@ router.post(
     }
 
     const { rows: clientRows } = await pool.query(
-      'SELECT branch_id AS "branchId" FROM clients WHERE id = $1 LIMIT 1',
+      `SELECT
+         c.branch_id AS "branchId",
+         COALESCE(
+           (SELECT array_agg(ca.hr_user_id)
+              FROM client_assignments ca
+             WHERE ca.client_id = c.id),
+           '{}'::int[]
+         ) AS "assignedUserIds"
+       FROM clients c
+       WHERE c.id = $1
+       LIMIT 1`,
       [customerId],
     );
     if (clientRows.length === 0) {
@@ -295,6 +308,12 @@ router.post(
     }
 
     const branchId = Number(req.body?.branchId ?? clientRows[0].branchId) || null;
+    const authContext = req.authContext!;
+    const clientEditAccess = canEditClient(authContext, clientRows[0]);
+    const taskEditAccess = authorize(authContext, { permission: 'open_tasks.edit', branchId });
+    if (!clientEditAccess.allowed && !taskEditAccess.allowed) {
+      return res.status(403).json({ error: 'غير مسموح: لا تملك صلاحية إنشاء عرض لهذا الزبون' });
+    }
 
     const pgClient = await pool.connect();
     try {
@@ -308,6 +327,14 @@ router.post(
         if (!deviceModelId || !offerType || totalAmount == null) {
           await pgClient.query('ROLLBACK');
           return res.status(400).json({ error: 'بيانات أحد العروض غير مكتملة' });
+        }
+        const deviceAccess = await assertDeviceModelInScope(authContext, deviceModelId, branchId);
+        if (!deviceAccess.allowed) {
+          await pgClient.query('ROLLBACK');
+          return res.status(403).json({
+            error: 'نموذج الجهاز غير مصرّح به ضمن نطاقك',
+            code: deviceAccess.reason,
+          });
         }
         const unavailableDeviceModels = await findUnavailableDeviceModelsForNewCommercialUse(pgClient, [deviceModelId]);
         if (unavailableDeviceModels.length > 0) {
