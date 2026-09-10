@@ -65,7 +65,8 @@ function groupDrawerItems(items: DrawerNavigationItem[]): DrawerItemBlock[] {
       blocks.push({ kind: 'item', item });
       continue;
     }
-    const previous = blocks.at(-1);
+    // Keep compatibility with the project's pre-ES2022 TypeScript lib target.
+    const previous = blocks.length > 0 ? blocks[blocks.length - 1] : undefined;
     if (previous?.kind === 'group' && previous.label === item.dividerLabel) {
       previous.items.push(item);
     } else {
