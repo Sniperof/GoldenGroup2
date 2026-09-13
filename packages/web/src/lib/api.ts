@@ -1300,6 +1300,9 @@ export const api = {
         finalPrice: number;
         downPayment: number;
         installments?: Array<{ installmentNumber: number; dueDate: string; amountSyp: number }>;
+        // بيانات المشتري القانونية — يشترطها البيع بالتقسيط، وتُستكمل هنا
+        // لأن العقد غير قابل للتعديل بعد اعتماده كعقد تجربة.
+        legal?: Record<string, string>;
       },
     ) => request<any>(`/contracts/${contractId}/settle`, { method: 'POST', body: JSON.stringify(data) }),
     // إنهاء التجربة بلا شراء: ينشئ مهمة سحب الجهاز. العقد يُلغى لاحقاً عند

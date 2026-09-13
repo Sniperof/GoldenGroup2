@@ -49,6 +49,30 @@ ALTER TABLE public.visit_task_device_retrieval_results
   ADD CONSTRAINT visit_task_device_retrieval_purpose_check
   CHECK (retrieval_purpose IN ('maintenance', 'replacement', 'trial_return'));
 
+-- سبب المهمة نفسه محكوم بقيد على open_tasks.reason، فنضيف قيمة إرجاع التجربة.
+ALTER TABLE public.open_tasks
+  DROP CONSTRAINT IF EXISTS open_tasks_reason_check;
+
+ALTER TABLE public.open_tasks
+  ADD CONSTRAINT open_tasks_reason_check
+  CHECK (reason::text = ANY (ARRAY[
+    'new_lead', 'follow_up', 'renewal', 'service_request', 'other',
+    'device_demo', 'gift_delivery', 'sale_delivery', 'post_maintenance_return',
+    'temporary_swap_delivery', 'replacement_delivery', 'manual_delivery',
+    'golden_warranty_offer', 'golden_warranty_card_delivery',
+    'contract_installment_due', 'maintenance_receivable_due',
+    'golden_warranty_receivable_due', 'remaining_installment_balance',
+    'rescheduled_collection', 'previous_task_cancelled', 'manager_followup',
+    'data_correction', 'contract_cancelled', 'temporary_stop',
+    'customer_request', 'technical_safety', 'replacement_preparation',
+    'maintenance_preparation', 'device_checkup', 'manual_checkup',
+    'device_retrieval_maintenance', 'device_retrieval_replacement',
+    'device_retrieval_trial_return',
+    'device_return_after_maintenance',
+    'device_transfer_same_customer_new_address',
+    'device_transfer_another_customer'
+  ]::text[]));
+
 -- سبب إنشاء مهمة السحب ضمن القوائم المُدارة (يتبع نمط القائمة القائمة:
 -- القيمة عربية والسبب النظامي داخل metadata.systemReason).
 INSERT INTO public.system_lists (category, value, is_active, display_order, metadata)

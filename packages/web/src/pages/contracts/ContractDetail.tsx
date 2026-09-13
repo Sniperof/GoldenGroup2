@@ -166,6 +166,9 @@ export default function ContractDetail() {
   const [activateFinalPrice, setActivateFinalPrice] = useState<number>(0);
   const [activateDownPayment, setActivateDownPayment] = useState<number>(0);
   const [activateInstallmentsCount, setActivateInstallmentsCount] = useState<number>(6);
+  // العقد غير قابل للتعديل بعد اعتماده، فالبيانات القانونية التي يشترطها
+  // البيع بالتقسيط تُستكمل هنا وإلا تعذّر تثبيت البيعة نهائياً.
+  const [settleLegal, setSettleLegal] = useState<Record<string, string>>({});
   const [actionLoading, setActionLoading] = useState(false);
   const [activationLoading, setActivationLoading] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
@@ -377,6 +380,7 @@ export default function ContractDetail() {
         finalPrice: activateFinalPrice,
         downPayment: activatePaymentType === 'cash' ? activateFinalPrice : activateDownPayment,
         installments,
+        ...(activatePaymentType === 'installment' ? { legal: settleLegal } : {}),
       });
       const refreshed = await api.contracts.get(contractId);
       setData(refreshed);
@@ -1279,6 +1283,52 @@ export default function ContractDetail() {
                     <label className="text-xs font-bold text-slate-500 mb-1 block">عدد الأقساط</label>
                     <input type="number" min="1" max="60" value={activateInstallmentsCount} onChange={e => setActivateInstallmentsCount(Number(e.target.value))}
                       className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-sky-500" />
+                  </div>
+
+                  <div className="border-t border-slate-200 pt-4">
+                    <p className="text-xs font-bold text-slate-600 mb-1">البيانات القانونية للمشتري</p>
+                    <p className="text-[11px] text-slate-400 mb-3 leading-relaxed">
+                      إلزامية في البيع بالتقسيط. اترك الحقل فارغاً إن كان مسجّلاً مسبقاً.
+                    </p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {([
+                        ['fatherName', 'اسم الأب', 'text', data.client?.fatherName],
+                        ['nationalId', 'الرقم الوطني (11 رقم)', 'text', data.client?.nationalId],
+                        ['buyerMotherName', 'اسم الأم', 'text', data.buyerMotherName ?? data.client?.motherName],
+                        ['buyerBirthDate', 'تاريخ الميلاد', 'date', data.buyerBirthDate ?? data.client?.birthDate],
+                        ['buyerNationalIdRegistry', 'القيد', 'text', data.buyerNationalIdRegistry ?? data.client?.nationalIdRegistry],
+                        ['buyerNationalIdIssuedBy', 'أمانة السجل', 'text', data.buyerNationalIdIssuedBy ?? data.client?.nationalIdIssuedBy],
+                        ['buyerNationalIdIssueDate', 'تاريخ منح الهوية', 'date', data.buyerNationalIdIssueDate ?? data.client?.nationalIdIssueDate],
+                        ['buyerNationalIdBox', 'الخانة', 'text', data.buyerNationalIdBox ?? data.client?.nationalIdBox],
+                      ] as const).map(([key, label, type, existing]) => (
+                        <div key={key}>
+                          <label className="text-[11px] font-bold text-slate-500 mb-1 block">
+                            {label}{existing ? ' ✓' : ''}
+                          </label>
+                          <input
+                            type={type}
+                            value={settleLegal[key] ?? ''}
+                            placeholder={existing ? String(existing).slice(0, 10) : ''}
+                            onChange={e => setSettleLegal(prev => ({ ...prev, [key]: e.target.value }))}
+                            className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-sky-500"
+                          />
+                        </div>
+                      ))}
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-500 mb-1 block">
+                          الجنس{data.buyerGender || data.client?.gender ? ' ✓' : ''}
+                        </label>
+                        <select
+                          value={settleLegal.buyerGender ?? ''}
+                          onChange={e => setSettleLegal(prev => ({ ...prev, buyerGender: e.target.value }))}
+                          className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-sky-500"
+                        >
+                          <option value="">—</option>
+                          <option value="male">ذكر</option>
+                          <option value="female">أنثى</option>
+                        </select>
+                      </div>
+                    </div>
                   </div>
                 </>
               )}

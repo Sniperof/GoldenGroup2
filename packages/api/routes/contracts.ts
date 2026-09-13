@@ -2591,6 +2591,44 @@ router.post('/:id/settle', async (req, res) => {
       });
     }
 
+    // 0) البيانات القانونية للمشتري. العقد غير قابل للتعديل بعد اعتماده،
+    //    فلو لم تُستوفَ هذه الحقول وقت التجربة لتعذّر تثبيت البيعة بالتقسيط
+    //    إلى الأبد. لذلك يقبلها هذا المسار ويكتبها قبل التحقق.
+    const legal = req.body?.legal ?? {};
+    await syncClientLegalIdentity(pgClient, c.customer_id, {
+      fatherName: legal.fatherName,
+      nationalId: legal.nationalId,
+      motherName: legal.buyerMotherName,
+      birthDate: legal.buyerBirthDate,
+      gender: legal.buyerGender,
+      nationalIdRegistry: legal.buyerNationalIdRegistry,
+      nationalIdIssuedBy: legal.buyerNationalIdIssuedBy,
+      nationalIdIssueDate: legal.buyerNationalIdIssueDate,
+      nationalIdBox: legal.buyerNationalIdBox,
+    });
+    await pgClient.query(
+      `UPDATE contracts SET
+         buyer_mother_name             = COALESCE(NULLIF($2, ''), buyer_mother_name),
+         buyer_gender                  = COALESCE(NULLIF($3, ''), buyer_gender),
+         buyer_birth_date              = COALESCE($4::date, buyer_birth_date),
+         buyer_national_id_registry    = COALESCE(NULLIF($5, ''), buyer_national_id_registry),
+         buyer_national_id_issued_by   = COALESCE(NULLIF($6, ''), buyer_national_id_issued_by),
+         buyer_national_id_issue_date  = COALESCE($7::date, buyer_national_id_issue_date),
+         buyer_national_id_box         = COALESCE(NULLIF($8, ''), buyer_national_id_box)
+       WHERE id = $1`,
+      [
+        contractId,
+        typeof legal.buyerMotherName === 'string' ? legal.buyerMotherName.trim() : '',
+        legal.buyerGender === 'male' || legal.buyerGender === 'female' ? legal.buyerGender : '',
+        typeof legal.buyerBirthDate === 'string' && legal.buyerBirthDate.trim() ? legal.buyerBirthDate.trim() : null,
+        typeof legal.buyerNationalIdRegistry === 'string' ? legal.buyerNationalIdRegistry.trim() : '',
+        typeof legal.buyerNationalIdIssuedBy === 'string' ? legal.buyerNationalIdIssuedBy.trim() : '',
+        typeof legal.buyerNationalIdIssueDate === 'string' && legal.buyerNationalIdIssueDate.trim()
+          ? legal.buyerNationalIdIssueDate.trim() : null,
+        typeof legal.buyerNationalIdBox === 'string' ? legal.buyerNationalIdBox.trim() : '',
+      ],
+    );
+
     // 1) المالية على العقد نفسه. السعر المتفق عليه عند الشراء هو الأساس
     //    والنهائي معاً (base = final) فلا ينشأ حسم وهمي؛ بنود العقد تبقى
     //    سجلاً وصفياً لما سُلّم فعلاً وقالب الملحق يعرضها بلا أسعار.
@@ -2650,7 +2688,35 @@ router.post('/:id/settle', async (req, res) => {
       });
     }
 
-    // 5) الأثر المالي والتشغيلي يبدأ الآن لا عند اعتماد التجربة.
+    // 5) إلغاء أي مهمة سحب مفتوحة: التجربة انتهت بالشراء، فلا يجوز أن يصل
+    //    فنّي لاسترداد جهاز صار ملكاً للزبون.
+    const { rows: droppedRetrievals } = await pgClient.query(
+      `UPDATE open_tasks
+          SET status = 'cancelled',
+              cancellation_reason = COALESCE(cancellation_reason, 'trial_settled'),
+              updated_at = NOW()
+        WHERE task_type = 'device_retrieval'
+          AND contract_id = $1
+          AND retrieval_purpose = 'trial_return'
+          AND status NOT IN ('completed', 'closed', 'cancelled')
+        RETURNING id`,
+      [contractId],
+    );
+    for (const row of droppedRetrievals) {
+      await pgClient.query(
+        `UPDATE visit_tasks SET status = 'cancelled', updated_at = NOW()
+          WHERE source_open_task_id = $1 AND status NOT IN ('completed', 'cancelled')`,
+        [Number(row.id)],
+      );
+      await pgClient.query(
+        `INSERT INTO task_activity_log
+           (task_id, event_type, performed_by, old_value, new_value, reason, created_at)
+         VALUES ($1, 'status_change', $2, NULL, 'cancelled', 'trial_settled', NOW())`,
+        [Number(row.id), authContext.userId ?? null],
+      );
+    }
+
+    // 6) الأثر المالي والتشغيلي يبدأ الآن لا عند اعتماد التجربة.
     await syncContractMovements(pgClient, contractId);
     await createInstallmentCollectionTasksForContract(pgClient, contractId);
     await materializeSaleClosureEffects(
@@ -2660,7 +2726,7 @@ router.post('/:id/settle', async (req, res) => {
       authContext.userId ?? null,
     );
 
-    // 6) ملحق تثبيت البيعة. على خلاف تجميد الأصل عند الاعتماد، الفشل هنا
+    // 7) ملحق تثبيت البيعة. على خلاف تجميد الأصل عند الاعتماد، الفشل هنا
     //    يُسقط التسوية كلها: بيعة بلا سند موقّع على قيمتها هي بالضبط الثغرة
     //    التي وُجد هذا المسار لسدّها.
     const amendment = await freezeContractSettlementAmendment(
