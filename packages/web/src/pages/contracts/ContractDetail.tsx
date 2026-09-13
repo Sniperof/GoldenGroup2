@@ -1312,46 +1312,70 @@ export default function ContractDetail() {
       <Modal
         isOpen={showActivateModal}
         onClose={() => setShowActivateModal(false)}
-        size="md"
-        title="تنشيط عملية الدفع"
+        size="5xl"
+        title="تثبيت البيعة"
       >
-            <form onSubmit={handleActivatePayment} className="p-6 space-y-4">
-              <div>
-                <label className="text-xs font-bold text-slate-500 mb-1 block">طريقة الدفع</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {(['cash', 'installment'] as const).map(m => (
-                    <button type="button" key={m}
-                      onClick={() => { setActivatePaymentType(m); if (m === 'cash') setSettleInstallments([]); }}
-                      className={`py-2 rounded-xl text-sm font-bold border transition-colors ${activatePaymentType === m ? 'bg-sky-600 text-white border-sky-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
-                      {m === 'cash' ? 'نقدي' : 'أقساط'}
-                    </button>
-                  ))}
-                </div>
+            <form onSubmit={handleActivatePayment} className="p-6 space-y-5">
+              <div className="bg-sky-50 border border-sky-200 rounded-xl px-4 py-3">
+                <p className="text-xs text-sky-800 leading-relaxed">
+                  ستتحول التجربة إلى بيع قطعي على العقد نفسه، ويُجمَّد ملحق تثبيت البيعة حاملاً
+                  هذه البنود المالية ليوقّعه الزبون. عقد الحيازة المؤقتة الأصلي يبقى بلا تعديل.
+                </p>
               </div>
-              <div>
-                <label className="text-xs font-bold text-slate-500 mb-1 block">السعر النهائي (ل.س)</label>
-                <input type="number" value={activateFinalPrice} onChange={e => setActivateFinalPrice(Number(e.target.value))}
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-sky-500" required />
-              </div>
-              {activatePaymentType === 'installment' && (
-                <>
-                  <div>
-                    <label className="text-xs font-bold text-slate-500 mb-1 block">الدفعة الأولى (ل.س)</label>
-                    <input type="number" value={activateDownPayment} onChange={e => setActivateDownPayment(Number(e.target.value))}
-                      className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-sky-500" />
+
+              {/* شروط السداد في صف واحد — الحقول قصيرة ولا تستحق عموداً لكلٍّ منها. */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-slate-500 mb-1 block">طريقة الدفع</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(['cash', 'installment'] as const).map(m => (
+                      <button type="button" key={m}
+                        onClick={() => { setActivatePaymentType(m); if (m === 'cash') setSettleInstallments([]); }}
+                        className={`py-2.5 rounded-xl text-sm font-bold border transition-colors ${activatePaymentType === m ? 'bg-sky-600 text-white border-sky-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
+                        {m === 'cash' ? 'نقدي' : 'أقساط'}
+                      </button>
+                    ))}
                   </div>
-                  <div className="grid grid-cols-2 gap-2 items-end">
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-500 mb-1 block">السعر النهائي (ل.س)</label>
+                  <input type="number" value={activateFinalPrice} onChange={e => setActivateFinalPrice(Number(e.target.value))}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-sky-500" required />
+                </div>
+                {activatePaymentType === 'installment' && (
+                  <>
                     <div>
-                      <label className="text-xs font-bold text-slate-500 mb-1 block">عدد الأقساط</label>
-                      <input type="number" min="1" max="60" value={activateInstallmentsCount} onChange={e => setActivateInstallmentsCount(Number(e.target.value))}
+                      <label className="text-xs font-bold text-slate-500 mb-1 block">الدفعة الأولى (ل.س)</label>
+                      <input type="number" value={activateDownPayment} onChange={e => setActivateDownPayment(Number(e.target.value))}
                         className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-sky-500" />
                     </div>
-                    <button type="button" onClick={generateSettleInstallments}
-                      className="w-full py-2.5 rounded-xl border-2 border-dashed border-amber-300 text-amber-600 hover:bg-amber-50 text-sm font-bold transition-colors">
-                      توليد الجدول
-                    </button>
-                  </div>
+                    <div className="grid grid-cols-2 gap-2 items-end">
+                      <div>
+                        <label className="text-xs font-bold text-slate-500 mb-1 block">عدد الأقساط</label>
+                        <input type="number" min="1" max="60" value={activateInstallmentsCount} onChange={e => setActivateInstallmentsCount(Number(e.target.value))}
+                          className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-sky-500" />
+                      </div>
+                      <button type="button" onClick={generateSettleInstallments}
+                        className="w-full py-2.5 rounded-xl border-2 border-dashed border-amber-300 text-amber-600 hover:bg-amber-50 text-xs font-bold transition-colors">
+                        توليد الجدول
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
 
+              {activatePaymentType === 'installment' && (
+                /* الجدول والبيانات القانونية جنباً إلى جنب على الشاشات الواسعة. */
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
+                  <div className="space-y-3">
+                  {settleInstallments.length === 0 && (
+                    <div className="rounded-xl border-2 border-dashed border-slate-200 px-4 py-8 text-center">
+                      <p className="text-xs text-slate-400 leading-relaxed">
+                        لا يوجد جدول أقساط بعد.<br />
+                        أدخل السعر والدفعة الأولى ثم اضغط «توليد الجدول»، أو أضف الأقساط يدوياً.
+                      </p>
+                    </div>
+                  )}
                   {settleInstallments.length > 0 && (
                     <div className="rounded-xl border border-slate-200 overflow-hidden">
                       <div className="bg-slate-50 px-3 py-2 flex items-center justify-between border-b border-slate-100">
@@ -1422,13 +1446,14 @@ export default function ContractDetail() {
                       السعر النهائي ({activateFinalPrice})
                     </div>
                   )}
+                  </div>
 
-                  <div className="border-t border-slate-200 pt-4">
+                  <div className="rounded-xl border border-slate-200 p-4">
                     <p className="text-xs font-bold text-slate-600 mb-1">البيانات القانونية للمشتري</p>
                     <p className="text-[11px] text-slate-400 mb-3 leading-relaxed">
                       إلزامية في البيع بالتقسيط. اترك الحقل فارغاً إن كان مسجّلاً مسبقاً.
                     </p>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                       {([
                         ['fatherName', 'اسم الأب', 'text', data.client?.fatherName],
                         ['nationalId', 'الرقم الوطني (11 رقم)', 'text', data.client?.nationalId],
@@ -1468,13 +1493,13 @@ export default function ContractDetail() {
                       </div>
                     </div>
                   </div>
-                </>
+                </div>
               )}
-              <div className="flex gap-3 pt-2">
-                <Button type="submit" fullWidth loading={activationLoading}>
+              <div className="flex gap-3 pt-2 border-t border-slate-100">
+                <Button type="submit" className="flex-1 mt-3" loading={activationLoading}>
                   {activationLoading ? 'جاري التثبيت...' : 'تأكيد تثبيت البيعة'}
                 </Button>
-                <Button variant="secondary" fullWidth onClick={() => setShowActivateModal(false)}>
+                <Button variant="secondary" className="flex-1 mt-3" onClick={() => setShowActivateModal(false)}>
                   إلغاء
                 </Button>
               </div>
