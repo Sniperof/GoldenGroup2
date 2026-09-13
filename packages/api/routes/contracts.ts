@@ -2145,6 +2145,16 @@ function isTrialContract(saleSubtype: unknown): boolean {
 }
 
 /**
+ * حالات الجهاز قبل خروجه من الفرع. ما دام الجهاز لم يُسلَّم فلا شيء يُسحب،
+ * ومخرج العقد حينها إلغاء مباشر لا مهمة سحب.
+ */
+const DEVICE_PRE_DELIVERY_STATUSES = ['registered', 'pending_delivery', 'delivery_suspended'];
+
+function isDeviceAwaitingDelivery(status: unknown): boolean {
+  return typeof status === 'string' && DEVICE_PRE_DELIVERY_STATUSES.includes(status);
+}
+
+/**
  * آثار إغلاق البيعة التي لا يجوز وقوعها قبل قرار الشراء الفعلي:
  * تجسيد وعود الهدايا، وترقية دورة حياة الزبون إلى OP.
  *
@@ -2808,6 +2818,16 @@ router.post('/:id/trial-retrieval', async (req, res) => {
       await pgClient.query('ROLLBACK');
       return res.status(409).json({ error: 'الجهاز مسحوب أصلاً' });
     }
+    // لا يُسحب جهاز لم يخرج إلى الزبون بعد. مخرج التجربة قبل التسليم هو
+    // إلغاء العقد مباشرةً، وهو ما يُلغي معه مهمة التسليم المفتوحة.
+    if (isDeviceAwaitingDelivery(c.deviceStatus)) {
+      await pgClient.query('ROLLBACK');
+      return res.status(409).json({
+        error: 'الجهاز لم يُسلَّم للزبون بعد، فلا شيء يُسحب. أنهِ التجربة بإلغاء العقد.',
+        code: 'device_not_delivered',
+        deviceStatus: c.deviceStatus,
+      });
+    }
 
     const { rows: openRetrieval } = await pgClient.query(
       `SELECT id FROM open_tasks
@@ -2931,6 +2951,20 @@ router.post('/:id/cancel', async (req, res) => {
         RETURNING id`,
       [contractId, reason],
     );
+    // 2ب) مهمة تسليم الجهاز المفتوحة تُلغى أيضاً — لا يُسلَّم جهاز على عقد
+    //     ملغى. هذا هو مخرج التجربة قبل التسليم، وهو صحيح لأي عقد يُلغى.
+    const { rows: cancelledDelivery } = await pgClient.query(
+      `UPDATE open_tasks
+          SET status = 'cancelled',
+              cancellation_reason = COALESCE(NULLIF($2, ''), cancellation_reason, 'إلغاء العقد'),
+              updated_at = NOW()
+        WHERE task_type = 'device_delivery' AND contract_id = $1
+          AND status NOT IN ('completed', 'closed', 'cancelled')
+        RETURNING id`,
+      [contractId, reason],
+    );
+    cancelledTasks.push(...cancelledDelivery);
+
     const cancelledTaskIds = cancelledTasks.map((r: any) => Number(r.id));
     if (cancelledTaskIds.length > 0) {
       await pgClient.query(
@@ -2999,7 +3033,8 @@ router.post('/:id/cancel', async (req, res) => {
     await pgClient.query('COMMIT');
     res.json({
       success: true, contractId, status: 'cancelled',
-      cancelledCollectionTasks: cancelledTaskIds.length,
+      cancelledCollectionTasks: cancelledTaskIds.length - cancelledDelivery.length,
+      cancelledDeliveryTasks: cancelledDelivery.length,
       cancelledPeriodicTasks, affectedDevices: contractDevices.length,
     });
   } catch (err: any) {

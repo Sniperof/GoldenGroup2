@@ -441,6 +441,9 @@ export default function ContractDetail() {
 
   const isMaintenance = data.contractType === 'maintenance_contract';
   const isFree        = !isMaintenance && data.saleSubtype === 'free';
+  // ما دام الجهاز لم يخرج إلى الزبون فلا شيء يُسحب، ومخرج التجربة إلغاء مباشر.
+  const trialDeviceAwaitingDelivery =
+    ['registered', 'pending_delivery', 'delivery_suspended'].includes(String(data.deviceStatus ?? ''));
 
   const grandTotal = Number(data.finalPrice) || 0;
   const totalPaid  = paymentEntries.reduce((s: number, e: any) => s + Number(e.amountSyp), 0);
@@ -559,19 +562,32 @@ export default function ContractDetail() {
         <div className="max-w-5xl mx-auto px-4 pt-4">
           <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
-              <p className="text-sm font-bold text-amber-900">⏳ عقد تجربة — الجهاز بحيازة الزبون بلا بيع</p>
+              <p className="text-sm font-bold text-amber-900">
+                {trialDeviceAwaitingDelivery
+                  ? '⏳ عقد تجربة — الجهاز لم يُسلَّم بعد'
+                  : '⏳ عقد تجربة — الجهاز بحيازة الزبون بلا بيع'}
+              </p>
               <p className="text-xs text-amber-700 mt-1 leading-relaxed">
                 لا قيمة ولا ذمة على هذا العقد حتى يقرر الزبون الشراء. عند الشراء يُثبَّت السعر
-                ويُصدَر ملحق تثبيت البيعة الموقّع. وإن لم يشترِ، يُسحب الجهاز ويُلغى العقد بنجاح السحب.
+                ويُصدَر ملحق تثبيت البيعة الموقّع.
+                {trialDeviceAwaitingDelivery
+                  ? ' وما دام الجهاز في الفرع، فإنهاء التجربة يكون بإلغاء العقد مباشرةً وتُلغى معه مهمة التسليم.'
+                  : ' وإن لم يشترِ، يُسحب الجهاز ويُلغى العقد بنجاح السحب.'}
               </p>
             </div>
             <div className="flex items-center gap-3 shrink-0">
               <Button variant="gold" size="sm" disabled={actionLoading} onClick={() => setShowActivateModal(true)}>
                 ⚡ تثبيت البيعة
               </Button>
-              <Button variant="secondary" size="sm" disabled={actionLoading} onClick={handleTrialRetrieval}>
-                {actionLoading ? 'جاري...' : 'سحب الجهاز'}
-              </Button>
+              {trialDeviceAwaitingDelivery ? (
+                <Button variant="secondary" size="sm" disabled={actionLoading} onClick={openCancelModal}>
+                  إلغاء العقد
+                </Button>
+              ) : (
+                <Button variant="secondary" size="sm" disabled={actionLoading} onClick={handleTrialRetrieval}>
+                  {actionLoading ? 'جاري...' : 'سحب الجهاز'}
+                </Button>
+              )}
             </div>
           </div>
         </div>
