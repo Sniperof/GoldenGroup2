@@ -76,6 +76,57 @@ function contractTitle(type: string, subtype?: string | null) {
   return 'عقد بيع قطعي';
 }
 
+// البيانات القانونية التسع التي يشترطها البيع بالتقسيط. مصدر كل حقل مرتّب:
+// ما ثُبِّت على العقد أولاً، ثم سجل الزبون. `contract` يعني حقل buyer_* على
+// العقد، و`client` يعني عمود على clients.
+const SETTLE_LEGAL_FIELDS = [
+  { key: 'fatherName', label: 'اسم الأب', type: 'text', from: 'client', clientKey: 'fatherName' },
+  { key: 'nationalId', label: 'الرقم الوطني', type: 'text', from: 'client', clientKey: 'nationalId' },
+  { key: 'buyerMotherName', label: 'اسم الأم', type: 'text', from: 'both', contractKey: 'buyerMotherName', clientKey: 'motherName' },
+  { key: 'buyerGender', label: 'الجنس', type: 'gender', from: 'both', contractKey: 'buyerGender', clientKey: 'gender' },
+  { key: 'buyerBirthDate', label: 'تاريخ الميلاد', type: 'date', from: 'both', contractKey: 'buyerBirthDate', clientKey: 'birthDate' },
+  { key: 'buyerNationalIdRegistry', label: 'القيد', type: 'text', from: 'both', contractKey: 'buyerNationalIdRegistry', clientKey: 'nationalIdRegistry' },
+  { key: 'buyerNationalIdIssuedBy', label: 'أمانة السجل', type: 'text', from: 'both', contractKey: 'buyerNationalIdIssuedBy', clientKey: 'nationalIdIssuedBy' },
+  { key: 'buyerNationalIdIssueDate', label: 'تاريخ منح الهوية', type: 'date', from: 'both', contractKey: 'buyerNationalIdIssueDate', clientKey: 'nationalIdIssueDate' },
+  { key: 'buyerNationalIdBox', label: 'الخانة', type: 'text', from: 'both', contractKey: 'buyerNationalIdBox', clientKey: 'nationalIdBox' },
+] as const;
+
+/** التاريخ يصل أحياناً بصيغة ISO كاملة؛ حقول التاريخ تحتاج YYYY-MM-DD. */
+function toDateInputValue(raw: unknown): string {
+  if (!raw) return '';
+  const s = String(raw);
+  return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : s;
+}
+
+/** تعبئة أوّلية من العقد ثم الزبون، حتى يرى المستخدم المسجَّل فعلاً لا تخميناً. */
+function seedSettleLegal(contract: any): Record<string, string> {
+  const client = contract?.client ?? {};
+  const seeded: Record<string, string> = {};
+  for (const field of SETTLE_LEGAL_FIELDS) {
+    const fromContract = 'contractKey' in field ? contract?.[field.contractKey] : null;
+    const fromClient = 'clientKey' in field ? client?.[field.clientKey] : null;
+    const raw = fromContract ?? fromClient ?? '';
+    seeded[field.key] = field.type === 'date' ? toDateInputValue(raw) : (raw ? String(raw) : '');
+  }
+  return seeded;
+}
+
+/**
+ * يعيد خريطة «مفتاح الحقل ← سبب الرفض» بنفس شروط الخادم، فيُبرز الحقل نفسه
+ * ويُقرأ السبب في الملخّص من مصدر واحد.
+ */
+function settleLegalIssuesOf(values: Record<string, string>): Record<string, string> {
+  const issues: Record<string, string> = {};
+  for (const field of SETTLE_LEGAL_FIELDS) {
+    const value = (values[field.key] ?? '').trim();
+    if (!value) { issues[field.key] = `${field.label} مطلوب`; continue; }
+    if (field.key === 'nationalId' && !/^\d{11}$/.test(value)) {
+      issues[field.key] = 'الرقم الوطني يجب أن يكون 11 رقماً بالضبط';
+    }
+  }
+  return issues;
+}
+
 function saleSubtypeLabel(subtype: string) {
   const map: Record<string, string> = {
     definitive: 'عقد قطعي',
@@ -360,6 +411,8 @@ export default function ContractDetail() {
     (sum, inst) => sum + (Number(inst.amountSyp) || 0),
     0,
   );
+  const settleLegalIssues = settleLegalIssuesOf(settleLegal);
+  const settleLegalMissing = Object.values(settleLegalIssues);
 
   // اقتراح أوّلي: توزيع متساوٍ شهرياً على المتبقّي بعد الدفعة الأولى، والباقي
   // من القسمة يُحمَّل على القسط الأخير. كل سطر بعدها قابل للتعديل.
@@ -388,6 +441,13 @@ export default function ContractDetail() {
     setSettleInstallments(rows);
   };
 
+  // تُعبَّأ البيانات القانونية من المسجَّل فعلاً عند كل فتح، فما يراه المستخدم
+  // هو حالة السجل لا صندوقاً فارغاً يخمّن ما بداخله.
+  const openSettleModal = () => {
+    setSettleLegal(seedSettleLegal(data));
+    setShowActivateModal(true);
+  };
+
   const handleActivatePayment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (activateFinalPrice <= 0) { alert('الرجاء إدخال السعر النهائي'); return; }
@@ -405,6 +465,10 @@ export default function ContractDetail() {
       }
       if (Math.abs(settleInstallmentsTotal + activateDownPayment - activateFinalPrice) > 1) {
         alert(`مجموع الأقساط والدفعة الأولى (${settleInstallmentsTotal + activateDownPayment}) لا يساوي السعر النهائي (${activateFinalPrice}).`);
+        return;
+      }
+      if (settleLegalMissing.length > 0) {
+        alert('البيانات القانونية غير مكتملة:\n' + settleLegalMissing.join('\n'));
         return;
       }
     }
@@ -621,7 +685,7 @@ export default function ContractDetail() {
               </p>
             </div>
             <div className="flex items-center gap-3 shrink-0">
-              <Button variant="gold" size="sm" disabled={actionLoading} onClick={() => setShowActivateModal(true)}>
+              <Button variant="gold" size="sm" disabled={actionLoading} onClick={openSettleModal}>
                 ⚡ تثبيت البيعة
               </Button>
               {trialDeviceAwaitingDelivery ? (
@@ -1449,49 +1513,73 @@ export default function ContractDetail() {
                   </div>
 
                   <div className="rounded-xl border border-slate-200 p-4">
-                    <p className="text-xs font-bold text-slate-600 mb-1">البيانات القانونية للمشتري</p>
-                    <p className="text-[11px] text-slate-400 mb-3 leading-relaxed">
-                      إلزامية في البيع بالتقسيط. اترك الحقل فارغاً إن كان مسجّلاً مسبقاً.
-                    </p>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                      {([
-                        ['fatherName', 'اسم الأب', 'text', data.client?.fatherName],
-                        ['nationalId', 'الرقم الوطني (11 رقم)', 'text', data.client?.nationalId],
-                        ['buyerMotherName', 'اسم الأم', 'text', data.buyerMotherName ?? data.client?.motherName],
-                        ['buyerBirthDate', 'تاريخ الميلاد', 'date', data.buyerBirthDate ?? data.client?.birthDate],
-                        ['buyerNationalIdRegistry', 'القيد', 'text', data.buyerNationalIdRegistry ?? data.client?.nationalIdRegistry],
-                        ['buyerNationalIdIssuedBy', 'أمانة السجل', 'text', data.buyerNationalIdIssuedBy ?? data.client?.nationalIdIssuedBy],
-                        ['buyerNationalIdIssueDate', 'تاريخ منح الهوية', 'date', data.buyerNationalIdIssueDate ?? data.client?.nationalIdIssueDate],
-                        ['buyerNationalIdBox', 'الخانة', 'text', data.buyerNationalIdBox ?? data.client?.nationalIdBox],
-                      ] as const).map(([key, label, type, existing]) => (
-                        <div key={key}>
-                          <label className="text-[11px] font-bold text-slate-500 mb-1 block">
-                            {label}{existing ? ' ✓' : ''}
-                          </label>
-                          <input
-                            type={type}
-                            value={settleLegal[key] ?? ''}
-                            placeholder={existing ? String(existing).slice(0, 10) : ''}
-                            onChange={e => setSettleLegal(prev => ({ ...prev, [key]: e.target.value }))}
-                            className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-sky-500"
-                          />
-                        </div>
-                      ))}
+                    <div className="mb-3 flex items-start justify-between gap-3">
                       <div>
-                        <label className="text-[11px] font-bold text-slate-500 mb-1 block">
-                          الجنس{data.buyerGender || data.client?.gender ? ' ✓' : ''}
-                        </label>
-                        <select
-                          value={settleLegal.buyerGender ?? ''}
-                          onChange={e => setSettleLegal(prev => ({ ...prev, buyerGender: e.target.value }))}
-                          className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-sky-500"
-                        >
-                          <option value="">—</option>
-                          <option value="male">ذكر</option>
-                          <option value="female">أنثى</option>
-                        </select>
+                        <p className="text-xs font-bold text-slate-600">البيانات القانونية للمشتري</p>
+                        <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
+                          إلزامية في البيع بالتقسيط. المسجَّل مسبقاً معبّأ ويمكن تصحيحه.
+                        </p>
                       </div>
+                      <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold border ${
+                        settleLegalMissing.length === 0
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : 'bg-red-50 text-red-700 border-red-200'}`}>
+                        {settleLegalMissing.length === 0
+                          ? 'مكتملة'
+                          : `ينقص ${settleLegalMissing.length}`}
+                      </span>
                     </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      {SETTLE_LEGAL_FIELDS.map(field => {
+                        const value = settleLegal[field.key] ?? '';
+                        const issue = settleLegalIssues[field.key];
+                        const isMissing = Boolean(issue);
+                        const ring = isMissing
+                          ? 'border-red-300 bg-red-50/40 focus:ring-red-400'
+                          : 'border-slate-200 focus:ring-sky-500';
+                        return (
+                          <div key={field.key}>
+                            <label className="text-[11px] font-bold text-slate-500 mb-1 flex items-center gap-1">
+                              {field.label}
+                              {isMissing && <span className="text-red-500">*</span>}
+                            </label>
+                            {field.type === 'date' ? (
+                              <DateField
+                                value={value}
+                                onChange={v => setSettleLegal(prev => ({ ...prev, [field.key]: v }))}
+                                className={`w-full bg-white border rounded-lg pr-8 pl-2 py-1.5 text-xs text-slate-800 text-right focus:outline-none focus:ring-2 ${ring}`}
+                              />
+                            ) : field.type === 'gender' ? (
+                              <select
+                                value={value}
+                                onChange={e => setSettleLegal(prev => ({ ...prev, [field.key]: e.target.value }))}
+                                className={`w-full border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 ${ring}`}
+                              >
+                                <option value="">— اختر —</option>
+                                <option value="male">ذكر</option>
+                                <option value="female">أنثى</option>
+                              </select>
+                            ) : (
+                              <input
+                                type="text"
+                                inputMode={field.key === 'nationalId' ? 'numeric' : undefined}
+                                dir={field.key === 'nationalId' ? 'ltr' : undefined}
+                                value={value}
+                                onChange={e => setSettleLegal(prev => ({ ...prev, [field.key]: e.target.value }))}
+                                className={`w-full border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 ${ring} ${field.key === 'nationalId' ? 'font-mono text-left' : ''}`}
+                              />
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {settleLegalMissing.length > 0 && (
+                      <div className="mt-3 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-[11px] leading-relaxed text-red-700">
+                        أكمل قبل التثبيت: {settleLegalMissing.join('، ')}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
