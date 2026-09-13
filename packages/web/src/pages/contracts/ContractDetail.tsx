@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../lib/api';
 import { DeviceStatusBadge as SharedDeviceStatusBadge } from '../../components/devices/DeviceStatusBadge';
 import Select from '../../components/ui/Select';
+import DateField from '../../components/ui/DateField';
 import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -166,6 +167,11 @@ export default function ContractDetail() {
   const [activateFinalPrice, setActivateFinalPrice] = useState<number>(0);
   const [activateDownPayment, setActivateDownPayment] = useState<number>(0);
   const [activateInstallmentsCount, setActivateInstallmentsCount] = useState<number>(6);
+  // جدول أقساط قابل للتحرير سطراً سطراً، كنموذج العقد القطعي: التوليد يقترح
+  // توزيعاً شهرياً متساوياً، ثم يعدّل المستخدم التواريخ والمبالغ كما اتُّفق.
+  const [settleInstallments, setSettleInstallments] = useState<
+    Array<{ installmentNumber: number; dueDate: string; amountSyp: string }>
+  >([]);
   // العقد غير قابل للتعديل بعد اعتماده، فالبيانات القانونية التي يشترطها
   // البيع بالتقسيط تُستكمل هنا وإلا تعذّر تثبيت البيعة نهائياً.
   const [settleLegal, setSettleLegal] = useState<Record<string, string>>({});
@@ -350,29 +356,68 @@ export default function ContractDetail() {
     }
   };
 
+  const settleInstallmentsTotal = settleInstallments.reduce(
+    (sum, inst) => sum + (Number(inst.amountSyp) || 0),
+    0,
+  );
+
+  // اقتراح أوّلي: توزيع متساوٍ شهرياً على المتبقّي بعد الدفعة الأولى، والباقي
+  // من القسمة يُحمَّل على القسط الأخير. كل سطر بعدها قابل للتعديل.
+  const generateSettleInstallments = () => {
+    const remaining = activateFinalPrice - activateDownPayment;
+    const count = activateInstallmentsCount;
+    if (remaining <= 0 || count <= 0) {
+      alert('أدخل السعر النهائي والدفعة الأولى أولاً.');
+      return;
+    }
+    const base = Math.floor(remaining / count);
+    const today = new Date();
+    let distributed = 0;
+    const rows = Array.from({ length: count }, (_, i) => {
+      const due = new Date(today);
+      due.setMonth(today.getMonth() + i + 1);
+      const isLast = i === count - 1;
+      const amount = isLast ? remaining - distributed : base;
+      if (!isLast) distributed += base;
+      return {
+        installmentNumber: i + 1,
+        dueDate: due.toISOString().slice(0, 10),
+        amountSyp: String(amount),
+      };
+    });
+    setSettleInstallments(rows);
+  };
+
   const handleActivatePayment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (activateFinalPrice <= 0) { alert('الرجاء إدخال السعر النهائي'); return; }
     if (activatePaymentType === 'installment' && activateDownPayment >= activateFinalPrice) {
       alert('الدفعة الأولى يجب أن تكون أقل من السعر النهائي'); return;
     }
+    if (activatePaymentType === 'installment') {
+      if (settleInstallments.length === 0) {
+        alert('ولّد جدول الأقساط أولاً ثم اضبط تواريخه ومبالغه.');
+        return;
+      }
+      if (settleInstallments.some(i => !i.dueDate)) {
+        alert('أدخل تاريخ استحقاق لكل قسط.');
+        return;
+      }
+      if (Math.abs(settleInstallmentsTotal + activateDownPayment - activateFinalPrice) > 1) {
+        alert(`مجموع الأقساط والدفعة الأولى (${settleInstallmentsTotal + activateDownPayment}) لا يساوي السعر النهائي (${activateFinalPrice}).`);
+        return;
+      }
+    }
     setActivationLoading(true);
     try {
       const contractId = Number(id);
-      const installments: any[] = [];
-      if (activatePaymentType === 'installment') {
-        const remaining = activateFinalPrice - activateDownPayment;
-        const base = Math.floor(remaining / activateInstallmentsCount);
-        const baseDate = new Date();
-        let distributed = 0;
-        for (let i = 1; i <= activateInstallmentsCount; i++) {
-          const dueDate = new Date(baseDate);
-          dueDate.setMonth(baseDate.getMonth() + i);
-          const amount = i === activateInstallmentsCount ? remaining - distributed : base;
-          if (i !== activateInstallmentsCount) distributed += base;
-          installments.push({ installmentNumber: i, dueDate: dueDate.toISOString().slice(0, 10), amountSyp: amount });
-        }
-      }
+      const installments = activatePaymentType === 'installment'
+        ? settleInstallments.map((inst, idx) => ({
+          installmentNumber: idx + 1,
+          dueDate: inst.dueDate,
+          amountSyp: Number(inst.amountSyp) || 0,
+        }))
+        : [];
       // نداء واحد ذرّي بدل أربعة متتابعة: يثبّت المالية ويقلب النوع الفرعي
       // ويجمّد ملحق تثبيت البيعة معاً، فلا يبقى العقد نصف محوَّل عند أي فشل.
       await api.contracts.settle(contractId, {
@@ -1276,7 +1321,7 @@ export default function ContractDetail() {
                 <div className="grid grid-cols-2 gap-2">
                   {(['cash', 'installment'] as const).map(m => (
                     <button type="button" key={m}
-                      onClick={() => setActivatePaymentType(m)}
+                      onClick={() => { setActivatePaymentType(m); if (m === 'cash') setSettleInstallments([]); }}
                       className={`py-2 rounded-xl text-sm font-bold border transition-colors ${activatePaymentType === m ? 'bg-sky-600 text-white border-sky-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
                       {m === 'cash' ? 'نقدي' : 'أقساط'}
                     </button>
@@ -1295,11 +1340,88 @@ export default function ContractDetail() {
                     <input type="number" value={activateDownPayment} onChange={e => setActivateDownPayment(Number(e.target.value))}
                       className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-sky-500" />
                   </div>
-                  <div>
-                    <label className="text-xs font-bold text-slate-500 mb-1 block">عدد الأقساط</label>
-                    <input type="number" min="1" max="60" value={activateInstallmentsCount} onChange={e => setActivateInstallmentsCount(Number(e.target.value))}
-                      className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-sky-500" />
+                  <div className="grid grid-cols-2 gap-2 items-end">
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 mb-1 block">عدد الأقساط</label>
+                      <input type="number" min="1" max="60" value={activateInstallmentsCount} onChange={e => setActivateInstallmentsCount(Number(e.target.value))}
+                        className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-sky-500" />
+                    </div>
+                    <button type="button" onClick={generateSettleInstallments}
+                      className="w-full py-2.5 rounded-xl border-2 border-dashed border-amber-300 text-amber-600 hover:bg-amber-50 text-sm font-bold transition-colors">
+                      توليد الجدول
+                    </button>
                   </div>
+
+                  {settleInstallments.length > 0 && (
+                    <div className="rounded-xl border border-slate-200 overflow-hidden">
+                      <div className="bg-slate-50 px-3 py-2 flex items-center justify-between border-b border-slate-100">
+                        <span className="text-xs font-bold text-slate-700">جدول الأقساط</span>
+                        <span className="text-xs text-slate-400">{settleInstallments.length} قسط</span>
+                      </div>
+                      <table className="w-full text-sm">
+                        <thead className="bg-slate-50 text-[11px] font-bold text-slate-500">
+                          <tr>
+                            <th className="px-2 py-1.5 text-right">#</th>
+                            <th className="px-2 py-1.5 text-right">تاريخ الاستحقاق</th>
+                            <th className="px-2 py-1.5 text-right">المبلغ ل.س</th>
+                            <th className="px-2 py-1.5" />
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-50">
+                          {settleInstallments.map((inst, idx) => (
+                            <tr key={idx} className="hover:bg-slate-50/40">
+                              <td className="px-2 py-1.5 text-slate-400 text-xs">{idx + 1}</td>
+                              <td className="px-2 py-1.5">
+                                <DateField
+                                  value={inst.dueDate}
+                                  onChange={v => setSettleInstallments(prev => prev.map((d, i) => i === idx ? { ...d, dueDate: v } : d))}
+                                  className="text-xs border border-slate-200 rounded pl-2 py-1 focus:outline-none focus:border-sky-400"
+                                />
+                              </td>
+                              <td className="px-2 py-1.5">
+                                <input type="number" min={0} value={inst.amountSyp} dir="ltr"
+                                  onChange={e => setSettleInstallments(prev => prev.map((d, i) => i === idx ? { ...d, amountSyp: e.target.value } : d))}
+                                  className="w-24 text-xs border border-slate-200 rounded px-2 py-1 font-mono focus:outline-none focus:border-sky-400" />
+                              </td>
+                              <td className="px-2 py-1.5">
+                                <button type="button" aria-label="حذف القسط"
+                                  onClick={() => setSettleInstallments(prev => prev.filter((_, i) => i !== idx))}
+                                  className="text-red-400 hover:text-red-600 text-xs font-bold">✕</button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot className="bg-slate-50 border-t border-slate-200 text-xs font-bold">
+                          <tr>
+                            <td colSpan={2} className="px-2 py-1.5 text-slate-500">المجموع مع الدفعة الأولى</td>
+                            <td className="px-2 py-1.5 font-mono text-slate-800">
+                              {settleInstallmentsTotal + activateDownPayment}
+                            </td>
+                            <td />
+                          </tr>
+                        </tfoot>
+                      </table>
+                      <div className="px-3 py-2 bg-slate-50 border-t border-slate-200">
+                        <button type="button"
+                          onClick={() => setSettleInstallments(prev => [...prev, {
+                            installmentNumber: prev.length + 1,
+                            dueDate: '',
+                            amountSyp: '0',
+                          }])}
+                          className="w-full py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-bold hover:bg-slate-50">
+                          + إضافة قسط
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {settleInstallments.length > 0
+                    && Math.abs(settleInstallmentsTotal + activateDownPayment - activateFinalPrice) > 1 && (
+                    <div className="bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-xs text-red-700">
+                      مجموع الأقساط والدفعة الأولى ({settleInstallmentsTotal + activateDownPayment}) لا يساوي
+                      السعر النهائي ({activateFinalPrice})
+                    </div>
+                  )}
 
                   <div className="border-t border-slate-200 pt-4">
                     <p className="text-xs font-bold text-slate-600 mb-1">البيانات القانونية للمشتري</p>
