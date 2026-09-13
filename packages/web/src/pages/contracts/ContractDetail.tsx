@@ -119,7 +119,9 @@ function settleLegalIssuesOf(values: Record<string, string>): Record<string, str
   const issues: Record<string, string> = {};
   for (const field of SETTLE_LEGAL_FIELDS) {
     const value = (values[field.key] ?? '').trim();
-    if (!value) { issues[field.key] = `${field.label} مطلوب`; continue; }
+    // الاسم وحده — إضافة «مطلوب» تكسر المطابقة مع المؤنّث («الخانة مطلوب»)،
+    // وصدر الرسالة «أكمل قبل التثبيت» يحمل المعنى أصلاً.
+    if (!value) { issues[field.key] = field.label; continue; }
     if (field.key === 'nationalId' && !/^\d{11}$/.test(value)) {
       issues[field.key] = 'الرقم الوطني يجب أن يكون 11 رقماً بالضبط';
     }
