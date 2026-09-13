@@ -1743,7 +1743,7 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
       .forEach((value) => allowedReasons.add(value));
   }
   if (taskType === 'device_retrieval') {
-    ['device_retrieval_maintenance', 'device_retrieval_replacement', 'maintenance_preparation', 'replacement_preparation', 'other']
+    ['device_retrieval_maintenance', 'device_retrieval_replacement', 'device_retrieval_trial_return', 'maintenance_preparation', 'replacement_preparation', 'other']
       .forEach((value) => allowedReasons.add(value));
   }
   if (taskType === 'device_return') {

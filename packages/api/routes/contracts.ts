@@ -6,7 +6,7 @@ import { authorize } from '../services/authorizationService.js';
 import { assertGeoUnitInScope } from '../services/geoScopeService.js';
 import { assertDeviceModelInScope } from '../services/deviceScopeService.js';
 import { promoteClientToLifecycleStatus } from '../services/clientLifecycleService.js';
-import { freezeContractDocument } from './contractDocuments.js'; // DEC-CT-15
+import { freezeContractDocument, freezeContractSettlementAmendment } from './contractDocuments.js'; // DEC-CT-15
 import { persistOpenTaskSnapshots } from './openTasks.js';
 import { createInstallmentCollectionTasksForContract } from '../services/installmentCollectionTasks.js';
 import { syncContractMovements, recordMovement } from '../services/financialMovements.js';
@@ -80,6 +80,9 @@ const contractSelect = `
   c.contract_type AS "contractType",
   c.no_closing_reason_id AS "noClosingReasonId",
   c.sale_subtype AS "saleSubtype",
+  -- قلب النوع الفرعي عند التسوية يمحو أثر كون العقد بدأ تجربة، فنعرضه صراحةً.
+  c.started_as_temporary AS "startedAsTemporary",
+  c.temporary_settled_at AS "temporarySettledAt",
   c.receipt_number AS "receiptNumber",
   c.code AS "code",
   c.installed_device_id AS "installedDeviceId",
@@ -1289,6 +1292,12 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
     );
     const contractId = rows[0].id;
 
+    // وسم لزوم: يبقى صحيحاً بعد أن يقلب تثبيت البيعة النوع الفرعي إلى
+    // definitive، فيظل معلوماً أن هذه البيعة جاءت من تجربة.
+    if (isTrialContract(c.saleSubtype)) {
+      await client.query('UPDATE contracts SET started_as_temporary = TRUE WHERE id = $1', [contractId]);
+    }
+
     // Re-fetch with JOIN so installed_devices fields are included in the response
     const { rows: fetchRows } = await client.query(
       `SELECT ${contractSelect} FROM contracts c LEFT JOIN installed_devices d ON d.contract_id = c.id WHERE c.id = $1`,
@@ -1612,6 +1621,11 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
        tradeinDetails.oldDeviceCondition,
        req.params.id]
     );
+
+    // وسم التجربة لزوم: التعديل قد يبدّل النوع الفرعي وهو ما زال مسودة.
+    if (isTrialContract(c.saleSubtype)) {
+      await pgClient.query('UPDATE contracts SET started_as_temporary = TRUE WHERE id = $1', [req.params.id]);
+    }
 
     // تحديث وعود الهدايا المسودة (تُحوَّل إلى gift_records عند الاعتماد).
     if (Array.isArray(c.giftPromises)) {
@@ -2125,6 +2139,29 @@ async function createDeliveryTaskForContract(db: any, contract: any) {
   await persistOpenTaskSnapshots(db, insertedRows[0].id, contract.customerId, contract.id, deliveryDeviceId);
 }
 
+/** عقد تجربة: حيازة مؤقتة خرج فيها الجهاز بلا بيع ولا أثر مالي. */
+function isTrialContract(saleSubtype: unknown): boolean {
+  return saleSubtype === 'temporary';
+}
+
+/**
+ * آثار إغلاق البيعة التي لا يجوز وقوعها قبل قرار الشراء الفعلي:
+ * تجسيد وعود الهدايا، وترقية دورة حياة الزبون إلى OP.
+ *
+ * تقع عند الاعتماد للبيع العادي، وعند التسوية لعقد التجربة.
+ */
+async function materializeSaleClosureEffects(
+  db: any,
+  contractId: number,
+  customerId: number | null | undefined,
+  actorUserId: number | null,
+): Promise<void> {
+  await materializeContractGiftPromises(db, contractId, actorUserId);
+  if (customerId) {
+    await promoteClientToLifecycleStatus(db, Number(customerId), 'OP');
+  }
+}
+
 function toNullableNumber(value: unknown): number | null {
   if (value === null || value === undefined || value === '') return null;
   const n = Number(value);
@@ -2309,6 +2346,7 @@ router.post('/:id/approve', async (req, res) => {
     // Pessimistic lock so two approvers can't race.
     const { rows: cur } = await pgClient.query(
       `SELECT id, status, contract_type, customer_id, branch_id, closing_employee_id,
+              sale_subtype AS "saleSubtype",
               sale_owner_id AS "saleOwnerId",
               draft_device_payload AS "draftDevicePayload",
               NULL::date AS delivery_date
@@ -2425,11 +2463,17 @@ router.post('/:id/approve', async (req, res) => {
     // سجل الحركات المالية: استحقاق التوقيع + الأقساط + الدفعات (idempotent).
     await syncContractMovements(pgClient, contractId);
 
-    // تحويل وعود الهدايا المسودة إلى gift_records فعلية (الاعتماد فقط).
-    await materializeContractGiftPromises(pgClient, contractId, authContext.userId ?? null);
-
-    if (refreshed.customerId) {
-      await promoteClientToLifecycleStatus(pgClient, Number(refreshed.customerId), 'OP');
+    // عقد التجربة يخرج الجهاز إلى الزبون لكنه ليس بيعاً بعد: لا هدايا ولا
+    // ترقية دورة حياة قبل الشراء. الأثران يقعان عند التسوية (/settle)، وهذا
+    // مهم لأن الترقية تحذف client_assignments بلا رجعة — أي تسحب الزبون من
+    // الموظف في اللحظة التي يفترض أن يغلق فيها البيعة.
+    if (!isTrialContract(c.saleSubtype)) {
+      await materializeSaleClosureEffects(
+        pgClient,
+        contractId,
+        refreshed.customerId,
+        authContext.userId ?? null,
+      );
     }
 
     // Freeze the legal copy (DEC-CT-15). Wrap in a SAVEPOINT so a freeze
@@ -2460,6 +2504,290 @@ router.post('/:id/approve', async (req, res) => {
   }
 });
 
+// ──────────────────────────────────────────────────────────────────────────
+//   POST /api/contracts/:id/settle   تسوية عقد التجربة → بيع قطعي
+// ──────────────────────────────────────────────────────────────────────────
+// عقد التجربة يُعتمد فوراً ليخرج الجهاز إلى الزبون، لكن بلا سعر ولا ذمة. عند
+// قرار الشراء تُثبَّت المالية على العقد نفسه — عقد واحد ورقم واحد — فينقلب
+// النوع الفرعي إلى definitive ويُجمَّد ملحق تثبيت البيعة الحامل للبنود
+// المالية، بينما يبقى الأصل (عقد الحيازة المؤقتة) بلا مساس كما تشترط مادته
+// العاشرة.
+//
+// المسار مخصص بدل فتح حُرّاس PUT/payment-entries/installments أمام عقد معتمد،
+// لسببين: أولهما أن PUT يعيد كتابة أربعين حقلاً، وثانيهما أن المسار القديم في
+// الواجهة كان أربعة نداءات متتابعة — فشل أحدها يترك العقد نصف محوَّل. هنا كل
+// شيء في معاملة واحدة.
+router.post('/:id/settle', async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'غير مصرح' });
+  const authContext = await getOrBuildAuthContext(req as any);
+  const contractId = Number(req.params.id);
+  if (!Number.isInteger(contractId) || contractId <= 0) {
+    return res.status(400).json({ error: 'id غير صالح' });
+  }
+
+  const paymentType = req.body?.paymentType === 'installment' ? 'installment' : 'cash';
+  const finalPrice = Math.round(Number(req.body?.finalPrice) || 0);
+  const downPayment = Math.round(Number(req.body?.downPayment) || 0);
+  const incomingInstallments: any[] = Array.isArray(req.body?.installments) ? req.body.installments : [];
+
+  if (finalPrice <= 0) {
+    return res.status(400).json({ error: 'السعر النهائي مطلوب لتثبيت البيعة' });
+  }
+  if (downPayment < 0 || downPayment > finalPrice) {
+    return res.status(400).json({ error: 'الدفعة الأولى يجب أن تكون بين صفر والسعر النهائي' });
+  }
+  if (paymentType === 'installment') {
+    if (downPayment >= finalPrice) {
+      return res.status(400).json({ error: 'الدفعة الأولى يجب أن تكون أقل من السعر النهائي في البيع بالتقسيط' });
+    }
+    if (incomingInstallments.length === 0) {
+      return res.status(400).json({ error: 'جدول الأقساط مطلوب في البيع بالتقسيط' });
+    }
+    const sum = incomingInstallments.reduce((s, i) => s + Math.round(Number(i?.amountSyp) || 0), 0);
+    if (Math.abs(sum + downPayment - finalPrice) > 1) {
+      return res.status(400).json({
+        error: `مجموع الأقساط والدفعة الأولى (${sum + downPayment}) لا يساوي السعر النهائي (${finalPrice})`,
+      });
+    }
+    if (incomingInstallments.some((i) => !i?.dueDate)) {
+      return res.status(400).json({ error: 'تاريخ الاستحقاق مطلوب لكل قسط' });
+    }
+  }
+
+  const pgClient = await pool.connect();
+  try {
+    await pgClient.query('BEGIN');
+
+    const { rows: cur } = await pgClient.query(
+      `SELECT id, status, branch_id, customer_id, sale_subtype AS "saleSubtype",
+              contract_type AS "contractType"
+         FROM contracts WHERE id = $1 FOR UPDATE`,
+      [contractId],
+    );
+    if (!cur[0]) {
+      await pgClient.query('ROLLBACK');
+      return res.status(404).json({ error: 'العقد غير موجود' });
+    }
+    const c = cur[0];
+
+    // التسوية تثبيت للبيعة، فتخضع لبوابة التسكير نفسها.
+    const access = authorize(authContext, { permission: 'contracts.close', branchId: c.branch_id });
+    if (!access.allowed) {
+      await pgClient.query('ROLLBACK');
+      return res.status(403).json({ error: 'غير مسموح' });
+    }
+
+    if (!isTrialContract(c.saleSubtype)) {
+      await pgClient.query('ROLLBACK');
+      return res.status(409).json({
+        error: 'تثبيت البيعة متاح لعقود التجربة فقط',
+        code: 'contract_not_trial',
+      });
+    }
+    if (c.status !== 'active') {
+      await pgClient.query('ROLLBACK');
+      return res.status(409).json({
+        error: `لا يمكن تثبيت بيعة عقد بحالة "${c.status}". التثبيت متاح للعقود الفعّالة فقط.`,
+      });
+    }
+
+    // 1) المالية على العقد نفسه. السعر المتفق عليه عند الشراء هو الأساس
+    //    والنهائي معاً (base = final) فلا ينشأ حسم وهمي؛ بنود العقد تبقى
+    //    سجلاً وصفياً لما سُلّم فعلاً وقالب الملحق يعرضها بلا أسعار.
+    await pgClient.query(
+      `UPDATE contracts
+          SET sale_subtype         = 'definitive',
+              payment_type         = $2,
+              base_price           = $3,
+              final_price          = $3,
+              down_payment         = $4,
+              installments_count   = $5,
+              temporary_settled_at = NOW()
+        WHERE id = $1`,
+      [contractId, paymentType, finalPrice, downPayment,
+       paymentType === 'installment' ? incomingInstallments.length : 0],
+    );
+
+    // 2) الدفعات: الكاش يُقبض كاملاً، والتقسيط يقبض المقدّم إن وُجد.
+    await pgClient.query(
+      'DELETE FROM contract_payment_entries WHERE contract_id = $1 AND installment_id IS NULL',
+      [contractId],
+    );
+    const signingAmount = paymentType === 'cash' ? finalPrice : downPayment;
+    if (signingAmount > 0) {
+      await pgClient.query(
+        `INSERT INTO contract_payment_entries
+           (contract_id, method, currency, amount_value, amount_syp, notes, entry_type)
+         VALUES ($1, 'cash', 'SYP', $2, $2, $3, 'collection')`,
+        [contractId, signingAmount,
+         paymentType === 'cash' ? 'دفعة كاملة عند تثبيت البيعة' : 'الدفعة الأولى عند تثبيت البيعة'],
+      );
+    }
+
+    // 3) جدول الأقساط مؤكَّد من لحظة التثبيت — لا معنى لجدول غير مؤكد بعد
+    //    توقيع الملحق.
+    await pgClient.query('DELETE FROM contract_installments WHERE contract_id = $1', [contractId]);
+    if (paymentType === 'installment') {
+      for (const [index, inst] of incomingInstallments.entries()) {
+        const amount = Math.round(Number(inst?.amountSyp) || 0);
+        await pgClient.query(
+          `INSERT INTO contract_installments
+             (contract_id, installment_number, due_date, amount_syp, remaining_balance, confirmed)
+           VALUES ($1, $2, $3, $4, $4, TRUE)`,
+          [contractId, Number(inst?.installmentNumber) || index + 1, inst.dueDate, amount],
+        );
+      }
+    }
+
+    // 4) البوابة نفسها التي تحرس الاعتماد: العقد المُسوّى يجب أن يستوفي ما
+    //    يستوفيه أي بيع قطعي وُلد قطعياً — لا استثناء لأنه بدأ تجربة.
+    const issues = await collectApprovalIssues(pgClient, contractId);
+    if (issues.length > 0) {
+      await pgClient.query('ROLLBACK');
+      return res.status(400).json({
+        error: 'لا يمكن تثبيت البيعة — البيانات المطلوبة غير مكتملة',
+        issues,
+      });
+    }
+
+    // 5) الأثر المالي والتشغيلي يبدأ الآن لا عند اعتماد التجربة.
+    await syncContractMovements(pgClient, contractId);
+    await createInstallmentCollectionTasksForContract(pgClient, contractId);
+    await materializeSaleClosureEffects(
+      pgClient,
+      contractId,
+      c.customer_id,
+      authContext.userId ?? null,
+    );
+
+    // 6) ملحق تثبيت البيعة. على خلاف تجميد الأصل عند الاعتماد، الفشل هنا
+    //    يُسقط التسوية كلها: بيعة بلا سند موقّع على قيمتها هي بالضبط الثغرة
+    //    التي وُجد هذا المسار لسدّها.
+    const amendment = await freezeContractSettlementAmendment(
+      pgClient,
+      contractId,
+      (req as any).user?.employeeId ?? null,
+    );
+
+    await pgClient.query('COMMIT');
+    res.json({
+      success: true,
+      contractId,
+      saleSubtype: 'definitive',
+      paymentType,
+      finalPrice,
+      amendmentDocumentId: amendment.id,
+    });
+  } catch (err: any) {
+    await pgClient.query('ROLLBACK');
+    console.error('[contracts] settle failed:', err);
+    res.status(500).json({ error: 'فشل تثبيت البيعة', detail: err?.message });
+  } finally {
+    pgClient.release();
+  }
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+//   POST /api/contracts/:id/trial-retrieval   إنهاء التجربة بسحب الجهاز
+// ──────────────────────────────────────────────────────────────────────────
+// التجربة التي لا تنتهي بشراء تنتهي بعودة الجهاز. لا يُلغى العقد هنا: يُنشأ
+// مهمة سحب بغرض trial_return، والإلغاء يقع لاحقاً عند نجاح السحب فعلياً
+// (visitTaskResultReflection) — فالعقد لا يُغلق وجهاز الشركة ما يزال عند
+// الزبون.
+router.post('/:id/trial-retrieval', async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'غير مصرح' });
+  const authContext = await getOrBuildAuthContext(req as any);
+  const contractId = Number(req.params.id);
+  if (!Number.isInteger(contractId) || contractId <= 0) {
+    return res.status(400).json({ error: 'id غير صالح' });
+  }
+
+  const pgClient = await pool.connect();
+  try {
+    await pgClient.query('BEGIN');
+
+    const { rows: cur } = await pgClient.query(
+      `SELECT c.id, c.status, c.branch_id, c.customer_id, c.service_branch_id,
+              c.sale_subtype AS "saleSubtype",
+              d.id AS "deviceId", d.branch_id AS "deviceBranchId", d.status AS "deviceStatus"
+         FROM contracts c
+         LEFT JOIN installed_devices d ON d.contract_id = c.id
+        WHERE c.id = $1
+        FOR UPDATE OF c`,
+      [contractId],
+    );
+    if (!cur[0]) {
+      await pgClient.query('ROLLBACK');
+      return res.status(404).json({ error: 'العقد غير موجود' });
+    }
+    const c = cur[0];
+
+    const access = authorize(authContext, { permission: 'contracts.close', branchId: c.branch_id });
+    if (!access.allowed) {
+      await pgClient.query('ROLLBACK');
+      return res.status(403).json({ error: 'غير مسموح' });
+    }
+    if (!isTrialContract(c.saleSubtype) || c.status !== 'active') {
+      await pgClient.query('ROLLBACK');
+      return res.status(409).json({
+        error: 'سحب جهاز التجربة متاح لعقد تجربة فعّال فقط',
+        code: 'contract_not_active_trial',
+      });
+    }
+    if (!c.deviceId) {
+      await pgClient.query('ROLLBACK');
+      return res.status(409).json({ error: 'لا يوجد جهاز مرتبط بهذا العقد' });
+    }
+    if (c.deviceStatus === 'retrieved') {
+      await pgClient.query('ROLLBACK');
+      return res.status(409).json({ error: 'الجهاز مسحوب أصلاً' });
+    }
+
+    const { rows: openRetrieval } = await pgClient.query(
+      `SELECT id FROM open_tasks
+        WHERE task_type = 'device_retrieval' AND contract_id = $1
+          AND status NOT IN ('completed', 'closed', 'cancelled')
+        LIMIT 1`,
+      [contractId],
+    );
+    if (openRetrieval[0]) {
+      await pgClient.query('ROLLBACK');
+      return res.status(409).json({
+        error: 'توجد مهمة سحب مفتوحة لهذا العقد',
+        taskId: Number(openRetrieval[0].id),
+      });
+    }
+
+    const serviceBranchId = c.service_branch_id ?? c.deviceBranchId ?? c.branch_id;
+    const dueDate = typeof req.body?.dueDate === 'string' && req.body.dueDate
+      ? req.body.dueDate
+      : new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+    const { rows: inserted } = await pgClient.query(
+      `INSERT INTO open_tasks (
+         client_id, branch_id, task_type, task_family, reason, status, due_date,
+         source, origin, contract_id, device_id, creation_origin,
+         retrieval_purpose, service_branch_id
+       ) VALUES ($1, $2, 'device_retrieval', 'service', 'device_retrieval_trial_return',
+                 'open', $3, 'system', 'system_trigger', $4, $5, 'system_trigger',
+                 'trial_return', $6)
+       RETURNING id`,
+      [c.customer_id, c.deviceBranchId ?? c.branch_id, dueDate, contractId, c.deviceId, serviceBranchId],
+    );
+    const taskId = Number(inserted[0].id);
+    await persistOpenTaskSnapshots(pgClient, taskId, c.customer_id, contractId, c.deviceId);
+
+    await pgClient.query('COMMIT');
+    res.json({ success: true, contractId, taskId, dueDate });
+  } catch (err: any) {
+    await pgClient.query('ROLLBACK');
+    console.error('[contracts] trial retrieval failed:', err);
+    res.status(500).json({ error: 'فشل إنشاء مهمة سحب جهاز التجربة', detail: err?.message });
+  } finally {
+    pgClient.release();
+  }
+});
+
 // POST /api/contracts/:id/cancel — إلغاء عقد نشِط غير مستوفى المبالغ.
 // عملية صريحة لأن PUT يرفض تعديل غير المسوّدة. الأثر: إبطال الذمم/الأقساط +
 // ضبط أجهزة العقد إلى contract_cancelled (تُسقطها من الصيانة الدورية) + إلغاء
@@ -2482,6 +2810,7 @@ router.post('/:id/cancel', async (req, res) => {
     await pgClient.query('BEGIN');
     const { rows: cur } = await pgClient.query(
       `SELECT id, status, branch_id, customer_id, final_price, created_at,
+              sale_subtype AS "saleSubtype",
               COALESCE((SELECT SUM(amount_syp) FROM contract_installments WHERE contract_id = contracts.id), 0) AS installments_total,
               COALESCE((SELECT SUM(remaining_balance) FROM contract_installments WHERE contract_id = contracts.id AND remaining_balance > 0), 0) AS installments_remaining,
               COALESCE((SELECT SUM(CASE WHEN entry_type = 'refund' THEN -amount_syp ELSE amount_syp END)
@@ -2503,10 +2832,14 @@ router.post('/:id/cancel', async (req, res) => {
 
     // بوّابة: الإلغاء متاح فقط لعقد لم تُستوفَ مبالغه بالكامل. المتبقّي =
     // متبقّي دفعة التوقيع + متبقّي الأقساط. المستوفى كلياً لا يُلغى من هنا.
+    //
+    // عقد التجربة مستثنى: قيمته صفر بحكم النموذج، فالبوّابة كانت تقرأه
+    // "مستوفى بالكامل" وتحبسه بلا مخرج — وهي النهاية الطبيعية والمتوقعة له.
+    const isTrial = isTrialContract(c.saleSubtype);
     const outstanding =
       (Number(c.final_price) - Number(c.installments_total) - Number(c.signing_paid))
       + Number(c.installments_remaining);
-    if (outstanding <= 0) {
+    if (!isTrial && outstanding <= 0) {
       await pgClient.query('ROLLBACK');
       return res.status(409).json({ error: 'لا يمكن إلغاء عقد مستوفى المبالغ بالكامل.' });
     }
@@ -2542,7 +2875,10 @@ router.post('/:id/cancel', async (req, res) => {
     }
 
     // 3) إبطال المتبقّي مالياً (discount) بتاريخ كل التزام حتى يصبح المستحق والقادم = 0.
-    if (c.customer_id) {
+    //    مشروط بكون العقد قد ولّد استحقاقاً أصلاً: سجل الحركات يقتصر على
+    //    definitive، فخصمٌ على عقد تجربة كان ينشئ رصيداً دائناً وهمياً بقيمة
+    //    العقد لزبون لم يدفع شيئاً (صُحّح أثره الماضي في هجرة 458).
+    if (c.customer_id && !isTrial) {
       const signingRemaining = Number(c.final_price) - Number(c.installments_total) - Number(c.signing_paid);
       if (signingRemaining > 0) {
         await recordMovement(pgClient, {
@@ -2571,9 +2907,12 @@ router.post('/:id/cancel', async (req, res) => {
     // الدورية المفتوحة (يرمي إن كانت مهمة قيد التنفيذ) ثم اضبط حالته إلى
     // contract_cancelled فيسقط من كل مسارات توليد/تسجيل الصيانة (تحرس على active).
     // trigger الكفالة على الجدول يُلغي كفالة العقد بلا شرط عند تحوّل الحالة.
+    // `retrieved` حالة نهائية أيضاً ودالّة على أن الجهاز عاد فعلاً بالسحب؛
+    // الكتابة فوقها بـ contract_cancelled تمحو هذا الدليل، وهو المسار الطبيعي
+    // لعقد التجربة (سحب ثم إلغاء).
     const { rows: contractDevices } = await pgClient.query(
       `SELECT id FROM installed_devices
-        WHERE contract_id = $1 AND status <> 'contract_cancelled'
+        WHERE contract_id = $1 AND status NOT IN ('contract_cancelled', 'retrieved')
         FOR UPDATE`,
       [contractId],
     );

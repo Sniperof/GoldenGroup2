@@ -333,7 +333,7 @@ export interface DeviceCheckupReflectionResult {
 
 export interface DeviceRetrievalResultBody {
   final_decision: DeviceRetrievalFinalDecision;
-  retrieval_purpose?: 'maintenance' | 'replacement' | null;
+  retrieval_purpose?: 'maintenance' | 'replacement' | 'trial_return' | null;
   service_branch_id?: number | null;
   refusal_reason_id?: number | null;
   reschedule_reason_id?: number | null;
@@ -993,7 +993,7 @@ function assertRetrievalShape(
   openTask: { retrieval_purpose?: string | null; service_branch_id?: number | null },
 ): {
   decision: DeviceRetrievalFinalDecision;
-  retrievalPurpose: 'maintenance' | 'replacement';
+  retrievalPurpose: 'maintenance' | 'replacement' | 'trial_return';
   serviceBranchId: number;
   openTaskNewStatus: 'completed' | 'needs_follow_up' | 'cancelled';
   deviceNewStatus: 'in_workshop' | 'retrieved' | 'unchanged';
@@ -1003,9 +1003,11 @@ function assertRetrievalShape(
     throw new ResultValidationError(`final_decision غير صالح: ${decision}`);
   }
 
+  // trial_return: إرجاع جهاز تجربة لم تُحسم. على خلاف السحب للصيانة أو
+  // التبديل (رحلة ذهاب وعودة)، هذا خروج نهائي من علاقة الزبون ويُنهي العقد.
   const purpose = body.retrieval_purpose ?? openTask.retrieval_purpose;
-  if (purpose !== 'maintenance' && purpose !== 'replacement') {
-    throw new ResultValidationError('غرض السحب مطلوب ويجب أن يكون maintenance أو replacement');
+  if (purpose !== 'maintenance' && purpose !== 'replacement' && purpose !== 'trial_return') {
+    throw new ResultValidationError('غرض السحب مطلوب ويجب أن يكون maintenance أو replacement أو trial_return');
   }
 
   const serviceBranchId = Number(body.service_branch_id ?? openTask.service_branch_id);
@@ -1025,6 +1027,7 @@ function assertRetrievalShape(
       deviceNewStatus: purpose === 'maintenance' ? 'in_workshop' : 'retrieved',
     };
   }
+
 
   if (decision === 'reschedule') {
     if (!optionalDate(body.expected_date)) {
@@ -3819,6 +3822,67 @@ export async function applyDeviceRetrievalResult(
           [cancelledId, performedByUserId, visitTaskResultId],
         );
       }
+    }
+
+    // نهاية التجربة دون شراء: الجهاز عاد فعلاً، فيُغلق العقد الآن لا قبل ذلك.
+    // ربط الإلغاء بنجاح السحب الفيزيائي يمنع إغلاق عقد وجهاز الشركة ما يزال
+    // في يد الزبون.
+    if (shape.decision === 'retrieved_successfully' && shape.retrievalPurpose === 'trial_return') {
+      const employeeId = await resolveEmployeeIdForUser(db, performedByUserId);
+
+      await db.query(
+        `UPDATE device_possession_log
+            SET end_at = NOW()
+          WHERE device_id = $1
+            AND end_at IS NULL`,
+        [Number(vt.device_id)],
+      );
+      await db.query(
+        `INSERT INTO device_possession_log
+           (device_id, holder_type, holder_id, start_at, reason, notes, created_by)
+         VALUES ($1, 'workshop', $2, NOW(), 'retrieval', $3, $4)`,
+        [
+          Number(vt.device_id),
+          shape.serviceBranchId,
+          notes ?? 'إرجاع جهاز تجربة لم تُحسم',
+          employeeId,
+        ],
+      );
+
+      const { rows: trialCancelled } = await db.query(
+        `UPDATE open_tasks
+            SET status = 'cancelled',
+                cancellation_reason = COALESCE(cancellation_reason, 'trial_not_settled'),
+                updated_at = NOW()
+          WHERE device_id = $1
+            AND id <> $2
+            AND status NOT IN ('completed', 'closed', 'cancelled')
+          RETURNING id`,
+        [Number(vt.device_id), Number(vt.open_task_id)],
+      );
+      for (const row of trialCancelled) {
+        cancelledOpenTaskIds.push(Number(row.id));
+        await db.query(
+          `INSERT INTO task_activity_log
+             (task_id, event_type, performed_by, old_value, new_value, reason, reference_id, created_at)
+           VALUES ($1, 'status_change', $2, NULL, 'cancelled', 'trial_not_settled', $3, NOW())`,
+          [Number(row.id), performedByUserId, visitTaskResultId],
+        );
+      }
+
+      // الكفالة تُلغى بـ trigger الاسترجاع على installed_devices، والصيانة
+      // الدورية تسقط لأن كل مسارات التوليد تحرس على status='active'.
+      await db.query(
+        `UPDATE contracts
+            SET status = 'cancelled',
+                cancellation_reason = COALESCE(NULLIF(cancellation_reason, ''), 'trial_not_settled'),
+                cancelled_at = NOW(),
+                cancelled_by = $2
+          WHERE id = (SELECT contract_id FROM installed_devices WHERE id = $1)
+            AND sale_subtype = 'temporary'
+            AND status = 'active'`,
+        [Number(vt.device_id), performedByUserId],
+      );
     }
 
     await db.query(

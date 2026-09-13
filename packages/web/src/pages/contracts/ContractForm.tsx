@@ -1396,7 +1396,11 @@ export default function ContractForm() {
         try {
             const isFreeSale = saleSubtype === 'free';
             const isTemporarySale = saleSubtype === 'temporary';
-            const isNoFinancialObligations = isFreeSale;
+            // عقد التجربة لا يُقبض فيه شيء حتى يقرر الزبون الشراء، فلا يحمل
+            // قيمة ولا ذمة؛ القيمة تُثبَّت لاحقاً عبر تثبيت البيعة (/settle).
+            // البنود تبقى محفوظة — قالب الحيازة المؤقتة يعرضها في المادة /2/
+            // لتوصيف ما سُلّم فعلاً — لكنها بلا أثر مالي قبل الشراء.
+            const isNoFinancialObligations = isFreeSale || isTemporarySale;
             const isNoInitialPayments = isFreeSale || isTemporarySale;
             const finalBasePrice = isNoFinancialObligations ? 0 : (selectedDevice?.basePrice || 0);
             const finalPriceVal = isNoFinancialObligations ? 0 : grandTotal;

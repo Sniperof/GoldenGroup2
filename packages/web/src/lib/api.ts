@@ -1290,6 +1290,25 @@ export const api = {
       request<any>(`/contracts/${contractId}/installments`, { method: 'POST', body: JSON.stringify({ installments }) }),
     confirmInstallments: (contractId: number) =>
       request<any>(`/contracts/${contractId}/installments/confirm`, { method: 'POST' }),
+    // تثبيت بيعة عقد التجربة: نداء واحد ذرّي يثبّت المالية ويقلب النوع الفرعي
+    // ويجمّد ملحق تثبيت البيعة. يحل محل تسلسل PUT + دفعات + أقساط + تأكيد،
+    // الذي كان يترك العقد نصف محوَّل عند فشل أي خطوة.
+    settle: (
+      contractId: number,
+      data: {
+        paymentType: 'cash' | 'installment';
+        finalPrice: number;
+        downPayment: number;
+        installments?: Array<{ installmentNumber: number; dueDate: string; amountSyp: number }>;
+      },
+    ) => request<any>(`/contracts/${contractId}/settle`, { method: 'POST', body: JSON.stringify(data) }),
+    // إنهاء التجربة بلا شراء: ينشئ مهمة سحب الجهاز. العقد يُلغى لاحقاً عند
+    // نجاح السحب فعلياً، لا عند إنشاء المهمة.
+    trialRetrieval: (contractId: number, data?: { dueDate?: string }) =>
+      request<any>(`/contracts/${contractId}/trial-retrieval`, {
+        method: 'POST',
+        body: JSON.stringify(data ?? {}),
+      }),
     toggleLineItemInstallation: (contractId: number, itemId: number, isInstalled: boolean) =>
       request<any>(`/contracts/${contractId}/line-items/${itemId}/installation`, {
         method: 'PUT',

@@ -191,8 +191,17 @@ export default function ContractDetail() {
   const hasInstalledDevice = Boolean(data?.hasInstalledDevice || Number(data?.installedDeviceId) > 0);
   const isDraftDevicePlan = data?.status === 'draft' && !hasInstalledDevice;
 
+  // عقد التجربة يُحفظ بقيمة صفر، فالسعر المقترح عند تثبيت البيعة يأتي من
+  // مجموع بنود العقد (قيمة ما سُلّم فعلاً) لا من finalPrice.
   useEffect(() => {
-    if (data && activateFinalPrice === 0) setActivateFinalPrice(Number(data.finalPrice) || 0);
+    if (!data || activateFinalPrice !== 0) return;
+    const stored = Number(data.finalPrice) || 0;
+    if (stored > 0) { setActivateFinalPrice(stored); return; }
+    const itemsTotal = (data.lineItems ?? []).reduce(
+      (sum: number, item: any) => sum + (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0),
+      0,
+    );
+    if (itemsTotal > 0) setActivateFinalPrice(itemsTotal);
   }, [data]);
 
   useEffect(() => {
@@ -347,12 +356,6 @@ export default function ContractDetail() {
     setActivationLoading(true);
     try {
       const contractId = Number(id);
-      const paymentEntries: any[] = [];
-      if (activatePaymentType === 'cash') {
-        paymentEntries.push({ method: 'cash', currency: 'SYP', amountValue: activateFinalPrice, amountSyp: activateFinalPrice, notes: 'دفعة كاملة لتنشيط العقد' });
-      } else if (activateDownPayment > 0) {
-        paymentEntries.push({ method: 'cash', currency: 'SYP', amountValue: activateDownPayment, amountSyp: activateDownPayment, notes: 'الدفعة الأولى لتنشيط العقد' });
-      }
       const installments: any[] = [];
       if (activatePaymentType === 'installment') {
         const remaining = activateFinalPrice - activateDownPayment;
@@ -367,24 +370,41 @@ export default function ContractDetail() {
           installments.push({ installmentNumber: i, dueDate: dueDate.toISOString().slice(0, 10), amountSyp: amount });
         }
       }
-      await api.contracts.update(contractId, {
-        ...data, status: 'active', saleSubtype: 'definitive',
-        paymentType: activatePaymentType, basePrice: activateFinalPrice,
-        finalPrice: activateFinalPrice, downPayment: activateDownPayment,
-        installmentsCount: activatePaymentType === 'cash' ? 0 : activateInstallmentsCount,
+      // نداء واحد ذرّي بدل أربعة متتابعة: يثبّت المالية ويقلب النوع الفرعي
+      // ويجمّد ملحق تثبيت البيعة معاً، فلا يبقى العقد نصف محوَّل عند أي فشل.
+      await api.contracts.settle(contractId, {
+        paymentType: activatePaymentType,
+        finalPrice: activateFinalPrice,
+        downPayment: activatePaymentType === 'cash' ? activateFinalPrice : activateDownPayment,
+        installments,
       });
-      if (paymentEntries.length > 0) await api.contracts.savePaymentEntries(contractId, paymentEntries);
-      if (activatePaymentType === 'installment') {
-        await api.contracts.saveInstallments(contractId, installments);
-        await api.contracts.confirmInstallments(contractId);
-      }
       const refreshed = await api.contracts.get(contractId);
       setData(refreshed);
       setShowActivateModal(false);
     } catch (err: any) {
-      alert('فشل في تنشيط الدفع: ' + (err.message || err));
+      const issues = err?.issues ?? err?.data?.issues;
+      alert('فشل تثبيت البيعة: ' + (Array.isArray(issues) && issues.length > 0
+        ? issues.join('\n')
+        : (err.message || err)));
     } finally {
       setActivationLoading(false);
+    }
+  };
+
+  // إنهاء التجربة بلا شراء: إنشاء مهمة سحب الجهاز. العقد لا يُلغى الآن — بل
+  // عند نجاح السحب فعلياً، فلا يُغلق عقد وجهاز الشركة ما زال عند الزبون.
+  const handleTrialRetrieval = async () => {
+    if (!window.confirm('سيتم إنشاء مهمة سحب لجهاز التجربة. يُلغى العقد تلقائياً عند نجاح السحب. متابعة؟')) return;
+    setActionLoading(true);
+    try {
+      const contractId = Number(id);
+      await api.contracts.trialRetrieval(contractId);
+      const refreshed = await api.contracts.get(contractId);
+      setData(refreshed);
+    } catch (err: any) {
+      alert('فشل إنشاء مهمة سحب الجهاز: ' + (err.message || err));
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -531,23 +551,38 @@ export default function ContractDetail() {
 
       {/* ── Temporary Contract Banner ─────────────────────────────────────── */}
       {/* DEC-CT-01: `temporary` moved from status → saleSubtype */}
-      {data.saleSubtype === 'temporary' && data.status !== 'cancelled' && data.status !== 'discarded' && (
+      {data.saleSubtype === 'temporary' && data.status === 'active' && (
         <div className="max-w-5xl mx-auto px-4 pt-4">
           <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
-              <p className="text-sm font-bold text-amber-900">⏳ عقد مؤقت لمدة شهر</p>
-              <p className="text-xs text-amber-700 mt-1">
-                يجب إما تنشيط الدفع ليصبح بيعاً قطعياً أو إلغاؤه بعد انتهاء الشهر.
+              <p className="text-sm font-bold text-amber-900">⏳ عقد تجربة — الجهاز بحيازة الزبون بلا بيع</p>
+              <p className="text-xs text-amber-700 mt-1 leading-relaxed">
+                لا قيمة ولا ذمة على هذا العقد حتى يقرر الزبون الشراء. عند الشراء يُثبَّت السعر
+                ويُصدَر ملحق تثبيت البيعة الموقّع. وإن لم يشترِ، يُسحب الجهاز ويُلغى العقد بنجاح السحب.
               </p>
             </div>
             <div className="flex items-center gap-3 shrink-0">
-              <Button variant="gold" size="sm" onClick={() => setShowActivateModal(true)}>
-                ⚡ تنشيط عملية الدفع
+              <Button variant="gold" size="sm" disabled={actionLoading} onClick={() => setShowActivateModal(true)}>
+                ⚡ تثبيت البيعة
               </Button>
-              <Button variant="secondary" size="sm" disabled={actionLoading} onClick={openCancelModal}>
-                {actionLoading ? 'جاري...' : 'إلغاء العقد'}
+              <Button variant="secondary" size="sm" disabled={actionLoading} onClick={handleTrialRetrieval}>
+                {actionLoading ? 'جاري...' : 'سحب الجهاز'}
               </Button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* عقد بدأ تجربةً ثم تحوّل إلى بيع قطعي — الأثر يبقى مرئياً بعد التحوّل. */}
+      {data.startedAsTemporary && data.saleSubtype !== 'temporary' && (
+        <div className="max-w-5xl mx-auto px-4 pt-4">
+          <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4">
+            <p className="text-sm font-bold text-emerald-900">✓ بيعة مثبَّتة بعد تجربة</p>
+            <p className="text-xs text-emerald-700 mt-1">
+              بدأ هذا العقد كعقد تجربة وثُبّتت بيعته
+              {data.temporarySettledAt ? ` بتاريخ ${String(data.temporarySettledAt).slice(0, 10)}` : ''}.
+              البنود المالية في ملحق تثبيت البيعة المرفق بالنسخة القانونية.
+            </p>
           </div>
         </div>
       )}
@@ -1249,7 +1284,7 @@ export default function ContractDetail() {
               )}
               <div className="flex gap-3 pt-2">
                 <Button type="submit" fullWidth loading={activationLoading}>
-                  {activationLoading ? 'جاري التنشيط...' : 'تأكيد التنشيط'}
+                  {activationLoading ? 'جاري التثبيت...' : 'تأكيد تثبيت البيعة'}
                 </Button>
                 <Button variant="secondary" fullWidth onClick={() => setShowActivateModal(false)}>
                   إلغاء
