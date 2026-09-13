@@ -1466,8 +1466,11 @@ export default function ContractForm() {
                     sparePartId: item.sparePartId || null,
                     description: item.description,
                     quantity: item.quantity,
-                    unitPrice: isNoFinancialObligations ? 0 : item.unitPrice,
-                    totalPrice: isNoFinancialObligations ? 0 : (item.quantity * item.unitPrice),
+                    // بنود التجربة تحتفظ بأسعارها كقيمة معروضة لما سُلّم —
+                    // قالب الحيازة المؤقتة لا يطبع أسعاراً، وقيمة العقد نفسها
+                    // صفر، لكن هذه الأسعار هي ما يُقترح عند تثبيت البيعة.
+                    unitPrice: isFreeSale ? 0 : item.unitPrice,
+                    totalPrice: isFreeSale ? 0 : (item.quantity * item.unitPrice),
                 })),
                 paymentEntries: isNoInitialPayments ? [] : paymentEntries
                     .filter(e => e.method && (Number(e.amountValue) > 0 || isBarter(e.method)))
