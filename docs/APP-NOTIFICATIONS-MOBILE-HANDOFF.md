@@ -58,16 +58,17 @@ everything else to `unknown`. The backend now emits ten values:
 | `warranty_activated` | a warranty was activated | `warranty` | device id |
 | `complaint_update` | a public update was published on the customer's complaint | `complaint` | complaint id |
 | `general` with `destination: service_request_form` | an administrator invites the customer to submit a request | `service_request_form` | **request_type slug** |
+| `general` with `destination: catalog_device` | an administrator links to a public catalog model | `catalog_device` | **device_models id** |
 | `general` | free-form message sent by an administrator | *(varies or absent)* | *(varies or absent)* |
 
 `general` is the one your report said had **no** wire value today. It now has
 one, literally `general`, and it is not optional: the admin free-form composer is
 built and shipping, so without this mapping those messages render as `unknown`.
 
-### 1.3 Three new `data.destination` values — `visit`, `complaint`, `service_request_form`
+### 1.3 Four new `data.destination` values — `visit`, `complaint`, `service_request_form`, `catalog_device`
 
-**Change:** two entries in `NotificationDestinationResolver` +
-`NotificationDestinationRoute`.
+**Change:** add the four wire values to `NotificationDestinationResolver` and
+their mappings to `NotificationDestinationRoute`.
 
 `visit` should open the visit detail screen you already built for DEC-017
 ("زياراتي"), with `destination_id` as the visit id. This is the highest-value one
@@ -87,6 +88,11 @@ different in kind from every other destination: its `destination_id` is a
 that request type — the same target a home banner's `target_request_type`
 already opens today. So there is no new screen to build: build
 `ServiceRequestArgs` from the slug and route to the flow you already have.
+
+`catalog_device` opens the same public device-model details screen used by a
+home banner target `{ kind: 'device', deviceId }`. Its `destination_id` is a
+`device_models.id`; it is never an installed-device id. Until this resolver is
+added, the existing unknown-destination fallback may keep the tap in the inbox.
 
 This exists because the app has **no "my requests" and no "request details"
 screen**: `/service-request` takes `ServiceRequestArgs` and *is* the intake

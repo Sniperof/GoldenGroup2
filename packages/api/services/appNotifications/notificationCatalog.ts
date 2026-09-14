@@ -40,6 +40,8 @@ export type NotificationDestination =
   | 'service_request'
   | 'visit'
   | 'device'
+  /** Opens public catalog details; destination_id is device_models.id. */
+  | 'catalog_device'
   | 'warranty'
   | 'complaint'
   /**

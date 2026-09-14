@@ -105,9 +105,16 @@ export default function RouteManager() {
         for (let lvl = 3; lvl >= 0; lvl--) {
             const selId = treeSel[lvl];
             if (selId !== null) {
-                if (lvl + 2 > 4) return { id: selId, level: lvl + 1 };
+                const level = lvl + 1;
+                // الناحية والحي كلاهما محطة صالحة حتى لو كان تحت الناحية أحياء.
+                // المطابقة حرفية، فمحطة الناحية تخدم العناوين المسجّلة على
+                // الناحية نفسها ولا تُغني عن أحيائها ولا تُغنيها عنها. ومنع
+                // الناحية هنا كان يجعل 68 ناحية صالحةً كعنوان تركيب ومستحيلةً
+                // كمحطة — أي أجهزة لا تدخل التخطيط أبداً.
+                if (level >= 3) return { id: selId, level };
+                if (lvl + 2 > 4) return { id: selId, level };
                 const children = getChildren(lvl + 2, selId);
-                if (children.length === 0) return { id: selId, level: lvl + 1 };
+                if (children.length === 0) return { id: selId, level };
                 return null;
             }
         }
@@ -120,6 +127,25 @@ export default function RouteManager() {
         for (let i = level; i < 4; i++) next[i] = null;
         setTreeSel(next);
     };
+
+    // لكل محطة من مستوى الناحية: الأحياء التابعة لها التي لم تُضَف كمحطات.
+    // المطابقة في التخطيط حرفية، فهذه الأحياء لن تُخدَم بهذا المسار إطلاقاً.
+    const uncoveredChildrenWarnings = useMemo(() => {
+        const chosen = new Set(builderPoints.map(p => p.geoUnitId));
+        return builderPoints
+            .filter(p => p.level === 3)
+            .map(p => {
+                const children = geoUnits.filter(u => u.parentId === p.geoUnitId);
+                const missing = children.filter(child => !chosen.has(child.id));
+                return {
+                    geoUnitId: p.geoUnitId,
+                    name: getUnitName(p.geoUnitId),
+                    missing: missing.length,
+                    sample: missing.slice(0, 3).map(child => child.name),
+                };
+            })
+            .filter(w => w.missing > 0);
+    }, [builderPoints, geoUnits, getUnitName]);
 
     const addPoint = () => {
         if (!addableUnit) return;
@@ -391,6 +417,28 @@ export default function RouteManager() {
                                 {/* Stations list */}
                                 <div className="space-y-2">
                                     <p className="text-xs font-semibold text-slate-600">المحطات ({builderPoints.length})</p>
+
+                                    {/* المطابقة حرفية: محطة «ناحية» تسحب ما عنوانه تلك الناحية
+                                        بالضبط ولا تسحب أحياءها. فالحي غير المضاف تختفي مهامه
+                                        بصمت — ننبّه هنا بدل أن يُكتشف عند شكوى زبون. */}
+                                    {uncoveredChildrenWarnings.length > 0 && (
+                                        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 space-y-1">
+                                            <p className="text-xs font-bold text-amber-900">
+                                                أحياء لم تُضَف كمحطات
+                                            </p>
+                                            {uncoveredChildrenWarnings.map(w => (
+                                                <p key={w.geoUnitId} className="text-[11px] leading-relaxed text-amber-800">
+                                                    «{w.name}» ناحية تحتها {w.missing} من الأحياء غير مضافة:{' '}
+                                                    {w.sample.join('، ')}{w.missing > w.sample.length ? '…' : ''}
+                                                </p>
+                                            ))}
+                                            <p className="text-[11px] text-amber-700 pt-1 border-t border-amber-200">
+                                                محطة الناحية تخدم العناوين المسجّلة على الناحية نفسها فقط.
+                                                أضِف كل حي تريد زيارته كمحطة مستقلة.
+                                            </p>
+                                        </div>
+                                    )}
+
                                     {builderPoints.map((p, idx) => {
                                         const colors = levelColors[p.level] || levelColors[4];
                                         return (

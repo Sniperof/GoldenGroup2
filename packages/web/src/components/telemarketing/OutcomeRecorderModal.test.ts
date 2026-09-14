@@ -43,3 +43,26 @@ test('shared modal consumers reject failures instead of swallowing them', () => 
     assert.doesNotMatch(bookingFailurePath, /setCallLogSaveError/);
     assert.match(clientProfile, /catch \(err: any\) \{[\s\S]*?throw err instanceof Error/);
 });
+
+test('background data refreshes do not reset an open outcome session', () => {
+    const modal = readFileSync(
+        new URL('./OutcomeRecorderModal.tsx', import.meta.url),
+        'utf8',
+    );
+    const effectStart = modal.indexOf('if (!isOpen) {');
+    const resetStart = modal.indexOf("setMethod('cellular');", effectStart);
+
+    assert.ok(effectStart >= 0, 'the open-session effect must exist');
+    assert.match(
+        modal.slice(effectStart, resetStart),
+        /if \(!isOpen\) \{\s*openSessionInitializedRef\.current = false;\s*return;/,
+    );
+    assert.match(
+        modal.slice(effectStart, resetStart),
+        /if \(!openSessionInitializedRef\.current\) \{\s*openSessionInitializedRef\.current = true;/,
+    );
+    assert.match(
+        modal.slice(resetStart, modal.indexOf('}, [isOpen, task, preselectedContactId, appointmentDate, entityDetails]);', resetStart)),
+        /setOutcome\(null\)/,
+    );
+});

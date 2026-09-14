@@ -37,7 +37,13 @@ export const ACTIVE_TEMPLATE_VERSION: Record<string, string> = {
   sale_definitive: 'v2',
   sale_temporary: 'v1',
   sale_free: 'v1',
+  // ملحق تثبيت البيعة: يُجمَّد عند تسوية عقد التجربة. الأصل (عقد الحيازة
+  // المؤقتة) يبقى بلا مساس؛ الملحق وحده يحمل البنود المالية المتفق عليها.
+  sale_settlement_amendment: 'v1',
 };
+
+/** مفتاح قالب ملحق تثبيت البيعة (تسوية عقد التجربة). */
+export const SETTLEMENT_AMENDMENT_TEMPLATE_KEY = 'sale_settlement_amendment';
 
 export function templateKeyForContract(contract: { saleSubtype?: string | null; contractType?: string | null }): string | null {
   if (contract.contractType && contract.contractType !== 'sale_contract') return null;
@@ -88,6 +94,12 @@ export interface RenderContractInput {
   discount?: any | null;
   installments?: Array<{ installmentNumber: number; dueDate: string; amountSyp: number; remainingBalance?: number; status?: string }>;
   draftWatermark?: boolean;
+  /**
+   * Render a specific template instead of the one derived from saleSubtype.
+   * The settlement amendment needs this because it is rendered against a
+   * contract whose subtype has already flipped to `definitive`.
+   */
+  templateKey?: string;
 }
 
 export interface RenderContractResult {
@@ -315,8 +327,8 @@ function buildSaleDefinitiveVars(input: RenderContractInput, installmentsRows: s
 export function renderContract(input: RenderContractInput): RenderContractResult {
   const { contract, installments = [], draftWatermark = false } = input;
 
-  const key = templateKeyForContract(contract);
-  if (!key) {
+  const key = input.templateKey ?? templateKeyForContract(contract);
+  if (!key || !ACTIVE_TEMPLATE_VERSION[key]) {
     throw new Error(`لا يوجد قالب متاح لنوع العقد هذا (saleSubtype=${contract.saleSubtype})`);
   }
   const version = ACTIVE_TEMPLATE_VERSION[key];

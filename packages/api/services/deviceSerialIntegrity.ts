@@ -65,9 +65,16 @@ export async function assertDeviceSerialAvailable(
   const excludedDeviceId = exclusion.deviceId == null ? null : Number(exclusion.deviceId);
   const excludedContractId = exclusion.contractId == null ? null : Number(exclusion.contractId);
   const { rows } = await db.query(
+    // Terminal devices no longer hold their serial: with no warehouse entity,
+    // a retrieved or contract-cancelled device is out of the customer estate
+    // and its serial must be available to the next contract. The serial stays
+    // written on the old row on purpose — it is the only thread linking a
+    // physical device's history across contracts. Mirrors the partial unique
+    // index uq_installed_devices_serial_normalized (migration 458).
     `SELECT 1
        FROM installed_devices
       WHERE lower(btrim(serial_number)) = lower($1)
+        AND status NOT IN ('retrieved', 'contract_cancelled')
         AND ($2::int IS NULL OR id <> $2::int)
         AND ($3::int IS NULL OR contract_id IS DISTINCT FROM $3::int)
       LIMIT 1`,

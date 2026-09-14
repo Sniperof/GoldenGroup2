@@ -102,7 +102,13 @@ export default function ContractGiftsPanel({ contract }: { contract: any }) {
     quantity: 1,
   });
 
-  const canManage = hasPermission('contract_gifts.manage');
+  // مسار إنشاء وعد الهدية من تفاصيل العقد معطّل مؤقتاً بقرار تشغيلي
+  // (2026-09-13). العرض والقراءة باقيان، والصلاحية والمسار الخادمي لم يُمسّا —
+  // لإعادته اجعل هذا الثابت `true`.
+  const ALLOW_GIFT_PROMISE_CREATION_FROM_CONTRACT = false;
+
+  const canManage =
+    ALLOW_GIFT_PROMISE_CREATION_FROM_CONTRACT && hasPermission('contract_gifts.manage');
   const contractId = contract?.id ?? contract?.contractId ?? null;
   const customerId = contractCustomerId(contract);
 
@@ -263,7 +269,9 @@ export default function ContractGiftsPanel({ contract }: { contract: any }) {
             <p className="mt-1 text-xs leading-6 text-slate-500">
               {loading
                 ? 'جاري تحميل هدايا العقد...'
-                : loadError ?? 'وعد الهدية ينشأ يدوياً من العقد للزبون صاحب العقد أو لوسيط بيعة من نوع زبون.'}
+                : loadError ?? (ALLOW_GIFT_PROMISE_CREATION_FROM_CONTRACT
+                  ? 'وعد الهدية ينشأ يدوياً من العقد للزبون صاحب العقد أو لوسيط بيعة من نوع زبون.'
+                  : 'عرض هدايا هذا العقد. إنشاء وعد هدية من هنا معطّل حالياً.')}
             </p>
           </div>
         </div>

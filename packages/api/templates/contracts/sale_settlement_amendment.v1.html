@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <title>ملحق تثبيت البيعة — {{contract_number}}</title>
+  <style>
+    body {
+      font-family: "Tajawal", "Segoe UI", Arial, sans-serif;
+      color: #111;
+      padding: 32px;
+      max-width: 900px;
+      margin: auto;
+      line-height: 1.9;
+      font-size: 14px;
+    }
+    h1 { text-align: center; font-size: 1.5rem; margin: 0 0 8px; }
+    .subtitle { text-align: center; color: #555; margin-bottom: 24px; }
+    .section { margin-bottom: 20px; }
+    .box {
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 14px 16px;
+      margin-bottom: 18px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px 24px;
+    }
+    .label { color: #555; font-size: 0.9rem; margin-bottom: 2px; }
+    .value { font-weight: 600; }
+    .preline { white-space: pre-line; }
+    .article { margin-bottom: 18px; }
+    .article-title { font-weight: 800; margin-bottom: 6px; }
+    .installments table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+    }
+    .installments th,
+    .installments td {
+      border: 1px solid #ddd;
+      padding: 6px;
+      text-align: center;
+      font-size: 0.92rem;
+    }
+    .installments th { background: #f5f5f5; }
+    .signatures {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 24px;
+      margin-top: 48px;
+    }
+    .signature {
+      border-top: 1px solid #333;
+      padding-top: 8px;
+      text-align: center;
+      min-height: 70px;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>ملحق تثبيت البيعة</h1>
+  <div class="subtitle">
+    ملحق للعقد رقم: {{contract_number}} — تاريخ العقد الأصلي: {{contract_date}}
+  </div>
+
+  <div class="section">
+    <div class="box">
+      <div class="label">الفريق الأول</div>
+      <div class="grid">
+        <div><div class="label">الاسم</div><div class="value">{{company_name}}</div></div>
+        <div><div class="label">يمثله في هذا الملحق</div><div class="value">{{company_representative_name}}</div></div>
+        <div><div class="label">الصفة</div><div class="value">{{company_representative_title}}</div></div>
+        <div><div class="label">الفرع</div><div class="value">{{branch_name}}</div></div>
+      </div>
+    </div>
+
+    <div class="box">
+      <div class="label">الفريق الثاني</div>
+      <div class="grid">
+        <div><div class="label">الاسم الكامل</div><div class="value">{{customer_full_name}}</div></div>
+        <div><div class="label">اسم الأم</div><div class="value">{{customer_mother_name}}</div></div>
+        <div><div class="label">تاريخ الولادة</div><div class="value">{{customer_birth_date}}</div></div>
+        <div><div class="label">رقم الهوية</div><div class="value">{{customer_national_id_number}}</div></div>
+        <div><div class="label">القيد</div><div class="value">{{customer_registry_record}}</div></div>
+        <div><div class="label">صادرة عن</div><div class="value">{{customer_id_issued_by}}</div></div>
+        <div><div class="label">تاريخ المنح</div><div class="value">{{customer_id_issue_date}}</div></div>
+        <div><div class="label">الخانة</div><div class="value">{{customer_id_box}}</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="article">
+    <div class="article-title">المقدمة</div>
+    <div class="preline">لما كان الفريقان قد وقّعا العقد رقم {{contract_number}} بتاريخ {{contract_date}} على سبيل الحيازة المؤقتة، وقد نصّت المادتان /2/ و/8/ منه على أن ذلك التسليم لا يرتب بيعاً نهائياً إلا عند تثبيت العلاقة وفق الأصول المعتمدة؛ وقد رغب الفريق الثاني بتثبيت البيعة وتملّك الجهاز بشكل نهائي، فقد اتفق الفريقان وهما بكامل الأهلية على ما يلي:</div>
+  </div>
+
+  <div class="article">
+    <div class="article-title">المادة /1/ - الصفة القانونية لهذا الملحق</div>
+    <div class="preline">يعتبر هذا الملحق جزءاً لا يتجزأ من العقد رقم {{contract_number}}، ويقرأ معه قراءة واحدة. وما ورد فيه من بنود مالية هو المرجع النهائي المعتمد بين الفريقين، ويبقى العقد الأصلي نافذاً فيما لا يتعارض معه.</div>
+  </div>
+
+  <div class="article">
+    <div class="article-title">المادة /2/ - تثبيت البيعة</div>
+    <div class="preline">تحوّلت الحيازة المؤقتة الواردة في العقد الأصلي إلى بيع نهائي قطعي اعتباراً من تاريخ هذا الملحق، وانتقلت ملكية الجهاز التالي إلى الفريق الثاني:
+نوع الجهاز / الاسم التجاري: {{device_name}}
+الرقم التسلسلي: {{serialNumber}}
+العدد: {{device_quantity}}
+
+ويشمل هذا التثبيت البنود/الملحقات التالية:
+{{contract_items_summary}}
+
+وبذلك يسقط حق الفريق الأول في استرداد الجهاز المنصوص عليه في المادة /2/ من العقد الأصلي.</div>
+  </div>
+
+  <div class="article">
+    <div class="article-title">المادة /3/ - القيمة المتفق عليها</div>
+    <div class="preline">اتفق الفريقان على أن تكون القيمة الإجمالية النهائية للبيعة، شاملة الجهاز والبنود التابعة الملحقة به:
+{{final_price_number}} فقط ({{final_price_words}})
+
+ويتم سداد هذه القيمة على النحو التالي:
+{{payment_clause_text}}</div>
+  </div>
+
+  <div class="article">
+    <div class="article-title">المادة /4/ - السداد</div>
+    <div class="preline">طريقة السداد المتفق عليها في هذا الملحق هي:
+{{payment_type_label}}
+
+وقد دفع الفريق الثاني بتاريخ توقيع هذا الملحق مبلغاً مقداره:
+{{down_payment_number}} فقط ({{down_payment_words}})
+
+وبقي بذمته مبلغ مقداره:
+{{remaining_balance_number}} فقط ({{remaining_balance_words}})
+
+ويتم الوفاء بالباقي على النحو التالي:
+{{installments_summary_text}}</div>
+    {{#installmentsSection}}
+    <div class="installments">
+      <div class="label" style="margin-top:12px">جدول الاستحقاقات المرفق بهذا الملحق:</div>
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>تاريخ الاستحقاق</th>
+            <th>المبلغ</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{installmentsRows}}
+        </tbody>
+      </table>
+    </div>
+    {{/installmentsSection}}
+  </div>
+
+  <div class="article">
+    <div class="article-title">المادة /5/ - التأخير في السداد</div>
+    <div class="preline">في حال تأخر الفريق الثاني عن سداد أي مبلغ مستحق وفق هذا الملحق، تطبق الأحكام التالية:
+{{late_penalty_text}}
+
+قيمة الشرط أو الغرامة اليومية إن كانت معتمدة:
+{{late_penalty_amount}}</div>
+  </div>
+
+  <div class="article">
+    <div class="article-title">المادة /6/ - الكفالة والخدمة</div>
+    <div class="preline">تسري أحكام الكفالة والخدمة المعتمدة لدى الشركة على الجهاز موضوع هذا الملحق، ويبدأ أي أثر تشغيلي متعلق بالكفالة من تاريخ تشغيل الجهاز ووضعه في الخدمة الفعلية وفق ما هو مثبت في سجلات الشركة.</div>
+  </div>
+
+  <div class="article">
+    <div class="article-title">المادة /7/ - الاختصاص القضائي</div>
+    <div class="preline">{{jurisdiction_text}}</div>
+  </div>
+
+  <div class="article">
+    <div class="article-title">المادة /8/ - النسخ والأثر الكتابي</div>
+    <div class="preline">{{copies_count_text}}
+
+كما لا يجوز إجراء أي شطب أو تعديل يدوي على هذه النسخة بعد اعتمادها إلا وفق الأصول المعتمدة:
+{{no_manual_edit_text}}</div>
+  </div>
+
+  <div class="section">
+    <div class="label">تاريخ تثبيت البيعة: {{print_date}}</div>
+  </div>
+
+  <div class="signatures">
+    <div class="signature">
+      <div>الفريق الأول</div>
+      <div>{{company_signature_name}}</div>
+      <div>الصفة: {{company_signature_title}}</div>
+    </div>
+    <div class="signature">
+      <div>الفريق الثاني</div>
+      <div>{{customer_signature_name}}</div>
+    </div>
+  </div>
+
+</body>
+</html>

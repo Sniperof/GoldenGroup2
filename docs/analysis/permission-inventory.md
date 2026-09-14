@@ -154,8 +154,14 @@
 - `reference_data.lookup` - `packages/api/routes/branches.ts:183`, `packages/api/routes/branches.ts:251`, `packages/api/routes/departments.ts:176`, `packages/api/routes/departments.ts:281`
 - `reports.daily_work.visits_log.export` - `packages/api/services/reporting/tabularReportCatalog.test.ts:53`
 - `reports.daily_work.visits_log.view` - `packages/api/services/reporting/tabularReportCatalog.test.ts:52`
+- `reports.daily_work.sales_file.view` - `packages/api/services/reporting/tabularReportCatalog.ts`, `packages/api/services/reporting/dailyWorkSalesFileReport.test.ts`, `migrations/449_daily_work_sales_file_report.sql`
+- `reports.daily_work.sales_file.export` - `packages/api/services/reporting/tabularReportCatalog.ts`, `packages/api/services/reporting/dailyWorkSalesFileReport.test.ts`, `migrations/449_daily_work_sales_file_report.sql`
 - `reports.work_files.geo_supervisors.export` - `packages/api/services/reporting/tabularReportAccess.test.ts:50`, `packages/api/services/reporting/tabularReportAccess.test.ts:70`, `packages/api/services/reporting/tabularReportCatalog.test.ts:29`, `packages/api/services/reporting/tabularReportCatalog.test.ts:38`
 - `reports.work_files.geo_supervisors.view` - `packages/api/services/reporting/tabularReportAccess.test.ts:49`, `packages/api/services/reporting/tabularReportCatalog.test.ts:23`, `packages/api/services/reporting/tabularReportCatalog.test.ts:28`, `packages/api/services/reporting/tabularReportCatalog.test.ts:37`
+- `reports.work_files.names_file.view` - `packages/api/services/reporting/tabularReportCatalog.ts`, `packages/api/services/reporting/workFilesNamesFileReport.test.ts`, `migrations/444_work_files_names_file_report.sql`
+- `reports.work_files.names_file.export` - `packages/api/services/reporting/tabularReportCatalog.ts`, `packages/api/services/reporting/workFilesNamesFileReport.test.ts`, `migrations/444_work_files_names_file_report.sql`
+- `reports.service.dues.view` - `packages/api/services/reporting/tabularReportCatalog.ts`, `packages/api/services/reporting/serviceDuesReport.ts`, `packages/api/services/reporting/serviceDuesReport.test.ts`, `migrations/450_service_dues_report.sql`
+- `reports.service.dues.export` - `packages/api/services/reporting/tabularReportCatalog.ts`, `packages/api/services/reporting/serviceDuesReport.test.ts`, `migrations/450_service_dues_report.sql`
 - `routes.assign.manage` - `packages/api/policies/routeAssignmentPolicy.ts:155`, `packages/api/routes/routeAssignments.ts:317`, `packages/api/services/planningCurationContract.test.ts:395`
 - `routes.assign.view` - `packages/api/policies/routeAssignmentPolicy.ts:148`, `packages/api/routes/routeAssignments.ts:187`, `packages/api/routes/routeAssignments.ts:252`
 - `service_requests.review` - `packages/api/services/serviceRequests/atomicClientLink.test.ts:184`, `packages/api/services/serviceRequests/atomicClientLink.test.ts:186`, `packages/api/services/serviceRequests/atomicClientLink.test.ts:215`

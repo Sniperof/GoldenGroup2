@@ -18,7 +18,8 @@ import { useBranchListScope } from '../../hooks/useBranchListScope';
 const DESTINATION_LABELS: Record<'none' | BroadcastDestination, string> = {
   none: 'بدون وجهة (يفتح قائمة الإشعارات)',
   service_request: 'طلب خدمة',
-  device: 'جهاز',
+  device: 'جهاز مركّب لدى العميل',
+  catalog_device: 'جهاز من كتالوج التطبيق',
   warranty: 'الكفالة',
   complaint: 'شكوى',
   visit: 'زيارة',
@@ -48,7 +49,7 @@ const DESTINATION_OPTIONS = (Object.keys(DESTINATION_LABELS) as ('none' | Broadc
  * the thing it opens, and the API rejects the half-configured case.
  */
 const DESTINATIONS_NEEDING_ID: BroadcastDestination[] = [
-  'service_request', 'device', 'complaint', 'visit', 'service_request_form',
+  'service_request', 'device', 'catalog_device', 'complaint', 'visit', 'service_request_form',
 ];
 
 /**
@@ -109,11 +110,17 @@ export default function AppNotifications() {
   // Declared with the other hooks, ABOVE the permission redirect below: a hook
   // after an early return runs conditionally and breaks the hook order.
   const [requestTypes, setRequestTypes] = useState<{ requestType: string; labelAr: string }[]>([]);
+  const [catalogDevices, setCatalogDevices] = useState<{
+    id: number; nameAr: string; category: string | null;
+  }[]>([]);
   useEffect(() => {
     if (!canSend) return;
     api.admin.appNotifications.requestTypes()
-      .then((res) => setRequestTypes(res.items))
+      .then((result) => setRequestTypes(result.items))
       .catch(() => setRequestTypes([]));
+    api.admin.appNotifications.catalogDevices()
+      .then((result) => setCatalogDevices(result.items))
+      .catch(() => setCatalogDevices([]));
   }, [canSend]);
 
   if (!canView && !canSend) return <Navigate to="/" replace />;
@@ -267,7 +274,24 @@ export default function AppNotifications() {
                 </p>
               </div>
             )}
-            {needsId && destination !== REQUEST_FORM_DESTINATION && (
+            {needsId && destination === 'catalog_device' && (
+              <div>
+                <label className="block text-sm text-slate-600 mb-1">جهاز الكتالوج</label>
+                <Select
+                  value={destinationId}
+                  onChange={(value) => setDestinationId(String(value))}
+                  placeholder="اختر جهازاً من كتالوج التطبيق"
+                  options={catalogDevices.map((device) => ({
+                    value: String(device.id),
+                    label: device.category ? `${device.nameAr} — ${device.category}` : device.nameAr,
+                  }))}
+                />
+                <p className="text-xs text-slate-500 mt-1">
+                  يفتح صفحة الجهاز العامة في كتالوج التطبيق، وليس جهازاً مركّباً لدى عميل.
+                </p>
+              </div>
+            )}
+            {needsId && destination !== REQUEST_FORM_DESTINATION && destination !== 'catalog_device' && (
               <div>
                 <label className="block text-sm text-slate-600 mb-1">معرّف الوجهة</label>
                 <input

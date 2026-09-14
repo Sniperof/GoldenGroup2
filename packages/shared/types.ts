@@ -94,6 +94,14 @@ export interface Candidate {
     duplicateType: DuplicateType | null;
     duplicateReferenceId: number | null;
     convertedToLeadId: number | null;
+    /**
+     * How the name reached 'Qualified' (migration 440):
+     *  'converted' — a NEW client was created from it   → «تم التحويل»
+     *  'linked'    — it was attached to an EXISTING one → «تم الربط»
+     * Null on names that were never qualified. Before 440 the two paths were
+     * indistinguishable in the data and the UI guessed from duplicateFlag.
+     */
+    qualificationKind?: 'converted' | 'linked' | null;
     assignments?: CandidateAssignment[];
     createdByUserId?: number | null;
     createdByUserName?: string | null;

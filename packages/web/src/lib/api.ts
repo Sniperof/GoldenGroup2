@@ -1,4 +1,5 @@
 import type {
+  ClientReferrer,
   MarketingVisitCancelRequest,
   MarketingVisitRescheduleRequest,
   DevicePossessionEntry,
@@ -45,6 +46,8 @@ export interface AccountStatementResponse {
 // ── Free-form app notifications (DEC-019 D-N6/D-N7) ──────────────────────────
 export type BroadcastDestination =
   | 'service_request' | 'device' | 'warranty' | 'complaint' | 'visit'
+  /** Public catalog model — its id is device_models.id. */
+  | 'catalog_device'
   /** Intake FORM for a request type — its id is a request_type slug, not a row id. */
   | 'service_request_form';
 
@@ -148,6 +151,116 @@ export interface PagedClientsResponse {
   kpis: { total: number; leads: number; fops: number; ops: number };
 }
 
+export interface VisitContractCreationContext {
+  visitId: number;
+  branchId: number;
+  visitStatus: string;
+  saleOwnerId: number;
+  customer: {
+    id: number;
+    name: string;
+    mobile: string;
+    contacts: unknown[];
+    fatherName: string | null;
+    nationalId: string | null;
+    motherName: string | null;
+    birthDate: string | null;
+    gender: 'male' | 'female' | null;
+    nationalIdRegistry: string | null;
+    nationalIdIssuedBy: string | null;
+    nationalIdIssueDate: string | null;
+    nationalIdBox: string | null;
+    referrers: ClientReferrer[];
+  };
+  deviceDemoTask: {
+    visitTaskId: number;
+    sourceOpenTaskId: number;
+    status: string;
+    finalDecision: string;
+  };
+  acceptedOfferCount: number;
+  eligibleOffers: Array<{
+    id: number;
+    deviceModelId: number;
+    deviceName: string | null;
+    offerType: 'cash' | 'installment';
+    quantity: number;
+    totalAmount: number;
+    firstPaymentAmount: number;
+    installmentMonths: number;
+    currency: string;
+    discountPercentage: number;
+    appliedDeviceDiscountId: number | null;
+    closedByEmployeeId: number | null;
+    saleReferenceNumber: string | null;
+  }>;
+}
+
+export interface ContractCustomerLookupItem {
+  id: number;
+  name: string;
+  mobile: string;
+  branchName: string | null;
+  legalIdentityComplete: boolean;
+}
+
+export interface ContractCustomerLookupResponse {
+  items: ContractCustomerLookupItem[];
+  hasMore: boolean;
+}
+
+export interface ContractCustomerContext {
+  id: number;
+  name: string;
+  mobile: string;
+  contacts: unknown[];
+  fatherName: string | null;
+  nationalId: string | null;
+  motherName: string | null;
+  birthDate: string | null;
+  gender: 'male' | 'female' | null;
+  nationalIdRegistry: string | null;
+  nationalIdIssuedBy: string | null;
+  nationalIdIssueDate: string | null;
+  nationalIdBox: string | null;
+  referrers: ClientReferrer[];
+}
+
+/** GET /candidates/paged — `kpis` is keyed by candidate status; `total` is their sum. */
+export interface PagedCandidatesResponse {
+  items: any[];
+  total: number;
+  page: number;
+  limit: number;
+  kpis: Record<string, number>;
+}
+
+export interface PagedCandidatesParams {
+  branchId?: number | null;      // narrows a GLOBAL viewer to one branch (X-Branch-Id)
+  page?: number;
+  limit?: number;
+  sortKey?: string;              // createdAt | id | firstName | lastName | mobile | status | referralDate | branchName
+  sortDir?: 'asc' | 'desc';
+  ids?: string;                  // comma-joined ids — scoped batch lookup for surfaces needing specific rows
+  search?: string;               // name / nickname / mobile / referrer snapshot
+  status?: string;
+  branchFilterId?: number;       // explicit branch filter, always ANDed with the caller's scope
+                                 // (distinct from `branchId`, which becomes the X-Branch-Id header)
+  responsibleUserId?: number;
+  createdByUserId?: number;
+  converted?: 'converted' | 'unconverted' | '';
+  referralType?: string;
+  channel?: string;
+  duplicate?: 'yes' | 'no' | '';
+  confirmation?: string;
+  source?: 'fromSheet' | 'direct' | '';
+  referralSheetId?: number;
+  referralEntityId?: number;     // the referring entity (client id when referralType = Client)
+  geoUnitId?: number;
+  dateFrom?: string;             // YYYY-MM-DD
+  dateTo?: string;               // YYYY-MM-DD (inclusive)
+}
+
 export interface PagedClientsParams {
   branchId?: number | null;      // narrows a GLOBAL viewer to one branch (X-Branch-Id)
   page?: number;
@@ -160,6 +273,7 @@ export interface PagedClientsParams {
   routeGeoIds?: string;          // comma-joined subtree ids of a route's points
   owner?: string | number;       // assigned hr_user id
   rating?: string;               // Committed | NotCommitted | Undefined
+  referredByClientId?: number;   // clients this client referred (flat columns + referrers JSONB)
   waterSource?: string;          // admin-list value
   dataQuality?: string;          // correct | incorrect | needs_edit
   createdFrom?: string;          // YYYY-MM-DD
@@ -174,8 +288,9 @@ export interface PagedClientsParams {
 export interface ReportColumnDefinition {
   key: string;
   titleAr: string;
-  type: 'text' | 'integer' | 'date' | 'datetime' | 'link';
+  type: 'text' | 'integer' | 'decimal' | 'date' | 'datetime' | 'link';
   width: number;
+  sortable?: boolean;
 }
 
 export interface ReportCatalogItem {
@@ -189,7 +304,84 @@ export interface ReportCatalogItem {
   canExport: boolean;
   exportScope: 'GLOBAL' | 'BRANCH' | 'ASSIGNED' | null;
   columns: ReportColumnDefinition[];
-  filters: { dateRange: 'none' | 'required'; geography: boolean };
+  filters: {
+    dateRange: 'none' | 'required';
+    geography: boolean;
+    supervisor: boolean;
+    technician: boolean;
+    telemarketer: boolean;
+    visitStatus: boolean;
+    taskType?: boolean;
+    search?: boolean;
+    deviceModel?: boolean;
+    deviceStatus?: boolean;
+    warrantyStatus?: boolean;
+    customerRating?: boolean;
+    contactEmployee?: boolean;
+    lastContactChannel?: boolean;
+    replacedParts?: boolean;
+    paidAmount?: boolean;
+    dateRanges?: Array<{ fromKey: string; toKey: string; label: string }>;
+    primaryDateRanges?: Array<{ fromKey: string; toKey: string; label: string }>;
+    candidateNameSearch?: boolean;
+    candidateSourceType?: boolean;
+    candidateStatus?: boolean;
+    candidateOutcome?: boolean;
+    candidateDuplicateStatus?: boolean;
+    referralSheetNumber?: boolean;
+    mediatorName?: boolean;
+    mediatorType?: boolean;
+    accompanyingTechnician?: boolean;
+    giftPromiseStatus?: boolean;
+    occupation?: boolean;
+    contractStatus?: boolean;
+    contractSeller?: boolean;
+    contractSellerDepartment?: boolean;
+    contractPaymentType?: boolean;
+    contractExecutionStage?: boolean;
+    contractSaleType?: boolean;
+    reportDeviceModels?: boolean;
+    reportDeviceModelsRequired?: boolean;
+    callEmployee?: boolean;
+    callOutcome?: boolean;
+    departmentType?: boolean;
+    contractSaleSubtype?: boolean;
+    contractRemainingBalance?: boolean;
+    contractSale?: boolean;
+    financialAsOfDate?: boolean;
+    collectionOwner?: boolean;
+    saleCloser?: boolean;
+    latestCollectionResult?: boolean;
+    faultType?: boolean;
+    faultStatus?: boolean;
+    faultDiscoveryPhase?: boolean;
+    repairTechnician?: boolean;
+    faultDuration?: boolean;
+    faultPartsUsage?: boolean;
+    retrievalPurpose?: boolean;
+    retrievalTechnician?: boolean;
+    retrievedDeviceStatus?: boolean;
+    giftConditionStatus?: boolean;
+    giftDeliveryResult?: boolean;
+    giftDefinition?: boolean;
+    visitTechnician?: boolean;
+    retrievalSource?: boolean;
+    originBranch?: boolean;
+    route?: boolean;
+    areaEvaluation?: boolean;
+    evaluationConfidence?: boolean;
+    periodicPressure?: boolean;
+    department?: boolean;
+    jobTitle?: boolean;
+    employmentStatus?: boolean;
+    technicianActivity?: boolean;
+    callBookingPresence?: boolean;
+    receivableSourceType?: boolean;
+    collectionAppointmentPresence?: boolean;
+    taskResult?: boolean;
+    cancellationReason?: boolean;
+    visitOrigin?: boolean;
+  };
   guide: {
     framingTitle: string;
     framingDescription: string;
@@ -208,12 +400,66 @@ export interface ReportCatalogGroup {
 
 export interface TabularReportResponse {
   runId: string;
+  status: 'completed';
   report: Omit<ReportCatalogItem, 'viewScope' | 'canExport' | 'exportScope'>;
   scope: 'GLOBAL' | 'BRANCH' | 'ASSIGNED';
   branchIds: number[];
+  filters: Record<string, unknown>;
   rows: Array<Record<string, unknown>>;
   pagination: { page: number; limit: number; total: number; pages: number };
   generatedAt: string;
+  requestedAt: string;
+  expiresAt: string;
+  progress: { rows: number; batches: number };
+}
+
+export interface TabularReportPendingResponse {
+  runId: string;
+  status: 'queued' | 'running' | 'failed';
+  requestedAt: string;
+  expiresAt: string;
+  startedAt?: string | null;
+  generatedAt?: string | null;
+  progress: { rows: number; batches: number };
+  error?: string | null;
+}
+
+export type TabularReportRunResponse = TabularReportResponse | TabularReportPendingResponse;
+
+export interface ReportFilterOptions {
+  supervisors: Array<{ value: string; label: string }>;
+  technicians: Array<{ value: string; label: string }>;
+  telemarketers: Array<{ value: string; label: string }>;
+  visitStatuses: Array<{ value: string; label: string }>;
+  taskTypes: Array<{ value: string; label: string }>;
+  deviceModels: Array<{ value: string; label: string }>;
+  deviceStatuses: Array<{ value: string; label: string }>;
+  warrantyStatuses: Array<{ value: string; label: string }>;
+  customerRatings: Array<{ value: string; label: string }>;
+  contactEmployees: Array<{ value: string; label: string }>;
+  candidateStatuses: Array<{ value: string; label: string }>;
+  accompanyingTechnicians: Array<{ value: string; label: string }>;
+  giftPromiseStatuses: Array<{ value: string; label: string }>;
+  contractStatuses: Array<{ value: string; label: string }>;
+  contractSellers: Array<{ value: string; label: string }>;
+  contractSellerDepartments: Array<{ value: string; label: string }>;
+  contractSales: Array<{ value: string; label: string }>;
+  collectionOwners: Array<{ value: string; label: string }>;
+  saleClosers: Array<{ value: string; label: string }>;
+  departmentTypes: Array<{ value: string; label: string }>;
+  callEmployees: Array<{ value: string; label: string }>;
+  callOutcomes: Array<{ value: string; label: string }>;
+  faultTypes: Array<{ value: string; label: string }>;
+  repairTechnicians: Array<{ value: string; label: string }>;
+  retrievalTechnicians: Array<{ value: string; label: string }>;
+  retrievedDeviceStatuses: Array<{ value: string; label: string }>;
+  giftDefinitions: Array<{ value: string; label: string }>;
+  originBranches: Array<{ value: string; label: string }>;
+  routes: Array<{ value: string; label: string }>;
+  departments: Array<{ value: string; label: string }>;
+  jobTitles: Array<{ value: string; label: string }>;
+  taskResults: Array<{ value: string; label: string }>;
+  cancellationReasons: Array<{ value: string; label: string }>;
 }
 
 // GET /contracts/paged — server pagination companion to contracts.list()
@@ -585,15 +831,23 @@ function toQueryString(qs: URLSearchParams) {
 export const api = {
   reports: {
     catalog: () => request<{ groups: ReportCatalogGroup[] }>('/reports/catalog'),
+    filterOptions: (key: string, params?: Record<string, string | number | null | undefined>) => {
+      const query = new URLSearchParams();
+      Object.entries(params ?? {}).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '') query.set(k, String(v));
+      });
+      const suffix = query.toString() ? `?${query.toString()}` : '';
+      return request<ReportFilterOptions>(`/reports/tabular/${key}/filter-options${suffix}`);
+    },
     generateTabular: (key: string, filters?: Record<string, string | number | null | undefined>) =>
-      request<TabularReportResponse>(`/reports/tabular/${key}/generate`, { method: 'POST', body: JSON.stringify(filters ?? {}) }),
+      request<TabularReportPendingResponse>(`/reports/tabular/${key}/generate`, { method: 'POST', body: JSON.stringify(filters ?? {}) }),
     tabularRun: (runId: string, params?: Record<string, string | number | null | undefined>) => {
       const query = new URLSearchParams();
       Object.entries(params ?? {}).forEach(([k, v]) => {
         if (v !== undefined && v !== null && v !== '') query.set(k, String(v));
       });
       const suffix = query.toString() ? `?${query.toString()}` : '';
-      return request<TabularReportResponse>(`/reports/tabular/runs/${runId}${suffix}`);
+      return request<TabularReportRunResponse>(`/reports/tabular/runs/${runId}${suffix}`);
     },
     exportTabularRun: async (runId: string) => {
       const response = await authFetch(`${API_BASE}/reports/tabular/runs/${runId}/export`);
@@ -639,14 +893,17 @@ export const api = {
     },
   },
   dashboardLayout: {
-    get: () => request<{ layout: DashboardWidget[] }>('/me/dashboard-layout'),
+    get: () => request<{ layout: DashboardWidget[]; customized: boolean }>('/me/dashboard-layout'),
     save: (layout: DashboardWidget[]) =>
-      request<{ layout: DashboardWidget[] }>('/me/dashboard-layout', {
+      request<{ layout: DashboardWidget[]; customized: boolean }>('/me/dashboard-layout', {
         method: 'PUT',
         body: JSON.stringify({ layout }),
       }),
   },
   gifts: {
+    promiseConditions: {
+      list: () => request<Array<{ id: number; value: string; label: string; requiresNotes: boolean; displayOrder: number }>>('/gifts/promise-conditions'),
+    },
     definitions: {
       list: () => request<any[]>('/gifts/definitions'),
       create: (data: any) => request<any>('/gifts/definitions', { method: 'POST', body: JSON.stringify(data) }),
@@ -680,6 +937,8 @@ export const api = {
           });
         }
       },
+      updateReferralPromise: (id: number | string, data: { giftDefinitionId: number; conditionId: number; conditionNotes?: string; promisedQuantity: number }) =>
+        request<any>(`/gifts/records/${id}/referral-promise`, { method: 'PATCH', body: JSON.stringify(data) }),
       updateCondition: (id: number | string, data: { conditionStatus: string; conditionNotes?: string }) =>
         request<any>(`/gifts/records/${id}/condition`, { method: 'PATCH', body: JSON.stringify(data) }),
       approve: (id: number | string, data?: { approvedQuantity?: number; approvalNotes?: string }) =>
@@ -784,6 +1043,9 @@ export const api = {
       requestTypes: () => request<{ items: { requestType: string; labelAr: string }[] }>(
         '/admin/app-notifications/request-types',
       ),
+      catalogDevices: () => request<{ items: { id: number; nameAr: string; category: string | null }[] }>(
+        '/admin/app-notifications/catalog-devices',
+      ),
     },
     appContactLinks: {
       get: () => request<AppContactLinks>('/admin/app-contact-links'),
@@ -864,7 +1126,7 @@ export const api = {
       const suffix = query.size > 0 ? `?${query.toString()}` : '';
       return request<AccountStatementResponse>(`/clients/${id}/account-statement${suffix}`);
     },
-    smartMatch: (data: { phone?: string; mobile?: string; name?: string }) =>
+    smartMatch: (data: { phone?: string; mobile?: string; name?: string; branchId?: number }) =>
       request<any>('/clients/smart-match', { method: 'POST', body: JSON.stringify(data) }),
     create: (data: any) => request<any>('/clients', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/clients/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
@@ -910,8 +1172,42 @@ export const api = {
       '/candidates',
       branchId != null ? { headers: { 'X-Branch-Id': String(branchId) } } : undefined,
     ),
+    // Server-paginated records surface. Added BESIDE `list` — every existing
+    // consumer of `list` keeps the exact endpoint and shape it had.
+    listPaged: (params: PagedCandidatesParams = {}) => {
+      const { branchId, ...rest } = params;
+      const query = new URLSearchParams();
+      Object.entries(rest).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '' && value !== 'all') {
+          query.set(key, String(value));
+        }
+      });
+      const suffix = query.size > 0 ? `?${query.toString()}` : '';
+      return request<PagedCandidatesResponse>(
+        `/candidates/paged${suffix}`,
+        branchId != null ? { headers: { 'X-Branch-Id': String(branchId) } } : undefined,
+      );
+    },
     get: (id: number) => request<import('@golden-crm/shared').CandidateDetail>(`/candidates/${id}`),
-    create: (data: any) => request<any>('/candidates', { method: 'POST', body: JSON.stringify(data) }),
+    create: async (data: any) => {
+      try {
+        return await request<any>('/candidates', { method: 'POST', body: JSON.stringify(data) });
+      } catch (error: any) {
+        if (error?.payload?.code !== 'similar_gift_promises' || !data?.giftPromise) throw error;
+        const count = Number(error.payload?.similarCount) || 0;
+        const proceed = window.confirm(
+          `تنبيه: يوجد ${count} وعد/وعود غير منتهية مشابهة لهذا الوسيط. هل تريد حفظ الاسم ووعد جديد مستقل؟`,
+        );
+        if (!proceed) throw new Error('تم إيقاف الحفظ بعد تنبيه الوعود المشابهة');
+        return request<any>('/candidates', {
+          method: 'POST',
+          body: JSON.stringify({
+            ...data,
+            giftPromise: { ...data.giftPromise, similarPromiseWarningAcknowledged: true },
+          }),
+        });
+      }
+    },
     update: (id: number, data: any) => request<any>(`/candidates/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     linkToClient: (id: number, clientId: number) =>
       request<any>(`/candidates/${id}/link-client`, { method: 'POST', body: JSON.stringify({ clientId }) }),
@@ -923,7 +1219,25 @@ export const api = {
       '/referral-sheets',
       branchId != null ? { headers: { 'X-Branch-Id': String(branchId) } } : undefined,
     ),
-    create: (data: any) => request<any>('/referral-sheets', { method: 'POST', body: JSON.stringify(data) }),
+    create: async (data: any) => {
+      try {
+        return await request<any>('/referral-sheets', { method: 'POST', body: JSON.stringify(data) });
+      } catch (error: any) {
+        if (error?.payload?.code !== 'similar_gift_promises' || !data?.giftPromise) throw error;
+        const count = Number(error.payload?.similarCount) || 0;
+        const proceed = window.confirm(
+          `تنبيه: يوجد ${count} وعد/وعود غير منتهية مشابهة لهذا الوسيط. هل تريد حفظ اللائحة ووعد جديد مستقل؟`,
+        );
+        if (!proceed) throw new Error('تم إيقاف الحفظ بعد تنبيه الوعود المشابهة');
+        return request<any>('/referral-sheets', {
+          method: 'POST',
+          body: JSON.stringify({
+            ...data,
+            giftPromise: { ...data.giftPromise, similarPromiseWarningAcknowledged: true },
+          }),
+        });
+      }
+    },
     update: (id: number, data: any) => request<any>(`/referral-sheets/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   },
   routes: {
@@ -964,6 +1278,14 @@ export const api = {
       );
     },
     get: (id: number) => request<any>(`/contracts/${id}`),
+    getCreationContextForVisit: (visitId: number) =>
+      request<VisitContractCreationContext>(`/contracts/creation-context/visit/${visitId}`),
+    searchCustomers: (query: string, signal?: AbortSignal) => {
+      const qs = new URLSearchParams({ q: query, limit: '20' });
+      return request<ContractCustomerLookupResponse>(`/contracts/customer-lookup?${qs.toString()}`, { signal });
+    },
+    getCustomerContext: (customerId: number, signal?: AbortSignal) =>
+      request<ContractCustomerContext>(`/contracts/customer-context/${customerId}`, { signal }),
     create: (data: any) => request<any>('/contracts', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/contracts/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id: number) => request<any>(`/contracts/${id}`, { method: 'DELETE' }),
@@ -973,6 +1295,28 @@ export const api = {
       request<any>(`/contracts/${contractId}/installments`, { method: 'POST', body: JSON.stringify({ installments }) }),
     confirmInstallments: (contractId: number) =>
       request<any>(`/contracts/${contractId}/installments/confirm`, { method: 'POST' }),
+    // تثبيت بيعة عقد التجربة: نداء واحد ذرّي يثبّت المالية ويقلب النوع الفرعي
+    // ويجمّد ملحق تثبيت البيعة. يحل محل تسلسل PUT + دفعات + أقساط + تأكيد،
+    // الذي كان يترك العقد نصف محوَّل عند فشل أي خطوة.
+    settle: (
+      contractId: number,
+      data: {
+        paymentType: 'cash' | 'installment';
+        finalPrice: number;
+        downPayment: number;
+        installments?: Array<{ installmentNumber: number; dueDate: string; amountSyp: number }>;
+        // بيانات المشتري القانونية — يشترطها البيع بالتقسيط، وتُستكمل هنا
+        // لأن العقد غير قابل للتعديل بعد اعتماده كعقد تجربة.
+        legal?: Record<string, string>;
+      },
+    ) => request<any>(`/contracts/${contractId}/settle`, { method: 'POST', body: JSON.stringify(data) }),
+    // إنهاء التجربة بلا شراء: ينشئ مهمة سحب الجهاز. العقد يُلغى لاحقاً عند
+    // نجاح السحب فعلياً، لا عند إنشاء المهمة.
+    trialRetrieval: (contractId: number, data?: { dueDate?: string }) =>
+      request<any>(`/contracts/${contractId}/trial-retrieval`, {
+        method: 'POST',
+        body: JSON.stringify(data ?? {}),
+      }),
     toggleLineItemInstallation: (contractId: number, itemId: number, isInstalled: boolean) =>
       request<any>(`/contracts/${contractId}/line-items/${itemId}/installation`, {
         method: 'PUT',

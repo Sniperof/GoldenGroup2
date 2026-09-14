@@ -14,7 +14,7 @@ import SmartTable, { type ColumnDef } from '../../components/SmartTable';
 import { DeviceStatusBadge } from '../../components/devices/DeviceStatusBadge';
 import { WarrantyStatusBadge } from '../../components/devices/WarrantyStatusBadge';
 import { PossessionHolderChip } from '../../components/devices/PossessionHolderChip';
-import GeoSmartSearch, { type GeoSelection } from '../../components/GeoSmartSearch';
+import GeoSmartSearch, { type GeoSelection, deepestGeoId, isInstallationGeoSelected } from '../../components/GeoSmartSearch';
 import MapPicker from '../../components/MapPicker';
 import Select from '../../components/ui/Select';
 import Checkbox from '../../components/ui/Checkbox';
@@ -167,7 +167,7 @@ function ExternalDeviceModalV2({
             onChange={onGeoSelectionChange}
             label="عنوان التركيب"
             required
-            minSelectableLevel={4}
+            minSelectableLevel={3}
             placeholder="ابحث عن الحي..."
             disabled={loadingOptions}
           />
@@ -372,7 +372,7 @@ export function DevicesTab({ client }: Props) {
         deviceModelId: Number(externalDeviceModelId),
         serialNumber: externalSerial.trim() || null,
         status: externalStatus,
-        installationGeoUnitId: Number(externalGeoSelection.neighborhoodId),
+        installationGeoUnitId: Number(deepestGeoId(externalGeoSelection)),
         installationAddressText: externalAddress.trim(),
         installationLat: externalMapPosition?.[0] ?? null,
         installationLng: externalMapPosition?.[1] ?? null,

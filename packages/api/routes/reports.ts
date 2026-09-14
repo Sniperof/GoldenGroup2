@@ -13,7 +13,8 @@ import { getOrBuildAuthContext } from '../middleware/permission.js';
 import { getMetric, ReportingError, type GetMetricParams } from '../services/reporting/metricsService.js';
 import { getBreakdown } from '../services/reporting/breakdownService.js';
 import { buildVisibleReportCatalog } from '../services/reporting/tabularReportCatalog.js';
-import { exportTabularReportRun, generateTabularReport, getTabularReportRun } from '../services/reporting/tabularReportService.js';
+import { exportTabularReportRun, generateTabularReport, getTabularReportFilterOptions, getTabularReportRun } from '../services/reporting/tabularReportService.js';
+import { readTabularReportRequestParams } from '../services/reporting/tabularReportAccess.js';
 
 const router = Router();
 
@@ -35,17 +36,14 @@ function handleError(err: unknown, res: Response): void {
   res.status(500).json({ error: 'فشل تجهيز بيانات التقرير' });
 }
 
+/**
+ * The report layer owns the filter contract, so both the query string and the
+ * generate body are lifted through its single key list rather than re-listed here:
+ * a key spelled out in only one of the two places is a filter the user sets and the
+ * report never applies.
+ */
 function readTabularParams(req: Request) {
-  return {
-    branchId: typeof req.query.branchId === 'string' ? req.query.branchId : undefined,
-    employeeId: typeof req.query.employeeId === 'string' ? req.query.employeeId : undefined,
-    geoUnitId: typeof req.query.geoUnitId === 'string' ? req.query.geoUnitId : undefined,
-    geoIds: typeof req.query.geoIds === 'string' ? req.query.geoIds : undefined,
-    fromDate: typeof req.query.fromDate === 'string' ? req.query.fromDate : undefined,
-    toDate: typeof req.query.toDate === 'string' ? req.query.toDate : undefined,
-    page: typeof req.query.page === 'string' ? req.query.page : undefined,
-    limit: typeof req.query.limit === 'string' ? req.query.limit : undefined,
-  };
+  return readTabularReportRequestParams(req.query);
 }
 
 // ── كتالوج وتقارير جدولية — قبل /:metricKey حتى لا تُفسّر كأسماء مؤشرات ──
@@ -58,16 +56,27 @@ router.get('/catalog', async (req, res) => {
   }
 });
 
+router.get('/tabular/:reportKey/filter-options', async (req, res) => {
+  try {
+    const authContext = await getOrBuildAuthContext(req as Request & { user: AuthUser });
+    const data = await getTabularReportFilterOptions(authContext, req.params.reportKey, readTabularParams(req));
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json(data);
+  } catch (err) {
+    handleError(err, res);
+  }
+});
+
 router.post('/tabular/:reportKey/generate', async (req, res) => {
   try {
     const authContext = await getOrBuildAuthContext(req as Request & { user: AuthUser });
-    const input = req.body ?? {};
-    const data = await generateTabularReport(authContext, req.params.reportKey, {
-      branchId: input.branchId, employeeId: input.employeeId, geoUnitId: input.geoUnitId, geoIds: input.geoIds,
-      fromDate: input.fromDate, toDate: input.toDate,
-    });
+    const data = await generateTabularReport(
+      authContext,
+      req.params.reportKey,
+      readTabularReportRequestParams(req.body),
+    );
     res.setHeader('Cache-Control', 'private, no-store');
-    res.json(data);
+    res.status(202).json(data);
   } catch (err) {
     handleError(err, res);
   }
@@ -90,7 +99,10 @@ router.get('/tabular/runs/:runId/export', async (req, res) => {
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="${output.filename}"`);
     res.setHeader('X-Report-Exported-At', output.exportedAt.toISOString());
-    res.send(output.buffer);
+    res.download(output.filePath, output.filename, err => {
+      void output.cleanup();
+      if (err && !res.headersSent) handleError(err, res);
+    });
   } catch (err) {
     handleError(err, res);
   }

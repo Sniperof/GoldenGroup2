@@ -9,13 +9,14 @@ test('candidate status terminology follows the names table', () => {
   assert.doesNotMatch(source, /Junk: \{ label: 'مستبعد'/);
 });
 
-test('candidate V2 shows persisted gift promises as a permission-gated read-only section', () => {
+test('candidate V2 delegates persisted gift promises to the shared details panel', () => {
   assert.match(source, /hasPermission\('contract_gifts\.view'\)/);
-  assert.match(source, /candidate\.id !== candidateId/);
-  assert.match(source, /api\.gifts\.records\.list\(\{ candidateId \}\)/);
+  assert.match(source, /ReferralGiftPromisesPanel/);
+  assert.match(source, /candidateId=\{candidateId\}/);
   assert.match(source, /title="وعود الهدايا"/);
   assert.match(source, /لا توجد وعود هدايا مسجلة لهذا الاسم أو لائحته/);
   assert.doesNotMatch(source, /GiftRecordActions/);
+  assert.doesNotMatch(source, /إضافة وعد هدية/);
 });
 
 test('candidate detail no longer renders the old global deferral sentence', () => {

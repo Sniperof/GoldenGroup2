@@ -7,6 +7,20 @@ import { requirePermission } from '../middleware/permission.js';
 const router = Router();
 router.use(requireAuth);
 
+/**
+ * What a caller-supplied call time MEANS, pinned here instead of left to whatever
+ * timezone the database session happens to carry. A string that already names its
+ * zone (`Z` or `±hh:mm`) is honoured as the instant it is; a bare local string —
+ * which is what a `datetime-local` input produces — is read as Damascus wall time.
+ * Without this the same string denotes two different instants on two deployments,
+ * and the day-boundary comparisons the call reports depend on silently shift.
+ */
+export const CALL_DATE_SQL = `COALESCE(
+          CASE WHEN $8 ~ '(Z|[+-][0-9]{2}:?[0-9]{2})$'
+               THEN $8::timestamptz
+               ELSE ($8::timestamp AT TIME ZONE 'Asia/Damascus') END,
+          NOW())`;
+
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 function getCallerId(req: any): number | null {
@@ -455,7 +469,7 @@ router.post(
         answered_by, communication_channel, status
       ) VALUES (
         $1, $2, $3, $4, $5,
-        $6, $7, COALESCE($8::timestamptz, NOW()), $9, $10, $11,
+        $6, $7, ${CALL_DATE_SQL}, $9, $10, $11,
         $12, $13, $14,
         $15, $16, $17
       )
@@ -542,22 +556,34 @@ router.post(
         for (const { open_task_id } of allTaskRows) {
           if (open_task_id) {
             await pool.query(
-              'INSERT INTO call_task_links (call_id, task_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
-              [call.id, open_task_id],
+              `INSERT INTO call_task_links (call_id, task_id, task_due_date_snapshot, task_status_snapshot, is_primary)
+               SELECT $1, task.id, task.due_date, task.status, $3
+                 FROM open_tasks task WHERE task.id = $2
+               ON CONFLICT (call_id, task_id)
+               DO UPDATE SET is_primary = call_task_links.is_primary OR EXCLUDED.is_primary`,
+              [call.id, open_task_id, open_task_id === openTaskId],
             );
           }
         }
         // Fallback: also link the explicitly provided taskId if not already covered
         if (openTaskId != null) {
           await pool.query(
-            'INSERT INTO call_task_links (call_id, task_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
-            [call.id, openTaskId],
+            `INSERT INTO call_task_links (call_id, task_id, task_due_date_snapshot, task_status_snapshot, is_primary)
+               SELECT $1, task.id, task.due_date, task.status, $3
+                 FROM open_tasks task WHERE task.id = $2
+               ON CONFLICT (call_id, task_id)
+               DO UPDATE SET is_primary = call_task_links.is_primary OR EXCLUDED.is_primary`,
+            [call.id, openTaskId, true],
           );
         }
       } else if (openTaskId != null) {
         await pool.query(
-          'INSERT INTO call_task_links (call_id, task_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
-          [call.id, openTaskId],
+          `INSERT INTO call_task_links (call_id, task_id, task_due_date_snapshot, task_status_snapshot, is_primary)
+               SELECT $1, task.id, task.due_date, task.status, $3
+                 FROM open_tasks task WHERE task.id = $2
+               ON CONFLICT (call_id, task_id)
+               DO UPDATE SET is_primary = call_task_links.is_primary OR EXCLUDED.is_primary`,
+          [call.id, openTaskId, true],
         );
       }
     }

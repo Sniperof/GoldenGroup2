@@ -285,7 +285,7 @@ router.get('/schedule-pool', requirePermission('planning.manage'), async (req, r
   }
 });
 
-router.get('/closers', requirePermission('employees.view_list'), async (req, res) => {
+router.get('/closers', requirePermission('employees.lookup', 'employees.view_list'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
     const branchId = authContext.isSuperAdmin

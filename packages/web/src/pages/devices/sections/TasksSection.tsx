@@ -25,7 +25,7 @@ import Button from '../../../components/ui/Button';
 import Select from '../../../components/ui/Select';
 import DateField from '../../../components/ui/DateField';
 import { usePermissions } from '../../../hooks/usePermissions';
-import GeoSmartSearch, { type GeoSelection } from '../../../components/GeoSmartSearch';
+import GeoSmartSearch, { type GeoSelection, deepestGeoId } from '../../../components/GeoSmartSearch';
 import { evaluateDeviceTaskEligibility } from '@golden-crm/shared';
 
 interface Props {
@@ -735,7 +735,7 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
 
   async function createTransferTask() {
     setError(null);
-    const neighborhoodId = transferGeoSelection.neighborhoodId;
+    const neighborhoodId = deepestGeoId(transferGeoSelection);
     const fallbackReason = transferKind === 'another_customer' ? 'device_transfer_another_customer' : 'device_transfer_same_customer_new_address';
     const creationOptions = creationOptionsFor(fallbackReason, transferCreationReasons, FALLBACK_TRANSFER_CREATION_REASONS);
     const creationOption = selectedCreationOption(transferCreationReason, creationOptions);
@@ -746,7 +746,7 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
       return;
     }
     if (!neighborhoodId) {
-      setError('اختر الحي في العنوان المبدئي الجديد');
+      setError('اختر الناحية أو الحي في العنوان المبدئي الجديد');
       return;
     }
     if (!transferAddressText.trim()) {
@@ -1365,7 +1365,7 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
                       onChange={setTransferGeoSelection}
                       label="الحي في العنوان المبدئي الجديد"
                       required
-                      minSelectableLevel={4}
+                      minSelectableLevel={3}
                       placeholder="ابحث عن الحي"
                     />
                     <label className="block space-y-1.5">

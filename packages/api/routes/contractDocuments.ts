@@ -17,12 +17,19 @@ import { Router } from 'express';
 import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
-import { renderContract } from '../services/contractRenderer.js';
+import {
+  renderContract,
+  ACTIVE_TEMPLATE_VERSION,
+  SETTLEMENT_AMENDMENT_TEMPLATE_KEY,
+} from '../services/contractRenderer.js';
 import type { PoolClient } from 'pg';
 import { canFreezeContractDocument, canViewContractDocument } from '../policies/contractDocumentPolicy.js';
 
 const router = Router();
 router.use(requireAuth);
+
+const SETTLEMENT_AMENDMENT_TEMPLATE_VERSION =
+  ACTIVE_TEMPLATE_VERSION[SETTLEMENT_AMENDMENT_TEMPLATE_KEY];
 
 async function loadContractDocumentSubject(contractId: number) {
   const { rows } = await pool.query(
@@ -239,6 +246,67 @@ export async function freezeContractDocument(
     `INSERT INTO contract_documents
        (contract_id, template_version, rendered_html, content_hash, frozen_by, is_amendment)
      VALUES ($1, $2, $3, $4, $5, FALSE)
+     RETURNING id`,
+    [contractId, templateVersion, html, contentHash, actorId],
+  );
+  return { id: rows[0].id, contentHash, templateVersion, createdNow: true };
+}
+
+/**
+ * Freeze the settlement amendment (ملحق تثبيت البيعة) for a trial contract
+ * that has just been settled into a definitive sale.
+ *
+ * The original frozen copy is the trial agreement and must never be touched —
+ * its own article /10/ forbids any later edit, and the unique index allows a
+ * single non-amendment original per contract. The financial terms the customer
+ * agrees to at purchase therefore live in an amendment row, which the schema
+ * has supported since day one (contract_documents.is_amendment) but which no
+ * code path had ever written.
+ *
+ * Idempotent per contract: a second settlement attempt returns the existing
+ * amendment instead of stacking duplicates.
+ */
+export async function freezeContractSettlementAmendment(
+  db: PoolClient,
+  contractId: number,
+  actorId: number | null,
+): Promise<{ id: number; contentHash: string; templateVersion: string; createdNow: boolean }> {
+  const existing = await db.query(
+    `SELECT id, content_hash, template_version
+       FROM contract_documents
+      WHERE contract_id = $1
+        AND is_amendment = TRUE
+        AND template_version = $2
+      LIMIT 1`,
+    [contractId, SETTLEMENT_AMENDMENT_TEMPLATE_VERSION],
+  );
+  if (existing.rows[0]) {
+    return {
+      id:              existing.rows[0].id,
+      contentHash:     existing.rows[0].content_hash,
+      templateVersion: existing.rows[0].template_version,
+      createdNow:      false,
+    };
+  }
+
+  const bundle = await loadContractForRender(db, contractId);
+  if (!bundle) throw new Error('العقد غير موجود');
+
+  const { templateVersion, html, contentHash } = renderContract({
+    contract:       bundle.contract,
+    client:         bundle.client,
+    lineItems:      bundle.lineItems,
+    paymentEntries: bundle.paymentEntries,
+    discount:       bundle.discount,
+    installments:   bundle.installments,
+    draftWatermark: false,
+    templateKey:    SETTLEMENT_AMENDMENT_TEMPLATE_KEY,
+  });
+
+  const { rows } = await db.query(
+    `INSERT INTO contract_documents
+       (contract_id, template_version, rendered_html, content_hash, frozen_by, is_amendment)
+     VALUES ($1, $2, $3, $4, $5, TRUE)
      RETURNING id`,
     [contractId, templateVersion, html, contentHash, actorId],
   );

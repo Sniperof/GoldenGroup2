@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     FileText, ChevronDown, Search, Calendar, Monitor, Hash,
@@ -7,13 +7,14 @@ import {
     RotateCcw, CheckCircle2, User, Calculator, MapPin,
     AlertTriangle, ShieldCheck, ArrowRightLeft, Globe, Landmark,
     BadgeDollarSign, Gift, Plus, X, Edit2,
-    ExternalLink, Smartphone, Clipboard, Loader2
+    ExternalLink, Smartphone, Clipboard, Loader2, Lock
 } from '../../components/ui/icons';
 import { api } from '../../lib/api';
+import type { VisitContractCreationContext } from '../../lib/api';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { useBranchContextStore } from '../../hooks/useBranchContextStore';
 import MapPicker from '../../components/MapPicker';
-import GeoSmartSearch, { buildPath as buildGeoPath, pathToSelection as geoPathToSelection } from '../../components/GeoSmartSearch';
+import GeoSmartSearch, { buildPath as buildGeoPath, pathToSelection as geoPathToSelection, isInstallationGeoSelected } from '../../components/GeoSmartSearch';
 import type { GeoSelection } from '../../components/GeoSmartSearch';
 import type { GeoUnit } from '../../lib/types';
 import type { ClientReferrer } from '@golden-crm/shared';
@@ -34,8 +35,10 @@ interface MockCustomer {
     id: number;
     name: string;
     mobile: string;
-    fatherName?: string;
-    nationalId?: string;
+    branchName?: string | null;
+    legalIdentityComplete?: boolean;
+    fatherName?: string | null;
+    nationalId?: string | null;
     motherName?: string | null;
     birthDate?: string | null;
     gender?: 'male' | 'female' | null;
@@ -239,7 +242,12 @@ function giftBeneficiaryKindForReferrer(
 export default function ContractForm() {
     const navigate = useNavigate();
     const { id: editId } = useParams<{ id: string }>();
+    const [searchParams] = useSearchParams();
     const isEdit = Boolean(editId);
+    const rawVisitCreationId = !isEdit ? searchParams.get('visitId') : null;
+    const visitCreationId = rawVisitCreationId && /^\d+$/.test(rawVisitCreationId) && Number(rawVisitCreationId) > 0
+        ? Number(rawVisitCreationId)
+        : null;
     const currentUser = useAuthStore(s => s.user);
     const hasPermission = useAuthStore(s => s.hasPermission);
     const getPermissionScope = useAuthStore(s => s.getPermissionScope);
@@ -248,6 +256,7 @@ export default function ContractForm() {
     // silently creates the contract in their home branch. Mirrors the list-page
     // guard and the super-admin server rule (covers direct-link entry too).
     const mustPickBranch = !isEdit
+        && visitCreationId == null
         && getPermissionScope('contracts.create') === 'GLOBAL'
         && contextBranchId == null;
     // ─── API Data ───
@@ -261,6 +270,7 @@ export default function ContractForm() {
     const [geoUnits, setGeoUnits] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [loadError, setLoadError] = useState<string | null>(null);
+    const [visitCreationContext, setVisitCreationContext] = useState<VisitContractCreationContext | null>(null);
     const [saving, setSaving] = useState(false);
     const [step, setStep] = useState<'type_selection' | 'details'>(isEdit ? 'details' : 'type_selection');
     const contractType = 'sale_contract' as const;
@@ -286,24 +296,35 @@ export default function ContractForm() {
     const [selectedOfferTaskId, setSelectedOfferTaskId] = useState<string | null>(null);
 
     useEffect(() => {
+        setLoading(true);
+        setLoadError(null);
         setCanAssignSaleOwner(hasPermission('contracts.assign_sale_owner'));
-        const baseRequests: Promise<any>[] = [
-            api.clients.list(),
-            api.deviceModels.list({ activeOnly: true }),
-            api.geoUnits.list(),
-            api.spareParts.list({ activeOnly: true }),
-            // Optional lookups: a 403 here (e.g. a supervisor without the sale-
-            // owner permission) must NOT abort the whole form load — otherwise
-            // the customer/device/geo data never loads and the form looks empty.
-            api.employees.closers().catch(() => []),
-            api.systemLists.list({ category: 'no_closing_reasons' }).catch(() => []),
-            api.systemLists.list({ category: 'contract_sale_source' }).catch(() => []),
-            api.employees.list().catch(() => []),
-        ];
-        if (isEdit && editId) baseRequests.push(api.contracts.get(Number(editId)));
+        if (rawVisitCreationId && visitCreationId == null) {
+            setLoadError('رابط الزيارة غير صالح. افتح إنشاء العقد من تفاصيل الزيارة مرة أخرى.');
+            setLoading(false);
+            return;
+        }
+        const creationContextRequest = visitCreationId
+            ? api.contracts.getCreationContextForVisit(visitCreationId)
+            : Promise.resolve(null);
 
-        Promise.all(baseRequests)
-            .then(([clientsData, modelsData, geoData, partsData, closersData, reasonsData, sourcesData, employeesData, existingContract]) => {
+        creationContextRequest
+            .then(creationContext => Promise.all([
+                // Manual creation searches on demand; visit creation supplies
+                // one authoritative customer. Neither flow downloads all clients.
+                Promise.resolve([]),
+                api.deviceModels.list({ activeOnly: true, branchId: creationContext?.branchId }),
+                api.geoUnits.list(creationContext?.branchId),
+                api.spareParts.list({ activeOnly: true }),
+                // Optional lookups: a 403 here must not abort the whole form.
+                api.employees.closers().catch(() => []),
+                api.systemLists.list({ category: 'no_closing_reasons' }).catch(() => []),
+                api.systemLists.list({ category: 'contract_sale_source' }).catch(() => []),
+                api.employees.list(creationContext?.branchId).catch(() => []),
+                isEdit && editId ? api.contracts.get(Number(editId)) : Promise.resolve(null),
+                Promise.resolve(creationContext),
+            ]))
+            .then(([clientsData, modelsData, geoData, partsData, closersData, reasonsData, sourcesData, employeesData, existingContract, creationContext]) => {
                 setBranchEmployees(Array.isArray(employeesData) ? employeesData : []);
                 const mappedCustomers = clientsData.map((c: any) => ({
                     id: c.id,
@@ -327,6 +348,46 @@ export default function ContractForm() {
                 setClosers(closersData);
                 setNoClosingReasons(reasonsData);
                 setCustomSaleSources(sourcesData);
+
+                if (creationContext) {
+                    const context = creationContext as VisitContractCreationContext;
+                    const fixedCustomer: MockCustomer = {
+                        id: context.customer.id,
+                        name: context.customer.name,
+                        mobile: context.customer.mobile || '',
+                        fatherName: context.customer.fatherName || undefined,
+                        nationalId: context.customer.nationalId || undefined,
+                        motherName: context.customer.motherName,
+                        birthDate: context.customer.birthDate,
+                        gender: context.customer.gender,
+                        nationalIdRegistry: context.customer.nationalIdRegistry,
+                        nationalIdIssuedBy: context.customer.nationalIdIssuedBy,
+                        nationalIdIssueDate: context.customer.nationalIdIssueDate,
+                        nationalIdBox: context.customer.nationalIdBox,
+                        referrers: context.customer.referrers || [],
+                    };
+                    const fixedTask = {
+                        id: context.deviceDemoTask.sourceOpenTaskId,
+                        taskType: 'device_demo',
+                        status: context.deviceDemoTask.status,
+                        finalDecision: context.deviceDemoTask.finalDecision,
+                        offers: context.eligibleOffers.map(offer => ({
+                            ...offer,
+                            customerResponse: 'accepted',
+                            contractId: null,
+                        })),
+                    };
+
+                    setVisitCreationContext(context);
+                    setCustomers([fixedCustomer]);
+                    setSelectedCustomer(fixedCustomer);
+                    setSaleSource('device_demo_task');
+                    setSourceTaskId(String(context.visitId));
+                    setSourceOpenTaskId(context.deviceDemoTask.sourceOpenTaskId);
+                    setSaleOwnerId(context.saleOwnerId);
+                    setClientTasks([fixedTask]);
+                    setSelectedTask(fixedTask);
+                }
 
                 if (existingContract) {
                     const c = existingContract;
@@ -499,14 +560,20 @@ export default function ContractForm() {
                     }
                 }
             })
-            .catch(err => console.error('Failed to load form data:', err))
+            .catch(err => {
+                console.error('Failed to load form data:', err);
+                setLoadError(err?.message ?? 'تعذّر تجهيز نموذج العقد');
+            })
             .finally(() => setLoading(false));
-    }, [isEdit, editId]);
+    }, [isEdit, editId, rawVisitCreationId, visitCreationId, hasPermission]);
 
     // ─── 1. Customer & Legal ───
     const [customerSearch, setCustomerSearch] = useState('');
     const [selectedCustomer, setSelectedCustomer] = useState<MockCustomer | null>(null);
     const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+    const [customerLookupLoading, setCustomerLookupLoading] = useState(false);
+    const [customerLookupError, setCustomerLookupError] = useState<string | null>(null);
+    const [customerLookupHasMore, setCustomerLookupHasMore] = useState(false);
     const [selectedReferrerIds, setSelectedReferrerIds] = useState<string[]>([]);
     const [giftPromises, setGiftPromises] = useState<ContractGiftPromisePreview[]>([]);
     const [showGiftPromiseModal, setShowGiftPromiseModal] = useState(false);
@@ -519,6 +586,46 @@ export default function ContractForm() {
         conditionStatus: 'pending',
         quantity: 1,
     });
+
+    useEffect(() => {
+        if (isEdit || visitCreationContext || selectedCustomer || !showCustomerDropdown) return;
+
+        const query = customerSearch.trim();
+        if (query.length < 2) {
+            setCustomers([]);
+            setCustomerLookupLoading(false);
+            setCustomerLookupError(null);
+            setCustomerLookupHasMore(false);
+            return;
+        }
+
+        const controller = new AbortController();
+        setCustomers([]);
+        setCustomerLookupLoading(true);
+        setCustomerLookupError(null);
+        setCustomerLookupHasMore(false);
+        const timer = window.setTimeout(() => {
+            api.contracts.searchCustomers(query, controller.signal)
+                .then(result => {
+                    setCustomers(result.items);
+                    setCustomerLookupHasMore(result.hasMore);
+                })
+                .catch(error => {
+                    if (error?.name === 'AbortError') return;
+                    setCustomers([]);
+                    setCustomerLookupHasMore(false);
+                    setCustomerLookupError(error?.message ?? 'تعذّر البحث عن الزبائن');
+                })
+                .finally(() => {
+                    if (!controller.signal.aborted) setCustomerLookupLoading(false);
+                });
+        }, 300);
+
+        return () => {
+            window.clearTimeout(timer);
+            controller.abort();
+        };
+    }, [customerSearch, isEdit, selectedCustomer, showCustomerDropdown, visitCreationContext]);
     const [fatherNameOverride, setFatherNameOverride] = useState('');
     const [nationalIdOverride, setNationalIdOverride] = useState('');
     const [buyerBirthDate, setBuyerBirthDate] = useState('');
@@ -582,6 +689,20 @@ export default function ContractForm() {
 
     // ─── Computed ───
     const selectedDevice = useMemo(() => deviceModels.find(d => d.id === deviceModelId) || null, [deviceModelId, deviceModels]);
+
+    // كفالات الموديل هي المصدر الوحيد لكفالة العقد. بند بلا عدد زيارات صالح
+    // يُستبعد: الزيارات تحدّد فاصل الصيانة الدورية، فبندٌ بصفر زيارة يعني كفالة
+    // بلا أثر تشغيلي — وهو ما كان يقع صامتاً قبل هذا التغيير.
+    const deviceWarrantyPeriods = useMemo(() => {
+        const raw = (selectedDevice?.warrantyPeriods ?? []) as Array<{ months: number; label: string; visits: number }>;
+        return raw
+            .filter(p => Number(p?.months) > 0 && Number(p?.visits) > 0)
+            .map(p => ({
+                months: Number(p.months),
+                visits: Number(p.visits),
+                label: String(p.label ?? `${p.months} شهر`),
+            }));
+    }, [selectedDevice]);
     const basePrice = selectedDevice?.basePrice || 0;
     const activeGiftDefinitions = useMemo(() => (
         giftDefinitions.filter(definition => definition.isActive)
@@ -777,6 +898,13 @@ export default function ContractForm() {
             setSelectedOfferTaskId(null);
             return;
         }
+        if (visitCreationContext) {
+            // Context was authorized and shaped by the server. Reusing it avoids
+            // client-list/task fan-out and prevents the fixed visit task from
+            // being replaced by whatever the general customer scope can see.
+            setLoadingTasks(false);
+            return;
+        }
         setLoadingTasks(true);
         // Load device_demo tasks for this client, then fetch detail only for
         // visits linked to those tasks (via marketingVisitId) — avoids N+1 over all visits.
@@ -813,7 +941,7 @@ export default function ContractForm() {
             })
             .catch((err: any) => console.error('Failed to load client tasks & visits:', err))
             .finally(() => setLoadingTasks(false));
-    }, [selectedCustomer]);
+    }, [selectedCustomer, visitCreationContext, isEdit]);
 
     const availableOffers = useMemo(() => {
         if (!selectedTask) return [];
@@ -935,15 +1063,31 @@ export default function ContractForm() {
         }
     }, [selectedTask, detailedVisits, deviceModels, contractDate]);
 
+    // A visit with exactly one accepted, still-unlinked offer has no ambiguity:
+    // apply it immediately so the device, price, payment method and payment plan
+    // are prefilled. The imported values remain editable (`isOfferLocked=false`).
+    // If the task has more than one accepted offer, the supervisor must choose.
+    const autoAppliedVisitOfferRef = useRef<number | null>(null);
+    useEffect(() => {
+        if (!visitCreationContext || selectedOffer) return;
+        if (visitCreationContext.acceptedOfferCount !== 1 || visitCreationContext.eligibleOffers.length !== 1) return;
+        const onlyOffer = visitCreationContext.eligibleOffers[0];
+        if (autoAppliedVisitOfferRef.current === Number(onlyOffer.id)) return;
+        autoAppliedVisitOfferRef.current = Number(onlyOffer.id);
+        handleSelectOffer({ ...onlyOffer, customerResponse: 'accepted', contractId: null });
+    }, [visitCreationContext, selectedOffer, handleSelectOffer]);
+
     const handleResetOffer = useCallback(() => {
         setSelectedOffer(null);
-        setSelectedTask(null);
-        setSourceTaskId('');
-        setSourceOpenTaskId(null);
         setSourceTaskOfferId(null);
         setSaleReferenceNumber(null);
         setSelectedOfferVisitId(null);
         setSelectedOfferTaskId(null);
+        if (!visitCreationContext) {
+            setSelectedTask(null);
+            setSourceTaskId('');
+            setSourceOpenTaskId(null);
+        }
         
         setDeviceModelId('');
         setSelectedDiscountId('');
@@ -959,7 +1103,7 @@ export default function ContractForm() {
         
         // Also clear device line item
         setLineItems([]);
-    }, []);
+    }, [visitCreationContext]);
 
     // Payment helpers
     const isBarter = (m: PaymentMethod) => m === 'barter';
@@ -1119,14 +1263,10 @@ export default function ContractForm() {
     // Geo — handled by GeoSmartSearch component
 
     // Customer search
-    const filteredCustomers = useMemo(() => {
-        const query = customerSearch.trim();
-        if (!showCustomerDropdown) return [];
-        if (!query) return customers.slice(0, 25);
-        return customers
-            .filter(c => c.name.includes(query) || c.mobile.includes(query))
-            .slice(0, 25);
-    }, [customerSearch, customers, showCustomerDropdown]);
+    const filteredCustomers = useMemo(
+        () => showCustomerDropdown ? customers : [],
+        [customers, showCustomerDropdown],
+    );
 
     // ContractForm only creates/edits drafts. Selecting a closer records the
     // proposed closer but does not activate the contract; full activation
@@ -1190,9 +1330,16 @@ export default function ContractForm() {
         if (!selectedCustomer) issues.push('اختر الزبون');
         if (!deviceModelId) issues.push('اختر نموذج الجهاز');
         if (!geoSelection.govId) issues.push('اختر المحافظة في عنوان التركيب');
-        else if (!geoSelection.neighborhoodId) issues.push('اختر الحي (الموقع التفصيلي) في عنوان التركيب');
+        // الناحية مقبولة كعنوان تركيب: 2158 ناحية من 2232 لا أحياء تحتها،
+        // فاشتراط الحي كان يمنع إنشاء العقد في معظم الخريطة.
+        else if (!isInstallationGeoSelected(geoSelection)) issues.push('اختر الناحية أو الحي في عنوان التركيب');
         if (saleType === 'tradein' && !oldContractNumber.trim()) {
             issues.push('أدخل رقم العقد القديم المستبدل');
+        }
+        // كفالة محفوظة خارج كتالوج الموديل (عقود أُنشئت قبل ربط الكفالة بالجهاز):
+        // لا تُمحى بصمت، بل يُطلب اختيار بند معرّف قبل الحفظ.
+        if (warrantyMonths > 0 && !deviceWarrantyPeriods.some(p => p.months === warrantyMonths)) {
+            issues.push('مدة الكفالة المحفوظة غير معرّفة على هذا الموديل — اختر مدة من كفالات الجهاز أو «بدون كفالة»');
         }
 
         // National ID format applies always when entered (even in draft).
@@ -1270,7 +1417,11 @@ export default function ContractForm() {
         try {
             const isFreeSale = saleSubtype === 'free';
             const isTemporarySale = saleSubtype === 'temporary';
-            const isNoFinancialObligations = isFreeSale;
+            // عقد التجربة لا يُقبض فيه شيء حتى يقرر الزبون الشراء، فلا يحمل
+            // قيمة ولا ذمة؛ القيمة تُثبَّت لاحقاً عبر تثبيت البيعة (/settle).
+            // البنود تبقى محفوظة — قالب الحيازة المؤقتة يعرضها في المادة /2/
+            // لتوصيف ما سُلّم فعلاً — لكنها بلا أثر مالي قبل الشراء.
+            const isNoFinancialObligations = isFreeSale || isTemporarySale;
             const isNoInitialPayments = isFreeSale || isTemporarySale;
             const finalBasePrice = isNoFinancialObligations ? 0 : (selectedDevice?.basePrice || 0);
             const finalPriceVal = isNoFinancialObligations ? 0 : grandTotal;
@@ -1293,7 +1444,10 @@ export default function ContractForm() {
                 oldContractNumber: saleType === 'tradein' ? oldContractNumber.trim() : null,
                 oldDeviceCondition: saleType === 'tradein' ? oldDeviceCondition : null,
                 saleSource: saleSource || null,
-                sourceVisit: saleSource === 'device_demo_task' ? (sourceTaskId.trim() || null) : null,
+                sourceVisit: visitCreationContext
+                    ? `field_visit:${visitCreationContext.visitId}`
+                    : (saleSource === 'device_demo_task' ? (sourceTaskId.trim() || null) : null),
+                ...(visitCreationContext ? { sourceVisitId: visitCreationContext.visitId } : {}),
                 discountId: (isNoFinancialObligations || !selectedDiscountId) ? null : Number(selectedDiscountId),
                 appliedDeviceDiscountId: (isNoFinancialObligations || !selectedDiscountId) ? null : Number(selectedDiscountId),
                 paymentType: finalPaymentType,
@@ -1333,8 +1487,11 @@ export default function ContractForm() {
                     sparePartId: item.sparePartId || null,
                     description: item.description,
                     quantity: item.quantity,
-                    unitPrice: isNoFinancialObligations ? 0 : item.unitPrice,
-                    totalPrice: isNoFinancialObligations ? 0 : (item.quantity * item.unitPrice),
+                    // بنود التجربة تحتفظ بأسعارها كقيمة معروضة لما سُلّم —
+                    // قالب الحيازة المؤقتة لا يطبع أسعاراً، وقيمة العقد نفسها
+                    // صفر، لكن هذه الأسعار هي ما يُقترح عند تثبيت البيعة.
+                    unitPrice: isFreeSale ? 0 : item.unitPrice,
+                    totalPrice: isFreeSale ? 0 : (item.quantity * item.unitPrice),
                 })),
                 paymentEntries: isNoInitialPayments ? [] : paymentEntries
                     .filter(e => e.method && (Number(e.amountValue) > 0 || isBarter(e.method)))
@@ -1389,7 +1546,7 @@ export default function ContractForm() {
             }
 
             // Post-insertion offer linkage (create only)
-            if (!isEdit && selectedOfferVisitId && selectedOfferTaskId && sourceTaskOfferId) {
+            if (!isEdit && !visitCreationContext && selectedOfferVisitId && selectedOfferTaskId && sourceTaskOfferId) {
                 try {
                     await api.marketingVisits.linkOfferContract(
                         selectedOfferVisitId,
@@ -1414,7 +1571,7 @@ export default function ContractForm() {
         persistedInstallmentsConfirmed, paymentEntries, closingEmployeeId,
         invoiceNotes, lineItems, geoSelection, detailedAddress, mapPosition, fatherNameOverride,
         nationalIdOverride, saleSubtype, selectedReferrerIds, sourceOpenTaskId, sourceTaskOfferId, saleReferenceNumber, giftPromises,
-        selectedOfferVisitId, selectedOfferTaskId, noClosingReasonId, saleOwnerId, navigate,
+        selectedOfferVisitId, selectedOfferTaskId, noClosingReasonId, saleOwnerId, navigate, visitCreationContext,
         warrantyMonths, warrantyVisits, deliveryDate, installationDate,
         buyerBirthDate, buyerGender, buyerMotherName, buyerNationalIdRegistry,
         buyerNationalIdIssuedBy, buyerNationalIdIssueDate, buyerNationalIdBox,
@@ -1547,7 +1704,11 @@ export default function ContractForm() {
                             <FileText className="w-6 h-6 text-white" />
                         </div>
                         <h1 className="text-lg font-bold text-slate-800">عقد جديد</h1>
-                        <p className="text-sm text-slate-400">اختر نوع عقد البيع للمتابعة</p>
+                        <p className="text-sm text-slate-400">
+                            {visitCreationContext
+                                ? `من الزيارة #${visitCreationContext.visitId} — الزبون مثبت من الزيارة`
+                                : 'اختر نوع عقد البيع للمتابعة'}
+                        </p>
                     </div>
 
                     <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
@@ -1602,9 +1763,11 @@ export default function ContractForm() {
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
-                        <button onClick={handleReset} className="flex items-center gap-1.5 px-4 py-2.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 text-sm font-medium transition-colors">
-                            <RotateCcw className="w-4 h-4" /><span>إعادة تعيين</span>
-                        </button>
+                        {!visitCreationContext && (
+                            <button onClick={handleReset} className="flex items-center gap-1.5 px-4 py-2.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 text-sm font-medium transition-colors">
+                                <RotateCcw className="w-4 h-4" /><span>إعادة تعيين</span>
+                            </button>
+                        )}
                         <button onClick={handleSubmit} disabled={!isValid || saving}
                             title={!isValid ? validationIssues.join(' • ') : (isDraftMode ? 'حفظ كمسودة' : 'حفظ العقد')}
                             className="flex items-center gap-1.5 px-5 py-2.5 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:bg-slate-200 disabled:text-slate-400 text-white text-sm font-bold transition-colors shadow-sm disabled:shadow-none">
@@ -1630,6 +1793,18 @@ export default function ContractForm() {
                     </div>
                 )}
 
+                {visitCreationContext && (
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 flex items-start gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" />
+                        <div>
+                            <p className="text-sm font-bold text-emerald-800">عقد ناتج عن الزيارة #{visitCreationContext.visitId}</p>
+                            <p className="text-xs text-emerald-700 mt-0.5">
+                                الزبون ومهمة العرض وصاحب البيعة مثبتون. ربط أحد العروض المقبولة اختياري.
+                            </p>
+                        </div>
+                    </div>
+                )}
+
                 {/* ═══════════════════════════════════════════════════════ */}
                 {/* 1. CUSTOMER & LEGAL INFO                               */}
                 {/* ═══════════════════════════════════════════════════════ */}
@@ -1644,7 +1819,7 @@ export default function ContractForm() {
                     ) : undefined}
                 >
                     {/* Customer Search */}
-                    <Field label="اختر الزبون" required>
+                    <Field label={visitCreationContext ? 'زبون الزيارة' : 'اختر الزبون'} required hint={visitCreationContext ? 'مثبت من الزيارة ولا يمكن تغييره في هذا العقد.' : undefined}>
                         <div className="relative" onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setShowCustomerDropdown(false); }}>
                             <div className="relative">
                                 <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
@@ -1652,43 +1827,69 @@ export default function ContractForm() {
                                     type="text"
                                     value={selectedCustomer ? selectedCustomer.name : customerSearch}
                                     onChange={e => { setCustomerSearch(e.target.value); setSelectedCustomer(null); setSelectedReferrerIds([]); setShowCustomerDropdown(true); setFatherNameOverride(''); setNationalIdOverride(''); }}
-                                    onFocus={() => setShowCustomerDropdown(true)}
+                                    onFocus={() => { if (!visitCreationContext) setShowCustomerDropdown(true); }}
+                                    readOnly={Boolean(visitCreationContext)}
                                     placeholder="بحث بالاسم أو رقم الموبايل..."
-                                    className={`${inputClass} pr-10`}
+                                    className={`${inputClass} pr-10 ${visitCreationContext ? 'bg-slate-50 text-slate-600 cursor-not-allowed' : ''}`}
                                 />
                             </div>
-                            {showCustomerDropdown && !selectedCustomer && (
+                            {showCustomerDropdown && !selectedCustomer && !visitCreationContext && (
                                 <div className="absolute z-50 top-full mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-xl max-h-56 overflow-y-auto">
-                                    {filteredCustomers.length === 0 ? (
-                                        <div className="p-3 text-center text-sm text-slate-400">لا يوجد نتائج</div>
+                                    {customerSearch.trim().length < 2 ? (
+                                        <div className="p-3 text-center text-sm text-slate-400">اكتب حرفين على الأقل للبحث</div>
+                                    ) : customerLookupLoading ? (
+                                        <div className="p-3 flex items-center justify-center gap-2 text-sm text-slate-500">
+                                            <Loader2 className="w-4 h-4 animate-spin" /> جارٍ البحث...
+                                        </div>
+                                    ) : customerLookupError ? (
+                                        <div className="p-3 text-center text-sm text-red-500">{customerLookupError}</div>
+                                    ) : filteredCustomers.length === 0 ? (
+                                        <div className="p-3 text-center text-sm text-slate-400">لا يوجد نتائج مطابقة</div>
                                     ) : (
-                                        filteredCustomers.map(c => (
-                                            <button key={c.id} type="button"
-                                                className="w-full flex items-center gap-3 px-4 py-3 text-right hover:bg-sky-50 transition-colors border-b border-slate-50 last:border-b-0"
-                                                onClick={async () => {
-                                                    setCustomerSearch('');
-                                                    setShowCustomerDropdown(false);
-                                                    setFatherNameOverride('');
-                                                    setNationalIdOverride('');
-                                                    try {
-                                                        const freshClient = await api.clients.get(c.id);
-                                                        setSelectedCustomer(freshClient);
-                                                    } catch {
-                                                        setSelectedCustomer(c);
-                                                    }
-                                                }}>
-                                                <div className="w-8 h-8 rounded-full bg-sky-100 flex items-center justify-center">
-                                                    <User className="w-4 h-4 text-sky-600" />
+                                        <>
+                                            {filteredCustomers.map(c => (
+                                                <button key={c.id} type="button"
+                                                    className="w-full flex items-center gap-3 px-4 py-3 text-right hover:bg-sky-50 transition-colors border-b border-slate-50 last:border-b-0"
+                                                    onClick={async () => {
+                                                        setShowCustomerDropdown(false);
+                                                        setCustomerLookupLoading(true);
+                                                        setCustomerLookupError(null);
+                                                        setFatherNameOverride('');
+                                                        setNationalIdOverride('');
+                                                        try {
+                                                            const freshClient = await api.contracts.getCustomerContext(c.id);
+                                                            setSelectedCustomer(freshClient);
+                                                            setCustomerSearch('');
+                                                        } catch (error: any) {
+                                                            setSelectedCustomer(null);
+                                                            setCustomerSearch(c.name);
+                                                            setCustomerLookupError(error?.message ?? 'تعذّر تحميل بيانات الزبون');
+                                                            setShowCustomerDropdown(true);
+                                                        } finally {
+                                                            setCustomerLookupLoading(false);
+                                                        }
+                                                    }}>
+                                                    <div className="w-8 h-8 rounded-full bg-sky-100 flex items-center justify-center">
+                                                        <User className="w-4 h-4 text-sky-600" />
+                                                    </div>
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className="text-sm font-semibold text-slate-800">{c.name}</p>
+                                                        <p className="text-xs text-slate-400">
+                                                            <span dir="ltr">{c.mobile}</span>
+                                                            {c.branchName ? <span> · {c.branchName}</span> : null}
+                                                        </p>
+                                                    </div>
+                                                    {c.legalIdentityComplete === false && (
+                                                        <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-amber-50 text-amber-500 border border-amber-100">ناقص</span>
+                                                    )}
+                                                </button>
+                                            ))}
+                                            {customerLookupHasMore && (
+                                                <div className="p-2 text-center text-xs text-slate-400 bg-slate-50">
+                                                    توجد نتائج إضافية؛ اكتب اسماً أو رقماً أدق
                                                 </div>
-                                                <div className="flex-1 min-w-0">
-                                                    <p className="text-sm font-semibold text-slate-800">{c.name}</p>
-                                                    <p className="text-xs text-slate-400" dir="ltr">{c.mobile}</p>
-                                                </div>
-                                                {(!c.fatherName || !c.nationalId) && (
-                                                    <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-amber-50 text-amber-500 border border-amber-100">ناقص</span>
-                                                )}
-                                            </button>
-                                        ))
+                                            )}
+                                        </>
                                     )}
                                 </div>
                             )}
@@ -2014,6 +2215,18 @@ export default function ContractForm() {
                         </AnimatePresence>
 
                         {/* Redesigned Sales Source Component */}
+                        {visitCreationContext ? (
+                            <div className="border-t border-slate-100 pt-4">
+                                <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 flex items-center gap-2 text-sky-800">
+                                    <Monitor className="w-4 h-4 text-sky-600" />
+                                    <div className="flex-1">
+                                        <p className="text-xs font-bold">مصدر البيع: مهمة عرض الجهاز في الزيارة #{visitCreationContext.visitId}</p>
+                                        <p className="text-xs text-sky-600 mt-0.5">المهمة مثبتة من الخادم ولا يمكن استبدالها.</p>
+                                    </div>
+                                    <Lock className="w-4 h-4 text-sky-500" />
+                                </div>
+                            </div>
+                        ) : (
                         <div className="grid grid-cols-2 gap-4 border-t border-slate-100 pt-4">
                             <Field label="مصدر البيع السريع">
                                 <button
@@ -2049,6 +2262,7 @@ export default function ContractForm() {
                                 />
                             </Field>
                         </div>
+                        )}
 
                         {/* Plan 2026-06-10 §4 — Sale owner (موظف نسبة البيعة).
                             Auto-fills from the latest device-demo team supervisor
@@ -2056,7 +2270,7 @@ export default function ContractForm() {
                             contracts.assign_sale_owner permission. Frozen once
                             the contract is approved (status !== 'draft'). */}
                         {selectedCustomer && (() => {
-                            const saleOwnerFrozen = isEdit && !isDraftMode;
+                            const saleOwnerFrozen = (isEdit && !isDraftMode) || Boolean(visitCreationContext);
                             const canEdit = canAssignSaleOwner && !saleOwnerFrozen;
                             // sale_owner_id FKs to employees(id) (migration 298) — the
                             // owner is any employee, with or without a system account.
@@ -2105,8 +2319,15 @@ export default function ContractForm() {
 
                                         {/* Step A: Task Selection */}
                                         <div className="space-y-1.5">
-                                            <label className="text-xs font-semibold text-sky-700">الخطوة أ: اختر مهمة العرض للزبون</label>
-                                            {loadingTasks ? (
+                                            <label className="text-xs font-semibold text-sky-700">
+                                                {visitCreationContext ? 'مهمة العرض المثبتة' : 'الخطوة أ: اختر مهمة العرض للزبون'}
+                                            </label>
+                                            {visitCreationContext ? (
+                                                <div className="flex items-center gap-2 rounded-lg border border-sky-200 bg-white px-3 py-2.5 text-xs font-bold text-sky-800">
+                                                    <Lock className="w-3.5 h-3.5 text-sky-500" />
+                                                    مهمة رقم #{visitCreationContext.deviceDemoTask.sourceOpenTaskId}
+                                                </div>
+                                            ) : loadingTasks ? (
                                                 <div className="flex items-center gap-2 py-2 text-xs text-sky-600">
                                                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
                                                     <span>جاري تحميل المهام...</span>
@@ -2136,9 +2357,23 @@ export default function ContractForm() {
                                         {/* Step B: Offer Selection */}
                                         {selectedTask && (
                                             <div className="space-y-1.5 border-t border-sky-100 pt-3">
-                                                <label className="text-xs font-semibold text-sky-700">الخطوة ب: اختر العرض المقبول لتعبئة العقد تلقائياً</label>
+                                                <label className="text-xs font-semibold text-sky-700">الخطوة ب: اختر عرضاً مقبولاً لتعبئة العقد تلقائياً (اختياري)</label>
+                                                {visitCreationContext && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={handleResetOffer}
+                                                        className={`w-full flex items-center gap-2 p-3 rounded-lg border text-right transition-all ${!selectedOffer
+                                                            ? 'bg-emerald-50 border-emerald-300 text-emerald-800 font-bold'
+                                                            : 'bg-white border-sky-100 text-slate-600 hover:border-sky-300'}`}
+                                                    >
+                                                        <CheckCircle2 className="w-4 h-4 shrink-0" />
+                                                        <span className="text-xs">متابعة دون ربط العقد بعرض محدد</span>
+                                                    </button>
+                                                )}
                                                 {availableOffers.length === 0 ? (
-                                                    <p className="text-xs text-amber-600">لا يوجد عروض مقبولة غير مرتبطة لهذه المهمة</p>
+                                                    <p className="text-xs text-amber-600">
+                                                        لا توجد عروض مقبولة متاحة للربط؛ ما زال بإمكانك إنشاء العقد دون عرض.
+                                                    </p>
                                                 ) : (
                                                     <div className="space-y-2">
                                                         {availableOffers.map((o: any, idx: number) => {
@@ -2388,28 +2623,33 @@ export default function ContractForm() {
                         <Field label="فترة كفالة العقد">
                             <div className="relative">
                                 <ShieldCheck className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300 pointer-events-none" />
+                                {/* كفالة العقد خاصية للجهاز لا يتجاوزها البائع: الخيارات هي
+                                    كفالات الموديل حصراً. القائمة الثابتة السابقة (6/12/24/36)
+                                    كانت تسمح بمنح كفالة لا يعرفها الكتالوج، ولأنها لا تحمل
+                                    عدد زيارات كانت تُخزَّن بصفر فيسقط أثرها على الصيانة. */}
                                 <Select<number>
                                     value={warrantyMonths}
                                     onChange={(months) => {
-                                        setWarrantyMonths(months);
-                                        const period = (selectedDevice.warrantyPeriods as Array<{ months: number; label: string; visits: number }> || []).find((p: { months: number }) => p.months === months);
-                                        setWarrantyVisits((period as any)?.visits ?? 0);
+                                        const period = deviceWarrantyPeriods.find(p => p.months === months);
+                                        // المدة والزيارات تُؤخذان معاً من نفس البند، فلا تُفبرك إحداهما.
+                                        setWarrantyMonths(period ? period.months : 0);
+                                        setWarrantyVisits(period ? period.visits : 0);
                                     }}
                                     ariaLabel="مدة الكفالة"
                                     className="w-full"
+                                    disabled={deviceWarrantyPeriods.length === 0}
                                     options={[
                                         { value: 0, label: 'بدون كفالة' },
-                                        ...((selectedDevice.warrantyPeriods || []).length > 0
-                                            ? (selectedDevice.warrantyPeriods as Array<{ months: number; label: string; visits: number }> || []).map((p) => ({ value: p.months, label: p.label }))
-                                            : [
-                                                { value: 6, label: '6 أشهر' },
-                                                { value: 12, label: '12 شهرًا' },
-                                                { value: 24, label: '24 شهرًا' },
-                                                { value: 36, label: '36 شهرًا' },
-                                            ]),
+                                        ...deviceWarrantyPeriods.map(p => ({ value: p.months, label: p.label })),
                                     ]}
                                 />
                             </div>
+                            {deviceWarrantyPeriods.length === 0 && (
+                                <p className="text-xs text-amber-600 mt-1 pr-1 leading-relaxed">
+                                    لا توجد كفالات معرّفة على هذا الموديل، فلا يمكن منح كفالة في العقد.
+                                    تُعرَّف من «إدارة الأجهزة ← الموديل ← فترات الكفالة».
+                                </p>
+                            )}
                             {warrantyMonths > 0 && (
                                 <p className="text-xs text-slate-400 mt-1 pr-1">
                                     {warrantyVisits > 0 ? `${warrantyVisits} زيارة ضمن مدة الكفالة` : 'تطبق الكفالة عند تشغيل الجهاز ودخوله الخدمة الفعلية.'}
@@ -2425,7 +2665,7 @@ export default function ContractForm() {
                         onChange={setGeoSelection}
                         label="عنوان التركيب"
                         required
-                        minSelectableLevel={4}
+                        minSelectableLevel={3}
                         placeholder="ابحث: المنصور، الكرادة، حي العدل..."
                     />
 

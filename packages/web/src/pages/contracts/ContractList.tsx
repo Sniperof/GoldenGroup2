@@ -17,12 +17,23 @@ import { useBranchContextStore } from '../../hooks/useBranchContextStore';
 /*  Config                                                              */
 /* ------------------------------------------------------------------ */
 
+// خمس حالات في قيد قاعدة البيانات لا أربع. `discarded` تُكتب عند رفض المسودة
+// (POST /contracts/:id/reject)، وكان غيابها من هذه الخريطة يُسقط الصفحة كلها.
 const statusConfig: Record<string, { label: string; style: string }> = {
     draft: { label: 'مسودة', style: 'bg-slate-50 text-slate-600 border-slate-200' },
     active: { label: 'فعال', style: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
     completed: { label: 'مكتمل', style: 'bg-blue-50 text-blue-700 border-blue-200' },
     cancelled: { label: 'ملغي', style: 'bg-red-50 text-red-600 border-red-200' },
+    discarded: { label: 'مرفوض', style: 'bg-orange-50 text-orange-700 border-orange-200' },
 };
+
+// حالة غير معروفة تُعرض كما هي بشارة محايدة. صفّ واحد لا يجوز أن يُسقط الصفحة،
+// ولو أضاف أحدهم حالة سادسة غداً.
+const UNKNOWN_STATUS_STYLE = 'bg-slate-100 text-slate-500 border-slate-200';
+
+function statusChipOf(status: string | null | undefined): { label: string; style: string } {
+    return statusConfig[String(status ?? '')] ?? { label: String(status ?? 'غير محدد'), style: UNKNOWN_STATUS_STYLE };
+}
 
 const paymentLabels: Record<string, string> = { cash: 'نقدي', installment: 'أقساط' };
 
@@ -42,7 +53,7 @@ const SORT_KEY_MAP: Record<string, string> = {
 
 const SALE_TYPE_LABELS: Record<string, string> = { tradein: 'استبدال', retention: 'احتفاظ', direct: 'بيع مباشر' };
 const SALE_SUBTYPE_LABELS: Record<string, string> = { definitive: 'نهائي', temporary: 'مؤقت', free: 'مجاني' };
-const STATUS_LABELS: Record<string, string> = { draft: 'مسودة', active: 'فعال', completed: 'مكتمل', cancelled: 'ملغي' };
+const STATUS_LABELS: Record<string, string> = { draft: 'مسودة', active: 'فعال', completed: 'مكتمل', cancelled: 'ملغي', discarded: 'مرفوض' };
 
 // Labeled slot inside the unified filter panel.
 function FilterField({ label, children, wide }: { label: string; children: ReactNode; wide?: boolean }) {
@@ -260,7 +271,7 @@ export default function ContractList() {
         {
             key: 'status', label: 'الحالة', sortable: true,
             render: (c) => {
-                const s = statusConfig[c.status];
+                const s = statusChipOf(c.status);
                 return <span className={`px-2.5 py-1 rounded-full text-xs font-medium border ${s.style}`}>{s.label}</span>;
             },
         },
@@ -352,7 +363,7 @@ export default function ContractList() {
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 pt-3 border-t border-dashed border-slate-200">
                         <FilterField label="الحالة">
                             <Select className="w-full" value={filterStatus} onChange={setFilterStatus} ariaLabel="الحالة"
-                                options={[{ value: 'all', label: 'جميع الحالات' }, { value: 'draft', label: 'مسودة' }, { value: 'active', label: 'فعال' }, { value: 'completed', label: 'مكتمل' }, { value: 'cancelled', label: 'ملغي' }]} />
+                                options={[{ value: 'all', label: 'جميع الحالات' }, { value: 'draft', label: 'مسودة' }, { value: 'active', label: 'فعال' }, { value: 'completed', label: 'مكتمل' }, { value: 'cancelled', label: 'ملغي' }, { value: 'discarded', label: 'مرفوض' }]} />
                         </FilterField>
                         <FilterField label="نوع الدفع">
                             <Select className="w-full" value={filterPaymentType} onChange={setFilterPaymentType} ariaLabel="نوع الدفع"

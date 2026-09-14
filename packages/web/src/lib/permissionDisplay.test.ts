@@ -13,6 +13,15 @@ test('labels the request and app-account permission modules explicitly', () => {
   assert.equal(getPermissionModuleLabel('name_nomination'), 'طلبات ترشيح الأسماء');
   assert.equal(getPermissionModuleLabel('agent_license'), 'طلبات ترخيص الوكلاء');
   assert.equal(getPermissionModuleLabel('complaints'), 'إدارة الشكاوى');
+  assert.equal(getPermissionModuleLabel('reports'), 'التقارير');
+});
+
+test('labels report permission groups with the report catalog titles', () => {
+  assert.equal(getPermissionSubmoduleLabel('work_files'), 'تقارير ملفات العمل');
+  assert.equal(getPermissionSubmoduleLabel('performance'), 'تقارير الأداء');
+  assert.equal(getPermissionSubmoduleLabel('human_resources'), 'تقارير الموارد البشرية');
+  assert.equal(getPermissionSubmoduleLabel('service'), 'تقارير الخدمة');
+  assert.equal(getPermissionSubmoduleLabel('daily_work'), 'تقارير العمل اليومي');
 });
 
 test('labels client profile and task permission groups explicitly', () => {

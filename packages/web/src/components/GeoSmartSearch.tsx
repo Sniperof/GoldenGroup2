@@ -19,6 +19,21 @@ export interface GeoSelection {
     neighborhoodId: string;
 }
 
+/**
+ * أعمق وحدة مختارة فعلاً. اختيار ناحية يملأ `subId` ويترك `neighborhoodId`
+ * فارغاً، فقراءة الخانة الرابعة وحدها تُسقط العنوان بصمت. عنوان التركيب يقبل
+ * الناحية أو الحي، فيُقرأ دائماً من هنا.
+ */
+export function deepestGeoId(selection: GeoSelection | null | undefined): string {
+    if (!selection) return '';
+    return selection.neighborhoodId || selection.subId || '';
+}
+
+/** هل الاختيار صالح كعنوان تركيب (ناحية أو حي)؟ */
+export function isInstallationGeoSelected(selection: GeoSelection | null | undefined): boolean {
+    return deepestGeoId(selection) !== '';
+}
+
 interface GeoSmartSearchProps {
     geoUnits: GeoUnit[];
     value: GeoSelection;

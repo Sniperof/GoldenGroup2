@@ -14,6 +14,7 @@ import { PartsStockTab } from './clientProfile/PartsStockTab';
 import { PreOffersTab } from './clientProfile/PreOffersTab'; // plan B — device-demo pre-offers audit
 import { AccountStatementTab } from './clientProfile/AccountStatementTab';
 import GiftsTab from './clientProfile/GiftsTab';
+import { toCallInstant } from '../lib/callDateTime';
 import { api } from '../lib/api';
 import type { Client, GeoUnit } from '../lib/types';
 import { buildGeoPath, geoLevelLabel } from '../lib/geoPath';
@@ -1198,7 +1199,7 @@ function ContactsTab({
                                 answeredBy: extras?.answeredBy ?? null,
                                 communicationChannel: extras?.communicationChannel ?? null,
                                 status: extras?.status ?? 'completed',
-                                callDate: extras?.callDateTime ?? null,
+                                callDate: toCallInstant(extras?.callDateTime),
                             });
 
                             // Auto-apply phone status update based on outcome

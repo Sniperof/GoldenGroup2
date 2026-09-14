@@ -54,7 +54,11 @@ const getChannelLabel = (channel?: string | null) => {
 // status filter options above for why 'Prospect' from the shared TS type is wrong).
 // Previously only 3 of 6 were branched, so 'New' and 'Contacted' silently fell
 // through to a red "مرفوض" (rejected) badge — fixed here.
-function getCandidateStatusBadge(candidate: { status: string; duplicateFlag?: boolean }): { label: string; className: string } {
+function getCandidateStatusBadge(candidate: {
+    status: string;
+    duplicateFlag?: boolean;
+    qualificationKind?: 'converted' | 'linked' | null;
+}): { label: string; className: string } {
     switch (candidate.status) {
         case 'New':
             return { label: 'جديد', className: 'bg-slate-50 text-slate-600 border-slate-200' };
@@ -65,8 +69,11 @@ function getCandidateStatusBadge(candidate: { status: string; duplicateFlag?: bo
         case 'FollowUp':
             return { label: 'متابعة', className: 'bg-amber-50 text-amber-700 border-amber-100' };
         case 'Qualified':
+            // Read from qualification_kind (migration 440), not duplicateFlag: both
+            // qualification paths used to set that flag, so every qualified name
+            // rendered as «تم الربط» and «تم التحويل» could never appear.
             return {
-                label: candidate.duplicateFlag ? 'تم الربط' : 'تم التحويل',
+                label: candidate.qualificationKind === 'linked' ? 'تم الربط' : 'تم التحويل',
                 className: 'bg-emerald-50 text-emerald-700 border-emerald-100',
             };
         case 'Junk':
@@ -192,10 +199,11 @@ export default function CandidatesEntry() {
     const [sheetsPage, setSheetsPage] = useState(1);
     const ITEMS_PER_PAGE = 10;
 
-    // Data Store
-    const candidates = useCandidateStore(state => state.candidates);
+    // Data Store — candidate rows come from the paged endpoint below; the store
+    // still owns the (small) referral sheets and the mutations.
     const referralSheets = useCandidateStore(state => state.referralSheets);
-    const fetchData = useCandidateStore(state => state.fetchData);
+    const fetchReferralSheets = useCandidateStore(state => state.fetchReferralSheets);
+    const setLoadedCandidates = useCandidateStore(state => state.setLoadedCandidates);
     const qualifyCandidate = useCandidateStore(state => state.qualifyCandidate);
     const linkCandidateToClient = useCandidateStore(state => state.linkCandidateToClient);
     const markJunk = useCandidateStore(state => state.markJunk);
@@ -208,39 +216,40 @@ export default function CandidatesEntry() {
     const [editingCandidate, setEditingCandidate] = useState<Candidate | null>(null);
     const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
 
-    // Derived: unique supervisors and branches for filter dropdowns
-    const candidateSupervisors = useMemo(() =>
-        [...new Set(candidates.flatMap(c => {
-            if (c.ownershipType === 'BRANCH') {
-                return [c.ownershipLabel || c.branchName || 'غير محدد'];
-            }
-            return (c.assignments || []).map(a => a.userName);
-        }))].sort(),
-        [candidates]
+    // Filter option sources. These used to be derived from the loaded candidate
+    // array, which only worked while the page held every row; each is now an
+    // independent, scoped lookup (or a constant map) so the filters keep working
+    // with one page in memory. Sheet filters below still derive from the sheets
+    // array — that one is small and fully loaded on purpose.
+    // `branchOptions` is already loaded above for the management filter; the owner
+    // list is the same scoped lookup the clients records page uses.
+    const [ownerOptions, setOwnerOptions] = useState<{ id: number; name: string }[]>([]);
+
+    useEffect(() => {
+        const branchParam = isGlobalNames ? branchContextId : null;
+        api.admin.hrUsers.nameListAssignable(branchParam)
+            .then(rows => setOwnerOptions((rows as any[]).map(u => ({ id: u.id, name: u.name }))))
+            .catch(() => setOwnerOptions([]));
+    }, [isGlobalNames, branchContextId]);
+
+    const ownerNameById = useMemo(
+        () => new Map(ownerOptions.map(u => [String(u.id), u.name])),
+        [ownerOptions],
     );
-    const candidateBranches = useMemo(() =>
-        [...new Set(candidates.map(c => c.branchName).filter(Boolean) as string[])].sort(),
-        [candidates]
+    const branchNameById = useMemo(
+        () => new Map(branchOptions.map(b => [String(b.id), b.name])),
+        [branchOptions],
     );
+
     const sheetBranches = useMemo(() =>
         [...new Set(referralSheets.map(s => s.branchName).filter(Boolean) as string[])].sort(),
         [referralSheets]
     );
 
-    // Derived option lists for the advanced candidate filters — dynamic, scoped to
-    // the currently-visible data only (reporting-analytics.md §3.5-أ "شرط الظهور: عام").
-    const candidateReferralTypes = useMemo(() =>
-        [...new Set(candidates.map(c => c.referralType).filter(Boolean) as string[])].sort(),
-        [candidates]
-    );
-    const candidateChannels = useMemo(() =>
-        [...new Set(candidates.map(c => c.referralOriginChannel).filter(Boolean) as string[])].sort(),
-        [candidates]
-    );
-    const candidateCreators = useMemo(() =>
-        [...new Set(candidates.map(c => c.createdByUserName).filter(Boolean) as string[])].sort(),
-        [candidates]
-    );
+    // Referral type and channel are closed vocabularies — the canonical label maps
+    // at the top of this file are the source, not whatever happens to be on screen.
+    const candidateReferralTypes = useMemo(() => Object.keys(referralTypeLabels), []);
+    const candidateChannels = useMemo(() => Object.keys(channelLabels), []);
 
     // Derived option lists for the advanced sheet filters (reporting-analytics.md §3.5-ب).
     const sheetOwners = useMemo(() =>
@@ -267,45 +276,80 @@ export default function CandidatesEntry() {
         [referralSheets]
     );
 
-    // Derived State: filtered candidates
-    const filteredCandidates = useMemo(() =>
-        candidates
-            .filter(c => {
-                // Search covers referral_name_snapshot too (fixes the gap documented in
-                // docs/analysis/candidates-referral-sheets-filters-audit.md §1.1 — the
-                // placeholder promised "وسيط" search that the old implementation lacked).
-                const fullStr = `${c.firstName || ''} ${c.nickname || ''} ${c.lastName || ''} ${c.mobile} ${c.referralNameSnapshot || ''}`.toLowerCase();
-                if (searchQuery && !fullStr.includes(searchQuery.toLowerCase())) return false;
-                if (candidateStatusFilter && c.status !== candidateStatusFilter) return false;
-                if (
-                    candidateSupervisorFilter &&
-                    c.ownershipLabel !== candidateSupervisorFilter &&
-                    !(c.assignments || []).some(a => a.userName === candidateSupervisorFilter)
-                ) return false;
-                if (candidateBranchFilter && c.branchName !== candidateBranchFilter) return false;
-                if (candidateConvertedFilter === 'converted' && c.convertedToLeadId == null) return false;
-                if (candidateConvertedFilter === 'unconverted' && c.convertedToLeadId != null) return false;
-                if (candidateReferralTypeFilter && c.referralType !== candidateReferralTypeFilter) return false;
-                if (candidateChannelFilter && c.referralOriginChannel !== candidateChannelFilter) return false;
-                if (candidateDuplicateFilter === 'yes' && !c.duplicateFlag) return false;
-                if (candidateDuplicateFilter === 'no' && c.duplicateFlag) return false;
-                if (candidateConfirmationFilter && c.referralConfirmationStatus !== candidateConfirmationFilter) return false;
-                if (candidateCreatorFilter && c.createdByUserName !== candidateCreatorFilter) return false;
-                if (candidateSourceFilter === 'fromSheet' && c.referralSheetId == null) return false;
-                if (candidateSourceFilter === 'direct' && c.referralSheetId != null) return false;
-                if (candidateGeoFilter && String(c.geoUnitId ?? '') !== candidateGeoFilter) return false;
-                if (candidateDateFrom && new Date(c.createdAt) < new Date(candidateDateFrom)) return false;
-                if (candidateDateTo && new Date(c.createdAt) > new Date(`${candidateDateTo}T23:59:59`)) return false;
-                return true;
+    // ── Server-paginated candidate records ──────────────────────────────────
+    // The page used to pull the whole table and filter it in the browser. It now
+    // asks the server for one page: the filters below are query parameters, the
+    // count in the tab header comes from the server's status KPIs, and the array
+    // in memory is 10 rows instead of 100k+.
+    const [pagedCandidates, setPagedCandidates] = useState<Candidate[]>([]);
+    const [candidatesTotal, setCandidatesTotal] = useState(0);
+    const [candidatesLoading, setCandidatesLoading] = useState(true);
+    const [candidatesError, setCandidatesError] = useState<string | null>(null);
+    // Bumped after every mutation so the current page reloads without a full refetch.
+    const [candidatesRefreshKey, setCandidatesRefreshKey] = useState(0);
+
+    // Typing must not fire a request per keystroke.
+    const [debouncedSearch, setDebouncedSearch] = useState(searchQuery);
+    useEffect(() => {
+        const timer = setTimeout(() => setDebouncedSearch(searchQuery), 300);
+        return () => clearTimeout(timer);
+    }, [searchQuery]);
+
+    useEffect(() => {
+        let active = true;
+        setCandidatesLoading(true);
+        api.candidates.listPaged({
+            branchId: isGlobalNames ? branchContextId : null,
+            page: candidatePage,
+            limit: ITEMS_PER_PAGE,
+            sortKey: 'createdAt',
+            sortDir: 'desc',
+            search: debouncedSearch || undefined,
+            status: candidateStatusFilter || undefined,
+            responsibleUserId: candidateSupervisorFilter ? Number(candidateSupervisorFilter) : undefined,
+            branchFilterId: candidateBranchFilter ? Number(candidateBranchFilter) : undefined,
+            createdByUserId: candidateCreatorFilter ? Number(candidateCreatorFilter) : undefined,
+            converted: (candidateConvertedFilter || undefined) as any,
+            referralType: candidateReferralTypeFilter || undefined,
+            channel: candidateChannelFilter || undefined,
+            duplicate: (candidateDuplicateFilter || undefined) as any,
+            confirmation: candidateConfirmationFilter || undefined,
+            source: (candidateSourceFilter || undefined) as any,
+            geoUnitId: candidateGeoFilter ? Number(candidateGeoFilter) : undefined,
+            dateFrom: candidateDateFrom || undefined,
+            dateTo: candidateDateTo || undefined,
+        })
+            .then(res => {
+                if (!active) return;
+                setPagedCandidates(res.items as Candidate[]);
+                setCandidatesTotal(res.total);
+                setCandidatesError(null);
+                // Mutations resolve their subject from the store, so the rows on
+                // screen have to be the rows it holds.
+                setLoadedCandidates(res.items as Candidate[]);
             })
-            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
-        [
-            candidates, searchQuery, candidateStatusFilter, candidateSupervisorFilter, candidateBranchFilter,
-            candidateConvertedFilter, candidateReferralTypeFilter, candidateChannelFilter, candidateDuplicateFilter,
-            candidateConfirmationFilter, candidateCreatorFilter, candidateSourceFilter, candidateGeoFilter,
-            candidateDateFrom, candidateDateTo,
-        ]
-    );
+            .catch((err: any) => {
+                if (!active) return;
+                console.error('Failed to load candidates page:', err);
+                setPagedCandidates([]);
+                setCandidatesTotal(0);
+                setCandidatesError(err?.message ?? 'تعذّر تحميل سجل الأسماء');
+            })
+            .finally(() => { if (active) setCandidatesLoading(false); });
+        return () => { active = false; };
+    }, [
+        isGlobalNames, branchContextId, candidatePage, candidatesRefreshKey, debouncedSearch,
+        candidateStatusFilter, candidateSupervisorFilter, candidateBranchFilter, candidateCreatorFilter,
+        candidateConvertedFilter, candidateReferralTypeFilter, candidateChannelFilter,
+        candidateDuplicateFilter, candidateConfirmationFilter, candidateSourceFilter,
+        candidateGeoFilter, candidateDateFrom, candidateDateTo, setLoadedCandidates,
+    ]);
+
+    const reloadCandidatesPage = () => setCandidatesRefreshKey(k => k + 1);
+
+    // Only the very first load has no rows to hold on to; every later page keeps
+    // the previous ones on screen until the new page arrives.
+    const showCandidateSkeleton = candidatesLoading && pagedCandidates.length === 0 && !candidatesError;
 
     const clearCandidateFilters = () => {
         setSearchQuery('');
@@ -377,8 +421,8 @@ export default function CandidatesEntry() {
     };
 
     // Pagination for Candidates
-    const totalCandidatePages = Math.ceil(filteredCandidates.length / ITEMS_PER_PAGE);
-    const paginatedCandidates = filteredCandidates.slice((candidatePage - 1) * ITEMS_PER_PAGE, candidatePage * ITEMS_PER_PAGE);
+    const totalCandidatePages = Math.max(1, Math.ceil(candidatesTotal / ITEMS_PER_PAGE));
+    const paginatedCandidates = pagedCandidates;
 
     // Pagination for Sheets
     const totalSheetsPages = Math.ceil(filteredSheets.length / ITEMS_PER_PAGE);
@@ -420,25 +464,34 @@ export default function CandidatesEntry() {
         setIsClientModalOpen(true);
     };
 
-    const handleSaveClient = (clientData: Client) => {
+    const handleSaveClient = async (clientData: Client) => {
         if (!activeCandidateForQualify) return;
 
-        // Perform the standard qualify action which saves to clients and updates candidate status
+        // Perform the standard qualify action which saves to clients and updates
+        // candidate status. This MUST be awaited: qualifyCandidate is async, so a
+        // bare call leaves a floating promise that `catch` here can never see —
+        // a duplicate-phone 409 or any server rejection then closed the modal as
+        // if the conversion had succeeded (see SessionDetailsModal for the same
+        // flow written correctly).
         try {
-            qualifyCandidate(activeCandidateForQualify.id, clientData);
+            await qualifyCandidate(activeCandidateForQualify.id, clientData);
+            reloadCandidatesPage();
             setIsClientModalOpen(false);
             setClientInitialData(null);
             setActiveCandidateForQualify(null);
         } catch (err: any) {
-            setErrorModal(err.message);
+            console.error('Failed to qualify candidate:', err);
+            setErrorModal(err?.message ?? 'فشل تحويل الاسم المقترح إلى زبون');
         }
     };
 
     useEffect(() => {
         // Only a GLOBAL viewer may narrow by branch; BRANCH/ASSIGNED are scoped
         // by the server, so never send a cross-branch header for them.
-        void fetchData(isGlobalNames ? branchContextId : null);
-    }, [fetchData, isGlobalNames, branchContextId]);
+        // Sheets only — candidate rows arrive one page at a time from the paged
+        // effect above, so nothing here pulls the whole table any more.
+        void fetchReferralSheets(isGlobalNames ? branchContextId : null);
+    }, [fetchReferralSheets, isGlobalNames, branchContextId]);
 
     // Branch list for the management filter (shown only when the filter is visible).
     useEffect(() => {
@@ -485,14 +538,14 @@ export default function CandidatesEntry() {
     type Chip = { key: string; label: string; value: string; onRemove: () => void };
     const candidateChips: Chip[] = [];
     if (candidateStatusFilter) candidateChips.push({ key: 'status', label: 'الحالة', value: candidateStatusLabels[candidateStatusFilter] ?? candidateStatusFilter, onRemove: () => { setCandidateStatusFilter(''); setCandidatePage(1); } });
-    if (candidateSupervisorFilter) candidateChips.push({ key: 'supervisor', label: 'المسؤول', value: candidateSupervisorFilter, onRemove: () => { setCandidateSupervisorFilter(''); setCandidatePage(1); } });
-    if (candidateBranchFilter) candidateChips.push({ key: 'branch', label: 'الفرع', value: candidateBranchFilter, onRemove: () => { setCandidateBranchFilter(''); setCandidatePage(1); } });
+    if (candidateSupervisorFilter) candidateChips.push({ key: 'supervisor', label: 'المسؤول', value: ownerNameById.get(candidateSupervisorFilter) ?? candidateSupervisorFilter, onRemove: () => { setCandidateSupervisorFilter(''); setCandidatePage(1); } });
+    if (candidateBranchFilter) candidateChips.push({ key: 'branch', label: 'الفرع', value: branchNameById.get(candidateBranchFilter) ?? candidateBranchFilter, onRemove: () => { setCandidateBranchFilter(''); setCandidatePage(1); } });
     if (candidateConvertedFilter) candidateChips.push({ key: 'converted', label: 'التحويل', value: candidateConvertedFilter === 'converted' ? 'محوَّل' : 'غير محوَّل', onRemove: () => { setCandidateConvertedFilter(''); setCandidatePage(1); } });
     if (candidateReferralTypeFilter) candidateChips.push({ key: 'referralType', label: 'نوع الترشيح', value: getReferralTypeLabel(candidateReferralTypeFilter), onRemove: () => { setCandidateReferralTypeFilter(''); setCandidatePage(1); } });
     if (candidateChannelFilter) candidateChips.push({ key: 'channel', label: 'القناة', value: getChannelLabel(candidateChannelFilter), onRemove: () => { setCandidateChannelFilter(''); setCandidatePage(1); } });
     if (candidateDuplicateFilter) candidateChips.push({ key: 'duplicate', label: 'التكرار', value: candidateDuplicateFilter === 'yes' ? 'مكرَّر' : 'غير مكرَّر', onRemove: () => { setCandidateDuplicateFilter(''); setCandidatePage(1); } });
     if (candidateConfirmationFilter) candidateChips.push({ key: 'confirmation', label: 'تأكيد الترشيح', value: confirmationLabels[candidateConfirmationFilter] ?? candidateConfirmationFilter, onRemove: () => { setCandidateConfirmationFilter(''); setCandidatePage(1); } });
-    if (candidateCreatorFilter) candidateChips.push({ key: 'creator', label: 'المنشئ', value: candidateCreatorFilter, onRemove: () => { setCandidateCreatorFilter(''); setCandidatePage(1); } });
+    if (candidateCreatorFilter) candidateChips.push({ key: 'creator', label: 'المنشئ', value: ownerNameById.get(candidateCreatorFilter) ?? candidateCreatorFilter, onRemove: () => { setCandidateCreatorFilter(''); setCandidatePage(1); } });
     if (candidateSourceFilter) candidateChips.push({ key: 'source', label: 'مصدر الإدخال', value: candidateSourceFilter === 'fromSheet' ? 'من لائحة' : 'إدخال مباشر', onRemove: () => { setCandidateSourceFilter(''); setCandidatePage(1); } });
     if (candidateGeoFilter) candidateChips.push({ key: 'geo', label: 'المنطقة', value: getNeighborhoodHierarchy(candidateGeoFilter), onRemove: () => { setCandidateGeoFilter(''); setCandidatePage(1); } });
     if (candidateDateFrom || candidateDateTo) candidateChips.push({ key: 'date', label: 'التاريخ', value: `${candidateDateFrom || '…'} → ${candidateDateTo || '…'}`, onRemove: () => { setCandidateDateFrom(''); setCandidateDateTo(''); setCandidatePage(1); } });
@@ -566,7 +619,7 @@ export default function CandidatesEntry() {
                         onClick={() => setActiveTab('candidates')}
                         className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'candidates' ? 'bg-white text-sky-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                     >
-                        <List className="w-4 h-4" /> سجل الأسماء ({filteredCandidates.length})
+                        <List className="w-4 h-4" /> سجل الأسماء ({candidatesTotal})
                     </button>
                     {canViewNameLists && (
                     <button
@@ -638,16 +691,16 @@ export default function CandidatesEntry() {
                                     <Select className="w-full" value={candidateStatusFilter} onChange={(v) => { setCandidateStatusFilter(v); setCandidatePage(1); }} ariaLabel="حالة المرشح"
                                         options={[{ value: '', label: 'كل الحالات' }, ...Object.entries(candidateStatusLabels).map(([value, label]) => ({ value, label }))]} />
                                 </FilterField>
-                                {candidateSupervisors.length > 0 && (
+                                {ownerOptions.length > 0 && (
                                     <FilterField label="المسؤول">
                                         <Select className="w-full" value={candidateSupervisorFilter} onChange={(v) => { setCandidateSupervisorFilter(v); setCandidatePage(1); }} ariaLabel="المسؤول"
-                                            options={[{ value: '', label: 'كل المسؤولين' }, ...candidateSupervisors.map(s => ({ value: s, label: s }))]} />
+                                            options={[{ value: '', label: 'كل المسؤولين' }, ...ownerOptions.map(u => ({ value: String(u.id), label: u.name }))]} />
                                     </FilterField>
                                 )}
-                                {candidateBranches.length > 1 && (
+                                {branchOptions.length > 1 && (
                                     <FilterField label="الفرع">
                                         <Select className="w-full" value={candidateBranchFilter} onChange={(v) => { setCandidateBranchFilter(v); setCandidatePage(1); }} ariaLabel="الفرع"
-                                            options={[{ value: '', label: 'كل الفروع' }, ...candidateBranches.map(b => ({ value: b, label: b }))]} />
+                                            options={[{ value: '', label: 'كل الفروع' }, ...branchOptions.map(b => ({ value: String(b.id), label: b.name }))]} />
                                     </FilterField>
                                 )}
                                 <FilterField label="التحويل">
@@ -674,10 +727,10 @@ export default function CandidatesEntry() {
                                     <Select className="w-full" value={candidateConfirmationFilter} onChange={(v) => { setCandidateConfirmationFilter(v); setCandidatePage(1); }} ariaLabel="تأكيد الترشيح"
                                         options={[{ value: '', label: 'الكل' }, ...Object.entries(confirmationLabels).map(([value, label]) => ({ value, label }))]} />
                                 </FilterField>
-                                {candidateCreators.length > 0 && (
+                                {ownerOptions.length > 0 && (
                                     <FilterField label="المنشئ">
                                         <Select className="w-full" value={candidateCreatorFilter} onChange={(v) => { setCandidateCreatorFilter(v); setCandidatePage(1); }} ariaLabel="المنشئ"
-                                            options={[{ value: '', label: 'كل المنشئين' }, ...candidateCreators.map(c => ({ value: c, label: c }))]} />
+                                            options={[{ value: '', label: 'كل المنشئين' }, ...ownerOptions.map(u => ({ value: String(u.id), label: u.name }))]} />
                                     </FilterField>
                                 )}
                                 <FilterField label="مصدر الإدخال">
@@ -701,7 +754,7 @@ export default function CandidatesEntry() {
                         )}
                     </div>
 
-                    <div className="flex-1 overflow-y-auto custom-scroll" style={{ maxHeight: '480px' }}>
+                    <div className="flex-1 overflow-y-auto custom-scroll" style={{ minHeight: '480px', maxHeight: '480px' }}>
                         <table className="w-full text-sm text-right border-collapse">
                             <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200 shadow-sm">
                                 <tr className="text-slate-600 font-bold text-xs uppercase tracking-wider">
@@ -718,8 +771,25 @@ export default function CandidatesEntry() {
                                     <th className="px-5 h-12 text-center">الإجراءات</th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-100">
-                                {paginatedCandidates.length === 0 ? (
+                            {/* Rows stay mounted while the next page loads (only dimmed),
+                                so paging never collapses the table to one row and then
+                                stretches it back. A first load with nothing to keep shows
+                                skeleton rows of the same page size instead. */}
+                            <tbody
+                                className={`divide-y divide-slate-100 transition-opacity duration-150 ${candidatesLoading ? 'opacity-50' : 'opacity-100'}`}
+                                aria-busy={candidatesLoading}
+                            >
+                                {showCandidateSkeleton ? (
+                                    Array.from({ length: ITEMS_PER_PAGE }).map((_, i) => (
+                                        <tr key={`skeleton-${i}`} className="animate-pulse">
+                                            <td colSpan={11} className="px-5 h-14">
+                                                <div className="h-3 rounded bg-slate-100" />
+                                            </td>
+                                        </tr>
+                                    ))
+                                ) : candidatesError ? (
+                                    <tr><td colSpan={11} className="px-6 py-12 text-center text-red-600 font-medium">{candidatesError}</td></tr>
+                                ) : paginatedCandidates.length === 0 ? (
                                     <tr><td colSpan={11} className="px-6 py-12 text-center text-slate-400 font-medium">لا توجد بيانات</td></tr>
                                 ) : (
                                     paginatedCandidates.map((c, idx) => {
@@ -850,10 +920,10 @@ export default function CandidatesEntry() {
                     </div>
 
                     {/* Footer Pagination */}
-                    {filteredCandidates.length > 0 && (
+                    {candidatesTotal > 0 && (
                         <div className="sticky bottom-0 bg-white z-10 border-t border-slate-100 p-3 flex items-center justify-between">
                             <span className="text-xs font-bold text-slate-500">
-                                عرض {Math.min(filteredCandidates.length, (candidatePage - 1) * ITEMS_PER_PAGE + 1)}-{Math.min(filteredCandidates.length, candidatePage * ITEMS_PER_PAGE)} من {filteredCandidates.length}
+                                عرض {Math.min(candidatesTotal, (candidatePage - 1) * ITEMS_PER_PAGE + 1)}-{Math.min(candidatesTotal, candidatePage * ITEMS_PER_PAGE)} من {candidatesTotal}
                             </span>
                             <div className="flex items-center gap-2">
                                 <button
@@ -1132,6 +1202,8 @@ export default function CandidatesEntry() {
                 onClose={() => {
                     setIsAddModalOpen(false);
                     setEditingCandidate(null);
+                    // A create or edit lands on the server; reload the page we are on.
+                    reloadCandidatesPage();
                 }}
                 initialData={editingCandidate || undefined}
                 title="إضافة اسم مقترح جديد"
@@ -1145,11 +1217,26 @@ export default function CandidatesEntry() {
                 onClose={() => setIsQualifyModalOpen(false)}
                 candidate={activeCandidateForQualify}
                 onQualified={handleQualificationConfirmed}
-                onJunk={(id) => { markJunk(id); setIsQualifyModalOpen(false); }}
-                onLink={(candidateId, client) => {
-                    linkCandidateToClient(candidateId, client.id);
-                    setIsQualifyModalOpen(false);
-                    setActiveCandidateForQualify(null);
+                onJunk={async (id) => {
+                    try {
+                        await markJunk(id);
+                        reloadCandidatesPage();
+                        setIsQualifyModalOpen(false);
+                    } catch (err: any) {
+                        console.error('Failed to mark candidate as junk:', err);
+                        setErrorModal(err?.message ?? 'فشل رفض الاسم المقترح');
+                    }
+                }}
+                onLink={async (candidateId, client) => {
+                    try {
+                        await linkCandidateToClient(candidateId, client.id);
+                        reloadCandidatesPage();
+                        setIsQualifyModalOpen(false);
+                        setActiveCandidateForQualify(null);
+                    } catch (err: any) {
+                        console.error('Failed to link candidate to client:', err);
+                        setErrorModal(err?.message ?? 'فشل ربط الاسم المقترح بالزبون');
+                    }
                 }}
             />
 

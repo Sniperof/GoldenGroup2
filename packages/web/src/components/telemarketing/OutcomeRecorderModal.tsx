@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useSystemList } from '../../hooks/useSystemList';
 import { api } from '../../lib/api';
 import DateField from '../ui/DateField';
@@ -281,6 +281,10 @@ export default function OutcomeRecorderModal({
     const [apptNotes, setApptNotes] = useState('');
     // Contact time is "now" by default and rarely edited — collapsed by default.
     const [editingCallTime, setEditingCallTime] = useState(false);
+    // Parent data is refreshed in the background while this modal is open. Those
+    // refreshes replace `task`/`entityDetails` object references, but must not
+    // erase the outcome or appointment details the operator is entering.
+    const openSessionInitializedRef = useRef(false);
 
     useEffect(() => {
         api.telemarketing.taskTypeOptions()
@@ -292,7 +296,12 @@ export default function OutcomeRecorderModal({
     const isFreeCall = !task;
 
     useEffect(() => {
-        if (isOpen) {
+        if (!isOpen) {
+            openSessionInitializedRef.current = false;
+            return;
+        }
+        if (!openSessionInitializedRef.current) {
+            openSessionInitializedRef.current = true;
             setMethod('cellular');
             setCellularSubtype('cellular_call');
             setWhatsappSubtype('whatsapp_text');

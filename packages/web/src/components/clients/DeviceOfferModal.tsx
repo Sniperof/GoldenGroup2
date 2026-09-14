@@ -409,9 +409,9 @@ export default function DeviceOfferModal({ isOpen, onClose, client, onCreated }:
     setError('');
     Promise.all([
       api.deviceModels.list({ branchId: client.branchId ?? null, activeOnly: true }),
-      api.employees.employeeClosers(),
-      api.systemLists.getItemsByCode('device_demo_creation_reasons'),
-      api.systemLists.getItemsByCode('no_closing_reasons'),
+      api.employees.employeeClosers().catch(() => []),
+      api.systemLists.getItemsByCode('device_demo_creation_reasons').catch(() => []),
+      api.systemLists.getItemsByCode('no_closing_reasons').catch(() => []),
       api.customers.getPreOffers(client.id),
     ])
       .then(([models, closerRows, reasonRows, noClosingRows, customerPreOffersResponse]) => {

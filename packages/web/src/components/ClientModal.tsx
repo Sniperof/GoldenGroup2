@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, User, Phone, MapPin, Share2, Save, Plus, Trash2, MessageCircle, MapPinned, CheckCircle, AlertCircle, ClipboardList, Lock, ChevronDown } from './ui/icons';
-import type { Client, GeoUnit, ContactEntry, ContactType, ContactStatus, ReferralType, ReferralOriginChannel } from '../lib/types';
+import type { Candidate, Client, GeoUnit, ContactEntry, ContactType, ContactStatus, ReferralType, ReferralOriginChannel } from '../lib/types';
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import MapPicker from './MapPicker';
@@ -111,8 +111,32 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
         assignmentManageScope === 'GLOBAL' ||
         assignmentManageScope === 'BRANCH';
 
-    const candidates = useCandidateStore(state => state.candidates);
-    const [allClients, setAllClients] = useState<Client[]>([]);
+    // Names this client referred. Fetched for this client only — the modal used to
+    // read them out of a globally-loaded candidate array, so they simply vanished
+    // whenever the records page had not been visited first.
+    const [referredCandidates, setReferredCandidates] = useState<Candidate[]>([]);
+
+    useEffect(() => {
+        const cid = initialData?.id;
+        if (!isOpen || !cid) { setReferredCandidates([]); return; }
+        let active = true;
+        api.candidates.listPaged({ referralEntityId: cid, referralType: 'Client', limit: 100 })
+            .then(res => { if (active) setReferredCandidates(res.items as Candidate[]); })
+            .catch(() => { if (active) setReferredCandidates([]); });
+        return () => { active = false; };
+    }, [isOpen, initialData?.id]);
+    // Mediator search (server-side, debounced) — replaces filtering a fully loaded
+    // clients array in the browser.
+    const [mediatorQuery, setMediatorQuery] = useState('');
+    const [mediatorLoading, setMediatorLoading] = useState(false);
+    const [mediatorHasAny, setMediatorHasAny] = useState(true);
+    // Referral references and the referrer itself: fetched per client, not filtered.
+    const [referredClients, setReferredClients] = useState<Client[]>([]);
+    const [referrerClientRow, setReferrerClientRow] = useState<Client | null>(null);
+    // Phone duplicates: answered by POST /clients/smart-match, one number at a time.
+    const [duplicateByNumber, setDuplicateByNumber] = useState<
+        Map<string, { id: number; name: string; contactPrimary: boolean; restricted: boolean }>
+    >(new Map());
     const [contracts, setContracts] = useState<Array<{ customerId: number }>>([]);
     const [employees, setEmployees] = useState<MediatorEmployee[]>([]);
     const [branches, setBranches] = useState<BranchOption[]>([]);
@@ -188,67 +212,50 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
 
         let active = true;
 
-        const fetchLookupData = async () => {
-            // X3.4: Use allSettled so a permission failure on one lookup (e.g.
-            // contracts.view_list for a supervisor) does NOT blank out the clients
-            // list that powers the mediator/وسيط field.  Each fetch is independent.
-            const [
-                clientsRes,
-                employeesRes,
-                contractsRes,
-                occupationRes,
-                waterSourceRes,
-                branchesRes,
-                hrUsersRes,
-            ] = await Promise.allSettled([
-                api.clients.list(),
-                api.employees.list(),
-                api.contracts.list(),
-                api.systemLists.list({ category: 'occupation', activeOnly: true }),
-                api.systemLists.list({ category: 'water_source', activeOnly: true }),
-                canChooseBranch ? api.branches.list() : Promise.resolve([]),
-                canChooseAssignedOwner ? api.admin.hrUsers.assignable() : Promise.resolve([]),
-            ]);
-
-            if (!active) return;
-
-            // clients: authorized by GET /clients (GLOBAL / BRANCH / ASSIGNED)
-            setAllClients(clientsRes.status === 'fulfilled' ? clientsRes.value : []);
-
-            setEmployees(
-                employeesRes.status === 'fulfilled'
-                    ? employeesRes.value.map(toMediatorEmployee)
-                    : [],
-            );
-            setContracts(contractsRes.status === 'fulfilled' ? contractsRes.value : []);
-            setOccupationOptions(
-                occupationRes.status === 'fulfilled'
-                    ? occupationRes.value.map((item: any) => item.value)
-                    : [],
-            );
-            setWaterSourceOptions(
-                waterSourceRes.status === 'fulfilled'
-                    ? waterSourceRes.value.map((item: any) => item.value)
-                    : [],
-            );
-            setBranches(
-                branchesRes.status === 'fulfilled'
-                    ? branchesRes.value.map((b: any) => ({ id: b.id, name: b.name }))
-                    : [],
-            );
-            setHrUsers(
-                hrUsersRes.status === 'fulfilled'
-                    ? hrUsersRes.value.map((u: any) => ({
-                          id: u.id,
-                          name: u.name,
-                          branchId: u.branch_id ?? u.branchId ?? null,
-                          role_display_name: u.role_display_name ?? null,
-                      }))
-                    : [],
-            );
+        // X3.4: every fetch is independent — a permission failure on one lookup
+        // (e.g. contracts.view_list for a supervisor) must not blank out the others.
+        //
+        // They are also settled INDEPENDENTLY, not in one Promise.allSettled: the
+        // branch list is a handful of rows and used to sit behind api.clients.list(),
+        // which returns the whole clients table (~160k rows / 100MB+). The form's
+        // required "الفرع التشغيلي" select therefore stayed empty for as long as that
+        // payload took to arrive. Small lookups now paint as soon as they land, and
+        // the heavy ones fill in advisory UI (duplicate hints) afterwards.
+        const settle = <T,>(p: Promise<T>, apply: (value: T) => void) => {
+            p.then(value => { if (active) apply(value); })
+             .catch(() => { if (active) apply(undefined as unknown as T); });
         };
 
-        fetchLookupData();
+        if (canChooseBranch) {
+            settle(api.branches.list(), rows =>
+                setBranches((rows ?? []).map((b: any) => ({ id: b.id, name: b.name }))));
+        } else {
+            setBranches([]);
+        }
+
+        if (canChooseAssignedOwner) {
+            settle(api.admin.hrUsers.assignable(), rows =>
+                setHrUsers((rows ?? []).map((u: any) => ({
+                    id: u.id,
+                    name: u.name,
+                    branchId: u.branch_id ?? u.branchId ?? null,
+                    role_display_name: u.role_display_name ?? null,
+                }))));
+        } else {
+            setHrUsers([]);
+        }
+
+        settle(api.systemLists.list({ category: 'occupation', activeOnly: true }), rows =>
+            setOccupationOptions((rows ?? []).map((item: any) => item.value)));
+        settle(api.systemLists.list({ category: 'water_source', activeOnly: true }), rows =>
+            setWaterSourceOptions((rows ?? []).map((item: any) => item.value)));
+        settle(api.employees.list(), rows => setEmployees((rows ?? []).map(toMediatorEmployee)));
+        settle(api.contracts.list(), rows => setContracts(rows ?? []));
+        // No api.clients.list() here any more. It used to pull the entire clients
+        // table (~160k rows / 100MB+) so the browser could do three things the
+        // server does better: duplicate detection (POST /clients/smart-match),
+        // one referrer lookup by id, and "who did this client refer"
+        // (/clients/paged?referredByClientId=). Each is now its own scoped request.
 
         return () => {
             active = false;
@@ -353,18 +360,11 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
         return 'Lead';
     }, [contracts]);
 
+    // Mediator picker: the server searches (name / phone, scoped), the browser no
+    // longer holds every client to filter one dropdown.
     const handleClientSearch = (text: string) => {
         setClientSearch(text);
-        const query = text.trim();
-        const matches = allClients
-            .filter(c => !c.isCandidate && c.id !== initialData?.id)
-            .filter(c =>
-                !query ||
-                c.name.includes(query) ||
-                (c.contacts?.some(con => con.number.includes(query)) || false)
-            )
-            .slice(0, query ? 10 : 20);
-        setClientSuggestions(matches);
+        setMediatorQuery(text.trim());
     };
 
     const handleSelectClient = (client: Client) => {
@@ -515,17 +515,17 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
     const broughtBy = useMemo(() => {
         if (!initialData) return null;
         if (initialData.referrerType === 'Client' && initialData.referralEntityId) {
-            return allClients.find(c => c.id === initialData.referralEntityId);
+            return referrerClientRow;
         }
         return null;
-    }, [initialData, allClients]);
+    }, [initialData, referrerClientRow]);
 
     const referralsList = useMemo(() => {
         if (!initialData || !initialData.id) return [];
         const cid = initialData.id;
 
         const clientRefs: any[] = [];
-        allClients.forEach(c => {
+        referredClients.forEach(c => {
             const referrersToCheck = c.referrers && c.referrers.length > 0
                 ? c.referrers
                 : [{
@@ -552,7 +552,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
             });
         });
 
-        const candRefs = candidates
+        const candRefs = referredCandidates
             .filter(c => c.referralEntityId === cid && c.referralType === 'Client')
             .map(c => ({
                 id: c.id,
@@ -564,30 +564,108 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
             }));
 
         const unconvertedCandRefs = candRefs.filter(cr => {
-            const cand = candidates.find(c => c.id === cr.id);
+            const cand = referredCandidates.find(c => c.id === cr.id);
             return cand && !cand.convertedToLeadId;
         });
 
         return [...clientRefs, ...unconvertedCandRefs].sort((a, b) => new Date(b.date || '').getTime() - new Date(a.date || '').getTime());
-    }, [initialData, allClients, candidates]);
+    }, [initialData, referredClients, referredCandidates]);
 
     // -- Duplicate detection: map number → {id, name, isPrimary} of the OTHER client --
-    const duplicateMap = useMemo(() => {
-        const map = new Map<string, { id: number; name: string; contactPrimary: boolean }>();
-        for (const client of allClients) {
-            if (initialData?.id && client.id === initialData.id) continue; // skip self
-            for (const contact of (client.contacts || [])) {
-                if (contact.number && contact.number.length >= 6 && !map.has(contact.number)) {
-                    map.set(contact.number, {
-                        id: client.id,
-                        name: client.name,
-                        contactPrimary: contact.isPrimary,
-                    });
-                }
-            }
-        }
-        return map;
-    }, [allClients, initialData?.id]);
+    // The duplicate verdict now comes from the server, one number at a time, so it
+    // no longer depends on how many clients the caller's scope could load — a
+    // number owned by another branch is still reported as taken (without leaking
+    // whose it is), which the old in-browser map could never do.
+    const duplicateMap = duplicateByNumber;
+
+    // The client that referred this one — one row by id.
+    useEffect(() => {
+        const rid = initialData?.referralEntityId;
+        if (!isOpen || !rid || initialData?.referrerType !== 'Client') { setReferrerClientRow(null); return; }
+        let active = true;
+        api.clients.get(rid)
+            .then(row => { if (active) setReferrerClientRow(row as Client); })
+            .catch(() => { if (active) setReferrerClientRow(null); });
+        return () => { active = false; };
+    }, [isOpen, initialData?.referralEntityId, initialData?.referrerType]);
+
+    // The clients THIS client referred — asked for by id, not filtered out of the
+    // whole table (the server matches both the flat columns and the referrers array).
+    useEffect(() => {
+        const cid = initialData?.id;
+        if (!isOpen || !cid) { setReferredClients([]); return; }
+        let active = true;
+        api.clients.listPaged({ referredByClientId: cid, limit: 100 })
+            .then(res => { if (active) setReferredClients(res.items as Client[]); })
+            .catch(() => { if (active) setReferredClients([]); });
+        return () => { active = false; };
+    }, [isOpen, initialData?.id]);
+
+    // Mediator dropdown: a scoped server search, debounced. An empty query still
+    // returns a first page so the picker is not blank before typing.
+    useEffect(() => {
+        if (!isOpen || referralType !== 'Client') return;
+        let active = true;
+        setMediatorLoading(true);
+        const timer = setTimeout(() => {
+            api.clients.listPaged({ search: mediatorQuery || undefined, limit: mediatorQuery ? 10 : 20 })
+                .then(res => {
+                    if (!active) return;
+                    const rows = (res.items as Client[]).filter(c => !c.isCandidate && c.id !== initialData?.id);
+                    setClientSuggestions(rows);
+                    if (!mediatorQuery) setMediatorHasAny(rows.length > 0);
+                })
+                .catch(() => { if (active) setClientSuggestions([]); })
+                .finally(() => { if (active) setMediatorLoading(false); });
+        }, 300);
+        return () => { active = false; clearTimeout(timer); };
+    }, [isOpen, referralType, mediatorQuery, initialData?.id]);
+
+    const contactNumbersKey = contacts
+        .map(c => (c.number || '').trim())
+        .filter(n => /^09\d{8}$/.test(n))
+        .join(',');
+
+    useEffect(() => {
+        if (!isOpen) return;
+        const numbers = contactNumbersKey ? contactNumbersKey.split(',') : [];
+        const pending = numbers.filter(n => !duplicateByNumber.has(n));
+        if (pending.length === 0) return;
+
+        let active = true;
+        const timer = setTimeout(() => {
+            Promise.allSettled(pending.map(number =>
+                api.clients.smartMatch({ phone: number, branchId: effectiveBranchId ? Number(effectiveBranchId) : undefined })
+                    .then(res => ({ number, res })),
+            )).then(results => {
+                if (!active) return;
+                setDuplicateByNumber(prev => {
+                    const next = new Map(prev);
+                    for (const settled of results) {
+                        if (settled.status !== 'fulfilled') continue;
+                        const { number, res } = settled.value as any;
+                        if (!res?.matched) continue;
+                        // Editing an existing client: its own number is not a duplicate.
+                        if (res.visible && initialData?.id && res.client?.id === initialData.id) continue;
+                        next.set(number, res.visible
+                            ? {
+                                id: res.client.id,
+                                name: res.client.name,
+                                contactPrimary: String(res.client.phone ?? '').replace(/\D/g, '').endsWith(number.replace(/\D/g, '')),
+                                restricted: false,
+                            }
+                            : { id: 0, name: 'زبون خارج نطاق صلاحيتك', contactPrimary: false, restricted: true });
+                    }
+                    return next;
+                });
+            });
+        }, 400);
+
+        return () => { active = false; clearTimeout(timer); };
+    }, [isOpen, contactNumbersKey, effectiveBranchId, initialData?.id, duplicateByNumber]);
+
+    // A reopened modal must not carry the previous client's verdicts.
+    useEffect(() => { if (!isOpen) setDuplicateByNumber(new Map()); }, [isOpen]);
 
     const primaryContact = contacts.find(c => c.isPrimary);
     const primaryDup = primaryContact?.number && primaryContact.number.length >= 6
@@ -655,7 +733,9 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
         }
 
         if (primaryDup) {
-            alert(`الرقم الأساسي (${primaryNumber}) مكرر عند الزبون: ${primaryDup.name} (كرقم ${primaryDup.contactPrimary ? 'أساسي' : 'ثانوي'}). يجب اختيار رقم أساسي فريد.`);
+            alert(primaryDup.restricted
+                ? `الرقم الأساسي (${primaryNumber}) مسجَّل مسبقاً لدى زبون خارج نطاق صلاحيتك. يجب اختيار رقم أساسي فريد.`
+                : `الرقم الأساسي (${primaryNumber}) مكرر عند الزبون: ${primaryDup.name} (كرقم ${primaryDup.contactPrimary ? 'أساسي' : 'ثانوي'}). يجب اختيار رقم أساسي فريد.`);
             return;
         }
 
@@ -1008,9 +1088,13 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                         <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-start gap-2 text-xs text-red-700">
                                             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-500" />
                                             <div>
-                                                <span className="font-bold">الرقم الأساسي مكرر!</span> موجود عند الزبون:{' '}
-                                                <strong>{primaryDup.name}</strong> كرقم{' '}
-                                                {primaryDup.contactPrimary ? 'أساسي' : 'ثانوي'}.
+                                                <span className="font-bold">الرقم الأساسي مكرر!</span>{' '}
+                                                {primaryDup.restricted ? (
+                                                    <>مسجَّل مسبقاً لدى زبون خارج نطاق صلاحيتك.</>
+                                                ) : (
+                                                    <>موجود عند الزبون: <strong>{primaryDup.name}</strong> كرقم{' '}
+                                                    {primaryDup.contactPrimary ? 'أساسي' : 'ثانوي'}.</>
+                                                )}
                                                 يجب تغيير الرقم الأساسي لحفظ البيانات.
                                             </div>
                                         </div>
@@ -1395,7 +1479,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                 {referralType === 'Client' && (
                                                     <div ref={clientSearchRef} className="relative">
                                                         <label className="block text-xs font-semibold text-slate-600 mb-1.5">اسم الوسيط *</label>
-                                                        {allClients.filter(c => !c.isCandidate).length === 0 ? (
+                                                        {!mediatorHasAny && !mediatorLoading ? (
                                                             <p className="text-xs text-slate-400 italic py-2 px-1">
                                                                 لا يوجد زبائن متاحون كوسيط ضمن صلاحياتك.
                                                             </p>

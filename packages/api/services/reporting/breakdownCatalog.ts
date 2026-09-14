@@ -530,7 +530,10 @@ const clientsByRoute: BreakdownDefinition = {
     const sql =
       `SELECT r.id AS rid, r.name AS rname, COUNT(DISTINCT c.id)::int AS v
          FROM clients c
-         JOIN route_points rp ON rp.level = 4 AND rp.geo_unit_id = NULLIF(c.neighborhood::text, '')::int
+         -- المحطة تُطابق عنوان الزبون حرفياً أياً كان مستواها. تقييدها بالمستوى
+         -- الرابع كان يُسقط 269 محطة من أصل 277 (كل المحطات المرسومة بالناحية)،
+         -- فيظهر التقسيم شبه فارغ بلا سبب ظاهر.
+         JOIN route_points rp ON rp.geo_unit_id = NULLIF(c.neighborhood::text, '')::int
          JOIN routes r ON r.id = rp.route_id
         WHERE c.deleted_at IS NULL
           AND c.is_active IS NOT FALSE` + appendClientScope(ctx, params) +

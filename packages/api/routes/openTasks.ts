@@ -40,6 +40,7 @@ import {
   parseGoldenWarrantyIds,
 } from '../services/goldenWarrantyCardDelivery.js';
 import { lockPlanningDayMutation } from '../services/planningTaskCuration.js';
+import { isInstallationGeoLevel, INSTALLATION_GEO_LEVEL_ERROR } from '../lib/installationGeoLevel.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -1636,13 +1637,13 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
       [plannedTransferGeoUnitId],
     );
     if (!geoRows[0]) {
-      return res.status(400).json({ error: 'الحي المحدد في العنوان المبدئي غير موجود' });
+      return res.status(400).json({ error: 'الموقع المحدد في العنوان المبدئي غير موجود' });
     }
-    if (Number(geoRows[0].level) !== 4) {
-      return res.status(400).json({ error: 'العنوان المبدئي يجب أن يحدد الحي حصراً' });
+    if (!isInstallationGeoLevel(geoRows[0].level)) {
+      return res.status(400).json({ error: `العنوان المبدئي: ${INSTALLATION_GEO_LEVEL_ERROR}` });
     }
     if (geoRows[0].status === 'inactive') {
-      return res.status(400).json({ error: 'لا يمكن اختيار حي موقوف' });
+      return res.status(400).json({ error: 'لا يمكن اختيار موقع موقوف' });
     }
 
     if (transferKind === 'another_customer') {
@@ -1743,7 +1744,7 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
       .forEach((value) => allowedReasons.add(value));
   }
   if (taskType === 'device_retrieval') {
-    ['device_retrieval_maintenance', 'device_retrieval_replacement', 'maintenance_preparation', 'replacement_preparation', 'other']
+    ['device_retrieval_maintenance', 'device_retrieval_replacement', 'device_retrieval_trial_return', 'maintenance_preparation', 'replacement_preparation', 'other']
       .forEach((value) => allowedReasons.add(value));
   }
   if (taskType === 'device_return') {

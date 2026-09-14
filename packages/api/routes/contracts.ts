@@ -6,7 +6,7 @@ import { authorize } from '../services/authorizationService.js';
 import { assertGeoUnitInScope } from '../services/geoScopeService.js';
 import { assertDeviceModelInScope } from '../services/deviceScopeService.js';
 import { promoteClientToLifecycleStatus } from '../services/clientLifecycleService.js';
-import { freezeContractDocument } from './contractDocuments.js'; // DEC-CT-15
+import { freezeContractDocument, freezeContractSettlementAmendment } from './contractDocuments.js'; // DEC-CT-15
 import { persistOpenTaskSnapshots } from './openTasks.js';
 import { createInstallmentCollectionTasksForContract } from '../services/installmentCollectionTasks.js';
 import { syncContractMovements, recordMovement } from '../services/financialMovements.js';
@@ -23,9 +23,28 @@ import {
 import { deriveContractWriteStatus } from '../services/contractLifecycle.js';
 import { normalizeContractTradeinDetails } from '../services/contractTradein.js';
 import {
+  bindContractInputToExistingProvenance,
+  bindContractInputToVisitContext,
+  contractSourceUniquenessConflictPayload,
+  ContractCreationContextError,
+  loadContractCreationContext,
+} from '../services/contractCreationContextService.js';
+import {
+  ContractCustomerLookupError,
+  loadContractCustomerContext,
+  searchContractCustomers,
+} from '../services/contractCustomerLookupService.js';
+import {
   cancelUpcomingPeriodicMaintenanceForContractCancel,
   PeriodicMaintenanceTransferError,
 } from '../services/periodicMaintenanceTasks.js';
+import { checkContractWarranty } from '../lib/contractWarrantyPolicy.js';
+import {
+  isInstallationGeoLevel,
+  readInstallationGeoUnitId,
+  INSTALLATION_GEO_LEVEL_ERROR,
+  INSTALLATION_GEO_LEVEL_ERROR_CODE,
+} from '../lib/installationGeoLevel.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -39,7 +58,8 @@ router.use(requireAuth);
 const contractSelect = `
   c.id, c.contract_number AS "contractNumber", c.customer_id AS "customerId",
   c.customer_name AS "customerName", c.contract_date AS "contractDate",
-  c.source_visit AS "sourceVisit", c.device_model_id AS "deviceModelId",
+  c.source_visit AS "sourceVisit", c.source_visit_id AS "sourceVisitId",
+  c.device_model_id AS "deviceModelId",
   c.device_model_name AS "deviceModelName",
   c.maintenance_plan AS "maintenancePlan", c.base_price AS "basePrice",
   c.final_price AS "finalPrice", c.payment_type AS "paymentType",
@@ -67,6 +87,9 @@ const contractSelect = `
   c.contract_type AS "contractType",
   c.no_closing_reason_id AS "noClosingReasonId",
   c.sale_subtype AS "saleSubtype",
+  -- قلب النوع الفرعي عند التسوية يمحو أثر كون العقد بدأ تجربة، فنعرضه صراحةً.
+  c.started_as_temporary AS "startedAsTemporary",
+  c.temporary_settled_at AS "temporarySettledAt",
   c.receipt_number AS "receiptNumber",
   c.code AS "code",
   c.installed_device_id AS "installedDeviceId",
@@ -602,7 +625,7 @@ router.get('/paged', requirePermission('contracts.view_list'), async (req, res) 
     }
 
     const status = typeof req.query.status === 'string' ? req.query.status.trim() : '';
-    if (['draft', 'active', 'completed', 'cancelled'].includes(status)) {
+    if (['draft', 'active', 'completed', 'cancelled', 'discarded'].includes(status)) {
       params.push(status);
       conditions.push(`c.status = $${params.length}`);
     }
@@ -692,6 +715,91 @@ router.get('/paged', requirePermission('contracts.view_list'), async (req, res) 
     res.json({ items, total: countResult.rows[0]?.total ?? 0, page, limit });
   } catch (err: any) {
     res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+// Read-only context for the visit-driven contract flow. This route intentionally
+// precedes '/:id' so Express never interprets "creation-context" as a contract id.
+router.get('/creation-context/visit/:visitId', requirePermission('contracts.create'), async (req, res) => {
+  const visitId = Number(req.params.visitId);
+  if (!Number.isInteger(visitId) || visitId <= 0) {
+    return res.status(400).json({
+      error: 'معرف الزيارة غير صالح',
+      code: 'INVALID_VISIT_ID',
+    });
+  }
+
+  try {
+    const context = await loadContractCreationContext(
+      pool,
+      req.authContext!,
+      Number.isInteger(req.user?.employeeId) && Number(req.user?.employeeId) > 0
+        ? Number(req.user?.employeeId)
+        : null,
+      visitId,
+    );
+    return res.json(context);
+  } catch (error) {
+    if (error instanceof ContractCreationContextError) {
+      return res.status(error.status).json({ error: error.message, code: error.code });
+    }
+    console.error('[contracts] creation context error:', error);
+    return res.status(500).json({ error: 'فشل في تجهيز سياق إنشاء العقد' });
+  }
+});
+
+// Lightweight, use-case-specific lookup for manual contract creation. It
+// deliberately avoids the full client projection, aggregate KPIs and COUNT(*)
+// used by the clients records page.
+router.get('/customer-lookup', requirePermission('contracts.create'), async (req, res) => {
+  const targetBranchId = resolveTargetBranchId(req, res);
+  if (targetBranchId == null) return;
+
+  const query = typeof req.query.q === 'string' ? req.query.q : '';
+  const requestedLimit = Number(req.query.limit ?? 20);
+  const limit = Number.isInteger(requestedLimit) ? requestedLimit : 20;
+
+  try {
+    return res.json(await searchContractCustomers(
+      pool,
+      req.authContext!,
+      targetBranchId,
+      query,
+      limit,
+    ));
+  } catch (error) {
+    if (error instanceof ContractCustomerLookupError) {
+      return res.status(error.status).json({ error: error.message, code: error.code });
+    }
+    console.error('[contracts] customer lookup error:', error);
+    return res.status(500).json({ error: 'فشل البحث عن الزبائن' });
+  }
+});
+
+// Load only the selected customer's fields needed by the contract form. The
+// same scope policy is re-applied instead of trusting an id returned by the UI.
+router.get('/customer-context/:clientId', requirePermission('contracts.create'), async (req, res) => {
+  const customerId = Number(req.params.clientId);
+  if (!Number.isInteger(customerId) || customerId <= 0) {
+    return res.status(400).json({ error: 'معرف الزبون غير صالح', code: 'INVALID_CUSTOMER_ID' });
+  }
+
+  const targetBranchId = resolveTargetBranchId(req, res);
+  if (targetBranchId == null) return;
+
+  try {
+    return res.json(await loadContractCustomerContext(
+      pool,
+      req.authContext!,
+      targetBranchId,
+      customerId,
+    ));
+  } catch (error) {
+    if (error instanceof ContractCustomerLookupError) {
+      return res.status(error.status).json({ error: error.message, code: error.code });
+    }
+    console.error('[contracts] customer context error:', error);
+    return res.status(500).json({ error: 'فشل تحميل بيانات الزبون' });
   }
 });
 
@@ -913,6 +1021,12 @@ router.get('/:id', requirePermission('contracts.view_list'), async (req, res) =>
  *                 type: string
  *               contractDate:
  *                 type: string
+ *               sourceVisitId:
+ *                 type: integer
+ *                 description: زيارة موحدة مصدَرية؛ عند وجودها يثبت الخادم الزبون والفرع والمهمة وصاحب البيعة
+ *               sourceTaskOfferId:
+ *                 type: integer
+ *                 description: عرض مقبول اختياري من سياق الزيارة
  *               deviceModelId:
  *                 type: integer
  *               deviceModelName:
@@ -940,7 +1054,33 @@ router.get('/:id', requirePermission('contracts.view_list'), async (req, res) =>
  *         description: Server error
  */
 router.post('/', requirePermission('contracts.create'), async (req, res) => {
-  const c = req.body;
+  let c = { ...req.body };
+  const rawSourceVisitId = c.sourceVisitId ?? c.source_visit_id ?? null;
+  if (rawSourceVisitId !== null && rawSourceVisitId !== '') {
+    const sourceVisitId = Number(rawSourceVisitId);
+    if (!Number.isInteger(sourceVisitId) || sourceVisitId <= 0) {
+      return res.status(400).json({ error: 'معرف الزيارة غير صالح', code: 'INVALID_VISIT_ID' });
+    }
+
+    try {
+      const visitContext = await loadContractCreationContext(
+        pool,
+        req.authContext!,
+        Number.isInteger(req.user?.employeeId) && Number(req.user?.employeeId) > 0
+          ? Number(req.user?.employeeId)
+          : null,
+        sourceVisitId,
+      );
+      c = bindContractInputToVisitContext(c, visitContext);
+    } catch (error) {
+      if (error instanceof ContractCreationContextError) {
+        return res.status(error.status).json({ error: error.message, code: error.code });
+      }
+      console.error('[contracts] visit-bound create validation error:', error);
+      return res.status(500).json({ error: 'فشل في التحقق من سياق الزيارة' });
+    }
+  }
+
   const tradeinDetails = normalizeContractTradeinDetails(
     c.saleType,
     c.oldContractNumber,
@@ -952,6 +1092,32 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
   const derivedStatus = deriveContractWriteStatus(c.status);
   const targetBranchId = resolveTargetBranchId(req, res, c.branchId);
   if (targetBranchId == null) return;
+
+  // Manual creation must not trust a posted customer id/name. Resolve the
+  // selected customer again through the same branch/assignment scope used by
+  // the picker. Visit-bound creation has its own authoritative context policy.
+  if (rawSourceVisitId === null || rawSourceVisitId === '') {
+    const customerId = Number(c.customerId);
+    if (!Number.isInteger(customerId) || customerId <= 0) {
+      return res.status(400).json({ error: 'يجب اختيار زبون صالح', code: 'INVALID_CUSTOMER_ID' });
+    }
+    try {
+      const customer = await loadContractCustomerContext(
+        pool,
+        req.authContext!,
+        targetBranchId,
+        customerId,
+      );
+      c.customerId = customer.id;
+      c.customerName = customer.name;
+    } catch (error) {
+      if (error instanceof ContractCustomerLookupError) {
+        return res.status(error.status).json({ error: error.message, code: error.code });
+      }
+      console.error('[contracts] manual customer validation error:', error);
+      return res.status(500).json({ error: 'فشل التحقق من الزبون المختار' });
+    }
+  }
 
   // Plan §3 — NID length guard (always, when provided).
   const nidCheck = normalizeNationalId(c.nationalId ?? c.buyerNationalId);
@@ -978,8 +1144,7 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
   // Geo-coverage enforcement — installation_geo_unit_id must be inside the
   // target branch's coverage. Enforced against the target branch so that
   // cross-branch creates respect the recipient's coverage map.
-  const installationGeoUnitForCheck =
-    c.installationGeoUnitId ?? c.installation_geo_unit_id ?? null;
+  const installationGeoUnitForCheck = readInstallationGeoUnitId(c);
   if (installationGeoUnitForCheck && (req as any).authContext) {
     const geoCheck = await assertGeoUnitInScope(
       (req as any).authContext,
@@ -995,14 +1160,14 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
     }
   }
 
-  // Installation address must be precise to the neighborhood (الحي / level 4) —
-  // a governorate/district is not specific enough for a device install.
+  // Installation address must be a sub-district (ناحية) or a neighbourhood
+  // (حي). A governorate or a region is not specific enough to install at.
   if (installationGeoUnitForCheck) {
     const { rows: lvl } = await pool.query('SELECT level FROM geo_units WHERE id = $1', [installationGeoUnitForCheck]);
-    if (!lvl[0] || Number(lvl[0].level) !== 4) {
+    if (!lvl[0] || !isInstallationGeoLevel(lvl[0].level)) {
       return res.status(400).json({
-        error: 'عنوان التركيب يجب أن يكون على مستوى الحي',
-        code: 'installation_geo_not_neighborhood',
+        error: INSTALLATION_GEO_LEVEL_ERROR,
+        code: INSTALLATION_GEO_LEVEL_ERROR_CODE,
       });
     }
   }
@@ -1052,10 +1217,10 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
     if (dupOfferId != null || dupSaleRef != null) {
       const { rows: dup } = await client.query(
         `SELECT id, contract_number FROM contracts
-          WHERE status NOT IN ('discarded', 'cancelled')
+          WHERE COALESCE(status, 'draft') NOT IN ('discarded', 'cancelled')
             AND (
               ($1::bigint IS NOT NULL AND source_task_offer_id = $1)
-              OR ($2::text IS NOT NULL AND sale_reference_number = $2)
+              OR ($2::text IS NOT NULL AND BTRIM(sale_reference_number) = $2)
             )
           LIMIT 1`,
         [dupOfferId, dupSaleRef],
@@ -1071,7 +1236,22 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
       }
     }
 
-    const draftDevicePayload = buildDraftDevicePayload(c);
+  
+  // كفالة العقد خاصية للجهاز: تُقاس المدة على كتالوج الموديل وتُشتق الزيارات
+  // من البند المطابق. الواجهة ليست الحارس — نداء مباشر يتجاوزها.
+  {
+    const { rows: wm } = await pool.query(
+      'SELECT name_ar, warranty_periods FROM device_models WHERE id = $1',
+      [Number(c.deviceModelId) || 0],
+    );
+    const verdict = checkContractWarranty(c.warrantyMonths, wm[0]?.warranty_periods, wm[0]?.name_ar);
+    if (!verdict.ok) {
+      return res.status(400).json({ error: verdict.error, code: 'contract_warranty_not_in_device_catalog' });
+    }
+    c.warrantyMonths = verdict.warrantyMonths;
+    c.warrantyVisits = verdict.warrantyVisits;
+  }
+  const draftDevicePayload = buildDraftDevicePayload(c);
     await syncClientLegalIdentity(client, c.customerId, {
       fatherName: c.fatherName,
       nationalId: c.nationalId ?? c.buyerNationalId,
@@ -1088,7 +1268,7 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
     // physical-device fields on the contract until approval materializes the row.
     const { rows } = await client.query(
       `INSERT INTO contracts (contract_number, customer_id, customer_name, contract_date,
-        source_visit, device_model_id, device_model_name, maintenance_plan,
+        source_visit, source_visit_id, device_model_id, device_model_name, maintenance_plan,
         base_price, final_price, payment_type, down_payment, installments_count,
         status, branch_id, service_branch_id, sale_type,
         discount_id, sale_source, closing_employee_id, invoice_notes,
@@ -1100,10 +1280,10 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
         no_closing_reason_id, sale_subtype, created_by,
         sale_owner_id, offer_team_snapshot, contract_referrers, draft_device_payload,
         old_contract_number, old_device_condition)
-      VALUES (NULLIF($1::text, ''),$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42)
+      VALUES (NULLIF($1::text, ''),$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43)
       RETURNING id`,
       [c.contractNumber, c.customerId, c.customerName, c.contractDate,
-       c.sourceVisit || null, c.deviceModelId, c.deviceModelName,
+       c.sourceVisit || null, c.sourceVisitId || null, c.deviceModelId, c.deviceModelName,
        null, c.basePrice || 0, c.finalPrice || 0, c.paymentType,
        c.downPayment || 0, c.installmentsCount || 0,
        derivedStatus, targetBranchId,
@@ -1132,6 +1312,12 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
        tradeinDetails.oldDeviceCondition]
     );
     const contractId = rows[0].id;
+
+    // وسم لزوم: يبقى صحيحاً بعد أن يقلب تثبيت البيعة النوع الفرعي إلى
+    // definitive، فيظل معلوماً أن هذه البيعة جاءت من تجربة.
+    if (isTrialContract(c.saleSubtype)) {
+      await client.query('UPDATE contracts SET started_as_temporary = TRUE WHERE id = $1', [contractId]);
+    }
 
     // Re-fetch with JOIN so installed_devices fields are included in the response
     const { rows: fetchRows } = await client.query(
@@ -1213,6 +1399,8 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
     await client.query('ROLLBACK');
     const conflict = deviceSerialConflictPayload(err);
     if (conflict) return res.status(409).json(conflict);
+    const sourceConflict = contractSourceUniquenessConflictPayload(err);
+    if (sourceConflict) return res.status(409).json(sourceConflict);
     throw err;
   } finally {
     client.release();
@@ -1275,6 +1463,12 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
   // and trigger the auto-freeze of the legal copy.
   const { rows: existing } = await pool.query(
     `SELECT c.branch_id, c.status AS "prevStatus", c.device_model_id AS "deviceModelId",
+            c.customer_id AS "customerId", c.customer_name AS "customerName",
+            c.source_visit AS "sourceVisit", c.source_visit_id AS "sourceVisitId",
+            c.source_open_task_id AS "sourceOpenTaskId",
+            c.source_task_offer_id AS "sourceTaskOfferId",
+            c.sale_reference_number AS "saleReferenceNumber",
+            c.sale_owner_id AS "saleOwnerId",
             COALESCE(d.installation_geo_unit_id, NULLIF(c.draft_device_payload->>'installationGeoUnitId', '')::int) AS "installationGeoUnitId"
        FROM contracts c
        LEFT JOIN installed_devices d ON d.contract_id = c.id
@@ -1292,7 +1486,15 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
       status: prevStatus,
     });
   }
-  const c = req.body;
+  let c: Record<string, any>;
+  try {
+    c = bindContractInputToExistingProvenance(req.body, existing[0]);
+  } catch (error) {
+    if (error instanceof ContractCreationContextError) {
+      return res.status(error.status).json({ error: error.message, code: error.code });
+    }
+    throw error;
+  }
   const tradeinDetails = normalizeContractTradeinDetails(
     c.saleType,
     c.oldContractNumber,
@@ -1302,6 +1504,21 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
     return res.status(400).json({ error: tradeinDetails.error, code: tradeinDetails.code });
   }
   const derivedStatus = deriveContractWriteStatus(c.status);
+
+  // كفالة العقد خاصية للجهاز: تُقاس المدة على كتالوج الموديل وتُشتق الزيارات
+  // من البند المطابق. الواجهة ليست الحارس — نداء مباشر يتجاوزها.
+  {
+    const { rows: wm } = await pool.query(
+      'SELECT name_ar, warranty_periods FROM device_models WHERE id = $1',
+      [Number(c.deviceModelId) || 0],
+    );
+    const verdict = checkContractWarranty(c.warrantyMonths, wm[0]?.warranty_periods, wm[0]?.name_ar);
+    if (!verdict.ok) {
+      return res.status(400).json({ error: verdict.error, code: 'contract_warranty_not_in_device_catalog' });
+    }
+    c.warrantyMonths = verdict.warrantyMonths;
+    c.warrantyVisits = verdict.warrantyVisits;
+  }
   const draftDevicePayload = buildDraftDevicePayload(c);
 
   // Plan §3 — NID length guard (always, when provided).
@@ -1310,11 +1527,10 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
     return res.status(400).json({ error: 'الرقم الوطني يجب أن يكون 11 رقماً.' });
   }
 
-  // Plan §4 — sale_owner_id is frozen once the contract leaves draft.
-  //   • while draft        → editable subject to contracts.assign_sale_owner
-  //   • once active+       → frozen; payload value is ignored entirely.
+  // Visit provenance fixes the sale owner at creation. Manual contracts retain
+  // the established rule: editable in draft, frozen once they leave draft.
   const requestedSaleOwnerId = c.saleOwnerId ? Number(c.saleOwnerId) : null;
-  const saleOwnerFrozen = prevStatus !== 'draft';
+  const saleOwnerFrozen = prevStatus !== 'draft' || existing[0].sourceVisitId != null;
   if (!saleOwnerFrozen) {
     const currentUserEmployeeId = (req as any).user?.employeeId ?? null;
     if (!canAssignSaleOwner(authContext, existing[0].branch_id, currentUserEmployeeId, requestedSaleOwnerId)) {
@@ -1324,8 +1540,7 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
 
   // Geo-coverage enforcement — see POST /contracts. Use the contract's own
   // owning branch (existing[0].branch_id) since edits don't move branches.
-  const installationGeoUnitForCheck =
-    c.installationGeoUnitId ?? c.installation_geo_unit_id ?? null;
+  const installationGeoUnitForCheck = readInstallationGeoUnitId(c);
   if (installationGeoUnitForCheck) {
     const geoCheck = await assertGeoUnitInScope(
       authContext,
@@ -1349,10 +1564,10 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
     Number(installationGeoUnitForCheck) !== Number(existing[0].installationGeoUnitId)
   ) {
     const { rows: lvl } = await pool.query('SELECT level FROM geo_units WHERE id = $1', [installationGeoUnitForCheck]);
-    if (!lvl[0] || Number(lvl[0].level) !== 4) {
+    if (!lvl[0] || !isInstallationGeoLevel(lvl[0].level)) {
       return res.status(400).json({
-        error: 'عنوان التركيب يجب أن يكون على مستوى الحي',
-        code: 'installation_geo_not_neighborhood',
+        error: INSTALLATION_GEO_LEVEL_ERROR,
+        code: INSTALLATION_GEO_LEVEL_ERROR_CODE,
       });
     }
   }
@@ -1442,6 +1657,11 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
        req.params.id]
     );
 
+    // وسم التجربة لزوم: التعديل قد يبدّل النوع الفرعي وهو ما زال مسودة.
+    if (isTrialContract(c.saleSubtype)) {
+      await pgClient.query('UPDATE contracts SET started_as_temporary = TRUE WHERE id = $1', [req.params.id]);
+    }
+
     // تحديث وعود الهدايا المسودة (تُحوَّل إلى gift_records عند الاعتماد).
     if (Array.isArray(c.giftPromises)) {
       await pgClient.query(
@@ -1469,6 +1689,8 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
     await pgClient.query('ROLLBACK');
     const conflict = deviceSerialConflictPayload(err);
     if (conflict) return res.status(409).json(conflict);
+    const sourceConflict = contractSourceUniquenessConflictPayload(err);
+    if (sourceConflict) return res.status(409).json(sourceConflict);
     throw err;
   } finally {
     pgClient.release();
@@ -1952,6 +2174,39 @@ async function createDeliveryTaskForContract(db: any, contract: any) {
   await persistOpenTaskSnapshots(db, insertedRows[0].id, contract.customerId, contract.id, deliveryDeviceId);
 }
 
+/** عقد تجربة: حيازة مؤقتة خرج فيها الجهاز بلا بيع ولا أثر مالي. */
+function isTrialContract(saleSubtype: unknown): boolean {
+  return saleSubtype === 'temporary';
+}
+
+/**
+ * حالات الجهاز قبل خروجه من الفرع. ما دام الجهاز لم يُسلَّم فلا شيء يُسحب،
+ * ومخرج العقد حينها إلغاء مباشر لا مهمة سحب.
+ */
+const DEVICE_PRE_DELIVERY_STATUSES = ['registered', 'pending_delivery', 'delivery_suspended'];
+
+function isDeviceAwaitingDelivery(status: unknown): boolean {
+  return typeof status === 'string' && DEVICE_PRE_DELIVERY_STATUSES.includes(status);
+}
+
+/**
+ * آثار إغلاق البيعة التي لا يجوز وقوعها قبل قرار الشراء الفعلي:
+ * تجسيد وعود الهدايا، وترقية دورة حياة الزبون إلى OP.
+ *
+ * تقع عند الاعتماد للبيع العادي، وعند التسوية لعقد التجربة.
+ */
+async function materializeSaleClosureEffects(
+  db: any,
+  contractId: number,
+  customerId: number | null | undefined,
+  actorUserId: number | null,
+): Promise<void> {
+  await materializeContractGiftPromises(db, contractId, actorUserId);
+  if (customerId) {
+    await promoteClientToLifecycleStatus(db, Number(customerId), 'OP');
+  }
+}
+
 function toNullableNumber(value: unknown): number | null {
   if (value === null || value === undefined || value === '') return null;
   const n = Number(value);
@@ -1961,8 +2216,11 @@ function toNullableNumber(value: unknown): number | null {
 function buildDraftDevicePayload(c: any) {
   const warrantyMonths = Number(c.warrantyMonths) || 0;
   const warrantyVisits = Number(c.warrantyVisits) > 0 ? Number(c.warrantyVisits) : null;
+  // أعمق وحدة مختارة: اختيار ناحية يملأ `subId` ويترك `neighborhoodId` فارغاً،
+  // فقراءة الخانة الرابعة وحدها كانت ستُسقط عنوان التركيب بصمت.
   const installationGeoUnitId =
     c.geoSelection?.neighborhoodId
+    || c.geoSelection?.subId
     || c.installationGeoUnitId
     || null;
 
@@ -2056,7 +2314,7 @@ async function collectApprovalIssues(
   const c = rows[0];
   if (!c) return ['العقد غير موجود'];
 
-  if (!c.geo_unit_id) issues.push('عنوان التركيب (المحافظة + الحي) مطلوب');
+  if (!c.geo_unit_id) issues.push('عنوان التركيب مطلوب (الناحية أو الحي)');
 
   const finalPrice = Number(c.final_price) || 0;
   const subtypeWaives = c.sale_subtype === 'temporary' || c.sale_subtype === 'free';
@@ -2136,6 +2394,7 @@ router.post('/:id/approve', async (req, res) => {
     // Pessimistic lock so two approvers can't race.
     const { rows: cur } = await pgClient.query(
       `SELECT id, status, contract_type, customer_id, branch_id, closing_employee_id,
+              sale_subtype AS "saleSubtype",
               sale_owner_id AS "saleOwnerId",
               draft_device_payload AS "draftDevicePayload",
               NULL::date AS delivery_date
@@ -2252,11 +2511,17 @@ router.post('/:id/approve', async (req, res) => {
     // سجل الحركات المالية: استحقاق التوقيع + الأقساط + الدفعات (idempotent).
     await syncContractMovements(pgClient, contractId);
 
-    // تحويل وعود الهدايا المسودة إلى gift_records فعلية (الاعتماد فقط).
-    await materializeContractGiftPromises(pgClient, contractId, authContext.userId ?? null);
-
-    if (refreshed.customerId) {
-      await promoteClientToLifecycleStatus(pgClient, Number(refreshed.customerId), 'OP');
+    // عقد التجربة يخرج الجهاز إلى الزبون لكنه ليس بيعاً بعد: لا هدايا ولا
+    // ترقية دورة حياة قبل الشراء. الأثران يقعان عند التسوية (/settle)، وهذا
+    // مهم لأن الترقية تحذف client_assignments بلا رجعة — أي تسحب الزبون من
+    // الموظف في اللحظة التي يفترض أن يغلق فيها البيعة.
+    if (!isTrialContract(c.saleSubtype)) {
+      await materializeSaleClosureEffects(
+        pgClient,
+        contractId,
+        refreshed.customerId,
+        authContext.userId ?? null,
+      );
     }
 
     // Freeze the legal copy (DEC-CT-15). Wrap in a SAVEPOINT so a freeze
@@ -2287,6 +2552,366 @@ router.post('/:id/approve', async (req, res) => {
   }
 });
 
+// ──────────────────────────────────────────────────────────────────────────
+//   POST /api/contracts/:id/settle   تسوية عقد التجربة → بيع قطعي
+// ──────────────────────────────────────────────────────────────────────────
+// عقد التجربة يُعتمد فوراً ليخرج الجهاز إلى الزبون، لكن بلا سعر ولا ذمة. عند
+// قرار الشراء تُثبَّت المالية على العقد نفسه — عقد واحد ورقم واحد — فينقلب
+// النوع الفرعي إلى definitive ويُجمَّد ملحق تثبيت البيعة الحامل للبنود
+// المالية، بينما يبقى الأصل (عقد الحيازة المؤقتة) بلا مساس كما تشترط مادته
+// العاشرة.
+//
+// المسار مخصص بدل فتح حُرّاس PUT/payment-entries/installments أمام عقد معتمد،
+// لسببين: أولهما أن PUT يعيد كتابة أربعين حقلاً، وثانيهما أن المسار القديم في
+// الواجهة كان أربعة نداءات متتابعة — فشل أحدها يترك العقد نصف محوَّل. هنا كل
+// شيء في معاملة واحدة.
+router.post('/:id/settle', async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'غير مصرح' });
+  const authContext = await getOrBuildAuthContext(req as any);
+  const contractId = Number(req.params.id);
+  if (!Number.isInteger(contractId) || contractId <= 0) {
+    return res.status(400).json({ error: 'id غير صالح' });
+  }
+
+  const paymentType = req.body?.paymentType === 'installment' ? 'installment' : 'cash';
+  const finalPrice = Math.round(Number(req.body?.finalPrice) || 0);
+  const downPayment = Math.round(Number(req.body?.downPayment) || 0);
+  const incomingInstallments: any[] = Array.isArray(req.body?.installments) ? req.body.installments : [];
+
+  if (finalPrice <= 0) {
+    return res.status(400).json({ error: 'السعر النهائي مطلوب لتثبيت البيعة' });
+  }
+  if (downPayment < 0 || downPayment > finalPrice) {
+    return res.status(400).json({ error: 'الدفعة الأولى يجب أن تكون بين صفر والسعر النهائي' });
+  }
+  if (paymentType === 'installment') {
+    if (downPayment >= finalPrice) {
+      return res.status(400).json({ error: 'الدفعة الأولى يجب أن تكون أقل من السعر النهائي في البيع بالتقسيط' });
+    }
+    if (incomingInstallments.length === 0) {
+      return res.status(400).json({ error: 'جدول الأقساط مطلوب في البيع بالتقسيط' });
+    }
+    const sum = incomingInstallments.reduce((s, i) => s + Math.round(Number(i?.amountSyp) || 0), 0);
+    if (Math.abs(sum + downPayment - finalPrice) > 1) {
+      return res.status(400).json({
+        error: `مجموع الأقساط والدفعة الأولى (${sum + downPayment}) لا يساوي السعر النهائي (${finalPrice})`,
+      });
+    }
+    if (incomingInstallments.some((i) => !i?.dueDate)) {
+      return res.status(400).json({ error: 'تاريخ الاستحقاق مطلوب لكل قسط' });
+    }
+  }
+
+  const pgClient = await pool.connect();
+  try {
+    await pgClient.query('BEGIN');
+
+    const { rows: cur } = await pgClient.query(
+      `SELECT id, status, branch_id, customer_id, sale_subtype AS "saleSubtype",
+              contract_type AS "contractType"
+         FROM contracts WHERE id = $1 FOR UPDATE`,
+      [contractId],
+    );
+    if (!cur[0]) {
+      await pgClient.query('ROLLBACK');
+      return res.status(404).json({ error: 'العقد غير موجود' });
+    }
+    const c = cur[0];
+
+    // التسوية تثبيت للبيعة، فتخضع لبوابة التسكير نفسها.
+    const access = authorize(authContext, { permission: 'contracts.close', branchId: c.branch_id });
+    if (!access.allowed) {
+      await pgClient.query('ROLLBACK');
+      return res.status(403).json({ error: 'غير مسموح' });
+    }
+
+    if (!isTrialContract(c.saleSubtype)) {
+      await pgClient.query('ROLLBACK');
+      return res.status(409).json({
+        error: 'تثبيت البيعة متاح لعقود التجربة فقط',
+        code: 'contract_not_trial',
+      });
+    }
+    if (c.status !== 'active') {
+      await pgClient.query('ROLLBACK');
+      return res.status(409).json({
+        error: `لا يمكن تثبيت بيعة عقد بحالة "${c.status}". التثبيت متاح للعقود الفعّالة فقط.`,
+      });
+    }
+
+    // 0) البيانات القانونية للمشتري. العقد غير قابل للتعديل بعد اعتماده،
+    //    فلو لم تُستوفَ هذه الحقول وقت التجربة لتعذّر تثبيت البيعة بالتقسيط
+    //    إلى الأبد. لذلك يقبلها هذا المسار ويكتبها قبل التحقق.
+    const legal = req.body?.legal ?? {};
+    await syncClientLegalIdentity(pgClient, c.customer_id, {
+      fatherName: legal.fatherName,
+      nationalId: legal.nationalId,
+      motherName: legal.buyerMotherName,
+      birthDate: legal.buyerBirthDate,
+      gender: legal.buyerGender,
+      nationalIdRegistry: legal.buyerNationalIdRegistry,
+      nationalIdIssuedBy: legal.buyerNationalIdIssuedBy,
+      nationalIdIssueDate: legal.buyerNationalIdIssueDate,
+      nationalIdBox: legal.buyerNationalIdBox,
+    });
+    await pgClient.query(
+      `UPDATE contracts SET
+         buyer_mother_name             = COALESCE(NULLIF($2, ''), buyer_mother_name),
+         buyer_gender                  = COALESCE(NULLIF($3, ''), buyer_gender),
+         buyer_birth_date              = COALESCE($4::date, buyer_birth_date),
+         buyer_national_id_registry    = COALESCE(NULLIF($5, ''), buyer_national_id_registry),
+         buyer_national_id_issued_by   = COALESCE(NULLIF($6, ''), buyer_national_id_issued_by),
+         buyer_national_id_issue_date  = COALESCE($7::date, buyer_national_id_issue_date),
+         buyer_national_id_box         = COALESCE(NULLIF($8, ''), buyer_national_id_box)
+       WHERE id = $1`,
+      [
+        contractId,
+        typeof legal.buyerMotherName === 'string' ? legal.buyerMotherName.trim() : '',
+        legal.buyerGender === 'male' || legal.buyerGender === 'female' ? legal.buyerGender : '',
+        typeof legal.buyerBirthDate === 'string' && legal.buyerBirthDate.trim() ? legal.buyerBirthDate.trim() : null,
+        typeof legal.buyerNationalIdRegistry === 'string' ? legal.buyerNationalIdRegistry.trim() : '',
+        typeof legal.buyerNationalIdIssuedBy === 'string' ? legal.buyerNationalIdIssuedBy.trim() : '',
+        typeof legal.buyerNationalIdIssueDate === 'string' && legal.buyerNationalIdIssueDate.trim()
+          ? legal.buyerNationalIdIssueDate.trim() : null,
+        typeof legal.buyerNationalIdBox === 'string' ? legal.buyerNationalIdBox.trim() : '',
+      ],
+    );
+
+    // 1) المالية على العقد نفسه. السعر المتفق عليه عند الشراء هو الأساس
+    //    والنهائي معاً (base = final) فلا ينشأ حسم وهمي؛ بنود العقد تبقى
+    //    سجلاً وصفياً لما سُلّم فعلاً وقالب الملحق يعرضها بلا أسعار.
+    await pgClient.query(
+      `UPDATE contracts
+          SET sale_subtype         = 'definitive',
+              payment_type         = $2,
+              base_price           = $3,
+              final_price          = $3,
+              down_payment         = $4,
+              installments_count   = $5,
+              temporary_settled_at = NOW()
+        WHERE id = $1`,
+      [contractId, paymentType, finalPrice, downPayment,
+       paymentType === 'installment' ? incomingInstallments.length : 0],
+    );
+
+    // 2) الدفعات: الكاش يُقبض كاملاً، والتقسيط يقبض المقدّم إن وُجد.
+    await pgClient.query(
+      'DELETE FROM contract_payment_entries WHERE contract_id = $1 AND installment_id IS NULL',
+      [contractId],
+    );
+    const signingAmount = paymentType === 'cash' ? finalPrice : downPayment;
+    if (signingAmount > 0) {
+      await pgClient.query(
+        `INSERT INTO contract_payment_entries
+           (contract_id, method, currency, amount_value, amount_syp, notes, entry_type)
+         VALUES ($1, 'cash', 'SYP', $2, $2, $3, 'collection')`,
+        [contractId, signingAmount,
+         paymentType === 'cash' ? 'دفعة كاملة عند تثبيت البيعة' : 'الدفعة الأولى عند تثبيت البيعة'],
+      );
+    }
+
+    // 3) جدول الأقساط مؤكَّد من لحظة التثبيت — لا معنى لجدول غير مؤكد بعد
+    //    توقيع الملحق.
+    await pgClient.query('DELETE FROM contract_installments WHERE contract_id = $1', [contractId]);
+    if (paymentType === 'installment') {
+      for (const [index, inst] of incomingInstallments.entries()) {
+        const amount = Math.round(Number(inst?.amountSyp) || 0);
+        await pgClient.query(
+          `INSERT INTO contract_installments
+             (contract_id, installment_number, due_date, amount_syp, remaining_balance, confirmed)
+           VALUES ($1, $2, $3, $4, $4, TRUE)`,
+          [contractId, Number(inst?.installmentNumber) || index + 1, inst.dueDate, amount],
+        );
+      }
+    }
+
+    // 4) البوابة نفسها التي تحرس الاعتماد: العقد المُسوّى يجب أن يستوفي ما
+    //    يستوفيه أي بيع قطعي وُلد قطعياً — لا استثناء لأنه بدأ تجربة.
+    const issues = await collectApprovalIssues(pgClient, contractId);
+    if (issues.length > 0) {
+      await pgClient.query('ROLLBACK');
+      return res.status(400).json({
+        error: 'لا يمكن تثبيت البيعة — البيانات المطلوبة غير مكتملة',
+        issues,
+      });
+    }
+
+    // 5) إلغاء أي مهمة سحب مفتوحة: التجربة انتهت بالشراء، فلا يجوز أن يصل
+    //    فنّي لاسترداد جهاز صار ملكاً للزبون.
+    const { rows: droppedRetrievals } = await pgClient.query(
+      `UPDATE open_tasks
+          SET status = 'cancelled',
+              cancellation_reason = COALESCE(cancellation_reason, 'trial_settled'),
+              updated_at = NOW()
+        WHERE task_type = 'device_retrieval'
+          AND contract_id = $1
+          AND retrieval_purpose = 'trial_return'
+          AND status NOT IN ('completed', 'closed', 'cancelled')
+        RETURNING id`,
+      [contractId],
+    );
+    for (const row of droppedRetrievals) {
+      await pgClient.query(
+        `UPDATE visit_tasks SET status = 'cancelled', updated_at = NOW()
+          WHERE source_open_task_id = $1 AND status NOT IN ('completed', 'cancelled')`,
+        [Number(row.id)],
+      );
+      await pgClient.query(
+        `INSERT INTO task_activity_log
+           (task_id, event_type, performed_by, old_value, new_value, reason, created_at)
+         VALUES ($1, 'status_change', $2, NULL, 'cancelled', 'trial_settled', NOW())`,
+        [Number(row.id), authContext.userId ?? null],
+      );
+    }
+
+    // 6) الأثر المالي والتشغيلي يبدأ الآن لا عند اعتماد التجربة.
+    await syncContractMovements(pgClient, contractId);
+    await createInstallmentCollectionTasksForContract(pgClient, contractId);
+    await materializeSaleClosureEffects(
+      pgClient,
+      contractId,
+      c.customer_id,
+      authContext.userId ?? null,
+    );
+
+    // 7) ملحق تثبيت البيعة. على خلاف تجميد الأصل عند الاعتماد، الفشل هنا
+    //    يُسقط التسوية كلها: بيعة بلا سند موقّع على قيمتها هي بالضبط الثغرة
+    //    التي وُجد هذا المسار لسدّها.
+    const amendment = await freezeContractSettlementAmendment(
+      pgClient,
+      contractId,
+      (req as any).user?.employeeId ?? null,
+    );
+
+    await pgClient.query('COMMIT');
+    res.json({
+      success: true,
+      contractId,
+      saleSubtype: 'definitive',
+      paymentType,
+      finalPrice,
+      amendmentDocumentId: amendment.id,
+    });
+  } catch (err: any) {
+    await pgClient.query('ROLLBACK');
+    console.error('[contracts] settle failed:', err);
+    res.status(500).json({ error: 'فشل تثبيت البيعة', detail: err?.message });
+  } finally {
+    pgClient.release();
+  }
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+//   POST /api/contracts/:id/trial-retrieval   إنهاء التجربة بسحب الجهاز
+// ──────────────────────────────────────────────────────────────────────────
+// التجربة التي لا تنتهي بشراء تنتهي بعودة الجهاز. لا يُلغى العقد هنا: يُنشأ
+// مهمة سحب بغرض trial_return، والإلغاء يقع لاحقاً عند نجاح السحب فعلياً
+// (visitTaskResultReflection) — فالعقد لا يُغلق وجهاز الشركة ما يزال عند
+// الزبون.
+router.post('/:id/trial-retrieval', async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'غير مصرح' });
+  const authContext = await getOrBuildAuthContext(req as any);
+  const contractId = Number(req.params.id);
+  if (!Number.isInteger(contractId) || contractId <= 0) {
+    return res.status(400).json({ error: 'id غير صالح' });
+  }
+
+  const pgClient = await pool.connect();
+  try {
+    await pgClient.query('BEGIN');
+
+    const { rows: cur } = await pgClient.query(
+      `SELECT c.id, c.status, c.branch_id, c.customer_id, c.service_branch_id,
+              c.sale_subtype AS "saleSubtype",
+              d.id AS "deviceId", d.branch_id AS "deviceBranchId", d.status AS "deviceStatus"
+         FROM contracts c
+         LEFT JOIN installed_devices d ON d.contract_id = c.id
+        WHERE c.id = $1
+        FOR UPDATE OF c`,
+      [contractId],
+    );
+    if (!cur[0]) {
+      await pgClient.query('ROLLBACK');
+      return res.status(404).json({ error: 'العقد غير موجود' });
+    }
+    const c = cur[0];
+
+    const access = authorize(authContext, { permission: 'contracts.close', branchId: c.branch_id });
+    if (!access.allowed) {
+      await pgClient.query('ROLLBACK');
+      return res.status(403).json({ error: 'غير مسموح' });
+    }
+    if (!isTrialContract(c.saleSubtype) || c.status !== 'active') {
+      await pgClient.query('ROLLBACK');
+      return res.status(409).json({
+        error: 'سحب جهاز التجربة متاح لعقد تجربة فعّال فقط',
+        code: 'contract_not_active_trial',
+      });
+    }
+    if (!c.deviceId) {
+      await pgClient.query('ROLLBACK');
+      return res.status(409).json({ error: 'لا يوجد جهاز مرتبط بهذا العقد' });
+    }
+    if (c.deviceStatus === 'retrieved') {
+      await pgClient.query('ROLLBACK');
+      return res.status(409).json({ error: 'الجهاز مسحوب أصلاً' });
+    }
+    // لا يُسحب جهاز لم يخرج إلى الزبون بعد. مخرج التجربة قبل التسليم هو
+    // إلغاء العقد مباشرةً، وهو ما يُلغي معه مهمة التسليم المفتوحة.
+    if (isDeviceAwaitingDelivery(c.deviceStatus)) {
+      await pgClient.query('ROLLBACK');
+      return res.status(409).json({
+        error: 'الجهاز لم يُسلَّم للزبون بعد، فلا شيء يُسحب. أنهِ التجربة بإلغاء العقد.',
+        code: 'device_not_delivered',
+        deviceStatus: c.deviceStatus,
+      });
+    }
+
+    const { rows: openRetrieval } = await pgClient.query(
+      `SELECT id FROM open_tasks
+        WHERE task_type = 'device_retrieval' AND contract_id = $1
+          AND status NOT IN ('completed', 'closed', 'cancelled')
+        LIMIT 1`,
+      [contractId],
+    );
+    if (openRetrieval[0]) {
+      await pgClient.query('ROLLBACK');
+      return res.status(409).json({
+        error: 'توجد مهمة سحب مفتوحة لهذا العقد',
+        taskId: Number(openRetrieval[0].id),
+      });
+    }
+
+    const serviceBranchId = c.service_branch_id ?? c.deviceBranchId ?? c.branch_id;
+    const dueDate = typeof req.body?.dueDate === 'string' && req.body.dueDate
+      ? req.body.dueDate
+      : new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+    const { rows: inserted } = await pgClient.query(
+      `INSERT INTO open_tasks (
+         client_id, branch_id, task_type, task_family, reason, status, due_date,
+         source, origin, contract_id, device_id, creation_origin,
+         retrieval_purpose, service_branch_id
+       ) VALUES ($1, $2, 'device_retrieval', 'service', 'device_retrieval_trial_return',
+                 'open', $3, 'system', 'system_trigger', $4, $5, 'system_trigger',
+                 'trial_return', $6)
+       RETURNING id`,
+      [c.customer_id, c.deviceBranchId ?? c.branch_id, dueDate, contractId, c.deviceId, serviceBranchId],
+    );
+    const taskId = Number(inserted[0].id);
+    await persistOpenTaskSnapshots(pgClient, taskId, c.customer_id, contractId, c.deviceId);
+
+    await pgClient.query('COMMIT');
+    res.json({ success: true, contractId, taskId, dueDate });
+  } catch (err: any) {
+    await pgClient.query('ROLLBACK');
+    console.error('[contracts] trial retrieval failed:', err);
+    res.status(500).json({ error: 'فشل إنشاء مهمة سحب جهاز التجربة', detail: err?.message });
+  } finally {
+    pgClient.release();
+  }
+});
+
 // POST /api/contracts/:id/cancel — إلغاء عقد نشِط غير مستوفى المبالغ.
 // عملية صريحة لأن PUT يرفض تعديل غير المسوّدة. الأثر: إبطال الذمم/الأقساط +
 // ضبط أجهزة العقد إلى contract_cancelled (تُسقطها من الصيانة الدورية) + إلغاء
@@ -2309,6 +2934,7 @@ router.post('/:id/cancel', async (req, res) => {
     await pgClient.query('BEGIN');
     const { rows: cur } = await pgClient.query(
       `SELECT id, status, branch_id, customer_id, final_price, created_at,
+              sale_subtype AS "saleSubtype",
               COALESCE((SELECT SUM(amount_syp) FROM contract_installments WHERE contract_id = contracts.id), 0) AS installments_total,
               COALESCE((SELECT SUM(remaining_balance) FROM contract_installments WHERE contract_id = contracts.id AND remaining_balance > 0), 0) AS installments_remaining,
               COALESCE((SELECT SUM(CASE WHEN entry_type = 'refund' THEN -amount_syp ELSE amount_syp END)
@@ -2330,10 +2956,14 @@ router.post('/:id/cancel', async (req, res) => {
 
     // بوّابة: الإلغاء متاح فقط لعقد لم تُستوفَ مبالغه بالكامل. المتبقّي =
     // متبقّي دفعة التوقيع + متبقّي الأقساط. المستوفى كلياً لا يُلغى من هنا.
+    //
+    // عقد التجربة مستثنى: قيمته صفر بحكم النموذج، فالبوّابة كانت تقرأه
+    // "مستوفى بالكامل" وتحبسه بلا مخرج — وهي النهاية الطبيعية والمتوقعة له.
+    const isTrial = isTrialContract(c.saleSubtype);
     const outstanding =
       (Number(c.final_price) - Number(c.installments_total) - Number(c.signing_paid))
       + Number(c.installments_remaining);
-    if (outstanding <= 0) {
+    if (!isTrial && outstanding <= 0) {
       await pgClient.query('ROLLBACK');
       return res.status(409).json({ error: 'لا يمكن إلغاء عقد مستوفى المبالغ بالكامل.' });
     }
@@ -2359,6 +2989,20 @@ router.post('/:id/cancel', async (req, res) => {
         RETURNING id`,
       [contractId, reason],
     );
+    // 2ب) مهمة تسليم الجهاز المفتوحة تُلغى أيضاً — لا يُسلَّم جهاز على عقد
+    //     ملغى. هذا هو مخرج التجربة قبل التسليم، وهو صحيح لأي عقد يُلغى.
+    const { rows: cancelledDelivery } = await pgClient.query(
+      `UPDATE open_tasks
+          SET status = 'cancelled',
+              cancellation_reason = COALESCE(NULLIF($2, ''), cancellation_reason, 'إلغاء العقد'),
+              updated_at = NOW()
+        WHERE task_type = 'device_delivery' AND contract_id = $1
+          AND status NOT IN ('completed', 'closed', 'cancelled')
+        RETURNING id`,
+      [contractId, reason],
+    );
+    cancelledTasks.push(...cancelledDelivery);
+
     const cancelledTaskIds = cancelledTasks.map((r: any) => Number(r.id));
     if (cancelledTaskIds.length > 0) {
       await pgClient.query(
@@ -2369,7 +3013,10 @@ router.post('/:id/cancel', async (req, res) => {
     }
 
     // 3) إبطال المتبقّي مالياً (discount) بتاريخ كل التزام حتى يصبح المستحق والقادم = 0.
-    if (c.customer_id) {
+    //    مشروط بكون العقد قد ولّد استحقاقاً أصلاً: سجل الحركات يقتصر على
+    //    definitive، فخصمٌ على عقد تجربة كان ينشئ رصيداً دائناً وهمياً بقيمة
+    //    العقد لزبون لم يدفع شيئاً (صُحّح أثره الماضي في هجرة 458).
+    if (c.customer_id && !isTrial) {
       const signingRemaining = Number(c.final_price) - Number(c.installments_total) - Number(c.signing_paid);
       if (signingRemaining > 0) {
         await recordMovement(pgClient, {
@@ -2398,9 +3045,12 @@ router.post('/:id/cancel', async (req, res) => {
     // الدورية المفتوحة (يرمي إن كانت مهمة قيد التنفيذ) ثم اضبط حالته إلى
     // contract_cancelled فيسقط من كل مسارات توليد/تسجيل الصيانة (تحرس على active).
     // trigger الكفالة على الجدول يُلغي كفالة العقد بلا شرط عند تحوّل الحالة.
+    // `retrieved` حالة نهائية أيضاً ودالّة على أن الجهاز عاد فعلاً بالسحب؛
+    // الكتابة فوقها بـ contract_cancelled تمحو هذا الدليل، وهو المسار الطبيعي
+    // لعقد التجربة (سحب ثم إلغاء).
     const { rows: contractDevices } = await pgClient.query(
       `SELECT id FROM installed_devices
-        WHERE contract_id = $1 AND status <> 'contract_cancelled'
+        WHERE contract_id = $1 AND status NOT IN ('contract_cancelled', 'retrieved')
         FOR UPDATE`,
       [contractId],
     );
@@ -2421,7 +3071,8 @@ router.post('/:id/cancel', async (req, res) => {
     await pgClient.query('COMMIT');
     res.json({
       success: true, contractId, status: 'cancelled',
-      cancelledCollectionTasks: cancelledTaskIds.length,
+      cancelledCollectionTasks: cancelledTaskIds.length - cancelledDelivery.length,
+      cancelledDeliveryTasks: cancelledDelivery.length,
       cancelledPeriodicTasks, affectedDevices: contractDevices.length,
     });
   } catch (err: any) {

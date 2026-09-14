@@ -9,6 +9,10 @@ import {
   canEditReferralSheet,
   getReferralSheetListAccessPlan,
 } from '../policies/referralSheetPolicy.js';
+import {
+  createReferralGiftPromise,
+  ReferralGiftPromiseError,
+} from '../services/referralGiftPromises.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -423,6 +427,7 @@ router.get('/', requirePermission('candidates.name_lists.view_list'), async (req
  *         description: Server error
  */
 router.post('/', requirePermission('candidates.name_lists.create'), async (req, res) => {
+  const db = await pool.connect();
   try {
     const authContext = getRequiredAuthContext(req);
     const targetBranchId = resolveReferralSheetTargetBranch(req, req.body?.branchId, 'candidates.name_lists.create');
@@ -451,7 +456,8 @@ router.post('/', requirePermission('candidates.name_lists.create'), async (req, 
     const s = enforcePersonalReferralSheet(req.body ?? {}, { name: req.user?.name || '' });
     const targetCandidates = Number.isInteger(req.body?.targetCandidates) ? req.body.targetCandidates : 0;
     const referralDate = s.referralDate || new Date().toISOString();
-    const { rows } = await pool.query(
+    await db.query('BEGIN');
+    const { rows } = await db.query(
       `INSERT INTO referral_sheets (referral_type, referral_entity_id, referral_name_snapshot,
         referral_address_text, referral_origin_channel, referral_notes, referral_date,
         owner_user_id, status, assigned_hr_user_id, total_candidates, target_candidates,
@@ -466,9 +472,22 @@ router.post('/', requirePermission('candidates.name_lists.create'), async (req, 
        s.stats?.qualityPercentage || 0,
        s.stats?.conversionPercentage || 0, s.createdBy ?? authContext.userId, targetBranchId],
     );
+    if (req.body?.giftPromise) {
+      await createReferralGiftPromise(db, {
+        sourceType: 'name_list',
+        sourceId: Number(rows[0].id),
+        draft: req.body.giftPromise,
+        actorUserId: authContext.userId,
+      });
+    }
+    await db.query('COMMIT');
     res.json(mapRow(rows[0]));
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    await db.query('ROLLBACK').catch(() => undefined);
+    const status = err instanceof ReferralGiftPromiseError ? err.status : (err.status || 500);
+    res.status(status).json({ error: err.message, code: err.code, ...(err.details ?? {}) });
+  } finally {
+    db.release();
   }
 });
 
