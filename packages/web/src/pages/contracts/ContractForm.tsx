@@ -14,7 +14,7 @@ import type { VisitContractCreationContext } from '../../lib/api';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { useBranchContextStore } from '../../hooks/useBranchContextStore';
 import MapPicker from '../../components/MapPicker';
-import GeoSmartSearch, { buildPath as buildGeoPath, pathToSelection as geoPathToSelection } from '../../components/GeoSmartSearch';
+import GeoSmartSearch, { buildPath as buildGeoPath, pathToSelection as geoPathToSelection, isInstallationGeoSelected } from '../../components/GeoSmartSearch';
 import type { GeoSelection } from '../../components/GeoSmartSearch';
 import type { GeoUnit } from '../../lib/types';
 import type { ClientReferrer } from '@golden-crm/shared';
@@ -1318,7 +1318,7 @@ export default function ContractForm() {
         if (!geoSelection.govId) issues.push('اختر المحافظة في عنوان التركيب');
         // الناحية مقبولة كعنوان تركيب: 2158 ناحية من 2232 لا أحياء تحتها،
         // فاشتراط الحي كان يمنع إنشاء العقد في معظم الخريطة.
-        else if (!geoSelection.neighborhoodId) issues.push('اختر الناحية أو الحي في عنوان التركيب');
+        else if (!isInstallationGeoSelected(geoSelection)) issues.push('اختر الناحية أو الحي في عنوان التركيب');
         if (saleType === 'tradein' && !oldContractNumber.trim()) {
             issues.push('أدخل رقم العقد القديم المستبدل');
         }
