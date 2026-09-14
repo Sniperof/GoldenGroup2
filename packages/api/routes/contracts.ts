@@ -625,7 +625,7 @@ router.get('/paged', requirePermission('contracts.view_list'), async (req, res) 
     }
 
     const status = typeof req.query.status === 'string' ? req.query.status.trim() : '';
-    if (['draft', 'active', 'completed', 'cancelled'].includes(status)) {
+    if (['draft', 'active', 'completed', 'cancelled', 'discarded'].includes(status)) {
       params.push(status);
       conditions.push(`c.status = $${params.length}`);
     }
