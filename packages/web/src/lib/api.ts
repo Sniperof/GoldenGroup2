@@ -46,6 +46,8 @@ export interface AccountStatementResponse {
 // ── Free-form app notifications (DEC-019 D-N6/D-N7) ──────────────────────────
 export type BroadcastDestination =
   | 'service_request' | 'device' | 'warranty' | 'complaint' | 'visit'
+  /** Public catalog model — its id is device_models.id. */
+  | 'catalog_device'
   /** Intake FORM for a request type — its id is a request_type slug, not a row id. */
   | 'service_request_form';
 
@@ -1040,6 +1042,9 @@ export const api = {
       // Options for the intake-form destination, whose id is a request_type slug.
       requestTypes: () => request<{ items: { requestType: string; labelAr: string }[] }>(
         '/admin/app-notifications/request-types',
+      ),
+      catalogDevices: () => request<{ items: { id: number; nameAr: string; category: string | null }[] }>(
+        '/admin/app-notifications/catalog-devices',
       ),
     },
     appContactLinks: {
