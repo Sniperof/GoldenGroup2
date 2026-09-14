@@ -1316,7 +1316,9 @@ export default function ContractForm() {
         if (!selectedCustomer) issues.push('اختر الزبون');
         if (!deviceModelId) issues.push('اختر نموذج الجهاز');
         if (!geoSelection.govId) issues.push('اختر المحافظة في عنوان التركيب');
-        else if (!geoSelection.neighborhoodId) issues.push('اختر الحي (الموقع التفصيلي) في عنوان التركيب');
+        // الناحية مقبولة كعنوان تركيب: 2158 ناحية من 2232 لا أحياء تحتها،
+        // فاشتراط الحي كان يمنع إنشاء العقد في معظم الخريطة.
+        else if (!geoSelection.neighborhoodId) issues.push('اختر الناحية أو الحي في عنوان التركيب');
         if (saleType === 'tradein' && !oldContractNumber.trim()) {
             issues.push('أدخل رقم العقد القديم المستبدل');
         }
@@ -2639,7 +2641,7 @@ export default function ContractForm() {
                         onChange={setGeoSelection}
                         label="عنوان التركيب"
                         required
-                        minSelectableLevel={4}
+                        minSelectableLevel={3}
                         placeholder="ابحث: المنصور، الكرادة، حي العدل..."
                     />
 

@@ -33,6 +33,7 @@ import { recordContractPaymentMovement, recordMovement } from './financialMoveme
 import { createInstallmentCollectionTask } from './installmentCollectionTasks.js';
 import { findUnavailableDeviceModelsForNewCommercialUse } from './catalogActiveStateService.js';
 import { assertCanRecordSuccessfulDeviceTaskResult } from './deviceTaskEligibilityGuard.js';
+import { isInstallationGeoLevel, INSTALLATION_GEO_LEVEL_ERROR } from '../lib/installationGeoLevel.js';
 import {
   assertActiveGoldenWarrantyCardLinks,
   cancelGoldenWarrantyCardLinks,
@@ -4556,13 +4557,13 @@ export async function applyDeviceTransferResult(
       [shape.plannedGeoUnitId],
     );
     if (!geoRows[0]) {
-      throw new ResultValidationError('الحي المحدد في العنوان المبدئي غير موجود');
+      throw new ResultValidationError('الموقع المحدد في العنوان المبدئي غير موجود');
     }
-    if (Number(geoRows[0].level) !== 4) {
-      throw new ResultValidationError('العنوان المبدئي يجب أن يحدد الحي حصراً');
+    if (!isInstallationGeoLevel(geoRows[0].level)) {
+      throw new ResultValidationError(`العنوان المبدئي: ${INSTALLATION_GEO_LEVEL_ERROR}`);
     }
     if (geoRows[0].status === 'inactive') {
-      throw new ResultValidationError('لا يمكن اختيار حي موقوف');
+      throw new ResultValidationError('لا يمكن اختيار موقع موقوف');
     }
 
     if (shape.transferKind === 'another_customer') {

@@ -13,6 +13,11 @@ import {
 } from '../services/deviceSerialIntegrity.js';
 import { TECH_STATE_FIELDS, mapTechState } from './emergencyResult.js';
 import {
+  isInstallationGeoLevel,
+  INSTALLATION_GEO_LEVEL_ERROR,
+  INSTALLATION_GEO_LEVEL_ERROR_CODE,
+} from '../lib/installationGeoLevel.js';
+import {
   changeDeviceDeliverySuspension,
   DeviceDeliverySuspensionError,
 } from '../services/deviceDeliverySuspension.js';
@@ -383,10 +388,10 @@ router.post('/external', requirePermission('installed_devices.create_external'),
       });
     }
     const { rows: geoRows } = await pool.query('SELECT level FROM geo_units WHERE id = $1', [installationGeoUnitId]);
-    if (!geoRows[0] || Number(geoRows[0].level) !== 4) {
+    if (!geoRows[0] || !isInstallationGeoLevel(geoRows[0].level)) {
       return res.status(400).json({
-        error: 'Installation address must be selected at neighborhood level',
-        code: 'installation_geo_not_neighborhood',
+        error: INSTALLATION_GEO_LEVEL_ERROR,
+        code: INSTALLATION_GEO_LEVEL_ERROR_CODE,
       });
     }
 

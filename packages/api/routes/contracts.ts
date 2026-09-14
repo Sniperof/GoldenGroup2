@@ -38,6 +38,12 @@ import {
   cancelUpcomingPeriodicMaintenanceForContractCancel,
   PeriodicMaintenanceTransferError,
 } from '../services/periodicMaintenanceTasks.js';
+import {
+  isInstallationGeoLevel,
+  readInstallationGeoUnitId,
+  INSTALLATION_GEO_LEVEL_ERROR,
+  INSTALLATION_GEO_LEVEL_ERROR_CODE,
+} from '../lib/installationGeoLevel.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -1137,8 +1143,7 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
   // Geo-coverage enforcement — installation_geo_unit_id must be inside the
   // target branch's coverage. Enforced against the target branch so that
   // cross-branch creates respect the recipient's coverage map.
-  const installationGeoUnitForCheck =
-    c.installationGeoUnitId ?? c.installation_geo_unit_id ?? null;
+  const installationGeoUnitForCheck = readInstallationGeoUnitId(c);
   if (installationGeoUnitForCheck && (req as any).authContext) {
     const geoCheck = await assertGeoUnitInScope(
       (req as any).authContext,
@@ -1154,14 +1159,14 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
     }
   }
 
-  // Installation address must be precise to the neighborhood (الحي / level 4) —
-  // a governorate/district is not specific enough for a device install.
+  // Installation address must be a sub-district (ناحية) or a neighbourhood
+  // (حي). A governorate or a region is not specific enough to install at.
   if (installationGeoUnitForCheck) {
     const { rows: lvl } = await pool.query('SELECT level FROM geo_units WHERE id = $1', [installationGeoUnitForCheck]);
-    if (!lvl[0] || Number(lvl[0].level) !== 4) {
+    if (!lvl[0] || !isInstallationGeoLevel(lvl[0].level)) {
       return res.status(400).json({
-        error: 'عنوان التركيب يجب أن يكون على مستوى الحي',
-        code: 'installation_geo_not_neighborhood',
+        error: INSTALLATION_GEO_LEVEL_ERROR,
+        code: INSTALLATION_GEO_LEVEL_ERROR_CODE,
       });
     }
   }
@@ -1504,8 +1509,7 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
 
   // Geo-coverage enforcement — see POST /contracts. Use the contract's own
   // owning branch (existing[0].branch_id) since edits don't move branches.
-  const installationGeoUnitForCheck =
-    c.installationGeoUnitId ?? c.installation_geo_unit_id ?? null;
+  const installationGeoUnitForCheck = readInstallationGeoUnitId(c);
   if (installationGeoUnitForCheck) {
     const geoCheck = await assertGeoUnitInScope(
       authContext,
@@ -1529,10 +1533,10 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
     Number(installationGeoUnitForCheck) !== Number(existing[0].installationGeoUnitId)
   ) {
     const { rows: lvl } = await pool.query('SELECT level FROM geo_units WHERE id = $1', [installationGeoUnitForCheck]);
-    if (!lvl[0] || Number(lvl[0].level) !== 4) {
+    if (!lvl[0] || !isInstallationGeoLevel(lvl[0].level)) {
       return res.status(400).json({
-        error: 'عنوان التركيب يجب أن يكون على مستوى الحي',
-        code: 'installation_geo_not_neighborhood',
+        error: INSTALLATION_GEO_LEVEL_ERROR,
+        code: INSTALLATION_GEO_LEVEL_ERROR_CODE,
       });
     }
   }
@@ -2181,8 +2185,11 @@ function toNullableNumber(value: unknown): number | null {
 function buildDraftDevicePayload(c: any) {
   const warrantyMonths = Number(c.warrantyMonths) || 0;
   const warrantyVisits = Number(c.warrantyVisits) > 0 ? Number(c.warrantyVisits) : null;
+  // أعمق وحدة مختارة: اختيار ناحية يملأ `subId` ويترك `neighborhoodId` فارغاً،
+  // فقراءة الخانة الرابعة وحدها كانت ستُسقط عنوان التركيب بصمت.
   const installationGeoUnitId =
     c.geoSelection?.neighborhoodId
+    || c.geoSelection?.subId
     || c.installationGeoUnitId
     || null;
 
@@ -2276,7 +2283,7 @@ async function collectApprovalIssues(
   const c = rows[0];
   if (!c) return ['العقد غير موجود'];
 
-  if (!c.geo_unit_id) issues.push('عنوان التركيب (المحافظة + الحي) مطلوب');
+  if (!c.geo_unit_id) issues.push('عنوان التركيب مطلوب (الناحية أو الحي)');
 
   const finalPrice = Number(c.final_price) || 0;
   const subtypeWaives = c.sale_subtype === 'temporary' || c.sale_subtype === 'free';
