@@ -689,6 +689,20 @@ export default function ContractForm() {
 
     // ─── Computed ───
     const selectedDevice = useMemo(() => deviceModels.find(d => d.id === deviceModelId) || null, [deviceModelId, deviceModels]);
+
+    // كفالات الموديل هي المصدر الوحيد لكفالة العقد. بند بلا عدد زيارات صالح
+    // يُستبعد: الزيارات تحدّد فاصل الصيانة الدورية، فبندٌ بصفر زيارة يعني كفالة
+    // بلا أثر تشغيلي — وهو ما كان يقع صامتاً قبل هذا التغيير.
+    const deviceWarrantyPeriods = useMemo(() => {
+        const raw = (selectedDevice?.warrantyPeriods ?? []) as Array<{ months: number; label: string; visits: number }>;
+        return raw
+            .filter(p => Number(p?.months) > 0 && Number(p?.visits) > 0)
+            .map(p => ({
+                months: Number(p.months),
+                visits: Number(p.visits),
+                label: String(p.label ?? `${p.months} شهر`),
+            }));
+    }, [selectedDevice]);
     const basePrice = selectedDevice?.basePrice || 0;
     const activeGiftDefinitions = useMemo(() => (
         giftDefinitions.filter(definition => definition.isActive)
@@ -1321,6 +1335,11 @@ export default function ContractForm() {
         else if (!isInstallationGeoSelected(geoSelection)) issues.push('اختر الناحية أو الحي في عنوان التركيب');
         if (saleType === 'tradein' && !oldContractNumber.trim()) {
             issues.push('أدخل رقم العقد القديم المستبدل');
+        }
+        // كفالة محفوظة خارج كتالوج الموديل (عقود أُنشئت قبل ربط الكفالة بالجهاز):
+        // لا تُمحى بصمت، بل يُطلب اختيار بند معرّف قبل الحفظ.
+        if (warrantyMonths > 0 && !deviceWarrantyPeriods.some(p => p.months === warrantyMonths)) {
+            issues.push('مدة الكفالة المحفوظة غير معرّفة على هذا الموديل — اختر مدة من كفالات الجهاز أو «بدون كفالة»');
         }
 
         // National ID format applies always when entered (even in draft).
@@ -2604,28 +2623,33 @@ export default function ContractForm() {
                         <Field label="فترة كفالة العقد">
                             <div className="relative">
                                 <ShieldCheck className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300 pointer-events-none" />
+                                {/* كفالة العقد خاصية للجهاز لا يتجاوزها البائع: الخيارات هي
+                                    كفالات الموديل حصراً. القائمة الثابتة السابقة (6/12/24/36)
+                                    كانت تسمح بمنح كفالة لا يعرفها الكتالوج، ولأنها لا تحمل
+                                    عدد زيارات كانت تُخزَّن بصفر فيسقط أثرها على الصيانة. */}
                                 <Select<number>
                                     value={warrantyMonths}
                                     onChange={(months) => {
-                                        setWarrantyMonths(months);
-                                        const period = (selectedDevice.warrantyPeriods as Array<{ months: number; label: string; visits: number }> || []).find((p: { months: number }) => p.months === months);
-                                        setWarrantyVisits((period as any)?.visits ?? 0);
+                                        const period = deviceWarrantyPeriods.find(p => p.months === months);
+                                        // المدة والزيارات تُؤخذان معاً من نفس البند، فلا تُفبرك إحداهما.
+                                        setWarrantyMonths(period ? period.months : 0);
+                                        setWarrantyVisits(period ? period.visits : 0);
                                     }}
                                     ariaLabel="مدة الكفالة"
                                     className="w-full"
+                                    disabled={deviceWarrantyPeriods.length === 0}
                                     options={[
                                         { value: 0, label: 'بدون كفالة' },
-                                        ...((selectedDevice.warrantyPeriods || []).length > 0
-                                            ? (selectedDevice.warrantyPeriods as Array<{ months: number; label: string; visits: number }> || []).map((p) => ({ value: p.months, label: p.label }))
-                                            : [
-                                                { value: 6, label: '6 أشهر' },
-                                                { value: 12, label: '12 شهرًا' },
-                                                { value: 24, label: '24 شهرًا' },
-                                                { value: 36, label: '36 شهرًا' },
-                                            ]),
+                                        ...deviceWarrantyPeriods.map(p => ({ value: p.months, label: p.label })),
                                     ]}
                                 />
                             </div>
+                            {deviceWarrantyPeriods.length === 0 && (
+                                <p className="text-xs text-amber-600 mt-1 pr-1 leading-relaxed">
+                                    لا توجد كفالات معرّفة على هذا الموديل، فلا يمكن منح كفالة في العقد.
+                                    تُعرَّف من «إدارة الأجهزة ← الموديل ← فترات الكفالة».
+                                </p>
+                            )}
                             {warrantyMonths > 0 && (
                                 <p className="text-xs text-slate-400 mt-1 pr-1">
                                     {warrantyVisits > 0 ? `${warrantyVisits} زيارة ضمن مدة الكفالة` : 'تطبق الكفالة عند تشغيل الجهاز ودخوله الخدمة الفعلية.'}

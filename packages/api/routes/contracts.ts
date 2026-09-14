@@ -38,6 +38,7 @@ import {
   cancelUpcomingPeriodicMaintenanceForContractCancel,
   PeriodicMaintenanceTransferError,
 } from '../services/periodicMaintenanceTasks.js';
+import { checkContractWarranty } from '../lib/contractWarrantyPolicy.js';
 import {
   isInstallationGeoLevel,
   readInstallationGeoUnitId,
@@ -1235,7 +1236,22 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
       }
     }
 
-    const draftDevicePayload = buildDraftDevicePayload(c);
+  
+  // كفالة العقد خاصية للجهاز: تُقاس المدة على كتالوج الموديل وتُشتق الزيارات
+  // من البند المطابق. الواجهة ليست الحارس — نداء مباشر يتجاوزها.
+  {
+    const { rows: wm } = await pool.query(
+      'SELECT name_ar, warranty_periods FROM device_models WHERE id = $1',
+      [Number(c.deviceModelId) || 0],
+    );
+    const verdict = checkContractWarranty(c.warrantyMonths, wm[0]?.warranty_periods, wm[0]?.name_ar);
+    if (!verdict.ok) {
+      return res.status(400).json({ error: verdict.error, code: 'contract_warranty_not_in_device_catalog' });
+    }
+    c.warrantyMonths = verdict.warrantyMonths;
+    c.warrantyVisits = verdict.warrantyVisits;
+  }
+  const draftDevicePayload = buildDraftDevicePayload(c);
     await syncClientLegalIdentity(client, c.customerId, {
       fatherName: c.fatherName,
       nationalId: c.nationalId ?? c.buyerNationalId,
@@ -1488,6 +1504,21 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
     return res.status(400).json({ error: tradeinDetails.error, code: tradeinDetails.code });
   }
   const derivedStatus = deriveContractWriteStatus(c.status);
+
+  // كفالة العقد خاصية للجهاز: تُقاس المدة على كتالوج الموديل وتُشتق الزيارات
+  // من البند المطابق. الواجهة ليست الحارس — نداء مباشر يتجاوزها.
+  {
+    const { rows: wm } = await pool.query(
+      'SELECT name_ar, warranty_periods FROM device_models WHERE id = $1',
+      [Number(c.deviceModelId) || 0],
+    );
+    const verdict = checkContractWarranty(c.warrantyMonths, wm[0]?.warranty_periods, wm[0]?.name_ar);
+    if (!verdict.ok) {
+      return res.status(400).json({ error: verdict.error, code: 'contract_warranty_not_in_device_catalog' });
+    }
+    c.warrantyMonths = verdict.warrantyMonths;
+    c.warrantyVisits = verdict.warrantyVisits;
+  }
   const draftDevicePayload = buildDraftDevicePayload(c);
 
   // Plan §3 — NID length guard (always, when provided).
