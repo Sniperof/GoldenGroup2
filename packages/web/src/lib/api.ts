@@ -1211,6 +1211,11 @@ export const api = {
     update: (id: number, data: any) => request<any>(`/candidates/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     linkToClient: (id: number, clientId: number) =>
       request<any>(`/candidates/${id}/link-client`, { method: 'POST', body: JSON.stringify({ clientId }) }),
+    linkRestrictedSameBranchLead: (id: number) =>
+      request<any>(`/candidates/${id}/link-client`, {
+        method: 'POST',
+        body: JSON.stringify({ restrictedSameBranchLead: true }),
+      }),
     delete: (id: number) => request<any>(`/candidates/${id}`, { method: 'DELETE' }),
   },
   referralSheets: {

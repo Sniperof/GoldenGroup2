@@ -53,6 +53,7 @@
 "GET","/:id","candidates.view_list","packages/api/routes/candidates.ts","504"
 "POST","/","candidates.create","packages/api/routes/candidates.ts","906"
 "POST","/:id/link-client","candidates.edit","packages/api/routes/candidates.ts","1051"
+"POST","/:id/link-client [restrictedSameBranchLead]","candidates.edit + candidates.link_restricted_lead","packages/api/routes/candidates.ts","1359"
 "PUT","/:id","candidates.edit","packages/api/routes/candidates.ts","1280"
 "DELETE","/:id","candidates.delete","packages/api/routes/candidates.ts","1441"
 "GET","/","clients.view_list","packages/api/routes/clients.ts","1033"

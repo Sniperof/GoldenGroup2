@@ -7,6 +7,7 @@ import {
   canCreateCandidate,
   canDeleteCandidate,
   canEditCandidate,
+  canLinkRestrictedLead,
   getCandidateListAccessPlan,
   canViewCandidate,
 } from '../policies/candidatePolicy.js';
@@ -34,6 +35,7 @@ import {
   detectCandidateDuplicate,
 } from '../services/candidateDuplicateDetection.js';
 import { recomputeReferralSheetStats } from '../services/referralSheetStats.js';
+import { phoneNormalizationSql } from '../utils/phoneSql.js';
 import {
   createReferralGiftPromise,
   ReferralGiftPromiseError,
@@ -350,6 +352,47 @@ async function loadLinkableClient(clientId: string | number): Promise<LinkableCl
   );
 
   return rows[0] ?? null;
+}
+
+async function findRestrictedSameBranchLead(
+  candidate: LinkableCandidate,
+  queryDb: Queryable = pool,
+): Promise<LinkableClient | null> {
+  const normalizedPhone = normalizePhone(candidate.mobile);
+  if (!normalizedPhone || candidate.branchId == null) return null;
+
+  const { rows } = await queryDb.query(
+    `SELECT
+       c.id,
+       c.branch_id AS "branchId",
+       (${buildClientLifecycleStatusSql('c')}) AS "lifecycleStage",
+       COALESCE(
+         (SELECT array_agg(hr_user_id)
+            FROM client_assignments
+           WHERE client_id = c.id),
+         '{}'::int[]
+       ) AS "assignedUserIds"
+     FROM clients c
+    WHERE c.is_candidate = FALSE
+      AND c.deleted_at IS NULL
+      AND c.branch_id = $2
+      AND (
+        ${phoneNormalizationSql('c.mobile')} = $1
+        OR EXISTS (
+          SELECT 1
+            FROM jsonb_array_elements(COALESCE(c.contacts, '[]'::jsonb)) contact
+           WHERE ${phoneNormalizationSql(`contact->>'number'`)} = $1
+        )
+      )
+      AND (${buildClientLifecycleStatusSql('c')}) = 'LEAD'
+    ORDER BY c.id
+    LIMIT 2`,
+    [normalizedPhone, candidate.branchId],
+  );
+
+  // Ambiguous matches must be reviewed by an already-authorized user; never
+  // let a restricted caller select between hidden records.
+  return rows.length === 1 ? rows[0] : null;
 }
 
 async function resolveTransferableCandidateAssignmentIds(db: Queryable, candidateId: number): Promise<number[]> {
@@ -1361,8 +1404,9 @@ router.post('/:id/link-client', requirePermission('candidates.edit'), async (req
   try {
     const authContext = getRequiredAuthContext(req);
     const candidateId = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
-    const clientId = Number(req.body?.clientId);
-    if (!Number.isInteger(candidateId) || candidateId <= 0 || !Number.isInteger(clientId) || clientId <= 0) {
+    const restrictedSameBranchLead = req.body?.restrictedSameBranchLead === true;
+    let clientId = Number(req.body?.clientId);
+    if (!Number.isInteger(candidateId) || candidateId <= 0 || (!restrictedSameBranchLead && (!Number.isInteger(clientId) || clientId <= 0))) {
       return res.status(400).json({ error: 'معرّف الاسم المقترح أو الزبون غير صالح' });
     }
 
@@ -1376,11 +1420,6 @@ router.post('/:id/link-client', requirePermission('candidates.edit'), async (req
       return forbidCandidateAccess(res, editAccess.reason);
     }
 
-    const client = await loadLinkableClient(clientId);
-    if (!client) {
-      return res.status(404).json({ message: 'الزبون غير موجود' });
-    }
-
     const candidate = await loadLinkableCandidate(candidateId);
     if (!candidate) {
       return res.status(404).json({ message: 'الاسم المقترح غير موجود' });
@@ -1392,11 +1431,31 @@ router.post('/:id/link-client', requirePermission('candidates.edit'), async (req
       });
     }
 
+    if (restrictedSameBranchLead) {
+      const restrictedAccess = canLinkRestrictedLead(authContext, candidateSubject);
+      if (!restrictedAccess.allowed) {
+        return forbidCandidateAccess(res, restrictedAccess.reason);
+      }
+    }
+
+    const client = restrictedSameBranchLead
+      ? await findRestrictedSameBranchLead(candidate)
+      : await loadLinkableClient(clientId);
+    if (!client) {
+      return res.status(restrictedSameBranchLead ? 409 : 404).json({
+        error: restrictedSameBranchLead
+          ? 'تعذر ربط التطابق المقيّد: يجب أن يكون زبوناً واحداً من نوع Lead ضمن فرع الاسم نفسه'
+          : 'الزبون غير موجود',
+        code: restrictedSameBranchLead ? 'restricted_lead_match_unavailable' : undefined,
+      });
+    }
+    clientId = Number(client.id);
+
     const editClientAccess = canEditClient(authContext, {
       branchId: client.branchId,
       assignedUserIds: client.assignedUserIds,
     });
-    if (!editClientAccess.allowed) {
+    if (!restrictedSameBranchLead && !editClientAccess.allowed) {
       return res.status(403).json({
         error: 'غير مسموح بتعديل علاقة هذا الزبون',
         code: editClientAccess.reason,
@@ -1425,10 +1484,17 @@ router.post('/:id/link-client', requirePermission('candidates.edit'), async (req
       client.branchId != null &&
       Number(candidate.branchId) === Number(client.branchId);
     const shouldTransferLeadOwnership = client.lifecycleStage === 'LEAD' && sameBranchLink;
+    if (restrictedSameBranchLead && !shouldTransferLeadOwnership) {
+      return res.status(409).json({
+        error: 'لا يمكن ربط تطابق مقيّد خارج الفرع أو بزبون غير مصنف Lead',
+        code: 'restricted_lead_match_unavailable',
+      });
+    }
 
     await db.query('BEGIN');
     const { rows: lockedCandidateRows } = await db.query(
-      `SELECT status, converted_to_lead_id AS "convertedToLeadId"
+      `SELECT status, converted_to_lead_id AS "convertedToLeadId",
+              branch_id AS "branchId", mobile
          FROM candidates
         WHERE id = $1
         FOR UPDATE`,
@@ -1445,6 +1511,31 @@ router.post('/:id/link-client', requirePermission('candidates.edit'), async (req
         status: 409,
         code: 'candidate_terminal_locked',
       });
+    }
+    if (restrictedSameBranchLead) {
+      const lockedMatch = await findRestrictedSameBranchLead({
+        ...candidate,
+        branchId: lockedCandidateRows[0].branchId,
+        mobile: lockedCandidateRows[0].mobile,
+      }, db);
+      if (!lockedMatch || Number(lockedMatch.id) !== clientId) {
+        throw Object.assign(new Error('تغير التطابق أو حالته أثناء الربط'), {
+          status: 409,
+          code: 'restricted_lead_match_changed',
+        });
+      }
+      await db.query('SELECT id FROM clients WHERE id = $1 FOR UPDATE', [clientId]);
+      const confirmedMatch = await findRestrictedSameBranchLead({
+        ...candidate,
+        branchId: lockedCandidateRows[0].branchId,
+        mobile: lockedCandidateRows[0].mobile,
+      }, db);
+      if (!confirmedMatch || Number(confirmedMatch.id) !== clientId) {
+        throw Object.assign(new Error('لم يعد الزبون مطابقاً لشروط الربط'), {
+          status: 409,
+          code: 'restricted_lead_match_changed',
+        });
+      }
     }
     const transferableAssignmentIds = shouldTransferLeadOwnership
       ? await resolveTransferableCandidateAssignmentIds(db, candidateId)

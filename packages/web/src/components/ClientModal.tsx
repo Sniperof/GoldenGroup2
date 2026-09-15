@@ -698,7 +698,12 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
     const detailedAddressLocked = fl(initialData?.detailedAddress);
     const occupationLocked = fl(initialData?.occupation);
 
-    const candidateGeoNeedsUpgrade = Boolean(fromCandidate && (geoSelection.govId || geoSelection.regionId) && !(geoSelection.subId || geoSelection.neighborhoodId));
+    // Historical candidates may carry only free-text address_text and no
+    // geo_unit_id at all. Conversion must complete a structured sub-area (or
+    // neighborhood) instead of silently creating another address-less client.
+    const candidateGeoNeedsUpgrade = Boolean(
+        fromCandidate && !(geoSelection.subId || geoSelection.neighborhoodId),
+    );
 
     // Locked field style (amber = from candidate, distinct from emerald = verified phone)
     const lockedCls = 'bg-amber-50/40 border-amber-200 text-amber-800 cursor-not-allowed focus:ring-0';
@@ -777,8 +782,8 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                 ? employeeReference?.referralEntityId || undefined
                 : undefined;
         const existingReferralDate = initialData?.referrers?.[0]?.referralDate || initialData?.referralDate || '';
-        const resolvedReferrers = referralType || resolvedReferrerName || resolvedReferralEntityId
-            ? [{
+        const resolvedPrimaryReferrer = referralType || resolvedReferrerName || resolvedReferralEntityId
+            ? {
                 id: resolvedReferralEntityId != null ? String(resolvedReferralEntityId) : `${referralType || 'referrer'}:${resolvedReferrerName || ''}`,
                 type: referralType,
                 name: resolvedReferrerName || '',
@@ -790,8 +795,16 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                 referralDate: existingReferralDate,
                 referralReason: '',
                 referralSheetId: null,
-            }]
+            }
+            : null;
+        // The editor changes the primary mediator only. Keep every additional
+        // historical mediator instead of replacing the complete network array.
+        const preservedAdditionalReferrers = Array.isArray(initialData?.referrers)
+            ? initialData.referrers.slice(1)
             : [];
+        const resolvedReferrers = resolvedPrimaryReferrer
+            ? [resolvedPrimaryReferrer, ...preservedAdditionalReferrers]
+            : preservedAdditionalReferrers;
 
         const clientPayload = {
             ...formData,
@@ -823,7 +836,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
             dataQuality: (dataQuality as any) || undefined,
             notes: notes.trim() || undefined,
             branchId: effectiveBranchId == null ? undefined : Number(effectiveBranchId),
-            assignmentUserIds: canChooseAssignedOwner && assignmentUserIds.length > 0 ? assignmentUserIds : undefined,
+            assignmentUserIds: canChooseAssignedOwner ? assignmentUserIds : undefined,
         } as Client;
 
         // A ref closes the same-tick double-click window before React can

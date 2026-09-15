@@ -19,6 +19,8 @@ interface QualificationModalProps {
     onQualified: (candidate: Candidate) => void;
     onJunk: (id: number) => void;
     onLink: (candidateId: number, client: Client) => void;
+    onRestrictedLeadLink: (candidateId: number) => Promise<void>;
+    canLinkRestrictedLead: boolean;
 }
 
 // ─── Address resolution helper ───────────────────────────────────────────────
@@ -161,7 +163,7 @@ function LinkConfirmOverlay({
 
 // ─── Main Modal ───────────────────────────────────────────────────────────────
 export default function QualificationModal({
-    isOpen, onClose, candidate, onQualified, onJunk, onLink,
+    isOpen, onClose, candidate, onQualified, onJunk, onLink, onRestrictedLeadLink, canLinkRestrictedLead,
 }: QualificationModalProps) {
     const [step, setStep] = useState<1 | 2>(1);
 
@@ -180,6 +182,7 @@ export default function QualificationModal({
 
     // Pending link confirmation
     const [pendingLinkClient, setPendingLinkClient] = useState<Client | null>(null);
+    const [restrictedLinkLoading, setRestrictedLinkLoading] = useState(false);
 
     // On open: reset + auto smart-match
     useEffect(() => {
@@ -188,6 +191,7 @@ export default function QualificationModal({
             setAutoCheckResult(null);
             setAutoCheckError(false);
             setPendingLinkClient(null);
+            setRestrictedLinkLoading(false);
             setSearchQuery(candidate.mobile);
             setActiveSearch('');
 
@@ -374,6 +378,22 @@ export default function QualificationModal({
                                                     <p className="text-xs text-amber-700 mt-0.5">
                                                         {autoCheckResult.message}
                                                     </p>
+                                                    {canLinkRestrictedLead && autoCheckResult.reason === 'SAME_BRANCH_RESTRICTED' && (
+                                                        <Button
+                                                            className="mt-3"
+                                                            disabled={restrictedLinkLoading}
+                                                            onClick={async () => {
+                                                                setRestrictedLinkLoading(true);
+                                                                try {
+                                                                    await onRestrictedLeadLink(candidate.id);
+                                                                } finally {
+                                                                    setRestrictedLinkLoading(false);
+                                                                }
+                                                            }}
+                                                        >
+                                                            {restrictedLinkLoading ? 'جاري الربط...' : 'ربط زبون Lead وإسنادي كمسؤولة'}
+                                                        </Button>
+                                                    )}
                                                 </div>
                                             </div>
                                         </div>

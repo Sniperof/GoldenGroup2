@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCandidateStore } from '../../hooks/useCandidateStore';
-import { UserPlus, PlusCircle, CheckCircle, AlertCircle, Save, MapPin, Trash2, MessageCircle, Plus, Building2, User } from '../ui/icons';
+import { UserPlus, PlusCircle, CheckCircle, AlertCircle, Save, Loader2, MapPin, Trash2, MessageCircle, Plus, Building2, User } from '../ui/icons';
 import { CandidateStatus, ReferralType, ReferralOriginChannel, Client, ContactEntry, Candidate, ContactType, ContactStatus } from '../../lib/types';
 import CreateReferralSheetModal from './CreateReferralSessionModal';
 import GeoSmartSearch, { GeoSelection } from '../GeoSmartSearch';
@@ -231,6 +231,8 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
 
     const [candidateData, setCandidateData] = useState(initialCandidateState);
     const [error, setError] = useState('');
+    const [isSaving, setIsSaving] = useState(false);
+    const saveInFlightRef = useRef(false);
 
     useEffect(() => {
         if (isOpen) {
@@ -511,15 +513,20 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
     };
 
     const handleSave = async (addAnother: boolean) => {
+        // State alone does not close the same-tick double-click window because
+        // React has not rendered the disabled button yet. The ref is immediate.
+        if (saveInFlightRef.current) return;
         if (!validateForm()) return;
-        const employeeReference = referralType === 'Employee'
-            ? resolveEmployeeMediatorReference(employeeIdInput, employeeFound)
-            : null;
-
-        const candidateUnitId = candidateData.locationSelection.neighborhoodId || candidateData.locationSelection.subId || candidateData.locationSelection.regionId || candidateData.locationSelection.govId;
-        const candidateAddressText = geoUnits.find(u => u.id === Number(candidateUnitId))?.name || 'غير محدد';
-
+        saveInFlightRef.current = true;
+        setIsSaving(true);
         try {
+            const employeeReference = referralType === 'Employee'
+                ? resolveEmployeeMediatorReference(employeeIdInput, employeeFound)
+                : null;
+
+            const candidateUnitId = candidateData.locationSelection.neighborhoodId || candidateData.locationSelection.subId || candidateData.locationSelection.regionId || candidateData.locationSelection.govId;
+            const candidateAddressText = geoUnits.find(u => u.id === Number(candidateUnitId))?.name || 'غير محدد';
+
             const firstName = candidateData.firstName || null;
             const nickname = candidateData.nickname || null;
             const lastName = candidateData.lastName;
@@ -597,6 +604,9 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
             }
         } catch (err: any) {
             setError(err.message || 'حدث خطأ غير متوقع');
+        } finally {
+            saveInFlightRef.current = false;
+            setIsSaving(false);
         }
     };
 
@@ -626,7 +636,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
         <>
             <Modal
                 isOpen={isOpen}
-                onClose={resetAndClose}
+                onClose={() => { if (!saveInFlightRef.current) resetAndClose(); }}
                 size="2xl"
                 title={
                     <span className="flex items-center gap-2">
@@ -636,16 +646,16 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
                 }
                 footer={
                     <>
-                        <button onClick={resetAndClose} className="px-5 py-2 rounded-xl text-slate-600 font-bold hover:bg-slate-100 transition-all">إلغاء</button>
+                        <button type="button" disabled={isSaving} onClick={resetAndClose} className="px-5 py-2 rounded-xl text-slate-600 font-bold hover:bg-slate-100 transition-all disabled:cursor-not-allowed disabled:opacity-50">إلغاء</button>
                         {!initialData && (
-                            <button onClick={() => handleSave(true)} className="px-5 py-2 rounded-xl text-sky-600 bg-sky-50 border border-sky-100 font-bold hover:bg-sky-100 transition-all flex items-center gap-2">
-                                <PlusCircle className="w-4 h-4" />
-                                <span>حفظ وإضافة آخر</span>
+                            <button type="button" disabled={isSaving} onClick={() => handleSave(true)} className="px-5 py-2 rounded-xl text-sky-600 bg-sky-50 border border-sky-100 font-bold hover:bg-sky-100 transition-all flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60">
+                                {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlusCircle className="w-4 h-4" />}
+                                <span>{isSaving ? 'جارٍ الحفظ...' : 'حفظ وإضافة آخر'}</span>
                             </button>
                         )}
-                        <button onClick={() => handleSave(false)} className="px-8 py-2 rounded-xl text-white bg-sky-600 font-bold hover:bg-sky-700 shadow-lg shadow-sky-500/20 transition-all flex items-center gap-2">
-                            <Save className="w-4 h-4" />
-                            <span>{initialData ? 'حفظ التغييرات' : 'حفظ الاسم'}</span>
+                        <button type="button" disabled={isSaving} onClick={() => handleSave(false)} className="px-8 py-2 rounded-xl text-white bg-sky-600 font-bold hover:bg-sky-700 shadow-lg shadow-sky-500/20 transition-all flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60">
+                            {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                            <span>{isSaving ? 'جارٍ الحفظ...' : initialData ? 'حفظ التغييرات' : 'حفظ الاسم'}</span>
                         </button>
                     </>
                 }

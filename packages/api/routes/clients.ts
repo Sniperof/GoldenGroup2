@@ -525,6 +525,10 @@ function enforcePersonalReferrer<T extends Record<string, any>>(
     return payload;
   }
 
+  const additionalReferrers = Array.isArray(payload.referrers)
+    ? payload.referrers.slice(1)
+    : [];
+
   return {
     ...payload,
     referrers: [{
@@ -542,7 +546,7 @@ function enforcePersonalReferrer<T extends Record<string, any>>(
       referralReason: normalizeTextValue(payload.referralReason),
       referralSheetId: normalizeNullableNumber(payload.referralSheetId),
       referralAddressText: normalizeTextValue(payload.referralAddressText),
-    }],
+    }, ...additionalReferrers],
     referrerType: 'Personal',
     referrerName: currentUser.name,
     referrerId: null,
@@ -869,6 +873,8 @@ async function loadClientSubject(
 
 async function resolveAssignmentUserIds(
   rawIds: unknown,
+  branchId: number,
+  db: { query: (text: string, params?: any[]) => Promise<any> } = pool,
 ): Promise<number[] | { error: string }> {
   const ids: number[] = Array.isArray(rawIds)
     ? Array.from(new Set(rawIds.map(Number).filter(n => Number.isInteger(n) && n > 0)))
@@ -876,14 +882,31 @@ async function resolveAssignmentUserIds(
 
   if (ids.length === 0) return [];
 
-  const { rows } = await pool.query(
-    'SELECT id FROM hr_users WHERE id = ANY($1)',
-    [ids],
+  const { rows } = await db.query(
+    `SELECT u.id,
+            EXISTS (
+              SELECT 1
+                FROM user_branch_assignments uba
+               WHERE uba.user_id = u.id
+                 AND uba.branch_id = $2
+                 AND uba.status = 'active'
+            ) AS "inTargetBranch"
+       FROM hr_users u
+      WHERE u.id = ANY($1)`,
+    [ids, branchId],
   );
   const validIds = new Set<number>(rows.map((r: any) => r.id));
   const invalid = ids.find(id => !validIds.has(id));
   if (invalid != null) {
     return { error: `المستخدم رقم ${invalid} غير موجود في النظام` };
+  }
+
+  const inTargetBranchIds = new Set<number>(
+    rows.filter((row: any) => row.inTargetBranch === true).map((row: any) => Number(row.id)),
+  );
+  const outsideBranch = ids.find(id => !inTargetBranchIds.has(id));
+  if (outsideBranch != null) {
+    return { error: `USER_OUTSIDE_CLIENT_BRANCH:${outsideBranch}` };
   }
 
   const eligibleIds = new Set(await getEligiblePersonalOwnerIds(ids));
@@ -2041,7 +2064,7 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
 
     // Outgoing (who this client referred)
     const { rows: outgoingRows } = await pool.query(
-      `SELECT
+      `SELECT DISTINCT
         sheet_id,
         referral_date,
         referral_address_text,
@@ -2265,11 +2288,16 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
     if (!hasSourceCandidate && hasExplicitAssignments && !canManageAssignments) {
       return forbidClientAccess(res, assignmentAccess.reason);
     }
-    const resolvedAssignees = hasSourceCandidate
+    const requestedAssignees = hasSourceCandidate
       ? sourceCandidateAssignees!
       : hasExplicitAssignments
-      ? await resolveAssignmentUserIds(req.body.assignmentUserIds)
+      ? req.body.assignmentUserIds
       : ((await isEligiblePersonalOwner(authContext.userId)) ? [authContext.userId] : []);
+    const resolvedAssignees = await resolveAssignmentUserIds(
+      requestedAssignees,
+      targetBranchId,
+      db,
+    );
     if ('error' in resolvedAssignees) {
       return res.status(400).json({ error: resolvedAssignees.error });
     }
@@ -2282,10 +2310,14 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
       return forbidClientAccess(res, createAccess.reason);
     }
 
+    // Ordinary manual creation keeps the established "today" default. During
+    // candidate conversion, however, a missing historical referral date must
+    // remain unknown; defaulting it to today would falsify acquisition reports.
+    const defaultReferralDate = hasSourceCandidate ? null : currentDateKey();
     const c = reconcileClientReferrers(enforcePersonalReferrer(
       normalizeClientPayload(req.body ?? {}),
       { id: authContext.userId, name: req.user?.name || '' },
-    ), { defaultReferralDate: currentDateKey() });
+    ), { defaultReferralDate });
     c.occupation = await resolveReferenceValueForWrite(db, 'occupation', c.occupation, {
       currentValue: sourceCandidateOccupation,
     });
@@ -2512,6 +2544,8 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
  *         description: Server error
  */
 router.put('/:id', requirePermission('clients.edit', 'clients.contacts.edit'), async (req, res) => {
+  const db = await pool.connect();
+  let transactionStarted = false;
   try {
     const authContext = getRequiredAuthContext(req);
     const clientId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
@@ -2611,6 +2645,8 @@ router.put('/:id', requirePermission('clients.edit', 'clients.contacts.edit'), a
     if (canManageAssignments && Array.isArray(req.body?.assignmentUserIds)) {
       const resolved = await resolveAssignmentUserIds(
         req.body.assignmentUserIds,
+        assignmentBranchId!,
+        db,
       );
       if ('error' in resolved) {
         return res.status(400).json({ error: resolved.error });
@@ -2624,7 +2660,36 @@ router.put('/:id', requirePermission('clients.edit', 'clients.contacts.edit'), a
       existing?.candidate_status &&
       !['OP', 'FOP'].includes(existing.candidate_status);
 
-    await pool.query(
+    await db.query('BEGIN');
+    transactionStarted = true;
+
+    const lockedSubject = await loadClientSubject(clientId!, db, true);
+    if (!lockedSubject) {
+      throw Object.assign(new Error('الزبون غير موجود'), { status: 404 });
+    }
+    const lockedAccess = canEditClient(authContext, lockedSubject);
+    if (!lockedAccess.allowed) {
+      throw Object.assign(new Error('تغير نطاق الزبون؛ لم يعد مسموحاً تعديله'), { status: 403 });
+    }
+    if (Number(lockedSubject.branchId) !== Number(existing?.branch_id)) {
+      throw Object.assign(new Error('تغير فرع الزبون أثناء التعديل؛ أعد تحميل السجل'), {
+        status: 409,
+        code: 'CLIENT_CHANGED_DURING_UPDATE',
+      });
+    }
+    if (newAssigneeIds !== null) {
+      const lockedAssignees = await resolveAssignmentUserIds(
+        newAssigneeIds,
+        Number(lockedSubject.branchId),
+        db,
+      );
+      if ('error' in lockedAssignees) {
+        throw Object.assign(new Error(lockedAssignees.error), { status: 400 });
+      }
+      newAssigneeIds = lockedAssignees;
+    }
+
+    await db.query(
       `UPDATE clients SET
         first_name=$1, father_name=$2, last_name=$3, nickname=$4,
         name=$5, mobile=$6, contacts=$7, governorate=$8, district=$9, neighborhood=$10,
@@ -2652,16 +2717,16 @@ router.put('/:id', requirePermission('clients.edit', 'clients.contacts.edit'), a
 
     // If transitioning to OP/FOP: drop personal assignments + cancel marketing tasks
     if (transitioningToOpFop) {
-      await pool.query('DELETE FROM client_assignments WHERE client_id = $1', [clientId]);
-      await pool.query(
+      await db.query('DELETE FROM client_assignments WHERE client_id = $1', [clientId]);
+      await db.query(
         `UPDATE open_tasks SET status = 'cancelled', updated_at = NOW()
          WHERE client_id = $1 AND task_family = 'marketing'
            AND status NOT IN ('completed', 'cancelled')`,
         [clientId],
       );
     } else if (newAssigneeIds !== null) {
-      await pool.query('DELETE FROM client_assignments WHERE client_id = $1', [clientId]);
-      await insertClientAssignments(Number(clientId), newAssigneeIds, authContext.userId);
+      await db.query('DELETE FROM client_assignments WHERE client_id = $1', [clientId]);
+      await insertClientAssignments(Number(clientId), newAssigneeIds, authContext.userId, db);
     }
 
     // Audit log: record meaningful field changes
@@ -2672,17 +2737,24 @@ router.put('/:id', requirePermission('clients.edit', 'clients.contacts.edit'), a
       }
     }
     for (const af of auditFields) {
-      await pool.query(
+      await db.query(
         `INSERT INTO client_audit_log (client_id, field_name, old_value, new_value, changed_by, changed_at)
          VALUES ($1, $2, $3, $4, $5, NOW())`,
         [clientId, af.field, af.oldVal, af.newVal, authContext.userId],
       );
     }
 
-    const { rows } = await pool.query(`${CLIENT_SELECT} WHERE c.id = $1`, [clientId]);
+    const { rows } = await db.query(`${CLIENT_SELECT} WHERE c.id = $1`, [clientId]);
+    await db.query('COMMIT');
+    transactionStarted = false;
     res.json(mapClientRow(rows[0]));
   } catch (err: any) {
-    res.status(err.status || 500).json({ error: err.message });
+    if (transactionStarted) {
+      await db.query('ROLLBACK').catch(() => undefined);
+    }
+    res.status(err.status || 500).json({ error: err.message, code: err.code });
+  } finally {
+    db.release();
   }
 });
 

@@ -2,5 +2,6 @@
 "candidates.view_list","عرض قائمة الأسماء المقترحة","GLOBAL/BRANCH/ASSIGNED","GLOBAL","GLOBAL","BRANCH","ASSIGNED","BRANCH","ASSIGNED عبر candidate_assignments + فرع","سليم","packages/api/policies/candidatePolicy.ts:46"
 "candidates.create","إنشاء اسم مقترح","GLOBAL/BRANCH","GLOBAL","GLOBAL","BRANCH","BRANCH","BRANCH","المنشئ يُضمَّن تلقائياً في الإسناد","سليم + قصر-دائرة GLOBAL","packages/api/routes/candidates.ts:569"
 "candidates.edit","تعديل اسم مقترح","GLOBAL/BRANCH/ASSIGNED","GLOBAL","GLOBAL","BRANCH","ASSIGNED","BRANCH","تعديل بيانات الاسم فقط؛ تغيير الملكية منفصل","سليم","packages/api/policies/candidatePolicy.ts"
+"candidates.link_restricted_lead","ربط زبون Lead مقيّد ضمن الفرع","GLOBAL/BRANCH/ASSIGNED","GLOBAL","GLOBAL","BRANCH","ASSIGNED","NONE","تطابق هاتف دقيق + LEAD واحد + فرع الاسم نفسه + إسناد شخصي؛ لا كشف قبل النجاح","سليم","packages/api/routes/candidates.ts"
 "candidates.delete","حذف اسم مقترح","GLOBAL/BRANCH/ASSIGNED","GLOBAL","BRANCH","BRANCH","ASSIGNED","BRANCH","النائب وُحِّد إلى BRANCH (كان GLOBAL)","أُصلِح (هجرة 293)","packages/api/routes/candidates.ts:955"
 "candidates.assignment.manage","إسناد الاسم لموظف أو الفرع","GLOBAL/BRANCH","GLOBAL","BRANCH","BRANCH","—","BRANCH","الموظف الهدف ضمن فرع العملية ومؤهل عبر candidates.can_be_assigned؛ الإسناد الفارغ يتطلب BRANCH صريحاً","سليم","packages/api/services/candidateOwnershipService.ts"

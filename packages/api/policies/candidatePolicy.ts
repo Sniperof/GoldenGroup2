@@ -89,6 +89,13 @@ export function canEditCandidate(
   return authorizeCandidatePermission(context, 'candidates.edit', candidate);
 }
 
+export function canLinkRestrictedLead(
+  context: AuthContext,
+  candidate: CandidatePolicySubject,
+): AuthorizationResult {
+  return authorizeCandidatePermission(context, 'candidates.link_restricted_lead', candidate);
+}
+
 export function canDeleteCandidate(
   context: AuthContext,
   candidate: CandidatePolicySubject,

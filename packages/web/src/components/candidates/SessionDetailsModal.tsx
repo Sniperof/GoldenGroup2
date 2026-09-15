@@ -26,6 +26,7 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
     const setLoadedCandidates = useCandidateStore(state => state.setLoadedCandidates);
     const qualifyCandidate = useCandidateStore(state => state.qualifyCandidate);
     const linkCandidateToClient = useCandidateStore(state => state.linkCandidateToClient);
+    const linkCandidateToRestrictedLead = useCandidateStore(state => state.linkCandidateToRestrictedLead);
     const markJunk = useCandidateStore(state => state.markJunk);
 
     // This sheet's names, fetched for this sheet only.
@@ -321,6 +322,7 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
 
             <QualificationModal
                 isOpen={canEditCandidates && isQualifyModalOpen}
+                canLinkRestrictedLead={hasPermission('candidates.link_restricted_lead')}
                 onClose={() => setIsQualifyModalOpen(false)}
                 candidate={activeCandidateForQualify}
                 onQualified={handleQualificationConfirmed}
@@ -347,6 +349,19 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
                             console.error('Failed to link candidate to client:', err);
                             setOperationError(err?.message ?? 'فشل ربط الاسم المقترح بالزبون');
                         });
+                }}
+                onRestrictedLeadLink={async (candidateId) => {
+                    setOperationError(null);
+                    try {
+                        await linkCandidateToRestrictedLead(candidateId);
+                        reloadSheetCandidates();
+                        setIsQualifyModalOpen(false);
+                        setActiveCandidateForQualify(null);
+                    } catch (err: any) {
+                        console.error('Failed to link restricted Lead:', err);
+                        setOperationError(err?.message ?? 'فشل ربط زبون Lead ضمن الفرع');
+                        throw err;
+                    }
                 }}
             />
 

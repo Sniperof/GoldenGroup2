@@ -1667,29 +1667,51 @@ function outgoingStatusBadge(ref: any): { cls: string; label: string } {
 function NetworkTab({ client }: { client: Client }) {
     const [network, setNetwork] = useState<any>(null);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [reloadKey, setReloadKey] = useState(0);
 
     useEffect(() => {
         let active = true;
         const fetchNetwork = async () => {
             try {
                 setLoading(true);
+                setError(null);
                 const data = await api.clients.getNetwork(client.id);
                 if (active) setNetwork(data);
             } catch (e) {
                 console.error('Failed to load network:', e);
+                if (active) {
+                    setNetwork(null);
+                    setError((e as any)?.message || 'تعذر تحميل شبكة الزبون حالياً.');
+                }
             } finally {
                 if (active) setLoading(false);
             }
         };
         fetchNetwork();
         return () => { active = false; };
-    }, [client.id]);
+    }, [client.id, reloadKey]);
 
     if (loading) {
         return (
             <div className="flex items-center justify-center py-12 text-slate-400">
                 <Loader2 className="w-6 h-6 animate-spin mr-2" />
                 <span className="font-bold">جاري تحميل بيانات الشبكة...</span>
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-red-100 bg-red-50 px-6 py-12 text-center">
+                <p className="font-bold text-red-700">{error}</p>
+                <button
+                    type="button"
+                    onClick={() => setReloadKey(value => value + 1)}
+                    className="rounded-xl bg-red-600 px-4 py-2 text-sm font-bold text-white hover:bg-red-700"
+                >
+                    إعادة المحاولة
+                </button>
             </div>
         );
     }

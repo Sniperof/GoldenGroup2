@@ -463,6 +463,12 @@ export default function Clients() {
         return neighborhood.name;
     };
 
+    const getClientAddressLabel = (client: Client) => {
+        const hierarchy = getNeighborhoodHierarchy(client.neighborhood);
+        if (hierarchy !== '--') return hierarchy;
+        return client.detailedAddress?.trim() || '--';
+    };
+
     // ─── Filter option lists & applied-filter chips ───
     // Gated geo cascade: a level's options populate only once its parent is
     // determined — either explicitly selected, or auto-resolved when the level
@@ -528,8 +534,8 @@ export default function Clients() {
                 return <span className="text-sm text-slate-600 font-mono tracking-wide">{primary}</span>;
             }
         },
-        { key: 'neighborhood', label: 'العنوان', sortable: false, render: (c) => <span className="text-sm text-slate-600 font-medium">{getNeighborhoodHierarchy(c.neighborhood)}</span> },
-        { key: 'occupation', label: 'العنوان', sortable: false, render: (c) => <span className="text-sm text-slate-600">{getNeighborhoodHierarchy(c.neighborhood)}</span> },
+        { key: 'neighborhood', label: 'العنوان', sortable: false, render: (c) => <span className="text-sm text-slate-600 font-medium">{getClientAddressLabel(c)}</span> },
+        { key: 'occupation', label: 'المهنة', sortable: false, render: (c) => <span className="text-sm text-slate-600">{c.occupation || '--'}</span> },
         {
             key: 'status', label: 'التصنيف', sortable: true,
             render: (c) => {

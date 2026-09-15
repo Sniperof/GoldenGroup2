@@ -155,6 +155,7 @@ const PERM_LABELS: Record<string, { label: string; desc: string }> = {
   'candidates.assignment.manage': { label: 'إدارة مسؤولي الأسماء المقترحة', desc: 'إسناد الاسم لموظف مؤهل أو تحويل ملكيته إلى الفرع' },
   'candidates.create':    { label: 'إضافة اسم مقترح',        desc: 'إدخال اسم مقترح جديد يدوياً أو عبر الاستيراد' },
   'candidates.edit':      { label: 'تعديل الاسم المقترح',    desc: 'تحديث بيانات الاسم المقترح' },
+  'candidates.link_restricted_lead': { label: 'ربط زبون Lead مقيّد ضمن الفرع', desc: 'ربط التطابق الهاتفي المحجوب داخل الفرع وإضافة مسؤول الاسم إلى الزبون' },
   'candidates.name_lists.view_list': { label: 'عرض لوائح الأسماء',  desc: 'الاطلاع على لوائح الأسماء ضمن سجل الأسماء المقترحة' },
   'candidates.name_lists.create':    { label: 'إنشاء لائحة أسماء', desc: 'إنشاء لائحة أسماء جديدة وإسنادها للمتابعة' },
   'candidates.name_lists.edit':      { label: 'تعديل لائحة أسماء', desc: 'تحديث بيانات لائحة الأسماء وحالتها' },
