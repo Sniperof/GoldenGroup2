@@ -398,6 +398,7 @@ cooldown يحجب الزبون من كل contact_targets بغض النظر عن 
 | المسار التشغيلي (Route Path) | المفتاح الفعلي المطلوب | النطاق المسموح (Scope) | الوصف والشرح بالعربية |
 |---|---|---|---|
 | `GET /api/telemarketing/snapshot`| `telemarketing.lists.view` أو `telemarketing.lists.view_device_demo` | ASSIGNED / BRANCH / GLOBAL | العرض العام يُظهر كل جهات اتصال الفريق، بينما العرض المقيّد يُظهر فقط الجهة التي تحتوي على مهمة `device_demo` مع إبقاء جميع مهام تلك الجهة ظاهرة |
+| `GET /api/telemarketing/task-lists/:taskListId/items/:itemId/client-details` | `telemarketing.lists.view` أو `telemarketing.lists.view_device_demo` | Subject قائمة الاتصال + الفرع + عضوية الفريق | قراءة تفاصيل الزبون من سياق بند ظاهر ومصرح به؛ لا تمنح تصفحاً عاماً للزبائن، وتعيد التحقق من شرط عرض الجهاز للصلاحية المقيّدة |
 | `POST /task-lists/upsert` | `telemarketing.lists.generate`| BRANCH / GLOBAL | إنشاء أو تحديث كشوف الاتصالات يدوياً |
 | `POST /task-lists/generate-from-plan`| `telemarketing.lists.generate`| BRANCH / GLOBAL | توليد بنود الكشوف بناء على الخطط |
 | `POST /api/telemarketing/call-logs`| `telemarketing.calls.create` | BRANCH / GLOBAL | تسجيل مكالمة هاتفية وتحديث المحصلة |
@@ -412,6 +413,7 @@ cooldown يحجب الزبون من كل contact_targets بغض النظر عن 
 - عند تأهل الجهة بواسطة مهمة عرض جهاز، تظهر كل مهام الجهة معاً حفاظاً على حبيبة الزبون، ولا تُقتطع مهمة عرض الجهاز وحدها.
 - baseline المعتمد: مشرفة خدمة الزبائن تملك الصلاحية المقيّدة بنطاق `ASSIGNED` فقط، والتيلماركتر تملك الصلاحية العامة بنطاق `BRANCH` فقط.
 - إذا اجتمعت الصلاحيتان استثنائياً لدور إداري، تتقدم الصلاحية العامة. لا يجوز جمعهما في الدورين التشغيليين السابقين.
+- تفاصيل الزبون داخل مساحة الاتصالات تُقرأ من بند قائمة الاتصال المصرّح نفسه. يمنع استخدام `/clients/:id` كاختصار لأن صلاحية القائمة المقيدة لا تعني إسناد سجل الزبون للمشرفة ولا تمنحها تصفح بقية الزبائن.
 
 > **قيد سلامة DEF-004:** يسمح طلب الخدمة الهاتفي بالأنواع
 > `device_demo`, `golden_warranty_offer`, `emergency_maintenance`, و`periodic_maintenance` فقط.

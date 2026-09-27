@@ -1,4 +1,5 @@
 import pool from '../../db.js';
+import { contractSaleOwnerSql } from '../../policies/contractPolicy.js';
 import type { TabularReportAccess, TabularReportRequestParams } from './tabularReportAccess.js';
 import { positiveInt } from './tabularReportAccess.js';
 import { ReportingError } from './reportingError.js';
@@ -221,11 +222,7 @@ export function buildTemporaryContractQuery(
     filters.push(`contract.branch_id = ANY($${params.push(access.branchIds)}::int[])`);
   }
   if (access.scope === 'ASSIGNED') {
-    filters.push(`EXISTS (
-      SELECT 1 FROM hr_users scoped_user
-       WHERE scoped_user.id = $${params.push(access.userId)}
-         AND scoped_user.employee_id = contract.sale_owner_id
-    )`);
+    filters.push(contractSaleOwnerSql('contract', `$${params.push(access.userId)}`));
   }
 
   const outcome = allowListed(request.trialOutcome, TRIAL_OUTCOMES, 'نتيجة التجربة غير صالحة');
@@ -359,11 +356,7 @@ export async function getTemporaryContractFilterOptions(
     scope.push(`contract.branch_id = ANY($${params.push(access.branchIds)}::int[])`);
   }
   if (access.scope === 'ASSIGNED') {
-    scope.push(`EXISTS (
-      SELECT 1 FROM hr_users scoped_user
-       WHERE scoped_user.id = $${params.push(access.userId)}
-         AND scoped_user.employee_id = contract.sale_owner_id
-    )`);
+    scope.push(contractSaleOwnerSql('contract', `$${params.push(access.userId)}`));
   }
   const where = `WHERE ${scope.join(' AND ')}`;
 

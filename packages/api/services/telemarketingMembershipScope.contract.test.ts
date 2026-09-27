@@ -15,6 +15,7 @@ test('task-list subject access depends on permission context and saved team memb
     scope.indexOf('export async function canGenerateForTeam'),
   );
   assert.doesNotMatch(accessFunction, /getCurrentEmployeeRole|employeeRole/);
+  assert.match(accessFunction, /telemarketing\.lists\.view_device_demo/);
   assert.match(accessFunction, /isEmployeeSupervisorInTeam\(employeeId, team\)/);
   assert.match(accessFunction, /accessIds\.includes\(employeeId\)/);
 });

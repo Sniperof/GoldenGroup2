@@ -480,6 +480,34 @@ async function resolveSupervisorDeviceScope(
   return { restricted: true, modelIds: ids };
 }
 
+/**
+ * DEC-009 R-10 department gate as a task-level predicate, for queries that pick
+ * a client's task through a LATERAL (the per-station counts and lead list).
+ * Mirrors getPlanningWorkScope exactly: client-basis tasks always pass; device/
+ * contract tasks pass when the department is unrestricted, the task has no
+ * device / the device has no model, or the model is one the department serves.
+ * Without it the counts showed customers the assignment would never give the team.
+ */
+// «العملاء المحتملون» = every customer of the team's day, not only the ones still
+// waiting: tasks the team already moved past assignment for THIS day stay counted,
+// exactly as getPlanningWorkScope keeps them (same statuses, same team + date).
+const TEAM_DAY_IN_PROGRESS_STATUSES_SQL = `'in_scheduling', 'scheduled', 'waiting_execution', 'in_execution', 'ended'`;
+const TEAM_DAY_IN_PROGRESS_COMMENT = 'already progressed by this team for this day (scheduling → ended) — still part of the day';
+
+function buildDeviceGatePredicate(taskAlias: string, configAlias: string, restrictedParam: string, modelIdsParam: string): string {
+  return `(
+    COALESCE(${configAlias}.location_basis, 'client') = 'client'
+    OR ${restrictedParam}::boolean = FALSE
+    OR NOT EXISTS (
+      SELECT 1
+        FROM installed_devices gate_device
+       WHERE gate_device.id = ${taskAlias}.device_id
+         AND gate_device.device_model_id IS NOT NULL
+         AND NOT (gate_device.device_model_id = ANY(${modelIdsParam}::int[]))
+    )
+  )`;
+}
+
 export async function getPlanningMarketingTargets(params: {
   date: string;
   teamKey: string;
@@ -555,6 +583,8 @@ export async function getPlanningMarketingTargets(params: {
   const routes = normalizeRoutes(assignmentRows[0].routes);
   const extraZones = normalizeExtraZones(assignmentRows[0].extraZones);
   const zoneIds = await buildZoneIds(routes, extraZones);
+  // Same department device gate the assignment (getPlanningWorkScope) applies.
+  const deviceScope = await resolveSupervisorDeviceScope(supervisorHrUserId);
 
   if (zoneIds.length === 0) {
     return buildEmptyResponse({
@@ -600,6 +630,7 @@ export async function getPlanningMarketingTargets(params: {
           INNER JOIN task_type_config ttc_inner ON ttc_inner.task_type = ot_inner.task_type
           WHERE ot_inner.client_id = c.id
             AND ot_inner.branch_id = $1
+            AND ${buildDeviceGatePredicate('ot_inner', 'ttc_inner', '$6', '$7')}
             AND (
               -- Branch 1: unsynced — still in waiting phase
               (
@@ -611,6 +642,13 @@ export async function getPlanningMarketingTargets(params: {
                 ot_inner.status = 'assigned'
                 AND ot_inner.assigned_team_key = $5
                 AND ttc_inner.is_active = TRUE
+                AND ${buildPlanningTaskAvailablePredicate('ot_inner', '$5', '$4')}
+              )
+              -- Branch 3: ${TEAM_DAY_IN_PROGRESS_COMMENT}
+              OR (
+                ot_inner.status IN (${TEAM_DAY_IN_PROGRESS_STATUSES_SQL})
+                AND ot_inner.assigned_team_key = $5
+                AND ot_inner.assigned_for_date = $4::date
                 AND ${buildPlanningTaskAvailablePredicate('ot_inner', '$5', '$4')}
               )
             )
@@ -668,7 +706,7 @@ export async function getPlanningMarketingTargets(params: {
       WHERE effective_zone = ANY($2::int[])
       GROUP BY effective_zone
     `,
-    [branchId, zoneIds, actorHrUserIds, date, teamKey],
+    [branchId, zoneIds, actorHrUserIds, date, teamKey, deviceScope.restricted, deviceScope.modelIds],
   );
 
   const countsByZoneMap = new Map<number, number>();
@@ -840,6 +878,7 @@ export async function getPlanningMarketingTargets(params: {
         INNER JOIN task_type_config ttc_inner ON ttc_inner.task_type = ot_inner.task_type
         WHERE ot_inner.client_id = c.id
           AND ot_inner.branch_id = $1
+          AND ${buildDeviceGatePredicate('ot_inner', 'ttc_inner', '$6', '$7')}
           AND (
             -- Branch 1: unsynced — still in waiting phase
             (
@@ -851,6 +890,13 @@ export async function getPlanningMarketingTargets(params: {
               ot_inner.status = 'assigned'
               AND ot_inner.assigned_team_key = $5
               AND ttc_inner.is_active = TRUE
+              AND ${buildPlanningTaskAvailablePredicate('ot_inner', '$5', '$4')}
+            )
+            -- Branch 3: ${TEAM_DAY_IN_PROGRESS_COMMENT}
+            OR (
+              ot_inner.status IN (${TEAM_DAY_IN_PROGRESS_STATUSES_SQL})
+              AND ot_inner.assigned_team_key = $5
+              AND ot_inner.assigned_for_date = $4::date
               AND ${buildPlanningTaskAvailablePredicate('ot_inner', '$5', '$4')}
             )
           )
@@ -909,7 +955,7 @@ export async function getPlanningMarketingTargets(params: {
         )
       ORDER BY c.id
     `,
-    [branchId, zoneIds, actorHrUserIds, date, teamKey],
+    [branchId, zoneIds, actorHrUserIds, date, teamKey, deviceScope.restricted, deviceScope.modelIds],
   );
 
   const leads = leadRows.map((row: any) => ({

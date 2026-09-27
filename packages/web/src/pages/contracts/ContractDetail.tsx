@@ -215,6 +215,7 @@ export default function ContractDetail() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showAllTasks, setShowAllTasks] = useState(false);
   const [showActivateModal, setShowActivateModal] = useState(false);
   const [activatePaymentType, setActivatePaymentType] = useState<'cash' | 'installment'>('cash');
   const [activateFinalPrice, setActivateFinalPrice] = useState<number>(0);
@@ -563,6 +564,13 @@ export default function ContractDetail() {
   // ── Derived values ───────────────────────────────────────────────────────────
 
   const tasks          = data.tasks          ?? [];
+  // Linked tasks: open work first (newest first within each group), then a short
+  // preview — the full history is one click away.
+  const TASKS_PREVIEW  = 4;
+  const isTaskDone     = (status: string) => ['completed', 'closed', 'cancelled'].includes(status);
+  const activeTasksCount = tasks.filter((t: any) => !isTaskDone(t.status)).length;
+  const sortedTasks    = [...tasks].sort((a: any, b: any) => Number(isTaskDone(a.status)) - Number(isTaskDone(b.status)));
+  const visibleTasks   = showAllTasks ? sortedTasks : sortedTasks.slice(0, TASKS_PREVIEW);
   const dues           = data.dues           ?? [];
   const paymentEntries = data.paymentEntries ?? [];
   const installments   = data.installments   ?? [];
@@ -1274,12 +1282,15 @@ export default function ContractDetail() {
         <Card className="!p-0 overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-100">
             <span className="text-base font-bold text-slate-800">📋 المهام المرتبطة ({tasks.length})</span>
+            {activeTasksCount > 0 && (
+              <span className="ms-2 text-xs font-bold text-sky-700 bg-sky-50 rounded-full px-2 py-0.5">{activeTasksCount} جارية</span>
+            )}
           </div>
           {tasks.length === 0 ? (
             <div className="px-5 py-8 text-center text-sm text-slate-400">لا توجد مهام مرتبطة بهذا العقد</div>
           ) : (
             <div className="divide-y divide-slate-100">
-              {tasks.map((t: any) => {
+              {visibleTasks.map((t: any) => {
                 const taskStatusMap: Record<string, { cls: string; label: string }> = {
                   open:          { cls: 'bg-sky-100 text-sky-700',      label: 'مفتوحة' },
                   assigned:      { cls: 'bg-violet-100 text-violet-700', label: 'مسندة' },
@@ -1312,6 +1323,14 @@ export default function ContractDetail() {
                 );
               })}
             </div>
+          )}
+          {tasks.length > TASKS_PREVIEW && (
+            <button
+              onClick={() => setShowAllTasks(v => !v)}
+              className="w-full px-5 py-3 border-t border-slate-100 text-sm font-bold text-sky-600 hover:bg-slate-50"
+            >
+              {showAllTasks ? 'عرض أقل' : `عرض كل المهام (${tasks.length - TASKS_PREVIEW} أخرى)`}
+            </button>
           )}
         </Card>
 

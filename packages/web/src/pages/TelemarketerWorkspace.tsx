@@ -756,7 +756,7 @@ export default function TelemarketerWorkspace() {
     }, [selectedCustomer, clients]);
 
     useEffect(() => {
-        if (!selectedCustomer || selectedCustomer.entityType !== 'client' || listedSelectedClient) {
+        if (!selectedCustomer || selectedCustomer.entityType !== 'client' || listedSelectedClient || !activeTaskList) {
             setSelectedClientDetailRequest(null);
             return;
         }
@@ -765,7 +765,7 @@ export default function TelemarketerWorkspace() {
         let cancelled = false;
         setSelectedClientDetailRequest({ clientId, client: null, loading: true, error: null });
 
-        api.clients.get(clientId)
+        api.telemarketing.clientDetails(activeTaskList.id, selectedCustomer.primaryItem.id)
             .then((client: Client) => {
                 if (!cancelled) {
                     setSelectedClientDetailRequest({ clientId, client, loading: false, error: null });
@@ -783,7 +783,7 @@ export default function TelemarketerWorkspace() {
             });
 
         return () => { cancelled = true; };
-    }, [selectedCustomer, listedSelectedClient, selectedClientDetailReloadKey]);
+    }, [selectedCustomer, listedSelectedClient, selectedClientDetailReloadKey, activeTaskList]);
 
     const updateWorkspaceClient = useCallback(async (id: number, updates: Partial<Client>) => {
         const listedClient = clients.find(client => client.id === id);

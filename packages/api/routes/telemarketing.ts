@@ -51,6 +51,7 @@ import {
   resolveBookingAddress,
   withResolvedBookingAddress,
 } from '../services/telemarketingAppointmentSnapshot.js';
+import { CLIENT_SELECT, mapClientRow } from '../services/clientReadModel.js';
 
 async function acquireClientContactControlReadGuard(
   clientId: number,
@@ -639,7 +640,12 @@ async function createMarketingVisitForAppointment(
  * - TELEMARKETER: allowed only if in team.telemarketers[] for this date/teamKey.
  * - All other roles: denied.
  */
-async function verifyTaskListAccess(req: any, res: any, taskListId: string): Promise<any | null> {
+async function verifyTaskListAccess(
+  req: any,
+  res: any,
+  taskListId: string,
+  options: { allowClosed?: boolean } = {},
+): Promise<any | null> {
   const { rows } = await pool.query(
     `SELECT id, team_key, date, branch_id, status FROM telemarketing_task_lists WHERE id = $1`,
     [taskListId],
@@ -651,7 +657,7 @@ async function verifyTaskListAccess(req: any, res: any, taskListId: string): Pro
 
   const taskList = rows[0];
 
-  if (taskList.status === 'closed') {
+  if (taskList.status === 'closed' && options.allowClosed !== true) {
     res.status(409).json({
       message: 'انتهت خطة هذه القائمة؛ السجل متاح للقراءة فقط',
       code: 'PLANNING_DAY_CLOSED',
@@ -1267,6 +1273,55 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view', 'telemarke
     availableTeams,
   });
 });
+
+// Contextual client read for the telemarketing workspace. The task-list item is
+// the subject: callers do not gain general clients.view access merely because a
+// customer appears in their assigned contact queue.
+router.get(
+  '/task-lists/:taskListId/items/:itemId/client-details',
+  requirePermission('telemarketing.lists.view', 'telemarketing.lists.view_device_demo'),
+  async (req, res) => {
+    try {
+      const taskListId = String(req.params.taskListId);
+      const itemId = String(req.params.itemId);
+      const taskList = await verifyTaskListAccess(req, res, taskListId, { allowClosed: true });
+      if (!taskList) return;
+
+      const item = await loadTaskListItem(pool, taskListId, itemId);
+      if (!item) return res.status(404).json({ error: 'عنصر قائمة الاتصال غير موجود' });
+      if (item.entity_type !== 'client') {
+        return res.status(409).json({ error: 'عنصر قائمة الاتصال ليس زبوناً' });
+      }
+
+      if (getTelemarketingTaskTypeScope(req.authContext) === 'device_demo') {
+        const { rows: eligibleRows } = await pool.query(
+          `SELECT 1
+             FROM telemarketing_task_list_items sibling
+             JOIN open_tasks task ON task.id = sibling.open_task_id
+            WHERE sibling.task_list_id = $1
+              AND sibling.entity_type = 'client'
+              AND sibling.entity_id = $2
+              AND task.task_type = 'device_demo'
+            LIMIT 1`,
+          [taskListId, item.entity_id],
+        );
+        if (!eligibleRows[0]) {
+          return res.status(403).json({ error: 'هذه الجهة خارج نطاق عرض الجهاز المسموح لك' });
+        }
+      }
+
+      const { rows } = await pool.query(
+        `${CLIENT_SELECT} WHERE c.id = $1 AND c.branch_id = $2`,
+        [item.entity_id, taskList.branch_id],
+      );
+      if (!rows[0]) return res.status(404).json({ error: 'الزبون غير موجود ضمن فرع قائمة الاتصال' });
+      return res.json(mapClientRow(rows[0]));
+    } catch (error: any) {
+      console.error('[telemarketing] contextual client details failed:', error);
+      return res.status(500).json({ error: error?.message ?? 'تعذر تحميل تفاصيل الزبون' });
+    }
+  },
+);
 
 // LEGACY endpoint — kept for backwards compatibility only.
 // WARNING: this endpoint deletes and re-inserts all items unconditionally,

@@ -29,7 +29,7 @@ test('branch and assigned scope are applied to the contract before any detail jo
   assert.deepEqual(branch.params[0], [1001]);
 
   const assigned = sqlFor({}, { scope: 'ASSIGNED', grantedScope: 'ASSIGNED', branchIds: [1001], userId: 23 });
-  assert.match(assigned.sql, /scoped_user\.employee_id = contract\.sale_owner_id/);
+  assert.match(assigned.sql, /contract_scope_owner\.employee_id = contract\.sale_owner_id/);
   assert.ok(assigned.params.includes(23));
 });
 

@@ -172,7 +172,10 @@ export async function canAccessTaskList(
   // Super admin or GLOBAL scope: always allowed
   if (authContext.isSuperAdmin) return true;
   const hasGlobalScope = authContext.grants.some(
-    (g: any) => g.permission === 'telemarketing.lists.view' && g.scope === 'GLOBAL',
+    (g: any) => (
+      g.permission === 'telemarketing.lists.view'
+      || g.permission === 'telemarketing.lists.view_device_demo'
+    ) && g.scope === 'GLOBAL',
   );
   if (hasGlobalScope) return true;
 

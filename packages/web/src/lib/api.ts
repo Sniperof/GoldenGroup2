@@ -2080,6 +2080,9 @@ export const api = {
         availableTeams: Array<{ key: string; label: string; type: 'team' | 'solo'; count: number }>;
       }>(`/telemarketing/snapshot${qs}`);
     },
+    clientDetails: (taskListId: string, itemId: string) => request<any>(
+      `/telemarketing/task-lists/${encodeURIComponent(taskListId)}/items/${encodeURIComponent(itemId)}/client-details`,
+    ),
     // DEC-009 لبنة 8 — the blind DELETE+re-INSERT upsert path was removed; the live
     // flow uses generateTaskListFromPlan (idempotent merge that preserves call progress).
     generateTaskListFromPlan: (data: { date: string; teamKey: string }) => request<any>('/telemarketing/task-lists/generate-from-plan', { method: 'POST', body: JSON.stringify(data) }),

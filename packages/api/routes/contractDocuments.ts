@@ -31,10 +31,12 @@ router.use(requireAuth);
 const SETTLEMENT_AMENDMENT_TEMPLATE_VERSION =
   ACTIVE_TEMPLATE_VERSION[SETTLEMENT_AMENDMENT_TEMPLATE_KEY];
 
-async function loadContractDocumentSubject(contractId: number) {
+async function loadContractDocumentSubject(contractId: number, actorUserId: number) {
   const { rows } = await pool.query(
-    `SELECT branch_id AS "branchId" FROM contracts WHERE id = $1 LIMIT 1`,
-    [contractId],
+    `SELECT branch_id AS "branchId", sale_owner_id AS "saleOwnerId",
+            (SELECT employee_id FROM hr_users WHERE id = $2) AS "currentEmployeeId"
+       FROM contracts WHERE id = $1 LIMIT 1`,
+    [contractId, actorUserId],
   );
   return rows[0] ?? null;
 }
@@ -323,7 +325,7 @@ router.get(
       return res.status(400).json({ error: 'id غير صالح' });
     }
 
-    const subject = await loadContractDocumentSubject(contractId);
+    const subject = await loadContractDocumentSubject(contractId, req.authContext!.userId);
     if (!subject) return res.status(404).json({ error: 'العقد غير موجود' });
     if (!canViewContractDocument(req.authContext!, subject).allowed) {
       return res.status(403).json({ error: 'غير مسموح بعرض النسخة القانونية لهذا العقد' });
@@ -432,7 +434,7 @@ router.post(
     if (!Number.isInteger(contractId) || contractId <= 0) {
       return res.status(400).json({ error: 'id غير صالح' });
     }
-    const subject = await loadContractDocumentSubject(contractId);
+    const subject = await loadContractDocumentSubject(contractId, req.authContext!.userId);
     if (!subject) return res.status(404).json({ error: 'العقد غير موجود' });
     if (!canFreezeContractDocument(req.authContext!, subject).allowed) {
       return res.status(403).json({ error: 'غير مسموح بتجميد النسخة القانونية لهذا العقد' });
