@@ -7,6 +7,28 @@ export interface GiftSubject {
   assignedUserId?: number | null;
   beneficiaryAssignedToCurrentUser?: boolean;
   beneficiaryEmployeeId?: number | null;
+  /** The gift's contract was created, owned (sale owner) or closed by the
+   *  current user — see giftContractLinkSql. A promise made in "my" contract
+   *  is "mine" under ASSIGNED; OP promotion wipes client_assignments, so the
+   *  beneficiary link alone lost it the moment the contract was approved. */
+  contractLinkedToCurrentUser?: boolean;
+}
+
+/**
+ * SQL predicate (alias `gr` = gift_records) for {@link GiftSubject.contractLinkedToCurrentUser}.
+ * contracts.created_by / closing_employee_id reference hr_users;
+ * contracts.sale_owner_id references employees.
+ */
+export function giftContractLinkSql(userParam: string, employeeParam: string): string {
+  return `EXISTS (
+    SELECT 1 FROM contracts link_contract
+     WHERE link_contract.id = gr.contract_id
+       AND (
+         link_contract.created_by = ${userParam}
+         OR link_contract.closing_employee_id = ${userParam}
+         OR (${employeeParam}::int IS NOT NULL AND link_contract.sale_owner_id = ${employeeParam}::int)
+       )
+  )`;
 }
 
 function branchIdForGift(subject: GiftSubject): number | null {
@@ -20,6 +42,7 @@ function assignedUserForGift(
 ): number | null {
   if (subject.beneficiaryAssignedToCurrentUser) return context.userId;
   if (subject.assignedUserId === context.userId) return context.userId;
+  if (subject.contractLinkedToCurrentUser) return context.userId;
   if (
     currentEmployeeId != null &&
     subject.beneficiaryEmployeeId != null &&

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../../lib/api';
 import Button from '../ui/Button';
 import Modal from '../ui/Modal';
+import { taskDecisionLabel } from '../../lib/taskDecisionLabels';
 
 // ── Receipt HTML builder ──────────────────────────────────────────────────────
 
@@ -218,7 +219,7 @@ export default function MaintenanceReceiptModal({ taskId, isOpen, onClose }: Pro
         paymentType:         costs.paymentType ?? '',
         totalPaidSyp,
         finalDecision:       costs.finalDecision ?? '',
-        decisionLabel:       DECISION_LABELS[costs.finalDecision ?? ''] ?? costs.finalDecision ?? '',
+        decisionLabel:       DECISION_LABELS[costs.finalDecision ?? ''] ?? taskDecisionLabel(costs.finalDecision, 'emergency_maintenance'),
         closingEmployeeName: costs.closingEmployeeName ?? null,
       });
     }).catch(() => {}).finally(() => setLoading(false));

@@ -329,6 +329,32 @@ router.get(
       return res.status(403).json({ error: 'غير مسموح بعرض النسخة القانونية لهذا العقد' });
     }
 
+    // ?document=amendment — the frozen settlement amendment (ملحق تثبيت البيعة)
+    // of a trial settled into a definitive sale. The original stays the trial
+    // agreement by design; the amendment is where the definitive financial
+    // terms live, and it was being frozen but never served.
+    if (req.query.document === 'amendment') {
+      const { rows: amendmentRows } = await pool.query(
+        `SELECT id, rendered_html, content_hash, template_version
+           FROM contract_documents
+          WHERE contract_id = $1 AND is_amendment = TRUE
+          ORDER BY frozen_at DESC, id DESC
+          LIMIT 1`,
+        [contractId],
+      );
+      const amendment = amendmentRows[0];
+      if (!amendment) {
+        return res.status(404).json({ error: 'لا يوجد ملحق تثبيت بيعة لهذا العقد' });
+      }
+      res.set({
+        'Content-Type':       'text/html; charset=utf-8',
+        'X-Contract-Document-Id':    String(amendment.id),
+        'X-Contract-Document-Hash':  amendment.content_hash,
+        'X-Contract-Template-Version': amendment.template_version,
+      });
+      return res.send(amendment.rendered_html);
+    }
+
     const bundle = await loadContractForRender(pool, contractId);
     if (!bundle) return res.status(404).json({ error: 'العقد غير موجود' });
     const status = bundle.contract.status;

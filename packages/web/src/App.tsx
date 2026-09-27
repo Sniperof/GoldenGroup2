@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Outlet, useParams } from 'react-router-dom';
 import { useEffect } from 'react';
 import { useAuthStore } from './hooks/useAuthStore';
 import Login from './pages/auth/Login';
@@ -39,6 +39,7 @@ import WarrantyServicesTaskDetail from './pages/tasks/WarrantyServicesTaskDetail
 import CollectionTaskDetail from './pages/tasks/CollectionTaskDetail';
 import GiftDeliveryTaskDetail from './pages/tasks/GiftDeliveryTaskDetail';
 import TaskEvaluationLab from './pages/tasks/TaskEvaluationLab';
+import { HIDDEN_FEATURES_ENABLED } from './lib/hiddenFeatures';
 import OpenTasks from './pages/OpenTasks';
 import SystemSettings from './pages/SystemSettings';
 import Branches from './pages/Branches';
@@ -134,32 +135,38 @@ export default function App() {
                         <Route path="/planning/overview" element={<RequireBranchContext><PlanOverview /></RequireBranchContext>} />
                         <Route path="/planning/contact-targets/:teamKey" element={<RequireBranchContext><PlanningContactTargets /></RequireBranchContext>} />
                         <Route path="/planning/team-tasks/:teamKey" element={<RequireBranchContext><TeamTasksDetail /></RequireBranchContext>} />
-                        <Route path="/tasks/emergency" element={<Navigate to="/tasks/group/maintenance" replace />} />
-                        <Route path="/tasks/emergency/:id" element={<RedirectTaskDetail toBase="/tasks/group/maintenance" />} />
-                        <Route path="/tasks/dues" element={<Dues />} />
-                        <Route path="/tasks/open" element={<OpenTasks />} />
-                        <Route path="/tasks/device-demo" element={<Navigate to="/tasks/group/device-demo" replace />} />
-                        <Route path="/tasks/device-demo/:id" element={<RedirectTaskDetail toBase="/tasks/group/device-demo" />} />
-                        {/* Post-sale detail routes — each group's detailHref is
-                            /tasks/group/<group>, so the per-row link is
-                            /tasks/group/<group>/:id. These must precede the
-                        /tasks/group/:group catch-all below. PostSaleTaskDetail
-                            derives its back link from the group segment. */}
-                        <Route path="/tasks/group/device-demo/:id" element={<DeviceDemoDetail />} />
-                        <Route path="/tasks/group/after-sale-services/:id" element={<PostSaleTaskDetail />} />
-                        <Route path="/tasks/group/device-delivery/:id" element={<PostSaleTaskDetail />} />
-                        <Route path="/tasks/group/device-installation/:id" element={<PostSaleTaskDetail />} />
-                        <Route path="/tasks/group/device-activation/:id" element={<PostSaleTaskDetail />} />
-                        <Route path="/tasks/group/device-disconnection/:id" element={<PostSaleTaskDetail />} />
-                        {/* Unified open_task detail under group URL — V1.0 reuses EmergencyTaskDetail. */}
-                        <Route path="/tasks/group/maintenance/:id" element={<EmergencyTaskDetail />} />
-                        <Route path="/tasks/group/collection/:id" element={<CollectionTaskDetail />} />
-                        <Route path="/tasks/group/gift-delivery/:id" element={<GiftDeliveryTaskDetail />} />
-                        <Route path="/tasks/group/warranty-services/:id" element={<WarrantyServicesTaskDetail />} />
-                        <Route path="/tasks/evaluation-lab" element={<TaskEvaluationLab />} />
-                        {/* Unified task groups (2026-06-01) — single page, 6 display_groups */}
-                        <Route path="/tasks/group/:group" element={<TaskGroupPage />} />
-                        <Route path="/open-tasks" element={<Navigate to="/tasks/open" replace />} />
+                        {/* Task APIs currently require an active branch; do not mount their pages on "all branches". */}
+                        <Route element={<RequireBranchContext><Outlet /></RequireBranchContext>}>
+                            <Route path="/tasks/emergency" element={<Navigate to="/tasks/group/maintenance" replace />} />
+                            <Route path="/tasks/emergency/:id" element={<RedirectTaskDetail toBase="/tasks/group/maintenance" />} />
+                            <Route path="/tasks/dues" element={<Dues />} />
+                            <Route path="/tasks/open" element={<OpenTasks />} />
+                            <Route path="/tasks/device-demo" element={<Navigate to="/tasks/group/device-demo" replace />} />
+                            <Route path="/tasks/device-demo/:id" element={<RedirectTaskDetail toBase="/tasks/group/device-demo" />} />
+                            {/* Post-sale detail routes — each group's detailHref is
+                                /tasks/group/<group>, so the per-row link is
+                                /tasks/group/<group>/:id. These must precede the
+                                /tasks/group/:group catch-all below. PostSaleTaskDetail
+                                derives its back link from the group segment. */}
+                            <Route path="/tasks/group/device-demo/:id" element={<DeviceDemoDetail />} />
+                            <Route path="/tasks/group/after-sale-services/:id" element={<PostSaleTaskDetail />} />
+                            <Route path="/tasks/group/device-delivery/:id" element={<PostSaleTaskDetail />} />
+                            <Route path="/tasks/group/device-installation/:id" element={<PostSaleTaskDetail />} />
+                            <Route path="/tasks/group/device-activation/:id" element={<PostSaleTaskDetail />} />
+                            <Route path="/tasks/group/device-disconnection/:id" element={<PostSaleTaskDetail />} />
+                            {/* Unified open_task detail under group URL — V1.0 reuses EmergencyTaskDetail. */}
+                            <Route path="/tasks/group/maintenance/:id" element={<EmergencyTaskDetail />} />
+                            <Route path="/tasks/group/collection/:id" element={<CollectionTaskDetail />} />
+                            <Route path="/tasks/group/gift-delivery/:id" element={<GiftDeliveryTaskDetail />} />
+                            <Route path="/tasks/group/warranty-services/:id" element={<WarrantyServicesTaskDetail />} />
+                            <Route path="/tasks/evaluation-lab" element={HIDDEN_FEATURES_ENABLED.taskEvaluationLab ? <TaskEvaluationLab /> : <Navigate to="/" replace />} />
+                            {!HIDDEN_FEATURES_ENABLED.afterSaleServicesTasks && (
+                                <Route path="/tasks/group/after-sale-services" element={<Navigate to="/" replace />} />
+                            )}
+                            {/* Unified task groups (2026-06-01) — single page, 6 display_groups */}
+                            <Route path="/tasks/group/:group" element={<TaskGroupPage />} />
+                            <Route path="/open-tasks" element={<Navigate to="/tasks/open" replace />} />
+                        </Route>
                         {/* Service Requests intake (٠.١٦ — GLOBAL) */}
                         <Route path="/service-requests" element={<ServiceRequestsListPage />} />
                         <Route path="/service-requests/new" element={<NewServiceRequestPage />} />
@@ -181,9 +188,9 @@ export default function App() {
                             field team uses the standalone "زياراتي" page instead. */}
                         <Route path="/field-visits" element={<RequireBranchContext><VisitsListPage /></RequireBranchContext>} />
                         {/* Standalone personal surface for the field team (ASSIGNED) — outside the
-                            management Visits page. Self-scopes by team membership; not branch-gated. */}
-                        <Route path="/my-visits" element={<MyVisitsPage />} />
-                        <Route path="/field-visits/:id" element={<VisitDetailPage />} />
+                            management Visits page. Its API still needs an active branch context. */}
+                        <Route path="/my-visits" element={<RequireBranchContext><MyVisitsPage /></RequireBranchContext>} />
+                        <Route path="/field-visits/:id" element={<RequireBranchContext><VisitDetailPage /></RequireBranchContext>} />
                         <Route path="/contracts" element={<ContractList />} />
                         <Route path="/contracts/new" element={<ContractForm />} />
                         <Route path="/contracts/:id/edit" element={<ContractForm />} />

@@ -17,8 +17,29 @@ import { lockPlanningDayMutation } from '../services/planningTaskCuration.js';
 const router = Router();
 router.use(requireAuth);
 
-function buildAssignmentResponse(row: any) {
-  return { routes: row.routes, extraZones: row.extra_zones, stationOrder: row.station_order || [] };
+/**
+ * `generated` = the team's contact list for that day already exists, which
+ * makes the scope append-only (DEC-009 لبنة 8, enforced in PUT). Exposed so the
+ * UI can show the freeze up front instead of failing on save.
+ */
+function buildAssignmentResponse(row: any, generatedKeys?: Set<string>) {
+  return {
+    routes: row.routes,
+    extraZones: row.extra_zones,
+    stationOrder: row.station_order || [],
+    generated: generatedKeys ? generatedKeys.has(row.key) : false,
+  };
+}
+
+// telemarketing_task_lists.date is varchar 'YYYY-MM-DD', matching the key prefix.
+async function loadGeneratedAssignmentKeys(keys?: string[]): Promise<Set<string>> {
+  const { rows } = await pool.query(
+    `SELECT DISTINCT date || '_' || team_key AS key
+       FROM telemarketing_task_lists
+      WHERE $1::text[] IS NULL OR date || '_' || team_key = ANY($1::text[])`,
+    [keys ?? null],
+  );
+  return new Set(rows.map((r: any) => String(r.key)));
 }
 
 function getAuthContext(req: any): AuthContext {
@@ -193,11 +214,12 @@ router.get('/', requirePermission('routes.assign.view'), async (req, res) => {
   }
 
   const { rows } = await pool.query('SELECT * FROM route_assignments');
+  const generatedKeys = await loadGeneratedAssignmentKeys();
 
   // GLOBAL / super-admin → every branch's assignments.
   if (plan.scope === 'GLOBAL') {
     const all: Record<string, any> = {};
-    rows.forEach((r: any) => { all[r.key] = buildAssignmentResponse(r); });
+    rows.forEach((r: any) => { all[r.key] = buildAssignmentResponse(r, generatedKeys); });
     res.json(all);
     return;
   }
@@ -210,7 +232,7 @@ router.get('/', requirePermission('routes.assign.view'), async (req, res) => {
   rows.forEach((r: any) => {
     const owningBranch = owners.get(r.key);
     if (owningBranch != null && allowed.has(owningBranch)) {
-      result[r.key] = buildAssignmentResponse(r);
+      result[r.key] = buildAssignmentResponse(r, generatedKeys);
     }
   });
   res.json(result);
@@ -270,7 +292,7 @@ router.get('/:key', requirePermission('routes.assign.view'), async (req, res) =>
     return;
   }
 
-  res.json(buildAssignmentResponse(rows[0]));
+  res.json(buildAssignmentResponse(rows[0], await loadGeneratedAssignmentKeys([key])));
 });
 
 /**
@@ -418,6 +440,7 @@ router.put('/:key', requirePermission('routes.assign.manage'), async (req, res) 
       routes: rows[0].routes,
       extraZones: rows[0].extra_zones,
       stationOrder: rows[0].station_order || [],
+      generated: generatedRows.length > 0,
       syncResult,
     });
   } catch (err) {

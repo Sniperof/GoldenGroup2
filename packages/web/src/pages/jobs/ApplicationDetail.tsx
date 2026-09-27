@@ -18,7 +18,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import Modal from '../../components/ui/Modal';
 import DateField from '../../components/ui/DateField';
 import PermissionGate from '../../components/PermissionGate';
-import { calculateJobMatchScore } from '../../lib/jobMatch';
+import { calculateJobMatchScore, certificateLevelsFromLists } from '../../lib/jobMatch';
+import { useSystemListsStore } from '../../hooks/useSystemLists';
 import { getUnifiedApplicationState } from '../../lib/applicationState';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { fetchInterviewersForApplication } from './interviewerLookup';
@@ -225,6 +226,10 @@ export default function ApplicationDetail() {
   const hasPermission = useAuthStore(s => s.hasPermission);
   const actorRole = authUser?.role || 'HR_MANAGER';
   const { scheduleInterview: storeScheduleInterview, fetchInterviews } = useInterviewStore();
+  // Certificate levels for matching come from the «الشهادات» reference list.
+  const { lists: systemLists, fetchLists } = useSystemListsStore();
+  const certificateLevels = useMemo(() => certificateLevelsFromLists(systemLists), [systemLists]);
+  useEffect(() => { fetchLists(); }, [fetchLists]);
   const [detail, setDetail] = useState<JobApplicationDetail | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
@@ -584,7 +589,7 @@ export default function ApplicationDetail() {
 
   // Compute match score once at render time (used in profile card + review modal)
   const matchResult = (detail.applicant && detail.vacancy)
-    ? calculateJobMatchScore(detail.applicant, detail.vacancy)
+    ? calculateJobMatchScore(detail.applicant, detail.vacancy, certificateLevels)
     : null;
 
   return (
@@ -1640,7 +1645,7 @@ export default function ApplicationDetail() {
                   );
 
                   const calculateMatchScore = () => {
-                    return calculateJobMatchScore(app, vac);
+                    return calculateJobMatchScore(app, vac, certificateLevels);
                     /* let score = 0;
                     // 1. Education (10 pts)
                     const certLevel = (c: string) => {

@@ -6,6 +6,7 @@ import { usePermissions } from '../hooks/usePermissions';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import { canSeeFieldVisitManagementSurface } from '../lib/fieldVisitPermissionPolicy';
 import { isGlobalOnlyPath } from '../lib/branchContext';
+import { HIDDEN_FEATURES_ENABLED } from '../lib/hiddenFeatures';
 import FloatingActionButton from '../components/FloatingActionButton';
 import AddCandidateModal from '../components/candidates/AddCandidateModal';
 import NewServiceRequestModal from '../components/service-requests/NewServiceRequestModal';
@@ -177,12 +178,12 @@ export default function MainLayout() {
       { path: '/', label: 'لوحة المتابعة', icon: LayoutDashboard, exact: true },
       ...(can('tasks.my_customers.view') ? [{ path: '/tasks/group/my-customers', label: 'مهامي', icon: ClipboardList }] : []),
       ...(can('field_visits.my_visits.view') ? [{ path: '/my-visits', label: 'زياراتي', icon: CalendarCheck }] : []),
-      ...(canSeeBranchModules && can('tasks.supervisor_alerts.view') ? [{ path: '/supervisor/alerts', label: 'تنبيهات المشرف', icon: Bell }] : []),
+      ...(canSeeBranchModules && can('tasks.supervisor_alerts.view') ? [{ path: '/supervisor/alerts', label: 'تنبيهات المتابعة', icon: Bell }] : []),
     ] },
     { id: 'sales', label: 'المبيعات والزبائن', icon: BookUser, items: [
       ...(can('clients.view_list') ? [{ path: '/clients', label: 'الزبائن', icon: BookUser }] : []),
       ...(can('candidates.view_list') ? [{ path: '/candidates', label: 'الأسماء المقترحة', icon: UserPlus }] : []),
-      ...(canSeeBranchModules && can('telemarketing.lists.view') ? [{ path: '/telemarketer', label: 'الاتصالات والمواعيد', icon: Headset }] : []),
+      ...(canSeeBranchModules && (can('telemarketing.lists.view') || can('telemarketing.lists.view_device_demo')) ? [{ path: '/telemarketer', label: 'الاتصالات والمواعيد', icon: Headset }] : []),
       ...(canSeeBranchModules && can('tasks.demo.view') ? [{ path: '/tasks/group/device-demo', label: 'عروض الأجهزة', icon: Monitor }] : []),
       ...(can('contracts.view_list') ? [{ path: '/contracts', label: 'العقود', icon: FileText }] : []),
       ...(canSeeBranchModules && can('tasks.collection.view') ? [{ path: '/tasks/group/collection', label: 'تحصيل الذمم', icon: DollarSign }] : []),
@@ -203,7 +204,7 @@ export default function MainLayout() {
       ...(can('tasks.installation.view') ? [{ path: '/tasks/group/device-installation', label: 'تركيب الأجهزة', icon: Wrench, dividerLabel: 'التنفيذ الميداني' }] : []),
       ...(can('tasks.activation.view') ? [{ path: '/tasks/group/device-activation', label: 'تشغيل الأجهزة', icon: Monitor, dividerLabel: 'التنفيذ الميداني' }] : []),
       ...(can('tasks.maintenance.view') ? [{ path: '/tasks/group/maintenance', label: 'الصيانة والأعطال', icon: Wrench, dividerLabel: 'التنفيذ الميداني' }] : []),
-      ...(can('tasks.after_sales.view') ? [{ path: '/tasks/group/after-sale-services', label: 'خدمات ما بعد البيع', icon: RefreshCw, dividerLabel: 'التنفيذ الميداني' }] : []),
+      ...(HIDDEN_FEATURES_ENABLED.afterSaleServicesTasks && can('tasks.after_sales.view') ? [{ path: '/tasks/group/after-sale-services', label: 'خدمات ما بعد البيع', icon: RefreshCw, dividerLabel: 'التنفيذ الميداني' }] : []),
       ...(can('tasks.disconnection.view') ? [{ path: '/tasks/group/device-disconnection', label: 'فك الأجهزة', icon: Unplug, dividerLabel: 'التنفيذ الميداني' }] : []),
       ...(can('tasks.warranty.view') ? [{ path: '/tasks/group/warranty-services', label: 'خدمات الكفالة', icon: ShieldCheck, dividerLabel: 'التنفيذ الميداني' }] : []),
       ...(can('periodic_maintenance.view') ? [{ path: '/service-requests/periodic-maintenance', label: 'طلبات الصيانة الدورية', icon: Wrench, dividerLabel: 'طلبات متخصصة' }] : []),
@@ -243,7 +244,7 @@ export default function MainLayout() {
       ...(canAccessAdminSurface('admin.system_lists.view') ? [{ path: '/system-lists', label: 'القوائم المرجعية', icon: SlidersHorizontal, dividerLabel: 'ضبط النظام' }] : []),
       ...(canAccessAdminSurface('admin.task_types.view') ? [{ path: '/admin/task-types', label: 'أنواع المهام', icon: Settings2, dividerLabel: 'ضبط النظام' }] : []),
       ...(canAccessAdminSurface('settings.view') ? [{ path: '/settings', label: 'إعدادات النظام', icon: Settings, dividerLabel: 'ضبط النظام' }] : []),
-      ...(canSeeBranchModules && can('tasks.demo.view') ? [{ path: '/tasks/evaluation-lab', label: 'تقييم المهام', icon: Beaker, dividerLabel: 'ضبط النظام' }] : []),
+      ...(HIDDEN_FEATURES_ENABLED.taskEvaluationLab && canSeeBranchModules && can('tasks.demo.view') ? [{ path: '/tasks/evaluation-lab', label: 'تقييم المهام', icon: Beaker, dividerLabel: 'ضبط النظام' }] : []),
       ...(canAccessAdminSurface('admin.app_home_banners.view') ? [{ path: '/admin/app-home-banners', label: 'بانرات التطبيق', icon: GalleryHorizontal, dividerLabel: 'تطبيق الزبائن' }] : []),
       ...(canAccessAdminSurface('admin.app_notifications.view') ? [{ path: '/admin/app-notifications', label: 'إشعارات التطبيق', icon: BellRing, dividerLabel: 'تطبيق الزبائن' }] : []),
       ...(canAccessAdminSurface('admin.app_contact_links.view') ? [{ path: '/admin/app-contact-links', label: 'روابط التطبيق', icon: Link2, dividerLabel: 'تطبيق الزبائن' }] : []),
@@ -321,7 +322,7 @@ export default function MainLayout() {
         </div></div>
       </aside>
       <main className="flex-1 overflow-y-auto custom-scroll bg-slate-50 mt-16 lg:mt-0"><Outlet /></main>
-      <FloatingActionButton onAddSuggested={() => { setCandidateInitialMode(false); setShowCandidateModal(true); }} onAddCandidate={() => { setCandidateInitialMode(true); setShowCandidateModal(true); }} onServiceRequestClick={() => setShowServiceRequestModal(true)} />
+      {HIDDEN_FEATURES_ENABLED.quickActionsFab && <FloatingActionButton onAddSuggested={() => { setCandidateInitialMode(false); setShowCandidateModal(true); }} onAddCandidate={() => { setCandidateInitialMode(true); setShowCandidateModal(true); }} onServiceRequestClick={() => setShowServiceRequestModal(true)} />}
       {showServiceRequestModal && <NewServiceRequestModal channel="internal_button" onClose={() => setShowServiceRequestModal(false)} />}
       <AddCandidateModal isOpen={showCandidateModal} onClose={() => setShowCandidateModal(false)} initialDirectMode={candidateInitialMode} />
     </div>

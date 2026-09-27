@@ -11,6 +11,7 @@ import {
   canViewFieldVisitOrOwn,
   getFieldVisitListAccessPlan,
 } from '../policies/fieldVisitPolicy.js';
+import { supervisorAlertAccessPlan } from '../policies/supervisorAlertPolicy.js';
 import { checkAndCompleteVisit } from '../services/visitCompletion.js';
 import { hasBlockingUndocumentedVisit } from '../services/visitEscalationJob.js';
 import { applyDeviceActivationResult, applyDeviceCheckupResult, applyDeviceDeliveryResult, applyDeviceDemoResult, applyDeviceDisconnectionResult, applyDeviceInstallationResult, applyDeviceRetrievalResult, applyDeviceReturnResult, applyDeviceTransferResult, applyEmergencyMaintenanceLifecycleResult, applyGiftDeliveryResult, applyGoldenWarrantyOfferResult, applyGoldenWarrantyCardDeliveryResult, applyInstallmentCollectionResult, ResultValidationError } from '../services/visitTaskResultReflection.js';
@@ -22,7 +23,7 @@ import {
   eligiblePersonalOwnerCondition,
   mapCustomerOwnership,
 } from '../services/customerOwnership.js';
-import { createInstantVisit, BookingError } from '../services/visitBooking.js';
+import { createInstantVisit, getInstantVisitOptions, BookingError } from '../services/visitBooking.js';
 import { refreshVisitType } from '../services/visitClassification.js';
 import { getOpenTaskLinkageIssue } from '../services/openTaskLinkagePolicy.js';
 
@@ -389,6 +390,27 @@ async function resolveVisitSource(visitId: number): Promise<{
 // DEC-011: field-initiated instant visit — created already in_progress for a
 // customer in the team's branch + today's route zones. Starts empty (tasks via
 // the pull flow, DEC-010). Guards (branch/zone/cooldown/D18) live in the service.
+router.get('/instant/options', requirePermission('field_visits.create_instant'), async (req, res) => {
+  try {
+    const authContext = getAuthContext(req);
+    if (authContext.userId == null) {
+      return res.status(401).json({ error: 'مستخدم غير معروف' });
+    }
+    const search = typeof req.query.search === 'string' ? req.query.search : '';
+    const result = await getInstantVisitOptions(authContext.userId, search);
+    return res.json(result);
+  } catch (err: any) {
+    if (err instanceof BookingError) {
+      return res.status(err.statusCode).json({
+        error: err.message,
+        code: 'INSTANT_VISIT_UNAVAILABLE',
+      });
+    }
+    console.error('[field-visits] GET /instant/options error:', err);
+    return res.status(500).json({ error: 'فشل تحميل الزبائن المؤهلين للزيارة الفورية' });
+  }
+});
+
 router.post('/instant', requirePermission('field_visits.create_instant'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
@@ -441,7 +463,7 @@ router.post('/:id/start', requirePermission('field_visits.edit'), async (req, re
       const block = await hasBlockingUndocumentedVisit(authContext.userId);
       if (block.blocked) {
         return res.status(409).json({
-          error: `لا يمكن بدء زيارة جديدة — لديك زيارة #${block.visitId} منذ ${block.hoursSinceUpdate} ساعة بدون توثيق (DEC-006 D38 L2). أغلقها أولاً.`,
+          error: `لا يمكن بدء زيارة جديدة — لديك زيارة #${block.visitId} بدأت منذ ${block.hoursSinceStart} ساعة بدون توثيق. وثّق نتيجتها أولاً.`,
           blockingVisitId: block.visitId,
         });
       }
@@ -1363,19 +1385,16 @@ router.get('/my-visits', requirePermission('field_visits.my_visits.view'), async
 // ============================================================================
 // MUST be declared BEFORE /:id so Express does not match "escalation-alerts"
 // as the visit id parameter (which previously caused HTTP 400).
-router.get('/escalation-alerts', requirePermission('field_visits.view'), async (req, res) => {
+router.get('/escalation-alerts', requirePermission('tasks.supervisor_alerts.view'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
-    const plan = getFieldVisitListAccessPlan(authContext);
-    const params: any[] = [];
-    let branchClause = '';
-    if (plan.scope !== 'GLOBAL') {
-      if (plan.allowedBranchIds.length === 0) {
-        return res.json({ count: 0, items: [], scheduledCount: 0, scheduledItems: [] });
-      }
-      params.push(plan.allowedBranchIds);
-      branchClause = `AND fv.branch_id = ANY($${params.length}::int[])`;
-    }
+    const access = supervisorAlertAccessPlan(authContext);
+    if (access == null) return res.status(403).json({ error: 'ليس لديك نطاق صالح لعرض تنبيهات هذا الفرع' });
+    const params = [access.branchId];
+    const branchClause = 'AND fv.branch_id = $1';
+    const assignedEscalationClause = access.scope === 'ASSIGNED' ? 'AND fv.team_responsible_user_id = $2' : '';
+    const assignedScheduledClause = access.scope === 'ASSIGNED' ? 'AND vsa.responsible_user_id = $2' : '';
+    if (access.scope === 'ASSIGNED') params.push(access.userId);
 
     const { rows } = await pool.query(
       `SELECT fv.id            AS "visitId",
@@ -1384,18 +1403,20 @@ router.get('/escalation-alerts', requirePermission('field_visits.view'), async (
               fv.client_id     AS "clientId",
               c.name           AS "clientName",
               fv.team_responsible_user_id AS "teamResponsibleUserId",
-              EXTRACT(EPOCH FROM (NOW() - fv.updated_at)) / 3600 AS "hoursSinceUpdate",
+              EXTRACT(EPOCH FROM (NOW() - vgl.actual_start_time)) / 3600 AS "hoursSinceStart",
               ARRAY(
                 SELECT tier FROM visit_escalation_alerts
                  WHERE visit_id = fv.id
                  ORDER BY tier
               ) AS "tiersAlerted"
          FROM field_visits fv
+         LEFT JOIN visit_geo_logs vgl ON vgl.visit_id = fv.id
          LEFT JOIN clients c ON c.id = fv.client_id
         WHERE fv.status IN ('in_progress', 'ended')
           AND EXISTS (SELECT 1 FROM visit_escalation_alerts vea WHERE vea.visit_id = fv.id)
           ${branchClause}
-        ORDER BY fv.updated_at ASC
+          ${assignedEscalationClause}
+        ORDER BY vgl.actual_start_time ASC NULLS LAST
         LIMIT 200`,
       params,
     );
@@ -1406,6 +1427,7 @@ router.get('/escalation-alerts', requirePermission('field_visits.view'), async (
               fv.client_id AS "clientId",
               c.name AS "clientName",
               fv.team_responsible_user_id AS "teamResponsibleUserId",
+              vsa.responsible_user_id AS "responsibleUserId",
               responsible.name AS "teamResponsibleName",
               fv.scheduled_date AS "scheduledDate",
               fv.scheduled_time AS "scheduledTime",
@@ -1418,11 +1440,13 @@ router.get('/escalation-alerts', requirePermission('field_visits.view'), async (
         WHERE vsa.resolved_at IS NULL
           AND fv.status = 'scheduled'
           ${branchClause}
+          ${assignedScheduledClause}
         ORDER BY fv.scheduled_date ASC, fv.scheduled_time ASC
         LIMIT 200`,
       params,
     );
     return res.json({
+      visibilityScope: access.scope,
       count: rows.length,
       items: rows,
       scheduledCount: scheduledRows.length,

@@ -287,29 +287,41 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
         };
     }, [isOpen, effectiveBranchId, geoUnits]);
 
-    useEffect(() => {
-        if (referralType === 'Personal') {
+    // Resetting the mediator name belongs to the user CHANGING the type, not to
+    // the type merely holding a value. As an effect it also fired one render
+    // after hydration and overwrote an inherited mediator — a suggested name
+    // typed `Unknown` but carrying a real snapshot ("وائل الحسن") was silently
+    // saved back as the literal 'مجهول'.
+    const handleReferralTypeChange = (nextType: ReferralType) => {
+        setReferralType(nextType);
+        if (nextType === 'Personal') {
             setReferralNameSnapshot(currentUserDisplayName);
-            setEmployeeIdInput('');
-            setEmployeeFound(null);
-            setEmployeeSearchError('');
-            setClientSearch('');
-            setSelectedClientId(null);
-            setClientSuggestions([]);
-        } else if (referralType === 'Unknown') {
+        } else if (nextType === 'Unknown') {
             setReferralNameSnapshot('مجهول');
+        } else {
+            setReferralNameSnapshot('');
+        }
+        if (nextType !== 'Employee') {
             setEmployeeIdInput('');
             setEmployeeFound(null);
             setEmployeeSearchError('');
+        }
+        if (nextType !== 'Client') {
             setClientSearch('');
             setSelectedClientId(null);
             setClientSuggestions([]);
-        } else if (referralType === 'Employee' && employeeFound) {
-            setReferralNameSnapshot(employeeFound.name);
-        } else if (referralType === 'Client' && selectedClientId) {
-            // Already handled in select client
         }
-    }, [referralType, employeeFound, selectedClientId, currentUserDisplayName]);
+    };
+
+    // Late-resolving lookups only: fill a name that is still blank, never
+    // replace one that is already there.
+    useEffect(() => {
+        if (referralType === 'Employee' && employeeFound) {
+            setReferralNameSnapshot(employeeFound.name);
+        } else if (referralType === 'Personal' && !referralNameSnapshot && currentUserDisplayName) {
+            setReferralNameSnapshot(currentUserDisplayName);
+        }
+    }, [referralType, employeeFound, currentUserDisplayName, referralNameSnapshot]);
 
     useEffect(() => {
         if (
@@ -770,7 +782,9 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
         const resolvedReferrerName = referralType === 'Personal'
             ? currentUserDisplayName
             : referralType === 'Unknown'
-                ? 'مجهول'
+                // `Unknown` describes how the name arrived, not that the mediator
+                // is nameless. A snapshot inherited from a suggested name stays.
+                ? (referralNameSnapshot.trim() || 'مجهول')
                 : referralType === 'Employee'
                     ? (employeeReference?.fullName || '')
                     : referralType === 'Client'
@@ -781,20 +795,35 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
             : referralType === 'Employee'
                 ? employeeReference?.referralEntityId || undefined
                 : undefined;
-        const existingReferralDate = initialData?.referrers?.[0]?.referralDate || initialData?.referralDate || '';
+        // The editor owns the mediator's IDENTITY (type / name / entity). Its
+        // provenance — source sheet, reason, referral address and the suggested
+        // name it came from — belongs to the record and must survive the save.
+        // These used to be hard-coded to null/'' here, so every save silently
+        // detached the client from its referral sheet and lost the address.
+        const existingPrimaryReferrer = (Array.isArray(initialData?.referrers)
+            ? initialData.referrers[0]
+            : null) as Record<string, any> | null;
+        const existingReferralDate = existingPrimaryReferrer?.referralDate || initialData?.referralDate || '';
+        const inheritedReferralAddress = existingPrimaryReferrer?.referralAddressText
+            ?? existingPrimaryReferrer?.address
+            ?? initialData?.referralAddressText
+            ?? null;
         const resolvedPrimaryReferrer = referralType || resolvedReferrerName || resolvedReferralEntityId
             ? {
                 id: resolvedReferralEntityId != null ? String(resolvedReferralEntityId) : `${referralType || 'referrer'}:${resolvedReferrerName || ''}`,
                 type: referralType,
                 name: resolvedReferrerName || '',
                 channel: originChannel,
+                address: inheritedReferralAddress,
                 referrerType: referralType,
                 referrerName: resolvedReferrerName || '',
                 sourceChannel: originChannel,
                 referralEntityId: resolvedReferralEntityId ?? null,
                 referralDate: existingReferralDate,
-                referralReason: '',
-                referralSheetId: null,
+                referralReason: existingPrimaryReferrer?.referralReason ?? (initialData as any)?.referralReason ?? '',
+                referralSheetId: existingPrimaryReferrer?.referralSheetId ?? initialData?.referralSheetId ?? null,
+                referralAddressText: inheritedReferralAddress,
+                sourceCandidateId: existingPrimaryReferrer?.sourceCandidateId ?? null,
             }
             : null;
         // The editor changes the primary mediator only. Keep every additional
@@ -1400,7 +1429,7 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                 </label>
                                                 <Select<ReferralType>
                                                     value={referralType}
-                                                    onChange={setReferralType}
+                                                    onChange={handleReferralTypeChange}
                                                     disabled={fromCandidate}
                                                     ariaLabel="نوع الوسيط"
                                                     className="w-full"

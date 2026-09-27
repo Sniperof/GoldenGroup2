@@ -24,6 +24,7 @@ import {
   validateCandidateOwnershipDecision,
   type CandidateOwnershipDecision,
 } from '../services/candidateOwnershipService.js';
+import { buildReferrerFromCandidate } from '../services/candidateReferrer.js';
 import {
   getCanonicalContactNumber,
   normalizeContactsForWrite,
@@ -1462,22 +1463,11 @@ router.post('/:id/link-client', requirePermission('candidates.edit'), async (req
       });
     }
 
-    const newReferrer = {
-      id: candidate.referralType === 'Client' ? candidate.referralEntityId : null,
-      sourceCandidateId: candidate.id,
-      name: candidate.referralNameSnapshot,
-      type: candidate.referralType,
-      channel: candidate.referralOriginChannel,
-      address: candidate.addressText,
-      referrerType: candidate.referralType,
-      referralEntityId: candidate.referralEntityId,
-      referrerName: candidate.referralNameSnapshot,
-      sourceChannel: candidate.referralOriginChannel,
+    // Linking dates the relation the day it was formed; conversion keeps the
+    // candidate's historical date instead (see buildReferrerFromCandidate).
+    const newReferrer = buildReferrerFromCandidate(candidate, {
       referralDate: currentDateKey(),
-      referralReason: candidate.referralReason,
-      referralSheetId: candidate.referralSheetId,
-      referralAddressText: candidate.addressText,
-    };
+    });
 
     const sameBranchLink =
       candidate.branchId != null &&
@@ -1542,18 +1532,53 @@ router.post('/:id/link-client', requirePermission('candidates.edit'), async (req
       : [];
 
     await db.query(
-      `WITH next_referrers AS (
+      `WITH existing_referrers AS (
+          -- Most imported clients still carry their only mediator in the legacy
+          -- scalar columns with an empty referrers array. Appending to that
+          -- empty array made the NEW mediator element 0, and the flat columns
+          -- below were then rewritten from it — silently destroying the
+          -- historical mediator (clients.md §سلامة شبكة الوسطاء). Materialize
+          -- the legacy row first, exactly as mapClientRow does on read, so the
+          -- append lands after it.
           SELECT CASE
-                  WHEN EXISTS (
-                    SELECT 1
-                      FROM jsonb_array_elements(COALESCE(referrers, '[]'::jsonb)) AS existing_referrer
-                     WHERE existing_referrer->>'sourceCandidateId' = $2::text
-                  )
-                  THEN COALESCE(referrers, '[]'::jsonb)
-                  ELSE COALESCE(referrers, '[]'::jsonb) || $3::jsonb
+                  WHEN COALESCE(jsonb_array_length(referrers), 0) > 0
+                    THEN referrers
+                  WHEN referrer_name IS NOT NULL
+                    OR referrer_type IS NOT NULL
+                    OR referral_entity_id IS NOT NULL
+                    THEN jsonb_build_array(jsonb_build_object(
+                           'id',                  referral_entity_id,
+                           'sourceCandidateId',   NULL,
+                           'name',                referrer_name,
+                           'type',                referrer_type,
+                           'channel',             source_channel,
+                           'address',             referral_address_text,
+                           'referrerType',        referrer_type,
+                           'referrerId',          referrer_id,
+                           'referralEntityId',    referral_entity_id,
+                           'referrerName',        referrer_name,
+                           'sourceChannel',       source_channel,
+                           'referralDate',        referral_date,
+                           'referralReason',      referral_reason,
+                           'referralSheetId',     referral_sheet_id,
+                           'referralAddressText', referral_address_text
+                         ))
+                  ELSE '[]'::jsonb
                 END AS value
             FROM clients
            WHERE id = $1
+        ),
+        next_referrers AS (
+          SELECT CASE
+                  WHEN EXISTS (
+                    SELECT 1
+                      FROM jsonb_array_elements(existing_referrers.value) AS existing_referrer
+                     WHERE existing_referrer->>'sourceCandidateId' = $2::text
+                  )
+                  THEN existing_referrers.value
+                  ELSE existing_referrers.value || $3::jsonb
+                END AS value
+            FROM existing_referrers
         ),
         primary_referrer AS (
           SELECT

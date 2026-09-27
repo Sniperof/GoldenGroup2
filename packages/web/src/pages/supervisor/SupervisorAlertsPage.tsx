@@ -1,189 +1,116 @@
-// ============================================================
-// SupervisorAlertsPage.tsx — Supervisor/Branch-Manager alert hub
-// ============================================================
-// Aggregates the two operational alert streams introduced in Phases 5–7:
-//   - DEC-006 D37: open_tasks whose attempt_count crossed the threshold
-//   - DEC-006 D38: field_visits with escalation alerts pending
-// ============================================================
-
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, Activity, Clock3, RefreshCw } from '../../components/ui/icons';
 import AttemptAlertsCard from '../../components/supervisor/AttemptAlertsCard';
 import { api } from '../../lib/api';
+import { useAuthStore } from '../../hooks/useAuthStore';
+import { useBranchContextStore } from '../../hooks/useBranchContextStore';
 import Button from '../../components/ui/Button';
 import PageHeader from '../../components/ui/PageHeader';
 
-interface EscalationItem {
-  visitId: number;
-  status: string;
-  branchId: number;
-  clientId: number;
-  clientName: string | null;
-  teamResponsibleUserId: number | null;
-  hoursSinceUpdate: number;
-  tiersAlerted: number[];
-}
+type AlertResponse = Awaited<ReturnType<typeof api.fieldVisits.escalationAlerts>>;
+type VisitItem = AlertResponse['items'][number];
+type ScheduledItem = AlertResponse['scheduledItems'][number];
 
-interface ScheduledAlertItem {
-  visitId: number;
-  status: string;
-  branchId: number;
-  clientId: number;
-  clientName: string | null;
-  teamResponsibleUserId: number | null;
-  teamResponsibleName: string | null;
-  scheduledDate: string;
-  scheduledTime: string | null;
-  alertedAt: string;
-  hoursSinceAlert: number;
-}
-
-const TIER_META: Record<number, { label: string; color: string; bg: string }> = {
-  1: { label: 'L1 — تنبيه الفني', color: 'text-amber-800', bg: 'bg-amber-100' },
-  2: { label: 'L2 — قفل بدء + المشرف', color: 'text-orange-800', bg: 'bg-orange-100' },
-  3: { label: 'L3 — مدير الفرع', color: 'text-red-800', bg: 'bg-red-100' },
+const tierLabels: Record<number, string> = {
+  1: 'مرحلة 1 · متابعة الفنيين',
+  2: 'مرحلة 2 · متابعة المشرف',
+  3: 'مرحلة 3 · تصعيد لمدير الفرع',
 };
 
-export default function SupervisorAlertsPage() {
-  const [escalations, setEscalations] = useState<EscalationItem[]>([]);
-  const [scheduledAlerts, setScheduledAlerts] = useState<ScheduledAlertItem[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+function VisitTitle({ item, canOpen }: { item: { visitId: number; clientId: number; clientName: string | null }; canOpen: boolean }) {
+  const title = `${item.clientName || `زبون #${item.clientId}`} · زيارة #${item.visitId}`;
+  return canOpen
+    ? <Link to={`/field-visits/${item.visitId}`} className="font-semibold text-sky-800 hover:underline">{title}</Link>
+    : <span className="font-semibold text-slate-900">{title}</span>;
+}
 
-  async function loadEscalations() {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await api.fieldVisits.escalationAlerts();
-      setEscalations(res.items as unknown as EscalationItem[]);
-      setScheduledAlerts(res.scheduledItems ?? []);
-    } catch (e: any) {
-      setError(e?.message ?? 'فشل التحميل');
-    } finally {
-      setLoading(false);
-    }
-  }
+export default function SupervisorAlertsPage() {
+  const userId = useAuthStore(s => s.user?.id);
+  const branchId = useBranchContextStore(s => s.branchId);
+  const canOpenVisits = useAuthStore(s => s.hasPermission('field_visits.view'));
+  const canOpenOwnVisits = useAuthStore(s => s.hasPermission('field_visits.my_visits.view'));
+  const [escalations, setEscalations] = useState<VisitItem[]>([]);
+  const [scheduledAlerts, setScheduledAlerts] = useState<ScheduledItem[]>([]);
+  const [visibilityScope, setVisibilityScope] = useState<AlertResponse['visibilityScope'] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
-    void loadEscalations();
-  }, []);
+    let active = true;
+    setLoading(true);
+    setLoaded(false);
+    setVisibilityScope(null);
+    setError(null);
+    void api.fieldVisits.escalationAlerts().then(result => {
+      if (!active) return;
+      setEscalations(result.items);
+      setScheduledAlerts(result.scheduledItems);
+      setVisibilityScope(result.visibilityScope);
+      setLoaded(true);
+    }).catch((cause: Error) => {
+      if (!active) return;
+      setLoaded(false);
+      setVisibilityScope(null);
+      setError(cause.message || 'تعذر تحميل تنبيهات الزيارات');
+    }).finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [refreshKey, branchId]);
 
-  return (
-    <div className="max-w-6xl mx-auto p-6 space-y-6">
-      <PageHeader
-        title="لوحة تنبيهات المشرف"
-        subtitle="تتبع المهام عالية المحاولات والزيارات المعلقة أو بانتظار التوثيق."
-        icon={
-          <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center">
-            <AlertTriangle className="w-5 h-5" />
-          </div>
-        }
-        actions={
-          <Button
-            variant="secondary"
-            size="sm"
-            icon={RefreshCw}
-            onClick={() => void loadEscalations()}
-            loading={loading}
-          >
-            تحديث
-          </Button>
-        }
-      />
+  const myScheduled = scheduledAlerts.filter(item => item.responsibleUserId === userId);
+  const branchScheduled = scheduledAlerts.filter(item => item.responsibleUserId !== userId);
+  const urgentCount = escalations.filter(item => item.tiersAlerted.includes(3)).length;
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
-        {/* DEC-006 D37: attempt threshold alerts */}
-        <AttemptAlertsCard />
-
-        <div className="rounded-2xl border border-sky-200 bg-sky-50/60 p-4 space-y-3">
-          <div className="flex items-center gap-2">
-            <Clock3 className="w-4 h-4 text-sky-700" />
-            <h3 className="text-base font-bold text-sky-900">زيارات معلّقة قبل البدء</h3>
-          </div>
-          <p className="text-xs text-sky-800/80">
-            انتهت نافذة الموعد والزيارة ما زالت مجدولة. التنبيه موجّه لمسؤول الفريق: المشرف للفريق القياسي، والفني لفريق الطوارئ.
-          </p>
-
-          {scheduledAlerts.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-sky-300 bg-white/60 p-3 text-center text-xs text-sky-800">
-              لا توجد زيارات معلّقة قبل البدء.
-            </div>
-          ) : (
-            <div className="space-y-1.5 max-h-72 overflow-y-auto">
-              {scheduledAlerts.map((item) => (
-                <Link key={item.visitId} to={`/field-visits/${item.visitId}`}
-                  className="block rounded-lg bg-white border border-sky-200 p-2 hover:bg-sky-50/60">
-                  <div className="text-xs font-bold text-slate-800 truncate">
-                    {item.clientName || `زبون #${item.clientId}`}
-                  </div>
-                  <div className="text-xs text-slate-500">
-                    زيارة #{item.visitId} · {item.scheduledDate} · {item.scheduledTime || 'دون وقت محدد'}
-                  </div>
-                  <div className="mt-1 text-xs text-sky-700">
-                    المسؤول: {item.teamResponsibleName || 'غير معيّن'}
-                  </div>
-                </Link>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* DEC-006 D38: undocumented visit escalation */}
-        <div className="rounded-2xl border border-orange-200 bg-orange-50/60 p-4 space-y-3">
-          <div className="flex items-center gap-2">
-            <Activity className="w-4 h-4 text-orange-700" />
-            <h3 className="text-base font-bold text-orange-900">زيارات بانتظار التوثيق</h3>
-          </div>
-          <p className="text-xs text-orange-800/80">
-            زيارات في in_progress / ended تجاوزت عتبة الساعات. التصعيد ينطلق على ثلاث مراحل (24/48/72h) من إعدادات النظام.
-          </p>
-
-          {error && (
-            <div className="rounded-lg border border-red-200 bg-red-50 p-2 text-xs font-bold text-red-700">{error}</div>
-          )}
-
-          {escalations.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-orange-300 bg-white/60 p-3 text-center text-xs text-orange-800">
-              لا توجد زيارات بحاجة لتصعيد حالياً.
-            </div>
-          ) : (
-            <div className="space-y-1.5 max-h-72 overflow-y-auto">
-              {escalations.map((item) => (
-                <Link
-                  key={item.visitId}
-                  to={`/field-visits/${item.visitId}`}
-                  className="block rounded-lg bg-white border border-orange-200 p-2 hover:bg-orange-50/60"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="min-w-0 flex-1">
-                      <div className="text-xs font-bold text-slate-800 truncate">
-                        {item.clientName || `زبون #${item.clientId}`}
-                      </div>
-                      <div className="text-xs text-slate-500 truncate">
-                        زيارة #{item.visitId} · {item.status}
-                      </div>
-                      <div className="text-xs text-slate-400">
-                        منذ {Math.round(item.hoursSinceUpdate)} ساعة
-                      </div>
-                    </div>
-                    <div className="shrink-0 flex flex-col items-end gap-0.5">
-                      {item.tiersAlerted.map((tier) => (
-                        <span
-                          key={tier}
-                          className={`text-xs font-bold px-1.5 py-0.5 rounded ${TIER_META[tier].bg} ${TIER_META[tier].color}`}
-                        >
-                          {TIER_META[tier].label}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
+  return <div className="mx-auto max-w-6xl space-y-6 p-4 sm:p-6">
+    <PageHeader
+      title="تنبيهات المتابعة"
+      subtitle="متابعة الزيارات والمهام ضمن نطاق صلاحيتك. ظهور التنبيه لا يعني إرسال إشعار شخصي أو إغلاق المهمة تلقائياً."
+      icon={<div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-amber-100 text-amber-700"><AlertTriangle className="h-5 w-5" /></div>}
+      actions={<Button variant="secondary" size="sm" icon={RefreshCw} loading={loading} onClick={() => setRefreshKey(key => key + 1)}>تحديث الكل</Button>}
+    />
+    <div className="rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-950">
+      <p className="font-bold">كيف تقرأ هذه اللوحة؟</p>
+      <p className="mt-1">{visibilityScope === 'ASSIGNED'
+        ? 'نطاقك «السجلات المسندة»: تظهر هنا تنبيهات زياراتك ومهامك فقط، ولا تظهر سجلات المشرفات الأخريات في الفرع.'
+        : '«عليّ المتابعة» يعني أنك مسجّل مسؤولاً عن زيارة تجاوزت موعدها. «مراقبة الفرع» تعرض حالات بقية المسؤولين في الفرع، ولا تعني أنك المكلّف بتنفيذها.'}</p>
     </div>
-  );
+    {error && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">تعذر تحميل تنبيهات الزيارات: {error}. الأعداد أدناه غير متاحة الآن.</div>}
+    <div className="grid gap-3 sm:grid-cols-3">
+      <div className="rounded-xl border border-sky-200 bg-white p-4"><div className="text-sm text-slate-600">زيارات تجاوزت الموعد {visibilityScope === 'ASSIGNED' ? 'ضمن سجلاتي' : 'في الفرع'}</div><div className="mt-1 text-2xl font-bold text-sky-900">{loaded ? scheduledAlerts.length : '—'}</div></div>
+      <div className="rounded-xl border border-orange-200 bg-white p-4"><div className="text-sm text-slate-600">زيارات بانتظار التوثيق</div><div className="mt-1 text-2xl font-bold text-orange-900">{loaded ? escalations.length : '—'}</div></div>
+      <div className="rounded-xl border border-red-200 bg-white p-4"><div className="text-sm text-slate-600">وصلت إلى المرحلة الثالثة</div><div className="mt-1 text-2xl font-bold text-red-900">{loaded ? urgentCount : '—'}</div></div>
+    </div>
+    <section className="rounded-2xl border border-sky-200 bg-white p-4 sm:p-5" aria-labelledby="scheduled-heading">
+      <div className="flex items-center gap-2 text-sky-900"><Clock3 className="h-5 w-5" /><h2 id="scheduled-heading" className="text-lg font-bold">زيارات مجدولة لم تبدأ في موعدها</h2></div>
+      <p className="mt-1 text-sm text-slate-600">المسؤول المسجّل يتابع سبب التأخر وتحديث الزيارة. {visibilityScope === 'ASSIGNED' ? 'تُعرض سجلاتك فقط.' : 'بقية الحالات معروضة لمراقبة الفرع.'}</p>
+      {loading && !loaded && <p className="mt-4 text-sm text-slate-500">جارٍ تحميل الزيارات…</p>}
+      {loaded && scheduledAlerts.length === 0 && <p className="mt-4 rounded-lg bg-slate-50 p-4 text-sm text-slate-600">لا توجد زيارات متأخرة عن موعد البدء ضمن نطاقك.</p>}
+      {loaded && [
+        { label: 'عليّ المتابعة', items: myScheduled, tone: 'bg-sky-100 text-sky-900' },
+        { label: 'مراقبة الفرع', items: visibilityScope === 'ASSIGNED' ? [] : branchScheduled, tone: 'bg-slate-100 text-slate-700' },
+      ].map(group => group.items.length > 0 && <div key={group.label} className="mt-4 space-y-2">
+        <h3 className="text-sm font-bold text-slate-800">{group.label} ({group.items.length})</h3>
+        {group.items.map(item => <div key={item.visitId} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 p-3 text-sm">
+          <div><VisitTitle item={item} canOpen={canOpenVisits || (canOpenOwnVisits && item.responsibleUserId === userId)} /><p className="mt-1 text-slate-600">الموعد: {item.scheduledDate} {item.scheduledTime || 'دون ساعة محددة'} · المسؤول: {item.teamResponsibleName || 'غير معيّن'}</p></div>
+          <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${group.tone}`}>{group.label}</span>
+        </div>)}
+      </div>)}
+    </section>
+    <section className="rounded-2xl border border-orange-200 bg-white p-4 sm:p-5" aria-labelledby="documentation-heading">
+      <div className="flex items-center gap-2 text-orange-900"><Activity className="h-5 w-5" /><h2 id="documentation-heading" className="text-lg font-bold">زيارات بدأت وتنتظر التوثيق</h2></div>
+      <p className="mt-1 text-sm text-slate-600">المراحل تمثل سجل التصعيد داخل النظام: الفنيون، ثم المشرف، ثم مدير الفرع. لا يُغلق النظام الزيارة آلياً.</p>
+      {loading && !loaded && <p className="mt-4 text-sm text-slate-500">جارٍ تحميل الزيارات…</p>}
+      {loaded && escalations.length === 0 && <p className="mt-4 rounded-lg bg-slate-50 p-4 text-sm text-slate-600">لا توجد زيارات في مراحل التصعيد حالياً.</p>}
+      {loaded && escalations.length > 0 && <div className="mt-4 space-y-2">{escalations.map(item => {
+        const highestTier = Math.max(...item.tiersAlerted);
+        return <div key={item.visitId} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 p-3 text-sm">
+          <div><VisitTitle item={item} canOpen={canOpenVisits || (canOpenOwnVisits && item.teamResponsibleUserId === userId)} /><p className="mt-1 text-slate-600">{item.hoursSinceStart == null ? 'وقت البدء غير مسجل' : `بدأت منذ ${Math.max(0, Math.round(item.hoursSinceStart))} ساعة`} · الحالة: {item.status === 'ended' ? 'انتهت وتنتظر التوثيق' : 'قيد التنفيذ'}</p></div>
+          <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${highestTier === 3 ? 'bg-red-100 text-red-900' : 'bg-orange-100 text-orange-900'}`}>{tierLabels[highestTier] ?? `مرحلة ${highestTier}`}</span>
+        </div>;
+      })}</div>}
+    </section>
+    <AttemptAlertsCard refreshKey={refreshKey} />
+  </div>;
 }

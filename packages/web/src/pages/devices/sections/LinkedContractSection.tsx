@@ -32,7 +32,7 @@ function fmt(d?: string | null) {
 }
 
 export function LinkedContractSection({ contract }: Props) {
-  const { openPrintable, printLoading } = useContractPrintable(contract?.id);
+  const { openPrintable, printLoading, openAmendment, amendmentLoading } = useContractPrintable(contract?.id);
 
   if (!contract) {
     return (
@@ -59,6 +59,18 @@ export function LinkedContractSection({ contract }: Props) {
           >
             النسخة القانونية
           </Button>
+          {/* Settled trial — definitive terms live in the settlement amendment. */}
+          {contract.startedAsTemporary && contract.saleSubtype !== 'temporary' && contract.temporarySettledAt && (
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={FileText}
+              onClick={openAmendment}
+              loading={amendmentLoading}
+            >
+              ملحق تثبيت البيعة
+            </Button>
+          )}
           <Link
             to={`/contracts/${contract.id}`}
             className="inline-flex items-center gap-1 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold rounded-xl px-3 py-2"

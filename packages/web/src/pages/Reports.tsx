@@ -197,6 +197,47 @@ const EMPLOYMENT_STATUS_OPTIONS = [
   { value: 'inactive', label: 'خارج الخدمة' },
 ];
 
+const ACTIVATION_RECORD_OPTIONS = [
+  { value: 'all', label: 'كل الكفالات' },
+  { value: 'recorded', label: 'مسجَّل بمهمة عرض' },
+  { value: 'unrecorded', label: 'غير مسجَّل — تغطية من سجل الجهاز' },
+];
+
+const CONTRACT_SCOPE_OPTIONS = [
+  { value: 'all', label: 'داخلي وخارجي' },
+  { value: 'internal', label: 'داخلي' },
+  { value: 'external', label: 'خارجي' },
+];
+
+const CARD_DELIVERY_RESULT_OPTIONS = [
+  { value: 'all', label: 'كل نتائج تسليم الكرت' },
+  { value: 'delivered', label: 'سُلّم' },
+  { value: 'rescheduled', label: 'أُعيدت جدولته' },
+  { value: 'cancelled', label: 'أُلغي' },
+  { value: 'none', label: 'لم تُنفذ بعد' },
+];
+
+const TRIAL_OUTCOME_OPTIONS = [
+  { value: 'all', label: 'كل المصائر' },
+  { value: 'settled', label: 'تثبيت' },
+  { value: 'cancelled', label: 'إلغاء' },
+  { value: 'open', label: 'لم يُحسم' },
+  { value: 'discarded', label: 'مُهمَل' },
+];
+
+const TRIAL_GRACE_STATE_OPTIONS = [
+  { value: 'all', label: 'كل المهل' },
+  { value: 'within', label: 'ضمن المهلة' },
+  { value: 'elapsed', label: 'انقضت المهلة' },
+  { value: 'unknown', label: 'بلا مهلة محسوبة' },
+];
+
+const WARRANTY_PARTS_PRESENCE_OPTIONS = [
+  { value: 'all', label: 'الكل' },
+  { value: 'yes', label: 'بُدلت قطع ضمن المدة' },
+  { value: 'no', label: 'لا قطع مبدلة ضمن المدة' },
+];
+
 const TECHNICIAN_ACTIVITY_OPTIONS = [
   { value: 'all', label: 'كل الفنيين' },
   { value: 'with_work', label: 'له عمل منفذ في المدة' },
@@ -616,6 +657,12 @@ export default function Reports() {
         taskResult: selectedReport.filters.taskResult && specificFilters.taskResult && specificFilters.taskResult !== 'all' ? specificFilters.taskResult : undefined,
         cancellationReasonId: selectedReport.filters.cancellationReason && specificFilters.cancellationReasonId && specificFilters.cancellationReasonId !== 'all' ? Number(specificFilters.cancellationReasonId) : undefined,
         visitOrigin: selectedReport.filters.visitOrigin && specificFilters.visitOrigin && specificFilters.visitOrigin !== 'all' ? specificFilters.visitOrigin : undefined,
+        activationRecord: selectedReport.filters.activationRecord && specificFilters.activationRecord && specificFilters.activationRecord !== 'all' ? specificFilters.activationRecord : undefined,
+        contractScope: selectedReport.filters.contractScope && specificFilters.contractScope && specificFilters.contractScope !== 'all' ? specificFilters.contractScope : undefined,
+        cardDeliveryResult: selectedReport.filters.cardDeliveryResult && specificFilters.cardDeliveryResult && specificFilters.cardDeliveryResult !== 'all' ? specificFilters.cardDeliveryResult : undefined,
+        warrantyPartsPresence: selectedReport.filters.warrantyPartsPresence && specificFilters.warrantyPartsPresence && specificFilters.warrantyPartsPresence !== 'all' ? specificFilters.warrantyPartsPresence : undefined,
+        trialOutcome: selectedReport.filters.trialOutcome && specificFilters.trialOutcome && specificFilters.trialOutcome !== 'all' ? specificFilters.trialOutcome : undefined,
+        trialGraceState: selectedReport.filters.trialGraceState && specificFilters.trialGraceState && specificFilters.trialGraceState !== 'all' ? specificFilters.trialGraceState : undefined,
         giftDefinitionId: selectedReport.filters.giftDefinition && specificFilters.giftDefinitionId && specificFilters.giftDefinitionId !== 'all' ? Number(specificFilters.giftDefinitionId) : undefined,
         giftConditionStatus: selectedReport.filters.giftConditionStatus && specificFilters.giftConditionStatus !== 'all' ? specificFilters.giftConditionStatus : undefined,
         giftDeliveryResult: selectedReport.filters.giftDeliveryResult && specificFilters.giftDeliveryResult !== 'all' ? specificFilters.giftDeliveryResult : undefined,
@@ -710,6 +757,12 @@ export default function Reports() {
               {selectedReport.filters.collectionAppointmentPresence && <SelectFilter label="موعد التحصيل" value={specificFilters.collectionAppointmentPresence ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, collectionAppointmentPresence: value }))} options={COLLECTION_APPOINTMENT_PRESENCE_OPTIONS} />}
               {selectedReport.filters.taskResult && <SelectFilter label="نتيجة المهمة" value={specificFilters.taskResult ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, taskResult: value }))} options={[{ value: 'all', label: 'كل النتائج' }, ...filterOptions.taskResults]} />}
               {selectedReport.filters.cancellationReason && <SelectFilter label="سبب إلغاء الزيارة" value={specificFilters.cancellationReasonId ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, cancellationReasonId: value }))} options={[{ value: 'all', label: 'كل أسباب الإلغاء' }, ...filterOptions.cancellationReasons]} />}
+              {selectedReport.filters.trialOutcome && <SelectFilter label="نتيجة التجربة" value={specificFilters.trialOutcome ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, trialOutcome: value }))} options={TRIAL_OUTCOME_OPTIONS} />}
+              {selectedReport.filters.trialGraceState && <SelectFilter label="حالة مهلة التجربة" value={specificFilters.trialGraceState ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, trialGraceState: value }))} options={TRIAL_GRACE_STATE_OPTIONS} />}
+              {selectedReport.filters.activationRecord && <SelectFilter label="سجل التفعيل" value={specificFilters.activationRecord ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, activationRecord: value }))} options={ACTIVATION_RECORD_OPTIONS} />}
+              {selectedReport.filters.contractScope && <SelectFilter label="حالة العقد" value={specificFilters.contractScope ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, contractScope: value }))} options={CONTRACT_SCOPE_OPTIONS} />}
+              {selectedReport.filters.cardDeliveryResult && <SelectFilter label="نتيجة تسليم كرت الكفالة" value={specificFilters.cardDeliveryResult ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, cardDeliveryResult: value }))} options={CARD_DELIVERY_RESULT_OPTIONS} />}
+              {selectedReport.filters.warrantyPartsPresence && <SelectFilter label="القطع المبدلة ضمن المدة" value={specificFilters.warrantyPartsPresence ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, warrantyPartsPresence: value }))} options={WARRANTY_PARTS_PRESENCE_OPTIONS} />}
               {selectedReport.filters.visitOrigin && <SelectFilter label="مصدر الزيارة" value={specificFilters.visitOrigin ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, visitOrigin: value }))} options={VISIT_ORIGIN_OPTIONS} />}
               {selectedReport.filters.giftDefinition && <SelectFilter label="نوع الهدية" value={specificFilters.giftDefinitionId ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, giftDefinitionId: value }))} options={[{ value: 'all', label: 'كل أنواع الهدايا' }, ...filterOptions.giftDefinitions]} />}
               {selectedReport.filters.giftConditionStatus && <SelectFilter label="حالة الاستحقاق" value={specificFilters.giftConditionStatus ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, giftConditionStatus: value }))} options={GIFT_CONDITION_STATUS_OPTIONS} />}
@@ -722,7 +775,7 @@ export default function Reports() {
                 <FilterField label={`${range.label} — إلى`}><DateField value={dateRangeFilters[range.toKey] ?? ''} onChange={value => setDateRangeFilters(current => ({ ...current, [range.toKey]: value }))} min={dateRangeFilters[range.fromKey] || undefined} /></FilterField>
               </div>)}
               {selectedReport.filters.deviceModel && <SelectFilter label="نوع الجهاز" value={deviceModelFilter} onChange={setDeviceModelFilter} options={[{ value: 'all', label: 'كل أنواع الأجهزة' }, ...filterOptions.deviceModels]} />}
-              {selectedReport.filters.deviceStatus && <SelectFilter label="الحالة التشغيلية" value={deviceStatusFilter} onChange={setDeviceStatusFilter} options={[{ value: 'all', label: 'كل الحالات التشغيلية' }, ...filterOptions.deviceStatuses]} />}
+              {selectedReport.filters.deviceStatus && <SelectFilter label={selectedKey === 'service.golden_warranty' ? 'حالة صيانة الجهاز' : 'الحالة التشغيلية'} value={deviceStatusFilter} onChange={setDeviceStatusFilter} options={[{ value: 'all', label: selectedKey === 'service.golden_warranty' ? 'كل حالات الصيانة' : 'كل الحالات التشغيلية' }, ...filterOptions.deviceStatuses]} />}
               {selectedReport.filters.supervisor && <SelectFilter label={selectedKey === 'work_files.mediator_gifts' ? 'مشرفة التركيب' : 'المشرفة'} value={supervisorFilter} onChange={setSupervisorFilter} options={[{ value: 'all', label: selectedKey === 'work_files.mediator_gifts' ? 'كل مشرفات التركيب' : 'كل المشرفات' }, ...filterOptions.supervisors]} />}
               {selectedReport.filters.technician && <SelectFilter label={selectedKey === 'work_files.mediator_gifts' ? 'فني التركيب' : 'الفني'} value={technicianFilter} onChange={setTechnicianFilter} options={[{ value: 'all', label: selectedKey === 'work_files.mediator_gifts' ? 'كل فنيي التركيب' : 'كل الفنيين' }, ...filterOptions.technicians]} />}
               {selectedReport.filters.telemarketer && <SelectFilter label="التلماركتر" value={telemarketerFilter} onChange={setTelemarketerFilter} options={[{ value: 'all', label: 'كل موظفي التلماركتر' }, ...filterOptions.telemarketers]} />}

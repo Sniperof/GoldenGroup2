@@ -25,6 +25,8 @@ import { buildServiceDuesQuery, getServiceDuesFilterOptions } from './serviceDue
 import { buildDeviceFaultsQuery, getDeviceFaultsFilterOptions } from './deviceFaultsReport.js';
 import { buildRetrievedDevicesQuery, getRetrievedDevicesFilterOptions } from './retrievedDevicesReport.js';
 import { buildMediatorGiftsQuery, getMediatorGiftsFilterOptions } from './mediatorGiftsReport.js';
+import { buildGoldenWarrantyQuery, getGoldenWarrantyFilterOptions } from './goldenWarrantyReport.js';
+import { buildTemporaryContractQuery, getTemporaryContractFilterOptions } from './temporaryContractReport.js';
 import { completeTabularReportFilterOptions } from './tabularReportFilterOptions.js';
 import { normalizeTabularReportSort } from './tabularReportSorting.js';
 
@@ -203,6 +205,12 @@ export async function getTabularReportFilterOptions(
   if (reportKey === 'service.retrieved_devices') {
     return completeTabularReportFilterOptions(await getRetrievedDevicesFilterOptions(access));
   }
+  if (reportKey === 'service.golden_warranty') {
+    return completeTabularReportFilterOptions(await getGoldenWarrantyFilterOptions(access));
+  }
+  if (reportKey === 'daily_work.temporary_contract') {
+    return completeTabularReportFilterOptions(await getTemporaryContractFilterOptions(access));
+  }
   return completeTabularReportFilterOptions(null);
 }
 
@@ -375,6 +383,18 @@ export function normalizedFilters(params: TabularReportRequestParams): TabularRe
     taskResult: typeof params.taskResult === 'string' ? params.taskResult : null,
     cancellationReasonId: positiveInt(params.cancellationReasonId),
     visitOrigin: typeof params.visitOrigin === 'string' ? params.visitOrigin : null,
+    activationRecord: typeof params.activationRecord === 'string' ? params.activationRecord : null,
+    contractScope: typeof params.contractScope === 'string' ? params.contractScope : null,
+    cardDeliveryResult: typeof params.cardDeliveryResult === 'string' ? params.cardDeliveryResult : null,
+    warrantyPartsPresence: typeof params.warrantyPartsPresence === 'string' ? params.warrantyPartsPresence : null,
+    warrantyStartFrom: typeof params.warrantyStartFrom === 'string' ? params.warrantyStartFrom : null,
+    warrantyStartTo: typeof params.warrantyStartTo === 'string' ? params.warrantyStartTo : null,
+    warrantyEndFrom: typeof params.warrantyEndFrom === 'string' ? params.warrantyEndFrom : null,
+    warrantyEndTo: typeof params.warrantyEndTo === 'string' ? params.warrantyEndTo : null,
+    trialOutcome: typeof params.trialOutcome === 'string' ? params.trialOutcome : null,
+    trialGraceState: typeof params.trialGraceState === 'string' ? params.trialGraceState : null,
+    closingAppointmentFrom: typeof params.closingAppointmentFrom === 'string' ? params.closingAppointmentFrom : null,
+    closingAppointmentTo: typeof params.closingAppointmentTo === 'string' ? params.closingAppointmentTo : null,
   };
 }
 
@@ -444,6 +464,8 @@ export function buildReportQuery(reportKey: string, access: ReturnType<typeof re
   if (reportKey === 'service.dues') return buildServiceDuesQuery(access, params, options);
   if (reportKey === 'service.device_faults') return buildDeviceFaultsQuery(access, params, options);
   if (reportKey === 'service.retrieved_devices') return buildRetrievedDevicesQuery(access, params, options);
+  if (reportKey === 'service.golden_warranty') return buildGoldenWarrantyQuery(access, params, options);
+  if (reportKey === 'daily_work.temporary_contract') return buildTemporaryContractQuery(access, params, options);
   if (reportKey === 'performance.sales_by_type') return buildSalesByTypeQuery(access, params, options);
   if (reportKey === 'performance.department_results') return buildDepartmentResultsQuery(access, params, options);
   if (reportKey === 'performance.sales_count') return buildSalesCountQuery(access, params, options);

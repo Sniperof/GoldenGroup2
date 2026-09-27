@@ -1561,7 +1561,7 @@ export default function EmployeeFormModal({
   const progressPct = Math.round((completedUpTo / STEPS.length) * 100);
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/55 backdrop-blur-sm" dir="rtl">
+    <div className="fixed inset-0 z-50 bg-slate-950/55 gg-modal-backdrop-in" dir="rtl">
       <div className="flex h-full items-center justify-center p-4">
         <div className="flex h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-[32px] border border-slate-200 bg-slate-50 shadow-2xl">
           {/* Header */}

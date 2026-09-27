@@ -1248,7 +1248,6 @@ export default function CandidatesEntry() {
                         setActiveCandidateForQualify(null);
                     } catch (err: any) {
                         console.error('Failed to link restricted Lead:', err);
-                        setErrorModal(err?.message ?? 'فشل ربط زبون Lead ضمن الفرع');
                         throw err;
                     }
                 }}

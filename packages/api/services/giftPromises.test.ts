@@ -48,6 +48,48 @@ test('resolver never falls back to the first contract referrer when selection is
   );
 });
 
+test('an id-less sheet referrer referenced as "null" resolves to the sale\'s sole mediator', () => {
+  // Contract 1047355: Personal mediator from a referral sheet has id/referrerId
+  // null, and the form persisted the promise's referrerId as the text "null".
+  const contract = {
+    customer_id: 10,
+    contract_referrers: [
+      { id: null, referrerType: 'Personal', referrerId: null, referrerName: 'رنيم خميس' },
+    ],
+  };
+  for (const referrerId of ['null', null, '', 'undefined']) {
+    assert.deepEqual(
+      resolveDraftGiftBeneficiary(contract, { beneficiaryKind: 'personal_referrer', referrerId }),
+      {
+        beneficiaryType: 'personal_referrer',
+        beneficiaryClientId: null,
+        beneficiaryEmployeeId: null,
+        beneficiaryName: 'رنيم خميس',
+      },
+    );
+  }
+});
+
+test('an empty mediator reference is rejected when the sale has no mediator or a different kind', () => {
+  assert.throws(
+    () => resolveDraftGiftBeneficiary(
+      { customer_id: 1, contract_referrers: [] },
+      { beneficiaryKind: 'personal_referrer', referrerId: 'null' },
+    ),
+    /لا يوجد وسيط بيعة على هذا العقد/,
+  );
+  assert.throws(
+    () => resolveDraftGiftBeneficiary(
+      {
+        customer_id: 1,
+        contract_referrers: [{ id: null, referrerType: 'Personal', referrerId: null, referrerName: 'شخصي' }],
+      },
+      { beneficiaryKind: 'employee_referrer', referrerId: null },
+    ),
+    /غير محدد/,
+  );
+});
+
 test('employee and personal contract referrers keep distinct beneficiary identities', () => {
   const contract = {
     customer_id: 1,

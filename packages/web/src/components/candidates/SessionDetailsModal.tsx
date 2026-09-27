@@ -359,7 +359,6 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
                         setActiveCandidateForQualify(null);
                     } catch (err: any) {
                         console.error('Failed to link restricted Lead:', err);
-                        setOperationError(err?.message ?? 'فشل ربط زبون Lead ضمن الفرع');
                         throw err;
                     }
                 }}

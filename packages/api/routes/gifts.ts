@@ -2,7 +2,7 @@ import { Router } from 'express';
 import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { getOrBuildAuthContext, requirePermission } from '../middleware/permission.js';
-import { canAccessGift, getGiftListAccessPlan } from '../policies/giftPolicy.js';
+import { canAccessGift, getGiftListAccessPlan, giftContractLinkSql } from '../policies/giftPolicy.js';
 import { canEditCandidate } from '../policies/candidatePolicy.js';
 import { canEditReferralSheet } from '../policies/referralSheetPolicy.js';
 import {
@@ -187,7 +187,7 @@ function mapDefinition(row: any) {
   };
 }
 
-async function loadRecordSubject(recordId: number, currentUserId: number) {
+async function loadRecordSubject(recordId: number, currentUserId: number, currentEmployeeId: number | null) {
   const { rows } = await pool.query(
     `SELECT
         gr.id,
@@ -200,17 +200,18 @@ async function loadRecordSubject(recordId: number, currentUserId: number) {
           FROM client_assignments ca
           WHERE ca.client_id = gr.beneficiary_client_id
             AND ca.hr_user_id = $2
-        ) AS "beneficiaryAssignedToCurrentUser"
+        ) AS "beneficiaryAssignedToCurrentUser",
+        ${giftContractLinkSql('$2', '$3')} AS "contractLinkedToCurrentUser"
        FROM gift_records gr
       WHERE gr.id = $1`,
-    [recordId, currentUserId],
+    [recordId, currentUserId, currentEmployeeId],
   );
   return rows[0] ?? null;
 }
 
 async function requireGiftAccess(req: any, res: any, recordId: number, permission: string) {
   const authContext = await getOrBuildAuthContext(req);
-  const subject = await loadRecordSubject(recordId, authContext.userId);
+  const subject = await loadRecordSubject(recordId, authContext.userId, req.user?.employeeId ?? null);
   if (!subject) {
     res.status(404).json({ error: 'سجل الهدية غير موجود' });
     return null;
@@ -555,6 +556,7 @@ router.get('/records', requirePermission('contract_gifts.view'), async (req, res
       (gr.source_branch_id = ANY($${branchParam}::int[]) OR gr.responsible_branch_id = ANY($${branchParam}::int[]))
       AND (
         gr.assigned_user_id = $${userParam}
+        OR ${giftContractLinkSql(`$${userParam}`, `$${employeeParam}`)}
         OR EXISTS (
           SELECT 1 FROM client_assignments ca
           WHERE ca.client_id = gr.beneficiary_client_id
@@ -874,7 +876,7 @@ async function createDeliveryTaskForGiftRecords(req: any, res: any, ids: number[
 
   const authContext = await getOrBuildAuthContext(req);
   for (const id of ids) {
-    const subject = await loadRecordSubject(id, authContext.userId);
+    const subject = await loadRecordSubject(id, authContext.userId, req.user?.employeeId ?? null);
     if (!subject) return res.status(404).json({ error: `سجل الهدية ${id} غير موجود` });
     if (!canAccessGift(authContext, 'contract_gifts.create_delivery_task', subject, req.user?.employeeId ?? null)) {
       return res.status(403).json({ error: 'غير مسموح إنشاء مهمة تسليم لهذه الهدية' });
@@ -910,6 +912,7 @@ async function createDeliveryTaskForGiftRecords(req: any, res: any, ids: number[
                  WHERE ca.client_id = gr.beneficiary_client_id
                    AND ca.hr_user_id = $2
               ) AS "beneficiaryAssignedToCurrentUser",
+              ${giftContractLinkSql('$2', '$3')} AS "contractLinkedToCurrentUser",
               EXISTS (
                 SELECT 1
                   FROM gift_delivery_task_records active_link
@@ -922,7 +925,7 @@ async function createDeliveryTaskForGiftRecords(req: any, res: any, ids: number[
         WHERE gr.id = ANY($1::int[])
         ORDER BY gr.id
         FOR UPDATE OF gr`,
-      [ids, authContext.userId],
+      [ids, authContext.userId, req.user?.employeeId ?? null],
     );
     if (lockedRows.length !== ids.length) {
       throw new GiftDeliveryTaskCreationError(

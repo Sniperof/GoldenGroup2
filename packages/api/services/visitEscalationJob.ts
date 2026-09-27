@@ -13,7 +13,7 @@
 // Implementation:
 //   - Ticks every 15 minutes.
 //   - For each tier, finds visits in (in_progress OR ended) whose
-//     status_changed_at (proxy: updated_at) is older than the configured hour
+//     recorded actual start time is older than the configured hour
 //     count AND that haven't been flagged at this tier yet.
 //   - Records the alert in visit_escalation_alerts (created on first run).
 //   - Logs to console; pluggable notifier deferred to Phase 8 frontend.
@@ -94,13 +94,14 @@ interface TierContext {
 }
 
 async function runTier({ tier, hours, recipientLabel }: TierContext): Promise<number> {
-  // Visits in non-terminal undocumented states whose updated_at is older than `hours`
-  // and haven't been alerted at this tier yet.
+  // Editing/ending a visit updates field_visits.updated_at; the escalation clock
+  // must remain anchored to the actual start event. Each tier is recorded once.
   const { rows: candidates } = await pool.query<{ id: number; status: string; branch_id: number }>(
     `SELECT fv.id, fv.status, fv.branch_id
        FROM field_visits fv
+       JOIN visit_geo_logs vgl ON vgl.visit_id = fv.id
       WHERE fv.status IN ('in_progress', 'ended')
-        AND fv.updated_at <= NOW() - ($1 || ' hours')::INTERVAL
+        AND vgl.actual_start_time <= NOW() - ($1 || ' hours')::INTERVAL
         AND NOT EXISTS (
           SELECT 1 FROM visit_escalation_alerts vea
            WHERE vea.visit_id = fv.id AND vea.tier = $2
@@ -196,23 +197,26 @@ export function stopVisitEscalationJob(): void {
  * Test whether a given technician currently has any L2-or-higher undocumented
  * visit. Used by POST /field-visits/:id/start to block new visits.
  *
- * "Their" visits = visits whose team_responsible_user_id matches OR whose
- * team_snapshot.technicianEmployeeId resolves to this hr_user via hr_users.employee_id.
+ * "Their" visits = visits where this user's employee is the assigned technician.
+ * team_responsible_user_id is the supervisor on standard teams and cannot be
+ * used as a technician identity.
  */
 export async function hasBlockingUndocumentedVisit(hrUserId: number): Promise<{
   blocked: boolean;
   visitId?: number;
-  hoursSinceUpdate?: number;
+  hoursSinceStart?: number;
 }> {
   const l2Hours = await getSystemSettingNumber('visit_undocumented_alert_hours_l2', 48);
   const { rows } = await pool.query(
     `SELECT fv.id,
-            EXTRACT(EPOCH FROM (NOW() - fv.updated_at)) / 3600 AS hours
+            EXTRACT(EPOCH FROM (NOW() - vgl.actual_start_time)) / 3600 AS hours
        FROM field_visits fv
+       JOIN visit_geo_logs vgl ON vgl.visit_id = fv.id
+       JOIN hr_users actor ON actor.id = $2 AND actor.is_active = TRUE
       WHERE fv.status IN ('in_progress', 'ended')
-        AND fv.updated_at <= NOW() - ($1 || ' hours')::INTERVAL
-        AND fv.team_responsible_user_id = $2
-      ORDER BY fv.updated_at ASC
+        AND vgl.actual_start_time <= NOW() - ($1 || ' hours')::INTERVAL
+        AND COALESCE(fv.reassigned_technician_id, NULLIF(fv.team_snapshot->>'technicianEmployeeId', '')::int) = actor.employee_id
+      ORDER BY vgl.actual_start_time ASC
       LIMIT 1`,
     [String(l2Hours), hrUserId],
   );
@@ -220,6 +224,6 @@ export async function hasBlockingUndocumentedVisit(hrUserId: number): Promise<{
   return {
     blocked: true,
     visitId: Number(rows[0].id),
-    hoursSinceUpdate: Math.round(Number(rows[0].hours)),
+    hoursSinceStart: Math.round(Number(rows[0].hours)),
   };
 }

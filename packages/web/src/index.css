@@ -426,6 +426,35 @@ a.shadow-lg {
 }
 
 /* ============================================================
+   Modal enter animation — pure CSS on purpose.
+   The JS-driven (framer-motion) enter fade was interrupted whenever the
+   main thread stalled mid-animation (first render, data responses
+   landing), dropping the dialog to opacity 0 for a frame and snapping
+   back = the "flash" on open, worst on mobile CPUs. CSS keyframes run on
+   the compositor and don't depend on JS. framer still handles the exit.
+   ============================================================ */
+@keyframes gg-modal-backdrop-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+@keyframes gg-modal-panel-in {
+    from { opacity: 0; transform: scale(0.96); }
+    to   { opacity: 1; transform: scale(1); }
+}
+.gg-modal-backdrop-in {
+    animation: gg-modal-backdrop-in 150ms ease-out backwards;
+}
+.gg-modal-panel-in {
+    animation: gg-modal-panel-in 150ms ease-out backwards;
+}
+@media (prefers-reduced-motion: reduce) {
+    .gg-modal-backdrop-in,
+    .gg-modal-panel-in {
+        animation: none;
+    }
+}
+
+/* ============================================================
    Custom scrollbar — brand-tinted
    ============================================================ */
 .custom-scroll::-webkit-scrollbar {

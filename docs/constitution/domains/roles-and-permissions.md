@@ -211,7 +211,8 @@
 | **telemarketing.calls.create** | — | — | BRANCH | — | BRANCH | — |
 | **telemarketing.appointments.create** | — | — | BRANCH | — | BRANCH | — |
 | **telemarketing.targets.view** | GLOBAL | BRANCH | BRANCH | — | BRANCH | — |
-| **telemarketing.lists.view** | GLOBAL | BRANCH | BRANCH | — | BRANCH | — |
+| **telemarketing.lists.view** | GLOBAL | BRANCH | — | — | BRANCH | — |
+| **telemarketing.lists.view_device_demo** | GLOBAL | BRANCH | ASSIGNED | — | — | — |
 | **field_visits.view** | GLOBAL | BRANCH | BRANCH | BRANCH | — | — |
 | **field_visits.edit** | — | BRANCH | BRANCH | BRANCH | — | — |
 | **branches.view** | GLOBAL | BRANCH | BRANCH | — | — | — |

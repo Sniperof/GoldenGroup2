@@ -3,13 +3,13 @@
 //
 // The single, app-wide overlay pattern, distilled from the ~30 hand-rolled
 // modals across the app:
-//   • Backdrop  — slate-900/40 + backdrop blur, click-to-close (opt-out).
+//   • Backdrop  — slate-900/40 scrim, click-to-close (opt-out).
 //   • Container — white, brand 2xl radius, soft shadow, max-h 90vh.
 //   • Header    — optional title + circular ✕ close (IconButton).
 //   • Body      — scrolls when content exceeds the viewport.
 //   • Footer    — optional slot, right-aligned actions.
 //   • ESC closes (opt-out); background scroll locked while open.
-//   • Framer-motion fade/scale enter+exit.
+//   • CSS-keyframe fade/scale enter; framer-motion exit.
 //
 // Usage:
 //   <Modal isOpen={open} onClose={close} title="تعيين موظف" size="sm">
@@ -94,22 +94,28 @@ export default function Modal({
   return (
     <AnimatePresence>
       {isOpen && (
+        // Enter = CSS keyframes (.gg-modal-*-in, index.css), not framer:
+        // a JS-driven fade broke and flashed whenever the main thread stalled
+        // mid-open. initial={false} leaves framer only the exit animation.
+        // No backdrop-blur: a full-screen blur under a 40% scrim is barely
+        // visible but costly to composite on mobile.
         <motion.div
-          initial={{ opacity: 0 }}
+          initial={false}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm"
+          transition={{ duration: 0.15 }}
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 gg-modal-backdrop-in"
           onClick={closeOnBackdrop ? (e) => { if (e.target === e.currentTarget) onClose(); } : undefined}
         >
           <motion.div
             role="dialog"
             aria-modal="true"
-            initial={{ opacity: 0, scale: 0.96 }}
+            initial={false}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.96 }}
             transition={{ duration: 0.15 }}
             className={[
-              'bg-white rounded-2xl shadow-xl w-full flex flex-col max-h-[90vh] overflow-hidden',
+              'bg-white rounded-2xl shadow-xl w-full flex flex-col max-h-[90vh] overflow-hidden gg-modal-panel-in',
               SIZE_CLASSES[size],
               className,
             ].filter(Boolean).join(' ')}

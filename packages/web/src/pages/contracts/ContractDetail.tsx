@@ -249,7 +249,7 @@ export default function ContractDetail() {
     issues: string[];
     detail?: string;
   } | null>(null);
-  const { openPrintable, printLoading } = useContractPrintable(data?.id ?? Number(id));
+  const { openPrintable, printLoading, openAmendment, amendmentLoading } = useContractPrintable(data?.id ?? Number(id));
   const hasInstalledDevice = Boolean(data?.hasInstalledDevice || Number(data?.installedDeviceId) > 0);
   const isDraftDevicePlan = data?.status === 'draft' && !hasInstalledDevice;
 
@@ -332,6 +332,24 @@ export default function ContractDetail() {
   //   • 400 with `issues[]` → field-level validation failures
   //   • 500 with `detail`   → unexpected runtime/server error
   const parseApprovalError = (err: any, title: string): NonNullable<typeof approvalError> => {
+    // request() keeps only `error` in err.message and the full JSON body on
+    // err.payload — read the body first so `issues`/`detail` aren't lost.
+    const payload = err?.payload;
+    if (payload && typeof payload === 'object') {
+      if (Array.isArray(payload.issues) && payload.issues.length > 0) {
+        return {
+          title,
+          intro: payload.error || 'لا يمكن اعتماد العقد — البيانات المطلوبة غير مكتملة',
+          issues: payload.issues,
+        };
+      }
+      return {
+        title,
+        intro: payload.error || payload.message || title,
+        issues: [],
+        detail: payload.detail,
+      };
+    }
     const raw = String(err?.message || err || '');
     const jsonStart = raw.indexOf('{');
     if (jsonStart >= 0) {
@@ -604,6 +622,20 @@ export default function ContractDetail() {
             >
               النسخة القانونية
             </Button>
+            {/* Settled trial: the original stays the trial agreement; the
+                definitive terms + financial section live in the amendment. */}
+            {data.startedAsTemporary && data.saleSubtype !== 'temporary' && data.temporarySettledAt && (
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={FileText}
+                onClick={openAmendment}
+                loading={amendmentLoading}
+                className="rounded-lg"
+              >
+                ملحق تثبيت البيعة
+              </Button>
+            )}
             {data.status === 'active' && data.saleSubtype !== 'temporary' && canApproveDraft && (
               <Button
                 variant="secondary"
@@ -714,6 +746,17 @@ export default function ContractDetail() {
               {data.temporarySettledAt ? ` بتاريخ ${String(data.temporarySettledAt).slice(0, 10)}` : ''}.
               البنود المالية في ملحق تثبيت البيعة المرفق بالنسخة القانونية.
             </p>
+            {data.temporarySettledAt && (
+              <button
+                type="button"
+                onClick={openAmendment}
+                disabled={amendmentLoading}
+                className="mt-2 inline-flex items-center gap-1.5 text-xs font-bold text-emerald-800 underline underline-offset-2 hover:text-emerald-900 disabled:opacity-60"
+              >
+                <FileText className="w-3.5 h-3.5" aria-hidden="true" />
+                {amendmentLoading ? 'جارٍ فتح الملحق…' : 'عرض ملحق تثبيت البيعة'}
+              </button>
+            )}
           </div>
         </div>
       )}

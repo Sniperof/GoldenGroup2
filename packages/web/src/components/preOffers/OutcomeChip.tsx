@@ -9,6 +9,7 @@
 
 import { Link } from 'react-router-dom';
 import { Check, Clock, X, Minus, AlertTriangle } from '../ui/icons';
+import { taskDecisionLabel } from '../../lib/taskDecisionLabels';
 
 export type PreOfferOutcomeState =
   | 'not_presented_yet'
@@ -94,7 +95,7 @@ export function OutcomeChip({
 
   // rejected → tooltip with the closing reason or final_decision code.
   const tooltip = state === 'rejected'
-    ? (noClosingReason || finalDecisionCode || 'لم يُسجّل سبب')
+    ? (noClosingReason || (finalDecisionCode ? taskDecisionLabel(finalDecisionCode, 'device_demo') : null) || 'لم يُسجّل سبب')
     : undefined;
 
   return (

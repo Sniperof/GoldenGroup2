@@ -1006,7 +1006,16 @@ function assertRetrievalShape(
 
   // trial_return: إرجاع جهاز تجربة لم تُحسم. على خلاف السحب للصيانة أو
   // التبديل (رحلة ذهاب وعودة)، هذا خروج نهائي من علاقة الزبون ويُنهي العقد.
-  const purpose = body.retrieval_purpose ?? openTask.retrieval_purpose;
+  // trial_return is fixed by the task (created by the trial-cancellation flow)
+  // and never taken from the result body: the web form only knew maintenance/
+  // replacement and sent 'maintenance', so a completed trial return left the
+  // contract active and parked the device in the workshop. Conversely a body
+  // can't turn an ordinary retrieval into a trial return (that ends the contract).
+  const taskIsTrialReturn = openTask.retrieval_purpose === 'trial_return';
+  if (!taskIsTrialReturn && body.retrieval_purpose === 'trial_return') {
+    throw new ResultValidationError('غرض «إرجاع جهاز تجربة» يحدده نوع المهمة ولا يُختار عند تسجيل النتيجة');
+  }
+  const purpose = taskIsTrialReturn ? 'trial_return' : (body.retrieval_purpose ?? openTask.retrieval_purpose);
   if (purpose !== 'maintenance' && purpose !== 'replacement' && purpose !== 'trial_return') {
     throw new ResultValidationError('غرض السحب مطلوب ويجب أن يكون maintenance أو replacement أو trial_return');
   }

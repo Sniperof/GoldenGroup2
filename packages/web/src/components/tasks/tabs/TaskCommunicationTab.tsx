@@ -8,6 +8,7 @@ import {
 import { OPEN_TASK_STATUS_LABELS, type OpenTaskStatus, getOutcomeMeta } from '@golden-crm/shared';
 import { Card, EmptyState, TabAlert, formatDateTime } from '../shared';
 import Button from '../../ui/Button';
+import { taskDecisionLabel } from '../../../lib/taskDecisionLabels';
 
 // سياق المهمة — labels for the execution-attempt chain
 const VISIT_STATUS_LABELS: Record<string, { label: string; cls: string }> = {
@@ -19,17 +20,6 @@ const VISIT_STATUS_LABELS: Record<string, { label: string; cls: string }> = {
   cancelled:     { label: 'ملغاة',          cls: 'bg-slate-100 text-slate-500' },
   closed:        { label: 'مُقفلة',         cls: 'bg-slate-200 text-slate-700' },
 };
-const FINAL_DECISION_LABELS: Record<string, string> = {
-  offer_presented: 'تقديم عرض',
-  device_sold:     'بيع جهاز',
-  rescheduled:     'إعادة جدولة',
-  cancelled:       'إلغاء',
-  // emergency_maintenance lifecycle outcomes
-  resolved:        'تَم الإصلاح',
-  unresolved:      'لم يُحَلّ بالكامل',
-  needs_follow_up: 'بحاجة مُتابعة',
-};
-
 const CALL_TYPE_LABELS: Record<string, string> = {
   inbound: 'واردة', outbound: 'صادرة', follow_up: 'متابعة', missed: 'فائتة',
 };
@@ -109,7 +99,7 @@ export default function TaskCommunicationTab({ calls, activity, attempts = [], o
             {attempts.map((at: any, idx: number) => {
               const vs = VISIT_STATUS_LABELS[at.visitStatus] ?? { label: at.visitStatus, cls: 'bg-slate-100 text-slate-600' };
               const decision = at.finalDecision
-                ? (FINAL_DECISION_LABELS[at.finalDecision] ?? at.finalDecision)
+                ? taskDecisionLabel(at.finalDecision, at.taskType)
                 : null;
               return (
                 <Link

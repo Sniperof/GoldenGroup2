@@ -7,9 +7,10 @@
 //                  system_settings.attempt_alert_threshold (default 5).
 // ============================================================
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Phone, RefreshCw } from '../ui/icons';
 import { api } from '../../lib/api';
+import { useBranchContextStore } from '../../hooks/useBranchContextStore';
 import Button from '../ui/Button';
 
 interface AlertItem {
@@ -29,38 +30,48 @@ function formatDateTime(value: string | null): string {
   return d.toLocaleString('ar-IQ', { hour12: false, dateStyle: 'short', timeStyle: 'short' });
 }
 
-export default function AttemptAlertsCard() {
+export default function AttemptAlertsCard({ refreshKey }: { refreshKey: number }) {
+  const branchId = useBranchContextStore(s => s.branchId);
   const [threshold, setThreshold] = useState<number>(5);
+  const [visibilityScope, setVisibilityScope] = useState<'GLOBAL' | 'BRANCH' | 'ASSIGNED' | null>(null);
   const [items, setItems] = useState<AlertItem[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const requestId = useRef(0);
 
   async function load() {
+    const currentRequest = ++requestId.current;
     setLoading(true);
+    setLoaded(false);
+    setVisibilityScope(null);
     setError(null);
     try {
       const res = await api.openTasks.attemptAlerts();
+      if (currentRequest !== requestId.current) return;
       setThreshold(res.threshold);
-      setItems(res.items as unknown as AlertItem[]);
+      setVisibilityScope(res.visibilityScope);
+      setItems(res.items);
+      setLoaded(true);
     } catch (e: any) {
+      if (currentRequest !== requestId.current) return;
       setError(e?.message ?? 'فشل التحميل');
     } finally {
-      setLoading(false);
+      if (currentRequest === requestId.current) setLoading(false);
     }
   }
 
   useEffect(() => {
     void load();
-  }, []);
+    return () => { requestId.current += 1; };
+  }, [refreshKey, branchId]);
 
   return (
-    <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4 space-y-3">
+    <section className="rounded-2xl border border-amber-200 bg-white p-4 sm:p-5 space-y-3" aria-labelledby="attempt-heading">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <AlertTriangle className="w-4 h-4 text-amber-700" />
-          <h3 className="text-base font-bold text-amber-900">
-            تنبيه المحاولات (≥ {threshold})
-          </h3>
+          <h2 id="attempt-heading" className="text-lg font-bold text-amber-900">مهام بلغت عتبة المحاولات (≥ {threshold})</h2>
         </div>
         <Button
           variant="secondary"
@@ -74,8 +85,7 @@ export default function AttemptAlertsCard() {
       </div>
 
       <p className="text-xs text-amber-800/80">
-        قائمة المهام التي تجاوزت عتبة المحاولات. تنبيه إعلامي فقط — لا إغلاق قسري
-        (DEC-006 D37). العتبة قابلة للضبط من إعدادات النظام.
+        {visibilityScope === 'ASSIGNED' ? 'مهام زبائنك أو فريق زياراتك المسندة فقط.' : 'مهام الفرع للمراقبة.'} راجع حالة التواصل وحدد الخطوة التالية. التنبيه لا يغلق المهمة أو يمنع محاولة جديدة.
       </p>
 
       {error && (
@@ -84,11 +94,12 @@ export default function AttemptAlertsCard() {
         </div>
       )}
 
-      {items.length === 0 ? (
+      {loading && !loaded && <p className="text-sm text-slate-500">جارٍ تحميل المهام…</p>}
+      {loaded && items.length === 0 ? (
         <div className="rounded-lg border border-dashed border-amber-300 bg-white/60 p-3 text-center text-xs text-amber-800">
-          لا توجد مهام فوق العتبة حالياً.
+          لا توجد مهام فوق العتبة ضمن نطاقك حالياً.
         </div>
-      ) : (
+      ) : loaded ? (
         <div className="space-y-1.5 max-h-72 overflow-y-auto">
           {items.map((item) => (
             <div
@@ -112,7 +123,7 @@ export default function AttemptAlertsCard() {
             </div>
           ))}
         </div>
-      )}
-    </div>
+      ) : null}
+    </section>
   );
 }

@@ -10,7 +10,7 @@ type RetrievalDecision =
   | 'reschedule'
   | 'customer_refused_retrieval';
 
-type RetrievalPurpose = 'maintenance' | 'replacement';
+type SelectablePurpose = 'maintenance' | 'replacement';
 
 const DECISION_CARDS: Array<{ value: RetrievalDecision; title: string; desc: string; Icon: any; cls: string }> = [
   { value: 'retrieved_successfully', title: 'تم السحب', desc: 'تم سحب الجهاز إلى فرع الخدمة', Icon: CheckCircle2, cls: 'border-emerald-200 bg-emerald-50 text-emerald-700' },
@@ -35,9 +35,13 @@ export default function DeviceRetrievalResultModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const initialPurpose = (task?.retrievalPurpose ?? task?.retrieval_purpose) === 'replacement' ? 'replacement' : 'maintenance';
+  const taskPurpose = task?.retrievalPurpose ?? task?.retrieval_purpose;
+  // A trial return is fixed by the task (the server enforces it too) — it ends
+  // the trial contract, so it's shown read-only, never swapped for maintenance.
+  const isTrialReturn = taskPurpose === 'trial_return';
+  const initialPurpose: SelectablePurpose = taskPurpose === 'replacement' ? 'replacement' : 'maintenance';
   const [decision, setDecision] = useState<RetrievalDecision>('retrieved_successfully');
-  const [purpose, setPurpose] = useState<RetrievalPurpose>(initialPurpose);
+  const [purpose, setPurpose] = useState<SelectablePurpose>(initialPurpose);
   const [customerAcknowledged, setCustomerAcknowledged] = useState(true);
   const [technicalNotes, setTechnicalNotes] = useState('');
   const [expectedDate, setExpectedDate] = useState('');
@@ -93,7 +97,7 @@ export default function DeviceRetrievalResultModal({
     try {
       await api.fieldVisits.recordTaskResult(visitId, taskId, {
         final_decision: decision,
-        retrieval_purpose: purpose,
+        retrieval_purpose: isTrialReturn ? 'trial_return' : purpose,
         service_branch_id: task?.serviceBranchId ?? task?.service_branch_id ?? null,
         refusal_reason_id: decision === 'customer_refused_retrieval' ? Number(refusalReasonId) : null,
         reschedule_reason_id: decision === 'reschedule' ? Number(rescheduleReasonId) : null,
@@ -156,19 +160,29 @@ export default function DeviceRetrievalResultModal({
             })}
           </div>
 
-          <label className="block space-y-1.5">
-            <span className="text-xs font-bold text-slate-500">مسار السحب</span>
-            <Select<RetrievalPurpose>
-              value={purpose}
-              onChange={setPurpose}
-              ariaLabel="مسار السحب"
-              className="w-full"
-              options={[
-                { value: 'maintenance', label: 'للصيانة داخل فرع الشركة' },
-                { value: 'replacement', label: 'للتبديل بجهاز آخر' },
-              ]}
-            />
-          </label>
+          {isTrialReturn ? (
+            <div className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-3">
+              <div className="text-xs font-bold text-violet-500">مسار السحب</div>
+              <div className="mt-1 text-sm font-black text-violet-900">إرجاع جهاز تجربة لم تُثبَّت بيعته</div>
+              <p className="mt-1 text-xs text-violet-700">
+                عند تسجيل «تم السحب» يُلغى عقد التجربة ويعود الجهاز إلى فرع الخدمة.
+              </p>
+            </div>
+          ) : (
+            <label className="block space-y-1.5">
+              <span className="text-xs font-bold text-slate-500">مسار السحب</span>
+              <Select<SelectablePurpose>
+                value={purpose}
+                onChange={setPurpose}
+                ariaLabel="مسار السحب"
+                className="w-full"
+                options={[
+                  { value: 'maintenance', label: 'للصيانة داخل فرع الشركة' },
+                  { value: 'replacement', label: 'للتبديل بجهاز آخر' },
+                ]}
+              />
+            </label>
+          )}
 
           {decision === 'reschedule' && (
             <div className="grid gap-3 rounded-lg border border-amber-200 bg-amber-50/60 p-4 md:grid-cols-3">

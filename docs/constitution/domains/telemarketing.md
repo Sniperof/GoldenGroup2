@@ -397,13 +397,21 @@ cooldown يحجب الزبون من كل contact_targets بغض النظر عن 
 
 | المسار التشغيلي (Route Path) | المفتاح الفعلي المطلوب | النطاق المسموح (Scope) | الوصف والشرح بالعربية |
 |---|---|---|---|
-| `GET /api/telemarketing/snapshot`| `telemarketing.lists.view` | BRANCH / GLOBAL | عرض لقطة كشف الاتصال الحالي للفريق |
+| `GET /api/telemarketing/snapshot`| `telemarketing.lists.view` أو `telemarketing.lists.view_device_demo` | ASSIGNED / BRANCH / GLOBAL | العرض العام يُظهر كل جهات اتصال الفريق، بينما العرض المقيّد يُظهر فقط الجهة التي تحتوي على مهمة `device_demo` مع إبقاء جميع مهام تلك الجهة ظاهرة |
 | `POST /task-lists/upsert` | `telemarketing.lists.generate`| BRANCH / GLOBAL | إنشاء أو تحديث كشوف الاتصالات يدوياً |
 | `POST /task-lists/generate-from-plan`| `telemarketing.lists.generate`| BRANCH / GLOBAL | توليد بنود الكشوف بناء على الخطط |
 | `POST /api/telemarketing/call-logs`| `telemarketing.calls.create` | BRANCH / GLOBAL | تسجيل مكالمة هاتفية وتحديث المحصلة |
 | `POST /api/telemarketing/appointments`| `telemarketing.appointments.book`| BRANCH / GLOBAL | حجز موعد وتأكيد الزيارات الميدانية |
 | `GET /api/telemarketing/service-task-devices`| `telemarketing.calls.create` | ASSIGNED / BRANCH / GLOBAL | lookup تشغيلي محدود يعرض أجهزة الزبون في الفرع وأهلية كل جهاز لنوع المهمة المطلوب |
 | `POST /api/telemarketing/service-tasks`| `telemarketing.calls.create` | ASSIGNED / BRANCH / GLOBAL | تحويل طلب العميل إلى مهمة بعد تفويض سجل العميل وفرعه والتحقق من رابط الجهاز عند الحاجة |
+
+### 6.1 فصل عرض جهات الاتصال بين المشرفة والتيلماركتر
+
+- `telemarketing.lists.view` صلاحية العرض العام لكل جهات الاتصال الواقعة ضمن الفرع والفريق المسموحين.
+- `telemarketing.lists.view_device_demo` بديل مقيّد، وليس منحة إضافية؛ لا تظهر به جهة الاتصال إلا إذا احتوت على مهمة عرض جهاز واحدة على الأقل.
+- عند تأهل الجهة بواسطة مهمة عرض جهاز، تظهر كل مهام الجهة معاً حفاظاً على حبيبة الزبون، ولا تُقتطع مهمة عرض الجهاز وحدها.
+- baseline المعتمد: مشرفة خدمة الزبائن تملك الصلاحية المقيّدة بنطاق `ASSIGNED` فقط، والتيلماركتر تملك الصلاحية العامة بنطاق `BRANCH` فقط.
+- إذا اجتمعت الصلاحيتان استثنائياً لدور إداري، تتقدم الصلاحية العامة. لا يجوز جمعهما في الدورين التشغيليين السابقين.
 
 > **قيد سلامة DEF-004:** يسمح طلب الخدمة الهاتفي بالأنواع
 > `device_demo`, `golden_warranty_offer`, `emergency_maintenance`, و`periodic_maintenance` فقط.

@@ -9,6 +9,7 @@ import {
 import { toCallInstant } from '../lib/callDateTime';
 import { api } from '../lib/api';
 import { getOpenTaskDetailPath } from '../lib/taskRoutes';
+import { legacyVisitOutcomeLabel } from '../lib/taskDecisionLabels';
 import IconButton from '../components/ui/IconButton';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import { useClientStore } from '../hooks/useClientStore';
@@ -37,7 +38,7 @@ import Modal from '../components/ui/Modal';
 import Badge from '../components/ui/Badge';
 import DataTable from '../components/ui/DataTable';
 import DatePicker from '../components/ui/DatePicker';
-import type { DaySchedule, Contract, Visit, TaskListItem, Appointment, CustomerOwnership, ContactEntry, Client, Candidate } from '../lib/types';
+import type { Contract, Visit, TaskListItem, Appointment, CustomerOwnership, ContactEntry, Client, Candidate } from '../lib/types';
 import type { TelemarketingOutcomeCode, GeoUnit } from '@golden-crm/shared';
 import { OUTCOME_MAP, getOutcomeMeta, normaliseOutcomeCode, PHONE_STATUS_TO_CONTACT_ENTRY } from '@golden-crm/shared';
 import { buildGeoHierarchyLabel } from '../utils/addressUtils';
@@ -275,7 +276,7 @@ export default function TelemarketerWorkspace() {
     // name and details whenever the records page had not been opened first.
     const [candidates, setCandidates] = useState<Candidate[]>([]);
     const { clients, loadClients, updateClient } = useClientStore();
-    const { taskLists, appointments, callLogs, loadData, addCallLog, addAppointment, addDirectAppointment, updateTaskListItemStatus, getTaskList, getAppointmentsForTeamDate } = useTelemarketingStore();
+    const { taskLists, appointments, callLogs, availableTeams, loadData, addCallLog, addAppointment, addDirectAppointment, updateTaskListItemStatus, getTaskList, getAppointmentsForTeamDate } = useTelemarketingStore();
     const canBook = useAuthStore(state => state.hasPermission('telemarketing.appointments.book'));
     const authUser = useAuthStore(state => state.user);
     const { items: rejectionReasons } = useSystemList('telemarketing_rejection_reason');
@@ -291,7 +292,6 @@ export default function TelemarketerWorkspace() {
     const [visits, setVisits] = useState<Visit[]>([]);
     const [maintenanceRequests, setMaintenanceRequests] = useState<any[]>([]);
     const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
-    const [currentSchedule, setCurrentSchedule] = useState<DaySchedule>({ teams: [], solos: [] });
     // React to the external branch switcher (no full reload — §4).
     const branchId = useBranchContextStore(s => s.branchId);
     const [date, setDate] = useState(getPlanningDate());
@@ -348,30 +348,6 @@ export default function TelemarketerWorkspace() {
             document.removeEventListener('visibilitychange', refreshSnapshot);
         };
     }, [loadData, date, appointmentDate, branchId]);
-
-    useEffect(() => {
-        setCurrentSchedule({ teams: [], solos: [] });
-        api.schedules.get(appointmentDate)
-            .then(data => setCurrentSchedule(data || { teams: [], solos: [] }))
-            .catch(() => setCurrentSchedule({ teams: [], solos: [] }));
-    }, [appointmentDate, branchId]);
-
-    const availableTeams = useMemo(() => {
-        const teams: { key: string; label: string; type: 'team' | 'solo'; count: number }[] = [];
-        currentSchedule.teams.forEach((t, idx) => {
-            // Foreign-branch slots arrive redacted to `{ locked: true }` (GAP-DS-005) —
-            // skip them, keep idx so team_key stays aligned with route_assignments.
-            if ((t as any)?.locked === true) return;
-            const fallbackLabel = t.supervisorName ? `فريق ${t.supervisorName}` : `فريق #${idx + 1}`;
-            teams.push({ key: t.teamKey || `team_${idx}`, label: t.teamLabel || fallbackLabel, type: 'team', count: (t.telemarketers || []).length });
-        });
-        currentSchedule.solos.forEach((s, idx) => {
-            if ((s as any)?.locked === true) return;   // foreign-branch solo slot — skip, keep idx
-            const fallbackLabel = s.technicianName ? `طوارئ: ${s.technicianName}` : `فريق طوارئ #${idx + 1}`;
-            teams.push({ key: s.teamKey || `solo_${idx}`, label: s.teamLabel || fallbackLabel, type: 'solo', count: 1 });
-        });
-        return teams;
-    }, [currentSchedule]);
 
     const [selectedTeamKey, setSelectedTeamKey] = useState<string>('');
     const [selectedCustomerKey, setSelectedCustomerKey] = useState<string | null>(null);
@@ -1436,7 +1412,7 @@ export default function TelemarketerWorkspace() {
 
         visits.filter(v => v.customerId === selectedCustomer.entityId).forEach(v => {
             events.push({ id: 'visit_' + v.id, date: v.date, type: 'visit', icon: Calendar, color: 'text-sky-600', bg: 'bg-sky-100',
-                content: <><p className="text-sm font-bold text-slate-800">زيارة {v.outcome === 'Completed' ? 'ناجحة' : `بالحالة: ${v.outcome}`}</p><p className="text-xs text-slate-600 mt-1">بواسطة الفني: {v.employeeName}</p>{v.notes && <p className="text-xs text-slate-500 mt-1 border border-slate-200 bg-slate-50 p-1.5 rounded">ملاحظات: {v.notes}</p>}</> });
+                content: <><p className="text-sm font-bold text-slate-800">زيارة {legacyVisitOutcomeLabel(v.outcome)}</p><p className="text-xs text-slate-600 mt-1">بواسطة الفني: {v.employeeName}</p>{v.notes && <p className="text-xs text-slate-500 mt-1 border border-slate-200 bg-slate-50 p-1.5 rounded">ملاحظات: {v.notes}</p>}</> });
         });
 
         const taskCalls = callLogs.filter(log => log.entityId === selectedCustomer.entityId && log.entityType === selectedCustomer.entityType)

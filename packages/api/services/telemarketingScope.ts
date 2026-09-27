@@ -157,10 +157,13 @@ export async function getTeamTelemarketerAccessEmployeeIds(
  * Access rules (TM-4A):
  * - SYSTEM_ADMIN or GLOBAL scope: always allowed.
  * - ADMIN or BRANCH_MANAGER role (system role): allowed within their acting branch.
- * - Employees with employees.role = 'telemarketer': allowed ONLY if their
- *   employee id is in team.telemarketers[] for the task list's date/teamKey.
- * - All other roles (CUSTOMER_SERVICE_SUPERVISOR, TECHNICIAN, SUPERVISOR, etc.):
- *   denied by default.
+ * - A team supervisor is allowed for their own team.
+ * - A telemarketing member is allowed when their employee id is present in
+ *   team.telemarketers[] (or in the explicit empty-team fallback pool).
+ *
+ * Operational membership is the subject boundary. It must not depend on the
+ * denormalized employees.role label: permission + branch + team membership are
+ * already the complete authorization inputs.
  */
 export async function canAccessTaskList(
   authContext: { userId: number; roleId: number | null; isSuperAdmin: boolean; actingBranchId: number | null; grants: any[] },
@@ -188,13 +191,9 @@ export async function canAccessTaskList(
     return true;
   }
 
-  // Check employee operational role for telemarketer team membership
+  // Resolve the subject identity used by the saved schedule.
   const employeeId = await getCurrentEmployeeId(authContext.userId);
-  const employeeRole = await getCurrentEmployeeRole(authContext.userId);
-
-  if (employeeId == null || employeeRole == null) {
-    return false;
-  }
+  if (employeeId == null) return false;
 
   const schedule = await loadDaySchedule(taskList.date);
   if (!schedule) return false;
@@ -202,21 +201,13 @@ export async function canAccessTaskList(
   const team = getTeamFromSchedule(taskList.date, schedule, taskList.teamKey);
   if (!team) return false;
 
-  // Telemarketer: must be part of the team, or part of the branch-wide
-  // fallback pool when the team has no assigned telemarketers.
-  if (employeeRole === 'telemarketer') {
-    const accessIds = await getTeamTelemarketerAccessEmployeeIds(team, taskList.branchId);
-    return accessIds.includes(employeeId);
-  }
-
   // Team supervisor: always allowed for their own team.
-  if (employeeRole === 'supervisor') {
-    return isEmployeeSupervisorInTeam(employeeId, team);
-  }
+  if (isEmployeeSupervisorInTeam(employeeId, team)) return true;
 
-  // All other roles: denied by default
-  // This includes CUSTOMER_SERVICE_SUPERVISOR, TECHNICIAN, SUPERVISOR, etc.
-  return false;
+  // Telemarketer: must be explicitly part of the team, or part of the branch
+  // fallback pool only when the team has no assigned telemarketers.
+  const accessIds = await getTeamTelemarketerAccessEmployeeIds(team, taskList.branchId);
+  return accessIds.includes(employeeId);
 }
 
 /**

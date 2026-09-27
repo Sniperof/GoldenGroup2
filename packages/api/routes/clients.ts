@@ -24,6 +24,11 @@ import {
 } from '../policies/clientPolicy.js';
 import { canEditCandidate } from '../policies/candidatePolicy.js';
 import {
+  buildReferrerFromCandidate,
+  stripBrowserReferralInput,
+  type CandidateReferrerEntry,
+} from '../services/candidateReferrer.js';
+import {
   getCanonicalContactNumber,
   normalizeContactsForWrite,
   normalizePhone as normalizeContactPhone,
@@ -1917,6 +1922,8 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
 
     const incoming: Array<{
       id: number | null;
+      entityId: number | null;
+      entityKind: 'client' | 'employee' | null;
       name: string;
       sourceCandidateId: number | null;
       candidateName: string | null;
@@ -2017,12 +2024,26 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
         }) ?? null;
       };
 
+      // A mediator's entity id only means something together with its type: a
+      // `Client` id addresses `clients`, an `Employee` id addresses `employees`,
+      // and `Personal`/`Unknown` mediators have no record to open at all.
+      // Treating every id as a client id sent the "عرض" link to an unrelated
+      // client record and read a stranger's phone number.
+      const referrerEntityKinds: Record<string, 'client' | 'employee'> = {
+        client: 'client',
+        employee: 'employee',
+      };
+
       for (const ref of referrerList) {
-        const rawReferrerClientId = ref.referralEntityId ?? ref.id ?? null;
-        const referrerClientId = Number(rawReferrerClientId);
-        const linkedClientId = Number.isInteger(referrerClientId) && referrerClientId > 0
-          ? referrerClientId
+        const referrerType = ref.type ?? ref.referrerType ?? 'unknown';
+        const entityKind = referrerEntityKinds[normalizeMatchText(referrerType)] ?? null;
+        const rawReferrerEntityId = Number(ref.referralEntityId ?? ref.id ?? null);
+        const linkedEntityId = entityKind !== null
+          && Number.isInteger(rawReferrerEntityId)
+          && rawReferrerEntityId > 0
+          ? rawReferrerEntityId
           : null;
+        const linkedClientId = entityKind === 'client' ? linkedEntityId : null;
         const sourceCandidateIdValue = Number(ref.sourceCandidateId);
         const sourceCandidateId = Number.isInteger(sourceCandidateIdValue) && sourceCandidateIdValue > 0
           ? sourceCandidateIdValue
@@ -2037,6 +2058,9 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
           ?? ref.address
           ?? ref.referralAddressText
           ?? (ref.__legacy ? incomingRow.address : null);
+        // Client mediators only. An employee's phone is staff data and this
+        // view never renders the column anyway, so it is not worth widening
+        // what the client network endpoint discloses.
         let mobile = null;
         if (linkedClientId != null) {
           const { rows: mobileRows } = await pool.query(
@@ -2047,6 +2071,8 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
         }
         incoming.push({
           id: linkedClientId,
+          entityId: linkedEntityId,
+          entityKind,
           name: ref.name ?? ref.referrerName ?? ref.referralName ?? '',
           sourceCandidateId: Number.isInteger(resolvedSourceCandidateId) && resolvedSourceCandidateId > 0
             ? resolvedSourceCandidateId
@@ -2237,6 +2263,7 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
     const hasSourceCandidate = Number.isInteger(sourceCandidateId) && sourceCandidateId > 0;
     let sourceCandidateAssignees: number[] | null = null;
     let sourceCandidateOccupation: string | null = null;
+    let sourceCandidateReferrer: CandidateReferrerEntry | null = null;
     if (hasSourceCandidate) {
       if (Array.isArray(req.body?.assignmentUserIds)) {
         return res.status(400).json({
@@ -2245,8 +2272,17 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
         });
       }
       const { rows: sourceRows } = await db.query(
-        `SELECT c.branch_id AS "branchId",
+        `SELECT c.id,
+                c.branch_id AS "branchId",
                 c.occupation,
+                c.referral_type AS "referralType",
+                c.referral_origin_channel AS "referralOriginChannel",
+                c.referral_name_snapshot AS "referralNameSnapshot",
+                c.referral_entity_id AS "referralEntityId",
+                c.referral_date AS "referralDate",
+                c.referral_reason AS "referralReason",
+                c.referral_sheet_id AS "referralSheetId",
+                c.address_text AS "addressText",
                 COALESCE(
                   (SELECT array_agg(ca.hr_user_id ORDER BY ca.assigned_at, ca.id)
                      FROM candidate_assignments ca
@@ -2280,6 +2316,12 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
         (sourceCandidate.assignedUserIds as any[]).map(Number),
       );
       sourceCandidateOccupation = sourceCandidate.occupation ?? null;
+      // BR-5: the suggested name is the server-side source of truth for the
+      // mediator. A missing historical referral date stays unknown — defaulting
+      // it to today would falsify acquisition reports.
+      sourceCandidateReferrer = buildReferrerFromCandidate(sourceCandidate, {
+        referralDate: sourceCandidate.referralDate ?? null,
+      });
     }
 
     const assignmentAccess = canManageClientAssignments(authContext, targetBranchId);
@@ -2314,10 +2356,16 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
     // candidate conversion, however, a missing historical referral date must
     // remain unknown; defaulting it to today would falsify acquisition reports.
     const defaultReferralDate = hasSourceCandidate ? null : currentDateKey();
-    const c = reconcileClientReferrers(enforcePersonalReferrer(
-      normalizeClientPayload(req.body ?? {}),
-      { id: authContext.userId, name: req.user?.name || '' },
-    ), { defaultReferralDate });
+    const rawPayload = normalizeClientPayload(req.body ?? {});
+    // During conversion the mediator is derived from the suggested name on the
+    // server (BR-5). The browser's referral fields are dropped rather than
+    // reconciled: ClientModal rebuilds them from form state, which replaced a
+    // real mediator with the literal 'مجهول' for `Unknown` types and nulled the
+    // sheet link, the referral address and the source-name stamp.
+    const referrerPayload = hasSourceCandidate
+      ? { ...stripBrowserReferralInput(rawPayload), referrers: [sourceCandidateReferrer!] }
+      : enforcePersonalReferrer(rawPayload, { id: authContext.userId, name: req.user?.name || '' });
+    const c = reconcileClientReferrers(referrerPayload, { defaultReferralDate });
     c.occupation = await resolveReferenceValueForWrite(db, 'occupation', c.occupation, {
       currentValue: sourceCandidateOccupation,
     });

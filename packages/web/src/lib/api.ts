@@ -381,6 +381,12 @@ export interface ReportCatalogItem {
     taskResult?: boolean;
     cancellationReason?: boolean;
     visitOrigin?: boolean;
+    activationRecord?: boolean;
+    contractScope?: boolean;
+    cardDeliveryResult?: boolean;
+    warrantyPartsPresence?: boolean;
+    trialOutcome?: boolean;
+    trialGraceState?: boolean;
   };
   guide: {
     framingTitle: string;
@@ -1346,11 +1352,15 @@ export const api = {
     // DEC-CT-14/15: fetch the legal printable HTML with the auth header
     // attached. Returns the raw HTML; callers turn it into a Blob URL so
     // it can be opened in a new tab without exposing the JWT.
-    getPrintableHtml: async (contractId: number): Promise<string> => {
-      const res = await authFetch(`${API_BASE}/contracts/${contractId}/printable`);
+    // document='amendment' → the frozen settlement amendment of a settled trial.
+    getPrintableHtml: async (contractId: number, document: 'original' | 'amendment' = 'original'): Promise<string> => {
+      const query = document === 'amendment' ? '?document=amendment' : '';
+      const res = await authFetch(`${API_BASE}/contracts/${contractId}/printable${query}`);
       if (!res.ok) {
         const text = await res.text().catch(() => '');
-        throw new Error(`فشل تحميل النسخة القانونية (${res.status}): ${text}`);
+        let message = text;
+        try { message = JSON.parse(text)?.error || text; } catch { /* keep raw text */ }
+        throw new Error(`فشل تحميل ${document === 'amendment' ? 'ملحق تثبيت البيعة' : 'النسخة القانونية'} (${res.status}): ${message}`);
       }
       return res.text();
     },
@@ -1529,6 +1539,7 @@ export const api = {
     ),
     /** DEC-006 D37: open tasks whose attempt_count crossed system_settings.attempt_alert_threshold. */
     attemptAlerts: () => request<{
+      visibilityScope: 'GLOBAL' | 'BRANCH' | 'ASSIGNED';
       threshold: number;
       count: number;
       items: Array<{
@@ -1722,8 +1733,14 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ date, teamKey }),
       }),
-    marketingTargets: (date: string, teamKey: string, mode: 'planning' | 'assigned' = 'planning') => {
+    marketingTargets: (
+      date: string,
+      teamKey: string,
+      mode: 'planning' | 'assigned' = 'planning',
+      options?: { countsOnly?: boolean },
+    ) => {
       const query = new URLSearchParams({ date, teamKey, mode });
+      if (options?.countsOnly) query.set('countsOnly', 'true');
       return request<any>(`/planning/marketing-targets?${query.toString()}`);
     },
   },
@@ -1842,6 +1859,21 @@ export const api = {
         { method: 'DELETE' },
       ),
     /** DEC-011: create a field-initiated instant visit (starts in_progress now). */
+    instantVisitOptions: (search = '', signal?: AbortSignal) => {
+      const qs = new URLSearchParams();
+      if (search.trim()) qs.set('search', search.trim());
+      const suffix = qs.size > 0 ? `?${qs.toString()}` : '';
+      return request<{
+        available: true;
+        teamKey: string;
+        clients: Array<{
+          id: number;
+          name: string | null;
+          mobile: string | null;
+          detailedAddress: string | null;
+        }>;
+      }>(`/field-visits/instant/options${suffix}`, { signal });
+    },
     createInstant: (data: {
       clientId: number;
       lat?: number | null;
@@ -1912,6 +1944,7 @@ export const api = {
       ),
     /** DEC-006 D38: visits with active escalation alerts (scoped to caller's branch). */
     escalationAlerts: () => request<{
+      visibilityScope: 'GLOBAL' | 'BRANCH' | 'ASSIGNED';
       count: number;
       items: Array<{
         visitId: number;
@@ -1920,7 +1953,7 @@ export const api = {
         clientId: number;
         clientName: string | null;
         teamResponsibleUserId: number | null;
-        hoursSinceUpdate: number;
+        hoursSinceStart: number | null;
         tiersAlerted: number[];
       }>;
       scheduledCount: number;
@@ -1932,6 +1965,7 @@ export const api = {
         clientName: string | null;
         teamResponsibleUserId: number | null;
         teamResponsibleName: string | null;
+        responsibleUserId: number | null;
         scheduledDate: string;
         scheduledTime: string | null;
         alertedAt: string;
@@ -2039,7 +2073,12 @@ export const api = {
   telemarketing: {
     snapshot: (date?: string) => {
       const qs = date ? `?date=${encodeURIComponent(date)}` : '';
-      return request<{ taskLists: any[]; appointments: any[]; callLogs: any[] }>(`/telemarketing/snapshot${qs}`);
+      return request<{
+        taskLists: any[];
+        appointments: any[];
+        callLogs: any[];
+        availableTeams: Array<{ key: string; label: string; type: 'team' | 'solo'; count: number }>;
+      }>(`/telemarketing/snapshot${qs}`);
     },
     // DEC-009 لبنة 8 — the blind DELETE+re-INSERT upsert path was removed; the live
     // flow uses generateTaskListFromPlan (idempotent merge that preserves call progress).

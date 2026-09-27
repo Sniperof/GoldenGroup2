@@ -13,6 +13,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { requirePermission, getOrBuildAuthContext } from '../middleware/permission.js';
 import { authorize, resolveListAccessScope } from '../services/authorizationService.js';
 import { canViewOpenTask, canEditOpenTask, getOpenTaskListAccessPlan } from '../policies/openTaskPolicy.js';
+import { supervisorAlertAccessPlan } from '../policies/supervisorAlertPolicy.js';
 import { bookVisit, BookingError } from '../services/visitBooking.js';
 import {
   buildCustomerOwnershipSelectColumns,
@@ -3110,19 +3111,21 @@ router.get('/attempt-alerts', requirePermission('tasks.supervisor_alerts.view'),
     const { getSystemSettingNumber } = await import('../services/systemSettings.js');
     const threshold = await getSystemSettingNumber('attempt_alert_threshold', 5);
 
-    const plan = resolveListAccessScope(authContext, 'tasks.supervisor_alerts.view');
-    if (plan.scope === 'NONE') {
-      return res.status(403).json({ error: 'ليس لديك صلاحية عرض المهام' });
-    }
-    const params: any[] = [threshold];
-    let branchClause = '';
-    if (plan.scope !== 'GLOBAL') {
-      if (plan.allowedBranchIds.length === 0) {
-        return res.json([]);
-      }
-      params.push(plan.allowedBranchIds);
-      branchClause = `AND ot.branch_id = ANY($${params.length}::int[])`;
-    }
+    const access = supervisorAlertAccessPlan(authContext);
+    if (access == null) return res.status(403).json({ error: 'ليس لديك نطاق صالح لعرض تنبيهات هذا الفرع' });
+    const params = [threshold, access.branchId];
+    const branchClause = 'AND ot.branch_id = $2';
+    const assignedClause = access.scope === 'ASSIGNED'
+      ? `AND (${personalOwnershipPredicate('ot.client_id', '$3')}
+          OR EXISTS (
+            SELECT 1 FROM visit_tasks vt
+            JOIN field_visits fv ON fv.id = vt.field_visit_id
+            WHERE vt.source_open_task_id = ot.id
+              AND fv.status IN ('scheduled', 'in_progress', 'ended')
+              AND fv.team_responsible_user_id = $3
+          ))`
+      : '';
+    if (access.scope === 'ASSIGNED') params.push(access.userId);
 
     const { rows } = await pool.query(
       `SELECT ot.id                  AS "openTaskId",
@@ -3142,11 +3145,13 @@ router.get('/attempt-alerts', requirePermission('tasks.supervisor_alerts.view'),
         WHERE ot.attempt_count >= $1
           AND ot.status NOT IN ('completed', 'closed', 'cancelled')
           ${branchClause}
+          ${assignedClause}
         ORDER BY ot.attempt_count DESC, ot.last_attempt_at DESC NULLS LAST
         LIMIT 200`,
       params,
     );
     return res.json({
+      visibilityScope: access.scope,
       threshold,
       count: rows.length,
       items: rows,

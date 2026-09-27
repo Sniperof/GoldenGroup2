@@ -376,6 +376,8 @@ router.get('/marketing-targets', requirePermission('planning.manage'), async (re
     const teamKey = typeof req.query.teamKey === 'string' ? req.query.teamKey : '';
     const branchId = req.authContext?.actingBranchId ?? null;
     const mode = req.query.mode === 'assigned' ? 'assigned' : 'planning';
+    // ?countsOnly=true → per-station counts only, without the (expensive) lead list.
+    const countsOnly = req.query.countsOnly === 'true';
 
     if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
@@ -390,7 +392,7 @@ router.get('/marketing-targets', requirePermission('planning.manage'), async (re
     }
     await assertPlanningTeamSubject(req.authContext!, date, teamKey, branchId);
 
-    const result = await getPlanningMarketingTargets({ date, teamKey, branchId, mode });
+    const result = await getPlanningMarketingTargets({ date, teamKey, branchId, mode, countsOnly });
 
     return res.json(result);
   } catch (err: any) {

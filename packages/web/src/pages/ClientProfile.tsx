@@ -16,6 +16,7 @@ import { AccountStatementTab } from './clientProfile/AccountStatementTab';
 import GiftsTab from './clientProfile/GiftsTab';
 import { toCallInstant } from '../lib/callDateTime';
 import { api } from '../lib/api';
+import { taskDecisionLabel } from '../lib/taskDecisionLabels';
 import type { Client, GeoUnit } from '../lib/types';
 import { buildGeoPath, geoLevelLabel } from '../lib/geoPath';
 import ClientAvatar from '../components/ClientAvatar';
@@ -1311,11 +1312,6 @@ function fmtTimeOnly(value?: string | null): string | null {
     return d.toLocaleTimeString('ar-SY', { hour: '2-digit', minute: '2-digit' });
 }
 
-function humanizeCode(code?: string | null): string | null {
-    if (!code) return null;
-    return code.replace(/_/g, ' ');
-}
-
 function taskDotClass(status: string): string {
     if (status === 'cancelled') return 'bg-rose-50 text-rose-600 border-rose-200';
     const phase = getTaskPhase(status as OpenTaskStatus);
@@ -1396,7 +1392,7 @@ function TaskNode({ task }: { task: any }) {
                         <Chip className="bg-indigo-50 text-indigo-700 border-indigo-200"><Navigation className="h-3 w-3" /> زيارة نشطة #{activeVisit.id}</Chip>
                     )}
                     {lastAttempt?.finalDecision && (
-                        <Chip className="bg-emerald-50 text-emerald-700 border-emerald-200"><CheckCircle2 className="h-3 w-3" /> آخر نتيجة: {humanizeCode(lastAttempt.finalDecision)}</Chip>
+                        <Chip className="bg-emerald-50 text-emerald-700 border-emerald-200"><CheckCircle2 className="h-3 w-3" /> آخر نتيجة: {taskDecisionLabel(lastAttempt.finalDecision, task.taskType)}</Chip>
                     )}
                 </div>
             )}
@@ -1649,6 +1645,22 @@ function typeBadgeClass(type: string): string {
     return map[type?.toLowerCase()] ?? 'bg-slate-100 text-slate-500';
 }
 
+// Where a mediator row can be opened. The entity id is scoped by the mediator
+// type on the server (`entityKind`): a Client mediator addresses a client
+// record and an Employee mediator an employee record. `Personal`/`Unknown`
+// mediators are a free-text snapshot with no record behind them — the name is
+// NOT matched against the directory, because one snapshot routinely matches
+// several people. What is always resolvable on such a row is the suggested
+// name the client was qualified from, so the row falls back to that.
+// `ref.id` is the legacy client-only field, kept for older cached responses.
+function referrerLink(ref: any): { path: string; label: string } | null {
+    if (ref.entityKind === 'client' && ref.entityId) return { path: `/clients/${ref.entityId}`, label: 'الوسيط' };
+    if (ref.entityKind === 'employee' && ref.entityId) return { path: `/employees/${ref.entityId}`, label: 'الوسيط' };
+    if (ref.entityKind === undefined && ref.id) return { path: `/clients/${ref.id}`, label: 'الوسيط' };
+    if (ref.sourceCandidateId) return { path: `/candidates/${ref.sourceCandidateId}`, label: 'الاسم المقترح' };
+    return null;
+}
+
 function outgoingStatusBadge(ref: any): { cls: string; label: string } {
     if (ref.convertedToLeadId || ref.isCandidate === false || ref.isClient === true) {
         return { cls: 'bg-emerald-100 text-emerald-700', label: 'تحوّل لزبون' };
@@ -1758,13 +1770,16 @@ function NetworkTab({ client }: { client: Client }) {
                                     <span className="col-span-2 text-slate-600">{ref.address || '--'}</span>
                                     <span className="col-span-2 font-mono text-xs text-slate-500">{ref.referralDate || '--'}</span>
                                     <span className="col-span-1">
-                                        {ref.id ? (
-                                            <Link to={`/clients/${ref.id}`} className="text-sky-600 font-bold hover:underline">
-                                                عرض
-                                            </Link>
-                                        ) : (
-                                            <span className="text-slate-400">--</span>
-                                        )}
+                                        {(() => {
+                                            const link = referrerLink(ref);
+                                            return link ? (
+                                                <Link to={link.path} className="text-sky-600 font-bold hover:underline">
+                                                    {link.label}
+                                                </Link>
+                                            ) : (
+                                                <span className="text-slate-400">--</span>
+                                            );
+                                        })()}
                                     </span>
                                 </div>
                             ))}

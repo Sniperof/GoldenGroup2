@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import { toast } from 'sonner';
 import {
     FileText, ChevronDown, Search, Calendar, Monitor, Hash,
     DollarSign, CreditCard, Banknote, Truck, Trash2, Save,
@@ -295,6 +296,8 @@ export default function ContractForm() {
     const [selectedOfferVisitId, setSelectedOfferVisitId] = useState<string | null>(null);
     const [selectedOfferTaskId, setSelectedOfferTaskId] = useState<string | null>(null);
 
+    // Customer restored from the contract being edited (see the auto-populate effect).
+    const restoredCustomerIdRef = useRef<number | null>(null);
     useEffect(() => {
         setLoading(true);
         setLoadError(null);
@@ -476,6 +479,7 @@ export default function ContractForm() {
                                 nationalIdBox: clientSnapshot.nationalIdBox,
                                 referrers: clientReferrers.length ? clientReferrers : contractReferrers,
                             };
+                        restoredCustomerIdRef.current = restoredCustomer.id;
                         setSelectedCustomer(restoredCustomer);
                         // Single-mediator rule: keep only the first on restore (legacy
                         // contracts may carry more than one).
@@ -816,15 +820,28 @@ export default function ContractForm() {
     // restored above; do NOT overwrite it with the current client profile,
     // which may have diverged. Only run the auto-populate when the user
     // picks a customer manually (after the initial restore window closes).
-    const customerAutoPopulateLockedRef = useRef<boolean>(isEdit);
+    // Keyed by customer id, not "first selection only": the load effect can run
+    // twice (StrictMode, or hasPermission changing identity) and re-set the SAME
+    // restored customer; a one-shot lock then let the second set clear the
+    // restored mediator and overwrite the frozen buyer fields. Only a real
+    // change to a different customer auto-populates.
+    const autoPopulatedCustomerIdRef = useRef<number | null>(null);
     useEffect(() => {
-        if (!selectedCustomer) return;
-        if (customerAutoPopulateLockedRef.current) {
-            // First selection in edit mode is the restored client — unlock so any
-            // subsequent (rare) customer change still auto-populates as before.
-            customerAutoPopulateLockedRef.current = false;
+        if (!selectedCustomer) {
+            // Cleared (search typed / lookup failed): a re-pick, even of the
+            // same customer, is a fresh pick and must populate again.
+            autoPopulatedCustomerIdRef.current = null;
             return;
         }
+        if (autoPopulatedCustomerIdRef.current === selectedCustomer.id) return;
+        autoPopulatedCustomerIdRef.current = selectedCustomer.id;
+        if (restoredCustomerIdRef.current === selectedCustomer.id) {
+            // The restored client of the contract being edited — keep its
+            // frozen buyer info and restored mediator.
+            return;
+        }
+        // A different customer was picked: from now on it's a normal pick.
+        restoredCustomerIdRef.current = null;
         setBuyerBirthDate(selectedCustomer.birthDate?.slice(0, 10) || '');
         setBuyerGender(selectedCustomer.gender || '');
         setBuyerMotherName(selectedCustomer.motherName || '');
@@ -1280,8 +1297,12 @@ export default function ContractForm() {
     // National ID, if entered, must be exactly 11 digits — this rule is
     // independent of required-ness ("if you enter something it must be valid").
     const nidIsValid = nationalIdOverride.trim().length === 0 || /^\d{11}$/.test(nationalIdOverride.trim());
-    const legalRequiredForActive = !isDraftMode && paymentType === 'installment'
+    // Mirrors the server approval gate (collectApprovalIssues): installment
+    // needs all 9 legal fields; trial (temporary) and gift (free) are waived.
+    // Drives the form's WARNING only — a draft still saves without them.
+    const legalRequiredForApproval = paymentType === 'installment'
         && saleSubtype !== 'temporary' && saleSubtype !== 'free';
+    const legalRequiredForActive = !isDraftMode && legalRequiredForApproval;
     const legalFieldsPresent =
         fatherNameOverride.trim().length > 0
         && nationalIdOverride.trim().length > 0
@@ -1292,8 +1313,8 @@ export default function ContractForm() {
         && buyerNationalIdIssuedBy.trim().length > 0
         && buyerNationalIdIssueDate.length > 0
         && buyerNationalIdBox.trim().length > 0;
-    const legalMissing = legalRequiredForActive;
-    const legalResolved = legalRequiredForActive ? (legalFieldsPresent && nidIsValid) : nidIsValid;
+    const legalMissing = legalRequiredForApproval;
+    const legalResolved = legalRequiredForApproval ? (legalFieldsPresent && nidIsValid) : nidIsValid;
 
     const formatPrice = (n: number) => `${String(n)} ل.س`;
 
@@ -1518,7 +1539,12 @@ export default function ContractForm() {
                 giftPromises: giftPromises.map(p => ({
                     giftDefinitionId: Number(p.giftDefinitionId) || null,
                     beneficiaryKind: p.beneficiaryKind,
-                    referrerId: p.beneficiaryKind !== 'contract_customer' ? (p.referrerId || null) : null,
+                    // Sheet referrers have no id, so the picker value is String(null) = "null";
+                    // send a real null — the server then binds the sale's sole mediator.
+                    referrerId: p.beneficiaryKind !== 'contract_customer'
+                        && p.referrerId && p.referrerId !== 'null' && p.referrerId !== 'undefined'
+                        ? p.referrerId
+                        : null,
                     conditionLabel: p.conditionLabel,
                     conditionStatus: 'pending',
                     quantity: Math.max(1, Number(p.quantity) || 1),
@@ -1559,8 +1585,14 @@ export default function ContractForm() {
                 }
             }
             navigate(`/contracts/${savedContractId}`);
-        } catch (err) {
+        } catch (err: any) {
             console.error('Failed to save contract:', err);
+            // The server's rejection reason (request() puts it on err.message)
+            // must reach the user — a silent failure left them guessing.
+            toast.error('تعذر حفظ العقد', {
+                description: err?.message || 'حدث خطأ غير متوقع أثناء الحفظ',
+                duration: 10000,
+            });
         } finally {
             setSaving(false);
         }
@@ -1814,7 +1846,7 @@ export default function ContractForm() {
                     status={selectedCustomer ? (legalMissing && !legalResolved ? 'warning' : 'valid') : undefined}
                     badge={selectedCustomer && legalMissing && !legalResolved ? (
                         <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-50 text-amber-600 border border-amber-200 flex items-center gap-1">
-                            <AlertTriangle className="w-3 h-3" /> بيانات ناقصة
+                            <AlertTriangle className="w-3 h-3" /> ناقصة للاعتماد
                         </span>
                     ) : undefined}
                 >
@@ -1901,7 +1933,7 @@ export default function ContractForm() {
                         installment = legally binding (all 9 required). Drafts
                         always treat this section as optional. */}
                     {selectedCustomer && (() => {
-                        const required = legalRequiredForActive;
+                        const required = legalRequiredForApproval;
                         const inputCls = (filled: boolean) => required && !filled
                             ? 'w-full bg-white border border-amber-200 rounded-lg px-3 py-2 text-sm placeholder:text-amber-300 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/10 focus:outline-none'
                             : inputClass;
@@ -1925,14 +1957,19 @@ export default function ContractForm() {
                                             البيانات القانونية للعقد
                                         </span>
                                     </div>
-                                    <span className="text-xs text-slate-400">
-                                        {isDraftMode
-                                            ? 'مسودة — البيانات اختيارية وتُكمل عند الاعتماد'
-                                            : required
-                                                ? 'مطلوبة لعقد التقسيط'
+                                    <span className={`text-xs ${required && !legalFieldsPresent ? 'text-amber-700 font-semibold' : 'text-slate-400'}`}>
+                                        {required
+                                            ? 'مطلوبة لاعتماد عقد التقسيط'
+                                            : paymentType === 'installment'
+                                                ? 'اختيارية لهذا النوع من العقود'
                                                 : 'توثيقية — اختيارية في عقد الكاش'}
                                     </span>
                                 </div>
+                                {required && !legalFieldsPresent && (
+                                    <p className="text-xs text-amber-700 leading-relaxed">
+                                        يمكن حفظ العقد كمسودة بدون هذه البيانات، لكنه لن يُعتمد قبل إكمال الحقول المعلّمة بـ <span className="text-red-400">*</span>
+                                    </p>
+                                )}
 
                                 <div className="grid grid-cols-2 gap-3">
                                     {/* صف 1: الأب | الأم */}

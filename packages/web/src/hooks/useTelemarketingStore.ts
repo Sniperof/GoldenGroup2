@@ -25,6 +25,7 @@ interface TelemarketingStore {
     taskLists: TaskList[];
     appointments: Appointment[];
     callLogs: CallLog[];
+    availableTeams: Array<{ key: string; label: string; type: 'team' | 'solo'; count: number }>;
     loadData: (date?: string, appointmentDate?: string) => Promise<void>;
     addCallLog: (log: Omit<CallLog, 'id' | 'timestamp'>) => Promise<CallLog>;
     addAppointment: (appointment: Omit<Appointment, 'id' | 'createdAt'>, selectedTaskEntries?: SelectedTaskEntry[], contactContext?: VisitBookingContactContext) => Promise<void>;
@@ -40,6 +41,7 @@ export const useTelemarketingStore = create<TelemarketingStore>((set, get) => ({
     taskLists: [],
     appointments: [],
     callLogs: [],
+    availableTeams: [],
 
     loadData: async (date?: string, appointmentDate?: string) => {
         try {
@@ -52,10 +54,11 @@ export const useTelemarketingStore = create<TelemarketingStore>((set, get) => ({
                 taskLists: snapshot.taskLists,
                 appointments: appointmentSnapshot.appointments,
                 callLogs: snapshot.callLogs,
+                availableTeams: snapshot.availableTeams ?? [],
             });
         } catch (error) {
             console.error('Failed to load telemarketing data:', error);
-            set({ taskLists: [], appointments: [], callLogs: [] });
+            set({ taskLists: [], appointments: [], callLogs: [], availableTeams: [] });
         }
     },
 

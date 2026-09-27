@@ -4,7 +4,6 @@ import { requirePermission } from '../middleware/permission.js';
 import { getPlanningMarketingTargets, getAssignedLeadsForTeam } from '../services/planningMarketingTargets.js';
 import {
   getCurrentEmployeeId,
-  getCurrentEmployeeRole,
   getSystemRoleName,
   loadDaySchedule,
   getTeamFromSchedule,
@@ -725,6 +724,56 @@ const mapTaskListRows = (rows: any[]) => {
   return Array.from(taskLists.values());
 };
 
+async function buildAvailableTeamOptions(date: string | undefined, taskListRows: any[]) {
+  const teamKeys = Array.from(new Set(
+    taskListRows
+      .map(row => String(row.teamKey ?? ''))
+      .filter(key => /^(team|solo)_\d+$/.test(key)),
+  ));
+  if (teamKeys.length === 0) return [];
+
+  const schedule = date ? await loadDaySchedule(date) : null;
+  const leadIds = teamKeys.map(key => {
+    const teamMatch = key.match(/^team_(\d+)$/);
+    if (teamMatch) return Number(schedule?.teams?.[Number(teamMatch[1])]?.supervisor) || null;
+    const soloMatch = key.match(/^solo_(\d+)$/);
+    return soloMatch ? Number(schedule?.solos?.[Number(soloMatch[1])]?.technician) || null : null;
+  }).filter((id): id is number => Number.isInteger(id) && id > 0);
+
+  const nameByEmployee = new Map<number, string>();
+  if (leadIds.length > 0) {
+    const { rows } = await pool.query<{ id: number; name: string }>(
+      'SELECT id, name FROM employees WHERE id = ANY($1::int[])',
+      [[...new Set(leadIds)]],
+    );
+    rows.forEach(row => nameByEmployee.set(Number(row.id), row.name));
+  }
+
+  return teamKeys.map(key => {
+    const teamMatch = key.match(/^team_(\d+)$/);
+    if (teamMatch) {
+      const index = Number(teamMatch[1]);
+      const team = schedule?.teams?.[index];
+      const supervisorName = nameByEmployee.get(Number(team?.supervisor));
+      return {
+        key,
+        label: supervisorName ? `فريق ${supervisorName}` : `فريق #${index + 1}`,
+        type: 'team' as const,
+        count: Array.isArray(team?.telemarketers) ? team.telemarketers.length : 0,
+      };
+    }
+    const index = Number(key.match(/^solo_(\d+)$/)?.[1] ?? 0);
+    const solo = schedule?.solos?.[index];
+    const technicianName = nameByEmployee.get(Number(solo?.technician));
+    return {
+      key,
+      label: technicianName ? `طوارئ: ${technicianName}` : `فريق طوارئ #${index + 1}`,
+      type: 'solo' as const,
+      count: 1,
+    };
+  });
+}
+
 /**
  * @swagger
  * components:
@@ -857,13 +906,10 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view', 'telemarke
     if (systemRole && BRANCH_LEVEL_ACCESS_ROLES.has(systemRole)) {
       // ADMIN and BRANCH_MANAGER: accessibleTeamKeys remains null (all teams in branch)
     } else {
-      // Not a branch-level access role — check if they are a telemarketer
+      // Non-manager access is determined by the saved team subject, not by a
+      // denormalized employee-role label.
       const employeeId = await getCurrentEmployeeId(authContext?.userId);
-      const employeeRole = employeeId != null ? await getCurrentEmployeeRole(authContext?.userId) : null;
-
-      if (employeeRole === 'telemarketer' && employeeId != null) {
-        // Telemarketer: can see assigned teams, or all branch telemarketing
-        // fallback teams when no telemarketers are assigned.
+      if (employeeId != null) {
         accessibleTeamKeys = [];
         // Local calendar date (NOT UTC) — toISOString() is a day behind before the UTC offset.
         const dateToCheck = dateParam || (() => {
@@ -875,31 +921,13 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view', 'telemarke
           for (let i = 0; i < schedule.teams.length; i++) {
             const team = schedule.teams[i];
             const accessIds = await getTeamTelemarketerAccessEmployeeIds(team, branchId);
-            if (accessIds.includes(employeeId)) {
-              accessibleTeamKeys.push(`team_${i}`);
-            }
-          }
-        }
-      } else if (employeeRole === 'supervisor' && employeeId != null) {
-        accessibleTeamKeys = [];
-        // Local calendar date (NOT UTC) — toISOString() is a day behind before the UTC offset.
-        const dateToCheck = dateParam || (() => {
-          const d = new Date();
-          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-        })();
-        const schedule = await loadDaySchedule(dateToCheck);
-        if (schedule) {
-          for (let i = 0; i < schedule.teams.length; i++) {
-            const team = schedule.teams[i];
-            if (isEmployeeSupervisorInTeam(employeeId, team)) {
+            if (isEmployeeSupervisorInTeam(employeeId, team) || accessIds.includes(employeeId)) {
               accessibleTeamKeys.push(`team_${i}`);
             }
           }
         }
       } else {
-        // Roles like CUSTOMER_SERVICE_SUPERVISOR, TECHNICIAN, SUPERVISOR, etc.
-        // are not allowed to see telemarketing task lists in TM-4A.
-        return res.json({ taskLists: [], appointments: [], callLogs: [] });
+        return res.json({ taskLists: [], appointments: [], callLogs: [], availableTeams: [] });
       }
     }
   }
@@ -918,7 +946,7 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view', 'telemarke
   if (accessibleTeamKeys !== null) {
     if (accessibleTeamKeys.length === 0) {
       // Telemarketer with no teams: return nothing
-      return res.json({ taskLists: [], appointments: [], callLogs: [] });
+      return res.json({ taskLists: [], appointments: [], callLogs: [], availableTeams: [] });
     }
     const teamKeyClause = accessibleTeamKeys.map(() => `$${paramIdx++}`).join(', ');
     taskListWhere += taskListWhere ? ' AND' : ' WHERE';
@@ -996,6 +1024,7 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view', 'telemarke
     `,
     taskListParams,
   );
+  const availableTeams = await buildAvailableTeamOptions(dateParam, taskListRes.rows);
 
   // Filter appointments by branch and accessible teams
   // Plan 2026-06-10 Phase 2.4 — legacy telemarketing_appointments query
@@ -1174,6 +1203,7 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view', 'telemarke
           taskLists: mapTaskListRows(taskListRes.rows),
           appointments: appointmentRows,
           callLogs: [],
+          availableTeams,
         });
       }
       callLogWhere += ` WHERE task_list_id = ANY($${clParamIdx++}::varchar[])`;
@@ -1185,6 +1215,7 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view', 'telemarke
           taskLists: mapTaskListRows(taskListRes.rows),
           appointments: appointmentRows,
           callLogs: [],
+          availableTeams,
         });
       }
       callLogWhere += ` WHERE task_list_id = ANY($${clParamIdx++}::varchar[])`;
@@ -1233,6 +1264,7 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view', 'telemarke
     taskLists: mapTaskListRows(taskListRes.rows),
     appointments: appointmentRows,
     callLogs: callLogsRes.rows,
+    availableTeams,
   });
 });
 
