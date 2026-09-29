@@ -1,5 +1,7 @@
 # Golden CRM — Server Deployment Guide
 
+> **البيئة:** الإعداد الأول لسيرفر البرودكشن الحالي (PM2 + Nginx). ⚠️ المعلومات من نيسان 2026 وتحتاج تحديث.
+
 > First-time deployment only. For ongoing backup, HTTPS, log rotation, and
 > post-deploy hardening, see [pm2-production-operations.md](./pm2-production-operations.md).
 

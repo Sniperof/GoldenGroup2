@@ -1,6 +1,7 @@
 # Golden CRM — دليل النشر الكامل
 
 > من الصفر حتى CI/CD على أي سيرفر جديد
+> **البيئة:** تجهيز أي سيرفر جديد عبر Docker + Jenkins. البرودكشن الحالي يعمل على PM2 — راجع [production-release-checklist.md](./production-release-checklist.md).
 
 ---
 

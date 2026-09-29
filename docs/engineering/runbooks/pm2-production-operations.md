@@ -1,5 +1,7 @@
 # Golden CRM — Post-Deploy Operations Guide
 
+> **البيئة:** البرودكشن الحالي (PM2 + Nginx). ⚠️ المعلومات مسجّلة بتاريخ 2026-04-08 وتحتاج تحديث. للإطلاق راجع [production-release-checklist.md](./production-release-checklist.md).
+
 > This document covers the tasks that come **after** the initial deployment is confirmed
 > working. For first-time setup, see [pm2-production-first-setup.md](./pm2-production-first-setup.md).
 
