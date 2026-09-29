@@ -42,7 +42,7 @@
 |---|---|---|
 | الأدوار والصلاحيات | [features/permissions-view-strategy.md](features/permissions-view-strategy.md) | ✅ جديد |
 | زيارة ميدانية | [../archive/superseded/marketing-visits.md](../archive/superseded/marketing-visits.md) | ⚠️ قديم |
-| توصيل جهاز | [features/device-delivery-task.md](features/device-delivery-task.md) | ⚠️ قديم |
+| توصيل جهاز | [features/tasks/device-delivery.md](features/tasks/device-delivery.md) | ✅ معتمد (14 محور) |
 | تركيب جهاز | [features/tasks/device-installation.md](features/tasks/device-installation.md) | ⚠️ قديم |
 | تخطيط الاتصال | [features/planning-contact-targets.md](features/planning-contact-targets.md) | ⚠️ قديم |
 | جدولة الفرق | [features/team-scheduling.md](features/team-scheduling.md) | ⚠️ قديم |
