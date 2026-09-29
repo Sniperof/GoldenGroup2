@@ -1,27 +1,5 @@
-# فهرس فيتشرات Golden CRM
+# Golden CRM — الميزات
 
-> هذا الملف مجرد فهرس وربط لفيتشرات الدومين. التفاصيل التشغيلية توجد داخل كل دستور فيتشر على حدة.
+> هذا المجلد مفهرس في [فهرس الدستور](../INDEX.md#2-الميزات-features) — القائمة الكاملة وحالة كل ملف هناك، ولا تُكرَّر هنا.
 
-## الفيتشرات الحالية
-- `team-scheduling`
-- `route-assignment`
-- `planning-contact-targets`
-- `telemarketing-appointments`
-- `training-courses`
-- `marketing-visits`
-- `device-demo`
-- `open-tasks`
-- `contact-targets`
-- `interviews`
-- `applications`
-- `vacancies`
-- `public-jobs`
-- `manual-application-entry`
-- `contract-form`
-- `visit-detail`
-- `complaints` — دومين الشكاوى المستقل للموبايل وCRM (DEC-018؛ منفذ برمجياً وغير منشور)
-
-## ملاحظات
-- الفيتشر لا يُعرَّف هنا تفصيليًا.
-- كل ملف يجب أن يبقى بلغة موحدة داخل نفسه.
-- فيتشرات التخطيط والتوظيف والتسويق موثقة الآن داخل هذا المسار كدساتير مستقلة.
+**القاعدة:** كل ميزة في ملف مستقل بلغة موحدة داخل نفسه. أنواع المهام في `tasks/` وفق [القالب الموحد](../templates/unified-task-template.md)، والتقارير في `reports/`، وميزات التوظيف في `jobs/`.
