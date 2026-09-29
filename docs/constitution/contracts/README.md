@@ -27,19 +27,17 @@
 10. [01h-customer-purchase-history-and-parts-stock.md](./01h-customer-purchase-history-and-parts-stock.md)
 11. [01i-device-technical-health-record.md](./01i-device-technical-health-record.md)
 12. [02-what-is-a-contract.md](./02-what-is-a-contract.md)
-12. [02a-contract-parties-and-participants.md](./02a-contract-parties-and-participants.md)
-13. [02b-contract-warranties.md](./02b-contract-warranties.md)
-14. [02c-printable-electronic-contract.md](./02c-printable-electronic-contract.md)
-15. [03-financial-obligations.md](./03-financial-obligations.md)
-16. [03a-financial-ledger-and-customer-statement.md](./03a-financial-ledger-and-customer-statement.md) - إحالة سريعة
-17. [04-operational-lifecycle.md](./04-operational-lifecycle.md) - إحالة سريعة
-18. [04a-contract-cancellation-matrix.md](./04a-contract-cancellation-matrix.md)
-19. [05-contract-data-map.md](./05-contract-data-map.md)
-20. [contracts-gaps-and-questions.md](../trackers/contracts-gaps-and-questions.md)
-21. [contracts-06a-current-implementation-audit.md](../../archive/analysis/contracts-06a-current-implementation-audit.md)
-22. [06b-printable-sale-definitive-v2-plan.md](./06b-printable-sale-definitive-v2-plan.md)
-23. [contracts-task-backlog.md](../trackers/contracts-task-backlog.md)
-24. [08-resolved-decisions.md](./08-resolved-decisions.md)
+13. [02a-contract-parties-and-participants.md](./02a-contract-parties-and-participants.md)
+14. [02b-contract-warranties.md](./02b-contract-warranties.md)
+15. [02c-printable-electronic-contract.md](./02c-printable-electronic-contract.md)
+16. [03-financial-obligations.md](./03-financial-obligations.md)
+17. [04a-contract-cancellation-matrix.md](./04a-contract-cancellation-matrix.md)
+18. [05-contract-data-map.md](./05-contract-data-map.md)
+19. [contracts-gaps-and-questions.md](../trackers/contracts-gaps-and-questions.md)
+20. [contracts-06a-current-implementation-audit.md](../../archive/analysis/contracts-06a-current-implementation-audit.md) — (مؤرشف)
+21. [06b-printable-sale-definitive-v2-plan.md](./06b-printable-sale-definitive-v2-plan.md)
+22. [contracts-task-backlog.md](../trackers/contracts-task-backlog.md)
+23. [08-resolved-decisions.md](./08-resolved-decisions.md)
 
 ## التصنيف البنيوي الحالي
 
@@ -61,7 +59,7 @@
 - [02c-printable-electronic-contract.md](./02c-printable-electronic-contract.md)
 - [03-financial-obligations.md](./03-financial-obligations.md)
 - [04a-contract-cancellation-matrix.md](./04a-contract-cancellation-matrix.md)
-- [contracts-06a-current-implementation-audit.md](../../archive/analysis/contracts-06a-current-implementation-audit.md)
+- [contracts-06a-current-implementation-audit.md](../../archive/analysis/contracts-06a-current-implementation-audit.md) — (مؤرشف: لقطة تدقيق تاريخية)
 - [06b-printable-sale-definitive-v2-plan.md](./06b-printable-sale-definitive-v2-plan.md)
 - [08-resolved-decisions.md](./08-resolved-decisions.md) — مرجع القرارات المحسومة (DEC-CT-XX)
 
@@ -83,10 +81,7 @@
 
 ### 4. الملفات الإحالية
 
-هذه الملفات تبقى موجودة لتسهيل القراءة والتنقل، لكن تم دمج جوهرها المرجعي في ملفات أخرى:
-
-- [03a-financial-ledger-and-customer-statement.md](./03a-financial-ledger-and-customer-statement.md)
-- [04-operational-lifecycle.md](./04-operational-lifecycle.md)
+أُرشف الملفان الإحاليان `03a` و`04` بتاريخ 2026-09-29 بعد التحقق من أن محتواهما موجود في [03-financial-obligations.md](./03-financial-obligations.md) و[02-what-is-a-contract.md](./02-what-is-a-contract.md). نسختهما التاريخية في `docs/archive/superseded/`.
 
 ## توصيات المراجعة البنيوية
 
@@ -103,8 +98,6 @@
 
 ### ما يجب أن يبقى لكنه يصبح مرجعاً ثانوياً أو مجرد إحالة
 
-- [04-operational-lifecycle.md](./04-operational-lifecycle.md)
-  - ملف مفيد، لكنه قصير جداً حالياً، ويجب أن يعامل كإحالة سريعة أو ملخص، لا كمصدر الحقيقة الأول.
 - [05-contract-data-map.md](./05-contract-data-map.md)
   - يصلح كخريطة تنقل أو فهرس حقول، لا كوثيقة قرار مفهومي مستقلة.
 - [contracts-gaps-and-questions.md](../trackers/contracts-gaps-and-questions.md)
@@ -112,15 +105,10 @@
 
 ### ما تم دمجه فعلاً
 
-- تم دمج الجوهر المرجعي في [03a-financial-ledger-and-customer-statement.md](./03a-financial-ledger-and-customer-statement.md) داخل [03-financial-obligations.md](./03-financial-obligations.md)
-- تم دمج الجوهر المرجعي في [04-operational-lifecycle.md](./04-operational-lifecycle.md) داخل [02-what-is-a-contract.md](./02-what-is-a-contract.md)
+- دفتر الأستاذ وكشف حساب الزبون (كان `03a`) → [03-financial-obligations.md](./03-financial-obligations.md) — قسما «الطبقات المالية العليا» و«وضع المشروع الحالي»
+- دورة الحياة التشغيلية (كان `04`) → [02-what-is-a-contract.md](./02-what-is-a-contract.md) — قسم «العقد كنقطة انطلاق تشغيلية»
 
-وبالتالي صار الملفان:
-
-- [03a-financial-ledger-and-customer-statement.md](./03a-financial-ledger-and-customer-statement.md)
-- [04-operational-lifecycle.md](./04-operational-lifecycle.md)
-
-ملفين إحاليين مختصرين، لا مرجعين مفهوميَّين مستقلين
+وأُرشف الملفان الإحاليان بتاريخ 2026-09-29.
 
 ### ما أوصي بعدم دمجه حالياً
 
