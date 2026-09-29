@@ -1,6 +1,6 @@
 # مهمة تسديد الذمم — `installment_collection`
 
-> **القالب المرجعي:** [`features/unified-task-template.md`](../unified-task-template.md)
+> **القالب المرجعي:** [`templates/unified-task-template.md`](../../templates/unified-task-template.md)
 > **الحالة:** Draft — مبني على نقاش المنتج بتاريخ 2026-06-22
 > **الـ display_group:** `collection`
 
@@ -483,7 +483,7 @@ open, needs_follow_up, assigned, in_scheduling, scheduled, waiting_execution, in
 
 ## المراجع
 
-- [القالب الموحَّد](../unified-task-template.md)
+- [القالب الموحَّد](../../templates/unified-task-template.md)
 - [Financial Obligations](../../contracts/03-financial-obligations.md)
 - [Resolved Contract Decisions](../../contracts/08-resolved-decisions.md)
 - [Open Tasks Domain](../../domains/open-tasks.md)

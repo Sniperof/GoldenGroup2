@@ -312,7 +312,7 @@
 - لكلٍّ من النوعين **فترة محددة قابلة للتحديد** (عبر `months` أو `start_date`–`end_date`).
 - `device_warranties.activated_at` يبقى snapshot يثبّت حساب `end_date` (DEC-CT-04)، ويُطبَّق المبدأ نفسه على كل ذهبية عند تفعيلها.
 
-### 13.5 الأثر التنفيذي (لاحق — راجع [`07`](./07-task-backlog.md))
+### 13.5 الأثر التنفيذي (لاحق — راجع [`07`](../trackers/contracts-task-backlog.md))
 
 1. حذف القيد `UNIQUE (device_id, warranty_type)` لأنه يمنع تعدّد الذهبية، واستبداله بقيد جزئي `UNIQUE (device_id) WHERE warranty_type = 'contract'`.
 2. تعديل `ON CONFLICT` في `syncContractWarrantySnapshot` ليستهدف القيد الجزئي بدل `(device_id, warranty_type)`.

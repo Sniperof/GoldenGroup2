@@ -1,6 +1,6 @@
 # مهمة تشغيل الجهاز — `device_activation`
 
-> **القالب المرجعي:** [`features/unified-task-template.md`](../unified-task-template.md)
+> **القالب المرجعي:** [`templates/unified-task-template.md`](../../templates/unified-task-template.md)
 > **الحالة:** Active — معتمد 2026-06-06
 > **الـ display_group:** `after_sale_services`
 
@@ -226,7 +226,7 @@
 
 ## المراجع
 
-- [القالب الموحَّد](../unified-task-template.md)
+- [القالب الموحَّد](../../templates/unified-task-template.md)
 - [Field Visits Domain](../../domains/field-visits.md)
 - [Visits Domain](../../domains/visits.md)
 - [Device Delivery](./device-delivery.md)

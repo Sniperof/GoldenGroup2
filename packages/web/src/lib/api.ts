@@ -40,7 +40,7 @@ export interface AccountStatementResponse {
 }
 
 // GET /clients/paged — server-side pagination companion to clients.list()
-// (isolated: list() is unchanged). See docs/analysis/clients-records-performance-and-filters.md
+// (isolated: list() is unchanged). See docs/engineering/api/clients-records-performance-and-filters.md
 // ── Mobile home-screen banners (migration 422) ──────────────────────────────
 
 // ── Free-form app notifications (DEC-019 D-N6/D-N7) ──────────────────────────
@@ -268,7 +268,7 @@ export interface PagedClientsParams {
   search?: string;
   filterClass?: string;          // Lead | FOP | OP
   filterMediator?: string;       // Personal | Employee | Client
-  // Enriched catalog (docs/analysis/clients-records-performance-and-filters.md §7)
+  // Enriched catalog (docs/engineering/api/clients-records-performance-and-filters.md §7)
   geoIds?: string;               // comma-joined subtree ids of the deepest selected geo level
   routeGeoIds?: string;          // comma-joined subtree ids of a route's points
   owner?: string | number;       // assigned hr_user id
@@ -485,7 +485,7 @@ export interface PagedContractsParams {
   search?: string;
   status?: string;               // draft | active | completed | cancelled
   paymentType?: string;          // cash | installment
-  // Enriched catalog (docs/analysis/contracts-records-performance-filters-and-stats.md §3)
+  // Enriched catalog (docs/engineering/api/contracts-records-performance-filters-and-stats.md §3)
   saleType?: string;             // tradein | retention | direct
   oldDeviceCondition?: string;   // good | damaged (trade-in statistics)
   saleSubtype?: string;          // definitive | temporary | free

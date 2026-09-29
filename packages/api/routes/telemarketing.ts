@@ -2765,7 +2765,7 @@ router.post('/book-visit', requirePermission('telemarketing.appointments.book'),
 });
 
 // ─── Legacy POST /telemarketing/appointments — retired 2026-06-10 (Phase 1.3)
-// Plan: docs/constitution/plans/2026-06-10-telemarketing-appointments-migration.md
+// Plan: docs/archive/plans/2026-06-10-telemarketing-appointments-migration.md
 // Replaced by /telemarketing/book-visit (DEC-003 D2). All writes to the legacy
 // telemarketing_appointments table now go away. The original handler (~335
 // lines) is preserved in git history one commit prior to this paragraph.

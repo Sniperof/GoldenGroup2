@@ -575,13 +575,13 @@ WHERE d.status = 'active'
 
 | الملف | العلاقة |
 |-------|---------|
-| [GAP-006](../GAPS-TRACKER.md#gap-006) | الثغرة الأساسية |
-| [GAP-021](../GAPS-TRACKER.md#gap-021) | تضارب `open_tasks.branch_id` vs `clients.branch_id` |
+| [GAP-006](../trackers/GAPS-TRACKER.md#gap-006) | الثغرة الأساسية |
+| [GAP-021](../trackers/GAPS-TRACKER.md#gap-021) | تضارب `open_tasks.branch_id` vs `clients.branch_id` |
 | [domains/clients.md](../domains/clients.md) | دستور الزبائن — يحتاج تحديث §6 |
 | [domains/installed-devices.md](../domains/installed-devices.md) | دستور الأجهزة — يحتاج توضيح `branch_id` |
 | [domains/open-tasks.md](../domains/open-tasks.md) | دستور المهام — يحتاج تحديث BR-1 |
 | [domains/contracts.md](../domains/contracts.md) | دستور العقود — BR-4 موجود |
-| [CROSS-REFERENCE.md](../CROSS-REFERENCE.md) | §1.2 `branch_id` matrix |
+| [CROSS-REFERENCE.md](../trackers/CROSS-REFERENCE.md) | §1.2 `branch_id` matrix |
 
 ---
 

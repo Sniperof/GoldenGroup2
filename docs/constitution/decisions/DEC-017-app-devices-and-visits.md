@@ -104,8 +104,8 @@
 
 | الملف | التحديث |
 |---|---|
-| `docs/api/mobile-devices-api-reference.md` | ✅ مرجع API لـ `GET /me/devices` |
-| `docs/api/mobile-visits-api-reference.md` | ✅ القائمة + التفاصيل (`GET /me/visits/:id`) موثّقتان بالكامل |
+| `docs/engineering/api/mobile-devices-api-reference.md` | ✅ مرجع API لـ `GET /me/devices` |
+| `docs/engineering/api/mobile-visits-api-reference.md` | ✅ القائمة + التفاصيل (`GET /me/visits/:id`) موثّقتان بالكامل |
 | `decisions/README.md` | ✅ أُدرِج DEC-017 |
 
 ---
@@ -133,7 +133,7 @@
 - `decisions/DEC-013-account-creation-and-app-auth.md` (حاجز المصادقة `requireAppAuth` + `req.appAccount.clientId`)
 - `decisions/DEC-004-visit-task-lifecycle-refinement.md` (الحالات السبع للزيارة)
 - `decisions/DEC-011-field-initiated-visit.md` (الزيارة الفورية `in_progress` مباشرة)
-- `domains/branch-scope-and-visibility-standard.md` (مبدأ هوية الموظف تتبع النطاق)
+- `standards/branch-scope-and-visibility-standard.md` (مبدأ هوية الموظف تتبع النطاق)
 - `routes/appServiceRequests.ts` (سابقة نمط الاستعلام العميل-محدود، أسطر ~70–126)
 - `routes/fieldVisits.ts` (نمط حل الفريق الفعلي عبر `reassigned_*` + `team_snapshot`، أسطر ~1085–1188)
 - `middleware/appAuth.ts` (`requireAppAuth`, `req.appAccount`)

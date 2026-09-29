@@ -1,6 +1,6 @@
 // ============================================================
 // RequestDetailLayout — unified request detail skeleton (contract §8)
-// docs/constitution/request-section-contract.md
+// docs/constitution/features/request-section-contract.md
 //
 // Visual model: the water-check detail page — gradient hero (mono ref, type
 // chip, flag chips, info tiles), ownership bar, decision bar, then the tab

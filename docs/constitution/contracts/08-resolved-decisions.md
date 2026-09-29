@@ -257,7 +257,7 @@ registered → pending_delivery → delivered → installed → active
 
 - يُعرض مودل الصيانة بلون يدل على الكفالة الفعّالة للجهاز: **أزرق = عقد · ذهبي = ذهبية** (محايد إن لا كفالة). إعلام بصري للفني بالتغطية المتوقّعة، دون إقفال التكلفة (راجع DEC-CT-16 §3).
 
-**الأثر التنفيذي:** راجع CT-IMPL-017 في [`07`](./07-task-backlog.md).
+**الأثر التنفيذي:** راجع CT-IMPL-017 في [`07`](../trackers/contracts-task-backlog.md).
 
 ---
 
@@ -277,6 +277,6 @@ registered → pending_delivery → delivered → installed → active
 ## مرجعية
 
 - نقاش جامع: جلسة مقابلة صاحب المنتج (21 سؤالاً)
-- ملف الفجوات السابق: [`06-gaps-and-questions.md`](./06-gaps-and-questions.md)
-- ملف الجرد التنفيذي: [`06a-current-implementation-audit.md`](./06a-current-implementation-audit.md)
-- باك لوج التنفيذ: [`07-task-backlog.md`](./07-task-backlog.md)
+- ملف الفجوات السابق: [`contracts-gaps-and-questions.md`](../trackers/contracts-gaps-and-questions.md)
+- ملف الجرد التنفيذي: [`contracts-06a-current-implementation-audit.md`](../../archive/analysis/contracts-06a-current-implementation-audit.md)
+- باك لوج التنفيذ: [`contracts-task-backlog.md`](../trackers/contracts-task-backlog.md)

@@ -1,6 +1,6 @@
 # مهمة عرض الجهاز — `device_demo`
 
-> **القالب المرجعي:** [`features/unified-task-template.md`](../unified-task-template.md)
+> **القالب المرجعي:** [`templates/unified-task-template.md`](../../templates/unified-task-template.md)
 > **الحالة:** Active — معتمد 2026-06-01 بعد نقاش تفصيلي لنتائج المهمة وأثرها على `open_task` و cascading.
 > **الـ display_group:** مهام عرض الجهاز
 
@@ -308,7 +308,7 @@ Body موحَّد بـ discriminator على `final_decision`. الـ service ا�
 ---
 
 ## المراجع
-- [القالب الموحَّد](../unified-task-template.md)
+- [القالب الموحَّد](../../templates/unified-task-template.md)
 - [`domains/tasks.md`](../../domains/tasks.md) — دورة الحياة بـ 11 حالة
 - [`domains/visits.md`](../../domains/visits.md) — نموذج الزيارة
 - [`domains/open-tasks.md`](../../domains/open-tasks.md) — schema تفصيلي

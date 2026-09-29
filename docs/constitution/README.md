@@ -4,7 +4,7 @@
 > الكود الحالي هو المصدر التشغيلي، وهذا القسم يثبت كيف ننظم الفهم والتغيير.
 
 ## ترتيب القراءة الإلزامي
-1. `docs/engineering-change-process.md`
+1. `docs/constitution/standards/engineering-change-process.md`
 2. `docs/constitution/project-constitution.md`
 3. `docs/constitution/domains/README.md`
 4. `docs/constitution/features/README.md`

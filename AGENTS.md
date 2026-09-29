@@ -33,7 +33,7 @@ Golden CRM is a full-stack HR/CRM system built with:
 - When modifying files, be precise - read only what's needed, modify only what's specified
 
 ## Permissions And Authorization
-- Before changing authentication, roles, permissions, scopes, branch filtering, or record ownership, read `docs/constitution/domains/permissions-engineering-standard.md`.
+- Before changing authentication, roles, permissions, scopes, branch filtering, or record ownership, read `docs/constitution/standards/permissions-engineering-standard.md`.
 - The mandatory authorization model is `identity + permission + scope + subject = decision`.
 - `requirePermission()` is a capability gate only. Record routes must load the subject and authorize its `branchId` and, where applicable, `assignedUserId` through a domain policy.
 - Frontend visibility, `localStorage`, textual role names, and JWT branch claims are never sufficient authorization controls.

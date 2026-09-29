@@ -98,11 +98,11 @@
 - `docs/constitution/features/zone-study.md`
 - `docs/constitution/features/planning-contact-targets.md`
 - `docs/constitution/features/telemarketing-appointments.md`
-- `docs/constitution/features/marketing-visits.md`
+- `docs/archive/superseded/marketing-visits.md`
 - `docs/constitution/domains/visits.md`
 - `docs/constitution/features/README.md`
 - `docs/constitution/decisions/DEC-008-zone-study-stage.md`
-- `docs/constitution/decisions/DEC-009-eligible-task-and-contact-lifecycle.md` — **تعريف «المهمة المؤهلة» (10 لبنات) ودورة حياة جهة الاتصال؛ يحكم PL-R008..R-013 ويوحّد الاستعلامات الثلاثة (العدّ/الإسناد/الداشبورد). خطة التنفيذ: `plans/2026-06-14-eligible-task-implementation-plan.md`.**
+- `docs/constitution/decisions/DEC-009-eligible-task-and-contact-lifecycle.md` — **تعريف «المهمة المؤهلة» (10 لبنات) ودورة حياة جهة الاتصال؛ يحكم PL-R008..R-013 ويوحّد الاستعلامات الثلاثة (العدّ/الإسناد/الداشبورد). خطة التنفيذ: `docs/archive/plans/2026-06-14-eligible-task-implementation-plan.md`.**
 - `docs/constitution/decisions/DEC-015-layered-planning-curation.md` — **طبقات تنقية التخطيط الثلاث، هوية جهة الاتصال، عقد الفلاتر والمحدد والمعاينة والتطبيق الذري.**
 
 ---

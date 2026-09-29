@@ -28,11 +28,11 @@
 | البنية التنظيمية | [domains/org-structure.md](domains/org-structure.md) | ⚠️ فاضي | 218 بايت | — | — |
 | الصلاحيات والأدوار (Permissions & Roles) | [domains/permissions.md](domains/permissions.md) | ✅ مكتمل | 382 سطر | 12+ | 9 |
 | الإعدادات الإدارية | [domains/admin-settings.md](domains/admin-settings.md) | ⚠️ فاضي | 221 بايت | — | — |
-| المهام الموحدة | [domains/tasks-unified.md](domains/tasks-unified.md) | ⚠️ قديم | 10,991 بايت | — | — |
+| المهام الموحدة | [features/tasks/tasks-unified-template.md](features/tasks/tasks-unified-template.md) | ⚠️ قديم | 10,991 بايت | — | — |
 | التقارير والمؤشرات (Reporting & Analytics) | [domains/reporting-analytics.md](domains/reporting-analytics.md) | 🟢 مخطّط (Blueprint) | — | — | 4 (مفتوحة §5) |
 
 **الدومينات المتبقية (72 جدول — مش كلون مُوثقين بعد):**
-[عرض الكل في CROSS-REFERENCE.md](CROSS-REFERENCE.md#الجداول)
+[عرض الكل في CROSS-REFERENCE.md](trackers/CROSS-REFERENCE.md#الجداول)
 
 ---
 
@@ -40,10 +40,10 @@
 
 | الميزة | الملف | الحالة |
 |---|---|---|
-| الأدوار والصلاحيات | [plans/permissions-view-strategy.md](plans/permissions-view-strategy.md) | ✅ جديد |
-| زيارة ميدانية | [features/marketing-visits.md](features/marketing-visits.md) | ⚠️ قديم |
+| الأدوار والصلاحيات | [features/permissions-view-strategy.md](features/permissions-view-strategy.md) | ✅ جديد |
+| زيارة ميدانية | [../archive/superseded/marketing-visits.md](../archive/superseded/marketing-visits.md) | ⚠️ قديم |
 | توصيل جهاز | [features/device-delivery-task.md](features/device-delivery-task.md) | ⚠️ قديم |
-| تركيب جهاز | [features/device-installation-task.md](features/device-installation-task.md) | ⚠️ قديم |
+| تركيب جهاز | [features/tasks/device-installation.md](features/tasks/device-installation.md) | ⚠️ قديم |
 | تخطيط الاتصال | [features/planning-contact-targets.md](features/planning-contact-targets.md) | ⚠️ قديم |
 | جدولة الفرق | [features/team-scheduling.md](features/team-scheduling.md) | ⚠️ قديم |
 | الشكاوى | [features/complaints.md](features/complaints.md) | 🟢 منفذ برمجياً — غير منشور |
@@ -62,11 +62,11 @@
 | شو test cases موجودة | [domains/clients.md §8](domains/clients.md#8-حالات-الاختبار-الشاملة-test-cases) |
 | شو الثغرات المكتشفة | [domains/clients.md §9](domains/clients.md#9-الثغرات-والتضاربات-المكتشفة-gaps--contradictions) |
 | شو تاريخ التغييرات على الزبون | [domains/clients.md §10](domains/clients.md#10-تاريخ-التغييرات-schema-changelog) |
-| العلاقات بين الجداول | [CROSS-REFERENCE.md](CROSS-REFERENCE.md) |
-| الثغرات المفتوحة بكل الكيانات | [GAPS-TRACKER.md](GAPS-TRACKER.md) |
+| العلاقات بين الجداول | [CROSS-REFERENCE.md](trackers/CROSS-REFERENCE.md) |
+| الثغرات المفتوحة بكل الكيانات | [GAPS-TRACKER.md](trackers/GAPS-TRACKER.md) |
 | القالب لتوثيق كيان جديد | [templates/entity-constitution.md](templates/entity-constitution.md) |
 | الأدوار والصلاحيات | [domains/roles-and-permissions.md](domains/roles-and-permissions.md) |
-| كيف يشوف كل دور | [plans/permissions-view-strategy.md](plans/permissions-view-strategy.md) |
+| كيف يشوف كل دور | [features/permissions-view-strategy.md](features/permissions-view-strategy.md) |
 
 ---
 
@@ -75,20 +75,20 @@
 > **⚠️ هذا أهم ملف بالمشروع بعد هذا الفهرس.**
 > بيشرح كيف نضيف كيان، كيف نحل ثغرة، كيف نكتب prompt، كيف نضيف feature.
 >
-> [📖 اقرأ دليل العمل كاملاً](CONSTITUTION-WORKFLOW.md)
+> [📖 اقرأ دليل العمل كاملاً](standards/constitution-workflow.md)
 
 ### شو بتحتوي الدليل؟
 
 | البند | الرابط |
 |---|---|
-| السياق الحالي (9/72 كيان مكتمل) | [§1](CONSTITUTION-WORKFLOW.md#1-السياق-الحالي-current-context) |
-| آلية العمل (إضافة كيان / حل ثغرة / feature جديدة) | [§2](CONSTITUTION-WORKFLOW.md#2-آلية-العمل-workflow) |
-| قالب كتابة Prompts الدقيقة | [§3](CONSTITUTION-WORKFLOW.md#3-كيفية-كتابة-الـ-prompts-الدقيقة-prompt-writing-guide) |
-| كيفية توثيق حل Gap | [§4](CONSTITUTION-WORKFLOW.md#4-كيفية-توثيق-حل-gap-gap-fix-documentation) |
-| كيفية إضافة Feature جديدة | [§5](CONSTITUTION-WORKFLOW.md#5-كيفية-إضافة-feature-جديدة-new-feature-documentation) |
-| الكيانات الناقصة (62 كيان) | [§6](CONSTITUTION-WORKFLOW.md#6-الكيانات-الناقصة-remaining-entities--6272) |
-| نماذج جاهزة للاستخدام | [§7](CONSTITUTION-WORKFLOW.md#7-نماذج-جاهزة-للاستخدام-ready-to-use-templates) |
-| قائمة التحقق النهائية (16 نقطة) | [§9](CONSTITUTION-WORKFLOW.md#9-قائمة-التحقق-النهائية-final-checklist) |
+| السياق الحالي (9/72 كيان مكتمل) | [§1](standards/constitution-workflow.md#1-السياق-الحالي-current-context) |
+| آلية العمل (إضافة كيان / حل ثغرة / feature جديدة) | [§2](standards/constitution-workflow.md#2-آلية-العمل-workflow) |
+| قالب كتابة Prompts الدقيقة | [§3](standards/constitution-workflow.md#3-كيفية-كتابة-الـ-prompts-الدقيقة-prompt-writing-guide) |
+| كيفية توثيق حل Gap | [§4](standards/constitution-workflow.md#4-كيفية-توثيق-حل-gap-gap-fix-documentation) |
+| كيفية إضافة Feature جديدة | [§5](standards/constitution-workflow.md#5-كيفية-إضافة-feature-جديدة-new-feature-documentation) |
+| الكيانات الناقصة (62 كيان) | [§6](standards/constitution-workflow.md#6-الكيانات-الناقصة-remaining-entities--6272) |
+| نماذج جاهزة للاستخدام | [§7](standards/constitution-workflow.md#7-نماذج-جاهزة-للاستخدام-ready-to-use-templates) |
+| قائمة التحقق النهائية (16 نقطة) | [§9](standards/constitution-workflow.md#9-قائمة-التحقق-النهائية-final-checklist) |
 
 ---
 
@@ -105,9 +105,9 @@
 
 | التاريخ | الملف | الموضوع |
 |---|---|---|
-| 2026-05-11 | [handoffs/2026-05-11-planning-appointments-handoff.md](handoffs/2026-05-11-planning-appointments-handoff.md) | Planning & Appointments |
-| 2026-05-12 | [handoffs/2026-05-12-p1-p4-findings-handoff.md](handoffs/2026-05-12-p1-p4-findings-handoff.md) | P1-P4 Findings |
-| 2026-06-10 | [handoffs/2026-06-10-legacy-cleanup-handoff.md](handoffs/2026-06-10-legacy-cleanup-handoff.md) | تنظيف Legacy + Phase 0-2 telemarketing_appointments + Action items لـ 2026-06-24 |
+| 2026-05-11 | [../archive/handoffs/2026-05-11-planning-appointments-handoff.md](../archive/handoffs/2026-05-11-planning-appointments-handoff.md) | Planning & Appointments |
+| 2026-05-12 | [../archive/handoffs/2026-05-12-p1-p4-findings-handoff.md](../archive/handoffs/2026-05-12-p1-p4-findings-handoff.md) | P1-P4 Findings |
+| 2026-06-10 | [../archive/handoffs/2026-06-10-legacy-cleanup-handoff.md](../archive/handoffs/2026-06-10-legacy-cleanup-handoff.md) | تنظيف Legacy + Phase 0-2 telemarketing_appointments + Action items لـ 2026-06-24 |
 
 ---
 
@@ -133,7 +133,7 @@
 
 ### 🔴 توحيد Mini ClientSnapshot عبر المشروع
 
-> **الحالة:** ⏳ لم يُنفّذ | **الملف:** [tasks/TASK_UNIFY_MINI_CLIENT_SNAPSHOT.md](tasks/TASK_UNIFY_MINI_CLIENT_SNAPSHOT.md) | **البرومptz:** [tasks/TASK_UNIFY_MINI_CLIENT_SNAPSHOT_PROMPT.md](tasks/TASK_UNIFY_MINI_CLIENT_SNAPSHOT_PROMPT.md)
+> **الحالة:** ⏳ لم يُنفّذ | **الملف:** [archive/prompts/TASK_UNIFY_MINI_CLIENT_SNAPSHOT.md](../archive/prompts/TASK_UNIFY_MINI_CLIENT_SNAPSHOT.md) | **البرومptz:** [archive/prompts/TASK_UNIFY_MINI_CLIENT_SNAPSHOT_PROMPT.md](../archive/prompts/TASK_UNIFY_MINI_CLIENT_SNAPSHOT_PROMPT.md)
 
 **الهدف:** تطبيق Mini ClientSnapshot الموحّد على كل الأماكن يلي بيعرضو بيانات الزبون بشكل مختصر.
 
@@ -151,7 +151,7 @@
 
 ### 🟠 بيانات الأسماء المقترحة ولوائح الأسماء
 
-> **الحالة:** ⏳ لم يُنفّذ | **الملف:** [tasks/TASK_NAME_COLLECTIONS_REFERRAL_SHEETS.md](tasks/TASK_NAME_COLLECTIONS_REFERRAL_SHEETS.md) | **البرومptz:** [tasks/TASK_NAME_COLLECTIONS_REFERRAL_SHEETS_PROMPT.md](tasks/TASK_NAME_COLLECTIONS_REFERRAL_SHEETS_PROMPT.md)
+> **الحالة:** ⏳ لم يُنفّذ | **الملف:** [archive/prompts/TASK_NAME_COLLECTIONS_REFERRAL_SHEETS.md](../archive/prompts/TASK_NAME_COLLECTIONS_REFERRAL_SHEETS.md) | **البرومptz:** [archive/prompts/TASK_NAME_COLLECTIONS_REFERRAL_SHEETS_PROMPT.md](../archive/prompts/TASK_NAME_COLLECTIONS_REFERRAL_SHEETS_PROMPT.md)
 
 **الهدف:** تحسين تجربة جمع الأسماء (Name Collections) والترشيحات المباشرة (Direct Suggestions) ولوائح الأسماء (Referral Sheets) بحيث كل اسم مقترح يصير له MiniClientSnapshot.
 
@@ -207,6 +207,6 @@
 
 | التاريخ | الملف | الموضوع |
 |---|---|---|
-| 2026-05-11 | [handoffs/2026-05-11-planning-appointments-handoff.md](handoffs/2026-05-11-planning-appointments-handoff.md) | Planning & Appointments |
-| 2026-05-12 | [handoffs/2026-05-12-p1-p4-findings-handoff.md](handoffs/2026-05-12-p1-p4-findings-handoff.md) | P1-P4 Findings |
-| 2026-06-10 | [handoffs/2026-06-10-legacy-cleanup-handoff.md](handoffs/2026-06-10-legacy-cleanup-handoff.md) | تنظيف Legacy + Phase 0-2 telemarketing_appointments + Action items لـ 2026-06-24 |
+| 2026-05-11 | [../archive/handoffs/2026-05-11-planning-appointments-handoff.md](../archive/handoffs/2026-05-11-planning-appointments-handoff.md) | Planning & Appointments |
+| 2026-05-12 | [../archive/handoffs/2026-05-12-p1-p4-findings-handoff.md](../archive/handoffs/2026-05-12-p1-p4-findings-handoff.md) | P1-P4 Findings |
+| 2026-06-10 | [../archive/handoffs/2026-06-10-legacy-cleanup-handoff.md](../archive/handoffs/2026-06-10-legacy-cleanup-handoff.md) | تنظيف Legacy + Phase 0-2 telemarketing_appointments + Action items لـ 2026-06-24 |

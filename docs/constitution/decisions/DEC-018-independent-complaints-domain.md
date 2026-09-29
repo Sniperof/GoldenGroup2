@@ -184,6 +184,6 @@ identity + permission + scope + complaint subject = decision
 ## 4. مرجع التفصيل
 
 - `docs/constitution/features/complaints.md`
-- `docs/api/complaints-api-reference.md`
-- `docs/design/complaints-v1-designer-handoff.md`
-- `docs/constitution/plans/2026-08-17-complaints-v1-implementation-plan.md`
+- `docs/engineering/api/complaints-api-reference.md`
+- `docs/engineering/design/complaints-v1-designer-handoff.md`
+- `docs/constitution/trackers/2026-08-17-complaints-v1-implementation-plan.md`

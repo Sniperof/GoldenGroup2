@@ -1138,7 +1138,7 @@ router.get('/paged', requirePermission('clients.view_list'), async (req, res) =>
       conditions.push(`c.referrer_type = $${params.length}`);
     }
 
-    // ── Enriched filter catalog (docs/analysis/clients-records-performance-and-filters.md §7) ──
+    // ── Enriched filter catalog (docs/engineering/api/clients-records-performance-and-filters.md §7) ──
     // Geo cascade: the frontend sends the subtree of the deepest selected level
     // (محافظة→منطقة→ناحية→حي) as `geoIds`; a client matches when any of its geo
     // columns falls inside that subtree ("match everything under the selection").

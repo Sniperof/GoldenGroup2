@@ -1,6 +1,6 @@
 # مهمة سحب الجهاز — `device_retrieval`
 
-> **القالب المرجعي:** [`features/unified-task-template.md`](../unified-task-template.md)
+> **القالب المرجعي:** [`templates/unified-task-template.md`](../../templates/unified-task-template.md)
 > **الحالة:** Draft — توثيق دستوري مفاهيمي
 > **تاريخ الحسم الأولي:** 2026-06-23
 > **الـ display_group:** `after_sale_services`

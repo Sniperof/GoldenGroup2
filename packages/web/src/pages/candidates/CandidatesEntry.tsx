@@ -180,7 +180,7 @@ export default function CandidatesEntry() {
     const [sheetBranchFilter, setSheetBranchFilter] = useState('');
     // Sheet Filters — the rest, all in the one unified panel. The three independent
     // roles (owner/assigned reviewer/creator) fully replace the old single merged
-    // "supervisor" filter per docs/analysis/candidates-referral-sheets-filters-audit.md §2.2.
+    // "supervisor" filter per docs/engineering/audits/candidates-referral-sheets-filters-audit.md §2.2.
     const [sheetFiltersOpen, setSheetFiltersOpen] = useState(false);
     const [sheetOwnerFilter, setSheetOwnerFilter] = useState('');
     const [sheetAssignedReviewerFilter, setSheetAssignedReviewerFilter] = useState('');

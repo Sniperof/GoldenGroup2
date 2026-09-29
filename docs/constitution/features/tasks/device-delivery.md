@@ -1,6 +1,6 @@
 # مهمة تسليم الجهاز — `device_delivery`
 
-> **القالب المرجعي:** [`features/unified-task-template.md`](../unified-task-template.md)
+> **القالب المرجعي:** [`templates/unified-task-template.md`](../../templates/unified-task-template.md)
 > **الحالة:** Draft — مبني على حسم مباشر مع صاحب المنتج بتاريخ 2026-06-04
 > **الـ display_group:** `after_sale_services`
 
@@ -394,7 +394,7 @@
 ---
 
 ## المراجع
-- [القالب الموحَّد](../unified-task-template.md)
+- [القالب الموحَّد](../../templates/unified-task-template.md)
 - [What Is A Device](../../contracts/01-what-is-a-device.md)
 - [Device User Stories](../../contracts/01a-device-user-stories.md)
 - [Unified Device & Contract States](../../contracts/01d-unified-device-contract-states.md)

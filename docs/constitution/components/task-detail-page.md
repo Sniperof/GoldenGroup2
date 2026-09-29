@@ -4,7 +4,7 @@
 > **الجمهور:** صاحب المنتج + فريق التطوير
 > **الحالة:** Draft — 2026-06-20
 > **المراجع المرتبطة:**
-> - [`features/task-reference-template.md`](../features/task-reference-template.md) — البيانات الموحّدة لكل مهمة
+> - [`docs/archive/superseded/task-reference-template.md`](../../archive/superseded/task-reference-template.md) — البيانات الموحّدة لكل مهمة
 > - [`components/contract-snapshot.md`](contract-snapshot.md)
 > - [`components/device-snapshot.md`](device-snapshot.md)
 > - [`components/client-snapshot.md`](client-snapshot.md)

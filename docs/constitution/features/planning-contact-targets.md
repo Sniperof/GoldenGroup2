@@ -94,7 +94,7 @@
 - `docs/constitution/features/team-scheduling.md`
 - `docs/constitution/domains/planning.md`
 - `docs/constitution/decisions/DEC-015-layered-planning-curation.md`
-- `docs/constitution/features/marketing-visits.md`
+- `docs/archive/superseded/marketing-visits.md`
 
 ---
 
@@ -305,7 +305,7 @@
 
 **القرار البنيوي:** مساحة العمل تجمع المهام أولاً في حبيبات جهة اتصال، ثم تدمج حالة `contact_target` الموجودة إن وُجدت. قبل التوليد قد لا يوجد صف مادي في `contact_targets`، لذلك لا تكون الواجهة مدفوعة بجدول واحد وحده.
 
-راجع [`plans/2026-06-02-dashboard-refactor.md`](../plans/2026-06-02-dashboard-refactor.md) للخطة الشاملة.
+راجع [`docs/archive/plans/2026-06-02-dashboard-refactor.md`](../../archive/plans/2026-06-02-dashboard-refactor.md) للخطة الشاملة.
 
 ### `PC-G001` — القيد التشغيلي يركّز على وجود المهمة لا على نوعها — ✅ محسوم (DEC-009 / Option A)
 

@@ -1588,7 +1588,7 @@ export interface TrainingCourseDetail extends TrainingCourse {
 }
 
 // Open Task types
-// 11-value lifecycle organized into 4 phases (see docs/analysis/task-model.md §2.2.1)
+// 11-value lifecycle organized into 4 phases (see docs/constitution/domains/task-model.md §2.2.1)
 export type OpenTaskStatus =
   | 'open' | 'needs_follow_up'                              // Phase: قيد الانتظار
   | 'assigned' | 'in_scheduling' | 'scheduled'             // Phase: التخطيط
@@ -1634,7 +1634,7 @@ export type OpenTaskReason =
   | 'device_transfer_same_customer_new_address'
   | 'device_transfer_another_customer';
 
-// Task type configuration (see docs/analysis/task-scheduling-patterns.md)
+// Task type configuration (see docs/constitution/standards/task-scheduling-patterns.md)
 export type TaskSchedulingPattern = 'immediate' | 'short_window' | 'long_window' | 'expected_window';
 export type TaskWindowBasis = 'none' | 'due_date' | 'expected_date';
 /** Which geographic point determines this task's zone in work-scope matching. */

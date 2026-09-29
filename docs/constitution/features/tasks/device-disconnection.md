@@ -1,6 +1,6 @@
 # مهمة فك الجهاز — `device_disconnection`
 
-> **القالب المرجعي:** [`features/unified-task-template.md`](../unified-task-template.md)
+> **القالب المرجعي:** [`templates/unified-task-template.md`](../../templates/unified-task-template.md)
 > **الحالة:** Draft — توثيق مفاهيمي فقط، غير منفذ برمجياً
 > **تاريخ الحسم الأولي:** 2026-06-22
 > **الـ display_group:** `after_sale_services`
@@ -309,7 +309,7 @@
 
 ## مراجع
 
-- [القالب الموحَّد](../unified-task-template.md)
+- [القالب الموحَّد](../../templates/unified-task-template.md)
 - [Unified Device & Contract States](../../contracts/01d-unified-device-contract-states.md)
 - [Device Delivery](./device-delivery.md)
 - [Device Activation](./device-activation.md)

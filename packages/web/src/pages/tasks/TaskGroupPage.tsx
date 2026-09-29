@@ -24,7 +24,7 @@ import BranchScopeIndicator from '../../components/BranchScopeIndicator';
 
 // ============================================================
 // TaskGroupPage — Unified tasks list for all 6 display_groups.
-// Constitution: docs/constitution/features/unified-task-template.md
+// Constitution: docs/constitution/templates/unified-task-template.md
 //
 // The table layout is the canonical base copied from DeviceDemo.tsx
 // (2026-06-01). We unify the other 5 groups onto the same structure

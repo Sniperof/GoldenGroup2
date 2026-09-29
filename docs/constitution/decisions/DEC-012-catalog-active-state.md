@@ -90,7 +90,7 @@
 
 مرجع المرحلة السابعة:
 
-- `docs/analysis/catalog-active-state-legacy-mapping.md`
+- `docs/engineering/runbooks/catalog-active-state-legacy-mapping.md`
 - `scripts/legacy-catalog-active-state-repair.mjs`
 
 الأداة تعمل dry-run افتراضياً ولا تطبق التصحيح إلا مع `--apply`.

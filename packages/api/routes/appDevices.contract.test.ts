@@ -5,7 +5,7 @@ import test from 'node:test';
 
 const root = path.resolve(import.meta.dirname, '..', '..', '..');
 const routeSource = fs.readFileSync(path.join(root, 'packages/api/routes/appDevices.ts'), 'utf8');
-const docsSource = fs.readFileSync(path.join(root, 'docs/api/mobile-devices-api-reference.md'), 'utf8');
+const docsSource = fs.readFileSync(path.join(root, 'docs/engineering/api/mobile-devices-api-reference.md'), 'utf8');
 
 test('mobile device detail is authenticated and ownership-scoped in SQL', () => {
   assert.match(routeSource, /router\.get\('\/me\/devices\/:deviceId', requireAppAuth/);

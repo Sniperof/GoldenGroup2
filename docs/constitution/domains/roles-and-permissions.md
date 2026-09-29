@@ -359,5 +359,5 @@ identity + permission + scope + subject = decision
 - `domains/clients.md` — كيف الإسناد بيشتغل (`client_assignments`)
 - `domains/planning.md` — جدولة الفرق والـ `team_snapshot`
 - `domains/telemarketing.md` — `contact_targets` والنطاق
-- `plans/permissions-view-strategy.md` — خطة العرض والنطاق (ملف منفصل)
+- `features/permissions-view-strategy.md` — خطة العرض والنطاق (ملف منفصل)
 - `decisions/DEC-005-contact-targets-filter.md` — النطاق الجغرافي

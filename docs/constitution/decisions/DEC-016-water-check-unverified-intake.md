@@ -94,7 +94,7 @@
 | `waterCheckHandoffService.ts` | تحويل ذري إلى `device_demo` بأصل `manual_creation` ومصدر `service_request` |
 
 ### 3.3 التوثيق
-مرجع `docs/api/mobile-service-requests-api-reference.md`: القسم 5 يُعاد بناؤه (تسقط حالتا الزائر الموثَّق)، و§5.1 تُحذف قاعدتها الحاكمة، و§4.2 يُعاد على الجهاز، ويُضاف بند سادس في سجلّ الهجرة (§6).
+مرجع `docs/engineering/api/mobile-service-requests-api-reference.md`: القسم 5 يُعاد بناؤه (تسقط حالتا الزائر الموثَّق)، و§5.1 تُحذف قاعدتها الحاكمة، و§4.2 يُعاد على الجهاز، ويُضاف بند سادس في سجلّ الهجرة (§6).
 
 ---
 

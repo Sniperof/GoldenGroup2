@@ -118,7 +118,7 @@ export default function Clients() {
     const [branchOptions, setBranchOptions] = useState<{ id: number; name: string }[]>([]);
 
     // Server-paginated data: `clients` holds ONLY the current page (not the whole
-    // table). Totals/KPIs come from the server. See docs/analysis/clients-records-performance-and-filters.md
+    // table). Totals/KPIs come from the server. See docs/engineering/api/clients-records-performance-and-filters.md
     const [clients, setClients] = useState<Client[]>([]);
     const [total, setTotal] = useState(0);
     const [kpis, setKpis] = useState({ total: 0, leads: 0, fops: 0, ops: 0 });

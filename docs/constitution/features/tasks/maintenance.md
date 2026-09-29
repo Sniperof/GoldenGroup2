@@ -1269,7 +1269,7 @@ derived_outcome = function(لائحة الأعطال على open_task):
 
 ### المحور 11.ب — منظومة الـ 4 مراحل
 
-التنفيذ القائم في [`emergencyResult.ts`](packages/api/routes/emergencyResult.ts) يستخدم 4 مراحل:
+التنفيذ القائم في [`emergencyResult.ts`](../../../../packages/api/routes/emergencyResult.ts) يستخدم 4 مراحل:
 1. `pre-state` → `device_technical_states (phase='pre')`
 2. `actions` → `emergency_maintenance_actions`
 3. `post-state` → `device_technical_states (phase='post')`
@@ -1667,12 +1667,12 @@ EmergencyResultWizard
 
 #### السيناريو في scenarios
 
-تَفصيل سيناريو visit_task wizard في [`maintenance-test-scenarios.md`](./maintenance-test-scenarios.md) قسم **I. Visit Task Wizard**.
+تَفصيل سيناريو visit_task wizard في [`maintenance-test-scenarios.md`](../../../archive/plans/maintenance-test-scenarios.md) قسم **I. Visit Task Wizard**.
 
 ---
 
 ## المراجع
-- [القالب الموحَّد](../unified-task-template.md)
+- [القالب الموحَّد](../../templates/unified-task-template.md)
 - [`features/tasks/device-demo.md`](./device-demo.md) — قالب مرجعي للهيكلة
 - [`domains/tasks.md`](../../domains/tasks.md) — دورة الحياة بـ 11 حالة
 - [`domains/visits.md`](../../domains/visits.md) — V-R005 cascading، V-R006 نتيجة واحدة لكل visit_task، V-R007 attempts chain

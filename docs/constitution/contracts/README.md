@@ -35,10 +35,10 @@
 17. [04-operational-lifecycle.md](./04-operational-lifecycle.md) - إحالة سريعة
 18. [04a-contract-cancellation-matrix.md](./04a-contract-cancellation-matrix.md)
 19. [05-contract-data-map.md](./05-contract-data-map.md)
-20. [06-gaps-and-questions.md](./06-gaps-and-questions.md)
-21. [06a-current-implementation-audit.md](./06a-current-implementation-audit.md)
+20. [contracts-gaps-and-questions.md](../trackers/contracts-gaps-and-questions.md)
+21. [contracts-06a-current-implementation-audit.md](../../archive/analysis/contracts-06a-current-implementation-audit.md)
 22. [06b-printable-sale-definitive-v2-plan.md](./06b-printable-sale-definitive-v2-plan.md)
-23. [07-task-backlog.md](./07-task-backlog.md)
+23. [contracts-task-backlog.md](../trackers/contracts-task-backlog.md)
 24. [08-resolved-decisions.md](./08-resolved-decisions.md)
 
 ## التصنيف البنيوي الحالي
@@ -61,7 +61,7 @@
 - [02c-printable-electronic-contract.md](./02c-printable-electronic-contract.md)
 - [03-financial-obligations.md](./03-financial-obligations.md)
 - [04a-contract-cancellation-matrix.md](./04a-contract-cancellation-matrix.md)
-- [06a-current-implementation-audit.md](./06a-current-implementation-audit.md)
+- [contracts-06a-current-implementation-audit.md](../../archive/analysis/contracts-06a-current-implementation-audit.md)
 - [06b-printable-sale-definitive-v2-plan.md](./06b-printable-sale-definitive-v2-plan.md)
 - [08-resolved-decisions.md](./08-resolved-decisions.md) — مرجع القرارات المحسومة (DEC-CT-XX)
 
@@ -72,14 +72,14 @@
 - [01a-device-user-stories.md](./01a-device-user-stories.md)
 - [01b-device-entry-scenarios.md](./01b-device-entry-scenarios.md)
 - [01c-contract-device-boundary-scenarios.md](./01c-contract-device-boundary-scenarios.md)
-- [06-gaps-and-questions.md](./06-gaps-and-questions.md)
+- [contracts-gaps-and-questions.md](../trackers/contracts-gaps-and-questions.md)
 
 ### 3. الملفات التنفيذية / التنظيمية
 
 هذه الملفات تنظّم العمل أو تلخصه، لكنها ليست مرجع تعريف مفهومي بحد ذاتها:
 
 - [05-contract-data-map.md](./05-contract-data-map.md)
-- [07-task-backlog.md](./07-task-backlog.md)
+- [contracts-task-backlog.md](../trackers/contracts-task-backlog.md)
 
 ### 4. الملفات الإحالية
 
@@ -107,7 +107,7 @@
   - ملف مفيد، لكنه قصير جداً حالياً، ويجب أن يعامل كإحالة سريعة أو ملخص، لا كمصدر الحقيقة الأول.
 - [05-contract-data-map.md](./05-contract-data-map.md)
   - يصلح كخريطة تنقل أو فهرس حقول، لا كوثيقة قرار مفهومي مستقلة.
-- [06-gaps-and-questions.md](./06-gaps-and-questions.md)
+- [contracts-gaps-and-questions.md](../trackers/contracts-gaps-and-questions.md)
   - يجب أن يبقى مؤقتاً فقط ما دامت هناك أسئلة مفتوحة، ثم يصغر تدريجياً مع حسمها.
 
 ### ما تم دمجه فعلاً
@@ -149,5 +149,5 @@
 - [installed devices domain](../domains/installed-devices.md)
 - [field visits domain](../domains/field-visits.md)
 - [contract ownership decision](../decisions/DEC-002-contract-ownership-from-task.md)
-- [visit lifecycle contract](../../visit-lifecycle-contract.md)
+- [visit lifecycle contract](../../archive/superseded/visit-lifecycle-contract.md)
 - [contracts API route](../../../packages/api/routes/contracts.ts)

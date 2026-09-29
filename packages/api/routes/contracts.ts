@@ -640,7 +640,7 @@ router.get('/paged', requirePermission('contracts.view_list'), async (req, res) 
       conditions.push(`c.payment_type = $${params.length}`);
     }
 
-    // ── Enriched filter catalog (docs/analysis/contracts-records-performance-filters-and-stats.md §3) ──
+    // ── Enriched filter catalog (docs/engineering/api/contracts-records-performance-filters-and-stats.md §3) ──
     const saleType = typeof req.query.saleType === 'string' ? req.query.saleType.trim() : '';
     if (['tradein', 'retention', 'direct'].includes(saleType)) {
       params.push(saleType);

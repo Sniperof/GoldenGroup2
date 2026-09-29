@@ -5,7 +5,7 @@ import test from 'node:test';
 const publicForm = readFileSync(new URL('./PublicJobs.tsx', import.meta.url), 'utf8');
 const manualForm = readFileSync(new URL('./ManualApplicationEntry.tsx', import.meta.url), 'utf8');
 const applicationsConstitution = readFileSync(
-  new URL('../../../../../docs/constitution/features/Jobs & Recruitment Features/applications.md', import.meta.url),
+  new URL('../../../../../docs/constitution/features/jobs/applications.md', import.meta.url),
   'utf8',
 );
 
