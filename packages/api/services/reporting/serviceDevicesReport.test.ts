@@ -3,8 +3,9 @@ import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { ReportingError } from './reportingError.js';
 import { buildServiceDevicesQuery } from './serviceDevicesReport.js';
+import type { TabularReportAccess } from './tabularReportAccess.js';
 
-const globalAccess = { scope: 'GLOBAL', grantedScope: 'GLOBAL', branchIds: [], userId: 1 } as const;
+const globalAccess: TabularReportAccess = { scope: 'GLOBAL', grantedScope: 'GLOBAL', branchIds: [], userId: 1 };
 
 test('service device report keeps one installed device as its row grain', () => {
   const query = buildServiceDevicesQuery(globalAccess, {}, { limit: 50 });

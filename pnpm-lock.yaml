@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  '@types/node': 25.5.2
+
 importers:
 
   .:
@@ -1088,9 +1091,6 @@ packages:
 
   '@types/multer@2.1.0':
     resolution: {integrity: sha512-zYZb0+nJhOHtPpGDb3vqPjwpdeGlGC157VpkqNQL+UU2qwoacoQ7MpsAmUptI/0Oa127X32JzWDqQVEXp2RcIA==}
-
-  '@types/node@14.18.63':
-    resolution: {integrity: sha512-fAtCfv4jJg+ExtXhvCkCqUKZ+4ok/JQk01qDKhL5BDDoS3AxKXhV5/MAVUZyQnSEd2GT92fkgZl0pz0Q0AzcIQ==}
 
   '@types/node@25.5.2':
     resolution: {integrity: sha512-tO4ZIRKNC+MDWV4qKVZe3Ql/woTnmHDr5JD8UI5hn2pwBrHEwOEMZK7WlNb5RKB6EoJ02gwmQS9OrjuFnZYdpg==}
@@ -2435,7 +2435,7 @@ packages:
     engines: {node: ^18.0.0 || ^20.0.0 || >=22.0.0}
     hasBin: true
     peerDependencies:
-      '@types/node': ^18.0.0 || ^20.0.0 || >=22.0.0
+      '@types/node': 25.5.2
       jiti: '>=1.21.0'
       less: '*'
       lightningcss: ^1.21.0
@@ -2831,7 +2831,7 @@ snapshots:
 
   '@fast-csv/format@4.3.5':
     dependencies:
-      '@types/node': 14.18.63
+      '@types/node': 25.5.2
       lodash.escaperegexp: 4.1.2
       lodash.isboolean: 3.0.3
       lodash.isequal: 4.5.0
@@ -2840,7 +2840,7 @@ snapshots:
 
   '@fast-csv/parse@4.3.6':
     dependencies:
-      '@types/node': 14.18.63
+      '@types/node': 25.5.2
       lodash.escaperegexp: 4.1.2
       lodash.groupby: 4.6.0
       lodash.isfunction: 3.0.9
@@ -3208,8 +3208,6 @@ snapshots:
   '@types/multer@2.1.0':
     dependencies:
       '@types/express': 5.0.6
-
-  '@types/node@14.18.63': {}
 
   '@types/node@25.5.2':
     dependencies:
