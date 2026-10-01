@@ -26,9 +26,7 @@ import BranchScopeIndicator from '../../components/BranchScopeIndicator';
 // TaskGroupPage — Unified tasks list for all 6 display_groups.
 // Constitution: docs/constitution/templates/unified-task-template.md
 //
-// The table layout is the canonical base copied from DeviceDemo.tsx
-// (2026-06-01). We unify the other 5 groups onto the same structure
-// by group-aware API wiring in a follow-up step.
+// One table layout shared by every task group, with group-aware API wiring.
 // ============================================================
 
 type GroupKey =
@@ -168,8 +166,7 @@ const TASK_TYPE_DETAIL_HREF: Record<string, string> = Object.values(GROUP_CONFIG
   }, {} as Record<string, string>);
 
 // ============================================================
-// Display helpers — copied verbatim from DeviceDemo.tsx so the
-// unified table matches the existing operational look exactly.
+// Display helpers for the unified task table.
 // ============================================================
 
 const PRIORITY_LABELS: Record<string, string> = {
