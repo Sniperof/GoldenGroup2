@@ -29,6 +29,6 @@ test('clear action empties all editable contact-link fields', () => {
 
 test('admin route and navigation entry are wired to the view capability', () => {
   assert.match(app, /path="\/admin\/app-contact-links" element=\{<AppContactLinks \/>\}/);
-  assert.match(layout, /canAccessAdminSurface\('admin\.app_contact_links\.view'\)/);
-  assert.match(layout, /to="\/admin\/app-contact-links"/);
+  // The drawer is data-driven: the nav entry is gated by the view capability.
+  assert.match(layout, /canAccessAdminSurface\('admin\.app_contact_links\.view'\) \? \[\{ path: '\/admin\/app-contact-links'/);
 });
