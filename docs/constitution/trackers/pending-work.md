@@ -7,7 +7,7 @@
 
 ### 🔴 توحيد Mini ClientSnapshot عبر المشروع
 
-> **الحالة:** ⏳ لم يُنفّذ | **الملف:** [archive/prompts/TASK_UNIFY_MINI_CLIENT_SNAPSHOT.md](../../archive/prompts/TASK_UNIFY_MINI_CLIENT_SNAPSHOT.md) | **البرومptz:** [archive/prompts/TASK_UNIFY_MINI_CLIENT_SNAPSHOT_PROMPT.md](../../archive/prompts/TASK_UNIFY_MINI_CLIENT_SNAPSHOT_PROMPT.md)
+> **الحالة:** ⏳ لم يُنفّذ | **الملف:** `docs/archive/prompts/TASK_UNIFY_MINI_CLIENT_SNAPSHOT.md` (نسخة محلية) | **البرومptz:** `docs/archive/prompts/TASK_UNIFY_MINI_CLIENT_SNAPSHOT_PROMPT.md` (نسخة محلية)
 
 **الهدف:** تطبيق Mini ClientSnapshot الموحّد على كل الأماكن يلي بيعرضو بيانات الزبون بشكل مختصر.
 
@@ -25,7 +25,7 @@
 
 ### 🟠 بيانات الأسماء المقترحة ولوائح الأسماء
 
-> **الحالة:** ⏳ لم يُنفّذ | **الملف:** [archive/prompts/TASK_NAME_COLLECTIONS_REFERRAL_SHEETS.md](../../archive/prompts/TASK_NAME_COLLECTIONS_REFERRAL_SHEETS.md) | **البرومptz:** [archive/prompts/TASK_NAME_COLLECTIONS_REFERRAL_SHEETS_PROMPT.md](../../archive/prompts/TASK_NAME_COLLECTIONS_REFERRAL_SHEETS_PROMPT.md)
+> **الحالة:** ⏳ لم يُنفّذ | **الملف:** `docs/archive/prompts/TASK_NAME_COLLECTIONS_REFERRAL_SHEETS.md` (نسخة محلية) | **البرومptz:** `docs/archive/prompts/TASK_NAME_COLLECTIONS_REFERRAL_SHEETS_PROMPT.md` (نسخة محلية)
 
 **الهدف:** تحسين تجربة جمع الأسماء (Name Collections) والترشيحات المباشرة (Direct Suggestions) ولوائح الأسماء (Referral Sheets) بحيث كل اسم مقترح يصير له MiniClientSnapshot.
 

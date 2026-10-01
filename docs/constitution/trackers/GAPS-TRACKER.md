@@ -3,7 +3,7 @@
 > **الهدف:** نسجّل كل ثغرة أو تضارب أو قصور نكتشفو — ونحدد مين المسؤول عن حلو.
 > **القاعدة:** أي ثغرة بدون رقم (GAP-XXX) = ما موجودة. لازم كل ثغرة تاخد رقم وتحط هون.
 >
-> **آخر مزامنة:** 2026-06-10 — بعد جلسة تنظيف legacy + هجرة telemarketing_appointments Phase 0-2. راجع [`../../archive/handoffs/2026-06-10-legacy-cleanup-handoff.md`](../../archive/handoffs/2026-06-10-legacy-cleanup-handoff.md).
+> **آخر مزامنة:** 2026-06-10 — بعد جلسة تنظيف legacy + هجرة telemarketing_appointments Phase 0-2. راجع `docs/archive/handoffs/2026-06-10-legacy-cleanup-handoff.md` (نسخة محلية).
 > **سابقاً:** 2026-06-01 — تنفيذ DEC-003→DEC-007 (Phases 0-8). راجع [`../../archive/plans/2026-06-01-implementation-status.md`](../../archive/plans/2026-06-01-implementation-status.md).
 
 ---
@@ -938,7 +938,7 @@ if (neighborhood) {
 | **التأثير** | لا أثر runtime — الجداول معزولة. لكن noise وثائقي + قابلية حدوث writes غير متوقعة لو كود خارجي ضرب الـ DB مباشرة. |
 | **الحل المقترح** | بعد 2026-06-24 (14 يوم staging soak): migration 271 يَسقط الجدولين + 4 صلاحيات `tasks.view_list/create/edit/delete`. **لا تَحذف** `tasks.activation.*` و `tasks.delivery.*` و `tasks.installation.*` و `marketing_visits.*` — هذه مُستخدَمة من open_tasks و emergencyResult.ts. كذلك حذف `routes/tasks.ts` و `routes/visits.ts` من القرص. |
 | **الحالة** | ⏰ مؤجَّل — مجدول لـ 2026-06-24 |
-| **ملف الدستور** | [CROSS-REFERENCE.md §6.2](CROSS-REFERENCE.md) + [handoff 2026-06-10](../../archive/handoffs/2026-06-10-legacy-cleanup-handoff.md) §4 |
+| **ملف الدستور** | [CROSS-REFERENCE.md §6.2](CROSS-REFERENCE.md) + `docs/archive/handoffs/2026-06-10-legacy-cleanup-handoff.md` (نسخة محلية) §4 |
 
 ### GAP-076: DROP `visit_name_collections` بعد soak ⏰ مؤجَّل مجدول
 
@@ -949,7 +949,7 @@ if (neighborhood) {
 | **الوصف** | DEC-007 D40/D41 استبدلت هذا الـ workflow بـ `referral_sheets`. تنظيف 2026-06-10 (commit `dc1b2f6`) أزال الـ frontend modal + الـ wrappers + الـ handler bodies. |
 | **الحل المقترح** | بعد 2026-06-24: migration 272 يَسقط الجدول. الـ 3 stubs يمكن إبقاؤها (تعطي 410 واضح لأي caller منسي) أو حذفها. |
 | **الحالة** | ⏰ مؤجَّل — مجدول لـ 2026-06-24 |
-| **ملف الدستور** | [CROSS-REFERENCE.md §6.2](CROSS-REFERENCE.md) + [handoff 2026-06-10](../../archive/handoffs/2026-06-10-legacy-cleanup-handoff.md) §4 |
+| **ملف الدستور** | [CROSS-REFERENCE.md §6.2](CROSS-REFERENCE.md) + `docs/archive/handoffs/2026-06-10-legacy-cleanup-handoff.md` (نسخة محلية) §4 |
 
 ### GAP-077: تجميد ثم DROP `telemarketing_appointments` ⏰ مؤجَّل مجدول
 
@@ -961,7 +961,7 @@ if (neighborhood) {
 | **التأثير** | لا أثر — الجدول معزول. |
 | **الحل المقترح** | **Phase 4 (2026-06-24):** migration 273 يضع trigger يرفض INSERT/UPDATE/DELETE + COMMENT. **Phase 5 (2026-07-24):** migration 274 يَسقط الجدول بعد `pg_dump --table` لأرشيف خارجي (S3 أو مجلد منفصل عن الـ repo). |
 | **الحالة** | ⏰ مؤجَّل — Phase 4 لـ 2026-06-24، Phase 5 لـ 2026-07-24 |
-| **ملف الدستور** | [`../../archive/plans/2026-06-10-telemarketing-appointments-migration.md`](../../archive/plans/2026-06-10-telemarketing-appointments-migration.md) + [handoff 2026-06-10](../../archive/handoffs/2026-06-10-legacy-cleanup-handoff.md) §4 |
+| **ملف الدستور** | [`../../archive/plans/2026-06-10-telemarketing-appointments-migration.md`](../../archive/plans/2026-06-10-telemarketing-appointments-migration.md) + `docs/archive/handoffs/2026-06-10-legacy-cleanup-handoff.md` (نسخة محلية) §4 |
 
 ### GAP-078: مراقبة Soak window للجداول الـ legacy ⏰ متكرر
 
@@ -972,7 +972,7 @@ if (neighborhood) {
 | **الوصف** | 4 جداول legacy في soak window حتى 2026-06-24. أي زيادة في `n_tup_ins/upd/del` أو في `idx_scan` تكشف مرجعاً مفقوداً في الكود لم نُحدِّثه. |
 | **الحل المقترح** | تشغيل استعلام المراقبة الموثَّق في handoff 2026-06-10 §4 مرة في الأسبوع. باقي مرتين قبل GAP-075/076/077 يمكن execution. |
 | **الحالة** | ⏰ نشط — مراقبة دورية |
-| **ملف الدستور** | [handoff 2026-06-10](../../archive/handoffs/2026-06-10-legacy-cleanup-handoff.md) §4 |
+| **ملف الدستور** | `docs/archive/handoffs/2026-06-10-legacy-cleanup-handoff.md` (نسخة محلية) §4 |
 
 ---
 

@@ -471,7 +471,7 @@ erDiagram
 
 ## 6. الجداول اللي لساتون Legacy أو Deprecated
 
-> **آخر مزامنة: 2026-06-10** — راجع [`../../archive/handoffs/2026-06-10-legacy-cleanup-handoff.md`](../../archive/handoffs/2026-06-10-legacy-cleanup-handoff.md) لتفاصيل التنفيذ.
+> **آخر مزامنة: 2026-06-10** — راجع `docs/archive/handoffs/2026-06-10-legacy-cleanup-handoff.md` (نسخة محلية) لتفاصيل التنفيذ.
 
 | الجدول | البديل | الحالة الحالية | الخطوة التالية |
 |---|---|---|---|
