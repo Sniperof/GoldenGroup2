@@ -78,3 +78,19 @@ prompts/
 *.inspect.ndjson
 *.bak
 *.bak-*
+
+# AI assistant instructions, prompts & session artifacts — local only, never in git/server
+/CLAUDE.md
+CLAUDE.local.md
+/AGENTS.md
+.cursor/
+.gemini/
+.aider*
+.copilot/
+.windsurf/
+docs/_reorg/
+docs/archive/prompts/
+docs/archive/hermes/
+docs/archive/sessions/
+docs/archive/handoffs/*
+!docs/archive/handoffs/APP-NOTIFICATIONS-MOBILE-HANDOFF.md
