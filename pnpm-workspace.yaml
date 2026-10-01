@@ -1,2 +1,7 @@
 packages:
   - 'packages/*'
+
+overrides:
+  # exceljs -> fast-csv pulls @types/node@14, whose globals collide with the
+  # modern set. Pin one version, matching the production Node major (.nvmrc).
+  '@types/node': 22.20.4

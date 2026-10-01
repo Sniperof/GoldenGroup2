@@ -2,14 +2,19 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev, prod]
   pull_request:
-    branches: [main]
+    branches: [main, dev, prod]
   workflow_dispatch:
+
+# A newer push to the same branch/PR cancels the run still in progress.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   ci:
-    name: Build & Typecheck
+    name: Build, Typecheck & Test
     runs-on: ubuntu-latest
 
     steps:
@@ -22,7 +27,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version-file: '.nvmrc'
           cache: 'pnpm'
 
       - name: Install dependencies
@@ -36,3 +41,11 @@ jobs:
 
       - name: Typecheck (api)
         run: pnpm typecheck:api
+
+      # No database in CI: integration tests are excluded by the runner and
+      # DB-touching unit tests skip themselves when DATABASE_URL is unset.
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Docs links
+        run: pnpm docs:check
