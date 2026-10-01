@@ -35,7 +35,7 @@ test('branch and assigned scope are applied to the contract before any detail jo
 
 test('every one-to-many source is reduced to one row so the contract grain survives', () => {
   const { sql } = sqlFor();
-  for (const lateral of ['device', 'sale_visit', 'installation', 'mediator', 'mediator_contact', 'contact', 'closing_task']) {
+  for (const lateral of ['device', 'sale_visit', 'installation', 'mediator', 'mediator_contact']) {
     assert.match(sql, new RegExp(`LEFT JOIN LATERAL \\([\\s\\S]*?\\) ${lateral} ON TRUE`));
   }
   // The device is a LATERAL rather than a plain join: a contract carrying two device
@@ -56,13 +56,20 @@ test('sorting accepts a catalogue column and refuses anything else', () => {
 test('the outcome column and its filter read the same expression', () => {
   const { sql } = sqlFor();
   assert.match(sql, /WHEN contract\.temporary_settled_at IS NOT NULL THEN 'settled'/);
-  assert.match(sql, /WHEN 'settled' THEN 'تثبيت'/);
-  assert.match(sql, /WHEN 'discarded' THEN 'مُهمَل'/);
+  assert.match(sql, /WHEN 'settled' THEN 'تم تثبيت البيعة'/);
+  assert.match(sql, /WHEN 'refused' THEN 'تم الرفض'/);
+  assert.match(sql, /contract\.cancellation_reason = 'trial_purchase_refused'/);
+  assert.match(sql, /WHEN contract\.status IN \('draft', 'active'\) THEN 'open'/);
+  assert.match(sql, /ELSE 'غير مسجلة'/);
+  assert.doesNotMatch(sql, /WHEN contract\.status = 'cancelled' THEN 'refused'/);
+  assert.doesNotMatch(sql, /WHEN contract\.status = 'discarded' THEN 'refused'/);
 
-  for (const outcome of ['settled', 'cancelled', 'open', 'discarded']) {
+  for (const outcome of ['settled', 'refused', 'open', 'unknown']) {
     assert.match(sqlFor({ trialOutcome: outcome }).sql, /CASE\s*\n?\s*WHEN contract\.temporary_settled_at IS NOT NULL/);
   }
   assert.throws(() => sqlFor({ trialOutcome: 'returned' }), /نتيجة التجربة غير صالحة/);
+  assert.throws(() => sqlFor({ trialOutcome: 'cancelled' }), /نتيجة التجربة غير صالحة/);
+  assert.throws(() => sqlFor({ trialOutcome: 'discarded' }), /نتيجة التجربة غير صالحة/);
 });
 
 test('the grace deadline is read from the admin setting, never from a hard-coded period', () => {
@@ -80,30 +87,11 @@ test('the grace filter reads the same deadline the column shows', () => {
   assert.throws(() => sqlFor({ trialGraceState: 'soon' }), /حالة المهلة غير صالحة/);
 });
 
-test('the closing block comes from the trial-return retrieval task alone', () => {
-  const { sql } = sqlFor();
-  assert.match(sql, /closing_task\.task_type = 'device_retrieval'/);
-  assert.match(sql, /closing_task\.retrieval_purpose = 'trial_return'/);
-  // Settling creates no task at all, so the label explains the blank instead of
-  // leaving five of ten rows silently empty.
-  assert.match(sql, /THEN 'تسوية في المكان — بلا مهمة'/);
-  assert.match(sql, /closing_task\.trainee_name AS "closingTraineeName"/);
-});
 
-test('the contact columns come from a call linked to one of the contract tasks', () => {
-  const { sql } = sqlFor();
-  assert.match(sql, /FROM call_task_links link/);
-  assert.match(sql, /linked_task\.contract_id = contract\.id/);
-  assert.match(sql, /ORDER BY link\.is_primary DESC, call_log\.call_date DESC NULLS LAST/);
-  // DEC-TC-5: not «the newest call to the customer» — one trial carries seven.
-  assert.doesNotMatch(sql, /call_log\.customer_id = client\.id/);
-});
 
-test('the appointment source translates the raw system code and passes list values through', () => {
-  const { sql } = sqlFor();
-  assert.match(sql, /BTRIM\(contract\.sale_source\) = 'device_demo_task' THEN 'مهمة عرض جهاز'/);
-  assert.match(sql, /ELSE BTRIM\(contract\.sale_source\)/);
-});
+
+
+
 
 test('the mediator is read from the contract snapshot, and its phone is resolved by identity', () => {
   const { sql } = sqlFor();
@@ -121,24 +109,26 @@ test('the team filters read the installation visit the columns display', () => {
 test('date filters are validated and bound, never interpolated', () => {
   const { sql, params } = sqlFor({
     installationFrom: '2026-08-01', installationTo: '2026-09-30',
-    closingAppointmentFrom: '2026-09-01', closingAppointmentTo: '2026-09-30',
   });
   assert.match(sql, /device\.installation_date >= \$\d+::date/);
-  assert.match(sql, /closing_task\.appointment_date <= \$\d+::date/);
   assert.ok(params.includes('2026-08-01') && params.includes('2026-09-30'));
 
   assert.throws(() => sqlFor({ installationFrom: '2026-13-01' }), /غير صالح/);
+  assert.throws(() => sqlFor({ installationFrom: '2026-02-30' }), /غير صالح/);
   assert.throws(() => sqlFor({ installationFrom: '2026-09-30', installationTo: '2026-09-01' }), /يجب ألا تكون بعد نهايته/);
 });
 
 test('the catalogue entry carries the agreed contract and every column it selects', () => {
   const definition = findTabularReport('daily_work.temporary_contract');
   assert.ok(definition, 'the report must be registered in the catalogue');
-  assert.equal(definition.groupKey, 'daily_work');
+  assert.equal(definition.groupKey, 'service');
+  assert.equal(definition.titleAr, 'العقود المؤقتة');
   assert.deepEqual(definition.supportedScopes, ['GLOBAL', 'BRANCH', 'ASSIGNED']);
   assert.equal(definition.filters.dateRange, 'none');
   assert.equal(definition.rowIsBranch, true);
-  assert.equal(definition.columns.length, 28);
+  assert.equal(definition.columns.length, 19);
+  assert.equal(definition.columns[0].key, 'branchName');
+  assert.equal(definition.columns.some(column => column.key === 'contractNumber'), false);
 
   const globalColumns = columnsForGrantedScope(definition, 'GLOBAL');
   assert.equal(globalColumns.filter(column => column.key === 'branchName').length, 1);
@@ -148,6 +138,20 @@ test('the catalogue entry carries the agreed contract and every column it select
     assert.match(sql, new RegExp(`AS "${column.key}"`), `column ${column.key} is not selected`);
     assert.ok(definition.guide.columnDescriptions[column.key], `column ${column.key} has no guide text`);
   }
+});
+
+test('installation team comes from successful execution, not a merely scheduled visit', () => {
+  const { sql } = sqlFor();
+  assert.match(sql, /JOIN visit_task_results installation_result/);
+  assert.match(sql, /installation_result\.final_decision = 'installed_successfully'/);
+});
+
+test('the customer-refusal reason is explicit, idempotent, and does not rewrite old contracts', () => {
+  const migration = readFileSync('migrations/470_trial_purchase_refusal_reason.sql', 'utf8');
+  assert.match(migration, /contract_cancellation_reasons/);
+  assert.match(migration, /trial_purchase_refused/);
+  assert.match(migration, /WHERE NOT EXISTS/);
+  assert.doesNotMatch(migration, /UPDATE\s+(?:public\.)?contracts/i);
 });
 
 test('the migration registers both capabilities and seeds the grace period the business set', () => {
@@ -161,4 +165,30 @@ test('the migration registers both capabilities and seeds the grace period the b
 
   assert.match(migration, new RegExp(`'${TRIAL_GRACE_SETTING_KEY}', '30'`));
   assert.match(migration, /permission\.key = 'contracts\.view_list'/);
+});
+
+
+test('the revised report uses the contract owner address and omits all removed event columns', () => {
+  const { sql } = sqlFor();
+  assert.match(sql, /client\.detailed_address/);
+  assert.doesNotMatch(sql, /call_task_links|closing_task|contactEmployeeName|closingAppointmentDate/);
+  assert.match(sql, /contract\.sale_source/);
+  assert.match(sql, /THEN 'مهمة عرض جهاز'/);
+  assert.doesNotMatch(sql, /source_task_type/);
+});
+
+test('selling technician must be the responsible user of the source visit', () => {
+  const { sql } = sqlFor();
+  assert.match(sql, /responsible\.id = visit\.team_responsible_user_id/);
+  assert.match(sql, /responsible\.employee_id = COALESCE\(visit\.reassigned_technician_id/);
+  assert.match(sql, /visit\.id = COALESCE\(contract\.source_visit_id/);
+});
+
+test('installation options use the same successful event and device selector as the displayed row', () => {
+  const source = readFileSync('packages/api/services/reporting/temporaryContractReport.ts', 'utf8');
+  const options = source.slice(source.indexOf('export async function getTemporaryContractFilterOptions'));
+  assert.match(options, /INSTALLATION_LATERAL_SQL/);
+  assert.match(options, /DEVICE_LATERAL_SQL/);
+  assert.match(options, /DEVICE_MODEL_NAME_SQL/);
+  assert.throws(() => sqlFor({mediatorType: 'Personal'}), /تصنيف الوسيط غير صالح/);
 });

@@ -34,6 +34,7 @@ export interface TabularReportFilterOptions {
   jobTitles: TabularReportFilterOption[];
   taskResults: TabularReportFilterOption[];
   cancellationReasons: TabularReportFilterOption[];
+  escalationTypes: TabularReportFilterOption[];
 }
 
 function options(value: unknown): TabularReportFilterOption[] {
@@ -78,5 +79,6 @@ export function completeTabularReportFilterOptions(
     jobTitles: options(value?.jobTitles),
     taskResults: options(value?.taskResults),
     cancellationReasons: options(value?.cancellationReasons),
+    escalationTypes: options(value?.escalationTypes),
   };
 }

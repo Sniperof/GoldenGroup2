@@ -150,7 +150,7 @@ const EMPTY_FILTER_OPTIONS: ReportFilterOptions = {
   collectionOwners: [], saleClosers: [],
   faultTypes: [], repairTechnicians: [], retrievalTechnicians: [], retrievedDeviceStatuses: [],
   giftDefinitions: [], originBranches: [], routes: [], departments: [], jobTitles: [],
-  taskResults: [], cancellationReasons: [],
+  taskResults: [], cancellationReasons: [], escalationTypes: [],
 };
 
 /**
@@ -191,6 +191,12 @@ const VISIT_ORIGIN_OPTIONS = [
   { value: 'expected_followup', label: 'متابعة متوقعة' },
 ];
 
+const ESCALATION_STATE_OPTIONS = [
+  { value: 'all', label: 'كل الحالات' },
+  { value: 'open', label: 'مفتوحة' },
+  { value: 'closed', label: 'منتهية' },
+];
+
 const EMPLOYMENT_STATUS_OPTIONS = [
   { value: 'all', label: 'كل حالات الخدمة' },
   { value: 'active', label: 'على رأس العمل' },
@@ -218,11 +224,11 @@ const CARD_DELIVERY_RESULT_OPTIONS = [
 ];
 
 const TRIAL_OUTCOME_OPTIONS = [
-  { value: 'all', label: 'كل المصائر' },
-  { value: 'settled', label: 'تثبيت' },
-  { value: 'cancelled', label: 'إلغاء' },
-  { value: 'open', label: 'لم يُحسم' },
-  { value: 'discarded', label: 'مُهمَل' },
+  { value: 'all', label: 'كل النتائج' },
+  { value: 'settled', label: 'تم تثبيت البيعة' },
+  { value: 'refused', label: 'تم الرفض' },
+  { value: 'open', label: 'لم تتم بعد' },
+  { value: 'unknown', label: 'غير مسجلة' },
 ];
 
 const TRIAL_GRACE_STATE_OPTIONS = [
@@ -241,6 +247,13 @@ const WARRANTY_PARTS_PRESENCE_OPTIONS = [
 const TECHNICIAN_ACTIVITY_OPTIONS = [
   { value: 'all', label: 'كل الفنيين' },
   { value: 'with_work', label: 'له عمل منفذ في المدة' },
+  { value: 'without_work', label: 'بلا عمل منفذ في المدة' },
+];
+
+// The same work-presence filter, worded for the supervisor work report's rows.
+const SUPERVISOR_ACTIVITY_OPTIONS = [
+  { value: 'all', label: 'كل المشرفات' },
+  { value: 'with_work', label: 'لها عمل منفذ في المدة' },
   { value: 'without_work', label: 'بلا عمل منفذ في المدة' },
 ];
 
@@ -657,6 +670,8 @@ export default function Reports() {
         taskResult: selectedReport.filters.taskResult && specificFilters.taskResult && specificFilters.taskResult !== 'all' ? specificFilters.taskResult : undefined,
         cancellationReasonId: selectedReport.filters.cancellationReason && specificFilters.cancellationReasonId && specificFilters.cancellationReasonId !== 'all' ? Number(specificFilters.cancellationReasonId) : undefined,
         visitOrigin: selectedReport.filters.visitOrigin && specificFilters.visitOrigin && specificFilters.visitOrigin !== 'all' ? specificFilters.visitOrigin : undefined,
+        escalationType: selectedReport.filters.escalationType && specificFilters.escalationType && specificFilters.escalationType !== 'all' ? specificFilters.escalationType : undefined,
+        escalationState: selectedReport.filters.escalationState && specificFilters.escalationState && specificFilters.escalationState !== 'all' ? specificFilters.escalationState : undefined,
         activationRecord: selectedReport.filters.activationRecord && specificFilters.activationRecord && specificFilters.activationRecord !== 'all' ? specificFilters.activationRecord : undefined,
         contractScope: selectedReport.filters.contractScope && specificFilters.contractScope && specificFilters.contractScope !== 'all' ? specificFilters.contractScope : undefined,
         cardDeliveryResult: selectedReport.filters.cardDeliveryResult && specificFilters.cardDeliveryResult && specificFilters.cardDeliveryResult !== 'all' ? specificFilters.cardDeliveryResult : undefined,
@@ -751,7 +766,7 @@ export default function Reports() {
               {selectedReport.filters.department && <SelectFilter label="القسم" value={specificFilters.departmentId ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, departmentId: value }))} options={[{ value: 'all', label: 'كل الأقسام' }, ...filterOptions.departments]} />}
               {selectedReport.filters.jobTitle && <SelectFilter label="الصفة الوظيفية" value={specificFilters.jobTitle ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, jobTitle: value }))} options={[{ value: 'all', label: 'كل الصفات' }, ...filterOptions.jobTitles]} />}
               {selectedReport.filters.employmentStatus && <SelectFilter label="حالة الخدمة" value={specificFilters.employmentStatus ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, employmentStatus: value }))} options={EMPLOYMENT_STATUS_OPTIONS} />}
-              {selectedReport.filters.technicianActivity && <SelectFilter label="حالة العمل" value={specificFilters.technicianActivity ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, technicianActivity: value }))} options={TECHNICIAN_ACTIVITY_OPTIONS} />}
+              {selectedReport.filters.technicianActivity && <SelectFilter label="حالة العمل" value={specificFilters.technicianActivity ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, technicianActivity: value }))} options={selectedKey === 'performance.supervisor_work' ? SUPERVISOR_ACTIVITY_OPTIONS : TECHNICIAN_ACTIVITY_OPTIONS} />}
               {selectedReport.filters.callBookingPresence && <SelectFilter label="نتيجة الحجز" value={specificFilters.callBookingPresence ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, callBookingPresence: value }))} options={CALL_BOOKING_PRESENCE_OPTIONS} />}
               {selectedReport.filters.receivableSourceType && <SelectFilter label="نوع مصدر الاستحقاق" value={specificFilters.receivableSourceType ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, receivableSourceType: value }))} options={RECEIVABLE_SOURCE_TYPE_OPTIONS} />}
               {selectedReport.filters.collectionAppointmentPresence && <SelectFilter label="موعد التحصيل" value={specificFilters.collectionAppointmentPresence ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, collectionAppointmentPresence: value }))} options={COLLECTION_APPOINTMENT_PRESENCE_OPTIONS} />}
@@ -764,6 +779,8 @@ export default function Reports() {
               {selectedReport.filters.cardDeliveryResult && <SelectFilter label="نتيجة تسليم كرت الكفالة" value={specificFilters.cardDeliveryResult ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, cardDeliveryResult: value }))} options={CARD_DELIVERY_RESULT_OPTIONS} />}
               {selectedReport.filters.warrantyPartsPresence && <SelectFilter label="القطع المبدلة ضمن المدة" value={specificFilters.warrantyPartsPresence ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, warrantyPartsPresence: value }))} options={WARRANTY_PARTS_PRESENCE_OPTIONS} />}
               {selectedReport.filters.visitOrigin && <SelectFilter label="مصدر الزيارة" value={specificFilters.visitOrigin ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, visitOrigin: value }))} options={VISIT_ORIGIN_OPTIONS} />}
+              {selectedReport.filters.escalationType && <SelectFilter label="نوع التصعيد" value={specificFilters.escalationType ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, escalationType: value }))} options={[{ value: 'all', label: 'كل أنواع التصعيد' }, ...filterOptions.escalationTypes]} />}
+              {selectedReport.filters.escalationState && <SelectFilter label="حالة التصعيد" value={specificFilters.escalationState ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, escalationState: value }))} options={ESCALATION_STATE_OPTIONS} />}
               {selectedReport.filters.giftDefinition && <SelectFilter label="نوع الهدية" value={specificFilters.giftDefinitionId ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, giftDefinitionId: value }))} options={[{ value: 'all', label: 'كل أنواع الهدايا' }, ...filterOptions.giftDefinitions]} />}
               {selectedReport.filters.giftConditionStatus && <SelectFilter label="حالة الاستحقاق" value={specificFilters.giftConditionStatus ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, giftConditionStatus: value }))} options={GIFT_CONDITION_STATUS_OPTIONS} />}
               {selectedReport.filters.giftDeliveryResult && <SelectFilter label="نتيجة تسليم الهدية" value={specificFilters.giftDeliveryResult ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, giftDeliveryResult: value }))} options={GIFT_DELIVERY_RESULT_OPTIONS} />}
@@ -776,8 +793,8 @@ export default function Reports() {
               </div>)}
               {selectedReport.filters.deviceModel && <SelectFilter label="نوع الجهاز" value={deviceModelFilter} onChange={setDeviceModelFilter} options={[{ value: 'all', label: 'كل أنواع الأجهزة' }, ...filterOptions.deviceModels]} />}
               {selectedReport.filters.deviceStatus && <SelectFilter label={selectedKey === 'service.golden_warranty' ? 'حالة صيانة الجهاز' : 'الحالة التشغيلية'} value={deviceStatusFilter} onChange={setDeviceStatusFilter} options={[{ value: 'all', label: selectedKey === 'service.golden_warranty' ? 'كل حالات الصيانة' : 'كل الحالات التشغيلية' }, ...filterOptions.deviceStatuses]} />}
-              {selectedReport.filters.supervisor && <SelectFilter label={selectedKey === 'work_files.mediator_gifts' ? 'مشرفة التركيب' : 'المشرفة'} value={supervisorFilter} onChange={setSupervisorFilter} options={[{ value: 'all', label: selectedKey === 'work_files.mediator_gifts' ? 'كل مشرفات التركيب' : 'كل المشرفات' }, ...filterOptions.supervisors]} />}
-              {selectedReport.filters.technician && <SelectFilter label={selectedKey === 'work_files.mediator_gifts' ? 'فني التركيب' : 'الفني'} value={technicianFilter} onChange={setTechnicianFilter} options={[{ value: 'all', label: selectedKey === 'work_files.mediator_gifts' ? 'كل فنيي التركيب' : 'كل الفنيين' }, ...filterOptions.technicians]} />}
+              {selectedReport.filters.supervisor && <SelectFilter label={(selectedKey === 'work_files.mediator_gifts' || selectedKey === 'daily_work.temporary_contract') ? 'مشرفة التركيب' : 'المشرفة'} value={supervisorFilter} onChange={setSupervisorFilter} options={[{ value: 'all', label: (selectedKey === 'work_files.mediator_gifts' || selectedKey === 'daily_work.temporary_contract') ? 'كل مشرفات التركيب' : 'كل المشرفات' }, ...filterOptions.supervisors]} />}
+              {selectedReport.filters.technician && <SelectFilter label={(selectedKey === 'work_files.mediator_gifts' || selectedKey === 'daily_work.temporary_contract') ? 'فني التركيب' : 'الفني'} value={technicianFilter} onChange={setTechnicianFilter} options={[{ value: 'all', label: (selectedKey === 'work_files.mediator_gifts' || selectedKey === 'daily_work.temporary_contract') ? 'كل فنيي التركيب' : 'كل الفنيين' }, ...filterOptions.technicians]} />}
               {selectedReport.filters.telemarketer && <SelectFilter label="التلماركتر" value={telemarketerFilter} onChange={setTelemarketerFilter} options={[{ value: 'all', label: 'كل موظفي التلماركتر' }, ...filterOptions.telemarketers]} />}
               {selectedReport.filters.visitStatus && <SelectFilter label="حالة الزيارة" value={visitStatusFilter} onChange={setVisitStatusFilter} options={[{ value: 'all', label: 'كل حالات الزيارة' }, ...filterOptions.visitStatuses]} />}
               {selectedReport.filters.taskType && <SelectFilter label="نوع المهمة" value={taskTypeFilter} onChange={setTaskTypeFilter} options={[{ value: 'all', label: 'كل أنواع المهام' }, ...filterOptions.taskTypes]} />}
@@ -796,7 +813,7 @@ export default function Reports() {
                 {selectedReport.filters.replacedParts && <SelectFilter label="قطع مبدلة في آخر زيارة" value={replacedPartsFilter} onChange={setReplacedPartsFilter} options={[{ value: 'all', label: 'الكل' }, { value: 'yes', label: 'توجد قطع' }, { value: 'no', label: 'لا توجد قطع' }]} />}
                 {selectedReport.filters.referralSheetNumber && <FilterField label="رقم لائحة الأسماء"><input type="number" min="1" value={specificFilters.referralSheetNumber ?? ''} onChange={event => setSpecificFilters(current => ({ ...current, referralSheetNumber: event.target.value }))} className="h-11 rounded-xl border border-slate-200 px-3" /></FilterField>}
                 {selectedReport.filters.mediatorName && <FilterField label="اسم الوسيط"><input value={specificFilters.mediatorName ?? ''} onChange={event => setSpecificFilters(current => ({ ...current, mediatorName: event.target.value }))} className="h-11 rounded-xl border border-slate-200 px-3" /></FilterField>}
-                {selectedReport.filters.mediatorType && <SelectFilter label="تصنيف الوسيط" value={specificFilters.mediatorType ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, mediatorType: value }))} options={[{ value: 'all', label: 'كل تصنيفات الوسطاء' }, { value: 'Client', label: 'زبون' }, { value: 'Employee', label: 'موظف' }, { value: 'Personal', label: 'شخصي' }, { value: 'unknown', label: 'غير محدد' }]} />}
+                {selectedReport.filters.mediatorType && <SelectFilter label="تصنيف الوسيط" value={specificFilters.mediatorType ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, mediatorType: value }))} options={[{ value: 'all', label: 'كل تصنيفات الوسطاء' }, { value: 'Client', label: 'زبون' }, { value: 'Employee', label: 'موظف' }, ...(selectedKey === 'daily_work.temporary_contract' ? [] : [{ value: 'Personal', label: 'شخصي' }]), { value: 'unknown', label: 'غير محدد' }]} />}
                 {selectedReport.filters.accompanyingTechnician && <SelectFilter label={selectedKey === 'work_files.geo_supervisors' ? 'الفني المرافق لآخر زيارة' : 'الفني المرافق لزيارة الوسيط'} value={specificFilters.accompanyingTechnicianId ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, accompanyingTechnicianId: value }))} options={[{ value: 'all', label: 'كل الفنيين المرافقين' }, ...filterOptions.accompanyingTechnicians]} />}
                 {selectedReport.filters.giftPromiseStatus && <SelectFilter label="حالة وعد الهدية" value={specificFilters.giftPromiseStatus ?? 'all'} onChange={value => setSpecificFilters(current => ({ ...current, giftPromiseStatus: value }))} options={[{ value: 'all', label: 'كل حالات وعود الهدايا' }, ...filterOptions.giftPromiseStatuses]} />}
                 {selectedReport.filters.occupation && <FilterField label="العمل"><input value={specificFilters.occupation ?? ''} onChange={event => setSpecificFilters(current => ({ ...current, occupation: event.target.value }))} placeholder="البحث في العمل" className="h-11 rounded-xl border border-slate-200 px-3" /></FilterField>}

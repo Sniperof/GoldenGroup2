@@ -158,7 +158,9 @@
 | عدد المبيعات | [features/reports/sales-count-report.md](features/reports/sales-count-report.md) | 🟡 G3 |
 | الاستحقاقات | [features/reports/service-dues-report.md](features/reports/service-dues-report.md) | ✅ |
 | عمل الفنيين | [features/reports/technician-work-report.md](features/reports/technician-work-report.md) | 🟡 G3 |
-| عقد مؤقت | [features/reports/temporary-contract-report.md](features/reports/temporary-contract-report.md) | 🟡 G3 |
+| عمل المشرفات | [features/reports/supervisor-work-report.md](features/reports/supervisor-work-report.md) | 🟡 G3 |
+| حالات التصعيد | [features/reports/escalations-report.md](features/reports/escalations-report.md) | 🟡 G3 |
+| العقود المؤقتة (تقارير الخدمة) | [features/reports/temporary-contract-report.md](features/reports/temporary-contract-report.md) | 🟡 G3 |
 
 ---
 

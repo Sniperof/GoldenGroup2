@@ -12,9 +12,9 @@ interface QueryOptions {
   includeTotalRows?: boolean;
 }
 
-const TRIAL_OUTCOMES = new Set(['settled', 'cancelled', 'open', 'discarded']);
+const TRIAL_OUTCOMES = new Set(['settled', 'refused', 'open', 'unknown']);
 const GRACE_STATES = new Set(['within', 'elapsed', 'unknown']);
-const MEDIATOR_TYPES = new Set(['Client', 'Employee', 'Personal', 'unknown']);
+const MEDIATOR_TYPES = new Set(['Client', 'Employee', 'unknown']);
 
 /** The admin-owned grace length, seeded at 30 days by migration 465. */
 export const TRIAL_GRACE_SETTING_KEY = 'trial_grace_period_days';
@@ -42,38 +42,37 @@ const GRACE_END_SQL = `(
 
 /**
  * The outcome of the trial, derived from what the contract already records — the
- * settlement stamp and the terminal status (DEC-TC-4). `started_as_temporary` is what
+ * settlement stamp and explicit purchase refusal. Other terminal states do not
+ * prove that the customer refused to buy. `started_as_temporary` is what
  * keeps a settled trial visible at all: settling flips `sale_subtype` to definitive
  * in place, so filtering on the subtype would erase every successful trial
  * (migration 458).
  */
 const OUTCOME_SQL = `CASE
   WHEN contract.temporary_settled_at IS NOT NULL THEN 'settled'
-  WHEN contract.status = 'discarded' THEN 'discarded'
-  WHEN contract.status = 'cancelled' THEN 'cancelled'
-  ELSE 'open'
+  WHEN contract.cancellation_reason = 'trial_purchase_refused' THEN 'refused'
+  WHEN contract.status IN ('draft', 'active') THEN 'open'
+  ELSE 'unknown'
 END`;
 
 const OUTCOME_LABEL_SQL = `CASE ${OUTCOME_SQL}
-  WHEN 'settled' THEN 'تثبيت'
-  WHEN 'cancelled' THEN 'إلغاء'
-  WHEN 'discarded' THEN 'مُهمَل'
-  ELSE 'لم يُحسم'
+  WHEN 'settled' THEN 'تم تثبيت البيعة'
+  WHEN 'refused' THEN 'تم الرفض'
+  WHEN 'open' THEN 'لم تتم بعد'
+  ELSE 'غير مسجلة'
 END`;
 
 /**
- * «مصدر الموعد» as stored mixes list values written in Arabic with one raw system
- * code, so the code is translated and everything else passes through (DEC-TC-7).
+ * Match the sale-source choice shown in the contract form: its quick demo
+ * option, or the saved value from the managed "other sources" list.
  */
 const APPOINTMENT_SOURCE_SQL = `CASE
-  WHEN NULLIF(BTRIM(contract.sale_source), '') IS NULL THEN 'غير محدد'
   WHEN BTRIM(contract.sale_source) = 'device_demo_task' THEN 'مهمة عرض جهاز'
-  ELSE BTRIM(contract.sale_source)
+  ELSE COALESCE(NULLIF(BTRIM(contract.sale_source), ''), 'غير مسجل')
 END`;
 
 const VISIT_TECHNICIAN_ID_SQL = `COALESCE(visit.reassigned_technician_id, NULLIF(visit.team_snapshot->>'technicianEmployeeId', '')::int)`;
 const VISIT_SUPERVISOR_ID_SQL = `COALESCE(visit.reassigned_supervisor_id, NULLIF(visit.team_snapshot->>'supervisorEmployeeId', '')::int)`;
-const VISIT_TRAINEE_ID_SQL = `COALESCE(visit.reassigned_trainee_id, NULLIF(visit.team_snapshot->>'traineeEmployeeId', '')::int)`;
 
 /** The same fallback chain the sales-file report reads, so both name one model. */
 const DEVICE_MODEL_NAME_SQL = `COALESCE(NULLIF(BTRIM(model.name_ar), ''), NULLIF(BTRIM(model.name_en), ''), NULLIF(BTRIM(model.name), ''),
@@ -95,19 +94,24 @@ const DEVICE_LATERAL_SQL = `
      LIMIT 1`;
 
 /**
- * The visit that sold the trial, matched through the sale reference the demo result
- * carries — the same link the sales-file report uses.
+ * Show a selling technician only when that technician is the responsible user
+ * of the source visit. A technician accompanying a supervisor is not the seller.
  */
 const SALE_VISIT_LATERAL_SQL = `
     SELECT technician.name AS technician_name
-      FROM visit_task_device_demo_results demo
-      JOIN visit_task_results demo_result ON demo_result.id = demo.visit_task_result_id
-      JOIN visit_tasks demo_task ON demo_task.id = demo_result.visit_task_id
-      JOIN field_visits visit ON visit.id = demo_task.field_visit_id
+      FROM field_visits visit
+      JOIN hr_users responsible ON responsible.id = visit.team_responsible_user_id
       LEFT JOIN employees technician ON technician.id = ${VISIT_TECHNICIAN_ID_SQL}
-     WHERE NULLIF(BTRIM(contract.sale_reference_number), '') IS NOT NULL
-       AND demo.sale_reference_number = contract.sale_reference_number
-     ORDER BY demo.id DESC
+     WHERE responsible.employee_id = ${VISIT_TECHNICIAN_ID_SQL}
+       AND visit.id = COALESCE(contract.source_visit_id, (
+         SELECT demo_task.field_visit_id
+           FROM visit_task_device_demo_results demo
+           JOIN visit_task_results demo_result ON demo_result.id = demo.visit_task_result_id
+           JOIN visit_tasks demo_task ON demo_task.id = demo_result.visit_task_id
+          WHERE NULLIF(BTRIM(contract.sale_reference_number), '') IS NOT NULL
+            AND demo.sale_reference_number = contract.sale_reference_number
+          ORDER BY demo.id DESC LIMIT 1
+       ))
      LIMIT 1`;
 
 const INSTALLATION_LATERAL_SQL = `
@@ -116,18 +120,22 @@ const INSTALLATION_LATERAL_SQL = `
       FROM open_tasks installation_task
       JOIN visit_tasks installation_visit_task ON installation_visit_task.source_open_task_id = installation_task.id
       JOIN field_visits visit ON visit.id = installation_visit_task.field_visit_id
-      LEFT JOIN visit_task_results installation_result ON installation_result.visit_task_id = installation_visit_task.id
+      JOIN visit_task_results installation_result ON installation_result.visit_task_id = installation_visit_task.id
       LEFT JOIN employees technician ON technician.id = ${VISIT_TECHNICIAN_ID_SQL}
       LEFT JOIN employees supervisor ON supervisor.id = ${VISIT_SUPERVISOR_ID_SQL}
      WHERE installation_task.contract_id = contract.id
        AND installation_task.task_type = 'device_installation'
+       AND installation_result.final_decision = 'installed_successfully'
      ORDER BY installation_result.closed_at DESC NULLS LAST, installation_visit_task.id DESC
      LIMIT 1`;
 
 /** The first referrer on the contract's own snapshot (DEC-TC-8). */
 const MEDIATOR_LATERAL_SQL = `
     SELECT NULLIF(BTRIM(contract.contract_referrers->0->>'referrerName'), '') AS name,
-           NULLIF(BTRIM(contract.contract_referrers->0->>'referrerType'), '') AS type,
+           CASE LOWER(BTRIM(contract.contract_referrers->0->>'referrerType'))
+             WHEN 'client' THEN 'Client' WHEN 'customer' THEN 'Client'
+             WHEN 'employee' THEN 'Employee'
+           END AS type,
            NULLIF(BTRIM(contract.contract_referrers->0->>'referralEntityId'), '')::int AS entity_id`;
 
 const MEDIATOR_CONTACT_LATERAL_SQL = `
@@ -141,48 +149,6 @@ const MEDIATOR_CONTACT_LATERAL_SQL = `
        WHERE mediator.type = 'Employee' AND referrer_employee.id = mediator.entity_id
     ) resolved WHERE number IS NOT NULL LIMIT 1`;
 
-/**
- * DEC-TC-5: a call linked to one of the contract's own tasks, not the newest call to
- * the customer. Measured before choosing: both readings cover two contracts out of
- * ten, but one of those contracts carries seven calls after installation, so «the
- * newest» would have picked arbitrarily among them.
- */
-const CONTACT_LATERAL_SQL = `
-    SELECT call_log.call_date, call_log.notes,
-           COALESCE(caller_employee.name, caller_user.name) AS employee_name
-      FROM call_task_links link
-      JOIN open_tasks linked_task ON linked_task.id = link.task_id
-      JOIN customer_call_logs call_log ON call_log.id = link.call_id
-      LEFT JOIN hr_users caller_user ON caller_user.id = call_log.caller_id
-      LEFT JOIN employees caller_employee ON caller_employee.id = caller_user.employee_id
-     WHERE linked_task.contract_id = contract.id
-     ORDER BY link.is_primary DESC, call_log.call_date DESC NULLS LAST, link.created_at DESC
-     LIMIT 1`;
-
-/**
- * DEC-TC-3: only the cancellation path creates a task. Settling the trial is an
- * on-the-spot settlement that creates nothing and cancels any open retrieval, so
- * these columns stay empty for a settled row and the label says why.
- */
-const CLOSING_TASK_LATERAL_SQL = `
-    SELECT closing_task.id,
-           COALESCE(visit.scheduled_date, closing_task.due_date) AS appointment_date,
-           supervisor.name AS supervisor_name,
-           technician.name AS technician_name,
-           trainee.name AS trainee_name
-      FROM open_tasks closing_task
-      LEFT JOIN visit_tasks closing_visit_task
-        ON closing_visit_task.source_open_task_id = closing_task.id
-      LEFT JOIN field_visits visit ON visit.id = closing_visit_task.field_visit_id
-      LEFT JOIN employees supervisor ON supervisor.id = ${VISIT_SUPERVISOR_ID_SQL}
-      LEFT JOIN employees technician ON technician.id = ${VISIT_TECHNICIAN_ID_SQL}
-      LEFT JOIN employees trainee ON trainee.id = ${VISIT_TRAINEE_ID_SQL}
-     WHERE closing_task.contract_id = contract.id
-       AND closing_task.task_type = 'device_retrieval'
-       AND closing_task.retrieval_purpose = 'trial_return'
-     ORDER BY closing_task.id DESC
-     LIMIT 1`;
-
 function allowListed(value: unknown, values: Set<string>, message: string): string | null {
   if (value == null || value === '') return null;
   const normalized = String(value);
@@ -193,7 +159,8 @@ function allowListed(value: unknown, values: Set<string>, message: string): stri
 function dateOnly(value: unknown, label: string): string | null {
   if (value == null || value === '') return null;
   const normalized = String(value).trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized) || Number.isNaN(new Date(`${normalized}T00:00:00Z`).getTime())) {
+  const date = new Date(`${normalized}T00:00:00Z`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized) || Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== normalized) {
     throw new ReportingError(400, `${label} غير صالح`);
   }
   return normalized;
@@ -267,19 +234,17 @@ export function buildTemporaryContractQuery(
   if (technicianId != null) filters.push(`installation.technician_employee_id = $${params.push(technicianId)}`);
 
   addDateRange(filters, params, 'device.installation_date', request.installationFrom, request.installationTo, 'تاريخ التركيب');
-  addDateRange(filters, params, 'closing_task.appointment_date', request.closingAppointmentFrom, request.closingAppointmentTo, 'تاريخ موعد إنهاء التجربة');
 
   const limitRef = `$${params.push(options.limit)}`;
   const offsetSql = options.offset == null ? '' : ` OFFSET $${params.push(options.offset)}`;
 
   const sql = `
     SELECT
-      NULLIF(BTRIM(contract.contract_number), '') AS "contractNumber",
       COALESCE(NULLIF(BTRIM(branch.name), ''), 'غير محدد') AS "branchName",
       COALESCE(NULLIF(BTRIM(department_type.value), ''), 'غير محدد') AS "sellerDepartmentName",
       COALESCE(NULLIF(BTRIM(client.name), ''), NULLIF(BTRIM(contract.customer_name), ''), 'غير محدد') AS "customerName",
       NULLIF(BTRIM(client.mobile), '') AS "primaryContactNumber",
-      NULLIF(BTRIM(device.installation_address_text), '') AS "installationAddress",
+      NULLIF(BTRIM(client.detailed_address), '') AS "installationAddress",
       TO_CHAR(device.installation_date, 'YYYY-MM-DD') AS "installationDate",
       TO_CHAR(${GRACE_END_SQL}, 'YYYY-MM-DD') AS "graceEndDate",
       COALESCE(NULLIF(BTRIM(device.serial_number), ''), NULLIF(BTRIM(device.external_device_serial), '')) AS "serialNumber",
@@ -287,7 +252,6 @@ export function buildTemporaryContractQuery(
       CASE mediator.type
         WHEN 'Client' THEN 'زبون'
         WHEN 'Employee' THEN 'موظف'
-        WHEN 'Personal' THEN 'شخصي'
         ELSE 'غير محدد'
       END AS "mediatorType",
       COALESCE(mediator.name, 'غير محدد') AS "mediatorName",
@@ -298,17 +262,6 @@ export function buildTemporaryContractQuery(
       COALESCE(NULLIF(BTRIM(closer.name), ''), 'غير مسكَّر') AS "saleCloserName",
       installation.technician_name AS "installationTechnicianName",
       installation.supervisor_name AS "installationSupervisorName",
-      contact.employee_name AS "contactEmployeeName",
-      TO_CHAR(contact.call_date AT TIME ZONE 'Asia/Damascus', 'YYYY-MM-DD') AS "contactDate",
-      NULLIF(BTRIM(contact.notes), '') AS "contactNotes",
-      CASE
-        WHEN closing_task.id IS NOT NULL THEN 'مهمة سحب جهاز تجربة'
-        WHEN contract.temporary_settled_at IS NOT NULL THEN 'تسوية في المكان — بلا مهمة'
-      END AS "closingTaskType",
-      TO_CHAR(closing_task.appointment_date, 'YYYY-MM-DD') AS "closingAppointmentDate",
-      closing_task.supervisor_name AS "closingSupervisorName",
-      closing_task.technician_name AS "closingTechnicianName",
-      closing_task.trainee_name AS "closingTraineeName",
       ${OUTCOME_LABEL_SQL} AS "trialOutcome"
       ${options.includeTotalRows === false ? '' : ', COUNT(*) OVER()::int AS "totalRows"'}
     FROM contracts contract
@@ -324,8 +277,6 @@ export function buildTemporaryContractQuery(
     LEFT JOIN LATERAL (${INSTALLATION_LATERAL_SQL}) installation ON TRUE
     LEFT JOIN LATERAL (${MEDIATOR_LATERAL_SQL}) mediator ON TRUE
     LEFT JOIN LATERAL (${MEDIATOR_CONTACT_LATERAL_SQL}) mediator_contact ON TRUE
-    LEFT JOIN LATERAL (${CONTACT_LATERAL_SQL}) contact ON TRUE
-    LEFT JOIN LATERAL (${CLOSING_TASK_LATERAL_SQL}) closing_task ON TRUE
     WHERE ${filters.join('\n      AND ')}
     ORDER BY ${buildTabularReportOrderBy(
       'daily_work.temporary_contract', access, request,
@@ -384,43 +335,23 @@ export async function getTemporaryContractFilterOptions(
               CASE WHEN COALESCE(device.device_model_id, contract.device_model_id) IS NOT NULL
                    THEN 'catalog:' || COALESCE(device.device_model_id, contract.device_model_id)::text
                    ELSE 'external:' || COALESCE(device.external_device_name, device.device_model_name, contract.device_model_name, '') END AS value,
-              COALESCE(model.name_ar, model.name_en, model.name,
-                       device.external_device_name, device.device_model_name, contract.device_model_name) AS label
+              ${DEVICE_MODEL_NAME_SQL} AS label
          FROM contracts contract
-         LEFT JOIN installed_devices device ON device.id = contract.installed_device_id
+         LEFT JOIN LATERAL (${DEVICE_LATERAL_SQL}) device ON TRUE
          LEFT JOIN device_models model ON model.id = COALESCE(device.device_model_id, contract.device_model_id)
          ${where}
-           AND COALESCE(model.name_ar, model.name_en, model.name,
-                        device.external_device_name, device.device_model_name, contract.device_model_name) IS NOT NULL
+           AND ${DEVICE_MODEL_NAME_SQL} IS NOT NULL
         ORDER BY label`,
       params,
     ),
-    pool.query(
-      `SELECT DISTINCT supervisor.id::text AS value, supervisor.name AS label
+    ...['supervisor', 'technician'].map(role => pool.query(
+      `SELECT DISTINCT installation.${role}_employee_id::text AS value,
+              installation.${role}_name AS label
          FROM contracts contract
-         JOIN open_tasks installation_task
-           ON installation_task.contract_id = contract.id
-          AND installation_task.task_type = 'device_installation'
-         JOIN visit_tasks installation_visit_task ON installation_visit_task.source_open_task_id = installation_task.id
-         JOIN field_visits visit ON visit.id = installation_visit_task.field_visit_id
-         JOIN employees supervisor ON supervisor.id = ${VISIT_SUPERVISOR_ID_SQL}
-         ${where}
-        ORDER BY label`,
-      params,
-    ),
-    pool.query(
-      `SELECT DISTINCT technician.id::text AS value, technician.name AS label
-         FROM contracts contract
-         JOIN open_tasks installation_task
-           ON installation_task.contract_id = contract.id
-          AND installation_task.task_type = 'device_installation'
-         JOIN visit_tasks installation_visit_task ON installation_visit_task.source_open_task_id = installation_task.id
-         JOIN field_visits visit ON visit.id = installation_visit_task.field_visit_id
-         JOIN employees technician ON technician.id = ${VISIT_TECHNICIAN_ID_SQL}
-         ${where}
-        ORDER BY label`,
-      params,
-    ),
+         LEFT JOIN LATERAL (${INSTALLATION_LATERAL_SQL}) installation ON TRUE
+         ${where} AND installation.${role}_employee_id IS NOT NULL
+        ORDER BY label`, params,
+    )),
   ]);
 
   const option = (row: { value: unknown; label: unknown }) => ({ value: String(row.value), label: String(row.label) });

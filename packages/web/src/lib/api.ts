@@ -381,6 +381,8 @@ export interface ReportCatalogItem {
     taskResult?: boolean;
     cancellationReason?: boolean;
     visitOrigin?: boolean;
+    escalationType?: boolean;
+    escalationState?: boolean;
     activationRecord?: boolean;
     contractScope?: boolean;
     cardDeliveryResult?: boolean;
@@ -466,6 +468,7 @@ export interface ReportFilterOptions {
   jobTitles: Array<{ value: string; label: string }>;
   taskResults: Array<{ value: string; label: string }>;
   cancellationReasons: Array<{ value: string; label: string }>;
+  escalationTypes: Array<{ value: string; label: string }>;
 }
 
 // GET /contracts/paged — server pagination companion to contracts.list()

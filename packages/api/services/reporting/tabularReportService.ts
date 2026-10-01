@@ -21,6 +21,8 @@ import { buildDepartmentResultsQuery, getDepartmentResultsFilterOptions } from '
 import { buildSalesCountQuery, getSalesCountDynamicColumns, getSalesCountFilterOptions } from './salesCountReport.js';
 import { buildCustomerCallsQuery, getCustomerCallsFilterOptions } from './customerCallsReport.js';
 import { buildTechnicianWorkQuery, getTechnicianWorkFilterOptions } from './technicianWorkReport.js';
+import { buildSupervisorWorkQuery, getSupervisorWorkFilterOptions } from './supervisorWorkReport.js';
+import { buildEscalationsQuery, getEscalationsFilterOptions } from './escalationsReport.js';
 import { buildServiceDuesQuery, getServiceDuesFilterOptions } from './serviceDuesReport.js';
 import { buildDeviceFaultsQuery, getDeviceFaultsFilterOptions } from './deviceFaultsReport.js';
 import { buildRetrievedDevicesQuery, getRetrievedDevicesFilterOptions } from './retrievedDevicesReport.js';
@@ -195,6 +197,12 @@ export async function getTabularReportFilterOptions(
   }
   if (reportKey === 'performance.technician_work') {
     return completeTabularReportFilterOptions(await getTechnicianWorkFilterOptions(access));
+  }
+  if (reportKey === 'performance.supervisor_work') {
+    return completeTabularReportFilterOptions(await getSupervisorWorkFilterOptions(access));
+  }
+  if (reportKey === 'daily_work.escalations') {
+    return completeTabularReportFilterOptions(await getEscalationsFilterOptions(access));
   }
   if (reportKey === 'service.dues') {
     return completeTabularReportFilterOptions(await getServiceDuesFilterOptions(access));
@@ -383,6 +391,8 @@ export function normalizedFilters(params: TabularReportRequestParams): TabularRe
     taskResult: typeof params.taskResult === 'string' ? params.taskResult : null,
     cancellationReasonId: positiveInt(params.cancellationReasonId),
     visitOrigin: typeof params.visitOrigin === 'string' ? params.visitOrigin : null,
+    escalationType: typeof params.escalationType === 'string' ? params.escalationType : null,
+    escalationState: typeof params.escalationState === 'string' ? params.escalationState : null,
     activationRecord: typeof params.activationRecord === 'string' ? params.activationRecord : null,
     contractScope: typeof params.contractScope === 'string' ? params.contractScope : null,
     cardDeliveryResult: typeof params.cardDeliveryResult === 'string' ? params.cardDeliveryResult : null,
@@ -471,6 +481,8 @@ export function buildReportQuery(reportKey: string, access: ReturnType<typeof re
   if (reportKey === 'performance.sales_count') return buildSalesCountQuery(access, params, options);
   if (reportKey === 'performance.customer_calls') return buildCustomerCallsQuery(access, params, options);
   if (reportKey === 'performance.technician_work') return buildTechnicianWorkQuery(access, params, options);
+  if (reportKey === 'performance.supervisor_work') return buildSupervisorWorkQuery(access, params, options);
+  if (reportKey === 'daily_work.escalations') return buildEscalationsQuery(access, params, options);
   throw new ReportingError(404, 'التقرير غير معروف');
 }
 
