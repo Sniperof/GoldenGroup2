@@ -773,7 +773,7 @@ function assertDeliveryShape(body: DeviceDeliveryResultBody, openTask: any): {
     'wrong_address',
     'refused_delivery',
   ].includes(decision)) {
-    throw new ResultValidationError(`final_decision ط؛ظٹط± طµط§ظ„ط­: ${decision}`);
+    throw new ResultValidationError(`final_decision غير صالح: ${decision}`);
   }
 
   const deliveryAddressText = optionalText(body.delivery_address_text);
@@ -782,35 +782,35 @@ function assertDeliveryShape(body: DeviceDeliveryResultBody, openTask: any): {
     ?? deliveryAddressText
     ?? optionalText(openTask.delivery_address);
   if (!deliveryAddress) {
-    throw new ResultValidationError('delivery_address ظ…ط·ظ„ظˆط¨ ظ„ظ…ظ‡ظ…ط© طھط³ظ„ظٹظ… ط§ظ„ط¬ظ‡ط§ط²');
+    throw new ResultValidationError('delivery_address مطلوب لمهمة تسليم الجهاز');
   }
 
   const afterDeliveryAction = body.after_delivery_action ?? 'none';
   if (!['none', 'create_installation_task'].includes(afterDeliveryAction)) {
-    throw new ResultValidationError('after_delivery_action ط؛ظٹط± طµط§ظ„ط­');
+    throw new ResultValidationError('after_delivery_action غير صالح');
   }
   if (decision !== 'delivered_successfully' && afterDeliveryAction !== 'none') {
-    throw new ResultValidationError('after_delivery_action ظٹط³ظ…ط­ ظپظ‚ط· ط¹ظ†ط¯ delivered_successfully');
+    throw new ResultValidationError('after_delivery_action يسمح فقط عند delivered_successfully');
   }
   if (afterDeliveryAction === 'create_installation_task') {
     if (!optionalDate(body.installation_required_date)) {
-      throw new ResultValidationError('installation_required_date ظ…ط·ظ„ظˆط¨ ط¹ظ†ط¯ ط¥ظ†ط´ط§ط، ظ…ظ‡ظ…ط© طھط±ظƒظٹط¨');
+      throw new ResultValidationError('installation_required_date مطلوب عند إنشاء مهمة تركيب');
     }
     const sameAddress = body.installation_address_same_as_delivery === true;
     if (!sameAddress && !optionalText(body.installation_address) && !optionalText(body.installation_address_text)) {
-      throw new ResultValidationError('installation_address ظ…ط·ظ„ظˆط¨ ط¥ط°ط§ ظƒط§ظ† ط¹ظ†ظˆط§ظ† ط§ظ„طھط±ظƒظٹط¨ ظ…ط®طھظ„ظپط§ظ‹');
+      throw new ResultValidationError('installation_address مطلوب إذا كان عنوان التركيب مختلفاً');
     }
   }
 
   if (body.update_device_main_address === true) {
     if (openTask.reason !== 'post_maintenance_return') {
-      throw new ResultValidationError('update_device_main_address ظ…ط³ظ…ظˆط­ ظپظ‚ط· ظ„ط³ط¨ط¨ post_maintenance_return');
+      throw new ResultValidationError('update_device_main_address مسموح فقط لسبب post_maintenance_return');
     }
     if (decision !== 'delivered_successfully') {
-      throw new ResultValidationError('update_device_main_address ظٹطھط·ظ„ط¨ طھط³ظ„ظٹظ…ط§ظ‹ ظ†ط§ط¬ط­ط§ظ‹');
+      throw new ResultValidationError('update_device_main_address يتطلب تسليماً ناجحاً');
     }
     if (!isPositiveInteger(body.new_installation_geo_unit_id) || !optionalText(body.new_installation_address_text)) {
-      throw new ResultValidationError('ط¨ظٹط§ظ†ط§طھ ط¹ظ†ظˆط§ظ† ط§ظ„ط¬ظ‡ط§ط² ط§ظ„ط¬ط¯ظٹط¯ ط¥ظ„ط²ط§ظ…ظٹط©');
+      throw new ResultValidationError('بيانات عنوان الجهاز الجديد إلزامية');
     }
   }
 
@@ -2497,20 +2497,20 @@ export async function applyDeviceDeliveryResult(
         LIMIT 1`,
       [visitTaskId],
     );
-    if (vtRows.length === 0) throw new ResultValidationError('visit_task ط؛ظٹط± ظ…ط±ط¨ظˆط· ط¨ظ…ظ‡ظ…ط© ظ…ظپطھظˆط­ط©');
+    if (vtRows.length === 0) throw new ResultValidationError('visit_task غير مربوط بمهمة مفتوحة');
 
     const vt = vtRows[0];
     if (vt.task_type !== 'device_delivery') {
-      throw new ResultValidationError(`ظ†ظˆط¹ ط§ظ„ظ…ظ‡ظ…ط© "${vt.task_type}" â€” ظ‡ط°ط§ ط§ظ„ظ€ service ظ„ظ€ device_delivery ظپظ‚ط·`);
+      throw new ResultValidationError(`نوع المهمة "${vt.task_type}" — هذا الـ service لـ device_delivery فقط`);
     }
     if (!isPositiveInteger(vt.device_id)) {
-      throw new ResultValidationError('device_delivery ظٹط¬ط¨ ط£ظ† طھط±طھط¨ط· ط¨ظ€ installed_device');
+      throw new ResultValidationError('device_delivery يجب أن ترتبط بـ installed_device');
     }
     if (!['in_progress', 'ended', 'completed'].includes(vt.visit_status)) {
-      throw new ResultValidationError(`ظ„ط§ ظٹظ…ظƒظ† طھط³ط¬ظٹظ„ ط§ظ„ظ†طھظٹط¬ط© â€” ط§ظ„ط²ظٹط§ط±ط© ظپظٹ ط­ط§ظ„ط© "${vt.visit_status}"`);
+      throw new ResultValidationError(`لا يمكن تسجيل النتيجة — الزيارة في حالة "${vt.visit_status}"`);
     }
     if (!['pending', 'in_progress', 'completed'].includes(vt.status)) {
-      throw new ResultValidationError(`ط§ظ„ظ…ظ‡ظ…ط© ظپظٹ ط­ط§ظ„ط© "${vt.status}" ظˆظ„ط§ طھظ‚ط¨ظ„ طھط³ط¬ظٹظ„ ظ†طھظٹط¬ط© ط¬ط¯ظٹط¯ط©`);
+      throw new ResultValidationError(`المهمة في حالة "${vt.status}" ولا تقبل تسجيل نتيجة جديدة`);
     }
 
     const shape = assertDeliveryShape(body, vt);

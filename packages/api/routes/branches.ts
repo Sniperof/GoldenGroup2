@@ -254,10 +254,10 @@ router.get('/:id', requirePermission('branches.view', 'branches.lookup', 'refere
     const canViewManagement = authorize(authContext, { permission: 'branches.view' }).allowed;
     const branchId = Number(req.params.id);
     if (!Number.isInteger(branchId) || branchId <= 0) {
-      return res.status(400).json({ error: 'ط±ظ‚ظ… ط§ظ„ظپط±ط¹ ط؛ظٹط± طµط§ظ„ط­' });
+      return res.status(400).json({ error: 'رقم الفرع غير صالح' });
     }
     if (!canViewManagement && !authContext.isSuperAdmin && !authContext.allowedBranchIds.includes(branchId)) {
-      return res.status(403).json({ error: 'ط؛ظٹط± ظ…ط³ظ…ظˆط­' });
+      return res.status(403).json({ error: 'غير مسموح' });
     }
 
     const { rows } = await pool.query(

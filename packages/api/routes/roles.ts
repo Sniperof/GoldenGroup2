@@ -1090,7 +1090,7 @@ router.post('/hr-users', requirePermission('admin.roles.users.manage'), async (r
     if (authContext.isSuperAdmin || globalUserRoleAccess.reason === 'GRANTED_GLOBAL') {
       if (isSuperAdmin === true) {
         if (!authContext.isSuperAdmin) {
-          return res.status(403).json({ error: 'ط¥ظ†ط´ط§ط، ط³ظˆط¨ط± ط£ط¯ظ…ظ† ظ…طھط§ط­ ظ„ظ„ط¥ط¯ط§ط±ط© ط§ظ„ط¹ط§ظ…ط© ظپظ‚ط·' });
+          return res.status(403).json({ error: 'إنشاء سوبر أدمن متاح للإدارة العامة فقط' });
         }
         makeSuper = true;
         targetBranchId = null;

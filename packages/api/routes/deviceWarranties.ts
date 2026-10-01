@@ -101,13 +101,13 @@ router.get('/', requirePermission('clients.device_warranties.view', 'contracts.v
     'SELECT branch_id AS "branchId" FROM installed_devices WHERE id = $1',
     [deviceId],
   );
-  if (!deviceRows[0]) return res.status(404).json({ error: 'ط§ظ„ط¬ظ‡ط§ط² ط؛ظٹط± ظ…ظˆط¬ظˆط¯' });
+  if (!deviceRows[0]) return res.status(404).json({ error: 'الجهاز غير موجود' });
   const access = {
     allowed:
       authorize(authContext, { permission: 'clients.device_warranties.view', branchId: deviceRows[0].branchId }).allowed ||
       authorize(authContext, { permission: 'contracts.view_list', branchId: deviceRows[0].branchId }).allowed,
   };
-  if (!access.allowed) return res.status(403).json({ error: 'ط؛ظٹط± ظ…ط³ظ…ظˆط­' });
+  if (!access.allowed) return res.status(403).json({ error: 'غير مسموح' });
 
   const { rows } = await pool.query(
     `SELECT w.*,

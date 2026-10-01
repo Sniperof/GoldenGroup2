@@ -677,18 +677,18 @@ export default function ClientProfile() {
 
     const tabs: Array<{ id: ClientProfileTabId; label: string; icon: any }> = [
         { id: 'overview' as const, label: 'نظرة عامة', icon: LayoutDashboard },
-        ...(canViewContacts ? [{ id: 'contacts' as const, label: 'ط§ظ„طھظˆط§طµظ„', icon: Contact2 }] : []),
-        ...(canViewCallLog ? [{ id: 'calllog' as const, label: 'ط³ط¬ظ„ ط§ظ„ط§طھطµط§ظ„', icon: PhoneCall }] : []),
-        ...(canViewVisits ? [{ id: 'visits' as const, label: 'ط§ظ„ط²ظٹط§ط±ط§طھ', icon: Navigation }] : []),
-        ...(canViewDevices ? [{ id: 'devices' as const, label: 'ط§ظ„ط£ط¬ظ‡ط²ط©', icon: Cpu }] : []),
-        ...(canViewPurchaseHistory ? [{ id: 'purchase_history' as const, label: 'ط³ط¬ظ„ ط§ظ„ظ…ط´طھط±ظٹط§طھ', icon: History }] : []),
-        ...(canViewPartsStock ? [{ id: 'parts_stock' as const, label: 'ط§ظ„ظ…ط®ط²ظˆظ†', icon: Package }] : []),
-        ...(canViewPreOffers ? [{ id: 'pre_offers' as const, label: 'ط§ظ„ط¹ط±ظˆط¶ ط§ظ„ظ…ط³ط¨ظ‚ط©', icon: Sparkles }] : []),
+        ...(canViewContacts ? [{ id: 'contacts' as const, label: 'التواصل', icon: Contact2 }] : []),
+        ...(canViewCallLog ? [{ id: 'calllog' as const, label: 'سجل الاتصال', icon: PhoneCall }] : []),
+        ...(canViewVisits ? [{ id: 'visits' as const, label: 'الزيارات', icon: Navigation }] : []),
+        ...(canViewDevices ? [{ id: 'devices' as const, label: 'الأجهزة', icon: Cpu }] : []),
+        ...(canViewPurchaseHistory ? [{ id: 'purchase_history' as const, label: 'سجل المشتريات', icon: History }] : []),
+        ...(canViewPartsStock ? [{ id: 'parts_stock' as const, label: 'المخزون', icon: Package }] : []),
+        ...(canViewPreOffers ? [{ id: 'pre_offers' as const, label: 'العروض المسبقة', icon: Sparkles }] : []),
         { id: 'gifts' as const, label: 'الهدايا', icon: Gift },
         ...(canViewServiceRequests ? [{ id: 'service_requests' as const, label: 'الطلبات', icon: FileText }] : []),
         ...(canViewRating ? [{ id: 'rating' as const, label: 'تقييم الالتزام', icon: Star }] : []),
-        ...(canViewNetwork ? [{ id: 'network' as const, label: 'ط§ظ„ط´ط¨ظƒط©', icon: Share2 }] : []),
-        ...(canViewAccountStatement ? [{ id: 'account_statement' as const, label: 'ظƒط´ظپ ط§ظ„ط­ط³ط§ط¨', icon: FileText }] : []),
+        ...(canViewNetwork ? [{ id: 'network' as const, label: 'الشبكة', icon: Share2 }] : []),
+        ...(canViewAccountStatement ? [{ id: 'account_statement' as const, label: 'كشف الحساب', icon: FileText }] : []),
     ];
     const safeActiveTab: ClientProfileTabId = tabs.some(tab => tab.id === activeTab) ? activeTab : (tabs[0]?.id ?? 'contacts');
 

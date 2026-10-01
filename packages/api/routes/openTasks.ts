@@ -1263,13 +1263,13 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
     );
     const dev = devRows[0];
     if (!dev) {
-      return res.status(400).json({ error: 'installedDeviceId ط؛ظٹط± ظ…ظˆط¬ظˆط¯' });
+      return res.status(400).json({ error: 'installedDeviceId غير موجود' });
     }
     if (Number(dev.customer_id) !== clientId) {
-      return res.status(400).json({ error: 'ط§ظ„ط¬ظ‡ط§ط² ط§ظ„ظ…ط­ط¯ط¯ ظ„ط§ ظٹط®طµ ظ‡ط°ط§ ط§ظ„ط²ط¨ظˆظ†' });
+      return res.status(400).json({ error: 'الجهاز المحدد لا يخص هذا الزبون' });
     }
     if (contractId && dev.contract_id && Number(dev.contract_id) !== contractId) {
-      return res.status(400).json({ error: 'ط§ظ„ط¬ظ‡ط§ط² ط§ظ„ظ…ط­ط¯ط¯ ظ„ط§ ظٹط·ط§ط¨ظ‚ ط§ظ„ط¹ظ‚ط¯' });
+      return res.status(400).json({ error: 'الجهاز المحدد لا يطابق العقد' });
     }
     deviceIdFromContract = Number(dev.id);
     deviceBranchIdFromContract = dev.branchId ?? null;
@@ -1321,7 +1321,7 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
 
   if (taskType === 'device_delivery') {
     if (!deviceIdFromContract) {
-      return res.status(400).json({ error: 'device_delivery ظٹطھط·ظ„ط¨ installedDeviceId ط£ظˆ ط¹ظ‚ط¯ط§ظ‹ ظ…ط±ط¨ظˆط·ط§ظ‹ ط¨ط¬ظ‡ط§ط²' });
+      return res.status(400).json({ error: 'device_delivery يتطلب installedDeviceId أو عقداً مربوطاً بجهاز' });
     }
     if (deviceStatusFromCurrentDevice === 'delivery_suspended') {
       return res.status(409).json({
@@ -1341,7 +1341,7 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
     );
     if (activeDuplicateRows.length > 0) {
       return res.status(409).json({
-        error: 'ظ„ط§ ظٹظ…ظƒظ† ط¥ظ†ط´ط§ط، ط£ظƒط«ط± ظ…ظ† ظ…ظ‡ظ…ط© طھط³ظ„ظٹظ… ظ†ط´ط·ط© ظ„ظ†ظپط³ ط§ظ„ط¬ظ‡ط§ط²',
+        error: 'لا يمكن إنشاء أكثر من مهمة تسليم نشطة لنفس الجهاز',
         existingTaskId: activeDuplicateRows[0].id,
         existingTaskStatus: activeDuplicateRows[0].status,
       });
@@ -1867,7 +1867,7 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
       : null;
     if (taskType === 'device_delivery' && !deliveryAddress) {
       await pgClient.query('ROLLBACK');
-      return res.status(400).json({ error: 'deliveryAddress ظ…ط·ظ„ظˆط¨ ط¹ظ†ط¯ ط¹ط¯ظ… طھظˆظپط± ط¹ظ†ظˆط§ظ† ط­ط§ظ„ظٹ ظ„ظ„ط¬ظ‡ط§ط²' });
+      return res.status(400).json({ error: 'deliveryAddress مطلوب عند عدم توفر عنوان حالي للجهاز' });
     }
 
     if (taskType === 'device_installation') {
@@ -3511,7 +3511,7 @@ router.patch('/:id', requirePermission('open_tasks.edit'), async (req, res) => {
       && req.body.status === 'completed'
       && req.body.status !== oldStatus
     ) {
-      return res.status(409).json({ error: 'device_delivery طھظڈط؛ظ„ظ‚ ظپظ‚ط· ط¹ط¨ط± ظ†طھظٹط¬ط© visit_task_device_delivery_results' });
+      return res.status(409).json({ error: 'device_delivery تُغلق فقط عبر نتيجة visit_task_device_delivery_results' });
     }
 
     const fieldMap: Record<string, string> = {

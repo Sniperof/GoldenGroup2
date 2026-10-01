@@ -1019,7 +1019,7 @@ router.get('/', requirePermission('clients.visits.view', 'field_visits.view'), a
     }
 
     if (clientId === null && !authorize(authContext as any, { permission: 'field_visits.view' }).allowed) {
-      return res.status(403).json({ error: 'ط؛ظٹط± ظ…ط³ظ…ظˆط­' });
+      return res.status(403).json({ error: 'غير مسموح' });
     }
 
     let employeeId: number | null = null;
