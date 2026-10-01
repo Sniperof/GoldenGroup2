@@ -65,3 +65,16 @@ nul
 # Excel temp lock files
 ~$*
 .vs/
+
+# generated / agent scratch output (keep deliverables in docs/deliverables)
+outputs/
+scratch/
+prompts/
+.codex/
+.codex-tmp/
+.codex_tmp/
+.codex-backups/
+.agents/
+*.inspect.ndjson
+*.bak
+*.bak-*
