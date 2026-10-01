@@ -99,7 +99,7 @@
 
 ### 5.1 لقطة الاستحقاق — لماذا لزمت (migration 454)
 
-`due_date` قابل للتعديل ([routes/tasks.ts:256](../../../../packages/api/routes/tasks.ts:256)) و`task_activity_log` **لا يسجّل تعديله** (أحداثه أربعة: `status_change` · `priority_changed` · `note_added` · `lifecycle_skip`). فحكم «كانت متأخرة يوم الاتصال» محسوبًا من استحقاق اليوم كان ينقلب بأثر رجعي بلا أثر — وهو ما يمنعه §9.1.
+`due_date` قابل للتعديل (`PATCH /open-tasks/:id` — [routes/openTasks.ts:3520](../../../../packages/api/routes/openTasks.ts:3520)) و`task_activity_log` **لا يسجّل تعديله** (أحداثه أربعة: `status_change` · `priority_changed` · `note_added` · `lifecycle_skip`). فحكم «كانت متأخرة يوم الاتصال» محسوبًا من استحقاق اليوم كان ينقلب بأثر رجعي بلا أثر — وهو ما يمنعه §9.1.
 
 فجُمِّد على الرابط `task_due_date_snapshot` و`task_status_snapshot`، ويقرأ التقرير اللقطة أولًا ثم الاستحقاق الحالي للروابط الأقدم منها — بتنويه في الدليل.
 
