@@ -2,12 +2,12 @@ import { useEffect, useState } from 'react';
 import { Gift, PackageCheck, ShieldCheck } from '../../components/ui/icons';
 import Card, { CardHeader, CardTitle } from '../../components/ui/Card';
 import GiftRecordsTable from '../../components/gifts/GiftRecordsTable';
-import type { GiftRecordPrototype } from '../../data/giftsPrototype';
+import type { GiftRecord } from '../../data/gifts';
 import { api } from '../../lib/api';
 import type { Client } from '../../lib/types';
 
 export default function GiftsTab({ client }: { client: Client }) {
-  const [records, setRecords] = useState<GiftRecordPrototype[]>([]);
+  const [records, setRecords] = useState<GiftRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);

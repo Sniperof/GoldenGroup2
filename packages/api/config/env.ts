@@ -116,7 +116,7 @@ export const RASEL_TIMEOUT_MS = parseInt(process.env.RASEL_TIMEOUT_MS || '10000'
 // server-side so testing never burns quota on a call the provider will reject.
 export const RASEL_TRIAL_MODE = (process.env.RASEL_TRIAL_MODE ?? 'true') !== 'false';
 export const RASEL_TRIAL_ALLOWED_TO = process.env.RASEL_TRIAL_ALLOWED_TO || '963987223900';
-// Fast disable without a redeploy: flip this and `pm2 restart` (see CLAUDE.md).
+// Fast disable without a redeploy: flip this and `pm2 restart`.
 export const RASEL_KILL_SWITCH = (process.env.RASEL_KILL_SWITCH || 'false') === 'true';
 
 if (OTP_PROVIDER === 'sms' && !RASEL_API_KEY) {
@@ -169,7 +169,7 @@ export const FCM_CLIENT_EMAIL = process.env.FCM_CLIENT_EMAIL;
 // gets a usable key.
 export const FCM_PRIVATE_KEY = (process.env.FCM_PRIVATE_KEY || '').replace(/\\n/g, '\n');
 export const FCM_TIMEOUT_MS = parseInt(process.env.FCM_TIMEOUT_MS || '10000');
-// Fast disable without a redeploy: flip this and `pm2 restart` (see CLAUDE.md).
+// Fast disable without a redeploy: flip this and `pm2 restart`.
 export const FCM_KILL_SWITCH = (process.env.FCM_KILL_SWITCH || 'false') === 'true';
 
 if (PUSH_PROVIDER === 'fcm') {

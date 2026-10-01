@@ -1945,7 +1945,7 @@ router.get('/:id', requirePermission('field_visits.view', 'field_visits.my_visit
       reassigned_at: fv.reassigned_at,
     };
 
-    // ── Standard ClientSnapshot (Level 2) per docs/.../client-snapshot.md ────
+    // ── Standard ClientSnapshot (Level 2) per docs/constitution/components/client-snapshot.md ────
     const geoPath: any[] = clientGeoRes.rows;
     const byLevel = (lvl: number) => geoPath.find((g: any) => g.level === lvl)?.name ?? null;
     const assignees = ownershipRes.rows.map((a: any) => ({

@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../../lib/api';
 import { usePermissions } from '../../hooks/usePermissions';
-import type { GiftDefinitionPrototype, GiftRecordPrototype } from '../../data/giftsPrototype';
+import type { GiftDefinition, GiftRecord } from '../../data/gifts';
 import {
   giftConditionClasses,
   giftConditionStatusLabels,
   giftStatusClasses,
   giftStatusLabels,
-} from '../../data/giftsPrototype';
+} from '../../data/gifts';
 import { AlertCircle, Gift, Pencil } from '../ui/icons';
 import Button from '../ui/Button';
 import Modal from '../ui/Modal';
@@ -25,7 +25,7 @@ interface PromiseConditionOption {
   requiresNotes: boolean;
 }
 
-function canEditBySource(record: GiftRecordPrototype, canEditCandidate: boolean, canEditSheet: boolean): boolean {
+function canEditBySource(record: GiftRecord, canEditCandidate: boolean, canEditSheet: boolean): boolean {
   if (record.status !== 'promised') return false;
   if (record.sources.some(source => source.sourceType === 'contract')) return false;
   if (record.sources.some(source => source.sourceType === 'name_list')) return canEditSheet;
@@ -41,12 +41,12 @@ export default function ReferralGiftPromisesPanel({
   const { hasPermission, hasAnyPermission } = usePermissions();
   const canEditCandidate = hasPermission('candidates.edit');
   const canEditSheet = hasAnyPermission('candidates.name_lists.edit');
-  const [records, setRecords] = useState<GiftRecordPrototype[]>([]);
-  const [definitions, setDefinitions] = useState<GiftDefinitionPrototype[]>([]);
+  const [records, setRecords] = useState<GiftRecord[]>([]);
+  const [definitions, setDefinitions] = useState<GiftDefinition[]>([]);
   const [conditions, setConditions] = useState<PromiseConditionOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [editing, setEditing] = useState<GiftRecordPrototype | null>(null);
+  const [editing, setEditing] = useState<GiftRecord | null>(null);
   const [giftDefinitionId, setGiftDefinitionId] = useState('');
   const [conditionId, setConditionId] = useState('');
   const [conditionNotes, setConditionNotes] = useState('');
@@ -95,7 +95,7 @@ export default function ReferralGiftPromisesPanel({
     return () => { active = false; };
   }, []);
 
-  const openEdit = (record: GiftRecordPrototype) => {
+  const openEdit = (record: GiftRecord) => {
     setEditing(record);
     setGiftDefinitionId(String(record.giftDefinitionId ?? ''));
     setConditionId(String(record.conditionId ?? ''));

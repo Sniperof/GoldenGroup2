@@ -1710,7 +1710,7 @@ router.get('/:id/service-requests', requirePermission('clients.view'), async (re
   return res.json({ items: rows });
 });
 
-// Level-2 client snapshot (docs/.../client-snapshot.md). Reused to render a
+// Level-2 client snapshot (docs/constitution/components/client-snapshot.md). Reused to render a
 // linked beneficiary/referrer inside other domains (e.g. service requests).
 router.get('/:id/snapshot', requirePermission('clients.view'), async (req, res) => {
   const clientId = Number(req.params.id);

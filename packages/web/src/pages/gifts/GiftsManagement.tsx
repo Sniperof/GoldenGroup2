@@ -10,9 +10,9 @@ import {
   giftConditionStatusLabels,
   giftStatusLabels,
   type GiftConditionStatus,
-  type GiftRecordPrototype,
+  type GiftRecord,
   type GiftRecordStatus,
-} from '../../data/giftsPrototype';
+} from '../../data/gifts';
 import { api } from '../../lib/api';
 
 type StatusFilter = 'all' | GiftRecordStatus;
@@ -49,7 +49,7 @@ export default function GiftsManagement() {
   const [activeTab, setActiveTab] = useState<GiftManagementTab>('records');
   const [status, setStatus] = useState<StatusFilter>('all');
   const [condition, setCondition] = useState<ConditionFilter>('all');
-  const [records, setRecords] = useState<GiftRecordPrototype[]>([]);
+  const [records, setRecords] = useState<GiftRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);

@@ -22,7 +22,7 @@ export type GiftBeneficiaryType =
   | 'personal_referrer';
 export type GiftDefinitionKind = 'standard_gift' | 'gift_contract';
 
-export interface GiftDefinitionPrototype {
+export interface GiftDefinition {
   id: string | number;
   name: string;
   description?: string;
@@ -47,7 +47,7 @@ export interface GiftRecordSource {
   notes?: string | null;
 }
 
-export interface GiftRecordPrototype {
+export interface GiftRecord {
   id: string | number;
   giftName: string;
   giftDefinitionId?: string | number;

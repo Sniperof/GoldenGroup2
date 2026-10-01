@@ -9,8 +9,8 @@ import { usePermissions } from '../../hooks/usePermissions';
 import {
   giftConditionStatusLabels,
   type GiftConditionStatus,
-  type GiftRecordPrototype,
-} from '../../data/giftsPrototype';
+  type GiftRecord,
+} from '../../data/gifts';
 
 type ActionKind = 'condition' | 'approve' | 'withdraw' | 'task' | 'manual' | 'reopen' | 'cancel';
 type ActionMenuValue = ActionKind | 'contract';
@@ -30,8 +30,8 @@ export default function GiftRecordActions({
   candidateRecords = [],
   onChanged,
 }: {
-  record: GiftRecordPrototype;
-  candidateRecords?: GiftRecordPrototype[];
+  record: GiftRecord;
+  candidateRecords?: GiftRecord[];
   onChanged?: () => void;
 }) {
   const navigate = useNavigate();

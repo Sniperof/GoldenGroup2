@@ -25,8 +25,8 @@ import DateField from '../../components/ui/DateField';
 import {
     giftConditionStatusLabels,
     type GiftConditionStatus,
-    type GiftDefinitionPrototype,
-} from '../../data/giftsPrototype';
+    type GiftDefinition,
+} from '../../data/gifts';
 
 /* ------------------------------------------------------------------ */
 /*  Customer type                                                       */
@@ -581,7 +581,7 @@ export default function ContractForm() {
     const [selectedReferrerIds, setSelectedReferrerIds] = useState<string[]>([]);
     const [giftPromises, setGiftPromises] = useState<ContractGiftPromisePreview[]>([]);
     const [showGiftPromiseModal, setShowGiftPromiseModal] = useState(false);
-    const [giftDefinitions, setGiftDefinitions] = useState<GiftDefinitionPrototype[]>([]);
+    const [giftDefinitions, setGiftDefinitions] = useState<GiftDefinition[]>([]);
     const [giftPromiseDraft, setGiftPromiseDraft] = useState<ContractGiftPromiseDraft>({
         giftDefinitionId: '',
         beneficiaryKind: 'contract_customer',
@@ -714,7 +714,7 @@ export default function ContractForm() {
     useEffect(() => {
         let active = true;
         api.gifts.definitions.list()
-            .then(rows => { if (active) setGiftDefinitions(rows as GiftDefinitionPrototype[]); })
+            .then(rows => { if (active) setGiftDefinitions(rows as GiftDefinition[]); })
             .catch(() => { if (active) setGiftDefinitions([]); });
         return () => { active = false; };
     }, []);

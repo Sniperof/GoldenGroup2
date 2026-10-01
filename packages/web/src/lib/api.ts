@@ -926,7 +926,7 @@ export const api = {
           if (value !== undefined && value !== null && value !== '') query.set(key, String(value));
         });
         const suffix = query.toString() ? `?${query.toString()}` : '';
-        return request<import('../data/giftsPrototype').GiftRecordPrototype[]>(`/gifts/records${suffix}`);
+        return request<import('../data/gifts').GiftRecord[]>(`/gifts/records${suffix}`);
       },
       similar: (data: any) =>
         request<{ count: number }>('/gifts/records/similar', { method: 'POST', body: JSON.stringify(data) }),

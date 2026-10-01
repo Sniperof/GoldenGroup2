@@ -4,13 +4,10 @@
 
 /* ============================================================
    Golden Group Water Technology — Brand skin for Golden CRM
-   Drop-in replacement for packages/web/src/index.css
 
-   v2 — EXTENDED: now also remaps Tailwind's RADIUS and SHADOW
-   scales (not just colors), so the brand's softer shape + soft
-   blue-tinted elevation apply app-wide with no component edits.
-   Component-level refinements that tokens can't reach are in
-   COMPONENT_EDITS.md.
+   Remaps Tailwind's color, RADIUS and SHADOW scales so the
+   brand's softer shape + soft blue-tinted elevation apply
+   app-wide; component-level refinements live in @layer blocks below.
 
    Brand: Primary #1B5FA8 · Gold #B8922A · Teal #4AC9A0 · Red #E95555
    ============================================================ */
@@ -146,8 +143,7 @@
        Tailwind defaults: lg .5rem/8px · xl .75rem/12px · 2xl 1rem/16px
        Brand cards = ~12px. Tighten 2xl→12 so rounded-2xl card
        containers match; keep xl at 12; leave lg/md/sm for controls
-       (buttons/inputs are made full pills in COMPONENT_EDITS / the
-       @layer below).
+       (buttons/inputs are made full pills in the @layer below).
        ========================================================= */
     --radius-lg:  0.5rem;   /* 8px  — small controls/chips (unchanged) */
     --radius-xl:  0.75rem;  /* 12px — cards, icon chips */
@@ -308,8 +304,7 @@ select:not(.no-pill) {
    The open menu itself stays native (browser-rendered) —
    matching the design system's full custom dropdown
    (checkmark on selected, rounded items, hover state)
-   requires replacing <select> with a custom popover
-   component; see SELECT_COMPONENT_TODO in COMPONENT_EDITS.
+   requires replacing <select> with a custom popover component.
    Pair with `.select-filled` for the filled variant
    (no border, soft grey background).
    Opt-out: `.no-select-skin` keeps native rendering.
