@@ -15,6 +15,7 @@ import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import Input from '../../components/ui/Input';
 import Toggle from '../../components/ui/Toggle';
+import PageJump from '../../components/ui/PageJump';
 import { api } from '../../lib/api';
 import { Client, Candidate, GeoUnit } from '../../lib/types';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -755,7 +756,7 @@ export default function CandidatesEntry() {
                         )}
                     </div>
 
-                    <div className="flex-1 overflow-y-auto custom-scroll" style={{ minHeight: '480px', maxHeight: '480px' }}>
+                    <div className="flex-1 overflow-x-auto custom-scroll">
                         <table className="w-full text-sm text-right border-collapse">
                             <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200 shadow-sm">
                                 <tr className="text-slate-600 font-bold text-xs uppercase tracking-wider">
@@ -922,7 +923,7 @@ export default function CandidatesEntry() {
 
                     {/* Footer Pagination */}
                     {candidatesTotal > 0 && (
-                        <div className="sticky bottom-0 bg-white z-10 border-t border-slate-100 p-3 flex items-center justify-between">
+                        <div className="sticky bottom-0 bg-white z-10 border-t border-slate-100 p-3 flex flex-wrap items-center justify-between gap-2">
                             <span className="text-xs font-bold text-slate-500">
                                 عرض {Math.min(candidatesTotal, (candidatePage - 1) * ITEMS_PER_PAGE + 1)}-{Math.min(candidatesTotal, candidatePage * ITEMS_PER_PAGE)} من {candidatesTotal}
                             </span>
@@ -938,6 +939,9 @@ export default function CandidatesEntry() {
                                     onClick={() => setCandidatePage(p => p + 1)}
                                     className="px-3 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold disabled:opacity-30"
                                 >التالي</button>
+                                {totalCandidatePages > 1 && (
+                                    <PageJump current={candidatePage} total={totalCandidatePages} onJump={setCandidatePage} />
+                                )}
                             </div>
                         </div>
                     )}
@@ -1070,7 +1074,7 @@ export default function CandidatesEntry() {
                         )}
                     </div>
 
-                    <div className="flex-1 overflow-y-auto custom-scroll" style={{ maxHeight: '480px' }}>
+                    <div className="flex-1 overflow-x-auto custom-scroll">
                         <table className="w-full text-sm text-right border-collapse">
                             <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200 shadow-sm">
                                 <tr className="text-slate-600 font-bold text-xs uppercase tracking-wider">
@@ -1175,7 +1179,7 @@ export default function CandidatesEntry() {
 
                     {/* Footer Pagination */}
                     {filteredSheets.length > 0 && (
-                        <div className="sticky bottom-0 bg-white z-10 border-t border-slate-100 p-3 flex items-center justify-between">
+                        <div className="sticky bottom-0 bg-white z-10 border-t border-slate-100 p-3 flex flex-wrap items-center justify-between gap-2">
                             <span className="text-xs font-bold text-slate-500">
                                 عرض {Math.min(filteredSheets.length, (sheetsPage - 1) * ITEMS_PER_PAGE + 1)}-{Math.min(filteredSheets.length, sheetsPage * ITEMS_PER_PAGE)} من {filteredSheets.length}
                             </span>
@@ -1191,6 +1195,9 @@ export default function CandidatesEntry() {
                                     onClick={() => setSheetsPage(p => p + 1)}
                                     className="px-3 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold disabled:opacity-30"
                                 >التالي</button>
+                                {totalSheetsPages > 1 && (
+                                    <PageJump current={sheetsPage} total={totalSheetsPages} onJump={setSheetsPage} />
+                                )}
                             </div>
                         </div>
                     )}
