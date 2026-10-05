@@ -307,7 +307,8 @@ export default function CandidatesEntry() {
             sortDir: 'desc',
             search: debouncedSearch || undefined,
             status: candidateStatusFilter || undefined,
-            responsibleUserId: candidateSupervisorFilter ? Number(candidateSupervisorFilter) : undefined,
+            responsibleUserId: candidateSupervisorFilter && candidateSupervisorFilter !== 'branch' ? Number(candidateSupervisorFilter) : undefined,
+            ownershipType: candidateSupervisorFilter === 'branch' ? 'BRANCH' : undefined,
             branchFilterId: candidateBranchFilter ? Number(candidateBranchFilter) : undefined,
             createdByUserId: candidateCreatorFilter ? Number(candidateCreatorFilter) : undefined,
             converted: (candidateConvertedFilter || undefined) as any,
@@ -539,7 +540,7 @@ export default function CandidatesEntry() {
     type Chip = { key: string; label: string; value: string; onRemove: () => void };
     const candidateChips: Chip[] = [];
     if (candidateStatusFilter) candidateChips.push({ key: 'status', label: 'الحالة', value: candidateStatusLabels[candidateStatusFilter] ?? candidateStatusFilter, onRemove: () => { setCandidateStatusFilter(''); setCandidatePage(1); } });
-    if (candidateSupervisorFilter) candidateChips.push({ key: 'supervisor', label: 'المسؤول', value: ownerNameById.get(candidateSupervisorFilter) ?? candidateSupervisorFilter, onRemove: () => { setCandidateSupervisorFilter(''); setCandidatePage(1); } });
+    if (candidateSupervisorFilter) candidateChips.push({ key: 'supervisor', label: 'المسؤول', value: candidateSupervisorFilter === 'branch' ? 'ملكية الفرع' : (ownerNameById.get(candidateSupervisorFilter) ?? candidateSupervisorFilter), onRemove: () => { setCandidateSupervisorFilter(''); setCandidatePage(1); } });
     if (candidateBranchFilter) candidateChips.push({ key: 'branch', label: 'الفرع', value: branchNameById.get(candidateBranchFilter) ?? candidateBranchFilter, onRemove: () => { setCandidateBranchFilter(''); setCandidatePage(1); } });
     if (candidateConvertedFilter) candidateChips.push({ key: 'converted', label: 'التحويل', value: candidateConvertedFilter === 'converted' ? 'محوَّل' : 'غير محوَّل', onRemove: () => { setCandidateConvertedFilter(''); setCandidatePage(1); } });
     if (candidateReferralTypeFilter) candidateChips.push({ key: 'referralType', label: 'نوع الترشيح', value: getReferralTypeLabel(candidateReferralTypeFilter), onRemove: () => { setCandidateReferralTypeFilter(''); setCandidatePage(1); } });
@@ -692,12 +693,10 @@ export default function CandidatesEntry() {
                                     <Select className="w-full" value={candidateStatusFilter} onChange={(v) => { setCandidateStatusFilter(v); setCandidatePage(1); }} ariaLabel="حالة المرشح"
                                         options={[{ value: '', label: 'كل الحالات' }, ...Object.entries(candidateStatusLabels).map(([value, label]) => ({ value, label }))]} />
                                 </FilterField>
-                                {ownerOptions.length > 0 && (
-                                    <FilterField label="المسؤول">
-                                        <Select className="w-full" value={candidateSupervisorFilter} onChange={(v) => { setCandidateSupervisorFilter(v); setCandidatePage(1); }} ariaLabel="المسؤول"
-                                            options={[{ value: '', label: 'كل المسؤولين' }, ...ownerOptions.map(u => ({ value: String(u.id), label: u.name }))]} />
-                                    </FilterField>
-                                )}
+                                <FilterField label="المسؤول">
+                                    <Select className="w-full" value={candidateSupervisorFilter} onChange={(v) => { setCandidateSupervisorFilter(v); setCandidatePage(1); }} ariaLabel="المسؤول"
+                                        options={[{ value: '', label: 'كل المسؤولين' }, { value: 'branch', label: 'ملكية الفرع' }, ...ownerOptions.map(u => ({ value: String(u.id), label: u.name }))]} />
+                                </FilterField>
                                 {branchOptions.length > 1 && (
                                     <FilterField label="الفرع">
                                         <Select className="w-full" value={candidateBranchFilter} onChange={(v) => { setCandidateBranchFilter(v); setCandidatePage(1); }} ariaLabel="الفرع"

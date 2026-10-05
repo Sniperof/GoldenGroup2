@@ -247,6 +247,7 @@ export interface PagedCandidatesParams {
   branchFilterId?: number;       // explicit branch filter, always ANDed with the caller's scope
                                  // (distinct from `branchId`, which becomes the X-Branch-Id header)
   responsibleUserId?: number;
+  ownershipType?: 'BRANCH';      // branch-owned only (no responsible user); overrides responsibleUserId
   createdByUserId?: number;
   converted?: 'converted' | 'unconverted' | '';
   referralType?: string;
