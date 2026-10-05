@@ -239,9 +239,9 @@ const TASKS: TaskLabItem[] = [
 const TASK_OVERRIDES: Record<string, Partial<TaskLabItem>> = {
   device_retrieval: {
     label: 'سحب جهاز',
-    createFields: ['زبون', 'جهاز مفكوك', 'غرض السحب', 'فرع الخدمة', 'تاريخ المهمة', 'أولوية'],
+    createFields: ['زبون', 'جهاز مفكوك', 'غرض السحب', 'تاريخ المهمة', 'أولوية'],
     resultFields: ['تم السحب', 'إعادة الجدولة', 'رفض السحب', 'تأكيد الزبون', 'ملاحظات فنية'],
-    notes: 'السحب مسموح فقط بعد فك ناجح وحالة out_of_service. غرض maintenance ينقل الجهاز إلى in_workshop، وغرض replacement يجعله retrieved.',
+    notes: 'السحب مسموح فقط بعد فك ناجح وحالة out_of_service. فرع الخدمة هو فرع الجهاز نفسه دائماً. غرض maintenance ينقل الجهاز إلى in_workshop، وغرض replacement يجعله retrieved.',
   },
   device_return: {
     label: 'إرجاع جهاز',

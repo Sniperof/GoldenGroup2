@@ -309,13 +309,11 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
   const { hasPermission } = usePermissions();
   const [showDialog, setShowDialog] = useState(false);
   const [mode, setMode] = useState<'choose' | 'delivery' | 'installation' | 'activation' | 'disconnection' | 'emergency' | 'checkup' | 'retrieval' | 'return' | 'transfer' | 'periodic'>('choose');
-  const [branches, setBranches] = useState<any[]>([]);
   const [geoUnits, setGeoUnits] = useState<any[]>([]);
   const [clients, setClients] = useState<any[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [retrievalPurpose, setRetrievalPurpose] = useState<'maintenance' | 'replacement'>('maintenance');
-  const [serviceBranchId, setServiceBranchId] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [priority, setPriority] = useState<'high' | 'medium' | 'low'>('medium');
   const [notes, setNotes] = useState('');
@@ -345,20 +343,11 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
   const myTasks = (tasks ?? []).filter(t =>
     sameId(t.deviceId, deviceId) || sameId(t.contractId, contractId)
   );
-  const activeBranches = useMemo(() => branches.filter((branch) => branch.status !== 'inactive'), [branches]);
   const activeGeoUnits = useMemo(() => geoUnits.filter((unit) => unit?.status !== 'inactive'), [geoUnits]);
   const targetClients = useMemo(() => clients.filter((client) => Number(client.id) !== Number(device?.customerId)), [clients, device?.customerId]);
 
   useEffect(() => {
     if (!showDialog) return;
-    api.branches.list()
-      .then((rows) => {
-        const list = Array.isArray(rows) ? rows : [];
-        setBranches(list);
-        const preferred = list.find((branch: any) => Number(branch.id) === Number(device?.branchId) && branch.status !== 'inactive') ?? list.find((branch: any) => branch.status !== 'inactive');
-        setServiceBranchId(preferred?.id ? String(preferred.id) : '');
-      })
-      .catch(() => setBranches([]));
     api.geoUnits.list()
       .then((rows) => setGeoUnits(Array.isArray(rows) ? rows : []))
       .catch(() => setGeoUnits([]));
@@ -619,8 +608,10 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
     const taskReason = retrievalPurpose === 'maintenance' ? 'device_retrieval_maintenance' : 'device_retrieval_replacement';
     const creationOptions = creationOptionsFor(taskReason, retrievalCreationReasons, FALLBACK_RETRIEVAL_CREATION_REASONS);
     const creationReason = selectedCreationReason(retrievalCreationReason, creationOptions);
+    // Service branch = the device's own branch (enforced by the server too).
+    const serviceBranchId = device?.branchId;
     if (!serviceBranchId) {
-      setError('اختر فرع الخدمة');
+      setError('الجهاز غير مرتبط بفرع، فلا يمكن إنشاء مهمة سحب');
       return;
     }
     if (!dueDate) {
@@ -1137,16 +1128,6 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
                         className="w-full"
                         options={retrievalCreationOptions.map((item) => ({ value: item.value, label: item.label }))}
                       />
-                    </label>
-
-                    <label className="space-y-1.5">
-                      <span className="text-xs font-bold text-slate-500">فرع الخدمة</span>
-                      <select value={serviceBranchId} onChange={(e) => setServiceBranchId(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
-                        <option value="">اختر فرع الخدمة</option>
-                        {activeBranches.map((branch) => (
-                          <option key={branch.id} value={branch.id}>{branch.name}</option>
-                        ))}
-                      </select>
                     </label>
 
                     <label className="space-y-1.5">

@@ -1139,7 +1139,10 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
   const sourceContextId = Number(req.body?.sourceContextId) || null;
   const dispatchOriginType = typeof req.body?.dispatchOriginType === 'string' ? req.body.dispatchOriginType.trim() || null : null;
   const dispatchOriginLabel = typeof req.body?.dispatchOriginLabel === 'string' ? req.body.dispatchOriginLabel.trim() || null : null;
-  const serviceBranchId = Number(req.body?.serviceBranchId ?? req.body?.service_branch_id) || null;
+  // device_retrieval: the service branch is ALWAYS the device's own branch (set
+  // below); a client-sent serviceBranchId is ignored so a retrieval can never
+  // move the device into another branch.
+  let serviceBranchId: number | null = null;
   const retrievalPurpose = typeof req.body?.retrievalPurpose === 'string'
     ? req.body.retrievalPurpose.trim()
     : (typeof req.body?.retrieval_purpose === 'string' ? req.body.retrieval_purpose.trim() : null);
@@ -1489,8 +1492,9 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
     if (retrievalPurpose !== 'maintenance' && retrievalPurpose !== 'replacement') {
       return res.status(400).json({ error: 'غرض السحب مطلوب ويجب أن يكون maintenance أو replacement' });
     }
+    serviceBranchId = deviceBranchIdFromContract == null ? null : Number(deviceBranchIdFromContract);
     if (!serviceBranchId || !Number.isInteger(serviceBranchId)) {
-      return res.status(400).json({ error: 'serviceBranchId مطلوب لمهمة سحب الجهاز' });
+      return res.status(400).json({ error: 'الجهاز غير مرتبط بفرع، فلا يمكن تحديد فرع الخدمة لمهمة السحب' });
     }
     if (!dueDate) {
       return res.status(400).json({ error: 'التاريخ المطلوب مطلوب عند إنشاء مهمة سحب الجهاز' });
