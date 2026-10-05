@@ -26,6 +26,7 @@ import Select from '../../../components/ui/Select';
 import DateField from '../../../components/ui/DateField';
 import { usePermissions } from '../../../hooks/usePermissions';
 import GeoSmartSearch, { type GeoSelection, deepestGeoId } from '../../../components/GeoSmartSearch';
+import ClientSearchPicker, { type PickedClient } from '../../../components/ClientSearchPicker';
 import { evaluateDeviceTaskEligibility } from '@golden-crm/shared';
 
 interface Props {
@@ -310,7 +311,6 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
   const [showDialog, setShowDialog] = useState(false);
   const [mode, setMode] = useState<'choose' | 'delivery' | 'installation' | 'activation' | 'disconnection' | 'emergency' | 'checkup' | 'retrieval' | 'return' | 'transfer' | 'periodic'>('choose');
   const [geoUnits, setGeoUnits] = useState<any[]>([]);
-  const [clients, setClients] = useState<any[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [retrievalPurpose, setRetrievalPurpose] = useState<'maintenance' | 'replacement'>('maintenance');
@@ -335,7 +335,7 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
   const [periodicCreationReasons, setPeriodicCreationReasons] = useState(FALLBACK_PERIODIC_CREATION_REASONS);
   const [periodicIntervalMonths, setPeriodicIntervalMonths] = useState('');
   const [transferKind, setTransferKind] = useState<'same_customer_new_address' | 'another_customer'>('same_customer_new_address');
-  const [targetClientId, setTargetClientId] = useState('');
+  const [targetClient, setTargetClient] = useState<PickedClient | null>(null);
   const [transferGeoSelection, setTransferGeoSelection] = useState<GeoSelection>(emptyGeoSelection);
   const [transferAddressText, setTransferAddressText] = useState('');
   const [transferLat, setTransferLat] = useState('');
@@ -344,16 +344,12 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
     sameId(t.deviceId, deviceId) || sameId(t.contractId, contractId)
   );
   const activeGeoUnits = useMemo(() => geoUnits.filter((unit) => unit?.status !== 'inactive'), [geoUnits]);
-  const targetClients = useMemo(() => clients.filter((client) => Number(client.id) !== Number(device?.customerId)), [clients, device?.customerId]);
 
   useEffect(() => {
     if (!showDialog) return;
     api.geoUnits.list()
       .then((rows) => setGeoUnits(Array.isArray(rows) ? rows : []))
       .catch(() => setGeoUnits([]));
-    api.clients.list()
-      .then((rows) => setClients(Array.isArray(rows) ? rows : []))
-      .catch(() => setClients([]));
     api.systemLists.getItemsByCode('periodic_manual_creation_reasons')
       .then((rows: any) => {
         const items = Array.isArray(rows)
@@ -405,7 +401,7 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
     setPeriodicReason('bootstrap جهاز قائم');
     setPeriodicIntervalMonths('');
     setTransferKind('same_customer_new_address');
-    setTargetClientId('');
+    setTargetClient(null);
     setTransferGeoSelection(emptyGeoSelection());
     setTransferAddressText('');
     setTransferLat('');
@@ -744,7 +740,7 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
       setError('العنوان التفصيلي مطلوب');
       return;
     }
-    if (transferKind === 'another_customer' && !targetClientId) {
+    if (transferKind === 'another_customer' && !targetClient) {
       setError('اختر الزبون الجديد');
       return;
     }
@@ -765,7 +761,7 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
         dueDate,
         priority,
         transferKind,
-        targetClientId: transferKind === 'another_customer' ? Number(targetClientId) : null,
+        targetClientId: transferKind === 'another_customer' ? targetClient?.id ?? null : null,
         plannedTransferGeoUnitId: Number(neighborhoodId),
         plannedTransferAddressText: transferAddressText.trim(),
         plannedTransferLat: transferLat.trim() ? Number(transferLat) : null,
@@ -1305,17 +1301,14 @@ export function TasksSection({ tasks, deviceId, contractId, device, onTaskCreate
                     </label>
 
                     {transferKind === 'another_customer' && (
-                      <label className="space-y-1.5">
+                      <div className="space-y-1.5">
                         <span className="text-xs font-bold text-slate-500">الزبون الجديد</span>
-                        <select value={targetClientId} onChange={(e) => setTargetClientId(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
-                          <option value="">اختر الزبون الجديد</option>
-                          {targetClients.map((client) => (
-                            <option key={client.id} value={client.id}>
-                              {client.name || [client.firstName, client.lastName].filter(Boolean).join(' ') || `زبون #${client.id}`}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                        <ClientSearchPicker
+                          value={targetClient}
+                          onChange={setTargetClient}
+                          excludeIds={device?.customerId ? [Number(device.customerId)] : []}
+                        />
+                      </div>
                     )}
 
                     <label className="space-y-1.5">
