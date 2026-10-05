@@ -1055,6 +1055,10 @@ router.get('/', requirePermission('clients.view_list'), async (req, res) => {
  *         name: filterMediator
  *         schema: { type: string }
  *       - in: query
+ *         name: filterReferrerName
+ *         schema: { type: string }
+ *         description: Partial match on the primary mediator's name (free `search` does not match it)
+ *       - in: query
  *         name: filterArea
  *         schema: { type: string }
  *       - in: query
@@ -1103,14 +1107,16 @@ router.get('/paged', requirePermission('clients.view_list'), async (req, res) =>
     const conditions = appendClientScopeConditions(authContext, requestedBranchId, listAccess.scope, params);
     conditions.push('c.is_candidate = FALSE');
 
+    // Free search matches the client's OWN identity only (name / id / phones).
+    // It deliberately does not match the mediator's name or the branch name:
+    // searching "أحمد" must not return every client Ahmad referred — that is
+    // the separate `filterReferrerName` filter below.
     const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
     if (search) {
       params.push(`%${search}%`);
       const likeRef = `$${params.length}`;
       const parts = [
         `c.name ILIKE ${likeRef}`,
-        `c.referrer_name ILIKE ${likeRef}`,
-        `b.name ILIKE ${likeRef}`,
         `c.id::text LIKE ${likeRef}`,
       ];
       const digits = search.replace(/\D/g, '');
@@ -1136,6 +1142,13 @@ router.get('/paged', requirePermission('clients.view_list'), async (req, res) =>
     if (filterMediator) {
       params.push(filterMediator);
       conditions.push(`c.referrer_type = $${params.length}`);
+    }
+
+    // Primary mediator's name (partial) — the same value the «اسم الوسيط» column shows.
+    const filterReferrerName = typeof req.query.filterReferrerName === 'string' ? req.query.filterReferrerName.trim() : '';
+    if (filterReferrerName) {
+      params.push(`%${filterReferrerName}%`);
+      conditions.push(`c.referrer_name ILIKE $${params.length}`);
     }
 
     // ── Enriched filter catalog (docs/engineering/api/clients-records-performance-and-filters.md §7) ──

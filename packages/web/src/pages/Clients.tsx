@@ -174,6 +174,7 @@ export default function Clients() {
     const [filterWaterSource, setFilterWaterSource] = useState('all');
     const [filterDataQuality, setFilterDataQuality] = useState('all');
     const [filterSerial, setFilterSerial] = useState('');
+    const [filterReferrerName, setFilterReferrerName] = useState('');
     const [dateFrom, setDateFrom] = useState('');
     const [dateTo, setDateTo] = useState('');
 
@@ -199,6 +200,13 @@ export default function Clients() {
         const t = setTimeout(() => { setDebouncedSerial(filterSerial); setPage(1); }, 300);
         return () => clearTimeout(t);
     }, [filterSerial]);
+
+    // Mediator-name filter — debounced like the main search (which no longer matches it).
+    const [debouncedReferrerName, setDebouncedReferrerName] = useState('');
+    useEffect(() => {
+        const t = setTimeout(() => { setDebouncedReferrerName(filterReferrerName); setPage(1); }, 300);
+        return () => clearTimeout(t);
+    }, [filterReferrerName]);
 
     // Any filter/branch change resets to the first page.
     useEffect(() => { setPage(1); }, [
@@ -253,6 +261,7 @@ export default function Clients() {
             branchId: branchParam,
             search: debouncedSearch,
             filterClass, filterMediator,
+            filterReferrerName: debouncedReferrerName,
             geoIds: geoIdsCsv,
             routeGeoIds: routeGeoIdsCsv,
             owner: filterOwner, rating: filterRating,
@@ -261,7 +270,7 @@ export default function Clients() {
             serial: debouncedSerial,
             createdFrom: dateFrom, createdTo: dateTo,
         };
-    }, [isGlobalClients, branchContextId, debouncedSearch, filterClass, filterMediator, geoIdsCsv, routeGeoIdsCsv,
+    }, [isGlobalClients, branchContextId, debouncedSearch, filterClass, filterMediator, debouncedReferrerName, geoIdsCsv, routeGeoIdsCsv,
         filterOwner, filterRating, filterWaterSource, filterDataQuality, filterHasDevice, filterTaskType, debouncedSerial, dateFrom, dateTo]);
 
     const fetchClients = useCallback(async () => {
@@ -491,7 +500,7 @@ export default function Clients() {
     const MEDIATOR_LABELS: Record<string, string> = { Personal: 'شخصي', Employee: 'موظف', Client: 'زبون حالي' };
 
     const clearAllFilters = useCallback(() => {
-        setSearchTerm(''); setFilterClass('all'); setFilterMediator('all');
+        setSearchTerm(''); setFilterClass('all'); setFilterMediator('all'); setFilterReferrerName('');
         setFilterGov('all'); setFilterRegion('all'); setFilterSubarea('all'); setFilterHood('all');
         setFilterOwner('all'); setFilterRating('all');
         setFilterHasDevice('all'); setFilterTaskType('all');
@@ -503,6 +512,7 @@ export default function Clients() {
     const filterChips: Chip[] = [];
     if (filterClass !== 'all') filterChips.push({ key: 'class', label: 'التصنيف', value: filterClass, onRemove: () => setFilterClass('all') });
     if (filterMediator !== 'all') filterChips.push({ key: 'mediator', label: 'نوع الوسيط', value: MEDIATOR_LABELS[filterMediator] ?? filterMediator, onRemove: () => setFilterMediator('all') });
+    if (filterReferrerName) filterChips.push({ key: 'referrerName', label: 'اسم الوسيط', value: filterReferrerName, onRemove: () => setFilterReferrerName('') });
     if (deepestGeo) filterChips.push({ key: 'geo', label: 'المنطقة', value: geoName(deepestGeo), onRemove: resetGeo });
     if (filterOwner !== 'all') filterChips.push({ key: 'owner', label: 'المسؤول', value: ownerOptions.find(o => String(o.id) === filterOwner)?.name ?? filterOwner, onRemove: () => setFilterOwner('all') });
     if (filterRating !== 'all') filterChips.push({ key: 'rating', label: 'الالتزام', value: RATING_LABELS[filterRating] ?? filterRating, onRemove: () => setFilterRating('all') });
@@ -684,7 +694,7 @@ export default function Clients() {
                         <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                         <input
                             type="text"
-                            placeholder="بحث ذكي (الاسم، الهاتف، المعرف، الوسيط)..."
+                            placeholder="بحث ذكي (الاسم، الهاتف، المعرف)..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                             className="w-full bg-slate-50 border border-slate-200 rounded-xl pr-10 pl-4 py-3 text-sm focus:border-sky-500 focus:outline-none transition-all focus:bg-white"
@@ -753,6 +763,10 @@ export default function Clients() {
                         <FilterField label="نوع الوسيط">
                             <Select className="w-full" value={filterMediator} onChange={setFilterMediator} ariaLabel="نوع الوسيط"
                                 options={[{ value: 'all', label: 'كل أنواع الوسيط' }, { value: 'Personal', label: 'شخصي' }, { value: 'Employee', label: 'موظف' }, { value: 'Client', label: 'زبون حالي' }]} />
+                        </FilterField>
+                        <FilterField label="اسم الوسيط">
+                            <input type="text" value={filterReferrerName} onChange={e => setFilterReferrerName(e.target.value)} placeholder="بحث باسم الوسيط"
+                                className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 hover:border-slate-300 focus:border-sky-500 focus:outline-none transition-colors" />
                         </FilterField>
                         {govOptions.length > 1 && (
                             <FilterField label="المحافظة">

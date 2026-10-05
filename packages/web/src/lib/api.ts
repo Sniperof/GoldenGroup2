@@ -268,6 +268,7 @@ export interface PagedClientsParams {
   search?: string;
   filterClass?: string;          // Lead | FOP | OP
   filterMediator?: string;       // Personal | Employee | Client
+  filterReferrerName?: string;   // primary mediator name (partial); `search` does not match it
   // Enriched catalog (docs/engineering/api/clients-records-performance-and-filters.md §7)
   geoIds?: string;               // comma-joined subtree ids of the deepest selected geo level
   routeGeoIds?: string;          // comma-joined subtree ids of a route's points
