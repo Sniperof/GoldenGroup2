@@ -536,10 +536,18 @@ export async function generateFirstPeriodicMaintenanceTask(
   return { createdTaskId, skippedReason: null, dueDate, intervalDays };
 }
 
+/**
+ * Eager next periodic task. The cycle restarts from the day the work was
+ * actually EXECUTED (the date of the last visit that carried it), not from the
+ * previous task's planned due date: a periodic done early or late shifts the
+ * next one with it. `executedByTaskId` is the task whose visit did the work —
+ * the periodic itself, or the emergency that covered it.
+ */
 export async function generateNextPeriodicMaintenanceTask(
   db: Queryable,
   completedPeriodicTaskId: number,
   createdByUserId: number | null = null,
+  executedByTaskId: number = completedPeriodicTaskId,
 ): Promise<PeriodicMaintenanceGenerationResult> {
   const settings = await getPeriodicMaintenanceSettings();
   if (!settings.autoGenerateEnabled) {
@@ -553,7 +561,6 @@ export async function generateNextPeriodicMaintenanceTask(
             ot.contract_id AS "contractId",
             ot.device_id AS "installedDeviceId",
             ot.task_type AS "taskType",
-            ot.due_date AS "currentDueDate",
             otp.interval_days_snapshot AS "intervalDaysSnapshot",
             d.status AS "deviceStatus",
             d.warranty_months AS "warrantyMonths",
@@ -596,9 +603,22 @@ export async function generateNextPeriodicMaintenanceTask(
     ? Math.floor(intervalSnapshot!)
     : Number(plan.intervalDays);
 
+  // Execution day = the latest visit that carried the executing task; with no
+  // linked visit, the day the result is recorded. Never born overdue.
   const { rows: dueRows } = await db.query(
-    `SELECT (GREATEST(COALESCE($1::date, CURRENT_DATE), CURRENT_DATE) + $2::int) AS "dueDate"`,
-    [task.currentDueDate ?? null, intervalDays],
+    `SELECT GREATEST(
+              COALESCE(
+                (SELECT fv.scheduled_date
+                   FROM visit_tasks vt
+                   JOIN field_visits fv ON fv.id = vt.field_visit_id
+                  WHERE vt.source_open_task_id = $1
+                  ORDER BY vt.id DESC
+                  LIMIT 1),
+                CURRENT_DATE
+              ) + $2::int,
+              CURRENT_DATE
+            ) AS "dueDate"`,
+    [executedByTaskId, intervalDays],
   );
   const dueDate = dueRows[0]?.dueDate;
 
@@ -1109,6 +1129,7 @@ export async function supersedePeriodicWithinEmergency(
     db,
     input.periodicTaskId,
     input.actorUserId ?? null,
+    input.emergencyTaskId,
   );
 
   return { supersededTaskId: input.periodicTaskId, nextPeriodicTask };
