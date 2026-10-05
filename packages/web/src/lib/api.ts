@@ -248,6 +248,7 @@ export interface PagedCandidatesParams {
                                  // (distinct from `branchId`, which becomes the X-Branch-Id header)
   responsibleUserId?: number;
   ownershipType?: 'BRANCH';      // branch-owned only (no responsible user); overrides responsibleUserId
+  ownershipBranchId?: number;    // with ownershipType: one specific branch's ownership
   createdByUserId?: number;
   converted?: 'converted' | 'unconverted' | '';
   referralType?: string;
@@ -272,7 +273,8 @@ export interface PagedClientsParams {
   // Enriched catalog (docs/engineering/api/clients-records-performance-and-filters.md §7)
   geoIds?: string;               // comma-joined subtree ids of the deepest selected geo level
   routeGeoIds?: string;          // comma-joined subtree ids of a route's points
-  owner?: string | number;       // assigned hr_user id
+  owner?: string | number;       // assigned hr_user id, or 'branch' = branch-owned
+  ownerBranchId?: number;        // with owner='branch': one specific branch's ownership
   rating?: string;               // Committed | NotCommitted | Undefined
   referredByClientId?: number;   // clients this client referred (flat columns + referrers JSONB)
   waterSource?: string;          // admin-list value

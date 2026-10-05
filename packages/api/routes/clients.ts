@@ -1155,10 +1155,16 @@ router.get('/paged', requirePermission('clients.view_list'), async (req, res) =>
     // Owner/responsible: `owner=branch` = company/branch-owned clients — mirrors
     // buildCustomerOwnershipSql's company_* ownerType (OP/FOP are reclaimed by the
     // company; otherwise no eligible personal owner). A user id = clients
-    // personally owned by that eligible user.
+    // personally owned by that eligible user. `ownerBranchId` narrows branch
+    // ownership to one branch; it is ANDed with the scope, so it never widens it.
     const owner = toPositiveInt(req.query.owner as any);
     if (req.query.owner === 'branch') {
       conditions.push(`((${buildClientLifecycleStatusSql('c')}) IN ('OP', 'FOP') OR NOT ${personalOwnerExistsPredicate('c.id')})`);
+      const ownerBranchId = toPositiveInt(req.query.ownerBranchId as any);
+      if (ownerBranchId != null) {
+        params.push(ownerBranchId);
+        conditions.push(`c.branch_id = ${params.length}`);
+      }
     } else if (owner != null) {
       params.push(owner);
       conditions.push(personalOwnershipPredicate('c.id', `$${params.length}`));
