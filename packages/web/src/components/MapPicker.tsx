@@ -1,6 +1,8 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
+// Leaflet touches `window` as soon as it loads, so it (and its CSS) is imported
+// lazily inside the browser effect — importing this module stays safe under
+// Node tests, and the map code is only downloaded when a map is shown.
+import type * as Leaflet from 'leaflet';
 import { Navigation, X } from './ui/icons';
 import IconButton from './ui/IconButton';
 
@@ -15,12 +17,7 @@ const PIN_ZOOM = 16;
 
 // A CSS pin instead of Leaflet's default PNG marker — the default icon's image
 // URLs break under bundlers, and this one needs no assets.
-const PIN_ICON = L.divIcon({
-    className: '',
-    html: '<div style="width:26px;height:26px;border-radius:50% 50% 50% 0;background:#0284c7;transform:rotate(-45deg);border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.35)"></div>',
-    iconSize: [26, 26],
-    iconAnchor: [13, 26],
-});
+const PIN_HTML = '<div style="width:26px;height:26px;border-radius:50% 50% 50% 0;background:#0284c7;transform:rotate(-45deg);border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.35)"></div>';
 
 const hasPosition = (p: [number, number] | null): p is [number, number] =>
     !!p && !(p[0] === 0 && p[1] === 0);
@@ -36,8 +33,10 @@ export default function MapPicker({ position, onLocationSelect }: MapPickerProps
     const [locating, setLocating] = useState(false);
 
     const containerRef = useRef<HTMLDivElement>(null);
-    const mapRef = useRef<L.Map | null>(null);
-    const markerRef = useRef<L.Marker | null>(null);
+    const leafletRef = useRef<typeof Leaflet | null>(null);
+    const mapRef = useRef<Leaflet.Map | null>(null);
+    const markerRef = useRef<Leaflet.Marker | null>(null);
+    const [mapReady, setMapReady] = useState(false);
     // Latest callback without re-creating the map on every parent render.
     const onSelectRef = useRef(onLocationSelect);
     onSelectRef.current = onLocationSelect;
@@ -48,32 +47,46 @@ export default function MapPicker({ position, onLocationSelect }: MapPickerProps
         onSelectRef.current(lat, lng);
     }, []);
 
-    // Create the map once.
+    // Create the map once (after Leaflet has loaded).
     useEffect(() => {
-        if (!containerRef.current || mapRef.current) return;
-        const map = L.map(containerRef.current, {
-            center: hasPosition(position) ? position : SYRIA_CENTER,
-            zoom: hasPosition(position) ? PIN_ZOOM : SYRIA_ZOOM,
-            attributionControl: true,
+        let cancelled = false;
+        let observer: ResizeObserver | null = null;
+        Promise.all([import('leaflet'), import('leaflet/dist/leaflet.css')]).then(([mod]) => {
+            if (cancelled || !containerRef.current || mapRef.current) return;
+            const L = ((mod as { default?: typeof Leaflet }).default ?? mod) as typeof Leaflet;
+            leafletRef.current = L;
+            const map = L.map(containerRef.current, {
+                center: hasPosition(position) ? position : SYRIA_CENTER,
+                zoom: hasPosition(position) ? PIN_ZOOM : SYRIA_ZOOM,
+                attributionControl: true,
+            });
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '© OpenStreetMap',
+            }).addTo(map);
+            map.on('click', (e: Leaflet.LeafletMouseEvent) => select(e.latlng.lat, e.latlng.lng));
+            mapRef.current = map;
+            // Modals animate in and tabs mount hidden: recompute the map size whenever
+            // the container's box changes, or Leaflet renders grey tiles.
+            observer = new ResizeObserver(() => map.invalidateSize());
+            observer.observe(containerRef.current);
+            setMapReady(true);
         });
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19,
-            attribution: '© OpenStreetMap',
-        }).addTo(map);
-        map.on('click', (e: L.LeafletMouseEvent) => select(e.latlng.lat, e.latlng.lng));
-        mapRef.current = map;
-        // Modals animate in and tabs mount hidden: recompute the map size whenever
-        // the container's box changes, or Leaflet renders grey tiles.
-        const observer = new ResizeObserver(() => map.invalidateSize());
-        observer.observe(containerRef.current);
-        return () => { observer.disconnect(); map.remove(); mapRef.current = null; markerRef.current = null; };
+        return () => {
+            cancelled = true;
+            observer?.disconnect();
+            mapRef.current?.remove();
+            mapRef.current = null;
+            markerRef.current = null;
+        };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     // Keep the pin (and the coordinate inputs) in sync with the controlled position.
     useEffect(() => {
         const map = mapRef.current;
-        if (!map) return;
+        const L = leafletRef.current;
+        if (!map || !L) return;
         if (!hasPosition(position)) {
             markerRef.current?.remove();
             markerRef.current = null;
@@ -84,7 +97,8 @@ export default function MapPicker({ position, onLocationSelect }: MapPickerProps
         if (markerRef.current) {
             markerRef.current.setLatLng(position);
         } else {
-            const marker = L.marker(position, { icon: PIN_ICON, draggable: true }).addTo(map);
+            const icon = L.divIcon({ className: '', html: PIN_HTML, iconSize: [26, 26], iconAnchor: [13, 26] });
+            const marker = L.marker(position, { icon, draggable: true }).addTo(map);
             marker.on('dragend', () => {
                 const ll = marker.getLatLng();
                 select(ll.lat, ll.lng);
@@ -92,7 +106,7 @@ export default function MapPicker({ position, onLocationSelect }: MapPickerProps
             markerRef.current = marker;
         }
         if (!map.getBounds().contains(position)) map.setView(position, Math.max(map.getZoom(), PIN_ZOOM));
-    }, [position?.[0], position?.[1], select]);
+    }, [mapReady, position?.[0], position?.[1], select]);
 
     const getCurrentLocation = useCallback(() => {
         if (!navigator.geolocation) {
