@@ -4,6 +4,7 @@ import { X, MapPin, Phone, Smartphone, UserRound } from './ui/icons';
 import IconButton from './ui/IconButton';
 import { api } from '../lib/api';
 import type { Client, ClientRating, ContactEntry, GeoUnit } from '../lib/types';
+import { buildMapsEmbedUrl, buildMapsUrl } from '../utils/addressUtils';
 
 interface Props {
     clientId: number;
@@ -267,13 +268,13 @@ export default function ClientCardPopup({ clientId, onClose }: Props) {
                                                 scrolling="no"
                                                 marginHeight={0}
                                                 marginWidth={0}
-                                                src={`https://www.openstreetmap.org/export/embed.html?bbox=${client.gpsCoordinates.lng - 0.01}%2C${client.gpsCoordinates.lat - 0.01}%2C${client.gpsCoordinates.lng + 0.01}%2C${client.gpsCoordinates.lat + 0.01}&layer=mapnik&marker=${client.gpsCoordinates.lat}%2C${client.gpsCoordinates.lng}`}
+                                                src={buildMapsEmbedUrl(client.gpsCoordinates) ?? undefined}
                                                 style={{ border: 0 }}
                                                 title="خريطة موقع الزبون"
                                             />
                                         </div>
                                         <a
-                                            href={`https://www.openstreetmap.org/?mlat=${client.gpsCoordinates.lat}&mlon=${client.gpsCoordinates.lng}#map=16/${client.gpsCoordinates.lat}/${client.gpsCoordinates.lng}`}
+                                            href={buildMapsUrl(client.gpsCoordinates) ?? undefined}
                                             target="_blank"
                                             rel="noopener noreferrer"
                                             className="mt-2 inline-block text-xs text-sky-600 hover:underline"
