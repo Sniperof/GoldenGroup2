@@ -13,12 +13,14 @@ import { requireAuth } from '../middleware/auth.js';
 import { requirePermission, getOrBuildAuthContext } from '../middleware/permission.js';
 import { authorize, resolveListAccessScope } from '../services/authorizationService.js';
 import { canViewOpenTask, canEditOpenTask, getOpenTaskListAccessPlan } from '../policies/openTaskPolicy.js';
+import { canViewClient } from '../policies/clientPolicy.js';
 import { supervisorAlertAccessPlan } from '../policies/supervisorAlertPolicy.js';
 import { bookVisit, BookingError } from '../services/visitBooking.js';
 import {
   buildCustomerOwnershipSelectColumns,
   buildCustomerOwnershipSql,
   buildClientLifecycleStatusSql,
+  loadClientSubject,
   mapCustomerOwnership,
   personalOwnershipPredicate,
   redactPersonalAssignments,
@@ -1659,7 +1661,7 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
         return res.status(400).json({ error: 'الزبون الجديد يجب أن يختلف عن الزبون الحالي' });
       }
       const { rows: targetRows } = await pool.query(
-        `SELECT id
+        `SELECT id, is_candidate AS "isCandidate"
            FROM clients
           WHERE id = $1
           LIMIT 1`,
@@ -1667,6 +1669,16 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
       );
       if (!targetRows[0]) {
         return res.status(400).json({ error: 'الزبون الجديد غير موجود' });
+      }
+      // The new owner must be a real client the caller may see — the same rule
+      // the picker's scoped search applies, so a direct request cannot hand the
+      // device to a suggested name or to a client outside the caller's scope.
+      if (targetRows[0].isCandidate) {
+        return res.status(400).json({ error: 'لا يمكن نقل الجهاز إلى اسم مقترح؛ يجب أن يكون الزبون الجديد زبوناً فعلياً' });
+      }
+      const targetSubject = await loadClientSubject(targetClientId);
+      if (!targetSubject || !canViewClient(authContext, targetSubject).allowed) {
+        return res.status(403).json({ error: 'الزبون الجديد خارج نطاق صلاحياتك' });
       }
     }
 

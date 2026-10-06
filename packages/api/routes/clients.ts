@@ -35,7 +35,7 @@ import {
 } from '../utils/contactValidation.js';
 import {
   buildClientLifecycleStatusSql,
-  eligiblePersonalOwnerCondition,
+  loadClientSubject,
   getEligiblePersonalOwnerIds,
   isEligiblePersonalOwner,
   personalOwnerExistsPredicate,
@@ -745,33 +745,6 @@ async function hasClientDeviceOrContractInBranches(
   );
 
   return rows.length > 0;
-}
-
-async function loadClientSubject(
-  clientId: string | number,
-  db: { query: typeof pool.query } = pool,
-  lock = false,
-): Promise<ClientSubject | null> {
-  const { rows } = await db.query(
-    `SELECT
-       c.branch_id AS "branchId",
-       COALESCE(
-         (SELECT array_agg(hr_user_id)
-            FROM client_assignments ca
-            JOIN hr_users u ON u.id = ca.hr_user_id
-            LEFT JOIN roles r ON r.id = u.role_id
-            LEFT JOIN employees e ON e.id = u.employee_id
-           WHERE ca.client_id = c.id
-             AND ${eligiblePersonalOwnerCondition('u', 'r', 'e')}),
-         '{}'::int[]
-       ) AS "assignedUserIds"
-     FROM clients c
-    WHERE c.id = $1
-    ${lock ? 'FOR UPDATE OF c' : ''}`,
-    [clientId],
-  );
-
-  return rows[0] ?? null;
 }
 
 async function resolveAssignmentUserIds(
