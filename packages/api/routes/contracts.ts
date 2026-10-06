@@ -2907,7 +2907,8 @@ router.post('/:id/trial-retrieval', async (req, res) => {
       });
     }
 
-    const serviceBranchId = c.service_branch_id ?? c.deviceBranchId ?? c.branch_id;
+    // Retrieval always returns the device to its own branch.
+    const serviceBranchId = c.deviceBranchId ?? c.service_branch_id ?? c.branch_id;
     const dueDate = typeof req.body?.dueDate === 'string' && req.body.dueDate
       ? req.body.dueDate
       : new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];

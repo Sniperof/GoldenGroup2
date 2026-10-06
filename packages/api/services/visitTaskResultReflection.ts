@@ -1020,7 +1020,9 @@ function assertRetrievalShape(
     throw new ResultValidationError('غرض السحب مطلوب ويجب أن يكون maintenance أو replacement أو trial_return');
   }
 
-  const serviceBranchId = Number(body.service_branch_id ?? openTask.service_branch_id);
+  // The task's stored service branch (= the device's branch at creation) wins;
+  // the result body cannot redirect the device to another branch.
+  const serviceBranchId = Number(openTask.service_branch_id ?? body.service_branch_id);
   if (!Number.isInteger(serviceBranchId) || serviceBranchId <= 0) {
     throw new ResultValidationError('فرع الخدمة مطلوب لمهمة سحب الجهاز');
   }
