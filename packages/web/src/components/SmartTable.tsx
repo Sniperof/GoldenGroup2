@@ -6,6 +6,7 @@ import Select from './ui/Select';
 import Input from './ui/Input';
 import Checkbox from './ui/Checkbox';
 import { buildCsv, downloadCsv } from './tableExport';
+import PageJump from './ui/PageJump';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -61,7 +62,8 @@ export interface SmartTableProps<T> {
     hideHeader?: boolean;
     /** Remove the outer card treatment when hosted inside a larger surface. */
     embedded?: boolean;
-    /** Keep placeholder rows so short pages retain a fixed height. */
+    /** Keep placeholder rows so short pages retain a fixed height. Off by default:
+     * the table shrinks to its rows instead of showing blank lines. */
     fillEmptyRows?: boolean;
     tableMinWidth?: number;
     defaultSortKey?: string;
@@ -140,7 +142,7 @@ export default function SmartTable<T>({
     hideFilterBar = false,
     hideHeader = false,
     embedded = false,
-    fillEmptyRows = true,
+    fillEmptyRows = false,
     tableMinWidth = 860,
     defaultSortKey,
     defaultSortDir,
@@ -618,7 +620,7 @@ export default function SmartTable<T>({
 
                 {/* Page navigation */}
                 {footerTotalPages > 1 && (
-                    <div className="flex items-center gap-1 bg-white border border-slate-200 p-1 rounded-xl">
+                    <div className="flex flex-wrap items-center justify-center gap-1 bg-white border border-slate-200 p-1 rounded-xl">
                         <button
                             disabled={footerCurrentPage === 1}
                             onClick={() => goToPage(1)}
@@ -662,6 +664,7 @@ export default function SmartTable<T>({
                             className="px-2 py-1 text-xs font-bold rounded-lg no-pill transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-100 text-slate-600"
                             title="الأخيرة"
                         >»</button>
+                        <PageJump current={footerCurrentPage} total={footerTotalPages} onJump={goToPage} />
                     </div>
                 )}
             </div>
