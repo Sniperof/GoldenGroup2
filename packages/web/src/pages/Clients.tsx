@@ -208,6 +208,9 @@ export default function Clients() {
         return () => clearTimeout(t);
     }, [filterReferrerName]);
 
+    // A specific branch's ownership only exists in the "all branches" view.
+    useEffect(() => { setFilterOwner(v => v.startsWith('branch:') ? 'all' : v); }, [branchContextId]);
+
     // Any filter/branch change resets to the first page.
     useEffect(() => { setPage(1); }, [
         filterClass, filterMediator, branchContextId,
@@ -264,7 +267,9 @@ export default function Clients() {
             filterReferrerName: debouncedReferrerName,
             geoIds: geoIdsCsv,
             routeGeoIds: routeGeoIdsCsv,
-            owner: filterOwner, rating: filterRating,
+            owner: filterOwner.startsWith('branch') ? 'branch' : filterOwner,
+            ownerBranchId: filterOwner.startsWith('branch:') ? Number(filterOwner.slice(7)) : undefined,
+            rating: filterRating,
             waterSource: filterWaterSource, dataQuality: filterDataQuality,
             hasDevice: filterHasDevice, taskType: filterTaskType,
             serial: debouncedSerial,
@@ -499,6 +504,12 @@ export default function Clients() {
     const YESNO_LABELS: Record<string, string> = { yes: 'نعم', no: 'لا' };
     const MEDIATOR_LABELS: Record<string, string> = { Personal: 'شخصي', Employee: 'موظف', Client: 'زبون حالي' };
 
+    // «ملكية الفرع»: a GLOBAL viewer on "all branches" can target each branch's
+    // ownership; once one branch is in scope, a single option is enough.
+    const branchOwnershipOptions = isGlobalClients && branchContextId == null && branchOptions.length > 1
+        ? [{ value: 'branch', label: 'ملكية الفرع (كل الفروع)' }, ...branchOptions.map(b => ({ value: `branch:${b.id}`, label: `ملكية فرع ${b.name}` }))]
+        : [{ value: 'branch', label: 'ملكية الفرع' }];
+
     const clearAllFilters = useCallback(() => {
         setSearchTerm(''); setFilterClass('all'); setFilterMediator('all'); setFilterReferrerName('');
         setFilterGov('all'); setFilterRegion('all'); setFilterSubarea('all'); setFilterHood('all');
@@ -514,7 +525,7 @@ export default function Clients() {
     if (filterMediator !== 'all') filterChips.push({ key: 'mediator', label: 'نوع الوسيط', value: MEDIATOR_LABELS[filterMediator] ?? filterMediator, onRemove: () => setFilterMediator('all') });
     if (filterReferrerName) filterChips.push({ key: 'referrerName', label: 'اسم الوسيط', value: filterReferrerName, onRemove: () => setFilterReferrerName('') });
     if (deepestGeo) filterChips.push({ key: 'geo', label: 'المنطقة', value: geoName(deepestGeo), onRemove: resetGeo });
-    if (filterOwner !== 'all') filterChips.push({ key: 'owner', label: 'المسؤول', value: ownerOptions.find(o => String(o.id) === filterOwner)?.name ?? filterOwner, onRemove: () => setFilterOwner('all') });
+    if (filterOwner !== 'all') filterChips.push({ key: 'owner', label: 'المسؤول', value: branchOwnershipOptions.find(o => o.value === filterOwner)?.label ?? ownerOptions.find(o => String(o.id) === filterOwner)?.name ?? filterOwner, onRemove: () => setFilterOwner('all') });
     if (filterRating !== 'all') filterChips.push({ key: 'rating', label: 'الالتزام', value: RATING_LABELS[filterRating] ?? filterRating, onRemove: () => setFilterRating('all') });
     if (filterHasDevice !== 'all') filterChips.push({ key: 'device', label: 'لديه جهاز', value: YESNO_LABELS[filterHasDevice], onRemove: () => setFilterHasDevice('all') });
     if (filterTaskType !== 'all') filterChips.push({ key: 'taskType', label: 'نوع المهمة', value: taskTypeOptions.find(t => t.value === filterTaskType)?.label ?? filterTaskType, onRemove: () => setFilterTaskType('all') });
@@ -754,12 +765,10 @@ export default function Clients() {
                             <Select className="w-full" value={filterRating} onChange={setFilterRating} ariaLabel="الالتزام"
                                 options={[{ value: 'all', label: 'كل التقييمات' }, { value: 'Committed', label: 'ملتزم' }, { value: 'NotCommitted', label: 'غير ملتزم' }, { value: 'Undefined', label: 'غير محدد' }]} />
                         </FilterField>
-                        {ownerOptions.length > 0 && (
-                            <FilterField label="المسؤول">
-                                <Select className="w-full" value={filterOwner} onChange={setFilterOwner} ariaLabel="المسؤول"
-                                    options={[{ value: 'all', label: 'كل المسؤولين' }, ...ownerOptions.map(o => ({ value: String(o.id), label: o.name }))]} />
-                            </FilterField>
-                        )}
+                        <FilterField label="المسؤول">
+                            <Select className="w-full" value={filterOwner} onChange={setFilterOwner} ariaLabel="المسؤول"
+                                options={[{ value: 'all', label: 'كل المسؤولين' }, ...branchOwnershipOptions, ...ownerOptions.map(o => ({ value: String(o.id), label: o.name }))]} />
+                        </FilterField>
                         <FilterField label="نوع الوسيط">
                             <Select className="w-full" value={filterMediator} onChange={setFilterMediator} ariaLabel="نوع الوسيط"
                                 options={[{ value: 'all', label: 'كل أنواع الوسيط' }, { value: 'Personal', label: 'شخصي' }, { value: 'Employee', label: 'موظف' }, { value: 'Client', label: 'زبون حالي' }]} />

@@ -711,8 +711,18 @@ router.get('/paged', requirePermission('candidates.view_list'), async (req, res)
       conditions.push(`c.branch_id = $${params.length}`);
     }
 
+    // `ownershipType=BRANCH` = no responsible user — the same rule the
+    // "ownershipType" column uses to render a candidate as branch-owned.
     const responsibleUserId = toPositiveInt(req.query.responsibleUserId);
-    if (responsibleUserId != null) {
+    if (str('ownershipType') === 'BRANCH') {
+      conditions.push(`NOT EXISTS (SELECT 1 FROM candidate_assignments f_ca WHERE f_ca.candidate_id = c.id)`);
+      // One specific branch's ownership; ANDed with the scope, never widens it.
+      const ownershipBranchId = toPositiveInt(req.query.ownershipBranchId);
+      if (ownershipBranchId != null) {
+        params.push(ownershipBranchId);
+        conditions.push(`c.branch_id = ${params.length}`);
+      }
+    } else if (responsibleUserId != null) {
       params.push(responsibleUserId);
       conditions.push(`EXISTS (SELECT 1 FROM candidate_assignments f_ca WHERE f_ca.candidate_id = c.id AND f_ca.hr_user_id = $${params.length})`);
     }
