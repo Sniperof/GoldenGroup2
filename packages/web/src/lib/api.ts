@@ -2189,6 +2189,10 @@ export const api = {
   // Service Requests (Phase 3) — intake layer for emergency_maintenance
   // ─────────────────────────────────────────────────────────────────
   appAccounts: {
+    list: (params: Record<string, string | number> = {}) => {
+      const qs = new URLSearchParams(Object.entries(params).map(([key, value]) => [key, String(value)]));
+      return request<import('@golden-crm/shared').AppAccountListResult>(`/admin/app-accounts?${qs}`);
+    },
     forClient: (clientId: number) =>
       request<{ account: any | null }>(`/admin/clients/${clientId}/app-account`),
     createDirect: (clientId: number) =>

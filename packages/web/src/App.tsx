@@ -56,6 +56,7 @@ import TrainingCourseDetail from './pages/jobs/TrainingCourseDetail';
 import SystemLists from './pages/admin/SystemLists';
 import Roles from './pages/admin/Roles';
 import Users from './pages/admin/Users';
+import CustomerAppUsers from './pages/admin/CustomerAppUsers';
 import RolePermissions from './pages/admin/RolePermissions';
 import PermissionSettings from './pages/admin/PermissionSettings';
 import TaskTypes from './pages/admin/TaskTypes';
@@ -222,6 +223,7 @@ export default function App() {
                         {/* Group-1 records page (branch-filtered) living under /admin; excluded
                             from isGlobalOnlyPath so it honours the external branch filter. */}
                         <Route path="/admin/users" element={<Users />} />
+                        <Route path="/admin/customer-app-users" element={<CustomerAppUsers />} />
                         <Route path="/admin/roles/:id/permissions" element={<RolePermissions />} />
                         <Route path="/admin/permissions-settings" element={<PermissionSettings />} />
                         <Route path="/admin/task-types" element={<TaskTypes />} />
