@@ -63,6 +63,14 @@ const REQUEST_FORM_DESTINATION = 'service_request_form';
 const MAX_TITLE = 150;
 const MAX_MESSAGE = 2000;
 
+/** Arabic count of app accounts: حساب واحد / حسابان / 3 حسابات / 11 حساباً. */
+function accountsPhrase(n: number): string {
+  if (n === 1) return 'حساب واحد';
+  if (n === 2) return 'حسابان';
+  if (n >= 3 && n <= 10) return `${n} حسابات`;
+  return `${n} حساباً`;
+}
+
 export default function AppNotifications() {
   const { user, hasPermission } = useAuthStore();
   const canView = user?.isSuperAdmin === true || hasPermission('admin.app_notifications.view');
@@ -129,6 +137,8 @@ export default function AppNotifications() {
 
   const trimmedTitle = title.trim();
   const trimmedMessage = message.trim();
+  // Shown under the recipient count in the confirm dialog.
+  const audienceScopeLabel = geo.active && geo.chipLabel ? `في المنطقة: ${geo.chipLabel}` : null;
   const needsId = destination !== 'none'
     && DESTINATIONS_NEEDING_ID.includes(destination as BroadcastDestination);
   const textReady = trimmedTitle.length > 0 && trimmedMessage.length > 0
@@ -374,24 +384,66 @@ export default function AppNotifications() {
       <Modal
         isOpen={confirmOpen}
         onClose={() => setConfirmOpen(false)}
-        title="تأكيد الإرسال"
-      >
-        <div className="space-y-4">
-          <p className="text-sm text-slate-700">
-            سيُرسل هذا الإشعار إلى <strong>{preview?.accounts ?? 0}</strong> حساب في التطبيق،
-            ولا يمكن التراجع عنه بعد الإرسال.
-          </p>
-          <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-sm">
-            <div className="font-semibold text-slate-800">{trimmedTitle}</div>
-            <div className="text-slate-600 whitespace-pre-wrap">{trimmedMessage}</div>
-          </div>
-          <div className="flex gap-2 justify-end">
+        title="تأكيد إرسال الإشعار"
+        subtitle="راجع الإشعار قبل إرساله"
+        footer={
+          <>
             <Button variant="secondary" onClick={() => setConfirmOpen(false)} disabled={sending}>
               إلغاء
             </Button>
             <Button onClick={doSend} disabled={sending}>
-              {sending ? 'جارٍ الإرسال…' : 'تأكيد الإرسال'}
+              <span className="inline-flex items-center gap-2">
+                <Send className="w-4 h-4" />
+                {sending ? 'جارٍ الإرسال…' : 'إرسال الآن'}
+              </span>
             </Button>
+          </>
+        }
+      >
+        <div className="space-y-4 p-5">
+          {/* Who receives it */}
+          <div className="flex items-start gap-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sky-50 text-sky-600">
+              <Users className="h-4 w-4" />
+            </span>
+            <div className="min-w-0">
+              <div className="text-xs font-semibold text-slate-400">المستلمون</div>
+              {recipient ? (
+                <>
+                  <div className="truncate text-sm font-bold text-slate-800">{recipient.clientName}</div>
+                  <div className="text-xs text-slate-500" dir="ltr">{recipient.primaryMobile || '—'}</div>
+                </>
+              ) : (
+                <>
+                  <div className="text-sm font-bold text-slate-800">{accountsPhrase(preview?.accounts ?? 0)} في التطبيق</div>
+                  {audienceScopeLabel && <div className="text-xs text-slate-500">{audienceScopeLabel}</div>}
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* What it looks like — a phone-notification style card */}
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3.5">
+            <div className="mb-2 flex items-center gap-2 text-[11px] text-slate-400">
+              <span className="flex h-5 w-5 items-center justify-center rounded-md bg-amber-500 text-white">
+                <BellRing className="h-3 w-3" />
+              </span>
+              <span className="font-semibold text-slate-500">Golden Group</span>
+              <span>· الآن</span>
+            </div>
+            <div className="text-sm font-bold text-slate-800 break-words">{trimmedTitle}</div>
+            <div className="mt-0.5 text-sm text-slate-600 whitespace-pre-wrap break-words">{trimmedMessage}</div>
+          </div>
+
+          {destination !== 'none' && (
+            <div className="text-xs text-slate-500">
+              عند الضغط عليه يفتح: <span className="font-semibold text-slate-700">{DESTINATION_LABELS[destination]}</span>
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            لا يمكن التراجع عن الإرسال بعد التأكيد.
           </div>
         </div>
       </Modal>
