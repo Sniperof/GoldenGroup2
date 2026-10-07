@@ -654,6 +654,14 @@ export default function ClientProfile() {
         };
     }, [id]);
 
+    // PhoneCallLog's "عرض الكل" button dispatches this event to jump to the full
+    // call-log tab. Without this listener the button was a no-op.
+    useEffect(() => {
+        const handler = () => setActiveTab('calllog');
+        window.addEventListener('switchToCallLogTab', handler);
+        return () => window.removeEventListener('switchToCallLogTab', handler);
+    }, []);
+
     if (loading) {
         return (
             <div className="flex flex-col items-center justify-center h-full text-slate-500">
@@ -1081,7 +1089,7 @@ function ContactsTab({
                         <div key={c.id || i} className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col xl:flex-row shadow-[0_4px_20px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.08)] transition-all duration-300 group">
 
                             {/* === Left Side: Number Info === */}
-                            <div className="p-8 bg-gradient-to-br from-slate-50 to-white border-b xl:border-b-0 xl:border-l border-slate-100 xl:w-[400px] flex flex-col justify-between relative overflow-hidden">
+                            <div className="p-5 sm:p-8 bg-gradient-to-br from-slate-50 to-white border-b xl:border-b-0 xl:border-l border-slate-100 xl:w-[400px] flex flex-col justify-between relative overflow-hidden">
                                 <div className="absolute -top-10 -right-10 w-40 h-40 bg-sky-400/10 rounded-full blur-3xl pointer-events-none group-hover:bg-sky-400/20 transition-all duration-500" />
 
                                 <div className="relative">
@@ -1098,7 +1106,7 @@ function ContactsTab({
                                     </div>
 
                                     <div className="mb-6">
-                                        <p className="text-2xl font-black text-slate-800 font-mono tracking-widest drop-shadow-sm" dir="ltr">
+                                        <p className="text-xl sm:text-2xl font-black text-slate-800 font-mono tracking-wider sm:tracking-widest drop-shadow-sm break-all" dir="ltr">
                                             {c.number}
                                         </p>
                                     </div>
@@ -1132,7 +1140,7 @@ function ContactsTab({
                             </div>
 
                             {/* === Right Side: Call Logs === */}
-                            <div className="flex-1 p-8 relative bg-white">
+                            <div className="flex-1 p-5 sm:p-8 relative bg-white">
                                 <div className="flex items-center justify-between mb-6">
                                     <h4 className="font-bold text-slate-800 text-sm flex items-center gap-2">
                                         <History className="w-4 h-4 text-sky-500" /> سجل مكالمات هذا الرقم
@@ -1553,19 +1561,19 @@ export function VisitsTab({ client }: { client: Client }) {
 
     return (
         <div className="space-y-6 max-w-7xl">
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <h3 className="text-base font-bold text-slate-800">سجل الزيارات والمهام</h3>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                     <button
                         onClick={() => setServiceRequestModalOpen(true)}
-                        className="px-4 py-2 bg-red-600 text-white font-bold rounded-xl shadow-sm hover:bg-red-500 transition-all flex items-center gap-1.5 text-sm"
+                        className="flex-1 sm:flex-none justify-center px-4 py-2 bg-red-600 text-white font-bold rounded-xl shadow-sm hover:bg-red-500 transition-all flex items-center gap-1.5 text-sm"
                     >
                         <Zap className="w-4 h-4" /> طلب صيانة
                     </button>
                     <button
                         onClick={() => setModalOpen(true)}
                         disabled={hasActiveDeviceDemo}
-                        className="px-4 py-2 bg-sky-600 text-white font-bold rounded-xl shadow-sm hover:bg-sky-500 transition-all flex items-center gap-1.5 text-sm disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
+                        className="flex-1 sm:flex-none justify-center px-4 py-2 bg-sky-600 text-white font-bold rounded-xl shadow-sm hover:bg-sky-500 transition-all flex items-center gap-1.5 text-sm disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
                     >
                         <Plus className="w-4 h-4" /> عرض جهاز
                     </button>
@@ -1713,38 +1721,71 @@ function NetworkTab({ client }: { client: Client }) {
                 <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
                     {incoming.length > 0 ? (
                         <>
-                            <div className="grid grid-cols-12 gap-4 px-6 py-4 bg-slate-50 border-b border-slate-100 text-xs font-black text-slate-500">
-                                <span className="col-span-1">#</span>
-                                <span className="col-span-2">اسم الوسيط</span>
-                                <span className="col-span-2">الاسم المقترح</span>
-                                <span className="col-span-2">النوع</span>
-                                <span className="col-span-2">العنوان</span>
-                                <span className="col-span-2">تاريخ الإحالة</span>
-                                <span className="col-span-1">رابط</span>
-                            </div>
-                            {incoming.map((ref: any, i: number) => (
-                                <div key={i} className="grid grid-cols-12 gap-4 px-6 py-4 border-b border-slate-50 hover:bg-slate-50/50 items-center text-sm">
-                                    <span className="col-span-1 font-mono text-xs text-slate-400">{i + 1}</span>
-                                    <span className="col-span-2 font-bold text-slate-800">{ref.name}</span>
-                                    <span className="col-span-2 font-bold text-slate-700">{ref.candidateName || '--'}</span>
-                                    <span className="col-span-2">
-                                        <span className={`px-2 py-1 rounded-full text-xs font-bold ${typeBadgeClass(ref.type)}`}>
-                                            {referrerTypeLabel(ref.type)}
-                                        </span>
-                                    </span>
-                                    <span className="col-span-2 text-slate-600">{ref.address || '--'}</span>
-                                    <span className="col-span-2 font-mono text-xs text-slate-500">{ref.referralDate || '--'}</span>
-                                    <span className="col-span-1">
-                                        {ref.id ? (
-                                            <Link to={`/clients/${ref.id}`} className="text-sky-600 font-bold hover:underline">
-                                                عرض
-                                            </Link>
-                                        ) : (
-                                            <span className="text-slate-400">--</span>
-                                        )}
-                                    </span>
+                            {/* Desktop table (md+) */}
+                            <div className="hidden md:block">
+                                <div className="grid grid-cols-12 gap-4 px-6 py-4 bg-slate-50 border-b border-slate-100 text-xs font-black text-slate-500">
+                                    <span className="col-span-1">#</span>
+                                    <span className="col-span-2">اسم الوسيط</span>
+                                    <span className="col-span-2">الاسم المقترح</span>
+                                    <span className="col-span-2">النوع</span>
+                                    <span className="col-span-2">العنوان</span>
+                                    <span className="col-span-2">تاريخ الإحالة</span>
+                                    <span className="col-span-1">رابط</span>
                                 </div>
-                            ))}
+                                {incoming.map((ref: any, i: number) => (
+                                    <div key={i} className="grid grid-cols-12 gap-4 px-6 py-4 border-b border-slate-50 hover:bg-slate-50/50 items-center text-sm">
+                                        <span className="col-span-1 font-mono text-xs text-slate-400">{i + 1}</span>
+                                        <span className="col-span-2 font-bold text-slate-800">{ref.name}</span>
+                                        <span className="col-span-2 font-bold text-slate-700">{ref.candidateName || '--'}</span>
+                                        <span className="col-span-2">
+                                            <span className={`px-2 py-1 rounded-full text-xs font-bold ${typeBadgeClass(ref.type)}`}>
+                                                {referrerTypeLabel(ref.type)}
+                                            </span>
+                                        </span>
+                                        <span className="col-span-2 text-slate-600">{ref.address || '--'}</span>
+                                        <span className="col-span-2 font-mono text-xs text-slate-500">{ref.referralDate || '--'}</span>
+                                        <span className="col-span-1">
+                                            {ref.id ? (
+                                                <Link to={`/clients/${ref.id}`} className="text-sky-600 font-bold hover:underline">
+                                                    عرض
+                                                </Link>
+                                            ) : (
+                                                <span className="text-slate-400">--</span>
+                                            )}
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* Mobile cards (< md) */}
+                            <div className="md:hidden divide-y divide-slate-100">
+                                {incoming.map((ref: any, i: number) => (
+                                    <div key={i} className="px-4 py-3.5">
+                                        <div className="flex items-start justify-between gap-2">
+                                            <div className="min-w-0">
+                                                <p className="break-words text-sm font-bold text-slate-800">
+                                                    <span className="text-slate-400 font-mono text-xs">#{i + 1} </span>{ref.name}
+                                                </p>
+                                                {ref.candidateName && (
+                                                    <p className="mt-0.5 text-xs font-bold text-slate-500">الاسم المقترح: {ref.candidateName}</p>
+                                                )}
+                                            </div>
+                                            <span className={`shrink-0 px-2 py-1 rounded-full text-xs font-bold ${typeBadgeClass(ref.type)}`}>
+                                                {referrerTypeLabel(ref.type)}
+                                            </span>
+                                        </div>
+                                        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
+                                            <span>العنوان: {ref.address || '--'}</span>
+                                            <span className="font-mono">الإحالة: {ref.referralDate || '--'}</span>
+                                        </div>
+                                        {ref.id && (
+                                            <Link to={`/clients/${ref.id}`} className="mt-2 inline-block text-xs font-bold text-sky-600 hover:underline">
+                                                عرض السجل
+                                            </Link>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
                         </>
                     ) : (
                         <div className="px-6 py-12 text-center">
@@ -1769,39 +1810,70 @@ function NetworkTab({ client }: { client: Client }) {
                 <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
                     {outgoing.length > 0 ? (
                         <>
-                            <div className="grid grid-cols-12 gap-4 px-6 py-4 bg-slate-50 border-b border-slate-100 text-xs font-black text-slate-500">
-                                <span className="col-span-1">#</span>
-                                <span className="col-span-3">الاسم</span>
-                                <span className="col-span-2">الرقم</span>
-                                <span className="col-span-2">العنوان</span>
-                                <span className="col-span-2">الحالة</span>
-                                <span className="col-span-2">رابط</span>
-                            </div>
-                            {outgoing.map((ref: any, i: number) => (
-                                <div key={ref.id ?? i} className="grid grid-cols-12 gap-4 px-6 py-4 border-b border-slate-50 hover:bg-slate-50/50 items-center text-sm">
-                                    <span className="col-span-1 font-mono text-xs text-slate-400">{i + 1}</span>
-                                    <span className="col-span-3 font-bold text-slate-800">{ref.name}</span>
-                                    <span className="col-span-2 font-mono text-slate-500" dir="ltr">{ref.mobile || '--'}</span>
-                                    <span className="col-span-2 text-slate-600">{ref.address || '--'}</span>
-                                    <span className="col-span-2">
-                                        <span className={`px-2 py-1 rounded-full text-xs font-bold ${outgoingStatusBadge(ref).cls}`}>
-                                            {outgoingStatusBadge(ref).label}
+                            {/* Desktop table (md+) */}
+                            <div className="hidden md:block">
+                                <div className="grid grid-cols-12 gap-4 px-6 py-4 bg-slate-50 border-b border-slate-100 text-xs font-black text-slate-500">
+                                    <span className="col-span-1">#</span>
+                                    <span className="col-span-3">الاسم</span>
+                                    <span className="col-span-2">الرقم</span>
+                                    <span className="col-span-2">العنوان</span>
+                                    <span className="col-span-2">الحالة</span>
+                                    <span className="col-span-2">رابط</span>
+                                </div>
+                                {outgoing.map((ref: any, i: number) => (
+                                    <div key={ref.id ?? i} className="grid grid-cols-12 gap-4 px-6 py-4 border-b border-slate-50 hover:bg-slate-50/50 items-center text-sm">
+                                        <span className="col-span-1 font-mono text-xs text-slate-400">{i + 1}</span>
+                                        <span className="col-span-3 font-bold text-slate-800">{ref.name}</span>
+                                        <span className="col-span-2 font-mono text-slate-500" dir="ltr">{ref.mobile || '--'}</span>
+                                        <span className="col-span-2 text-slate-600">{ref.address || '--'}</span>
+                                        <span className="col-span-2">
+                                            <span className={`px-2 py-1 rounded-full text-xs font-bold ${outgoingStatusBadge(ref).cls}`}>
+                                                {outgoingStatusBadge(ref).label}
+                                            </span>
                                         </span>
-                                    </span>
-                                    <span className="col-span-2">
-                                        {ref.id ? (
+                                        <span className="col-span-2">
+                                            {ref.id ? (
+                                                <Link
+                                                    to={ref.isClient ? `/clients/${ref.id}` : `/candidates/${ref.id}`}
+                                                    className="text-sky-600 font-bold hover:underline"
+                                                >
+                                                    عرض
+                                                </Link>
+                                            ) : (
+                                                <span className="text-slate-400">--</span>
+                                            )}
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* Mobile cards (< md) */}
+                            <div className="md:hidden divide-y divide-slate-100">
+                                {outgoing.map((ref: any, i: number) => (
+                                    <div key={ref.id ?? i} className="px-4 py-3.5">
+                                        <div className="flex items-start justify-between gap-2">
+                                            <div className="min-w-0">
+                                                <p className="break-words text-sm font-bold text-slate-800">
+                                                    <span className="text-slate-400 font-mono text-xs">#{i + 1} </span>{ref.name}
+                                                </p>
+                                                <p className="mt-0.5 font-mono text-xs text-slate-500" dir="ltr">{ref.mobile || '--'}</p>
+                                            </div>
+                                            <span className={`shrink-0 px-2 py-1 rounded-full text-xs font-bold ${outgoingStatusBadge(ref).cls}`}>
+                                                {outgoingStatusBadge(ref).label}
+                                            </span>
+                                        </div>
+                                        <div className="mt-2 text-xs text-slate-500">العنوان: {ref.address || '--'}</div>
+                                        {ref.id && (
                                             <Link
                                                 to={ref.isClient ? `/clients/${ref.id}` : `/candidates/${ref.id}`}
-                                                className="text-sky-600 font-bold hover:underline"
+                                                className="mt-2 inline-block text-xs font-bold text-sky-600 hover:underline"
                                             >
                                                 عرض
                                             </Link>
-                                        ) : (
-                                            <span className="text-slate-400">--</span>
                                         )}
-                                    </span>
-                                </div>
-                            ))}
+                                    </div>
+                                ))}
+                            </div>
                         </>
                     ) : (
                         <div className="px-6 py-12 text-center">

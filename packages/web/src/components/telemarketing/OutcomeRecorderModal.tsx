@@ -669,20 +669,20 @@ export default function OutcomeRecorderModal({
                                 <button
                                     type="button"
                                     onClick={() => { setTopLevel('not_reached'); setOutcome(null); setExpandedGroup(null); }}
-                                    className="group flex min-h-[112px] flex-col items-center justify-center gap-2 rounded-2xl border border-red-200 bg-red-50/80 px-4 py-5 text-red-700 shadow-sm transition-all hover:border-red-300 hover:bg-red-50 hover:shadow-md text-base font-black"
+                                    className="group flex min-h-[56px] sm:min-h-[112px] flex-row sm:flex-col items-center justify-center gap-2 sm:gap-2 rounded-2xl border border-red-200 bg-red-50/80 px-3 py-2.5 sm:px-4 sm:py-5 text-red-700 shadow-sm transition-all hover:border-red-300 hover:bg-red-50 hover:shadow-md text-sm sm:text-base font-black"
                                 >
-                                    <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-red-600 shadow-sm">
-                                        <PhoneMissed className="w-6 h-6" />
+                                    <span className="flex h-7 w-7 sm:h-10 sm:w-10 items-center justify-center rounded-lg sm:rounded-xl bg-white text-red-600 shadow-sm">
+                                        <PhoneMissed className="w-4 h-4 sm:w-6 sm:h-6" />
                                     </span>
                                     لم يتم التواصل
                                 </button>
                                 <button
                                     type="button"
                                     onClick={() => { setTopLevel('reached'); setOutcome(null); setExpandedGroup(null); }}
-                                    className="group flex min-h-[112px] flex-col items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50/80 px-4 py-5 text-emerald-700 shadow-sm transition-all hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-md text-base font-black"
+                                    className="group flex min-h-[56px] sm:min-h-[112px] flex-row sm:flex-col items-center justify-center gap-2 sm:gap-2 rounded-2xl border border-emerald-200 bg-emerald-50/80 px-3 py-2.5 sm:px-4 sm:py-5 text-emerald-700 shadow-sm transition-all hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-md text-sm sm:text-base font-black"
                                 >
-                                    <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-emerald-600 shadow-sm">
-                                        <PhoneCall className="w-6 h-6" />
+                                    <span className="flex h-7 w-7 sm:h-10 sm:w-10 items-center justify-center rounded-lg sm:rounded-xl bg-white text-emerald-600 shadow-sm">
+                                        <PhoneCall className="w-4 h-4 sm:w-6 sm:h-6" />
                                     </span>
                                     تم التواصل
                                 </button>
