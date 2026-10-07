@@ -461,9 +461,11 @@ export default function SmartTable<T>({
                 </div>
             )}
 
-            {/* ── MOBILE CARD LIST (< md) — same data/pagination, stacked as cards ── */}
+            {/* ── MOBILE CARD LIST (< md) — same data/pagination, stacked as
+                 separated cards (border + shadow + gap) for clear row-to-row
+                 separation on phones. Desktop table is unaffected. ── */}
             {mobileCards && (
-                <div className="md:hidden divide-y divide-slate-100">
+                <div className="md:hidden space-y-2.5 p-3 bg-slate-50/60">
                     {paginatedData.length === 0 ? (
                         <div className="text-center px-4 py-12">
                             {EmptyIcon && <EmptyIcon className="w-10 h-10 mx-auto mb-3 text-slate-200" />}
@@ -483,9 +485,9 @@ export default function SmartTable<T>({
                                 key={String(id)}
                                 onClick={() => onRowClick?.(item)}
                                 className={[
-                                    'px-4 py-3.5 transition-colors',
+                                    'rounded-xl border px-4 py-3.5 shadow-sm transition-colors',
                                     onRowClick ? 'cursor-pointer active:bg-sky-50' : '',
-                                    customRowClass || (isSelected ? 'bg-sky-50/80' : 'bg-white'),
+                                    customRowClass || (isSelected ? 'border-sky-300 bg-sky-50/80' : 'border-slate-200 bg-white'),
                                 ].join(' ')}
                             >
                                 {bulkActions && (
