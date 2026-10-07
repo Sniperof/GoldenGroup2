@@ -241,6 +241,9 @@ export default function ApplicationDetail() {
   const [showAuditExpanded, setShowAuditExpanded] = useState<number | null>(null);
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [reviewNotes, setReviewNotes] = useState('');
+  // Fall back to the initials avatar when the applicant photo URL 404s or fails
+  // to load, instead of showing the browser's broken-image icon.
+  const [photoFailed, setPhotoFailed] = useState(false);
 
   // ── Schedule Interview inline ──
   const [showScheduleInterviewModal, setShowScheduleInterviewModal] = useState(false);
@@ -689,10 +692,11 @@ export default function ApplicationDetail() {
               <div className="flex items-start gap-5">
                 {/* Photo */}
                 <div className="shrink-0">
-                  {detail.applicant?.photoUrl ? (
+                  {detail.applicant?.photoUrl && !photoFailed ? (
                     <img
                       src={detail.applicant.photoUrl}
                       alt={`${detail.applicant.firstName} ${detail.applicant.lastName}`}
+                      onError={() => setPhotoFailed(true)}
                       className="w-20 h-20 rounded-2xl object-cover border-2 border-slate-100 shadow-sm"
                     />
                   ) : (
@@ -863,7 +867,10 @@ export default function ApplicationDetail() {
                 </h3>
                 <div className="flex items-center gap-5 mb-4">
                   <div className="relative w-16 h-16 shrink-0">
-                    <svg className="w-full h-full -rotate-90">
+                    {/* viewBox is required so the 64-unit coordinate system scales
+                        to the rendered size — without it the ring overflows and
+                        gets clipped when the UI runs below 100% (e.g. 84% scale). */}
+                    <svg viewBox="0 0 64 64" className="w-full h-full -rotate-90">
                       <circle cx="32" cy="32" r="26" stroke="currentColor" strokeWidth="6" fill="transparent" className="text-slate-100" />
                       <motion.circle cx="32" cy="32" r="26" stroke="currentColor" strokeWidth="6" fill="transparent"
                         strokeDasharray={163.4}
@@ -1733,8 +1740,10 @@ export default function ApplicationDetail() {
                     <div className="space-y-6">
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div className="md:col-span-1 bg-white border border-slate-200 rounded-2xl p-5 flex flex-col items-center justify-center text-center shadow-sm">
-                          <div className="relative w-24 h-24 mb-3">
-                            <svg className="w-full h-full transform -rotate-90">
+                          <div className="relative w-24 h-24 mb-2">
+                            {/* viewBox lets the 96-unit coordinates scale to the
+                                rendered size; otherwise the ring clips below 100% UI scale. */}
+                            <svg viewBox="0 0 96 96" className="w-full h-full transform -rotate-90">
                               <circle cx="48" cy="48" r="40" stroke="currentColor" strokeWidth="8" fill="transparent" className="text-slate-100" />
                               <motion.circle
                                 cx="48" cy="48" r="40" stroke="currentColor" strokeWidth="8" fill="transparent"
@@ -1745,11 +1754,13 @@ export default function ApplicationDetail() {
                                 className={score >= 85 ? 'text-emerald-500' : score >= 60 ? 'text-sky-500' : 'text-amber-500'}
                               />
                             </svg>
-                            <div className="absolute inset-0 flex flex-col items-center justify-center">
-                              <span className="text-lg font-black text-slate-800">{score}%</span>
-                              <span className="text-xs text-slate-400 font-bold uppercase tracking-tighter">درجة الملاءمة</span>
+                            {/* Only the number sits inside the ring — the caption lives
+                                below it so it can't collide with the stroke. */}
+                            <div className="absolute inset-0 flex items-center justify-center">
+                              <span className="text-xl font-black text-slate-800">{score}%</span>
                             </div>
                           </div>
+                          <span className="text-xs text-slate-400 font-bold mb-3">درجة الملاءمة</span>
                           <span className={`text-xs font-bold px-4 py-1.5 rounded-full ${
                             score >= 85 ? 'bg-emerald-100 text-emerald-700' :
                             score >= 65 ? 'bg-sky-100 text-sky-700' :

@@ -267,7 +267,7 @@ export default function Departments() {
   }
 
   return (
-    <div className="p-8 space-y-6" dir="rtl">
+    <div className="p-4 sm:p-6 lg:p-8 space-y-6" dir="rtl">
 
       {/* ── Header ── */}
       <div className="flex items-start justify-between">

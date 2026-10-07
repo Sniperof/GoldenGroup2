@@ -4,7 +4,7 @@ import {
     Headset, Phone, FileText, CheckCircle2, History, CreditCard,
     AlertTriangle, Calendar, Send, Zap, User, Clock, CheckCircle,
     MapPin, PlusCircle, MessageSquare, ThumbsUp, Wrench, Activity, Briefcase,
-    Search, ChevronLeft, ChevronRight, Layers, Eye, Edit3, X, Cpu, Gift, Loader2, RefreshCw,
+    Search, ChevronLeft, ChevronRight, ChevronDown, Layers, Eye, Edit3, X, Cpu, Gift, Loader2, RefreshCw,
 } from '../components/ui/icons';
 import { toCallInstant } from '../lib/callDateTime';
 import { api } from '../lib/api';
@@ -16,7 +16,7 @@ import { useClientStore } from '../hooks/useClientStore';
 import { OPEN_TASK_TYPE_LABELS, OPEN_TASK_REASON_LABELS, isHiddenOperationalTaskType, taskRequiresInstalledDevice } from '@golden-crm/shared';
 import type { OpenTask, OpenTaskType, OpenTaskReason } from '@golden-crm/shared';
 import { useTelemarketingStore } from '../hooks/useTelemarketingStore';
-import { getAppointmentDisplayKey } from '../components/telemarketing/TeamAgendaPanel';
+import TeamAgendaPanel, { getAppointmentDisplayKey } from '../components/telemarketing/TeamAgendaPanel';
 import AppointmentsWorkspacePanel from '../components/telemarketing/AppointmentsWorkspacePanel';
 import OutcomeRecorderModal, { SaveExtras } from '../components/telemarketing/OutcomeRecorderModal';
 import MessageReplyOutcomeModal from '../components/customers/MessageReplyOutcomeModal';
@@ -351,6 +351,17 @@ export default function TelemarketerWorkspace() {
 
     const [selectedTeamKey, setSelectedTeamKey] = useState<string>('');
     const [selectedCustomerKey, setSelectedCustomerKey] = useState<string | null>(null);
+    // Below md the page is a single-column master-detail, so we must NOT auto-select
+    // the first customer (that would trap the user on a detail with no way back to
+    // the list). Desktop/tablet keep the always-visible detail + auto-select.
+    const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches);
+    useEffect(() => {
+        const mq = window.matchMedia('(max-width: 767px)');
+        const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+        mq.addEventListener('change', handler);
+        return () => mq.removeEventListener('change', handler);
+    }, []);
+
     const pendingTeamSelectionRef = useRef<string | null>(null);
     const [lastBookedAppointment, setLastBookedAppointment] = useState<{
         key: string;
@@ -655,13 +666,21 @@ export default function TelemarketerWorkspace() {
             setSelectedCustomerKey(filteredGroups[0]?.key || null);
             return;
         }
-        if (!selectedCustomerKey && filteredGroups.length > 0) {
+        if (!selectedCustomerKey && filteredGroups.length > 0 && !isMobile) {
             const firstPending = filteredGroups.find(cg => cg.status === 'pending') || filteredGroups[0];
             setSelectedCustomerKey(firstPending.key);
         }
-    }, [filteredGroups, selectedCustomerKey]);
+    }, [filteredGroups, selectedCustomerKey, isMobile]);
 
     const [activeTab, setActiveTab] = useState<'calllog' | 'devices' | 'purchase' | 'gifts' | 'account' | 'openTasks' | 'visits'>('calllog');
+    // Team-agenda ("مواعيد الفريق"): a persistent, collapsible rail on desktop (lg+)
+    // and an on-demand drawer on mobile/tablet — replacing the old dual placement
+    // (giant empty-state block when idle + a buried 8th tab while working).
+    const [agendaRailOpen, setAgendaRailOpen] = useState(true);
+    const [agendaDrawerOpen, setAgendaDrawerOpen] = useState(false);
+    // Mobile detail view: the secondary customer info collapses so the working
+    // tabs (call log, …) get the screen. Desktop/tablet always show it.
+    const [mobileInfoOpen, setMobileInfoOpen] = useState(false);
     const [isOutcomeModalOpen, setIsOutcomeModalOpen] = useState(false);
     const [isAppointmentModalOpen, setIsAppointmentModalOpen] = useState(false);
     const [appointmentMode, setAppointmentMode] = useState<'call_result' | 'direct'>('call_result');
@@ -1530,6 +1549,17 @@ export default function TelemarketerWorkspace() {
                     <h1 className="text-2xl font-bold text-slate-800">إدارة المواعيد <span className="text-slate-400 font-bold text-sm">| Telemarketing</span></h1>
                 </div>
                 <div className="flex items-center gap-2" dir="rtl">
+                    {/* Tablet only: open team agenda as a drawer. Mobile has its own
+                        sub-bar below the top nav; desktop (lg+) uses the persistent rail. */}
+                    <button
+                        type="button"
+                        onClick={() => setAgendaDrawerOpen(true)}
+                        title="مواعيد الفريق"
+                        className="hidden md:flex lg:hidden items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 text-xs font-bold hover:bg-emerald-100 transition-colors"
+                    >
+                        <Calendar className="w-4 h-4" />
+                        <span>{teamAppointments.length}</span>
+                    </button>
                     <button type="button" onClick={() => changeDateBy(-1)} className="flex items-center gap-1 p-1.5 rounded-lg hover:bg-slate-100 transition-colors border border-slate-200">
                         <ChevronRight className="w-4 h-4 text-slate-600" />
                     </button>
@@ -1557,6 +1587,20 @@ export default function TelemarketerWorkspace() {
                         onChange={(d) => setDate(formatDateKey(d))}
                     />
                 </div>
+            </div>
+
+            {/* Mobile-only sub-bar — team-agenda entry moved out of the crowded top nav
+                so the title + date controls get their full width. */}
+            <div className="md:hidden bg-white border-b border-slate-200 px-4 py-2 shrink-0">
+                <button
+                    type="button"
+                    onClick={() => setAgendaDrawerOpen(true)}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 text-sm font-bold hover:bg-emerald-100 transition-colors"
+                >
+                    <Calendar className="w-4 h-4" />
+                    <span>مواعيد الفريق</span>
+                    <span className="text-xs font-black bg-white border border-emerald-200 rounded px-1.5 py-0.5">{teamAppointments.length}</span>
+                </button>
             </div>
 
             {/* Page-level modes — both stay under /telemarketer. */}
@@ -1593,7 +1637,6 @@ export default function TelemarketerWorkspace() {
                     </button>
                 </div>
             </div>
-
             {lastBookedAppointment && workspaceView === 'contacts' && (
                 <div className="mx-3 mt-3 shrink-0 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 flex items-center justify-between gap-4">
                     <div className="min-w-0">
@@ -1613,8 +1656,9 @@ export default function TelemarketerWorkspace() {
             /* CONTACTS WORKSPACE */
             <div className="flex-1 flex overflow-hidden p-3 gap-3">
 
-                {/* COLUMN 1: Customer queue (20%) */}
-                <div className="w-1/4 min-w-[300px] bg-white border border-slate-200 rounded-xl flex flex-col overflow-hidden">
+                {/* COLUMN 1: Customer queue (20%). On mobile it's full-width and hides
+                    when a customer is selected (master-detail); tablet/desktop unchanged. */}
+                <div className={`${selectedCustomer ? 'hidden md:flex' : 'flex'} w-full md:w-1/4 md:min-w-[300px] bg-white border border-slate-200 rounded-xl flex-col overflow-hidden`}>
                     {/* Team KPIs strip */}
                     <div className="grid grid-cols-3 gap-1.5 p-2.5 border-b border-slate-100 shrink-0 text-center">
                         <div className="bg-sky-50 rounded-lg py-1.5">
@@ -1738,15 +1782,25 @@ export default function TelemarketerWorkspace() {
                     </div>
                 </div>
 
-                {/* COLUMN 2: Customer detail (55%) */}
-                <div className="flex-1 min-w-0 bg-white border border-slate-200 rounded-xl flex flex-col shadow-md overflow-hidden relative">
+                {/* COLUMN 2: Customer detail (55%). On mobile it's full-width and shows
+                    only when a customer is selected (master-detail); tablet/desktop unchanged. */}
+                <div className={`${selectedCustomer ? 'flex' : 'hidden md:flex'} w-full md:w-auto md:flex-1 min-w-0 bg-white border border-slate-200 rounded-xl flex-col shadow-md overflow-hidden relative`}>
+                    {selectedCustomer && (
+                        <button
+                            type="button"
+                            onClick={() => setSelectedCustomerKey(null)}
+                            className="md:hidden flex items-center gap-1.5 px-4 py-2.5 border-b border-slate-100 text-sm font-bold text-slate-600 hover:bg-slate-50 shrink-0"
+                        >
+                            <ChevronRight className="w-4 h-4" /> عودة لقائمة الزبائن
+                        </button>
+                    )}
                     {selectedCustomer && entityDetails ? (
                         <>
                             {/* Client snapshot */}
-                            <div className="px-6 py-5 border-b border-slate-100 bg-white shrink-0">
-                                <div className="flex items-start justify-between gap-5">
-                                    <div className="flex items-start gap-4 min-w-0">
-                                        <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-xl font-black shrink-0 ring-1 shadow-sm ${
+                            <div className="px-4 py-3 md:px-6 md:py-5 border-b border-slate-100 bg-white shrink-0">
+                                <div className="flex items-start justify-between gap-3 md:gap-5">
+                                    <div className="flex items-start gap-3 md:gap-4 min-w-0">
+                                        <div className={`w-12 h-12 md:w-16 md:h-16 rounded-2xl flex items-center justify-center text-lg md:text-xl font-black shrink-0 ring-1 shadow-sm ${
                                             selectedCustomer.entityType === 'client'
                                                 ? 'bg-gradient-to-br from-sky-50 to-sky-100 text-sky-700 ring-sky-200/70'
                                                 : 'bg-gradient-to-br from-amber-50 to-amber-100 text-amber-700 ring-amber-200/70'
@@ -1794,35 +1848,69 @@ export default function TelemarketerWorkspace() {
                                     )}
                                 </div>
 
-                                <div className="mt-5 grid grid-cols-2 lg:grid-cols-4 gap-2.5">
-                                    {selectedSnapshotMeta.occupation && (
-                                        <div className="rounded-xl border border-slate-200/70 bg-slate-50/60 px-3.5 py-2.5">
-                                            <p className="text-[11px] font-bold text-slate-400 mb-1 flex items-center gap-1"><Briefcase className="w-3 h-3" />المهنة</p>
-                                            <p className="text-sm font-black text-slate-800 truncate">{selectedSnapshotMeta.occupation}</p>
-                                        </div>
-                                    )}
-                                    {selectedSnapshotMeta.spouseOccupation && (
-                                        <div className="rounded-xl border border-slate-200/70 bg-slate-50/60 px-3.5 py-2.5">
-                                            <p className="text-[11px] font-bold text-slate-400 mb-1 flex items-center gap-1"><User className="w-3 h-3" />مهنة الزوج/الزوجة</p>
-                                            <p className="text-sm font-black text-slate-800 truncate">{selectedSnapshotMeta.spouseOccupation}</p>
-                                        </div>
-                                    )}
-                                    {selectedSnapshotMeta.sourceChannel && (
-                                        <div className="rounded-xl border border-slate-200/70 bg-slate-50/60 px-3.5 py-2.5">
-                                            <p className="text-[11px] font-bold text-slate-400 mb-1 flex items-center gap-1"><Activity className="w-3 h-3" />مصدر الزبون</p>
-                                            <p className="text-sm font-black text-slate-800 truncate">{selectedSnapshotMeta.sourceChannel}</p>
-                                        </div>
-                                    )}
-                                    {selectedSnapshotMeta.referrersCount > 0 && (
-                                        <div className="rounded-xl border border-slate-200/70 bg-slate-50/60 px-3.5 py-2.5">
-                                            <p className="text-[11px] font-bold text-slate-400 mb-1 flex items-center gap-1"><Search className="w-3 h-3" />الوسيط</p>
-                                            <p className="text-sm font-black text-slate-800 truncate">
-                                                {selectedSnapshotMeta.referrerName || `${selectedSnapshotMeta.referrersCount} وسيط`}
-                                                {selectedSnapshotMeta.referrerName && selectedSnapshotMeta.referrersCount > 1 ? ` +${selectedSnapshotMeta.referrersCount - 1}` : ''}
-                                            </p>
-                                        </div>
-                                    )}
+                                {/* Mobile: 1-line address inside the slim header */}
+                                <div className="md:hidden mt-2 flex items-center gap-1.5 text-xs font-bold text-slate-500 min-w-0">
+                                    <MapPin className="w-3.5 h-3.5 text-sky-500 shrink-0" />
+                                    <span className="truncate">{selectedAddressLabel || 'لا يوجد عنوان محدد'}</span>
                                 </div>
+
+                                {/* Mobile: collapse the secondary info so the working tabs get the screen */}
+                                <button
+                                    type="button"
+                                    onClick={() => setMobileInfoOpen(o => !o)}
+                                    aria-expanded={mobileInfoOpen}
+                                    className="md:hidden mt-3 w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors"
+                                >
+                                    <span className="flex items-center gap-1.5"><Layers className="w-3.5 h-3.5 text-slate-400" /> تفاصيل الزبون</span>
+                                    <ChevronDown className={`w-4 h-4 transition-transform ${mobileInfoOpen ? 'rotate-180' : ''}`} />
+                                </button>
+
+                                {/* Secondary info — collapsible on mobile (toggle above), always shown on md+ */}
+                                <div className={`${mobileInfoOpen ? 'block' : 'hidden'} md:block`}>
+
+                                {/* Key trio — task · customer-source · referrer, three across on
+                                    web/tablet so all three read together at full width. */}
+                                <div className="mt-5 grid grid-cols-2 md:grid-cols-3 gap-2.5">
+                                    <div className="rounded-xl border border-violet-100 bg-violet-50/50 px-3.5 py-2.5">
+                                        <p className="text-[11px] font-bold text-slate-400 mb-1 flex items-center gap-1"><Layers className="w-3 h-3" />المهمة</p>
+                                        <p className="text-sm font-black text-slate-800 truncate">
+                                            {(() => {
+                                                const tasks = selectedCustomer.openTasks || [];
+                                                if (!tasks.length) return '—';
+                                                const first = (OPEN_TASK_TYPE_LABELS as Record<string, string>)[tasks[0].openTaskType as string] || tasks[0].openTaskType || 'مهمة';
+                                                return tasks.length > 1 ? `${first} +${tasks.length - 1}` : first;
+                                            })()}
+                                        </p>
+                                    </div>
+                                    <div className="rounded-xl border border-slate-200/70 bg-slate-50/60 px-3.5 py-2.5">
+                                        <p className="text-[11px] font-bold text-slate-400 mb-1 flex items-center gap-1"><Activity className="w-3 h-3" />مصدر الزبون</p>
+                                        <p className="text-sm font-black text-slate-800 truncate">{selectedSnapshotMeta.sourceChannel || '—'}</p>
+                                    </div>
+                                    <div className="rounded-xl border border-slate-200/70 bg-slate-50/60 px-3.5 py-2.5">
+                                        <p className="text-[11px] font-bold text-slate-400 mb-1 flex items-center gap-1"><Search className="w-3 h-3" />الوسيط</p>
+                                        <p className="text-sm font-black text-slate-800 truncate">
+                                            {selectedSnapshotMeta.referrersCount > 0
+                                                ? `${selectedSnapshotMeta.referrerName || `${selectedSnapshotMeta.referrersCount} وسيط`}${selectedSnapshotMeta.referrerName && selectedSnapshotMeta.referrersCount > 1 ? ` +${selectedSnapshotMeta.referrersCount - 1}` : ''}`
+                                                : '—'}
+                                        </p>
+                                    </div>
+                                </div>
+                                {(selectedSnapshotMeta.occupation || selectedSnapshotMeta.spouseOccupation) && (
+                                    <div className="mt-2.5 grid grid-cols-2 gap-2.5">
+                                        {selectedSnapshotMeta.occupation && (
+                                            <div className="rounded-xl border border-slate-200/70 bg-slate-50/60 px-3.5 py-2.5">
+                                                <p className="text-[11px] font-bold text-slate-400 mb-1 flex items-center gap-1"><Briefcase className="w-3 h-3" />المهنة</p>
+                                                <p className="text-sm font-black text-slate-800 truncate">{selectedSnapshotMeta.occupation}</p>
+                                            </div>
+                                        )}
+                                        {selectedSnapshotMeta.spouseOccupation && (
+                                            <div className="rounded-xl border border-slate-200/70 bg-slate-50/60 px-3.5 py-2.5">
+                                                <p className="text-[11px] font-bold text-slate-400 mb-1 flex items-center gap-1"><User className="w-3 h-3" />مهنة الزوج/الزوجة</p>
+                                                <p className="text-sm font-black text-slate-800 truncate">{selectedSnapshotMeta.spouseOccupation}</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
 
                                 <div className="mt-4 grid grid-cols-1 xl:grid-cols-[1.35fr_1fr] gap-3">
                                     <div className="rounded-xl border border-sky-100 bg-sky-50/50 px-4 py-3">
@@ -1887,6 +1975,7 @@ export default function TelemarketerWorkspace() {
                                         )}
                                     </div>
                                 )}
+                                </div>
                             </div>
 
                             {/* Cross-team awareness for the selected customer */}
@@ -1930,8 +2019,9 @@ export default function TelemarketerWorkspace() {
                                 </div>
                             )}
 
-                            {/* Tabs */}
-                            <div className="px-4 flex gap-1 border-b border-slate-200 shrink-0 bg-white z-10 overflow-x-auto custom-scroll">
+                            {/* Tabs — horizontal scroll with no visible scrollbar (fits on desktop,
+                                swipes on mobile without an ugly bar). */}
+                            <div className="px-4 flex gap-1 border-b border-slate-200 shrink-0 bg-white z-10 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                                 {[
                                     { id: 'calllog', label: 'سجل الاتصال', icon: Phone },
                                     { id: 'devices', label: 'الأجهزة', icon: Cpu },
@@ -2176,13 +2266,35 @@ export default function TelemarketerWorkspace() {
                             </Button>
                         </div>
                     ) : (
-                        <div className="flex-1 flex flex-col items-center justify-center text-slate-400 bg-slate-50 p-8">
+                        <div className="flex-1 flex flex-col items-center justify-center text-center text-slate-400 bg-slate-50 p-8">
                             <Headset className="w-16 h-16 mb-3 text-sky-100" />
                             <p className="font-bold text-slate-500">يرجى اختيار زبون من قائمة الفريق</p>
+                            <p className="text-xs text-slate-400 mt-1">اختر زبوناً لعرض تفاصيله وتسجيل نتيجة التواصل</p>
                             <button type="button" onClick={() => setWorkspaceView('appointments')} className="mt-2 text-xs font-bold text-violet-600 hover:text-violet-800">
                                 الانتقال إلى جدول المواعيد
                             </button>
                         </div>
+                    )}
+                </div>
+
+                {/* COLUMN 3: Team-agenda rail — persistent on desktop (lg+), collapsible.
+                    On mobile/tablet it becomes an on-demand drawer (top-bar button). */}
+                <div className={`hidden lg:flex shrink-0 transition-[width] duration-200 ${agendaRailOpen ? 'w-[300px] xl:w-[340px]' : 'w-12'}`}>
+                    {agendaRailOpen ? (
+                        <div className="flex-1 min-w-0 bg-white border border-slate-200 rounded-xl overflow-hidden flex flex-col shadow-md">
+                            <TeamAgendaPanel appointments={teamAppointments} date={appointmentDate} onCollapse={() => setAgendaRailOpen(false)} />
+                        </div>
+                    ) : (
+                        <button
+                            type="button"
+                            onClick={() => setAgendaRailOpen(true)}
+                            title="مواعيد الفريق"
+                            className="flex-1 w-full bg-white border border-slate-200 rounded-xl flex flex-col items-center gap-3 py-4 hover:bg-slate-50 transition-colors shadow-md"
+                        >
+                            <Calendar className="w-5 h-5 text-emerald-600" />
+                            <span className="text-xs font-black text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md px-1.5 py-0.5">{teamAppointments.length}</span>
+                            <span className="[writing-mode:vertical-rl] text-xs font-bold text-slate-500 tracking-wide">مواعيد الفريق</span>
+                        </button>
                     )}
                 </div>
 
@@ -2201,6 +2313,16 @@ export default function TelemarketerWorkspace() {
                         ? lastBookedAppointment.key
                         : null}
                 />
+            )}
+
+            {/* Mobile/tablet team-agenda drawer — desktop uses the persistent rail. */}
+            {agendaDrawerOpen && (
+                <div className="lg:hidden fixed inset-0 z-50 flex" dir="rtl">
+                    <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setAgendaDrawerOpen(false)} />
+                    <div className="relative ml-auto h-full w-[88%] max-w-sm bg-white shadow-2xl flex flex-col">
+                        <TeamAgendaPanel appointments={teamAppointments} date={appointmentDate} onCollapse={() => setAgendaDrawerOpen(false)} />
+                    </div>
+                </div>
             )}
 
             {/* Message Reply Modal — updates outcome of a previously sent text message */}

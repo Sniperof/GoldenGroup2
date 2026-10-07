@@ -7,7 +7,7 @@ import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import { canSeeFieldVisitManagementSurface } from '../lib/fieldVisitPermissionPolicy';
 import { isGlobalOnlyPath } from '../lib/branchContext';
 import { HIDDEN_FEATURES_ENABLED } from '../lib/hiddenFeatures';
-import FloatingActionButton from '../components/FloatingActionButton';
+import EdgeQuickAdd from '../components/EdgeQuickAdd';
 import AddCandidateModal from '../components/candidates/AddCandidateModal';
 import NewServiceRequestModal from '../components/service-requests/NewServiceRequestModal';
 import BranchSwitcher from '../components/BranchSwitcher';
@@ -323,7 +323,7 @@ export default function MainLayout() {
         </div></div>
       </aside>
       <main className="flex-1 overflow-y-auto custom-scroll bg-slate-50 mt-16 lg:mt-0"><Outlet /></main>
-      {HIDDEN_FEATURES_ENABLED.quickActionsFab && <FloatingActionButton onAddSuggested={() => { setCandidateInitialMode(false); setShowCandidateModal(true); }} onAddCandidate={() => { setCandidateInitialMode(true); setShowCandidateModal(true); }} onServiceRequestClick={() => setShowServiceRequestModal(true)} />}
+      {HIDDEN_FEATURES_ENABLED.quickActionsFab && <EdgeQuickAdd onAddSuggested={() => { setCandidateInitialMode(false); setShowCandidateModal(true); }} onAddCandidate={() => { setCandidateInitialMode(true); setShowCandidateModal(true); }} onServiceRequestClick={() => setShowServiceRequestModal(true)} />}
       {showServiceRequestModal && <NewServiceRequestModal channel="internal_button" onClose={() => setShowServiceRequestModal(false)} />}
       <AddCandidateModal isOpen={showCandidateModal} onClose={() => setShowCandidateModal(false)} initialDirectMode={candidateInitialMode} />
     </div>

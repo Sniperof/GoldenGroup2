@@ -34,6 +34,19 @@ export default function Login() {
   const [error, setError] = useState('');
   const [focusedField, setFocusedField] = useState<string | null>(null);
 
+  // على السطح المكتبي (≥ lg) نستخدم مقاس lg الأكبر؛ أما تخطيط الجوّال/اللوحي
+  // (أسفل lg) فيستخدم مقاس md الأصغر حتى لا تبدو الحقول والزر ضخمة.
+  const [isDesktop, setIsDesktop] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const onChange = () => setIsDesktop(mq.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+  const controlSize = isDesktop ? 'lg' : 'md';
+
   // A session cut short by the device policy parks its reason before
   // redirecting here, so the user lands on an explanation rather than a blank
   // login form they will keep re-submitting.
@@ -170,23 +183,23 @@ export default function Login() {
       <div className="w-full lg:w-1/2 xl:w-[45%] flex items-center justify-center p-4 sm:p-6 lg:p-8 xl:p-12">
         <div className="w-full max-w-[420px]">
           {/* Mobile-only logo */}
-          <div className="lg:hidden text-center mb-6">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-white rounded-2xl shadow-lg shadow-sky-500/20 mb-3 transition-transform duration-300 hover:scale-105 border border-slate-100">
-              <img src={logoMark} alt="Golden Group" className="w-11 h-11 object-contain" />
+          <div className="lg:hidden text-center mb-5">
+            <div className="inline-flex items-center justify-center w-14 h-14 bg-white rounded-2xl shadow-lg shadow-sky-500/20 mb-2.5 transition-transform duration-300 hover:scale-105 border border-slate-100">
+              <img src={logoMark} alt="Golden Group" className="w-9 h-9 object-contain" />
             </div>
-            <h1 className="text-lg font-bold text-slate-800">Golden Group</h1>
-            <p className="text-sm text-slate-500 mt-1">نظام إدارة العملاء والموارد</p>
+            <h1 className="text-base font-bold text-slate-800">Golden Group</h1>
+            <p className="text-xs text-slate-500 mt-0.5">نظام إدارة العملاء والموارد</p>
           </div>
 
           {/* Card */}
           <motion.div
-            className="bg-white rounded-2xl shadow-xl shadow-slate-200/60 border border-slate-100 p-6 sm:p-8"
+            className="bg-white rounded-2xl shadow-xl shadow-slate-200/60 border border-slate-100 p-5 sm:p-8"
             initial={reduceMotion ? false : 'hidden'}
             animate="visible"
           >
-            <motion.div variants={cardItem} custom={0} className="text-center mb-6">
-              <h2 className="text-lg font-bold text-slate-800">تسجيل الدخول</h2>
-              <p className="text-sm text-slate-500 mt-1">
+            <motion.div variants={cardItem} custom={0} className="text-center mb-5 sm:mb-6">
+              <h2 className="text-base sm:text-lg font-bold text-slate-800">تسجيل الدخول</h2>
+              <p className="text-xs sm:text-sm text-slate-500 mt-1">
                 أدخل بيانات حسابك للمتابعة
               </p>
             </motion.div>
@@ -203,12 +216,12 @@ export default function Login() {
               </div>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-5">
+            <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-5">
               <motion.div variants={cardItem} custom={1}>
               <Input
                 id="username"
                 label="اسم المستخدم"
-                inputSize="lg"
+                inputSize={controlSize}
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 onFocus={() => setFocusedField('username')}
@@ -225,7 +238,7 @@ export default function Login() {
               <Input
                 id="password"
                 label="كلمة المرور"
-                inputSize="lg"
+                inputSize={controlSize}
                 type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -253,7 +266,7 @@ export default function Login() {
               <Button
                 type="submit"
                 variant="primary"
-                size="lg"
+                size={controlSize}
                 fullWidth
                 loading={loading}
               >
