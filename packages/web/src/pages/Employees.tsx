@@ -211,7 +211,7 @@ export default function Employees() {
   }
 
   return (
-    <div className="p-8 space-y-6">
+    <div className="p-4 sm:p-6 lg:p-8 space-y-6">
       {/* 1. Page Title — unified with Clients (PageHeader + titled table card). */}
       <div className="flex items-center justify-between">
         <PageHeader

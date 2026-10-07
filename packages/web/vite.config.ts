@@ -6,6 +6,16 @@ import { fileURLToPath } from 'url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
+// Shared proxy: forward API/tRPC/uploads/media to the Express backend on 3000.
+// Reused by both the dev server and `vite preview` (production-bundle preview,
+// used for reliable phone viewing over a tunnel where the dev HMR client fails).
+const apiProxy = {
+    '/api': { target: 'http://localhost:3000', changeOrigin: true },
+    '/trpc': { target: 'http://localhost:3000', changeOrigin: true },
+    '/uploads': { target: 'http://localhost:3000', changeOrigin: true },
+    '/m': { target: 'http://localhost:3000', changeOrigin: true },
+}
+
 export default defineConfig({
     resolve: {
         alias: {
@@ -26,28 +36,16 @@ export default defineConfig({
         watch: {
             ignored: ['**/.local/**', '**/.cache/**', '**/.git/**', '**/server/**'],
         },
-        proxy: {
-            // All API calls forwarded to Express backend on port 3000
-            '/api': {
-                target: 'http://localhost:3000',
-                changeOrigin: true,
-            },
-            // tRPC contract layer (Roles PoC)
-            '/trpc': {
-                target: 'http://localhost:3000',
-                changeOrigin: true,
-            },
-            // Uploaded files (CVs, photos) also served by the API in dev
-            '/uploads': {
-                target: 'http://localhost:3000',
-                changeOrigin: true,
-            },
-            // Unified media store (/m/<id>.webp) — device, branch and banner
-            // assets. Without this the dev server answers with index.html.
-            '/m': {
-                target: 'http://localhost:3000',
-                changeOrigin: true,
-            },
-        },
+        proxy: apiProxy,
+    },
+    // Production-bundle preview server (`vite preview`). Static assets load
+    // reliably over a public tunnel (no dev HMR websocket), with the same API
+    // proxy so the phone preview reaches the backend.
+    preview: {
+        host: '0.0.0.0',
+        port: Number(process.env.PORT) || 5000,
+        strictPort: false,
+        allowedHosts: true,
+        proxy: apiProxy,
     },
 })

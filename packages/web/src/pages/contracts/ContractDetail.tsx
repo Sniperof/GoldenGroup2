@@ -385,6 +385,9 @@ export default function ContractDetail() {
         setData(fresh);
         setShowApprovalModal(false);
       } catch (err: any) {
+        // Close the approval modal first so the error dialog isn't stacked on
+        // top of another modal (two dimmed backdrops).
+        setShowApprovalModal(false);
         setApprovalError(parseApprovalError(err, 'فشل اعتماد العقد'));
       } finally {
         setApprovalLoading(null);
@@ -406,6 +409,9 @@ export default function ContractDetail() {
       setData(fresh);
       setShowApprovalModal(false);
     } catch (err: any) {
+      // Close the approval modal first so the error dialog isn't stacked on
+      // top of another modal (two dimmed backdrops).
+      setShowApprovalModal(false);
       setApprovalError(parseApprovalError(err, 'فشل اعتماد العقد'));
     } finally {
       setApprovalLoading(null);

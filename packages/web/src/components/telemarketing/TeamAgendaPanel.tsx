@@ -1,12 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MapPin, User, Calendar, CalendarOff, Phone, Layers, Clock } from '../ui/icons';
+import { MapPin, User, Calendar, CalendarOff, ChevronLeft, Phone, Layers, Clock } from '../ui/icons';
 import { Appointment } from '../../lib/types';
 import { OPEN_TASK_TYPE_LABELS } from '@golden-crm/shared';
 
 interface TeamAgendaPanelProps {
     appointments: Appointment[];
     date: string;
+    /** When provided, a collapse/close button appears in the header (used by the
+     *  desktop rail to collapse, and the mobile drawer to dismiss). */
+    onCollapse?: () => void;
     teamLabel?: string;
     highlightedAppointmentKey?: string | null;
 }
@@ -38,7 +41,7 @@ export const getAppointmentAreaLabel = (appointment: Appointment): string => {
     return appointment.workLocationName?.trim() || 'منطقة غير محددة';
 };
 
-export default function TeamAgendaPanel({ appointments, date, teamLabel, highlightedAppointmentKey }: TeamAgendaPanelProps) {
+export default function TeamAgendaPanel({ appointments, date, onCollapse, teamLabel, highlightedAppointmentKey }: TeamAgendaPanelProps) {
     const [grouping, setGrouping] = useState<'time' | 'area'>('time');
     // Flexible booking means appointments can land on any minute, so the agenda
     // is now a real chronological list of the actual bookings rather than a
@@ -149,7 +152,7 @@ export default function TeamAgendaPanel({ appointments, date, teamLabel, highlig
                     </h2>
                     <p className="text-xs text-slate-500 mt-1 mr-5">جدول زيارات الخطة: {date}</p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 shrink-0">
                     <div className="flex rounded-lg border border-slate-200 bg-slate-50 p-0.5" role="group" aria-label="طريقة ترتيب المواعيد">
                         <button
                             type="button"
@@ -169,6 +172,17 @@ export default function TeamAgendaPanel({ appointments, date, teamLabel, highlig
                     <span className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-bold text-emerald-700">
                         {sortedAppointments.length} موعد
                     </span>
+                    {onCollapse && (
+                        <button
+                            type="button"
+                            onClick={onCollapse}
+                            title="طيّ"
+                            aria-label="طيّ لوحة مواعيد الفريق"
+                            className="w-7 h-7 rounded-lg border border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100 hover:text-slate-700 flex items-center justify-center transition-colors"
+                        >
+                            <ChevronLeft className="w-4 h-4" />
+                        </button>
+                    )}
                 </div>
             </div>
 

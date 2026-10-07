@@ -7,7 +7,7 @@ import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import { canSeeFieldVisitManagementSurface } from '../lib/fieldVisitPermissionPolicy';
 import { isGlobalOnlyPath } from '../lib/branchContext';
 import { HIDDEN_FEATURES_ENABLED } from '../lib/hiddenFeatures';
-import FloatingActionButton from '../components/FloatingActionButton';
+import EdgeQuickAdd from '../components/EdgeQuickAdd';
 import AddCandidateModal from '../components/candidates/AddCandidateModal';
 import NewServiceRequestModal from '../components/service-requests/NewServiceRequestModal';
 import BranchSwitcher from '../components/BranchSwitcher';
@@ -300,7 +300,7 @@ export default function MainLayout() {
   const roleLabel = authUser?.roleDisplayName ?? (authUser?.role === 'ADMIN' ? 'مدير النظام' : authUser?.role === 'HR_MANAGER' ? 'مدير الموارد البشرية' : authUser?.role === 'SYSTEM_ADMIN' ? 'مدير النظام' : authUser?.role === 'HR_ASSISTANT' ? 'مساعد الموارد البشرية' : authUser?.role ? 'دور نظامي محمي' : 'بدون دور');
 
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden">
+    <div className="flex h-dvh bg-slate-50 overflow-hidden">
       <header className="lg:hidden fixed top-0 left-0 right-0 h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 z-30">
         <div dir="ltr" className="flex items-center gap-3"><img src={logoMark} alt="Golden Group" className="w-8 h-8 object-contain" /><span className="text-lg font-bold text-slate-800">Golden Group</span></div>
         <button type="button" onClick={() => setIsMobileMenuOpen(open => !open)} aria-label={isMobileMenuOpen ? 'إغلاق القائمة' : 'فتح القائمة'} aria-expanded={isMobileMenuOpen} className="p-2 rounded-lg text-slate-600 hover:bg-slate-100">{isMobileMenuOpen ? <CloseIcon className="w-6 h-6" /> : <Menu className="w-6 h-6" />}</button>
@@ -313,7 +313,7 @@ export default function MainLayout() {
           <button type="button" onClick={() => setIsMobileMenuOpen(false)} aria-label="إغلاق القائمة" className="lg:hidden p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><CloseIcon className="w-6 h-6" /></button>
         </div>
         {!isCollapsed && !isGlobalOnlyPage && <BranchSwitcher />}
-        <nav aria-label="القائمة الرئيسية" className="flex-1 overflow-y-auto custom-scroll py-4 px-3 space-y-1 mt-16 lg:mt-0">
+        <nav aria-label="القائمة الرئيسية" className="flex-1 overflow-y-auto custom-scroll py-4 px-3 space-y-1">
           {sections.map(section => <DrawerSection key={section.id} section={section} pathname={location.pathname} isOpen={openSections.has(section.id)} isCollapsed={isCollapsed} onToggle={() => toggleSection(section.id)} onNavigate={() => setIsMobileMenuOpen(false)} />)}
         </nav>
         <div className="p-4 border-t border-slate-200 bg-slate-50/50"><div className={`flex items-center gap-3 p-2 rounded-lg ${isCollapsed ? 'lg:justify-center lg:px-0' : ''}`}>
@@ -323,7 +323,7 @@ export default function MainLayout() {
         </div></div>
       </aside>
       <main className="flex-1 overflow-y-auto custom-scroll bg-slate-50 mt-16 lg:mt-0"><Outlet /></main>
-      {HIDDEN_FEATURES_ENABLED.quickActionsFab && <FloatingActionButton onAddSuggested={() => { setCandidateInitialMode(false); setShowCandidateModal(true); }} onAddCandidate={() => { setCandidateInitialMode(true); setShowCandidateModal(true); }} onServiceRequestClick={() => setShowServiceRequestModal(true)} />}
+      {HIDDEN_FEATURES_ENABLED.quickActionsFab && <EdgeQuickAdd onAddSuggested={() => { setCandidateInitialMode(false); setShowCandidateModal(true); }} onAddCandidate={() => { setCandidateInitialMode(true); setShowCandidateModal(true); }} onServiceRequestClick={() => setShowServiceRequestModal(true)} />}
       {showServiceRequestModal && <NewServiceRequestModal channel="internal_button" onClose={() => setShowServiceRequestModal(false)} />}
       <AddCandidateModal isOpen={showCandidateModal} onClose={() => setShowCandidateModal(false)} initialDirectMode={candidateInitialMode} />
     </div>

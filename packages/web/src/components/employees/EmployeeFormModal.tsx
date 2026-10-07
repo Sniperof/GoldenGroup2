@@ -1563,7 +1563,7 @@ export default function EmployeeFormModal({
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/55 gg-modal-backdrop-in" dir="rtl">
       <div className="flex h-full items-center justify-center p-4">
-        <div className="flex h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-[32px] border border-slate-200 bg-slate-50 shadow-2xl">
+        <div className="flex h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 shadow-xl">
           {/* Header */}
           <div className="border-b border-slate-200 bg-white px-6 py-5">
             <div className="flex items-start justify-between gap-4">
@@ -1589,11 +1589,16 @@ export default function EmployeeFormModal({
             </div>
           </div>
 
-          {/* Body: stepper sidebar + content */}
-          <div className="flex flex-1 overflow-hidden">
+          {/* Body: stepper sidebar + content.
+              Column on mobile (horizontal stepper on top, content below);
+              row on desktop (vertical stepper sidebar beside content). */}
+          <div className="flex flex-1 flex-col overflow-hidden lg:flex-row">
             {/* Stepper (vertical on desktop, horizontal scroll on mobile) */}
             <aside className="hidden w-64 shrink-0 border-l border-slate-200 bg-white p-4 lg:block">
-              <ol className="space-y-1.5">
+              {/* Vertical progress stepper — a connecting spine conveys "steps",
+                  matching the app's PostSaleStepper language (done = emerald spine
+                  + ✓, current = sky node with halo ring, upcoming = neutral). */}
+              <ol className="relative">
                 {STEPS.map((step, idx) => {
                   const Icon = step.icon;
                   const isActive = idx === currentStepIdx;
@@ -1601,36 +1606,47 @@ export default function EmployeeFormModal({
                   const isDone = idx < completedUpTo;
                   // Clickable if already visited (current or behind) or already passed through
                   const isClickable = idx <= completedUpTo || idx === currentStepIdx;
+                  const isLast = idx === STEPS.length - 1;
+                  // The spine segment BELOW this node turns emerald once progress has
+                  // passed it; otherwise it stays neutral.
+                  const segmentReached = idx < completedUpTo;
                   return (
                     <li key={step.key}>
                       <button
                         type="button"
                         onClick={() => isClickable ? goToStep(idx) : undefined}
                         disabled={!isClickable}
-                        className={`group flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-right transition-all ${
+                        className={`group flex w-full items-stretch gap-3 rounded-xl px-2 py-1.5 text-right transition-colors ${
                           isActive
-                            ? 'border-sky-300 bg-sky-50 shadow-sm'
+                            ? 'bg-sky-50/60'
                             : isClickable
-                              ? 'border-transparent hover:border-slate-200 hover:bg-slate-50'
-                              : 'cursor-not-allowed border-transparent opacity-50'
+                              ? 'hover:bg-slate-50'
+                              : 'cursor-not-allowed opacity-50'
                         }`}
                       >
-                        <div
-                          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-sm font-bold transition-colors ${
-                            isDone && !isActive
-                              ? 'bg-emerald-500 text-white'
-                              : isActive
-                                ? 'bg-sky-500 text-white'
-                                : 'bg-slate-100 text-slate-500 group-hover:bg-slate-200'
-                          }`}
-                        >
-                          {isDone && !isActive ? <Check className="h-4 w-4" /> : <Icon className="h-4 w-4" />}
+                        {/* Rail: node + vertical connector spine */}
+                        <div className="flex flex-col items-center">
+                          <div
+                            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-bold transition-all ${
+                              isActive
+                                ? 'bg-sky-500 text-white ring-4 ring-sky-100'
+                                : isDone
+                                  ? 'bg-emerald-500 text-white'
+                                  : 'bg-slate-100 text-slate-500 group-hover:bg-slate-200'
+                            }`}
+                          >
+                            {isDone && !isActive ? <Check className="h-4 w-4" /> : <Icon className="h-4 w-4" />}
+                          </div>
+                          {!isLast && (
+                            <div className={`my-1 w-0.5 flex-1 rounded-full transition-colors ${segmentReached ? 'bg-emerald-400' : 'bg-slate-200'}`} />
+                          )}
                         </div>
-                        <div className="min-w-0 flex-1">
-                          <div className={`text-sm font-bold ${isActive ? 'text-sky-700' : 'text-slate-800'}`}>
+                        {/* Content */}
+                        <div className={`min-w-0 flex-1 pt-1 ${isLast ? 'pb-1' : 'pb-4'}`}>
+                          <div className={`text-sm font-bold ${isActive ? 'text-sky-700' : isDone ? 'text-slate-800' : 'text-slate-500'}`}>
                             {idx + 1}. {step.title}
                           </div>
-                          <div className="truncate text-xs text-slate-500">{step.subtitle}</div>
+                          <div className="truncate text-xs text-slate-400">{step.subtitle}</div>
                         </div>
                       </button>
                     </li>
