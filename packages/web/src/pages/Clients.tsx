@@ -55,6 +55,7 @@ import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import BranchScopeIndicator from '../components/BranchScopeIndicator';
 import BulkActivateModal from '../components/appAccounts/BulkActivateModal';
 import { usePermissions } from '../hooks/usePermissions';
+import { useDidUpdateEffect, useScrollRestoration, useSessionState } from '../hooks/useListStatePersistence';
 
 function extractApiPayload(error: unknown): any | null {
     if (!(error instanceof Error)) {
@@ -109,6 +110,8 @@ export default function Clients() {
     // Selection is written to the shared branch-context store so the add-client
     // modal pins the operational branch to it automatically.
     const branchContextId = useBranchContextStore(s => s.branchId);
+    // Remembered list state (page, sort, search, filters) for this tab, per branch view.
+    const listKey = `clients:${branchContextId ?? 'all'}`;
     const isGlobalClients = clientsViewScope === 'GLOBAL';
     const isBranchClients = clientsViewScope === 'BRANCH';
     // Add rule (§5): a GLOBAL operator viewing "all branches" has no explicit branch
@@ -128,12 +131,14 @@ export default function Clients() {
     // refetches (filter/page/sort) keep the page mounted and just refresh the
     // table rows — no whole-page flash. See the render guard below.
     const [initialLoad, setInitialLoad] = useState(true);
+    // Back from a record lands on the row it was opened from.
+    useScrollRestoration(listKey, !initialLoad);
 
     // Server pagination + sort state (controlled by SmartTable's server mode).
-    const [page, setPage] = useState(1);
-    const [limit, setLimit] = useState(10);
-    const [sortKey, setSortKey] = useState<string>('id');
-    const [sortDir, setSortDir] = useState<'asc' | 'desc' | null>('desc');
+    const [page, setPage] = useSessionState(`${listKey}:page`, 1);
+    const [limit, setLimit] = useSessionState(`${listKey}:limit`, 10);
+    const [sortKey, setSortKey] = useSessionState<string>(`${listKey}:sortKey`, 'id');
+    const [sortDir, setSortDir] = useSessionState<'asc' | 'desc' | null>(`${listKey}:sortDir`, 'desc');
 
     const [activeTab, setActiveTab] = useState<'clients' | 'candidates'>('clients');
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -154,29 +159,29 @@ export default function Clients() {
     const navigate = useNavigate();
 
     // ─── Filters & Search State ───
-    const [searchTerm, setSearchTerm] = useState('');
-    const [debouncedSearch, setDebouncedSearch] = useState('');
-    const [filterClass, setFilterClass] = useState('all');
-    const [filterMediator, setFilterMediator] = useState('all');
+    const [searchTerm, setSearchTerm] = useSessionState(`${listKey}:searchTerm`, '');
+    const [debouncedSearch, setDebouncedSearch] = useState(searchTerm);
+    const [filterClass, setFilterClass] = useSessionState(`${listKey}:filterClass`, 'all');
+    const [filterMediator, setFilterMediator] = useSessionState(`${listKey}:filterMediator`, 'all');
 
     // Enriched catalog (§7) — all live in one unified, collapsible panel.
-    const [filtersOpen, setFiltersOpen] = useState(false);
-    const [filterOwner, setFilterOwner] = useState('all');
-    const [filterRating, setFilterRating] = useState('all');
+    const [filtersOpen, setFiltersOpen] = useSessionState(`${listKey}:filtersOpen`, false);
+    const [filterOwner, setFilterOwner] = useSessionState(`${listKey}:filterOwner`, 'all');
+    const [filterRating, setFilterRating] = useSessionState(`${listKey}:filterRating`, 'all');
     // Geo cascade (branch-scoped): محافظة → منطقة → ناحية → حي, each optional.
-    const [filterGov, setFilterGov] = useState('all');
-    const [filterRegion, setFilterRegion] = useState('all');
-    const [filterSubarea, setFilterSubarea] = useState('all');
-    const [filterHood, setFilterHood] = useState('all');
-    const [filterHasDevice, setFilterHasDevice] = useState('all');   // all | yes | no
-    const [filterTaskType, setFilterTaskType] = useState('all');
-    const [filterRoute, setFilterRoute] = useState('all');
-    const [filterWaterSource, setFilterWaterSource] = useState('all');
-    const [filterDataQuality, setFilterDataQuality] = useState('all');
-    const [filterSerial, setFilterSerial] = useState('');
-    const [filterReferrerName, setFilterReferrerName] = useState('');
-    const [dateFrom, setDateFrom] = useState('');
-    const [dateTo, setDateTo] = useState('');
+    const [filterGov, setFilterGov] = useSessionState(`${listKey}:filterGov`, 'all');
+    const [filterRegion, setFilterRegion] = useSessionState(`${listKey}:filterRegion`, 'all');
+    const [filterSubarea, setFilterSubarea] = useSessionState(`${listKey}:filterSubarea`, 'all');
+    const [filterHood, setFilterHood] = useSessionState(`${listKey}:filterHood`, 'all');
+    const [filterHasDevice, setFilterHasDevice] = useSessionState(`${listKey}:filterHasDevice`, 'all');   // all | yes | no
+    const [filterTaskType, setFilterTaskType] = useSessionState(`${listKey}:filterTaskType`, 'all');
+    const [filterRoute, setFilterRoute] = useSessionState(`${listKey}:filterRoute`, 'all');
+    const [filterWaterSource, setFilterWaterSource] = useSessionState(`${listKey}:filterWaterSource`, 'all');
+    const [filterDataQuality, setFilterDataQuality] = useSessionState(`${listKey}:filterDataQuality`, 'all');
+    const [filterSerial, setFilterSerial] = useSessionState(`${listKey}:filterSerial`, '');
+    const [filterReferrerName, setFilterReferrerName] = useSessionState(`${listKey}:filterReferrerName`, '');
+    const [dateFrom, setDateFrom] = useSessionState(`${listKey}:dateFrom`, '');
+    const [dateTo, setDateTo] = useSessionState(`${listKey}:dateTo`, '');
 
     // Option sources for the dynamic filters (fetched separately — cannot be
     // derived from the loaded page under server pagination).
@@ -189,21 +194,22 @@ export default function Clients() {
     const [scopedGeo, setScopedGeo] = useState<GeoUnit[]>([]);
 
     // Debounce the free-text search so we don't fire a request per keystroke.
-    useEffect(() => {
+    // (useDidUpdateEffect: page resets must not fire on mount and wipe the restored page.)
+    useDidUpdateEffect(() => {
         const t = setTimeout(() => { setDebouncedSearch(searchTerm); setPage(1); }, 300);
         return () => clearTimeout(t);
     }, [searchTerm]);
 
     // Debounce the free-text serial lookup like the main search.
-    const [debouncedSerial, setDebouncedSerial] = useState('');
-    useEffect(() => {
+    const [debouncedSerial, setDebouncedSerial] = useState(filterSerial);
+    useDidUpdateEffect(() => {
         const t = setTimeout(() => { setDebouncedSerial(filterSerial); setPage(1); }, 300);
         return () => clearTimeout(t);
     }, [filterSerial]);
 
     // Mediator-name filter — debounced like the main search (which no longer matches it).
-    const [debouncedReferrerName, setDebouncedReferrerName] = useState('');
-    useEffect(() => {
+    const [debouncedReferrerName, setDebouncedReferrerName] = useState(filterReferrerName);
+    useDidUpdateEffect(() => {
         const t = setTimeout(() => { setDebouncedReferrerName(filterReferrerName); setPage(1); }, 300);
         return () => clearTimeout(t);
     }, [filterReferrerName]);
@@ -212,7 +218,7 @@ export default function Clients() {
     useEffect(() => { setFilterOwner(v => v.startsWith('branch:') ? 'all' : v); }, [branchContextId]);
 
     // Any filter/branch change resets to the first page.
-    useEffect(() => { setPage(1); }, [
+    useDidUpdateEffect(() => { setPage(1); }, [
         filterClass, filterMediator, branchContextId,
         filterOwner, filterRating, filterGov, filterRegion, filterSubarea, filterHood,
         filterHasDevice, filterTaskType, filterRoute, filterWaterSource, filterDataQuality, dateFrom, dateTo,
@@ -290,6 +296,8 @@ export default function Clients() {
         setClients(res.items as Client[]);
         setTotal(res.total);
         setKpis(res.kpis);
+        // A remembered page past the end (rows were removed meanwhile) → last page.
+        if (res.items.length === 0 && res.total > 0 && page > 1) setPage(Math.max(1, Math.ceil(res.total / limit)));
     }, [buildListParams, page, limit, sortKey, sortDir]);
 
     // Refetch whenever any server-side query input changes (page/limit/sort/filters/branch).
