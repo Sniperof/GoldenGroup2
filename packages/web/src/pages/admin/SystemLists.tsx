@@ -504,6 +504,13 @@ const CATEGORIES: CategoryMeta[] = [
     usedIn: [{ label: 'رفض طلب ترشيح الأسماء', route: 'الطلبات ← ترشيح الأسماء ← التفاصيل', icon: <ClipboardList className="w-3 h-3" /> }],
   },
   {
+    id: 'service_request_rejection_agent_license',
+    label: 'أسباب رفض طلب ترخيص وكيل',
+    description: 'أسباب رفض طلب ترخيص الوكيل الوارد من التطبيق عند المراجعة المركزية (الهوية، البيانات، شروط الوكالة، الاحتيال).',
+    impact: 'high',
+    usedIn: [{ label: 'رفض طلب ترخيص وكيل', route: 'الطلبات ← ترخيص وكيل ← التفاصيل', icon: <ClipboardList className="w-3 h-3" /> }],
+  },
+  {
     id: 'emergency_maintenance_safety_indicators',
     label: 'مؤشرات السلامة لطلب الصيانة الطارئة',
     description: 'المؤشرات التي يستطيع مقدم الطلب تحديدها. يمكن للبيانات الوصفية رفع أولوية المراجعة تلقائياً.',
@@ -528,6 +535,15 @@ const CATEGORIES: CategoryMeta[] = [
     impact: 'low',
     usedIn: [
       { label: 'مودال نتيجة الصيانة — القطع المُستَبدَلة', route: 'الزيارات ← مهمة صيانة ← المرحلة 2', icon: <Package className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'part_customer_refusal_reason',
+    label: 'أسباب رفض الزبون للقطعة المُوصى بها',
+    description: 'الأسباب المعتمدة عندما يوصي الفني بتبديل قطعة ويرفض الزبون تبديلها (السعر، التأجيل، عدم الاقتناع، ...).',
+    impact: 'low',
+    usedIn: [
+      { label: 'مودال نتيجة الصيانة — القطع المُوصى بها', route: 'الزيارات ← مهمة صيانة ← المرحلة 2', icon: <Package className="w-3 h-3" /> },
     ],
   },
 
@@ -1105,6 +1121,7 @@ const CATEGORY_GROUP: Record<string, string> = {
   service_request_rejection_golden_warranty: 'service_requests',
   name_nomination_item_exclusion_reasons: 'service_requests',
   service_request_rejection_name_nomination: 'service_requests',
+  service_request_rejection_agent_license: 'service_requests',
   periodic_maintenance_request_reasons: 'service_requests',
   device_request_purpose: 'service_requests',
   service_request_completed_account_creation: 'service_requests',
@@ -1118,6 +1135,7 @@ const CATEGORY_GROUP: Record<string, string> = {
   emergency_maintenance_safety_indicators: 'emergency',
   emergency_maintenance_attachment_categories: 'emergency',
   part_no_retrieval_reason: 'emergency',
+  part_customer_refusal_reason: 'emergency',
 
   periodic_manual_creation_reasons: 'periodic',
   periodic_maintenance_reschedule_reasons: 'periodic',
