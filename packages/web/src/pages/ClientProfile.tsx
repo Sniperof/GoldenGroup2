@@ -38,6 +38,7 @@ import NewServiceRequestModal from '../components/service-requests/NewServiceReq
 import { usePermissions } from '../hooks/usePermissions';
 import ClientAppAccountCard from '../components/appAccounts/ClientAppAccountCard';
 import ServiceRequestsTab from './clientProfile/ServiceRequestsTab';
+import { buildMapsEmbedUrl, buildMapsUrl } from '../utils/addressUtils';
 
 type ClientProfileTabId =
     | 'overview'
@@ -196,12 +197,8 @@ function ProfileSidebar({ client, geoUnits }: { client: Client; geoUnits: GeoUni
         typeof client.gpsCoordinates.lng === 'number';
     const lat = hasGps ? client.gpsCoordinates!.lat : null;
     const lng = hasGps ? client.gpsCoordinates!.lng : null;
-    const mapEmbedUrl = hasGps
-        ? `https://www.openstreetmap.org/export/embed.html?bbox=${lng! - 0.01}%2C${lat! - 0.01}%2C${lng! + 0.01}%2C${lat! + 0.01}&layer=mapnik&marker=${lat!}%2C${lng!}`
-        : '';
-    const mapOpenUrl = hasGps
-        ? `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=16/${lat}/${lng}`
-        : '';
+    const mapEmbedUrl = hasGps ? buildMapsEmbedUrl({ lat: lat!, lng: lng! }) ?? '' : '';
+    const mapOpenUrl = hasGps ? buildMapsUrl({ lat: lat!, lng: lng! }) ?? '' : '';
 
     return (
         <aside className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -305,12 +302,8 @@ function ProfileHeaderSection({ client, geoUnits }: { client: Client; geoUnits: 
         typeof client.gpsCoordinates.lng === 'number';
     const lat = hasGps ? client.gpsCoordinates!.lat : null;
     const lng = hasGps ? client.gpsCoordinates!.lng : null;
-    const mapEmbedUrl = hasGps
-        ? `https://www.openstreetmap.org/export/embed.html?bbox=${lng! - 0.01}%2C${lat! - 0.01}%2C${lng! + 0.01}%2C${lat! + 0.01}&layer=mapnik&marker=${lat!}%2C${lng!}`
-        : '';
-    const mapOpenUrl = hasGps
-        ? `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=16/${lat}/${lng}`
-        : '';
+    const mapEmbedUrl = hasGps ? buildMapsEmbedUrl({ lat: lat!, lng: lng! }) ?? '' : '';
+    const mapOpenUrl = hasGps ? buildMapsUrl({ lat: lat!, lng: lng! }) ?? '' : '';
 
     return (
         <section className="border-b border-slate-200 bg-slate-50 px-4 py-5 sm:px-6 lg:px-8">
