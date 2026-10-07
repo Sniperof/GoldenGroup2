@@ -22,6 +22,8 @@
 |---|---|
 | **الدستور** — [constitution/INDEX.md](constitution/INDEX.md) | المرجع التقني الملزم: الدومينات، الميزات، أنواع المهام، التقارير، القرارات المعمارية، المعايير، الثغرات |
 | **مراجع API** — [engineering/api/](engineering/api/) | عقود الـ API، بما فيها عقود تطبيق الموبايل |
+| **خريطة ملفات المشروع حسب الأقسام** — [engineering/file-map/PROJECT-FILE-MAP.md](engineering/file-map/PROJECT-FILE-MAP.md) | لكل قسم في النظام: ملفات الواجهة والخادم التي تخصه، ومسارات صفحاته والـ API. تُولَّد آلياً بـ `node scripts/generate-file-map.mjs` |
+| **تشغيل المشروع محلياً من الصفر** — [engineering/runbooks/local-dev-setup.md](engineering/runbooks/local-dev-setup.md) | تثبيت الأدوات والمكتبات، قاعدة البيانات المحلية أو البعيدة، الـ migrations، وتشغيل الفرونت والباك خطوة بخطوة |
 | **أدلة النشر والتشغيل** — [engineering/runbooks/](engineering/runbooks/) | الإطلاق على البرودكشن (PM2)، وتجهيز سيرفر جديد (Docker/Jenkins)، والإعدادات |
 | **التدقيقات** — [engineering/audits/](engineering/audits/) | تدقيقات الأقسام، مصفوفات اختبار الصلاحيات، جرد الصلاحيات |
 | **الأرشيف** — [archive/](archive/) | التاريخ فقط: handoffs، خطط منتهية، prompts، وثائق متجاوزة. لا يُعتمد عليه كمرجع حالي |
