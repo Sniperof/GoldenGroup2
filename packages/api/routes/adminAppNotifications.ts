@@ -25,6 +25,7 @@ import {
 } from '../services/appNotifications/broadcastDestinations.js';
 import {
   previewAudience,
+  searchBroadcastRecipients,
   sendBroadcast,
   type BroadcastAudience,
 } from '../services/appNotifications/broadcastService.js';
@@ -119,6 +120,35 @@ router.post('/audience-preview', requirePermission(SEND), async (req, res) => {
     return res.json({ audience, ...preview });
   } catch (err) {
     return fail(res, err, 'appNotifications.preview');
+  }
+});
+
+/**
+ * @swagger
+ * /api/admin/app-notifications/recipients:
+ *   get:
+ *     tags: [Admin - App Notifications]
+ *     summary: Search the people a notification can be addressed to one-by-one
+ *     description: >
+ *       Active app-account holders only (a client without an account cannot
+ *       receive anything), bounded by the same branch rule as the send. Matches
+ *       client name, app login phone (any common format) or client id.
+ *     parameters:
+ *       - { in: query, name: search, schema: { type: string } }
+ *       - { in: query, name: branchId, schema: { type: integer } }
+ *     responses:
+ *       200: { description: Matching recipients }
+ *       403: { description: Branch outside the operator's scope }
+ */
+router.get('/recipients', requirePermission(SEND), async (req, res) => {
+  try {
+    // Same scope resolution as preview/send, fed from the query string.
+    const audience = resolveAudience({ ...req, body: { branchId: req.query.branchId } }, SEND);
+    const search = typeof req.query.search === 'string' ? req.query.search.slice(0, 100) : '';
+    const items = await searchBroadcastRecipients(audience, search);
+    return res.json({ items });
+  } catch (err) {
+    return fail(res, err, 'appNotifications.recipients');
   }
 });
 

@@ -10,10 +10,11 @@ import type { ColumnDef } from '../../components/SmartTable';
 import { GeoCascadeFields, useGeoCascade } from '../../components/filters/GeoCascadeFilter';
 import { api } from '../../lib/api';
 import type {
-  BroadcastAudienceInput, BroadcastAudiencePreview, BroadcastDestination, BroadcastRecord,
+  BroadcastAudienceInput, BroadcastAudiencePreview, BroadcastDestination, BroadcastRecipient, BroadcastRecord,
 } from '../../lib/api';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { useBranchListScope } from '../../hooks/useBranchListScope';
+import NotificationRecipientPicker from '../../components/appNotifications/NotificationRecipientPicker';
 
 const DESTINATION_LABELS: Record<'none' | BroadcastDestination, string> = {
   none: 'بدون وجهة (يفتح قائمة الإشعارات)',
@@ -73,7 +74,8 @@ export default function AppNotifications() {
   const [locale, setLocale] = useState<'ar' | 'en'>('ar');
   const [destination, setDestination] = useState<'none' | BroadcastDestination>('none');
   const [destinationId, setDestinationId] = useState('');
-  const [clientId, setClientId] = useState('');
+  // One specific recipient (optional) — picked from active app-account holders.
+  const [recipient, setRecipient] = useState<BroadcastRecipient | null>(null);
 
   const geo = useGeoCascade({ branchId: branchScope.effectiveBranchId ?? null });
 
@@ -88,8 +90,8 @@ export default function AppNotifications() {
   const audience: BroadcastAudienceInput = useMemo(() => ({
     branchId: branchScope.effectiveBranchId ?? null,
     geoIds: geo.geoIdsCsv ? geo.geoIdsCsv.split(',') : [],
-    clientId: clientId.trim() === '' ? null : Number(clientId),
-  }), [branchScope.effectiveBranchId, geo.geoIdsCsv, clientId]);
+    clientId: recipient?.clientId ?? null,
+  }), [branchScope.effectiveBranchId, geo.geoIdsCsv, recipient]);
 
   /**
    * Any change to the audience discards the preview. A stale count is the one
@@ -316,11 +318,10 @@ export default function AppNotifications() {
             <GeoCascadeFields cascade={geo} />
             <div className="md:w-1/2">
               <label className="block text-sm text-slate-600 mb-1">عميل محدد (اختياري)</label>
-              <input
-                className="w-full border border-slate-300 rounded-lg px-3 py-2"
-                value={clientId}
-                onChange={(e) => setClientId(e.target.value.replace(/\D/g, ''))}
-                placeholder="رقم العميل"
+              <NotificationRecipientPicker
+                value={recipient}
+                onChange={setRecipient}
+                branchId={branchScope.effectiveBranchId ?? null}
               />
             </div>
           </div>
