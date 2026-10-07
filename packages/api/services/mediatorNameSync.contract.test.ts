@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-const sql = readFileSync(new URL('../../../migrations/474_sync_mediator_name_snapshots.sql', import.meta.url), 'utf8');
+// Normalised: the checkout may give the .sql CRLF line endings (Windows / .gitattributes).
+const sql = readFileSync(new URL('../../../migrations/474_sync_mediator_name_snapshots.sql', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
 
 const fn = (name: string) => sql.slice(sql.indexOf(`FUNCTION public.${name}(`), sql.indexOf('$$ LANGUAGE plpgsql;', sql.indexOf(`FUNCTION public.${name}(`)));
 
