@@ -19,6 +19,7 @@
 
 import type { PoolClient } from 'pg';
 import pool from '../../db.js';
+import { phoneNormalizationSql } from '../../utils/phoneSql.js';
 import { dispatchPreparedPushes } from './pushDispatcher.js';
 import {
   isNotificationTypeEnabled,
@@ -144,6 +145,75 @@ export async function previewAudience(
     clients: Number(row.clients ?? 0),
     reachableByPush: Number(row.reachable ?? 0),
   };
+}
+
+export interface BroadcastRecipient {
+  clientId: number;
+  clientName: string;
+  /** The app login phone — what "send to a number" means for the operator. */
+  primaryMobile: string | null;
+  branchName: string | null;
+  /** Has a registered device: push reaches the phone, else in-app inbox only. */
+  hasDevice: boolean;
+}
+
+/** Mirrors utils/phoneSql.phoneNormalizationSql for a typed search value. */
+function normalizePhoneDigits(raw: string): string {
+  const d = raw.replace(/\D/g, '');
+  if (/^009639\d{8}$/.test(d) || /^9639\d{8}$/.test(d)) return '0' + d.slice(-9);
+  if (/^9\d{8}$/.test(d)) return '0' + d;
+  return d;
+}
+
+/**
+ * Who can be addressed one-by-one: active app-account holders only (a client
+ * without an account can never receive a notification), inside the same
+ * branch bounds the send applies. Matches the client's name, the app login
+ * phone (any common format), or the client id.
+ */
+export async function searchBroadcastRecipients(
+  audience: Pick<BroadcastAudience, 'branchId' | 'allowedBranchIds'>,
+  search: string,
+  limit = 20,
+  db: Queryable = pool as unknown as Queryable,
+): Promise<BroadcastRecipient[]> {
+  const { where, params } = buildAudienceSql({ branchId: audience.branchId, allowedBranchIds: audience.allowedBranchIds });
+  const term = search.trim();
+  const parts: string[] = [];
+  if (term) {
+    params.push(`%${term.replace(/[\\%_]/g, '\\$&')}%`);
+    parts.push(`c.name ILIKE $${params.length}`);
+    const digits = normalizePhoneDigits(term);
+    if (digits.length >= 3) {
+      params.push(`%${digits}%`);
+      parts.push(`${phoneNormalizationSql('a.primary_mobile')} LIKE $${params.length}`);
+    }
+    if (/^\d{1,9}$/.test(term)) {
+      params.push(Number(term));
+      parts.push(`c.id = $${params.length}`);
+    }
+  }
+  params.push(Math.min(50, Math.max(1, limit)));
+  const { rows } = await db.query(
+    `SELECT DISTINCT ON (c.id)
+            c.id AS "clientId", c.name AS "clientName", a.primary_mobile AS "primaryMobile",
+            b.name AS "branchName",
+            EXISTS (SELECT 1 FROM app_notification_registrations reg WHERE reg.app_account_id = a.id) AS "hasDevice"
+       FROM app_accounts a
+       JOIN clients c ON c.id = a.linked_client_record_id
+       LEFT JOIN branches b ON b.id = c.branch_id
+      WHERE ${where}${parts.length ? ` AND (${parts.join(' OR ')})` : ''}
+      ORDER BY c.id DESC
+      LIMIT $${params.length}`,
+    params,
+  );
+  return rows.map((r: any) => ({
+    clientId: Number(r.clientId),
+    clientName: r.clientName,
+    primaryMobile: r.primaryMobile ?? null,
+    branchName: r.branchName ?? null,
+    hasDevice: r.hasDevice === true,
+  }));
 }
 
 export interface BroadcastResult {
