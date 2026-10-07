@@ -161,7 +161,7 @@ export default function AppNotifications() {
         audience,
         previewedCount: preview?.accounts ?? null,
       });
-      setResult(`تم الإرسال إلى ${res.notificationCount} صندوق، ووصل الدفع إلى ${res.pushed} جهاز.`);
+      setResult(`تم إرسال الإشعار إلى ${res.notificationCount} حساب في التطبيق.`);
       setTitle('');
       setMessage('');
       setDestination('none');
@@ -340,11 +340,7 @@ export default function AppNotifications() {
 
           {preview && (
             <div className="text-sm bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-1">
-              <div>سيصل الإشعار إلى <strong>{preview.accounts}</strong> صندوق يخص <strong>{preview.clients}</strong> عميلاً.</div>
-              <div className="text-slate-500">
-                منهم <strong>{preview.reachableByPush}</strong> لديهم جهاز مسجّل يستقبل تنبيهاً فورياً؛
-                والباقي سيرى الإشعار عند فتح التطبيق.
-              </div>
+              <div>سيصل الإشعار إلى <strong>{preview.accounts}</strong> حساب في التطبيق.</div>
             </div>
           )}
 
@@ -382,7 +378,7 @@ export default function AppNotifications() {
       >
         <div className="space-y-4">
           <p className="text-sm text-slate-700">
-            سيُرسل هذا الإشعار إلى <strong>{preview?.accounts ?? 0}</strong> صندوق،
+            سيُرسل هذا الإشعار إلى <strong>{preview?.accounts ?? 0}</strong> حساب في التطبيق،
             ولا يمكن التراجع عنه بعد الإرسال.
           </p>
           <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-sm">

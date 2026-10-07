@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { BellRing, Smartphone, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { api, type BroadcastRecipient } from '../../lib/api';
 
 interface Props {
@@ -51,7 +51,6 @@ export default function NotificationRecipientPicker({ value, onChange, branchId 
                         <span dir="ltr" className="font-mono">{value.primaryMobile || '—'}</span>
                         <span>#{value.clientId}</span>
                         {value.branchName && <span>{value.branchName}</span>}
-                        <DeliveryHint hasDevice={value.hasDevice} />
                     </div>
                 </div>
                 <button type="button" onClick={() => onChange(null)} aria-label="إزالة المستلم"
@@ -69,9 +68,9 @@ export default function NotificationRecipientPicker({ value, onChange, branchId 
                 value={text}
                 onChange={e => { setText(e.target.value); setOpen(true); }}
                 onFocus={() => setOpen(true)}
-                placeholder="ابحث عن مستخدم التطبيق بالاسم أو رقم حسابه"
+                placeholder="ابحث بالاسم أو رقم الهاتف"
             />
-            <p className="mt-1 text-xs text-slate-400">الإرسال عبر التطبيق فقط — لا تُرسل رسائل SMS. تظهر حسابات التطبيق الفعّالة فقط.</p>
+            <p className="mt-1 text-xs text-slate-400">يظهر فقط الزبائن الذين لديهم حساب في التطبيق.</p>
             {open && (
                 <div className="absolute top-full z-20 mt-1 max-h-72 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl">
                     {error ? (
@@ -89,7 +88,6 @@ export default function NotificationRecipientPicker({ value, onChange, branchId 
                                 <div className="flex flex-wrap gap-x-3 text-xs text-slate-400">
                                     <span>#{r.clientId}</span>
                                     {r.branchName && <span>{r.branchName}</span>}
-                                    <DeliveryHint hasDevice={r.hasDevice} />
                                 </div>
                             </div>
                             <span dir="ltr" className="shrink-0 font-mono text-xs text-slate-500">{r.primaryMobile || '—'}</span>
@@ -98,13 +96,5 @@ export default function NotificationRecipientPicker({ value, onChange, branchId 
                 </div>
             )}
         </div>
-    );
-}
-
-function DeliveryHint({ hasDevice }: { hasDevice: boolean }) {
-    return hasDevice ? (
-        <span className="inline-flex items-center gap-1 text-emerald-600"><Smartphone className="h-3 w-3" /> إشعار التطبيق + تنبيه على الشاشة</span>
-    ) : (
-        <span className="inline-flex items-center gap-1 text-amber-600"><BellRing className="h-3 w-3" /> داخل التطبيق فقط</span>
     );
 }
