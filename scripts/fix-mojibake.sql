@@ -1,3 +1,5 @@
+-- SUPERSEDED by migrations/473_fix_seed_arabic_mojibake.sql, which applies this
+-- repair automatically on every install. Kept for reference / ad-hoc use only.
 -- ----------------------------------------------------------------------------
 -- Demojibake fix — recovers Arabic in columns where 001_initial_schema.sql
 -- (a pg_dump) stored UTF-8 bytes that had been misread as Windows-1256.
