@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
+import { listAppAccounts } from '../services/appAccounts/appAccountListService.js';
 import {
   getAppAccountForClient,
   directCreateAppAccount,
@@ -19,6 +20,34 @@ function handle(res: Response, err: any, label: string) {
   console.error(`${label} error:`, err);
   return res.status(500).json({ error: err.message });
 }
+
+/**
+ * @swagger
+ * /api/admin/app-accounts:
+ *   get:
+ *     tags: [Admin - App Accounts]
+ *     summary: List live customer app accounts (GLOBAL app_accounts.view)
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: query, name: search, schema: { type: string, maxLength: 150 }, description: Client name or login mobile }
+ *       - { in: query, name: status, schema: { type: string, enum: [active, suspended] } }
+ *       - { in: query, name: source, schema: { type: string }, description: Account creation source }
+ *       - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 100, default: 25 } }
+ *       - { in: query, name: offset, schema: { type: integer, minimum: 0, maximum: 1000000, default: 0 } }
+ *       - { in: query, name: sortKey, schema: { type: string, enum: [clientName, primaryMobile, branchName, status, createdSource, createdAt], default: createdAt } }
+ *       - { in: query, name: sortDir, schema: { type: string, enum: [asc, desc], default: desc } }
+ *     responses:
+ *       200: { description: "{ items, totalCount, limit, offset }" }
+ *       400: { description: Invalid filters or pagination }
+ *       403: { description: Missing permission or unsupported scope }
+ */
+router.get('/app-accounts', requirePermission('app_accounts.view'), async (req, res) => {
+  try {
+    res.json(await listAppAccounts(req.authContext!, req.query));
+  } catch (err) {
+    handle(res, err, 'List app accounts');
+  }
+});
 
 /**
  * @swagger

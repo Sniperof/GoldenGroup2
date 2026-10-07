@@ -6,22 +6,14 @@ import { useCallback, useEffect, useState } from 'react';
 import { Smartphone, Loader2, UserCheck, PauseCircle, PlayCircle } from 'lucide-react';
 import { api } from '../../lib/api';
 import { usePermissions } from '../../hooks/usePermissions';
+import { APP_ACCOUNT_SOURCES } from '@golden-crm/shared';
 
 const STATUS_LABEL: Record<string, string> = { active: 'مفعّل', suspended: 'موقوف' };
 const STATUS_COLOR: Record<string, string> = {
   active: 'bg-green-100 text-green-700',
   suspended: 'bg-amber-100 text-amber-700',
 };
-const SOURCE_LABEL: Record<string, string> = {
-  account_creation: 'بطلب الزبون',
-  admin: 'إنشاء مباشر',
-  admin_bulk: 'تفعيل جماعي',
-  water_test_request: 'طلب فحص مياه',
-  device_request: 'طلب جهاز',
-  maintenance_request: 'طلب صيانة',
-  referral_request: 'إحالة',
-  golden_warranty_request: 'كفالة ذهبية',
-};
+const SOURCE_LABEL: Record<string, string> = APP_ACCOUNT_SOURCES;
 
 export default function ClientAppAccountCard({ clientId }: { clientId: number }) {
   const { hasPermission } = usePermissions();

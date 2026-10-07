@@ -246,6 +246,7 @@ export default function MainLayout() {
       ...(canAccessAdminSurface('settings.view') ? [{ path: '/settings', label: 'إعدادات النظام', icon: Settings, dividerLabel: 'ضبط النظام' }] : []),
       ...(HIDDEN_FEATURES_ENABLED.taskEvaluationLab && canSeeBranchModules && can('tasks.demo.view') ? [{ path: '/tasks/evaluation-lab', label: 'تقييم المهام', icon: Beaker, dividerLabel: 'ضبط النظام' }] : []),
       ...(canAccessAdminSurface('admin.app_home_banners.view') ? [{ path: '/admin/app-home-banners', label: 'بانرات التطبيق', icon: GalleryHorizontal, dividerLabel: 'تطبيق الزبائن' }] : []),
+      ...(canAccessAdminSurface('app_accounts.view') ? [{ path: '/admin/customer-app-users', label: 'مستخدمو تطبيق الزبائن', icon: Users, dividerLabel: 'تطبيق الزبائن' }] : []),
       ...(canAccessAdminSurface('admin.app_notifications.view') ? [{ path: '/admin/app-notifications', label: 'إشعارات التطبيق', icon: BellRing, dividerLabel: 'تطبيق الزبائن' }] : []),
       ...(canAccessAdminSurface('admin.app_contact_links.view') ? [{ path: '/admin/app-contact-links', label: 'روابط التطبيق', icon: Link2, dividerLabel: 'تطبيق الزبائن' }] : []),
     ] },
