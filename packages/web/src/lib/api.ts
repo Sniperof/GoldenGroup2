@@ -59,6 +59,17 @@ export interface BroadcastAudienceInput {
   clientId?: number | null;
 }
 
+/** One addressable notification recipient (an active app-account holder). */
+export interface BroadcastRecipient {
+  clientId: number;
+  clientName: string;
+  /** App login phone. */
+  primaryMobile: string | null;
+  branchName: string | null;
+  /** Registered device → push reaches the phone; otherwise in-app inbox only. */
+  hasDevice: boolean;
+}
+
 export interface BroadcastAudiencePreview {
   audience: BroadcastAudienceInput;
   /** Inboxes that would receive the notification. */
@@ -1052,6 +1063,13 @@ export const api = {
           { method: 'POST', body: JSON.stringify(data) },
         ),
       history: () => request<{ items: BroadcastRecord[] }>('/admin/app-notifications/broadcasts'),
+      // Single-recipient search: active app-account holders within the sender's scope.
+      recipients: (search: string, branchId: number | null) => {
+        const q = new URLSearchParams();
+        if (search) q.set('search', search);
+        if (branchId != null) q.set('branchId', String(branchId));
+        return request<{ items: BroadcastRecipient[] }>(`/admin/app-notifications/recipients?${q}`);
+      },
       // Options for the intake-form destination, whose id is a request_type slug.
       requestTypes: () => request<{ items: { requestType: string; labelAr: string }[] }>(
         '/admin/app-notifications/request-types',
