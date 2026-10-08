@@ -720,7 +720,7 @@ router.get('/paged', requirePermission('candidates.view_list'), async (req, res)
       const ownershipBranchId = toPositiveInt(req.query.ownershipBranchId);
       if (ownershipBranchId != null) {
         params.push(ownershipBranchId);
-        conditions.push(`c.branch_id = ${params.length}`);
+        conditions.push(`c.branch_id = $${params.length}`);
       }
     } else if (responsibleUserId != null) {
       params.push(responsibleUserId);
