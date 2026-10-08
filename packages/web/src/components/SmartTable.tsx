@@ -572,7 +572,7 @@ export default function SmartTable<T>({
                         </tr>
                     </thead>
 
-                    <tbody className="divide-y divide-slate-100">
+                    <tbody className="divide-y divide-slate-200">
 
                         {/* ── EMPTY STATE ── */}
                         {paginatedData.length === 0 && (
@@ -614,7 +614,7 @@ export default function SmartTable<T>({
                                         customRowClass
                                             ? customRowClass
                                             : [
-                                                isSelected ? 'bg-sky-50/80' : rowIdx % 2 === 1 ? 'bg-slate-50/50' : 'bg-white',
+                                                isSelected ? 'bg-sky-50/80' : rowIdx % 2 === 1 ? 'bg-slate-100/60' : 'bg-white',
                                                 'hover:bg-sky-50',
                                               ].join(' '),
                                     ].join(' ')}

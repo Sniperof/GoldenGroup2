@@ -187,8 +187,8 @@ function Body({ children, className = '', ...rest }: HTMLAttributes<HTMLTableSec
   return (
     <tbody
       className={cx(
-        'divide-y divide-slate-100',
-        '[&>tr]:transition-colors [&>tr:nth-child(even)]:bg-slate-50/50 [&>tr:hover]:bg-sky-50',
+        'divide-y divide-slate-200',
+        '[&>tr]:transition-colors [&>tr:nth-child(even)]:bg-slate-100/60 [&>tr:hover]:bg-sky-50',
         className,
       )}
       {...rest}
