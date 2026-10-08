@@ -120,7 +120,7 @@ export default function ZoneStudy() {
     const canPick = Number(pickSelection.neighborhoodId) > 0 && !busy && !isFrozen;
 
     return (
-        <div className="p-4 md:p-6 max-w-7xl mx-auto" dir="rtl">
+        <div className="p-4 sm:p-6 lg:p-8" dir="rtl">
             {/* Header */}
             <PageHeader
                 className="mb-5"

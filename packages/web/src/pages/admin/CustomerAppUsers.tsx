@@ -69,7 +69,7 @@ export default function CustomerAppUsers() {
   const controlClass = 'rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700';
   return (
     <div className="h-full overflow-y-auto bg-slate-50">
-      <div className="mx-auto max-w-7xl space-y-6 px-4 py-8">
+      <div className="space-y-6 p-4 sm:p-6 lg:p-8">
         <PageHeader title="مستخدمو تطبيق الزبائن" subtitle="حسابات تطبيق الزبائن المفعّلة والموقوفة في جميع الفروع."
           icon={<Smartphone className="h-6 w-6 text-sky-600" />}
           actions={<button type="button" disabled={loading} onClick={() => setRefresh(n => n + 1)} className={`${controlClass} flex items-center gap-2 disabled:opacity-50`}>

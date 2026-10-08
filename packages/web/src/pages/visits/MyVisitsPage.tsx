@@ -149,7 +149,7 @@ export default function MyVisitsPage() {
 
   return (
     <div className="min-h-full bg-slate-50/70 p-4 sm:p-6 lg:p-8" dir="rtl">
-      <div className="mx-auto max-w-6xl space-y-5">
+      <div className="space-y-5">
         <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-start gap-3">
             <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-teal-600 text-white shadow-lg shadow-teal-600/20">

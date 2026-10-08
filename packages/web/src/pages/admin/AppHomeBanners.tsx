@@ -306,7 +306,7 @@ export default function AppHomeBanners() {
   const inputClass = 'w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-400/20';
 
   return (
-    <div className="p-6 max-w-6xl mx-auto" dir="rtl">
+    <div className="p-4 sm:p-6 lg:p-8" dir="rtl">
       <PageHeader
         className="mb-6"
         title="بانرات الشاشة الرئيسية للتطبيق"

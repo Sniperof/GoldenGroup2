@@ -87,7 +87,7 @@ export default function GiftsManagement() {
 
   return (
     <div className="h-full overflow-y-auto bg-slate-50" dir="rtl">
-      <div className="mx-auto max-w-7xl space-y-5 px-4 py-6 sm:px-6 lg:px-8">
+      <div className="space-y-5 p-4 sm:p-6 lg:p-8">
         <PageHeader
           title="إدارة الهدايا"
           subtitle="مركز متابعة الوعود والاستحقاق والتسليم وتعريف أنواع الهدايا"

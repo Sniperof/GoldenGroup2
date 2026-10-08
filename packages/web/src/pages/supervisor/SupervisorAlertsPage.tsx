@@ -63,7 +63,7 @@ export default function SupervisorAlertsPage() {
   const branchScheduled = scheduledAlerts.filter(item => item.responsibleUserId !== userId);
   const urgentCount = escalations.filter(item => item.tiersAlerted.includes(3)).length;
 
-  return <div className="mx-auto max-w-6xl space-y-6 p-4 sm:p-6">
+  return <div className="space-y-6 p-4 sm:p-6 lg:p-8">
     <PageHeader
       title="تنبيهات المتابعة"
       subtitle="متابعة الزيارات والمهام ضمن نطاق صلاحيتك. ظهور التنبيه لا يعني إرسال إشعار شخصي أو إغلاق المهمة تلقائياً."
