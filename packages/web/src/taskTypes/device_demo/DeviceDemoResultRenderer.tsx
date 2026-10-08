@@ -1,4 +1,5 @@
 import { ShoppingCart } from '../../components/ui/icons';
+import DataTable from '../../components/ui/DataTable';
 import { Card, EmptyState, formatMoney } from '../../components/tasks/shared';
 import type { TaskResultRendererProps } from '../../components/tasks/types';
 
@@ -33,36 +34,34 @@ export default function DeviceDemoResultRenderer({ task, preOffers = [] }: TaskR
   return (
     <Card title="نتيجة المهمة — العروض" icon={ShoppingCart}>
       {rows.length > 0 ? (
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-right border-separate border-spacing-0">
-            <thead>
-              <tr className="text-xs font-bold text-slate-500">
-                <th className="px-3 py-2 border-b border-slate-200">#</th>
-                <th className="px-3 py-2 border-b border-slate-200">الجهاز</th>
-                <th className="px-3 py-2 border-b border-slate-200">نوع العرض</th>
-                <th className="px-3 py-2 border-b border-slate-200">الكمية</th>
-                <th className="px-3 py-2 border-b border-slate-200">الإجمالي</th>
-                <th className="px-3 py-2 border-b border-slate-200">الحسم</th>
-                <th className="px-3 py-2 border-b border-slate-200">رد الزبون</th>
-                <th className="px-3 py-2 border-b border-slate-200">الإغلاق</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((offer: any, i: number) => (
-                <tr key={offer.id ?? i} className="text-sm text-slate-700">
-                  <td className="px-3 py-3 border-b border-slate-100">{i + 1}</td>
-                  <td className="px-3 py-3 border-b border-slate-100 font-medium">{offer.deviceName}</td>
-                  <td className="px-3 py-3 border-b border-slate-100">{offer.offerTypeLabel}</td>
-                  <td className="px-3 py-3 border-b border-slate-100">{offer.quantityLabel}</td>
-                  <td className="px-3 py-3 border-b border-slate-100">{offer.amountLabel}</td>
-                  <td className="px-3 py-3 border-b border-slate-100">{offer.discountLabel}</td>
-                  <td className="px-3 py-3 border-b border-slate-100 text-xs">{offer.responseLabel}</td>
-                  <td className="px-3 py-3 border-b border-slate-100 text-xs">{offer.closingLabel}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTable minWidth={720}>
+          <DataTable.Head>
+            <DataTable.Row>
+              <DataTable.Th>#</DataTable.Th>
+              <DataTable.Th>الجهاز</DataTable.Th>
+              <DataTable.Th>نوع العرض</DataTable.Th>
+              <DataTable.Th>الكمية</DataTable.Th>
+              <DataTable.Th>الإجمالي</DataTable.Th>
+              <DataTable.Th>الحسم</DataTable.Th>
+              <DataTable.Th>رد الزبون</DataTable.Th>
+              <DataTable.Th>الإغلاق</DataTable.Th>
+            </DataTable.Row>
+          </DataTable.Head>
+          <DataTable.Body>
+            {rows.map((offer: any, i: number) => (
+              <DataTable.Row key={offer.id ?? i}>
+                <DataTable.Td>{i + 1}</DataTable.Td>
+                <DataTable.Td className="font-medium text-slate-800">{offer.deviceName}</DataTable.Td>
+                <DataTable.Td>{offer.offerTypeLabel}</DataTable.Td>
+                <DataTable.Td>{offer.quantityLabel}</DataTable.Td>
+                <DataTable.Td>{offer.amountLabel}</DataTable.Td>
+                <DataTable.Td>{offer.discountLabel}</DataTable.Td>
+                <DataTable.Td className="text-xs">{offer.responseLabel}</DataTable.Td>
+                <DataTable.Td className="text-xs">{offer.closingLabel}</DataTable.Td>
+              </DataTable.Row>
+            ))}
+          </DataTable.Body>
+        </DataTable>
       ) : (
         <EmptyState icon={ShoppingCart} title="لا توجد عروض مرتبطة بعد" description="سيظهر هنا ملخص العروض التي أُثبتت للمهمة." />
       )}

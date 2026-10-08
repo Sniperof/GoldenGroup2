@@ -6,6 +6,7 @@ import { AlertTriangle, ArrowLeft, CheckCircle2, Plus, Search, User, UserPlus } 
 import { api } from '../../lib/api';
 import Button from '../ui/Button';
 import Modal from '../ui/Modal';
+import DataTable from '../ui/DataTable';
 
 interface SuggestedMatch {
   source: 'client' | 'candidate';
@@ -488,28 +489,26 @@ export default function SuggestedMatchesPanel({
           </div>
 
           {request ? (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-200 text-xs text-slate-500">
-                    <th className="px-2 py-2 text-right font-semibold">الحقل</th>
-                    <th className="px-2 py-2 text-right font-semibold">بيانات الطلب</th>
-                    <th className="px-2 py-2 text-right font-semibold">بيانات السجل</th>
-                    <th className="px-2 py-2 text-right font-semibold">النتيجة</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {selectedRows.map((row) => (
-                    <tr key={row.label} className="border-b border-slate-100 last:border-0">
-                      <td className="px-2 py-2 font-medium text-slate-700">{row.label}</td>
-                      <td className="px-2 py-2 text-slate-600">{row.requestValue || '-'}</td>
-                      <td className="px-2 py-2 text-slate-600">{row.recordValue || '-'}</td>
-                      <td className="px-2 py-2">{statusBadge(row.status)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <DataTable minWidth={480}>
+              <DataTable.Head>
+                <DataTable.Row>
+                  <DataTable.Th>الحقل</DataTable.Th>
+                  <DataTable.Th>بيانات الطلب</DataTable.Th>
+                  <DataTable.Th>بيانات السجل</DataTable.Th>
+                  <DataTable.Th>النتيجة</DataTable.Th>
+                </DataTable.Row>
+              </DataTable.Head>
+              <DataTable.Body>
+                {selectedRows.map((row) => (
+                  <DataTable.Row key={row.label}>
+                    <DataTable.Td className="font-medium text-slate-700">{row.label}</DataTable.Td>
+                    <DataTable.Td className="text-slate-600">{row.requestValue || '-'}</DataTable.Td>
+                    <DataTable.Td className="text-slate-600">{row.recordValue || '-'}</DataTable.Td>
+                    <DataTable.Td>{statusBadge(row.status)}</DataTable.Td>
+                  </DataTable.Row>
+                ))}
+              </DataTable.Body>
+            </DataTable>
           ) : (
             <div className="rounded bg-amber-50 p-3 text-sm text-amber-800">
               بيانات الطلب غير محملة للمقارنة، لكن اعتماد الربط ما زال يتطلب اختيار هذا السجل من القائمة.
