@@ -646,12 +646,14 @@ export default function Clients() {
     return (
         <div className="p-4 sm:p-6 lg:p-8 space-y-6">
             {/* 1. Page Title */}
-            <div className="flex items-center justify-between">
+            {/* Mobile (< sm): title on its own line, actions stacked full-width
+                below it. sm+ keeps the original single row. */}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-0">
                 <PageHeader
                     title="سجلات الزبائن"
                     subtitle="إدارة وتحليل بيانات الزبائن والشبكة"
                 />
-                <div className="flex items-center gap-3">
+                <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:gap-3">
                     {/* GLOBAL branch filter moved to the unified external switcher
                         (sidebar). Branch users still see their pinned-branch badge. */}
                     {isBranchClients && (
@@ -664,6 +666,7 @@ export default function Clients() {
                     )}
                 <Button
                     icon={UserPlus}
+                    className="w-full sm:w-auto"
                     disabled={mustPickBranch}
                     title={mustPickBranch ? 'اختر فرعاً أولاً لإضافة زبون' : undefined}
                     onClick={() => {
@@ -709,7 +712,8 @@ export default function Clients() {
             <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm space-y-3">
                 {/* Toolbar: search · filters toggle · clear-all · bulk */}
                 <div className="flex flex-wrap items-center gap-3">
-                    <div className="relative flex-1 min-w-[220px]">
+                    {/* Search takes its own full row on mobile; sm+ unchanged. */}
+                    <div className="relative w-full sm:w-auto sm:flex-1 sm:min-w-[220px]">
                         <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                         <input
                             type="text"
