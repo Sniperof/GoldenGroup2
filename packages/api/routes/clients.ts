@@ -1149,7 +1149,7 @@ router.get('/paged', requirePermission('clients.view_list'), async (req, res) =>
       const ownerBranchId = toPositiveInt(req.query.ownerBranchId as any);
       if (ownerBranchId != null) {
         params.push(ownerBranchId);
-        conditions.push(`c.branch_id = ${params.length}`);
+        conditions.push(`c.branch_id = $${params.length}`);
       }
     } else if (owner != null) {
       params.push(owner);
