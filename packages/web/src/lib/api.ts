@@ -1842,6 +1842,18 @@ export const api = {
       request<any>(`/field-visits/${id}/end`, { method: 'POST', body: JSON.stringify(data ?? {}) }),
     cancel: (id: number, data: { cancellationReasonId: number; notes?: string | null }) =>
       request<any>(`/field-visits/${id}/cancel`, { method: 'POST', body: JSON.stringify(data) }),
+    // «الفريق الرديف» (migration 478)
+    reassignTeamOptions: (id: number) =>
+      request<any>(`/field-visits/${id}/reassign-team/options`),
+    reassignTeam: (id: number, data: {
+      supervisorEmployeeId: number | null;
+      technicianEmployeeId: number | null;
+      traineeEmployeeId: number | null;
+      teamKey?: string | null;
+      reasonId: number;
+      note?: string | null;
+    }) =>
+      request<any>(`/field-visits/${id}/reassign-team`, { method: 'POST', body: JSON.stringify(data) }),
     complete: (id: number) =>
       request<any>(`/field-visits/${id}/complete`, { method: 'POST' }),
     close: (id: number) =>

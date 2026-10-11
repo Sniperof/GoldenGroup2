@@ -15,6 +15,7 @@ import VisitSurveyModal from '../../components/fieldVisits/VisitSurveyModal';
 import ReferralSheetModal from '../../components/fieldVisits/ReferralSheetModal';
 import PullTaskModal from '../../components/fieldVisits/PullTaskModal';
 import VisitReasonModal from '../../components/fieldVisits/VisitReasonModal';
+import ReassignTeamModal from '../../components/fieldVisits/ReassignTeamModal';
 import VisitTaskResultModalHost, {
     hasVisitTaskResultModal,
 } from '../../components/fieldVisits/VisitTaskResultModalHost';
@@ -240,6 +241,7 @@ export default function VisitDetailPage() {
     const [reopening, setReopening] = useState(false);
     const [gpsReasonAction, setGpsReasonAction] = useState<'start' | 'end' | null>(null);
     const [cancelOpen, setCancelOpen] = useState(false);
+    const [reassignOpen, setReassignOpen] = useState(false);
     const hasPermission = useAuthStore((s) => s.hasPermission);
     const canCreateComplaint = hasPermission('complaints.create_internal')
         && hasPermission('clients.view_list')
@@ -372,10 +374,18 @@ export default function VisitDetailPage() {
         && tasks.every((t: any) => t.result_id != null && t.final_decision != null);
     const canCloseVisit = canExecute && visit.status === 'completed' && allTasksHaveFinalDecision;
 
-    // VDP §4: reassigned team becomes primary; original becomes backup
+    // VDP §4 (term fixed 2026-10-11): after a change, the replacement crew —
+    // «الفريق الرديف» — is the one responsible; the original is kept for reference.
     const reassigned = team.reassigned;
-    const primaryTeam = reassigned ?? team.original;
-    const backupTeam = reassigned ? team.original : null;
+    const currentTeam = reassigned ?? team.original;
+    const replacedTeam = reassigned ? team.original : null;
+    const teamChanges: any[] = Array.isArray(team.changes) ? team.changes : [];
+    const canReassignTeam = hasPermission('field_visits.reassign_team') && visit.status === 'scheduled';
+    const teamMembersLabel = (t: any) => [
+        t?.supervisor?.name ? `مشرف: ${t.supervisor.name}` : null,
+        t?.technician?.name ? `فني: ${t.technician.name}` : null,
+        t?.trainee?.name ? `متدرّب: ${t.trainee.name}` : null,
+    ].filter(Boolean).join(' · ') || '—';
 
     const answeredByLabel = visit.answered_by
         ? (ANSWERED_BY_LABELS[visit.answered_by] ?? visit.answered_by)
@@ -596,23 +606,44 @@ export default function VisitDetailPage() {
 
                 {/* ── ٤) الفريق المسؤول ── */}
                 <Section icon={Users} title="الفريق المسؤول عن الزيارة" accent="text-indigo-600"
-                    action={visit.status === 'scheduled' ? (
+                    action={canReassignTeam ? (
                         <button
-                            onClick={() => alert('ميزة تغيير الفريق قيد التطوير ضمن مسار منفصل.')}
+                            onClick={() => setReassignOpen(true)}
                             className="flex items-center gap-1 text-xs font-bold text-indigo-600 hover:text-indigo-500">
                             <RefreshCw className="w-3.5 h-3.5" /> تغيير الفريق
                         </button>
                     ) : undefined}>
                     <div className="space-y-3">
-                        <TeamCard data={primaryTeam} label={backupTeam ? 'الفريق الرئيسي (بعد التغيير)' : 'الفريق المكلّف'} />
-                        {backupTeam && (
+                        <TeamCard data={currentTeam} label={replacedTeam ? 'الفريق الرديف (المسؤول حالياً)' : 'الفريق المكلّف'} />
+                        {replacedTeam && (
                             <div>
-                                <TeamCard data={backupTeam} label="الفريق الرديف (الأصلي)" muted />
+                                <TeamCard data={replacedTeam} label="الفريق الأصلي (المُستبدَل)" muted />
                                 {team.reassigned_at && (
                                     <p className="text-xs text-slate-400 mt-1.5 flex items-center gap-1">
                                         <Repeat className="w-3 h-3" /> تاريخ التغيير: {formatDate(team.reassigned_at)} {formatTime(team.reassigned_at)}
                                     </p>
                                 )}
+                            </div>
+                        )}
+                        {teamChanges.length > 0 && (
+                            <div className="rounded-xl border border-slate-200 p-3">
+                                <p className="text-xs font-bold text-slate-500 mb-2">سجل تغيير الفريق</p>
+                                <div className="space-y-2">
+                                    {teamChanges.map((c: any) => (
+                                        <div key={c.id} className="text-xs text-slate-600 border-t border-slate-100 pt-2 first:border-t-0 first:pt-0">
+                                            <p className="text-slate-400">
+                                                {formatDate(c.changedAt)} {formatTime(c.changedAt)}
+                                                {c.changedByName ? ` · ${c.changedByName}` : ''}
+                                            </p>
+                                            <p>
+                                                <span className="line-through text-slate-400">{teamMembersLabel(c.from)}</span>
+                                                {' ← '}
+                                                <span className="font-semibold text-slate-700">{teamMembersLabel(c.to)}</span>
+                                            </p>
+                                            <p className="text-slate-500">السبب: {c.reasonLabel ?? '—'}{c.note ? ` — ${c.note}` : ''}</p>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
                         )}
                     </div>
@@ -845,8 +876,8 @@ export default function VisitDetailPage() {
                 <VisitTaskResultModalHost
                     visit={visit}
                     task={resultTask}
-                    primaryTeam={primaryTeam}
-                    backupTeam={backupTeam}
+                    primaryTeam={currentTeam}
+                    backupTeam={replacedTeam}
                     onClose={() => setResultTask(null)}
                     onSaved={() => { setResultTask(null); load(); }}
                 />
@@ -891,6 +922,15 @@ export default function VisitDetailPage() {
                     } catch (err: any) {
                         alert(err?.message ?? 'فشل إلغاء الزيارة');
                     } finally { setActionLoading(null); }
+                }}
+            />
+            <ReassignTeamModal
+                open={reassignOpen}
+                visitId={visitId}
+                onClose={() => setReassignOpen(false)}
+                onDone={async () => {
+                    setReassignOpen(false);
+                    await load();
                 }}
             />
         </div>

@@ -1,6 +1,12 @@
 import { Router } from 'express';
 import pool from '../db.js';
 import { runWithChangeContext } from '../auditContext.js';
+import {
+  getTeamReassignmentOptions,
+  listVisitTeamChanges,
+  reassignVisitTeam,
+  TeamReassignmentError,
+} from '../services/visitTeamReassignment.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
 import { authorize } from '../services/authorizationService.js';
@@ -811,6 +817,61 @@ router.post('/:id/cancel', requirePermission('field_visits.edit'), async (req, r
     return res.status(500).json({ error: err?.message ?? 'فشل إلغاء الزيارة' });
   } finally {
     client.release();
+  }
+});
+
+// ── «الفريق الرديف»: replace part or all of a scheduled visit's crew (migration 478) ──
+
+// GET /api/field-visits/:id/reassign-team/options
+router.get('/:id/reassign-team/options', requirePermission('field_visits.reassign_team'), async (req, res) => {
+  try {
+    const authContext = getAuthContext(req);
+    const visitId = toPositiveInteger(req.params.id);
+    if (!visitId) return res.status(400).json({ error: 'معرف الزيارة غير صالح' });
+    const { rows } = await pool.query('SELECT branch_id FROM field_visits WHERE id = $1', [visitId]);
+    if (rows.length === 0) return res.status(404).json({ error: 'الزيارة غير موجودة' });
+    if (!authorize(authContext, { permission: 'field_visits.reassign_team', branchId: rows[0].branch_id }).allowed) {
+      return res.status(403).json({ error: 'ليس لديك صلاحية تغيير فريق زيارات هذا الفرع.' });
+    }
+    return res.json(await getTeamReassignmentOptions(visitId));
+  } catch (err: any) {
+    if (err instanceof TeamReassignmentError) return res.status(err.statusCode).json({ error: err.message });
+    console.error('[field-visits] GET /:id/reassign-team/options error:', err);
+    return res.status(500).json({ error: 'فشل تحميل خيارات تغيير الفريق' });
+  }
+});
+
+// POST /api/field-visits/:id/reassign-team
+// body: { supervisorEmployeeId, technicianEmployeeId, traineeEmployeeId, teamKey?, reasonId, note? }
+// The body is the full crew wanted; roles not being replaced are sent unchanged.
+router.post('/:id/reassign-team', requirePermission('field_visits.reassign_team'), async (req, res) => {
+  try {
+    const authContext = getAuthContext(req);
+    const visitId = toPositiveInteger(req.params.id);
+    if (!visitId) return res.status(400).json({ error: 'معرف الزيارة غير صالح' });
+    const body = req.body ?? {};
+    const reasonId = toPositiveInteger(body.reasonId);
+    if (!reasonId) return res.status(400).json({ error: 'سبب تغيير الفريق مطلوب.' });
+
+    const result = await reassignVisitTeam({
+      visitId,
+      members: {
+        supervisor: toPositiveInteger(body.supervisorEmployeeId),
+        technician: toPositiveInteger(body.technicianEmployeeId),
+        trainee: toPositiveInteger(body.traineeEmployeeId),
+      },
+      teamKey: typeof body.teamKey === 'string' ? body.teamKey : null,
+      reasonId,
+      note: typeof body.note === 'string' ? body.note : null,
+      actorUserId: authContext.userId,
+      canReassignInBranch: (branchId) =>
+        authorize(authContext, { permission: 'field_visits.reassign_team', branchId }).allowed,
+    });
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    if (err instanceof TeamReassignmentError) return res.status(err.statusCode).json({ error: err.message });
+    console.error('[field-visits] POST /:id/reassign-team error:', err);
+    return res.status(500).json({ error: 'فشل تغيير فريق الزيارة' });
   }
 });
 
@@ -1940,10 +2001,30 @@ router.get('/:id', requirePermission('field_visits.view', 'field_visits.my_visit
         trainee: member(snap.traineeEmployeeId),
       };
     };
+    // History of «الفريق الرديف» changes (migration 478), names resolved like the cards.
+    const teamChangeRows = await listVisitTeamChanges(Number(fv.id));
+    teamChangeRows.forEach((c: any) => { collectIds(c.fromTeam); collectIds(c.toTeam); });
+    const missingIds = [...teamIds].filter((id) => !empNames.has(id));
+    if (missingIds.length > 0) {
+      const { rows: moreRows } = await pool.query(
+        'SELECT id, name FROM employees WHERE id = ANY($1::int[])',
+        [missingIds],
+      );
+      moreRows.forEach((e: any) => empNames.set(Number(e.id), e.name));
+    }
     const team = {
       original: buildTeam(fv.team_snapshot),
       reassigned: buildTeam(fv.reassigned_team_snapshot),
       reassigned_at: fv.reassigned_at,
+      changes: teamChangeRows.map((c: any) => ({
+        id: Number(c.id),
+        from: buildTeam(c.fromTeam),
+        to: buildTeam(c.toTeam),
+        reasonLabel: c.reasonLabel,
+        note: c.note,
+        changedAt: c.changedAt,
+        changedByName: c.changedByName,
+      })),
     };
 
     // ── Standard ClientSnapshot (Level 2) per docs/constitution/components/client-snapshot.md ────

@@ -325,6 +325,15 @@ const CATEGORIES: CategoryMeta[] = [
     ],
   },
   {
+    id: 'visit_team_change_reasons',
+    label: 'أسباب تغيير فريق الزيارة',
+    description: 'سبب إلزامي عند استبدال عضو أو أكثر من فريق زيارة مجدولة (الفريق الرديف). يُحفظ في سجل تغييرات الفريق ويظهر في سجل المهام المرتبطة.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'نافذة تغيير الفريق', route: 'الزيارات ← تفاصيل الزيارة ← تغيير الفريق', icon: <Users className="w-3 h-3" /> },
+    ],
+  },
+  {
     id: 'location_missing_reasons',
     label: 'أسباب غياب GPS عند بَدء/إنهاء الزيارة',
     description: 'الأسباب المُعتَمَدة عندما يَكون GPS غير مُتوفِّر لحظة بَدء أو إنهاء الزيارة الميدانية. شَرط إجباري في endpoint البَدء/الإنهاء.',
@@ -1110,6 +1119,7 @@ const CATEGORY_GROUP: Record<string, string> = {
 
   area_evaluation_options: 'visits', survey_skip_reasons: 'visits',
   location_missing_reasons: 'visits', visit_cancellation_reasons: 'visits',
+  visit_team_change_reasons: 'visits',
   visit_not_completed_reasons: 'visits', visit_task_reasons: 'visits',
   customer_followup_reasons: 'visits',
 

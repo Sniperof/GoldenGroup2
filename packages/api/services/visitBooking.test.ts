@@ -36,7 +36,7 @@ test('team slot guard treats every non-cancelled visit as occupying the slot', a
   const db = {
     async query(sql: string, params: unknown[]) {
       assert.match(sql, /fv\.status <> 'cancelled'/);
-      assert.deepEqual(params, [6, '2026-07-20', 'team_2', '09:00']);
+      assert.deepEqual(params, [6, '2026-07-20', 'team_2', '09:00', []]);
       return { rows: [{ id: 3 }] };
     },
   };

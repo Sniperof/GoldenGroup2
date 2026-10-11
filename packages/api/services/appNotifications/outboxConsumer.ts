@@ -24,6 +24,7 @@ import {
   notifyVisitCancelled,
   notifyVisitCompleted,
   notifyVisitScheduled,
+  notifyVisitTeamChanged,
 } from './notify.js';
 import { dispatchPreparedPushes } from './pushDispatcher.js';
 import type { PreparedPush } from './notificationService.js';
@@ -33,7 +34,7 @@ export const MAX_ATTEMPTS = 5;
 
 export interface OutboxRow {
   id: string;
-  entity_type: 'service_request' | 'field_visit' | 'complaint_public_update';
+  entity_type: 'service_request' | 'field_visit' | 'complaint_public_update' | 'field_visit_team_change';
   entity_id: string;
   from_status: string | null;
   to_status: string;
@@ -129,6 +130,32 @@ async function handleComplaintPublicUpdate(
 }
 
 /**
+ * Migration 478 D7: a «الفريق الرديف» change. The customer only ever sees the
+ * supervisor and the technician (DEC-017), so a trainee-only change stays silent.
+ */
+export function teamChangeIsVisible(fromTeam: any, toTeam: any): boolean {
+  const pick = (team: any, key: string) => (team?.[key] == null ? null : Number(team[key]));
+  return pick(fromTeam, 'supervisorEmployeeId') !== pick(toTeam, 'supervisorEmployeeId')
+    || pick(fromTeam, 'technicianEmployeeId') !== pick(toTeam, 'technicianEmployeeId');
+}
+
+async function handleFieldVisitTeamChange(
+  db: PoolClient,
+  row: OutboxRow,
+): Promise<{ prepared: PreparedPush[]; skipReason: string | null }> {
+  const { rows } = await db.query(
+    'SELECT field_visit_id, from_team, to_team FROM field_visit_team_changes WHERE id = $1',
+    [row.entity_id],
+  );
+  if (rows.length === 0) return { prepared: [], skipReason: 'entity_missing' };
+  if (!teamChangeIsVisible(rows[0].from_team, rows[0].to_team)) {
+    return { prepared: [], skipReason: 'not_visible_to_customer' };
+  }
+  const prepared = await notifyVisitTeamChanged(db, { visitId: Number(rows[0].field_visit_id) });
+  return { prepared, skipReason: prepared.length === 0 ? 'no_recipient' : null };
+}
+
+/**
  * Processes one claimed outbox row. Exported for tests; callers should use
  * drainOutbox, which owns the claiming and the transaction.
  */
@@ -138,6 +165,7 @@ export async function processOutboxRow(
 ): Promise<{ prepared: PreparedPush[]; skipReason: string | null }> {
   if (row.entity_type === 'service_request') return handleServiceRequest(db, row);
   if (row.entity_type === 'complaint_public_update') return handleComplaintPublicUpdate(db, row);
+  if (row.entity_type === 'field_visit_team_change') return handleFieldVisitTeamChange(db, row);
   return handleFieldVisit(db, row);
 }
 

@@ -36,6 +36,7 @@ const ACTOR_ROLE_FALLBACK: Record<string, string> = {
 const CONTEXT_LABELS: Record<string, string> = {
   visit_result: 'من نتيجة الزيارة',
   result_edit: 'من تعديل نتيجة الزيارة',
+  visit_team_change: 'من تغيير فريق الزيارة',
 };
 
 const FINAL_DECISION_LABELS: Record<string, string> = {

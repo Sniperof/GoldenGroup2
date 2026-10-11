@@ -183,6 +183,26 @@ export async function notifyVisitCompleted(
   }
 }
 
+/** Migration 478 D7 — the supervisor or technician the customer sees has changed. */
+export async function notifyVisitTeamChanged(
+  db: Queryable,
+  input: { visitId: number },
+): Promise<PreparedPush[]> {
+  try {
+    const visit = await loadVisit(db, input.visitId);
+    if (!visit) return [];
+    return await createNotifications({
+      type: 'visit_team_changed',
+      clientId: Number(visit.client_id),
+      destinationId: input.visitId,
+      vars: { date: visit.scheduled_date },
+      db,
+    });
+  } catch (err) {
+    return swallow('visit_team_changed', err);
+  }
+}
+
 /**
  * DEC-019 D-N16 — a published complaint update.
  *

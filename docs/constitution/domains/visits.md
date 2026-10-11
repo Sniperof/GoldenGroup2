@@ -164,7 +164,7 @@ scheduled ──→ in_progress ──→ ended ──→ completed   (تلقا�
 حقلا `origin_type` + `origin_id` إلزاميان عند الإنشاء. لا يجوز إنشاء زيارة بدون مصدر معروف. (مرجع: قرار D3)
 
 ### `V-R004` — الزيارة وعاء مرن قبل البدء
-- تعديل الفريق مسموح وقت `scheduled` (`reassigned_*`).
+- تعديل الفريق («الفريق الرديف») مسموح وقت `scheduled` فقط (`reassigned_*`) — القواعد في DEC-020.
 - إلغاء مسموح فقط قبل `in_progress` + سبب إلزامي من `system_lists` فئة `visit_cancellation_reasons` (D8).
 - إضافة/إزالة مهام مسموحة قبل `in_progress`.
 - **لا إعادة جدولة** على مستوى الزيارة (D18) — إلغاء + إنشاء زيارة جديدة.
@@ -319,7 +319,7 @@ POST   /emergency-requests                      ← من بلاغ طارئ (emer
 | إنشاء يدوي / حجز | `field_visits.create` | مدير الفرع / تيليماركتر |
 | بدء/إنهاء/تسجيل (قبل `ended`) | `field_visits.execute` | المسؤول في الفريق المسؤول لهذه الزيارة بالذات (D11) |
 | إلغاء (قبل البدء) | `field_visits.cancel` | مشرف / مدير |
-| إعادة إسناد الفريق | `field_visits.reassign_team` | مدير الفرع |
+| إعادة إسناد الفريق (DEC-020) | `field_visits.reassign_team` | GLOBAL / BRANCH — غير ممنوحة افتراضياً، تُمنح من شاشة الأدوار |
 | تعديل بعد `ended` + إقفال `closed` | `field_visits.update_result` | مشرف / مدير |
 | **فتح `closed`** 🆕 | `field_visits.reopen_closed` | إدارة عليا فقط + سبب مكتوب |
 | تعديل بعد `closed` | ❌ ممنوع (إلا بفتح أولاً) | — |

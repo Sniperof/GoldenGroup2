@@ -209,6 +209,7 @@
 | [DEC-017](decisions/DEC-017-app-devices-and-visits.md) | 2026-08-13 | «أجهزتي» و«زياراتي» في تطبيق الزبائن | ✅ معتمد |
 | [DEC-018](decisions/DEC-018-independent-complaints-domain.md) | 2026-08-17 | دومين الشكاوى المستقل | معتمد ومنفذ برمجياً — غير منشور |
 | [DEC-019](decisions/DEC-019-app-notifications.md) | 2026-08-17 | إشعارات تطبيق العميل | 🟢 معتمد ومنفذ بالكامل |
+| [DEC-020](decisions/DEC-020-visit-team-reassignment.md) | 2026-10-11 | تغيير فريق الزيارة («الفريق الرديف») | 🟢 معتمد ومنفَّذ برمجياً — غير منشور |
 
 
 ---
