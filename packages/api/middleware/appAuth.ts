@@ -9,6 +9,7 @@
 
 import type { Request, Response, NextFunction } from 'express';
 import { verifyAccessToken, type AppAccountClaims } from '../services/appAccounts/appAuthService.js';
+import { setAuditActor } from '../auditContext.js';
 
 declare global {
   namespace Express {
@@ -25,6 +26,7 @@ export async function requireAppAuth(req: Request, res: Response, next: NextFunc
   }
   try {
     req.appAccount = await verifyAccessToken(header.slice(7));
+    setAuditActor(null, 'app');
     next();
   } catch (err: any) {
     if (err?.status) {
@@ -48,6 +50,7 @@ export async function optionalAppAuth(req: Request, res: Response, next: NextFun
   }
   try {
     req.appAccount = await verifyAccessToken(header.slice(7));
+    setAuditActor(null, 'app');
     next();
   } catch (err: any) {
     if (err?.status) {

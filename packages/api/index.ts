@@ -104,6 +104,7 @@ import systemSettingsRouter from './routes/systemSettings.js';
 import giftsRouter from './routes/gifts.js';
 import reportsRouter from './routes/reports.js';
 import dashboardLayoutRouter from './routes/dashboardLayout.js';
+import { auditContextMiddleware } from './auditContext.js';
 
 const app = express();
 // Restrict origins when CORS_ORIGINS is set in the environment.
@@ -120,6 +121,8 @@ if (NODE_ENV === 'production' && TRUST_PROXY === false) {
   );
 }
 app.use(express.json({ limit: '10mb' }));
+// Request-scoped actor for the DB-owned task activity log (migration 475).
+app.use(auditContextMiddleware);
 
 // ── Public mobile surface: coarse per-IP limits ─────────────────────────────
 // Applied here, before the routers, so no future /api/app route can be added

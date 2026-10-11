@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
-  Activity, CheckCircle2, Layers, Loader2, MessageSquare, Phone, PhoneCall,
-  PhoneMissed, RotateCcw, Send, ShoppingCart, Users,
+  Activity, CalendarClock, CheckCircle2, ClipboardCheck, Layers, Loader2, MessageSquare, PencilLine, Phone, PhoneCall,
+  PhoneMissed, PlusCircle, RotateCcw, Send, ShoppingCart, Users,
 } from '../../ui/icons';
 import { OPEN_TASK_STATUS_LABELS, type OpenTaskStatus, getOutcomeMeta } from '@golden-crm/shared';
 import { Card, EmptyState, TabAlert, formatDateTime } from '../shared';
@@ -16,11 +16,61 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   call_made: 'مكالمة',
   priority_changed: 'تغيير الأولوية',
   team_assigned: 'تعيين الفريق',
+  team_changed: 'تغيير الفريق',
   offer_presented: 'تقديم عرض',
   customer_response: 'رد الزبون',
+  created: 'إنشاء المهمة',
+  rescheduled: 'تغيير الموعد',
+  lifecycle_skip: 'تخطّي مرحلة',
+  result_recorded: 'تسجيل النتيجة',
+  result_edited: 'تعديل النتيجة',
 };
 
+/** Who did it, when no user is attached to the row. */
+const ACTOR_ROLE_FALLBACK: Record<string, string> = {
+  system: 'النظام',
+  app: 'تطبيق الزبون',
+  backfill: 'ترميم بيانات قديمة',
+};
+
+const CONTEXT_LABELS: Record<string, string> = {
+  visit_result: 'من نتيجة الزيارة',
+  result_edit: 'من تعديل نتيجة الزيارة',
+};
+
+const FINAL_DECISION_LABELS: Record<string, string> = {
+  delivered: 'تم التسليم',
+  delivered_successfully: 'تم التسليم',
+  installed_successfully: 'تم التركيب',
+  activated: 'تم التفعيل',
+  activated_successfully: 'تم التفعيل',
+  disconnected_successfully: 'تم الفصل',
+  retrieved_successfully: 'تم السحب',
+  returned_successfully: 'تم الإرجاع',
+  transferred_successfully: 'تم النقل',
+  offer_presented: 'تم تقديم العرض',
+  performed: 'تم التنفيذ',
+  partially_performed: 'تنفيذ جزئي',
+  paid_full: 'دفع كامل',
+  paid_partial: 'دفع جزئي',
+  refused_to_pay: 'رفض الدفع',
+  device_issue: 'مشكلة بالجهاز',
+  rescheduled: 'تحتاج متابعة',
+  cancelled: 'إلغاء',
+};
+
+const decisionLabel = (code: string | null | undefined) =>
+  code ? FINAL_DECISION_LABELS[code] ?? code : null;
+
+const statusLabel = (code: string | null | undefined) =>
+  code ? OPEN_TASK_STATUS_LABELS[code as OpenTaskStatus] ?? code : null;
+
 const EVENT_TYPE_COLORS: Record<string, string> = {
+  created: 'bg-emerald-100 text-emerald-700',
+  rescheduled: 'bg-amber-100 text-amber-700',
+  lifecycle_skip: 'bg-slate-100 text-slate-600',
+  result_recorded: 'bg-teal-100 text-teal-700',
+  result_edited: 'bg-orange-100 text-orange-700',
   status_change: 'bg-blue-100 text-blue-700',
   note_added: 'bg-slate-100 text-slate-600',
   needs_follow_up: 'bg-amber-100 text-amber-700',
@@ -29,6 +79,7 @@ const EVENT_TYPE_COLORS: Record<string, string> = {
   call_made: 'bg-sky-100 text-sky-700',
   priority_changed: 'bg-rose-100 text-rose-700',
   team_assigned: 'bg-purple-100 text-purple-700',
+  team_changed: 'bg-purple-100 text-purple-700',
   offer_presented: 'bg-violet-100 text-violet-700',
   customer_response: 'bg-teal-100 text-teal-700',
 };
@@ -174,10 +225,14 @@ export default function TaskCommunicationOnlyTab({ task, calls, activity, onSubm
                     {entry.eventType === 'note_added' && <MessageSquare className="w-3.5 h-3.5 text-slate-500" />}
                     {entry.eventType === 'status_change' && <RotateCcw className="w-3.5 h-3.5 text-blue-500" />}
                     {entry.eventType === 'call_made' && <PhoneCall className="w-3.5 h-3.5 text-sky-500" />}
-                    {entry.eventType === 'team_assigned' && <Users className="w-3.5 h-3.5 text-purple-500" />}
+                    {(entry.eventType === 'team_assigned' || entry.eventType === 'team_changed') && <Users className="w-3.5 h-3.5 text-purple-500" />}
                     {entry.eventType === 'assigned' && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />}
                     {entry.eventType === 'offer_presented' && <ShoppingCart className="w-3.5 h-3.5 text-violet-500" />}
                     {entry.eventType === 'customer_response' && <MessageSquare className="w-3.5 h-3.5 text-teal-500" />}
+                    {entry.eventType === 'created' && <PlusCircle className="w-3.5 h-3.5 text-emerald-500" />}
+                    {entry.eventType === 'rescheduled' && <CalendarClock className="w-3.5 h-3.5 text-amber-500" />}
+                    {entry.eventType === 'result_recorded' && <ClipboardCheck className="w-3.5 h-3.5 text-teal-500" />}
+                    {entry.eventType === 'result_edited' && <PencilLine className="w-3.5 h-3.5 text-orange-500" />}
                   </div>
                   <div className="w-px flex-1 bg-slate-100 mt-1" />
                 </div>
@@ -188,17 +243,55 @@ export default function TaskCommunicationOnlyTab({ task, calls, activity, onSubm
                     </span>
                     <span className="text-xs text-slate-400">{formatDateTime(entry.createdAt)}</span>
                   </div>
-                  {entry.performedByName && (
+                  {(entry.performedByName || ACTOR_ROLE_FALLBACK[entry.role]) && (
                     <p className="text-xs text-slate-500 mb-1">
-                      {entry.performedByName}
-                      {entry.role && <span className="text-slate-400"> · {entry.role}</span>}
+                      {entry.performedByName ?? ACTOR_ROLE_FALLBACK[entry.role]}
+                      {entry.performedByName && entry.role && <span className="text-slate-400"> · {entry.role}</span>}
+                      {entry.context && CONTEXT_LABELS[entry.context] && (
+                        <span className="text-slate-400"> · {CONTEXT_LABELS[entry.context]}</span>
+                      )}
                     </p>
                   )}
-                  {entry.eventType === 'status_change' && entry.oldValue && entry.newValue && (
+                  {entry.eventType === 'status_change' && entry.newValue && (
                     <p className="text-xs text-slate-700">
-                      <span className="line-through text-slate-400">{OPEN_TASK_STATUS_LABELS[entry.oldValue as OpenTaskStatus] ?? entry.oldValue}</span>
+                      {entry.oldValue && (
+                        <>
+                          <span className="line-through text-slate-400">{statusLabel(entry.oldValue)}</span>
+                          {' → '}
+                        </>
+                      )}
+                      <span className="font-bold">{statusLabel(entry.newValue)}</span>
+                    </p>
+                  )}
+                  {entry.eventType === 'created' && entry.newValue && (
+                    <p className="text-xs text-slate-700">الحالة الأولى: <span className="font-bold">{statusLabel(entry.newValue)}</span></p>
+                  )}
+                  {entry.eventType === 'team_changed' && (
+                    <p className="text-xs text-slate-700">
+                      {entry.oldValue && (
+                        <>
+                          <span className="line-through text-slate-400">{entry.oldValue}</span>
+                          {' → '}
+                        </>
+                      )}
+                      <span className="font-bold">{entry.newValue || 'بدون فريق'}</span>
+                    </p>
+                  )}
+                  {(entry.eventType === 'rescheduled' || entry.eventType === 'priority_changed') && (
+                    <p className="text-xs text-slate-700">
+                      <span className="line-through text-slate-400">{entry.oldValue || '—'}</span>
                       {' → '}
-                      <span className="font-bold">{OPEN_TASK_STATUS_LABELS[entry.newValue as OpenTaskStatus] ?? entry.newValue}</span>
+                      <span className="font-bold">{entry.newValue || '—'}</span>
+                    </p>
+                  )}
+                  {entry.eventType === 'result_recorded' && entry.newValue && (
+                    <p className="text-xs text-slate-700">النتيجة: <span className="font-bold">{decisionLabel(entry.newValue)}</span></p>
+                  )}
+                  {entry.eventType === 'result_edited' && (
+                    <p className="text-xs text-slate-700">
+                      <span className="line-through text-slate-400">{decisionLabel(entry.oldValue) ?? '—'}</span>
+                      {' → '}
+                      <span className="font-bold">{decisionLabel(entry.newValue) ?? '—'}</span>
                     </p>
                   )}
                   {entry.eventType === 'note_added' && entry.newValue && (

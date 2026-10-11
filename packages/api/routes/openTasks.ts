@@ -5096,7 +5096,7 @@ router.get('/:id/activity', requirePermission('open_tasks.view'), async (req, re
     const { rows } = await pool.query(
       `SELECT
         tal.id,
-        CASE WHEN tal.event_type IN ('rescheduled', 'needs_reschedule') THEN 'needs_follow_up' ELSE tal.event_type END AS "eventType",
+        tal.event_type AS "eventType",
         tal.performed_by AS "performedBy",
         tal.role,
         tal.old_value AS "oldValue",
@@ -5104,11 +5104,13 @@ router.get('/:id/activity', requirePermission('open_tasks.view'), async (req, re
         tal.reason,
         tal.reference_id AS "referenceId",
         tal.created_at AS "createdAt",
+        tal.context,
+        tal.source,
         hu.name AS "performedByName"
       FROM task_activity_log tal
       LEFT JOIN hr_users hu ON hu.id = tal.performed_by
       WHERE tal.task_id = $1
-      ORDER BY tal.created_at DESC`,
+      ORDER BY tal.created_at DESC, tal.id DESC`,
       [id],
     );
     res.json(rows);
@@ -5179,13 +5181,15 @@ router.post('/:id/activity', requirePermission('open_tasks.edit'), async (req, r
     }
 
     const { eventType, oldValue, newValue, reason, referenceId } = req.body ?? {};
-    const VALID_EVENT_TYPES = ['status_change', 'note_added', 'needs_follow_up', 'rescheduled', 'assigned', 'reassigned', 'call_made', 'priority_changed', 'team_assigned', 'offer_presented', 'customer_response'];
-    if (!eventType || !VALID_EVENT_TYPES.includes(eventType)) {
+    // Only free-standing events may be posted by hand. State changes (status,
+    // priority, date, assignment) are recorded by the open_tasks triggers from
+    // the real change (migration 475); accepting them here would let a caller
+    // log a transition that never happened.
+    const MANUAL_EVENT_TYPES = ['note_added', 'call_made'];
+    if (!eventType || !MANUAL_EVENT_TYPES.includes(eventType)) {
       return res.status(400).json({ error: 'نوع الحدث غير صالح' });
     }
-
-    // Normalize incoming event type to what the DB CHECK constraint allows
-    const normalizedEventType = (eventType === 'needs_follow_up' || eventType === 'needs_reschedule') ? 'rescheduled' : eventType;
+    const normalizedEventType = eventType;
 
     const performedBy = authContext.userId;
     const userRole = (req as any).user?.role ?? null;

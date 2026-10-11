@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import pool from '../db.js';
+import { runWithChangeContext } from '../auditContext.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
 import { authorize } from '../services/authorizationService.js';
@@ -3213,7 +3214,24 @@ router.post('/:visitId/tasks/:taskId/result', requirePermission('tasks.results.r
     const body = req.body ?? {};
     const applyResult = VISIT_TASK_RESULT_APPLIERS[taskType as VisitResultTaskType];
     if (applyResult) {
-      const result = await applyResult(taskId, body, authContext.userId);
+      // A second submission is an edit of the recorded result: the previous
+      // version is kept in visit_task_result_revisions (migration 475) and
+      // the task log marks the resulting changes as 'result_edit'.
+      const { rows: existingResult } = await pool.query(
+        `SELECT 1 FROM visit_task_results WHERE visit_task_id = $1 LIMIT 1`,
+        [taskId],
+      );
+      const isEdit = existingResult.length > 0;
+      const editReason = typeof body.edit_reason === 'string' && body.edit_reason.trim()
+        ? body.edit_reason.trim()
+        : null;
+      const result = await runWithChangeContext(
+        {
+          changeContext: isEdit ? 'result_edit' : 'visit_result',
+          changeReason: isEdit ? editReason : null,
+        },
+        () => applyResult(taskId, body, authContext.userId),
+      );
       return res.json({ success: true, ...result });
     }
 

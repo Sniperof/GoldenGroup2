@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import type { AuthContext } from '@golden-crm/shared';
 import { JWT_SECRET, type AuthUser } from './auth.js';
+import { setAuditActor } from '../auditContext.js';
 import { loadSessionUserFromToken, SessionUserError } from '../services/sessionUserService.js';
 import {
   authorize,
@@ -71,6 +72,7 @@ async function ensureUser(req: Request, res: Response): Promise<boolean> {
   try {
     const tokenUser = jwt.verify(authHeader.slice(7), JWT_SECRET) as AuthUser;
     req.user = await loadSessionUserFromToken(tokenUser);
+    setAuditActor(req.user.id, req.user.role);
     return true;
   } catch (err) {
     if (err instanceof SessionUserError) {
