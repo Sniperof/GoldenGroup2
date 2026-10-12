@@ -338,7 +338,8 @@ export default function Clients() {
 
     // Owner options — eligible personal owners, scoped to the branch filter.
     useEffect(() => {
-        if (!filtersOpen || !canSeeAssignments) return;
+        if (!filtersOpen) return;
+        if (!canSeeAssignments) return;
         const branchParam = isGlobalClients ? branchContextId : null;
         api.admin.hrUsers.nameListAssignable(branchParam)
             .then(rows => setOwnerOptions((rows as any[]).map(u => ({ id: u.id, name: u.name }))))
