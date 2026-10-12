@@ -75,7 +75,9 @@ async function createScheduledVisitAlerts(): Promise<number> {
             AND COALESCE(
               CASE
                 WHEN COALESCE(fv.scheduled_time, '') ~ '([01][0-9]|2[0-3]):[0-5][0-9]\\s*$'
-                  THEN substring(fv.scheduled_time from '([01][0-9]|2[0-3]):[0-5][0-9]\\s*$')::time
+                  -- substring() returns the FIRST capture group: capture the whole
+                  -- HH:MM, not just the hour (which made '22'::time fail).
+                  THEN substring(fv.scheduled_time from '((?:[01][0-9]|2[0-3]):[0-5][0-9])\\s*$')::time
                 ELSE NULL
               END,
               TIME '23:59:59'
