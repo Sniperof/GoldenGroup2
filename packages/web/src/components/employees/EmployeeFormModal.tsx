@@ -110,6 +110,8 @@ interface EmployeeFormModalProps {
   fixedBranchName?: string | null;
   branchLocked?: boolean;
   addressHint?: string | null;
+  /** Editing an existing employee: status is changed by its own operation (migration 479). */
+  hideStatus?: boolean;
   onClose: () => void;
   onSubmit: (payload: Record<string, unknown>) => Promise<void> | void;
 }
@@ -352,6 +354,7 @@ export default function EmployeeFormModal({
   fixedBranchName = null,
   branchLocked = false,
   addressHint = null,
+  hideStatus = false,
   onClose,
   onSubmit,
 }: EmployeeFormModalProps) {
@@ -1368,16 +1371,18 @@ export default function EmployeeFormModal({
           />
         </label>
 
-        <label className="block">
-          <FieldLabel>حالة السجل</FieldLabel>
-          <Select<Employee['status']>
-            value={form.status}
-            onChange={v => setForm((c) => ({ ...c, status: v }))}
-            ariaLabel="حالة السجل"
-            className="w-full"
-            options={STATUS_OPTIONS}
-          />
-        </label>
+        {!hideStatus && (
+          <label className="block">
+            <FieldLabel>حالة السجل</FieldLabel>
+            <Select<Employee['status']>
+              value={form.status}
+              onChange={v => setForm((c) => ({ ...c, status: v }))}
+              ariaLabel="حالة السجل"
+              className="w-full"
+              options={STATUS_OPTIONS}
+            />
+          </label>
+        )}
       </div>
     );
   }

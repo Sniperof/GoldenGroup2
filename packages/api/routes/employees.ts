@@ -4,6 +4,13 @@ import { requirePermission } from '../middleware/permission.js';
 import { assertRoleWithinActorScope, ROLE_ESCALATION_ERROR } from '../services/roleAssignmentGuard.js';
 import { getEmployeeBranchId } from '../repositories/employeeRepository.js';
 import {
+  changeEmployeeStatus,
+  EmployeeStatusChangeError,
+  isEmployeeStatus,
+  listEmployeeStatusChanges,
+} from '../services/employeeStatusChange.js';
+import { listEmployeeActivity } from '../services/employeeActivityLog.js';
+import {
   createEmployeeRecord,
   deleteEmployeeRecord,
   getEmployeeById,
@@ -576,11 +583,74 @@ router.put('/:id/system-account', requirePermission('admin.roles.users.manage'),
     const result = await saveEmployeeSystemAccount(Number(employeeIdParam), req.body);
     res.json(result);
   } catch (err: any) {
+    if (err?.constraint === 'hr_users_employee_status_active') {
+      return res.status(409).json({ error: err.message });
+    }
     if (err?.status) {
       return res.status(err.status).json(err.payload ?? { error: err.message });
     }
     throw err;
   }
+});
+
+// POST /api/employees/:id/status — status is an explicit operation (migration 479):
+// suspended/terminated also switch the linked system account off, active switches
+// it back on, and the change is refused while the employee is still in the crew of
+// an unfinished visit. body: { status, reasonId, note? }
+router.post('/:id/status', requirePermission('employees.change_status'), async (req, res) => {
+  try {
+    const authContext = getRequiredAuthContext(req);
+    const employeeId = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
+    if (!Number.isInteger(employeeId) || employeeId <= 0) {
+      return res.status(400).json({ error: 'معرف الموظف غير صالح' });
+    }
+    const toStatus = req.body?.status;
+    if (!isEmployeeStatus(toStatus)) return res.status(400).json({ error: 'الحالة المطلوبة غير صالحة' });
+    const reasonId = Number(req.body?.reasonId);
+    if (!Number.isInteger(reasonId) || reasonId <= 0) {
+      return res.status(400).json({ error: 'سبب تغيير الحالة مطلوب.' });
+    }
+
+    const result = await changeEmployeeStatus({
+      employeeId,
+      toStatus,
+      reasonId,
+      note: typeof req.body?.note === 'string' ? req.body.note : null,
+      endOfServiceDate: typeof req.body?.endOfServiceDate === 'string' ? req.body.endOfServiceDate : null,
+      newStartDate: typeof req.body?.newStartDate === 'string' ? req.body.newStartDate : null,
+      actorUserId: authContext.userId,
+      canChangeInBranch: (branchId) =>
+        authorize(authContext, { permission: 'employees.change_status', branchId }).allowed,
+    });
+    res.json({ success: true, ...result });
+  } catch (err: any) {
+    if (err instanceof EmployeeStatusChangeError) {
+      return res.status(err.statusCode).json({ error: err.message, ...(err.details ?? {}) });
+    }
+    throw err;
+  }
+});
+
+// GET /api/employees/:id/activity — the employee's internal timeline (migration 480)
+router.get('/:id/activity', requirePermission('employees.view_list'), async (req, res) => {
+  const authContext = getRequiredAuthContext(req);
+  const employeeIdParam = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const ownerBranch = await getEmployeeBranchId(employeeIdParam!);
+  if (ownerBranch == null) return res.status(404).json({ error: 'الموظف غير موجود' });
+  const access = authorize(authContext, { permission: 'employees.view_list', branchId: ownerBranch });
+  if (!access.allowed) return forbidBranchAccess(res, access.reason);
+  res.json(await listEmployeeActivity(Number(employeeIdParam)));
+});
+
+// GET /api/employees/:id/status-history
+router.get('/:id/status-history', requirePermission('employees.view_list'), async (req, res) => {
+  const authContext = getRequiredAuthContext(req);
+  const employeeIdParam = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const ownerBranch = await getEmployeeBranchId(employeeIdParam!);
+  if (ownerBranch == null) return res.status(404).json({ error: 'الموظف غير موجود' });
+  const access = authorize(authContext, { permission: 'employees.view_list', branchId: ownerBranch });
+  if (!access.allowed) return forbidBranchAccess(res, access.reason);
+  res.json(await listEmployeeStatusChanges(Number(employeeIdParam)));
 });
 
 // Explicit branch transfer: moves the employee record + linked account(s)

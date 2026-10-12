@@ -94,6 +94,15 @@ const CATEGORIES: CategoryMeta[] = [
     ],
   },
   {
+    id: 'employee_status_change_reasons',
+    label: 'أسباب تغيير حالة الموظف',
+    description: 'سبب إلزامي عند تغيير حالة الموظف (إجازة، إيقاف، إنهاء خدمة، أو إعادته نشطاً). الإيقاف وإنهاء الخدمة يوقفان حساب النظام فوراً.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'نافذة تغيير الحالة', route: 'الموظفون ← تفاصيل الموظف ← تغيير الحالة', icon: <Users className="w-3 h-3" /> },
+    ],
+  },
+  {
     id: 'marital_status',
     label: 'الحالة الاجتماعية',
     description: 'خيارات الحالة الاجتماعية للمتقدم (أعزب، متزوج...). تُستخدم في ملف المتقدم للتوثيق الرسمي.',
@@ -1110,6 +1119,7 @@ const LIST_GROUPS: ListGroup[] = [
 const CATEGORY_GROUP: Record<string, string> = {
   occupation: 'hr', job_title: 'hr', certificate: 'hr', work_type: 'hr',
   nationality: 'hr', marital_status: 'hr', gender: 'hr', driving_license: 'hr',
+  employee_status_change_reasons: 'hr',
   application_source: 'hr', department_type: 'hr', military_service: 'hr',
   contract_type: 'hr', foreign_language: 'hr',
 

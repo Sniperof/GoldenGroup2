@@ -17,6 +17,8 @@ import {
   Phone,
   PackageCheck,
   Save,
+  RefreshCw,
+  History,
   ShieldCheck,
   UserCircle2,
   UserRound,
@@ -31,6 +33,8 @@ import { useAuthStore } from '../hooks/useAuthStore';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import { useBranchStore } from '../hooks/useBranchStore';
 import EmployeeFormModal, { type EmployeeFormInitialValues } from '../components/employees/EmployeeFormModal';
+import EmployeeStatusModal from '../components/employees/EmployeeStatusModal';
+import EmployeeActivityTimeline from '../components/employees/EmployeeActivityTimeline';
 import Button from '../components/ui/Button';
 import Select from '../components/ui/Select';
 import Checkbox from '../components/ui/Checkbox';
@@ -104,7 +108,7 @@ const TRAINING_RESULT_LABELS: Record<string, string> = {
 
 // ── Tab definition ────────────────────────────────────────────────────────────
 
-type TabKey = 'profile' | 'qualifications' | 'employment' | 'jobTasks' | 'gifts' | 'system' | 'hiring';
+type TabKey = 'profile' | 'qualifications' | 'employment' | 'jobTasks' | 'gifts' | 'system' | 'hiring' | 'activity';
 
 interface TabDef {
   key: TabKey;
@@ -120,6 +124,7 @@ const TABS: TabDef[] = [
   { key: 'gifts',          label: 'الهدايا',            icon: Gift          },
   { key: 'system',         label: 'حساب النظام',        icon: Lock          },
   { key: 'hiring',         label: 'ملف التوظيف',        icon: FileText      },
+  { key: 'activity',       label: 'السجل',              icon: History       },
 ];
 
 // ── Form types ────────────────────────────────────────────────────────────────
@@ -260,6 +265,7 @@ export default function EmployeeDetail() {
   const { hasPermission }       = usePermissions();
 
   const canEditEmployee     = hasPermission('employees.edit');
+  const canChangeStatus     = hasPermission('employees.change_status');
   const canManageSystemAccess = hasPermission('admin.roles.users.manage');
   const isSuperAdmin        = user?.isSuperAdmin === true;
 
@@ -270,6 +276,8 @@ export default function EmployeeDetail() {
   const [accountMessage, setAccountMessage] = useState('');
   const [showEditModal, setShowEditModal]   = useState(false);
   const [showTransferModal, setShowTransferModal] = useState(false);
+  const [showStatusModal, setShowStatusModal]     = useState(false);
+  const [activityToken, setActivityToken] = useState(0);
   const [transferBranchId, setTransferBranchId]   = useState<number | ''>('');
   const [transferNote, setTransferNote]           = useState('');
   const [transferring, setTransferring]           = useState(false);
@@ -382,6 +390,7 @@ export default function EmployeeDetail() {
       const refreshed = await api.employees.get(detail.id) as EmployeeDetailType;
       setDetail(refreshed);
       setShowTransferModal(false);
+      setActivityToken((t) => t + 1);
       setProfileMessage('تم نقل الموظف إلى الفرع الجديد.');
     } catch (err: any) {
       setTransferError(err?.message ?? 'تعذر نقل الموظف');
@@ -402,6 +411,7 @@ export default function EmployeeDetail() {
       setProfileForm({ name: refreshed.name, mobile: refreshed.mobile, branch: refreshed.branch ?? '',
         residence: refreshed.residence ?? '', jobTitle: refreshed.jobTitle ?? '', status: refreshed.status });
       setShowEditModal(false);
+      setActivityToken((t) => t + 1);
       setProfileMessage('تم حفظ بيانات الموظف بنجاح');
     } catch (err: any) {
       setError(err.message ?? 'تعذر حفظ بيانات الموظف');
@@ -628,8 +638,12 @@ export default function EmployeeDetail() {
         <SectionCard title="التواريخ" icon={<CalendarDays className="h-3.5 w-3.5" />} accent="emerald">
           <InfoRow label="تاريخ التوظيف">{formatDate(detail!.hireDate)}</InfoRow>
           <InfoRow label="تاريخ بدء العمل">{formatDate(detail!.startWorkDate)}</InfoRow>
+          {detail!.endOfServiceDate ? (
+            <InfoRow label="تاريخ إيقاف الخدمة">{formatDate(detail!.endOfServiceDate)}</InfoRow>
+          ) : null}
           <InfoRow label="تاريخ إنشاء السجل">{formatDate(detail!.createdAt)}</InfoRow>
         </SectionCard>
+
       </div>
     );
   }
@@ -1065,6 +1079,15 @@ export default function EmployeeDetail() {
                     تعديل البيانات
                   </Button>
                 )}
+                {canChangeStatus && (
+                  <Button
+                    variant="secondary"
+                    icon={RefreshCw}
+                    onClick={() => { setProfileMessage(''); setShowStatusModal(true); }}
+                  >
+                    تغيير الحالة
+                  </Button>
+                )}
                 {detail.hiringApplication && (
                   <Button
                     variant="secondary"
@@ -1138,6 +1161,7 @@ export default function EmployeeDetail() {
             {activeTab === 'gifts'          && renderGifts()}
             {activeTab === 'system'         && renderSystemAccount()}
             {activeTab === 'hiring'         && renderHiring()}
+            {activeTab === 'activity'       && <EmployeeActivityTimeline employeeId={detail.id} reloadToken={activityToken} />}
           </div>
         </div>
       </div>
@@ -1156,6 +1180,22 @@ export default function EmployeeDetail() {
         branchLocked={!isSuperAdmin || contextBranchId != null}
         onClose={() => { if (savingProfile) return; setShowEditModal(false); }}
         onSubmit={handleSaveProfile}
+        hideStatus
+      />
+
+      {/* ── Status change (migration 479) ──────────────────────────────────── */}
+      <EmployeeStatusModal
+        open={showStatusModal}
+        employeeId={detail.id}
+        currentStatus={detail.status}
+        onClose={() => setShowStatusModal(false)}
+        onDone={async () => {
+          setShowStatusModal(false);
+          const refreshed = await api.employees.get(detail.id) as EmployeeDetailType;
+          setDetail(refreshed);
+          setActivityToken((t) => t + 1);
+          setProfileMessage('تم تغيير حالة الموظف.');
+        }}
       />
 
       {/* ── Branch transfer modal ──────────────────────────────────────────── */}

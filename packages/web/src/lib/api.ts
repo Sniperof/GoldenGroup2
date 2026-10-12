@@ -1113,6 +1113,21 @@ export const api = {
         `/employees/${id}/transfer-branch`,
         { method: 'POST', body: JSON.stringify(data) },
       ),
+    // Status is an explicit operation (migration 479); the edit form no longer writes it.
+    changeStatus: (id: number, data: {
+      status: 'active' | 'vacation' | 'suspended' | 'terminated';
+      reasonId: number;
+      note?: string | null;
+      endOfServiceDate?: string | null;  // required for → terminated
+      newStartDate?: string | null;      // required for terminated → active
+    }) =>
+      request<{ employeeId: number; fromStatus: string; toStatus: string; accountEffect: 'deactivated' | 'reactivated' | null }>(
+        `/employees/${id}/status`,
+        { method: 'POST', body: JSON.stringify(data) },
+      ),
+    statusHistory: (id: number) => request<any[]>(`/employees/${id}/status-history`),
+    // Internal timeline written by database triggers (migration 480).
+    activity: (id: number) => request<any[]>(`/employees/${id}/activity`),
     delete: (id: number) => request<any>(`/employees/${id}`, { method: 'DELETE' }),
   },
   clients: {

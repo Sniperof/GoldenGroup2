@@ -1249,6 +1249,9 @@ router.put('/hr-users/:id', requirePermission('admin.roles.users.manage'), async
     if (err.code === '23505') {
       return res.status(409).json({ error: 'اسم الدخول مستخدم بالفعل' });
     }
+    if (err.constraint === 'hr_users_employee_status_active') {
+      return res.status(409).json({ error: err.message });
+    }
     console.error('Error updating HR user:', err);
     res.status(500).json({ error: err.message });
   }

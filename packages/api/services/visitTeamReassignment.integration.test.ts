@@ -219,6 +219,12 @@ test('reassigning a scheduled visit crew: validation, cascade, history, revert',
           [visitIds],
         );
         await client.query('DELETE FROM visit_tasks WHERE field_visit_id = ANY($1::bigint[])', [visitIds]);
+        // The crew swaps used real employees: drop the fixture events from their timelines (migration 480).
+        await client.query(
+          `DELETE FROM employee_activity_log
+            WHERE event_type IN ('visit_crew_added', 'visit_crew_removed') AND reference_id = ANY($1::bigint[])`,
+          [visitIds],
+        );
         await client.query('DELETE FROM field_visits WHERE id = ANY($1::bigint[])', [visitIds]);
       }
       if (taskId) await client.query('DELETE FROM open_tasks WHERE id = $1', [taskId]);

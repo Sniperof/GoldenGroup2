@@ -244,6 +244,8 @@ export interface Employee {
     foreignLanguages?: string[];
     hireDate?: string | null;
     startWorkDate?: string | null;
+    /** Effective end of the current employment period (set on → terminated, cleared on rehire). */
+    endOfServiceDate?: string | null;
     contractType?: string | null;
     workType?: string | null;
     previousEmployment?: string | null;

@@ -755,6 +755,10 @@ export async function updateEmployeeRecord(employeeId: number | string, body: an
     {
       ...body,
       avatar: body.avatar === undefined ? existing.avatar : body.avatar,
+      // Status is an explicit operation (POST /:id/status, migration 479): it
+      // switches the account on/off and is audited, so the edit form cannot
+      // change it. Any status in the edit body is ignored.
+      status: existing.status,
     },
     branchId,
     { excludeEmployeeId: employeeId },
