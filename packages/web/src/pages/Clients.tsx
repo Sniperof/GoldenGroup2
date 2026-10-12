@@ -167,6 +167,11 @@ export default function Clients() {
     // Enriched catalog (§7) — all live in one unified, collapsible panel.
     const [filtersOpen, setFiltersOpen] = useSessionState(`${listKey}:filtersOpen`, false);
     const [filterOwner, setFilterOwner] = useSessionState(`${listKey}:filterOwner`, 'all');
+    // ASSIGNED viewers only ever see records personally assigned to them: no
+    // owner filter applies (branch ownership or another person always yields an
+    // empty list) and the owner list would reveal colleagues' names. A value
+    // remembered from another session/scope is ignored too.
+    const effectiveOwner = canSeeAssignments ? filterOwner : 'all';
     const [filterRating, setFilterRating] = useSessionState(`${listKey}:filterRating`, 'all');
     // Geo cascade (branch-scoped): محافظة → منطقة → ناحية → حي, each optional.
     const [filterGov, setFilterGov] = useSessionState(`${listKey}:filterGov`, 'all');
@@ -273,8 +278,8 @@ export default function Clients() {
             filterReferrerName: debouncedReferrerName,
             geoIds: geoIdsCsv,
             routeGeoIds: routeGeoIdsCsv,
-            owner: filterOwner.startsWith('branch') ? 'branch' : filterOwner,
-            ownerBranchId: filterOwner.startsWith('branch:') ? Number(filterOwner.slice(7)) : undefined,
+            owner: effectiveOwner.startsWith('branch') ? 'branch' : effectiveOwner,
+            ownerBranchId: effectiveOwner.startsWith('branch:') ? Number(effectiveOwner.slice(7)) : undefined,
             rating: filterRating,
             waterSource: filterWaterSource, dataQuality: filterDataQuality,
             hasDevice: filterHasDevice, taskType: filterTaskType,
@@ -282,7 +287,7 @@ export default function Clients() {
             createdFrom: dateFrom, createdTo: dateTo,
         };
     }, [isGlobalClients, branchContextId, debouncedSearch, filterClass, filterMediator, debouncedReferrerName, geoIdsCsv, routeGeoIdsCsv,
-        filterOwner, filterRating, filterWaterSource, filterDataQuality, filterHasDevice, filterTaskType, debouncedSerial, dateFrom, dateTo]);
+        effectiveOwner, filterRating, filterWaterSource, filterDataQuality, filterHasDevice, filterTaskType, debouncedSerial, dateFrom, dateTo]);
 
     const fetchClients = useCallback(async () => {
         const useSort = sortDir != null;
@@ -333,12 +338,12 @@ export default function Clients() {
 
     // Owner options — eligible personal owners, scoped to the branch filter.
     useEffect(() => {
-        if (!filtersOpen) return;
+        if (!filtersOpen || !canSeeAssignments) return;
         const branchParam = isGlobalClients ? branchContextId : null;
         api.admin.hrUsers.nameListAssignable(branchParam)
             .then(rows => setOwnerOptions((rows as any[]).map(u => ({ id: u.id, name: u.name }))))
             .catch(() => setOwnerOptions([]));
-    }, [filtersOpen, isGlobalClients, branchContextId]);
+    }, [filtersOpen, canSeeAssignments, isGlobalClients, branchContextId]);
 
     // Task-type options for the "has task of type" filter.
     useEffect(() => {
@@ -533,7 +538,7 @@ export default function Clients() {
     if (filterMediator !== 'all') filterChips.push({ key: 'mediator', label: 'نوع الوسيط', value: MEDIATOR_LABELS[filterMediator] ?? filterMediator, onRemove: () => setFilterMediator('all') });
     if (filterReferrerName) filterChips.push({ key: 'referrerName', label: 'اسم الوسيط', value: filterReferrerName, onRemove: () => setFilterReferrerName('') });
     if (deepestGeo) filterChips.push({ key: 'geo', label: 'المنطقة', value: geoName(deepestGeo), onRemove: resetGeo });
-    if (filterOwner !== 'all') filterChips.push({ key: 'owner', label: 'المسؤول', value: branchOwnershipOptions.find(o => o.value === filterOwner)?.label ?? ownerOptions.find(o => String(o.id) === filterOwner)?.name ?? filterOwner, onRemove: () => setFilterOwner('all') });
+    if (effectiveOwner !== 'all') filterChips.push({ key: 'owner', label: 'المسؤول', value: branchOwnershipOptions.find(o => o.value === filterOwner)?.label ?? ownerOptions.find(o => String(o.id) === filterOwner)?.name ?? filterOwner, onRemove: () => setFilterOwner('all') });
     if (filterRating !== 'all') filterChips.push({ key: 'rating', label: 'الالتزام', value: RATING_LABELS[filterRating] ?? filterRating, onRemove: () => setFilterRating('all') });
     if (filterHasDevice !== 'all') filterChips.push({ key: 'device', label: 'لديه جهاز', value: YESNO_LABELS[filterHasDevice], onRemove: () => setFilterHasDevice('all') });
     if (filterTaskType !== 'all') filterChips.push({ key: 'taskType', label: 'نوع المهمة', value: taskTypeOptions.find(t => t.value === filterTaskType)?.label ?? filterTaskType, onRemove: () => setFilterTaskType('all') });
@@ -773,10 +778,12 @@ export default function Clients() {
                             <Select className="w-full" value={filterRating} onChange={setFilterRating} ariaLabel="الالتزام"
                                 options={[{ value: 'all', label: 'كل التقييمات' }, { value: 'Committed', label: 'ملتزم' }, { value: 'NotCommitted', label: 'غير ملتزم' }, { value: 'Undefined', label: 'غير محدد' }]} />
                         </FilterField>
-                        <FilterField label="المسؤول">
-                            <Select className="w-full" value={filterOwner} onChange={setFilterOwner} ariaLabel="المسؤول"
-                                options={[{ value: 'all', label: 'كل المسؤولين' }, ...branchOwnershipOptions, ...ownerOptions.map(o => ({ value: String(o.id), label: o.name }))]} />
-                        </FilterField>
+                        {canSeeAssignments && (
+                            <FilterField label="المسؤول">
+                                <Select className="w-full" value={filterOwner} onChange={setFilterOwner} ariaLabel="المسؤول"
+                                    options={[{ value: 'all', label: 'كل المسؤولين' }, ...branchOwnershipOptions, ...ownerOptions.map(o => ({ value: String(o.id), label: o.name }))]} />
+                            </FilterField>
+                        )}
                         <FilterField label="نوع الوسيط">
                             <Select className="w-full" value={filterMediator} onChange={setFilterMediator} ariaLabel="نوع الوسيط"
                                 options={[{ value: 'all', label: 'كل أنواع الوسيط' }, { value: 'Personal', label: 'شخصي' }, { value: 'Employee', label: 'موظف' }, { value: 'Client', label: 'زبون حالي' }]} />

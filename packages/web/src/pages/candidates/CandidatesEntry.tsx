@@ -143,6 +143,10 @@ export default function CandidatesEntry() {
     const candidatesViewScope = getPermissionScope('candidates.view_list');
     const isGlobalNames = candidatesViewScope === 'GLOBAL';
     const isBranchNames = candidatesViewScope === 'BRANCH';
+    // ASSIGNED viewers only see candidates assigned to them, so the «المسؤول»
+    // filter (branch ownership or another person) can only return nothing — and
+    // its list would reveal colleagues' names. Hidden and ignored for them.
+    const canFilterByOwner = isGlobalNames || isBranchNames;
     const branchContextId = useBranchContextStore(s => s.branchId);
     // Add rule (§5): a GLOBAL operator on "all branches" must pick a branch first —
     // no silent fallback into the base branch (SH-3). Branch/assigned users are pinned.
@@ -228,11 +232,12 @@ export default function CandidatesEntry() {
     const [ownerOptions, setOwnerOptions] = useState<{ id: number; name: string }[]>([]);
 
     useEffect(() => {
+        if (!canFilterByOwner) return;
         const branchParam = isGlobalNames ? branchContextId : null;
         api.admin.hrUsers.nameListAssignable(branchParam)
             .then(rows => setOwnerOptions((rows as any[]).map(u => ({ id: u.id, name: u.name }))))
             .catch(() => setOwnerOptions([]));
-    }, [isGlobalNames, branchContextId]);
+    }, [canFilterByOwner, isGlobalNames, branchContextId]);
 
     const ownerNameById = useMemo(
         () => new Map(ownerOptions.map(u => [String(u.id), u.name])),
@@ -313,9 +318,9 @@ export default function CandidatesEntry() {
             sortDir: 'desc',
             search: debouncedSearch || undefined,
             status: candidateStatusFilter || undefined,
-            responsibleUserId: candidateSupervisorFilter && !candidateSupervisorFilter.startsWith('branch') ? Number(candidateSupervisorFilter) : undefined,
-            ownershipType: candidateSupervisorFilter.startsWith('branch') ? 'BRANCH' : undefined,
-            ownershipBranchId: candidateSupervisorFilter.startsWith('branch:') ? Number(candidateSupervisorFilter.slice(7)) : undefined,
+            responsibleUserId: canFilterByOwner && candidateSupervisorFilter && !candidateSupervisorFilter.startsWith('branch') ? Number(candidateSupervisorFilter) : undefined,
+            ownershipType: canFilterByOwner && candidateSupervisorFilter.startsWith('branch') ? 'BRANCH' : undefined,
+            ownershipBranchId: canFilterByOwner && candidateSupervisorFilter.startsWith('branch:') ? Number(candidateSupervisorFilter.slice(7)) : undefined,
             branchFilterId: candidateBranchFilter ? Number(candidateBranchFilter) : undefined,
             createdByUserId: candidateCreatorFilter ? Number(candidateCreatorFilter) : undefined,
             converted: (candidateConvertedFilter || undefined) as any,
@@ -703,10 +708,12 @@ export default function CandidatesEntry() {
                                     <Select className="w-full" value={candidateStatusFilter} onChange={(v) => { setCandidateStatusFilter(v); setCandidatePage(1); }} ariaLabel="حالة المرشح"
                                         options={[{ value: '', label: 'كل الحالات' }, ...Object.entries(candidateStatusLabels).map(([value, label]) => ({ value, label }))]} />
                                 </FilterField>
-                                <FilterField label="المسؤول">
-                                    <Select className="w-full" value={candidateSupervisorFilter} onChange={(v) => { setCandidateSupervisorFilter(v); setCandidatePage(1); }} ariaLabel="المسؤول"
-                                        options={[{ value: '', label: 'كل المسؤولين' }, ...branchOwnershipOptions, ...ownerOptions.map(u => ({ value: String(u.id), label: u.name }))]} />
-                                </FilterField>
+                                {canFilterByOwner && (
+                                    <FilterField label="المسؤول">
+                                        <Select className="w-full" value={candidateSupervisorFilter} onChange={(v) => { setCandidateSupervisorFilter(v); setCandidatePage(1); }} ariaLabel="المسؤول"
+                                            options={[{ value: '', label: 'كل المسؤولين' }, ...branchOwnershipOptions, ...ownerOptions.map(u => ({ value: String(u.id), label: u.name }))]} />
+                                    </FilterField>
+                                )}
                                 {branchOptions.length > 1 && (
                                     <FilterField label="الفرع">
                                         <Select className="w-full" value={candidateBranchFilter} onChange={(v) => { setCandidateBranchFilter(v); setCandidatePage(1); }} ariaLabel="الفرع"
