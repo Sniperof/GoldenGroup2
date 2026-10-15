@@ -1081,7 +1081,8 @@ router.get('/paged', requirePermission('clients.view_list'), async (req, res) =>
     const conditions = appendClientScopeConditions(authContext, requestedBranchId, listAccess.scope, params);
     conditions.push('c.is_candidate = FALSE');
 
-    // Free search matches the client's OWN identity only (name / id / phones).
+    // Free search matches the client's OWN identity only (name / id / phones)
+    // plus the client's own detailed address text.
     // It deliberately does not match the mediator's name or the branch name:
     // searching "أحمد" must not return every client Ahmad referred — that is
     // the separate `filterReferrerName` filter below.
@@ -1092,6 +1093,7 @@ router.get('/paged', requirePermission('clients.view_list'), async (req, res) =>
       const parts = [
         `c.name ILIKE ${likeRef}`,
         `c.id::text LIKE ${likeRef}`,
+        `c.detailed_address ILIKE ${likeRef}`,
       ];
       const digits = search.replace(/\D/g, '');
       if (digits) {

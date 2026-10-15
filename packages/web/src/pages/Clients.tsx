@@ -485,6 +485,20 @@ export default function Clients() {
         return neighborhood.name;
     };
 
+    // Deepest filled level of the geo tree (ناحية or حي) — `neighborhood` holds
+    // the leaf unit; fall back to the district when no leaf was picked.
+    const getGeoLeafName = (client: Client) => {
+        const leafId = Number(client.neighborhood) || Number(client.district);
+        if (!leafId) return '--';
+        return geoUnits.find(gu => gu.id === leafId)?.name ?? '--';
+    };
+
+    const getAddressPreview = (client: Client) => {
+        const words = client.detailedAddress?.trim().split(/\s+/).filter(Boolean) ?? [];
+        if (words.length === 0) return '--';
+        return words.length > 3 ? `${words.slice(0, 3).join(' ')}…` : words.join(' ');
+    };
+
     const getClientAddressLabel = (client: Client) => {
         const hierarchy = getNeighborhoodHierarchy(client.neighborhood);
         if (hierarchy !== '--') return hierarchy;
@@ -605,6 +619,24 @@ export default function Clients() {
         clientColumns[1],
         clientColumns[2],
         {
+            key: 'neighborhood',
+            label: 'المنطقة',
+            sortable: false,
+            render: (c) => <span className="text-sm text-slate-600 font-medium">{getGeoLeafName(c)}</span>,
+            getValue: (c) => getGeoLeafName(c),
+        },
+        {
+            key: 'detailedAddress',
+            label: 'العنوان التفصيلي',
+            sortable: false,
+            render: (c) => (
+                <span className="text-sm text-slate-600" title={c.detailedAddress?.trim() || undefined}>
+                    {getAddressPreview(c)}
+                </span>
+            ),
+            getValue: (c) => c.detailedAddress?.trim() || '',
+        },
+        {
             key: 'branchName',
             label: 'فرع التسجيل',
             sortable: true,
@@ -713,7 +745,7 @@ export default function Clients() {
                         <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                         <input
                             type="text"
-                            placeholder="بحث ذكي (الاسم، الهاتف، المعرف)..."
+                            placeholder="بحث ذكي (الاسم، الهاتف، المعرف، العنوان)..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                             className="w-full bg-slate-50 border border-slate-200 rounded-xl pr-10 pl-4 py-3 text-sm focus:border-sky-500 focus:outline-none transition-all focus:bg-white"
@@ -733,8 +765,15 @@ export default function Clients() {
                     </button>
 
                     {(filterChips.length > 0 || searchTerm) && (
-                        <button onClick={clearAllFilters} className="flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-red-600 transition-colors">
-                            <XCircle className="w-4 h-4" /> مسح الكل
+                        <button
+                            onClick={clearAllFilters}
+                            title="مسح البحث وكل الفلاتر المطبّقة"
+                            className="flex items-center gap-2 px-4 py-3 rounded-xl border border-red-200 bg-red-50 text-sm font-bold text-red-600 hover:bg-red-100 hover:border-red-300 transition-all"
+                        >
+                            <XCircle className="w-4 h-4" /> مسح الفلاتر
+                            {filterChips.length > 0 && (
+                                <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-red-600 text-white text-[11px] font-black">{filterChips.length}</span>
+                            )}
                         </button>
                     )}
 
