@@ -106,6 +106,15 @@ export interface TabularReportDefinition {
     department?: boolean;
     jobTitle?: boolean;
     employmentStatus?: boolean;
+    /** Whether the warranty carries an activation record, and its coverage scope. */
+    activationRecord?: boolean;
+    contractScope?: boolean;
+    /** The outcome of the warranty-card delivery task, and whether parts were replaced under it. */
+    cardDeliveryResult?: boolean;
+    warrantyPartsPresence?: boolean;
+    /** The fate of a trial contract, and whether its grace period has run out. */
+    trialOutcome?: boolean;
+    trialGraceState?: boolean;
     /** Whether the row's own totals show any work, per report. */
     technicianActivity?: boolean;
     callBookingPresence?: boolean;
@@ -117,6 +126,9 @@ export interface TabularReportDefinition {
     /** Why a visit was cancelled, and how the visit came to exist. */
     cancellationReason?: boolean;
     visitOrigin?: boolean;
+    /** What was escalated, and whether the case is still open. */
+    escalationType?: boolean;
+    escalationState?: boolean;
   };
   /**
     * Key of the column the per-run dynamic columns are inserted BEFORE. Without it
@@ -973,6 +985,161 @@ const serviceRetrievedDevices: TabularReportDefinition = {
   },
 };
 
+const serviceGoldenWarranty: TabularReportDefinition = {
+  key: 'service.golden_warranty',
+  groupKey: 'service',
+  titleAr: 'تقرير الكفالة الذهبية',
+  descriptionAr: 'كل كفالة ذهبية على جهاز: مدتها وقيمتها وبدايتها ونهايتها، ومن نفّذ عرضها، وحالة تسليم كرتها، والقطع المبدلة ضمنها.',
+  question: 'ما وضع كل كفالة ذهبية: متى تنتهي، وبكم بيعت، ومن نفّذها، وهل وصل كرتها، وما الذي استُهلك ضمنها؟',
+  grain: 'كفالة ذهبية واحدة على جهاز واحد',
+  viewPermission: 'reports.service.golden_warranty.view',
+  exportPermission: 'reports.service.golden_warranty.export',
+  supportedScopes: ['GLOBAL', 'BRANCH'],
+  rowIsBranch: true,
+  filters: {
+    dateRange: 'none', geography: false, supervisor: true, technician: true,
+    telemarketer: false, visitStatus: false,
+    deviceModel: true, deviceStatus: true, warrantyStatus: true,
+    activationRecord: true, contractScope: true, cardDeliveryResult: true,
+    warrantyPartsPresence: true,
+    primaryDateRanges: [
+      { fromKey: 'warrantyEndFrom', toKey: 'warrantyEndTo', label: 'تاريخ انتهاء الكفالة' },
+    ],
+    dateRanges: [
+      { fromKey: 'warrantyStartFrom', toKey: 'warrantyStartTo', label: 'تاريخ بداية الكفالة' },
+    ],
+  },
+  columns: [
+    { key: 'branchName', titleAr: 'الفرع', type: 'text', width: 18, sortable: true },
+    { key: 'customerName', titleAr: 'اسم الزبون', type: 'text', width: 24, sortable: true },
+    { key: 'contractScope', titleAr: 'حالة العقد', type: 'text', width: 14, sortable: true },
+    { key: 'deviceOperationalStatus', titleAr: 'حالة صيانة الجهاز', type: 'text', width: 20, sortable: true },
+    { key: 'primaryContactNumber', titleAr: 'رقم الهاتف', type: 'text', width: 19 },
+    { key: 'areaName', titleAr: 'الناحية أو الحي', type: 'text', width: 22, sortable: true },
+    { key: 'serialNumber', titleAr: 'رقم الجهاز', type: 'text', width: 18, sortable: true },
+    { key: 'deviceModelName', titleAr: 'نوع الجهاز', type: 'text', width: 26, sortable: true },
+    { key: 'installationDate', titleAr: 'تاريخ التركيب', type: 'date', width: 17 },
+    { key: 'lastPeriodicDate', titleAr: 'تاريخ آخر دورية منفذة', type: 'date', width: 22 },
+    { key: 'technicalState', titleAr: 'الحالة الفنية للجهاز', type: 'text', width: 30 },
+    { key: 'warrantyMonths', titleAr: 'مدة الكفالة', type: 'integer', width: 14 },
+    { key: 'warrantyValue', titleAr: 'قيمة مبلغ الكفالة', type: 'decimal', width: 20 },
+    { key: 'warrantyStart', titleAr: 'تاريخ بداية الكفالة', type: 'date', width: 20 },
+    { key: 'warrantyEnd', titleAr: 'تاريخ انتهاء الكفالة', type: 'date', width: 21 },
+    { key: 'activationRecord', titleAr: 'سجل التفعيل', type: 'text', width: 28, sortable: true },
+    { key: 'supervisorName', titleAr: 'اسم المشرفة', type: 'text', width: 22, sortable: true },
+    { key: 'technicianName', titleAr: 'اسم الفني', type: 'text', width: 22, sortable: true },
+    { key: 'contactDate', titleAr: 'تاريخ التواصل', type: 'date', width: 17 },
+    { key: 'contactNotes', titleAr: 'ملاحظات الاتصال', type: 'text', width: 32 },
+    { key: 'cardAppointmentDate', titleAr: 'موعد تسليم كرت الكفالة', type: 'date', width: 23 },
+    { key: 'cardDeliveryResult', titleAr: 'النتيجة', type: 'text', width: 16, sortable: true },
+    { key: 'cardDeliveryNotes', titleAr: 'ملاحظات النتيجة', type: 'text', width: 32 },
+    { key: 'replacedPartsSummary', titleAr: 'القطع المبدلة ضمن مدة الكفالة', type: 'text', width: 34 },
+  ],
+  guide: {
+    framingTitle: 'محفظة الكفالات الذهبية لحظة التوليد',
+    framingDescription: 'التقرير صورة للكفالات القائمة وقت التوليد لا سجل أحداث فترة، فلا مدى تاريخي إلزامي له؛ وفلاتر التاريخ فيه تعمل على أعمدة ظاهرة (بداية الكفالة ونهايتها). ويثبت التقرير حالته لحظة التوليد فلا يتغير بعده.',
+    rowDescription: 'يمثل كل صف كفالة ذهبية واحدة على جهاز واحد. والجهاز قد يحمل كفالات ذهبية متعاقبة، فتظهر كل واحدة بصفها لأن لكلٍّ مدتها وقيمتها وقطعها.',
+    columnDescriptions: {
+      branchName: 'فرع الجهاز الذي تغطّيه الكفالة، وهو أساس نطاق الفرع في التقرير لا عمود إضافي.',
+      customerName: 'مالك الجهاز كما هو مسجل في السجلات.',
+      contractScope: 'هل دخل الجهاز بعقد من الشركة (داخلي) أم هو جهاز الزبون دخل عبر نموذج خدمة (خارجي).',
+      deviceOperationalStatus: 'الحالة التشغيلية للجهاز اليوم: أين الجهاز، لا ما قياساته. وهي مفصولة عن الحالة الفنية بحكم دستور سجل الصحة.',
+      primaryContactNumber: 'رقم التواصل الرئيسي للزبون، ويُصدَّر كنص فلا يسقط الصفر الأول.',
+      areaName: 'أدنى مستوى جغرافي مسجل لموقع التركيب: الحي وإلا الناحية. ويقرأ «غير محدد» حيث لا موقع مسجل للجهاز، وهي حال أغلب الأجهزة القديمة.',
+      serialNumber: 'الرقم التسلسلي للجهاز، أو رقم الجهاز الخارجي المسجل عند استلامه.',
+      deviceModelName: 'موديل الجهاز من الكتالوج، أو اسمه الحر إن كان خارجيًا.',
+      installationDate: 'يوم تركيب الجهاز عند الزبون.',
+      lastPeriodicDate: 'آخر صيانة دورية أُغلقت نتيجتها على هذا الجهاز، لا آخر دورية مجدولة له.',
+      technicalState: 'ملخص آخر قراءة فنية: دخل الميمبرين ← خرجه، ثم تدفّق الميمبرين، ثم مصباح UV. وتُقرأ القراءة المرتبطة بمهمة عرض الكفالة للصفوف المسجلة بها، وأحدث قراءة للجهاز لغيرها لأنه لا مهمة كفالة لها تُقاس «قبلها».',
+      warrantyMonths: 'طول التغطية بالأشهر كما هو مخزن. ومدة الصفوف غير المسجلة بمهمة عرض كتبتها تعبئة خلفية لا الميدان — انظر عمود سجل التفعيل.',
+      warrantyValue: 'ثمن الكفالة المتفق عليه عند التفعيل. وهو ليس رصيدًا: المحصّل منه يعيش في دفعات الكفالة ولا عمود له هنا.',
+      warrantyStart: 'يوم سريان التغطية، وهو يوم تسليم الوصل للزبون. يُعرض كما هو ولا يُشتقّ من المدة، فيقرأ فارغًا حيث لا بداية مسجلة.',
+      warrantyEnd: 'يوم انتهاء التغطية، وهو مفتاح الفرز الافتراضي لأن التقرير أداة تجديد قبل أن يكون أرشيفًا.',
+      activationRecord: 'هل للكفالة سجل تفعيل بمهمة عرض ميدانية، أم هي تغطية قائمة على سجل الجهاز بلا سجل تفعيل. والقيمة الثانية تعني نقص السجل لا شكًّا في التغطية: الكفالة قائمة والشركة ملتزمة بها، لكن مهمة عرضها وقيمتها وبدايتها وفريقها لم تُسجَّل في النظام. وهذا العمود يفسّر فراغ الأعمدة من حوله.',
+      supervisorName: 'مشرفة الزيارة التي نُفذت فيها مهمة عرض الكفالة، بعد أي إعادة تعيين.',
+      technicianName: 'فني الزيارة نفسها، بعد أي إعادة تعيين.',
+      contactDate: 'يوم المكالمة التي حُجز فيها موعد زيارة مهمة عرض الكفالة — لا أي مكالمة أخرى مع الزبون. فمكالمة عن صيانة أو شكوى لا تظهر هنا.',
+      contactNotes: 'ما كتبه المتصل في مكالمة الحجز نفسها المذكورة في العمود السابق، لا في آخر مكالمة مع الزبون.',
+      cardAppointmentDate: 'اليوم المحدد لمهمة تسليم بطاقة الكفالة، ويقرأ فارغًا حيث لم تُنشأ مهمة كرت بعد.',
+      cardDeliveryResult: 'مآل مهمة تسليم الكرت: سُلّم أو أُعيدت جدولته أو أُلغي. والفراغ يعني أن المهمة لم تُنفذ بعد أو لم تُنشأ.',
+      cardDeliveryNotes: 'ملاحظة إغلاق مهمة الكرت، وتحمل اسم المستلِم حين لا يكون الزبون نفسه.',
+      replacedPartsSummary: 'كل قطعة بُدلت على هذا الجهاز بين بداية الكفالة ونهايتها، بالاسم والعدد وسطر لكل قطعة. ويقرأ «مدة الكفالة غير مسجَّلة» حيث لا تاريخ بداية، لأن نافذة بلا حد أدنى كانت ستَعُدّ قطعًا بُدلت قبل بدء التغطية بسنوات.',
+    },
+    note: 'التقرير يعرض الكفالات الذهبية كلها: ما له سجل تفعيل بمهمة عرض، وما هو تغطية قائمة على سجل الجهاز بلا سجل تفعيل. والتمييز في عمود «سجل التفعيل» يفصل اكتمال السجل لا صحة التغطية. ولذلك تعمل فلاتر المشرفة والفني ونتيجة الكرت على الصفوف المسجلة بمهمة عرض وحدها بحكم الطبيعة. ولا يوجد فلتر جغرافي هرمي في هذا الإصدار لأن موقع التركيب مسجل على قلة من الأجهزة، وفلتر يُخفي أغلب الصفوف لنقص بياناتها يضلل أكثر مما يفيد.',
+  },
+};
+
+const dailyWorkTemporaryContract: TabularReportDefinition = {
+  key: 'daily_work.temporary_contract',
+  groupKey: 'service',
+  titleAr: 'العقود المؤقتة',
+  descriptionAr: 'كل عقد بدأ تجربةً: جهازه وفريقه ووسيطه ومهلته، وكيف انتهت التجربة — تثبيتًا أم إلغاءً.',
+  question: 'ما التجارب التي خرجت، ومن نفّذها، وكيف انتهت كل واحدة: تثبيتًا أم إلغاءً؟',
+  grain: 'عقد واحد بدأ كتجربة، بصرف النظر عن نوعه اليوم',
+  viewPermission: 'reports.daily_work.temporary_contract.view',
+  exportPermission: 'reports.daily_work.temporary_contract.export',
+  supportedScopes: ['GLOBAL', 'BRANCH', 'ASSIGNED'],
+  rowIsBranch: true,
+  filters: {
+    dateRange: 'none', geography: false, supervisor: true, technician: true,
+    telemarketer: false, visitStatus: false,
+    deviceModel: true, mediatorType: true,
+    contractSeller: true, contractSellerDepartment: true,
+    trialOutcome: true, trialGraceState: true,
+    primaryDateRanges: [
+      { fromKey: 'installationFrom', toKey: 'installationTo', label: 'تاريخ التركيب' },
+    ],
+  },
+  columns: [
+    { key: 'branchName', titleAr: 'الفرع', type: 'text', width: 18, sortable: true },
+    { key: 'sellerDepartmentName', titleAr: 'القسم', type: 'text', width: 20, sortable: true },
+    { key: 'customerName', titleAr: 'اسم الزبون', type: 'text', width: 24, sortable: true },
+    { key: 'primaryContactNumber', titleAr: 'رقم الهاتف', type: 'text', width: 19 },
+    { key: 'installationAddress', titleAr: 'العنوان التفصيلي', type: 'text', width: 34 },
+    { key: 'installationDate', titleAr: 'تاريخ التركيب', type: 'date', width: 17 },
+    { key: 'graceEndDate', titleAr: 'تاريخ انتهاء فترة الهدية لفك الجهاز', type: 'date', width: 32 },
+    { key: 'serialNumber', titleAr: 'رقم الجهاز', type: 'text', width: 18, sortable: true },
+    { key: 'deviceModelName', titleAr: 'نوع الجهاز', type: 'text', width: 26, sortable: true },
+    { key: 'mediatorType', titleAr: 'نوع الوسيط', type: 'text', width: 15, sortable: true },
+    { key: 'mediatorName', titleAr: 'اسم الوسيط', type: 'text', width: 24, sortable: true },
+    { key: 'mediatorContactNumber', titleAr: 'رقم هاتف الوسيط', type: 'text', width: 20 },
+    { key: 'appointmentSource', titleAr: 'مصدر الموعد', type: 'text', width: 24, sortable: true },
+    { key: 'sellerName', titleAr: 'البائع', type: 'text', width: 22, sortable: true },
+    { key: 'saleVisitTechnicianName', titleAr: 'فني بائع', type: 'text', width: 22, sortable: true },
+    { key: 'saleCloserName', titleAr: 'تسكير', type: 'text', width: 22, sortable: true },
+    { key: 'installationTechnicianName', titleAr: 'فني التركيب', type: 'text', width: 22, sortable: true },
+    { key: 'installationSupervisorName', titleAr: 'مشرفة تركيب', type: 'text', width: 22, sortable: true },
+    { key: 'trialOutcome', titleAr: 'النتيجة', type: 'text', width: 16, sortable: true },
+  ],
+  guide: {
+    framingTitle: 'مصير كل تجربة خرجت',
+    framingDescription: 'العقد المؤقت عقد تجربة: جهاز يُركَّب بلا أثر مالي، ثم إما يشتريه الزبون فتُثبَّت البيعة، وإما لا فيُسحب الجهاز ويُلغى العقد. التقرير صورة لهذه التجارب ومصائرها لحظة التوليد، ويثبت حالته بعد التوليد فلا يتغير.',
+    rowDescription: 'يمثل كل صف عقدًا **بدأ** تجربةً، بصرف النظر عن نوعه اليوم. فتثبيت البيعة يقلب العقد إلى قطعي في مكانه، ولولا اعتماد هذا التعريف لاختفت كل تجربة ناجحة من تقرير موضوعه نجاح التجربة من فشلها.',
+    columnDescriptions: {
+      branchName: 'فرع العقد، وهو أساس نطاق الفرع في التقرير لا عمودًا إضافيًا.',
+      sellerDepartmentName: 'قسم البائع كما هو مسجل في سجله الوظيفي اليوم، لا قسمه وقت البيع.',
+      customerName: 'الزبون كما هو مسجل في السجلات، وإلا اسمه المحفوظ على العقد.',
+      primaryContactNumber: 'رقم التواصل الرئيسي للزبون، ويُصدَّر كنص فلا يسقط الصفر الأول.',
+      installationAddress: 'العنوان التفصيلي لصاحب العقد من سجله، وليس عنوان الجهاز أو فرع الخدمة.',
+      installationDate: 'يوم تركيب جهاز التجربة عند الزبون، وهو بداية احتساب المهلة.',
+      graceEndDate: 'آخر يوم في مهلة التجربة، محسوبًا من تاريخ التركيب زائد المدة التي يضبطها الأدمن. ويقرأ فارغًا حيث لا تاريخ تركيب، لأن مهلة بلا بداية لا تُحسب.',
+      serialNumber: 'الرقم التسلسلي للجهاز، أو رقم الجهاز الخارجي. ويعود الرقم متاحًا لعقد آخر بعد سحب جهاز التجربة.',
+      deviceModelName: 'موديل الجهاز من الكتالوج، أو اسمه الحر إن لم يكن منه.',
+      mediatorType: 'نوع الوسيط الأول المختار ضمن العقد: زبون أو موظف. النوع غير المدعوم أو الغائب يعرض غير محدد.',
+      mediatorName: 'اسم الوسيط الأول من لقطة العقد نفسه. والوسطاء الإضافيون لا يظهرون في هذا التقرير.',
+      mediatorContactNumber: 'رقم الوسيط مستكمَلًا من سجل الزبون أو الموظف، لأن لقطة العقد لا تحمل الرقم.',
+      appointmentSource: 'مصدر البيع المسجل في تفاصيل العقد: مهمة عرض جهاز أو القيمة المختارة من مصادر أخرى، مثل تطبيق غولدن غروب أو الإحالة.',
+      sellerName: 'مالك البيعة المسجل على العقد.',
+      saleVisitTechnicianName: 'فني زيارة مصدر العقد فقط إذا كان هو مسؤول فريقها. الفني المرافق لفريق تقوده المشرفة لا يظهر كبائع.',
+      saleCloserName: 'مسؤول تسكير البيعة، وهو صاحب قرار اعتماد العقد لا بائعه.',
+      installationTechnicianName: 'فني زيارة التركيب بعد أي إعادة تعيين.',
+      installationSupervisorName: 'مشرفة زيارة التركيب نفسها.',
+      trialOutcome: '«تم تثبيت البيعة» عند تسجيل التسوية، و«تم الرفض» فقط عند تسجيل سبب رفض الزبون تثبيت الشراء، و«لم تتم بعد» للتجربة غير المحسومة. الإلغاء لأسباب أخرى ورفض اعتماد المسودة لا يثبتان رفض الزبون، فتظهر نتيجتهما «غير مسجلة».',
+    },
+    note: 'كل صف عقد بدأ تجربةً. الاسم والهاتف والعنوان من صاحب العقد، والقسم من مالك البيعة. مصدر الموعد هو مصدر البيع في تفاصيل العقد. فني بائع يظهر عندما يكون الفني مسؤول فريق زيارة المصدر. المهلة من تاريخ تركيب الجهاز بمدة الأدمن الحالية (٣٠ يومًا). الرفض يحتاج دليل رفض الشراء الصريح؛ مسار إنشاء سحب التجربة لا يسجل ذلك القرار حاليًا، وتظهر السجلات بلا دليل غير مسجلة. الأعمدة الـ١٩ واللقطة وExcel تتطابق.',
+  },
+};
+
 const performanceSalesByType: TabularReportDefinition = {
   key: 'performance.sales_by_type',
   groupKey: 'daily_work',
@@ -1301,6 +1468,144 @@ const performanceTechnicianWork: TabularReportDefinition = {
   },
 };
 
+const performanceSupervisorWork: TabularReportDefinition = {
+  key: 'performance.supervisor_work',
+  groupKey: 'daily_work',
+  titleAr: 'عمل المشرفات',
+  descriptionAr: 'ما أنجزته كل مشرفة خلال المدة: المهام المجدولة والمنفذة، والصيانة ومالها، والعروض والبيع، والزيارات الفورية، والأسماء المقترحة. وتظهر كل مشرفة ولو لم يُسند إليها عمل.',
+  question: 'ما أنجزته كل مشرفة خلال المدة: مواعيدَ وصيانةً ومالًا وعروضًا وبيعًا وأسماء؟',
+  grain: 'مشرفة واحدة في فرعها خلال المدة، وتظهر ولو بلا عمل',
+  viewPermission: 'reports.performance.supervisor_work.view',
+  exportPermission: 'reports.performance.supervisor_work.export',
+  supportedScopes: ['GLOBAL', 'BRANCH', 'ASSIGNED'],
+  rowIsBranch: true,
+  filters: {
+    dateRange: 'required', geography: false, supervisor: true, technician: false,
+    telemarketer: false, visitStatus: false,
+    department: true, jobTitle: true, employmentStatus: true, technicianActivity: true,
+  },
+  columns: [
+    { key: 'branchName', titleAr: 'الفرع', type: 'text', width: 18, sortable: true },
+    { key: 'supervisorName', titleAr: 'اسم المشرفة', type: 'text', width: 24, sortable: true },
+    { key: 'jobTitle', titleAr: 'الصفة الوظيفية', type: 'text', width: 18, sortable: true },
+    { key: 'departmentName', titleAr: 'القسم', type: 'text', width: 20, sortable: true },
+    { key: 'employmentStatus', titleAr: 'حالة الخدمة', type: 'text', width: 16, sortable: true },
+    { key: 'periodicDone', titleAr: 'دورية منفذة', type: 'integer', width: 14, sortable: true },
+    { key: 'emergencyDone', titleAr: 'طارئة منفذة', type: 'integer', width: 14, sortable: true },
+    { key: 'maintenanceCollected', titleAr: 'مبالغ الصيانة المحصّلة', type: 'decimal', width: 22, sortable: true },
+    { key: 'goldenWarrantyCollected', titleAr: 'مبالغ الكفالة الذهبية المحصّلة', type: 'decimal', width: 29, sortable: true },
+    { key: 'serviceAgreementsValue', titleAr: 'قيمة اتفاقيات الخدمة', type: 'decimal', width: 21, sortable: true },
+    { key: 'serviceDuesCollected', titleAr: 'ذمم صيانة محصّلة', type: 'decimal', width: 19, sortable: true },
+    { key: 'scheduledTasks', titleAr: 'المهام المجدولة', type: 'integer', width: 17, sortable: true },
+    { key: 'totalExecutedTasks', titleAr: 'إجمالي المهام المنفذة', type: 'integer', width: 21, sortable: true },
+    { key: 'executionRate', titleAr: 'نسبة التنفيذ', type: 'decimal', width: 14, sortable: true },
+    { key: 'demosDone', titleAr: 'عروض منفذة', type: 'integer', width: 14, sortable: true },
+    { key: 'definitiveSales', titleAr: 'بيعات قطعية', type: 'integer', width: 14, sortable: true },
+    { key: 'firstPayments', titleAr: 'الدفعات الأولى للبيعات', type: 'decimal', width: 23, sortable: true },
+    { key: 'instantVisits', titleAr: 'زيارات فورية', type: 'integer', width: 14, sortable: true },
+    { key: 'instantDemos', titleAr: 'عروض الزيارات الفورية', type: 'integer', width: 22, sortable: true },
+    { key: 'instantSales', titleAr: 'بيعات الزيارات الفورية', type: 'integer', width: 22, sortable: true },
+    { key: 'candidatesAdded', titleAr: 'الأسماء المقترحة المضافة', type: 'integer', width: 24, sortable: true },
+    { key: 'candidatesPerExecutedTask', titleAr: 'أسماء لكل مهمة منفذة', type: 'decimal', width: 21, sortable: true },
+    { key: 'fieldDays', titleAr: 'أيام العمل الميداني', type: 'integer', width: 19, sortable: true },
+    { key: 'periodicWithinDue', titleAr: 'دورية ضمن الالتزام', type: 'integer', width: 19, sortable: true },
+    { key: 'periodicPastDue', titleAr: 'دورية خارج الاستحقاق', type: 'integer', width: 21, sortable: true },
+    { key: 'goldenWarrantyOffers', titleAr: 'عروض كفالة ذهبية منفذة', type: 'integer', width: 23, sortable: true },
+    { key: 'temporaryContracts', titleAr: 'عقود مؤقتة', type: 'integer', width: 13, sortable: true },
+  ],
+  guide: {
+    framingTitle: 'ما أنجزته كل مشرفة ميدانيًا',
+    framingDescription: 'يُولد التقرير يدويًا ويثبت حالة البيانات لحظة التوليد. وتُنسب الزيارة إلى المشرفة بمشرفة الزيارة بعد أي إعادة تعيين. والصف يقرأ محورين للزمن: المجدول يُنسب إلى المدة بتاريخ جدولة الزيارة، والمنفذ بتاريخ إغلاق نتيجته بتوقيت دمشق. والمال محصل لا مستحق.',
+    rowDescription: 'يمثل كل صف مشرفة واحدة في فرعها. وتظهر كل مشرفة في النطاق ولو لم يُسند إليها عمل، فالصف الصفري معلومة لا فراغ. ومسميات المشرفات تُقرأ من إعداد إداري لا من الكود.',
+    columnDescriptions: {
+      branchName: 'فرع المشرفة، وهو جزء من هوية الصف لا عمودًا إضافيًا.',
+      supervisorName: 'المشرفة كما هي مسجلة في الموظفين. وتُضاف إلى المشرفات النشطات كل من كانت مشرفة زيارة داخل المدة ولو انتهت خدمتها، فلا يسقط تاريخ.',
+      jobTitle: 'الصفة الوظيفية الحالية من سجلها، وهي ما يقرأه فلتر الصفة. وقائمة الصفات في الفلتر محصورة بما تعدّه إعدادات النظام صفة مشرفة.',
+      departmentName: 'القسم الحالي للمشرفة من سجلها الوظيفي، ويظهر فارغًا لغير المرتبطة بقسم.',
+      employmentStatus: 'حالة الخدمة الحالية لا حالتها خلال المدة: «خارج الخدمة» تعني أنها ظهرت لأن لها زيارة داخل المدة ثم انتهت خدمتها قبل التوليد.',
+      periodicDone: 'مهام الصيانة الدورية التي أُغلقت نتيجتها داخل المدة على زياراتها.',
+      emergencyDone: 'مهام الصيانة الطارئة المنفذة على زياراتها.',
+      maintenanceCollected: 'ما حُصل فعلًا على دورياتها وطارئاتها المنفذة. المستحق غير المحصل لا يظهر، فالعمود يقرأ صفرًا حين لا يُسجل تحصيل ميداني — وهو غياب تسجيل لا غياب عمل.',
+      goldenWarrantyCollected: 'دفعات الكفالة الذهبية التي استلمتها هي، بتاريخ قبضها، بعد طرح المسترد. وتُنسب بالمستلم لا بمن عرض الكفالة، فالدفعة التي لم يُسجل مستلمها لا تُنسب لأحد.',
+      serviceAgreementsValue: 'قيمة اتفاقيات الخدمة المرتبطة بالدوريات التي نُفذت على زياراتها — قيمة اتفاقية لا مبلغ مقبوض. وتُقرأ الاتفاقية من حمولة المهمة لا من الجهاز، ولا تُجمع مرتين للمشرفة نفسها.',
+      serviceDuesCollected: 'ما حُصل على زياراتها من ذمم مصدرها غير العقد. ولا يشمل أقساط العقود.',
+      scheduledTasks: 'كل المهام على زياراتها المجدولة داخل المدة بأي حالة: المنفذة والمعلقة والملغاة. ويُقرأ بتاريخ جدولة الزيارة لأن المهمة غير المنفذة لا تاريخ تنفيذ لها.',
+      totalExecutedTasks: 'كل المهام المنفذة على زياراتها داخل المدة بأي نوع، ومنها أنواع لا عمود مستقلًا لها كالتسليم والتفعيل والتحصيل.',
+      executionRate: 'إجمالي المهام المنفذة ÷ المهام المجدولة × ١٠٠. فارغ عند غياب المجدول. والعمودان على محورين زمنيين، فمهمة جُدولت قبل المدة ونُفذت فيها تُعد منفذة لا مجدولة، ولذلك قد تتجاوز النسبة ١٠٠٪ في مدة قصيرة.',
+      demosDone: 'مهام عرض الجهاز المنفذة على زياراتها.',
+      definitiveSales: 'العقود القطعية النافذة التي تاريخها داخل المدة وهي مالكة بيعتها — التعريف نفسه في تقريري عمل الفنيين وعدد المبيعات.',
+      firstPayments: 'مجموع أول دفعة مقبوضة لكل عقد من عقود «بيعات قطعية»، بالتعريف نفسه في تقرير النتائج حسب القسم.',
+      instantVisits: 'الزيارات الفورية التي فتحتها في الميدان خارج الخطة، بتاريخ جدولتها داخل المدة.',
+      instantDemos: 'من عروضها المنفذة ما كان على زيارة فورية، فلا يتجاوز «عروض منفذة».',
+      instantSales: 'من عروض الزيارات الفورية ما يقف خلفه عقد فعلي. ويُقرأ بأصل البيعة لا بمالكها، فليس جزءًا بالضرورة من «بيعات قطعية» ولا يُطرح منه.',
+      candidatesAdded: 'الأسماء المقترحة المضافة داخل المدة والمسجلة بملكية حسابها.',
+      candidatesPerExecutedTask: 'الأسماء المقترحة المضافة ÷ إجمالي المهام المنفذة: كم اسمًا تجلب في كل مهمة. قسمة لا نسبة مئوية، وفارغ عند غياب المنفذ.',
+      fieldDays: 'الأيام المختلفة التي عليها مهمة مجدولة لها داخل المدة، ومنها اليوم الذي أُلغيت زيارته — فهو يوم كانت مجدولة فيه للخروج.',
+      periodicWithinDue: 'من دورياتها المنفذة ما أُغلق في تاريخ استحقاقه أو قبله. والالتزام وعد بألا يُتجاوز الموعد، فالتنفيذ المبكر خدمة للزبون لا إخلال بها.',
+      periodicPastDue: 'من دورياتها المنفذة ما أُغلق بعد استحقاقه. وهذا العمود مع سابقه يساوي «دورية منفذة» بالضبط.',
+      goldenWarrantyOffers: 'مهام عرض الكفالة الذهبية المنفذة على زياراتها. ولا يشمل تسليم البطاقة لأنه مناولة إدارية لا عرضًا.',
+      temporaryContracts: 'العقود المؤقتة غير الملغاة التي تاريخها داخل المدة وهي مالكة بيعتها.',
+    },
+    note: 'إسناد العمل هنا مكتمل: كل زيارة تحمل مشرفتها من لقطة فريق الزيارة بعد إعادة التعيين، فلا صف «غير منسوب». والبيعات بمالكة البيعة، أما بيعات الزيارات الفورية فبالعقد الواقف خلف العرض، فالعمودان جمهوران مختلفان. و«الموعد المباشر» في الطلب هو الزيارة الفورية التي تفتحها المشرفة في الميدان. وفلتر «حالة العمل» يقرأ عمود «إجمالي المهام المنفذة» نفسه، وهو فلتر لا سلوك افتراضي لأن ظهور المشرفة بلا عمل هو المعلومة المطلوبة.',
+  },
+};
+
+const dailyWorkEscalations: TabularReportDefinition = {
+  key: 'daily_work.escalations',
+  groupKey: 'daily_work',
+  titleAr: 'حالات التصعيد',
+  descriptionAr: 'كل حالة صُعِّدت خلال المدة: تصعيدات الطلبات إلى المدقق، والزيارات التي لم تُوثَّق، والزيارات التي فات موعدها ولم تبدأ — مع سببها ومسؤولها وحالها ومدتها.',
+  question: 'ما الذي صُعِّد إلى الإدارة خلال المدة، ولماذا، وهل حُلّ، وكم استغرق؟',
+  grain: 'حالة تصعيد واحدة، من لحظة التصعيد إلى حلّها أو إلى لحظة التوليد',
+  viewPermission: 'reports.daily_work.escalations.view',
+  exportPermission: 'reports.daily_work.escalations.export',
+  supportedScopes: ['GLOBAL', 'BRANCH', 'ASSIGNED'],
+  rowIsBranch: true,
+  filters: {
+    dateRange: 'required', geography: false, supervisor: false, technician: false,
+    telemarketer: false, visitStatus: false,
+    escalationType: true, escalationState: true,
+  },
+  columns: [
+    { key: 'branchName', titleAr: 'الفرع', type: 'text', width: 16, sortable: true },
+    { key: 'escalationType', titleAr: 'نوع التصعيد', type: 'text', width: 20, sortable: true },
+    { key: 'reference', titleAr: 'المرجع', type: 'text', width: 16, sortable: true },
+    { key: 'customerName', titleAr: 'الزبون', type: 'text', width: 24, sortable: true },
+    { key: 'escalatedAt', titleAr: 'تاريخ التصعيد', type: 'datetime', width: 20, sortable: true },
+    { key: 'escalatedBy', titleAr: 'صعّدها', type: 'text', width: 20, sortable: true },
+    { key: 'reason', titleAr: 'السبب', type: 'text', width: 32 },
+    { key: 'level', titleAr: 'المستوى', type: 'integer', width: 10, sortable: true },
+    { key: 'responsibleName', titleAr: 'المسؤول', type: 'text', width: 20, sortable: true },
+    { key: 'stateLabel', titleAr: 'الحالة', type: 'text', width: 18, sortable: true },
+    { key: 'resolvedAt', titleAr: 'تاريخ الحل', type: 'datetime', width: 20, sortable: true },
+    { key: 'resolvedBy', titleAr: 'حلّها', type: 'text', width: 20, sortable: true },
+    { key: 'durationHours', titleAr: 'مدة التصعيد (ساعة)', type: 'decimal', width: 18, sortable: true },
+    { key: 'openOverDay', titleAr: 'مفتوحة منذ أكثر من يوم', type: 'text', width: 22, sortable: true },
+  ],
+  guide: {
+    framingTitle: 'ما صُعِّد إلى الإدارة ومصيره',
+    framingDescription: 'يُولد التقرير يدويًا ويثبت حالة البيانات لحظة التوليد. وتُنسب الحالة إلى المدة بلحظة تصعيدها بتوقيت دمشق، أما حالها وحلّها فكما هما لحظة التوليد. فالحالة التي فُتحت قبل المدة لا تظهر فيها ولو بقيت مفتوحة؛ ولرؤية كل المفتوح الآن تُوسَّع المدة ويُختار «مفتوحة».',
+    rowDescription: 'يمثل كل صف حالة تصعيد واحدة. فالطلب الذي صُعِّد خمس مرات خمسة صفوف، أما الزيارة التي بلغت المستويات الثلاثة فصف واحد بأعلى مستوى بلغته.',
+    columnDescriptions: {
+      branchName: 'فرع الطلب أو الزيارة. والطلب الذي لم يُحسم فرعه يظهر «غير محدد»، ولا يظهر إلا لمن نطاقه كل الفروع.',
+      escalationType: 'نوع الطلب المصعَّد كما في سجل أنواع الطلبات، أو «زيارة غير موثّقة» أو «زيارة لم تبدأ». وطلبات إنشاء الحساب لا تظهر إلا لمن نطاقه كل الفروع، لأنها صلاحية على مستوى الشركة.',
+      reference: 'رقم الطلب العام، أو رقم الزيارة.',
+      customerName: 'الزبون المستفيد من الطلب أو زبون الزيارة، أو الاسم المقترح المستفيد إن لم يكن زبونًا بعد.',
+      escalatedAt: 'لحظة التصعيد: حدث التصعيد في سجل الطلب، أو بلوغ الزيارة المستوى الأول، أو صدور تنبيه الزيارة التي لم تبدأ.',
+      escalatedBy: 'الموظف الذي صعّد الطلب. وتصعيد الزيارات تلقائي فيظهر «النظام».',
+      reason: 'السبب الذي كتبه الموظف عند تصعيد الطلب، ويظهر فارغًا إن لم يكتب. ولتصعيد الزيارات سبب ثابت يصف الشرط الذي أطلقه.',
+      level: 'للزيارة غير الموثّقة وحدها: أعلى مستوى بلغته من ثلاثة (مسؤول الفريق، ثم المشرف، ثم مدير الفرع). فارغ لغيرها.',
+      responsibleName: 'من يمسك الحالة: الموظف الذي يمسك الطلب الآن، أو مسؤول فريق الزيارة، أو المسؤول المسجل على التنبيه. ويُقرأ للطلب والزيارة من حالهما الحالي لا من لحظة التصعيد.',
+      stateLabel: 'مفتوحة، أو محلولة، أو انتهت برفض الطلب، أو أُغلق الطلب، أو انتهت بإلغاء الزيارة. وحل الطلب يُقرأ من سجله المحمي لأن الطلب نفسه يمسح تصعيده عند حلّه.',
+      resolvedAt: 'لحظة انتهاء الحالة: حدث الخروج في سجل الطلب، أو إغلاق الزيارة، أو حل التنبيه. وفارغ للمفتوحة وللزيارة الملغاة لأن النظام لا يسجل وقت الإلغاء.',
+      resolvedBy: 'الموظف الذي حل تصعيد الطلب أو رفضه. وفارغ للزيارات لأن النظام لا يسجل من حل تصعيدها.',
+      durationHours: 'الساعات من التصعيد إلى الحل، أو إلى لحظة التوليد إن بقيت مفتوحة. وفارغة للزيارة الملغاة لغياب وقت إلغائها.',
+      openOverDay: '«نعم» للحالة المفتوحة منذ أكثر من أربع وعشرين ساعة لحظة التوليد.',
+    },
+    note: 'يجمع التقرير ثلاثة مصادر فقط، لأنها وحدها تحفظ تاريخ تصعيدها: تصعيد الطلبات إلى المدقق (ومنها طلبات إنشاء الحساب)، وتصعيد الزيارات غير الموثّقة، وتنبيه الزيارات التي لم تبدأ. ولا يشمل تصعيد طلبات التوظيف لأن سجله غير محمي من التعديل، ولا تنبيه محاولات المهام وعلامة الطلب الراكد لأنهما يُحسبان لحظة القراءة ولا يحفظان تاريخًا. وتصعيد الزيارات يعني أن الحالة بلغت المستوى، لا أن أحدًا أُبلغ بها: النظام لا يرسل إشعار المستويات اليوم.',
+  },
+};
+
 export const TABULAR_REPORTS: TabularReportDefinition[] = [
   workFilesGeoSupervisors,
   dailyVisitsLog,
@@ -1313,11 +1618,15 @@ export const TABULAR_REPORTS: TabularReportDefinition[] = [
   serviceDues,
   serviceDeviceFaults,
   serviceRetrievedDevices,
+  serviceGoldenWarranty,
+  dailyWorkTemporaryContract,
   performanceSalesByType,
   performanceDepartmentResults,
   performanceSalesCount,
   performanceCustomerCalls,
   performanceTechnicianWork,
+  performanceSupervisorWork,
+  dailyWorkEscalations,
 ];
 
 export const GLOBAL_BRANCH_COLUMN: TabularReportColumn = {

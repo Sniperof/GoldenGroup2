@@ -150,7 +150,7 @@
 
 ## 5. التنفيذ
 خطة التنفيذ المفصّلة المبنية على تقييم الكود الحالي في:
-[`plans/2026-06-14-eligible-task-implementation-plan.md`](../plans/2026-06-14-eligible-task-implementation-plan.md).
+[`docs/archive/plans/2026-06-14-eligible-task-implementation-plan.md`](../../archive/plans/2026-06-14-eligible-task-implementation-plan.md).
 
 ---
 

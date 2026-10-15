@@ -23,6 +23,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import Select from '../ui/Select';
+import { useDidUpdateEffect, useSessionState } from '../../hooks/useListStatePersistence';
 import { api } from '../../lib/api';
 
 interface GeoUnitNode { id: number; parentId: number | null; level: number; name: string }
@@ -39,23 +40,31 @@ export interface GeoCascade {
   hood: string; setHood: (v: string) => void; hoodOptions: GeoUnitNode[];
 }
 
-export function useGeoCascade({ branchId }: { branchId: number | null }): GeoCascade {
-  const [gov, setGov] = useState('all');
-  const [region, setRegion] = useState('all');
-  const [subarea, setSubarea] = useState('all');
-  const [hood, setHood] = useState('all');
+export function useGeoCascade({ branchId, persistKey = null }: {
+  branchId: number | null;
+  /** Remember the selection for the tab session (records pages). Omit to keep it in memory only. */
+  persistKey?: string | null;
+}): GeoCascade {
+  const [gov, setGov] = useSessionState(persistKey && `${persistKey}:geoGov`, 'all');
+  const [region, setRegion] = useSessionState(persistKey && `${persistKey}:geoRegion`, 'all');
+  const [subarea, setSubarea] = useSessionState(persistKey && `${persistKey}:geoSubarea`, 'all');
+  const [hood, setHood] = useSessionState(persistKey && `${persistKey}:geoHood`, 'all');
 
   const [scopedGeo, setScopedGeo] = useState<GeoUnitNode[]>([]);
   const [namesTree, setNamesTree] = useState<GeoUnitNode[]>([]);
 
   const reset = useCallback(() => { setGov('all'); setRegion('all'); setSubarea('all'); setHood('all'); }, []);
 
-  // Branch-scoped options; reset the cascade when the scope changes so stale
-  // selections don't linger under a different branch's coverage.
+  // Branch-scoped options.
   useEffect(() => {
     api.geoUnits.list(branchId)
       .then(rows => setScopedGeo(rows as GeoUnitNode[]))
       .catch(() => setScopedGeo([]));
+  }, [branchId]);
+  // Reset the cascade when the scope CHANGES so stale selections don't linger
+  // under a different branch's coverage — not on mount, where it would wipe a
+  // remembered selection.
+  useDidUpdateEffect(() => {
     setGov('all'); setRegion('all'); setSubarea('all'); setHood('all');
   }, [branchId]);
 

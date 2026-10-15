@@ -6,6 +6,7 @@ import {
   buildInstantVisitInsertParams,
   FIELD_VISIT_SLOT_CONSTRAINT,
   FIELD_VISIT_SLOT_OCCUPIED_SQL,
+  INSTANT_VISIT_ELIGIBLE_CLIENTS_SQL,
   INSTANT_VISIT_INSERT_SQL,
   mapVisitSlotConflict,
 } from './visitBooking.js';
@@ -76,4 +77,15 @@ test('unrelated database errors are not translated', () => {
   const original = { code: '23505', constraint: 'another_constraint' };
   assert.equal(mapVisitSlotConflict(original), original);
   assert.equal(FIELD_VISIT_SLOT_OCCUPIED_SQL, "fv.status <> 'cancelled'");
+});
+
+test('instant visit lookup returns only customers accepted by the create guards', () => {
+  assert.match(INSTANT_VISIT_ELIGIBLE_CLIENTS_SQL, /c\.branch_id = \$1/);
+  assert.match(INSTANT_VISIT_ELIGIBLE_CLIENTS_SQL, /c\.deleted_at IS NULL/);
+  assert.match(INSTANT_VISIT_ELIGIBLE_CLIENTS_SQL, /c\.is_active = TRUE/);
+  assert.match(INSTANT_VISIT_ELIGIBLE_CLIENTS_SQL, /do_not_contact/);
+  assert.match(INSTANT_VISIT_ELIGIBLE_CLIENTS_SQL, /cooldown_until::date < \$2::date/);
+  assert.match(INSTANT_VISIT_ELIGIBLE_CLIENTS_SQL, /= ANY\(\$3::int\[\]\)/);
+  assert.match(INSTANT_VISIT_ELIGIBLE_CLIENTS_SQL, /LIMIT 50/);
+  assert.doesNotMatch(INSTANT_VISIT_ELIGIBLE_CLIENTS_SQL, /client_assignments/);
 });

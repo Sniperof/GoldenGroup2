@@ -40,8 +40,6 @@ import clientsRouter from './routes/clients.js';
 import candidatesRouter from './routes/candidates.js';
 import referralSheetsRouter from './routes/referralSheets.js';
 import routesRouter from './routes/routes.js';
-// Legacy `tasks` router unmounted 2026-06-10 — see app.use comment below.
-// import tasksRouter from './routes/tasks.js';
 import contractsRouter from './routes/contracts.js';
 import contractDocumentsRouter from './routes/contractDocuments.js';
 import serviceAgreementsRouter from './routes/serviceAgreements.js';
@@ -52,8 +50,6 @@ import sparePartsRouter from './routes/spareParts.js';
 import maintenanceRequestsRouter from './routes/maintenanceRequests.js';
 import emergencyTicketsRouter from './routes/emergencyTickets.js';
 import serviceRequestsRouter from './routes/serviceRequests.js';
-// Legacy `visits` router unmounted 2026-06-10 — replaced by field-visits.
-// import visitsRouter from './routes/visits.js';
 import schedulesRouter from './routes/schedules.js';
 import routeAssignmentsRouter from './routes/routeAssignments.js';
 import planningRouter from './routes/planning.js';
@@ -245,12 +241,6 @@ app.use('/api/routes', routesRouter);
 // Branch-bound users always pass (requireNotHQOnly is a no-op for them).
 const branchOnly = [requireAuth, requireNotHQOnly];
 
-// Legacy unmounts (2026-06-10): /api/tasks and /api/visits were the only
-// routes still touching the `tasks` and `visits` tables. Frontend consumers
-// were deleted in the same change. The DROP TABLE migration follows the
-// 14-day staging soak window per the constitution's Phase 11 plan.
-// app.use('/api/tasks',  ...branchOnly, tasksRouter);
-// app.use('/api/visits', ...branchOnly, visitsRouter);
 app.use('/api/dues', ...branchOnly, duesRouter);
 app.use('/api/maintenance-requests', ...branchOnly, maintenanceRequestsRouter);
 app.use('/api/emergency-tickets', ...branchOnly, emergencyTicketsRouter);

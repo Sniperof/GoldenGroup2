@@ -1,6 +1,6 @@
 // ============================================================
 // RequestsListView — unified request-section list (contract §6 + §7)
-// docs/constitution/request-section-contract.md
+// docs/constitution/features/request-section-contract.md
 //
 // One table for every request type: 7 fixed core columns in fixed order
 // (ref, requester, phone, status, reviewer, flags, received-at), followed

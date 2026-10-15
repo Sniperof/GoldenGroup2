@@ -125,7 +125,7 @@
 - `docs/constitution/decisions/DEC-005-contact-targets-filter.md`
 - `docs/constitution/decisions/DEC-008-zone-study-stage.md`
 - `docs/constitution/domains/permissions.md`
-- `docs/constitution/domains/permissions-engineering-standard.md`
+- `docs/constitution/standards/permissions-engineering-standard.md`
 - `docs/constitution/features/planning-contact-targets.md`
 
 ---

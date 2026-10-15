@@ -5,6 +5,10 @@ import { buildTabularReportOrderBy } from './tabularReportSorting.js';
 import { ReportingError } from './reportingError.js';
 import type { TabularReportFilterOptions } from './tabularReportFilterOptions.js';
 import { employeeDimensionConditions, getEmployeeDimensionOptions } from './reportEmployeeDimension.js';
+import {
+  agreementsLateral, candidatesAddedLateral, COUNTED_CONTRACT_STATUSES_SQL, damascusDayBounds, duesLateral,
+  emergencyMoneyLateral, ownedSalesLateral, periodicMoneyLateral, reportDateFilter,
+} from './fieldWorkLaterals.js';
 
 const TECHNICIAN_ACTIVITY = new Set(['with_work', 'without_work']);
 
@@ -48,12 +52,6 @@ export interface TechnicianWorkRow {
 /** Which job titles are «فني», read from an admin setting rather than pinned here. */
 export const TECHNICIAN_TITLES_SETTING_KEY = 'technician_job_titles';
 
-/** A sale is what counts as a sale in every other report (§1.2). */
-const COUNTED_CONTRACT_STATUSES_SQL = `('active', 'completed')`;
-
-/** `contracts.contract_date` is VARCHAR, so it is read behind a shape guard. */
-const CONTRACT_DATE_SHAPE_SQL = `contract.contract_date ~ '^\\d{4}-\\d{2}-\\d{2}$'`;
-
 /** The technician who actually did the visit, after any reassignment. */
 const VISIT_TECHNICIAN_ID_SQL =
   `COALESCE(visit.reassigned_technician_id, NULLIF(visit.team_snapshot->>'technicianEmployeeId', '')::int)`;
@@ -63,15 +61,6 @@ const TECHNICIAN_TITLES_SQL = `SELECT BTRIM(title.value) AS job_title
         CROSS JOIN LATERAL JSONB_ARRAY_ELEMENTS_TEXT(setting.value::jsonb) title(value)
        WHERE setting.key = '${TECHNICIAN_TITLES_SETTING_KEY}'
          AND NULLIF(BTRIM(title.value), '') IS NOT NULL`;
-
-function dateFilter(value: unknown, label: string): string | null {
-  const normalized = typeof value === 'string' && value.trim() ? value.trim() : null;
-  if (normalized == null) return null;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized) || Number.isNaN(new Date(`${normalized}T00:00:00Z`).getTime())) {
-    throw new ReportingError(400, `${label} غير صالح`);
-  }
-  return normalized;
-}
 
 /**
  * The row is a technician, and unlike every other report in this group the rows come
@@ -100,8 +89,8 @@ export function buildTechnicianWorkQuery(
       )`);
   }
 
-  const fromDate = dateFilter(request.fromDate, 'بداية المدة');
-  const toDate = dateFilter(request.toDate, 'نهاية المدة');
+  const fromDate = reportDateFilter(request.fromDate, 'بداية المدة');
+  const toDate = reportDateFilter(request.toDate, 'نهاية المدة');
   if (!fromDate || !toDate) throw new ReportingError(400, 'مدة التقرير مطلوبة لتوليده');
   if (fromDate > toDate) throw new ReportingError(400, 'بداية المدة يجب ألا تكون بعد نهايتها');
   params.push(fromDate);
@@ -109,9 +98,7 @@ export function buildTechnicianWorkQuery(
   params.push(toDate);
   const toRef = `$${params.length}`;
 
-  // Damascus day boundaries as timestamps, so the filters stay indexable.
-  const fromStampSql = `(${fromRef}::text || ' 00:00')::timestamp AT TIME ZONE 'Asia/Damascus'`;
-  const toStampSql = `((${toRef}::text::date + 1)::text || ' 00:00')::timestamp AT TIME ZONE 'Asia/Damascus'`;
+  const { fromStampSql, toStampSql } = damascusDayBounds(fromRef, toRef);
 
   const technicianEmployeeId = positiveInt(request.technicianEmployeeId);
   if (technicianEmployeeId != null) {
@@ -215,47 +202,10 @@ export function buildTechnicianWorkQuery(
           LEFT JOIN open_tasks open_task ON open_task.id = executed.source_open_task_id
          WHERE executed.technician_id = row.id
       ) tasks ON TRUE
-      LEFT JOIN LATERAL (
-        SELECT COALESCE(SUM(movement.amount_syp), 0)::numeric AS collected
-          FROM executed
-          JOIN financial_movements movement
-            ON movement.source_type = 'periodic_maintenance'
-           AND movement.kind = 'payment'
-           AND movement.source_id = executed.source_open_task_id
-         WHERE executed.technician_id = row.id
-           AND executed.task_type = 'periodic_maintenance'
-      ) periodic_money ON TRUE
-      LEFT JOIN LATERAL (
-        SELECT COALESCE(SUM(financials.collected_amount), 0)::numeric AS collected
-          FROM executed
-          JOIN visit_task_emergency_financials financials
-            ON financials.visit_task_result_id = executed.result_id
-         WHERE executed.technician_id = row.id
-      ) emergency_money ON TRUE
-      LEFT JOIN LATERAL (
-        SELECT COALESCE(SUM(collection.paid_amount_syp)
-                 FILTER (WHERE collection.receivable_source_type = 'contract'), 0)::numeric AS contract_dues,
-               COALESCE(SUM(collection.paid_amount_syp)
-                 FILTER (WHERE collection.receivable_source_type IS DISTINCT FROM 'contract'), 0)::numeric AS service_dues
-          FROM executed
-          JOIN visit_task_installment_collection_results collection
-            ON collection.visit_task_result_id = executed.result_id
-         WHERE executed.technician_id = row.id
-      ) dues ON TRUE
-      LEFT JOIN LATERAL (
-        -- Distinct agreement: two visits of the same agreement performed by the same
-        -- technician must not add its fee twice.
-        SELECT COALESCE(SUM(agreement.fee_syp), 0)::numeric AS value
-          FROM (
-            SELECT DISTINCT payload.service_agreement_id AS agreement_id
-              FROM executed
-              JOIN open_task_periodic_payload payload
-                ON payload.open_task_id = executed.source_open_task_id
-             WHERE executed.technician_id = row.id
-               AND payload.service_agreement_id IS NOT NULL
-          ) linked
-          JOIN service_agreements agreement ON agreement.id = linked.agreement_id
-      ) agreements ON TRUE
+      ${periodicMoneyLateral('technician_id')}
+      ${emergencyMoneyLateral('technician_id')}
+      ${duesLateral('technician_id')}
+      ${agreementsLateral('technician_id')}
       LEFT JOIN LATERAL (
         SELECT COUNT(*) FILTER (WHERE contract.sale_owner_id = row.id)::int AS personal_installs,
                COUNT(*) FILTER (WHERE contract.sale_owner_id IS NULL
@@ -270,25 +220,8 @@ export function buildTechnicianWorkQuery(
            AND contract.sale_subtype = 'definitive'
            AND contract.status IN ${COUNTED_CONTRACT_STATUSES_SQL}
       ) installs ON TRUE
-      LEFT JOIN LATERAL (
-        SELECT COUNT(*) FILTER (WHERE contract.sale_subtype = 'definitive'
-                                  AND contract.status IN ${COUNTED_CONTRACT_STATUSES_SQL})::int AS definitive_sales,
-               COUNT(*) FILTER (WHERE contract.sale_subtype = 'temporary'
-                                  AND contract.status <> 'cancelled')::int AS temporary_contracts
-          FROM contracts contract
-         WHERE contract.sale_owner_id = row.id
-           AND ${CONTRACT_DATE_SHAPE_SQL}
-           AND contract.contract_date >= ${fromRef}::text
-           AND contract.contract_date <= ${toRef}::text
-      ) sales ON TRUE
-      LEFT JOIN LATERAL (
-        SELECT COUNT(*)::int AS candidates_added
-          FROM candidates candidate
-          JOIN hr_users owner_account ON owner_account.id = candidate.owner_user_id
-         WHERE owner_account.employee_id = row.id
-           AND candidate.created_at >= ${fromStampSql}
-           AND candidate.created_at < ${toStampSql}
-      ) names ON TRUE
+      ${ownedSalesLateral(fromRef, toRef)}
+      ${candidatesAddedLateral(fromStampSql, toStampSql)}
      ${activitySql}
      ORDER BY ${buildTabularReportOrderBy(
        'performance.technician_work', access, request,

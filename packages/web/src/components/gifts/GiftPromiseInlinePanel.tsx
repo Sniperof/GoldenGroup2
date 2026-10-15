@@ -4,8 +4,8 @@ import { api } from '../../lib/api';
 import {
   giftConditionStatusLabels,
   type GiftConditionStatus,
-  type GiftDefinitionPrototype,
-} from '../../data/giftsPrototype';
+  type GiftDefinition,
+} from '../../data/gifts';
 
 export interface InlineGiftPromiseDraft {
   giftDefinitionId: string;
@@ -48,7 +48,7 @@ export default function GiftPromiseInlinePanel({
   disabledReason,
   onChange,
 }: GiftPromiseInlinePanelProps) {
-  const [activeGiftDefinitions, setActiveGiftDefinitions] = useState<GiftDefinitionPrototype[]>([]);
+  const [activeGiftDefinitions, setActiveGiftDefinitions] = useState<GiftDefinition[]>([]);
   const [conditions, setConditions] = useState<PromiseConditionOption[]>([]);
   const [definitionsLoading, setDefinitionsLoading] = useState(false);
   const [isAdding, setIsAdding] = useState(false);

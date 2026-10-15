@@ -114,6 +114,21 @@ export interface TabularReportRequestParams {
   taskResult?: string | null;
   cancellationReasonId?: string | number | null;
   visitOrigin?: string | null;
+  /** The escalations report: `sr:<request_type>` or a visit escalation, and open/closed. */
+  escalationType?: string | null;
+  escalationState?: string | null;
+  activationRecord?: string | null;
+  contractScope?: string | null;
+  cardDeliveryResult?: string | null;
+  warrantyPartsPresence?: string | null;
+  warrantyStartFrom?: string | null;
+  warrantyStartTo?: string | null;
+  warrantyEndFrom?: string | null;
+  warrantyEndTo?: string | null;
+  trialOutcome?: string | null;
+  trialGraceState?: string | null;
+  closingAppointmentFrom?: string | null;
+  closingAppointmentTo?: string | null;
 }
 
 /**
@@ -155,6 +170,10 @@ export const TABULAR_REQUEST_PARAM_KEYS = [
   'departmentId', 'jobTitle', 'employmentStatus', 'technicianActivity', 'callBookingPresence',
   'receivableSourceType', 'collectionAppointmentFrom', 'collectionAppointmentTo',
   'collectionAppointmentPresence', 'taskResult', 'cancellationReasonId', 'visitOrigin',
+  'escalationType', 'escalationState',
+  'activationRecord', 'contractScope', 'cardDeliveryResult', 'warrantyPartsPresence',
+  'warrantyStartFrom', 'warrantyStartTo', 'warrantyEndFrom', 'warrantyEndTo',
+  'trialOutcome', 'trialGraceState', 'closingAppointmentFrom', 'closingAppointmentTo',
 ] as const satisfies ReadonlyArray<keyof TabularReportRequestParams>;
 
 /**

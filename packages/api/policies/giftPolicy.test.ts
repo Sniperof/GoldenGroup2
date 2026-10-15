@@ -61,6 +61,24 @@ test('gift ASSIGNED access requires an assigned subject', () => {
   ), true);
 });
 
+test('gift ASSIGNED access includes gifts on a contract linked to the current user', () => {
+  // A supervisor promising a gift in a contract she created must still see it
+  // after approval wipes client_assignments (OP promotion).
+  const assignedContext = context({ permission: 'contract_gifts.view', scope: 'ASSIGNED' });
+  assert.equal(canAccessGift(assignedContext, 'contract_gifts.view', branchGift), false);
+  assert.equal(canAccessGift(
+    assignedContext,
+    'contract_gifts.view',
+    { ...branchGift, contractLinkedToCurrentUser: true },
+  ), true);
+  // The contract link never widens access beyond the grant's branches.
+  assert.equal(canAccessGift(
+    assignedContext,
+    'contract_gifts.view',
+    { ...branchGift, sourceBranchId: 9, responsibleBranchId: 9, contractLinkedToCurrentUser: true },
+  ), false);
+});
+
 test('manual-delivery reopening is GLOBAL-only, including against a bad BRANCH grant', () => {
   assert.equal(canAccessGift(
     context({ permission: 'contract_gifts.reopen_manual_delivery', scope: 'BRANCH' }),

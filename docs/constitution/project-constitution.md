@@ -23,12 +23,10 @@
 - لا خلط بين المصطلحات الرسمية والlegacy.
 - إذا تغيّر workflow أو terminology أو contract، يجب تحديث الدستور أولًا.
 
-## 4) مراجع الدومينات
-- `docs/constitution/domains/README.md`
-- `docs/constitution/features/README.md`
-- `docs/constitution/decisions/README.md`
+## 4) الفهرس
+- الفهرس الوحيد المعتمد للدومينات والميزات والقرارات: `docs/constitution/INDEX.md`
 
 ## 5) Permissions and authorization
-- The mandatory engineering contract is `docs/constitution/domains/permissions-engineering-standard.md`.
+- The mandatory engineering contract is `docs/constitution/standards/permissions-engineering-standard.md`.
 - Any change involving roles, permissions, scopes, branches, ownership, JWT authorization claims, or UI permission gates must follow that contract before implementation.
 - The governing model is `identity + permission + scope + subject = decision`.

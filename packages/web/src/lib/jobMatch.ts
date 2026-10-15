@@ -17,7 +17,14 @@ export interface JobMatchResult {
   appSkills: string;
 }
 
-const CERTIFICATE_LEVELS: Record<string, number> = {
+/** Certificate value → academic level, from the «الشهادات» reference list
+ *  (system_lists category 'certificate', metadata.level). */
+export type CertificateLevels = Record<string, number>;
+
+// Legacy fallback ONLY for values stored before certificates came from the
+// reference list (the old hardcoded form offered «بكالوريوس» etc.). A level set
+// on the reference list always wins.
+const LEGACY_CERTIFICATE_LEVELS: CertificateLevels = {
   'ابتدائية': 1,
   'متوسطة': 2,
   'إعدادية': 3,
@@ -27,8 +34,22 @@ const CERTIFICATE_LEVELS: Record<string, number> = {
   'دكتوراه': 7,
 };
 
-function getCertificateLevel(certificate: string | null | undefined): number {
-  return CERTIFICATE_LEVELS[certificate || ''] || 0;
+/** Builds the level map from reference-list rows; rows without a valid level are skipped. */
+export function certificateLevelsFromLists(
+  lists: Array<{ category: string; value: string; metadata?: unknown }>,
+): CertificateLevels {
+  const levels: CertificateLevels = {};
+  for (const item of lists) {
+    if (item.category !== 'certificate') continue;
+    const level = Number((item.metadata as { level?: unknown } | undefined)?.level);
+    if (Number.isInteger(level) && level > 0) levels[item.value] = level;
+  }
+  return levels;
+}
+
+function getCertificateLevel(certificate: string | null | undefined, levels: CertificateLevels): number {
+  const key = certificate || '';
+  return levels[key] || LEGACY_CERTIFICATE_LEVELS[key] || 0;
 }
 
 function normalizeText(value: string | null | undefined): string {
@@ -52,7 +73,11 @@ function addWeightedScore(
   }
 }
 
-export function calculateJobMatchScore(applicant: Partial<Applicant>, vacancy: Partial<JobVacancy>): JobMatchResult {
+export function calculateJobMatchScore(
+  applicant: Partial<Applicant>,
+  vacancy: Partial<JobVacancy>,
+  certificateLevels: CertificateLevels = {},
+): JobMatchResult {
   const totals = { earned: 0, applicable: 0 };
   const weights = {
     certificate: 20,
@@ -65,15 +90,18 @@ export function calculateJobMatchScore(applicant: Partial<Applicant>, vacancy: P
     hasCar: 2.5,
   } as const;
 
-  const appCertVal = getCertificateLevel(applicant.academicQualification);
-  const vacCertVal = getCertificateLevel(vacancy.requiredCertificate);
+  const appCertVal = getCertificateLevel(applicant.academicQualification, certificateLevels);
+  const vacCertVal = getCertificateLevel(vacancy.requiredCertificate, certificateLevels);
   let certMatch: MatchLevel = 'neutral';
   if (vacancy.requiredCertificate) {
-    if (appCertVal >= vacCertVal) {
+    if (appCertVal > 0 && vacCertVal > 0) {
+      certMatch = appCertVal >= vacCertVal ? 'match' : 'mismatch';
+    } else if (applicant.academicQualification === vacancy.requiredCertificate) {
+      // A certificate without a level can still match itself by name.
       certMatch = 'match';
-    } else {
-      certMatch = 'mismatch';
     }
+    // Otherwise a level is missing on the list: stay neutral rather than
+    // score a misconfigured certificate as a pass (vacancy 0) or a fail (applicant 0).
   }
   addWeightedScore(weights.certificate, certMatch, totals);
 

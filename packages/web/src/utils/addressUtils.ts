@@ -68,3 +68,15 @@ export function buildMapsUrl(coords: { lat: number; lng: number } | null | undef
   }
   return `https://www.google.com/maps?q=${coords.lat},${coords.lng}`;
 }
+
+/**
+ * Google Maps embed (display-only iframe) centred on coordinates with a pin.
+ * Uses the keyless `output=embed` form; the official Maps Embed API needs a
+ * Google Cloud key, which is not available yet (see map migration phase 2).
+ */
+export function buildMapsEmbedUrl(coords: { lat: number; lng: number } | null | undefined, zoom = 16): string | null {
+  if (!coords || typeof coords.lat !== 'number' || typeof coords.lng !== 'number') {
+    return null;
+  }
+  return `https://maps.google.com/maps?q=${coords.lat},${coords.lng}&z=${zoom}&hl=ar&output=embed`;
+}

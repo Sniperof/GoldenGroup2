@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { MapPin, Search, ChevronLeft, X, CheckCircle2 } from './ui/icons';
 import type { GeoUnit } from '../lib/types';
 const levelNames: Record<number, string> = {
@@ -128,6 +129,10 @@ export default function GeoSmartSearch({ geoUnits, value, onChange, label, requi
     const containerRef = useRef<HTMLDivElement>(null);
     const fieldRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
+    // The list is portalled to <body>: any ancestor with transform / filter /
+    // backdrop-filter (e.g. a `backdrop-blur` card) becomes the containing block
+    // of a `position: fixed` child and shifts it off the field.
+    const dropdownRef = useRef<HTMLDivElement>(null);
     // Vertical band the popover is allowed to occupy: below any fixed/sticky top
     // bar (app header, sticky page toolbar) and above any fixed bottom bar
     // (action footer). Measured on open/resize; bars don't move during scroll.
@@ -224,6 +229,7 @@ export default function GeoSmartSearch({ geoUnits, value, onChange, label, requi
         // fixed/sticky chrome overlapping the top/bottom edges
         document.querySelectorAll<HTMLElement>('body *').forEach(el => {
             if (field && el.contains(field)) return; // skip our own ancestors
+            if (dropdownRef.current?.contains(el)) return; // skip our own popover
             const s = window.getComputedStyle(el);
             if (s.position !== 'fixed' && s.position !== 'sticky') return;
             const r = el.getBoundingClientRect();
@@ -292,12 +298,13 @@ export default function GeoSmartSearch({ geoUnits, value, onChange, label, requi
         };
     }, [isOpen, computePosition, measureBounds]);
 
-    // Outside click
+    // Outside click — the portalled list is outside containerRef, so exclude it
+    // too or picking an option would close the list before its onClick fires.
     useEffect(() => {
         const handler = (e: MouseEvent) => {
-            if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-                setIsOpen(false);
-            }
+            const target = e.target as Node;
+            if (containerRef.current?.contains(target) || dropdownRef.current?.contains(target)) return;
+            setIsOpen(false);
         };
         document.addEventListener('mousedown', handler);
         return () => document.removeEventListener('mousedown', handler);
@@ -356,12 +363,14 @@ export default function GeoSmartSearch({ geoUnits, value, onChange, label, requi
                     </div>
                 )}
 
-                {/* Dropdown — fixed popover so it can't be clipped by the scroll
-                    container/viewport or hidden behind a fixed bottom action bar. */}
-                {isOpen && ddPos && (
+                {/* Dropdown — fixed popover portalled to <body> so it can't be clipped
+                    by the scroll container/viewport, hidden behind a fixed bottom action
+                    bar, or displaced by a transformed/blurred ancestor. */}
+                {isOpen && ddPos && createPortal(
                     <div
-                        className="fixed z-[70] bg-white border border-slate-200 rounded-xl shadow-xl overflow-y-auto"
-                        style={{ left: ddPos.left, width: ddPos.width, top: ddPos.top, bottom: ddPos.bottom, maxHeight: ddPos.maxHeight }}
+                        ref={dropdownRef}
+                        className="fixed bg-white border border-slate-200 rounded-xl shadow-xl overflow-y-auto"
+                        style={{ left: ddPos.left, width: ddPos.width, top: ddPos.top, bottom: ddPos.bottom, maxHeight: ddPos.maxHeight, zIndex: 9999 }}
                     >
                         {suggestions.length === 0 ? (
                             <div className="p-4 text-center text-sm text-slate-400">لا توجد نتائج</div>
@@ -405,7 +414,8 @@ export default function GeoSmartSearch({ geoUnits, value, onChange, label, requi
                                 );
                             })
                         )}
-                    </div>
+                    </div>,
+                    document.body
                 )}
             </div>
 

@@ -40,10 +40,6 @@ test('secondary task surfaces cannot open or submit operational result forms', (
     new URL('../../pages/tasks/TaskEvaluationLab.tsx', import.meta.url),
     'utf8',
   );
-  const postSaleStepper = readFileSync(
-    new URL('./PostSaleStepper.tsx', import.meta.url),
-    'utf8',
-  );
   const emergencyTaskDetail = readFileSync(
     new URL('../../pages/tasks/EmergencyTaskDetail.tsx', import.meta.url),
     'utf8',
@@ -51,7 +47,5 @@ test('secondary task surfaces cannot open or submit operational result forms', (
 
   assert.doesNotMatch(evaluationLab, /ResultModal from|<EmergencyResultModal|<ActiveResultModal/);
   assert.match(evaluationLab, /معاينة النتيجة/);
-  assert.match(postSaleStepper, /navigate\(`\/field-visits\/\$\{visitId\}`\)/);
-  assert.doesNotMatch(postSaleStepper, /handleSubmitDeliveryResult|تأكيد وحفظ النتيجة/);
   assert.doesNotMatch(emergencyTaskDetail, /EmergencyResultRenderer|ResultRenderer:/);
 });

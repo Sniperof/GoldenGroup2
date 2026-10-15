@@ -493,10 +493,10 @@ responsible_branch_id = source_branch_id
 ## المراجع
 
 - [مهمة تسليم الهدية](./tasks/gift-delivery.md)
-- [معيار هندسة الصلاحيات](../domains/permissions-engineering-standard.md)
+- [معيار هندسة الصلاحيات](../standards/permissions-engineering-standard.md)
 - [Open Tasks Domain](../domains/open-tasks.md)
-- [Task Scheduling Patterns](../../analysis/task-scheduling-patterns.md)
-- [Unified Task Model](../../analysis/unified-task-model.md)
+- [Task Scheduling Patterns](../standards/task-scheduling-patterns.md)
+- [Unified Task Model](../../archive/analysis/unified-task-model.md)
 
 ---
 

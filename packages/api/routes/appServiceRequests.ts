@@ -212,7 +212,7 @@ router.post(
 );
 
 /**
- * Agent-license mobile contract: see docs/api/mobile-agent-license-api-reference.md.
+ * Agent-license mobile contract: see docs/engineering/api/mobile-agent-license-api-reference.md.
  * The generic gateway below rejects undeclared fields and derives self_only.
  */
 
@@ -231,7 +231,7 @@ router.post(
  *       The body is validated against the DECLARED form of the active version:
  *       undeclared keys are rejected, not dropped, because the submitted payload
  *       is immutable once stored. See
- *       docs/api/mobile-service-requests-api-reference.md for the field table.
+ *       docs/engineering/api/mobile-service-requests-api-reference.md for the field table.
  *     security: [{ bearerAuth: [] }, {}]
  *     requestBody:
  *       required: true

@@ -353,7 +353,7 @@ erDiagram
 | الكود | الموضوع | الحالة |
 |---|---|---|
 > **⏳ Implementation status:** سجل تنفيذ كامل لـ Phases 0-8 في
-> [`plans/2026-06-01-implementation-status.md`](../plans/2026-06-01-implementation-status.md).
+> [`docs/archive/plans/2026-06-01-implementation-status.md`](../../archive/plans/2026-06-01-implementation-status.md).
 
 | `V-G001` | Migrations DEC-003 (`appointment_*`, `customer_snapshot`, `cancellation_*`, `origin_type`, `origin_id`) | ✅ محلولة — Phase 1 (migration 222) + migrations سابقة 165/166 |
 | `V-G002` | حذف `telemarketing_appointments` فعلياً من DB | 🔄 مؤجلة — Phase 9 بعد 14 يوم staging |

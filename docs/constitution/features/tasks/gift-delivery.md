@@ -1,6 +1,6 @@
 # مهمة تسليم الهدية — `gift_delivery`
 
-> **القالب المرجعي:** [`features/unified-task-template.md`](../unified-task-template.md)  
+> **القالب المرجعي:** [`templates/unified-task-template.md`](../../templates/unified-task-template.md)  
 > **الحالة:** معتمد دستوريا — آخر تسوية منتج 2026-07-26، والتنفيذ البرمجي قيد المطابقة
 > **الـ display_group:** `gift_delivery`
 

@@ -12,6 +12,7 @@ import { api } from '../../lib/api';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { useBranchContextStore } from '../../hooks/useBranchContextStore';
+import { useDidUpdateEffect, useScrollRestoration, useSessionState } from '../../hooks/useListStatePersistence';
 
 /* ------------------------------------------------------------------ */
 /*  Config                                                              */
@@ -87,6 +88,8 @@ export default function ContractList() {
     const { hasPermission } = usePermissions();
     const getPermissionScope = useAuthStore((s) => s.getPermissionScope);
     const contextBranchId = useBranchContextStore((s) => s.branchId);
+    // Remembered list state (page, sort, search, filters) for this tab, per branch view.
+    const listKey = `contracts:${contextBranchId ?? 'all'}`;
     const [branchOptions, setBranchOptions] = useState<{ id: number; name: string }[]>([]);
 
     const canViewContracts = hasPermission('contracts.view_list');
@@ -102,40 +105,43 @@ export default function ContractList() {
     const [total, setTotal] = useState(0);
     const [loading, setLoading] = useState(true);
     const [initialLoad, setInitialLoad] = useState(true);
+    // Back from a record lands on the row it was opened from.
+    useScrollRestoration(listKey, !initialLoad);
 
-    const [page, setPage] = useState(1);
-    const [limit, setLimit] = useState(10);
-    const [sortKey, setSortKey] = useState<string | null>(null);
-    const [sortDir, setSortDir] = useState<'asc' | 'desc' | null>(null);
+    const [page, setPage] = useSessionState(`${listKey}:page`, 1);
+    const [limit, setLimit] = useSessionState(`${listKey}:limit`, 10);
+    const [sortKey, setSortKey] = useSessionState<string | null>(`${listKey}:sortKey`, null);
+    const [sortDir, setSortDir] = useSessionState<'asc' | 'desc' | null>(`${listKey}:sortDir`, null);
 
     // ─── Filters & search ───
-    const [searchTerm, setSearchTerm] = useState('');
-    const [debouncedSearch, setDebouncedSearch] = useState('');
-    const [filtersOpen, setFiltersOpen] = useState(false);
-    const [filterStatus, setFilterStatus] = useState('all');
-    const [filterPaymentType, setFilterPaymentType] = useState('all');
-    const [filterSaleType, setFilterSaleType] = useState('all');
-    const [filterOldDeviceCondition, setFilterOldDeviceCondition] = useState('all');
-    const [filterSaleSubtype, setFilterSaleSubtype] = useState('all');
-    const [filterSaleOwner, setFilterSaleOwner] = useState('all');
-    const [filterClosingEmployee, setFilterClosingEmployee] = useState('all');
-    const [filterDeviceModel, setFilterDeviceModel] = useState('all');
-    const [dateFrom, setDateFrom] = useState('');
-    const [dateTo, setDateTo] = useState('');
-    const [priceMin, setPriceMin] = useState('');
-    const [priceMax, setPriceMax] = useState('');
+    const [searchTerm, setSearchTerm] = useSessionState(`${listKey}:searchTerm`, '');
+    const [debouncedSearch, setDebouncedSearch] = useState(searchTerm);
+    const [filtersOpen, setFiltersOpen] = useSessionState(`${listKey}:filtersOpen`, false);
+    const [filterStatus, setFilterStatus] = useSessionState(`${listKey}:filterStatus`, 'all');
+    const [filterPaymentType, setFilterPaymentType] = useSessionState(`${listKey}:filterPaymentType`, 'all');
+    const [filterSaleType, setFilterSaleType] = useSessionState(`${listKey}:filterSaleType`, 'all');
+    const [filterOldDeviceCondition, setFilterOldDeviceCondition] = useSessionState(`${listKey}:filterOldDeviceCondition`, 'all');
+    const [filterSaleSubtype, setFilterSaleSubtype] = useSessionState(`${listKey}:filterSaleSubtype`, 'all');
+    const [filterSaleOwner, setFilterSaleOwner] = useSessionState(`${listKey}:filterSaleOwner`, 'all');
+    const [filterClosingEmployee, setFilterClosingEmployee] = useSessionState(`${listKey}:filterClosingEmployee`, 'all');
+    const [filterDeviceModel, setFilterDeviceModel] = useSessionState(`${listKey}:filterDeviceModel`, 'all');
+    const [dateFrom, setDateFrom] = useSessionState(`${listKey}:dateFrom`, '');
+    const [dateTo, setDateTo] = useSessionState(`${listKey}:dateTo`, '');
+    const [priceMin, setPriceMin] = useSessionState(`${listKey}:priceMin`, '');
+    const [priceMax, setPriceMax] = useSessionState(`${listKey}:priceMax`, '');
 
     // Option sources (fetched separately — not derivable from the loaded page).
     const [employeeOptions, setEmployeeOptions] = useState<{ id: number; name: string }[]>([]);
     const [closerOptions, setCloserOptions] = useState<{ id: number; name: string }[]>([]);
     const [deviceModelOptions, setDeviceModelOptions] = useState<{ id: number; name: string }[]>([]);
 
-    useEffect(() => {
+    // useDidUpdateEffect: page resets must not fire on mount and wipe the restored page.
+    useDidUpdateEffect(() => {
         const t = setTimeout(() => { setDebouncedSearch(searchTerm); setPage(1); }, 300);
         return () => clearTimeout(t);
     }, [searchTerm]);
 
-    useEffect(() => { setPage(1); }, [
+    useDidUpdateEffect(() => { setPage(1); }, [
         filterStatus, filterPaymentType, contextBranchId,
         filterSaleType, filterOldDeviceCondition, filterSaleSubtype, filterSaleOwner, filterClosingEmployee, filterDeviceModel,
         dateFrom, dateTo, priceMin, priceMax,
@@ -199,6 +205,8 @@ export default function ContractList() {
         });
         setContracts(res.items as Contract[]);
         setTotal(res.total);
+        // A remembered page past the end (rows were removed meanwhile) → last page.
+        if (res.items.length === 0 && res.total > 0 && page > 1) setPage(Math.max(1, Math.ceil(res.total / limit)));
     }, [buildListParams, page, limit]);
 
     const fetchAllFiltered = useCallback(() => collectAllPages<Contract>(async (exportPage, exportLimit) => {

@@ -504,6 +504,13 @@ const CATEGORIES: CategoryMeta[] = [
     usedIn: [{ label: 'رفض طلب ترشيح الأسماء', route: 'الطلبات ← ترشيح الأسماء ← التفاصيل', icon: <ClipboardList className="w-3 h-3" /> }],
   },
   {
+    id: 'service_request_rejection_agent_license',
+    label: 'أسباب رفض طلب ترخيص وكيل',
+    description: 'أسباب رفض طلب ترخيص الوكيل الوارد من التطبيق عند المراجعة المركزية (الهوية، البيانات، شروط الوكالة، الاحتيال).',
+    impact: 'high',
+    usedIn: [{ label: 'رفض طلب ترخيص وكيل', route: 'الطلبات ← ترخيص وكيل ← التفاصيل', icon: <ClipboardList className="w-3 h-3" /> }],
+  },
+  {
     id: 'emergency_maintenance_safety_indicators',
     label: 'مؤشرات السلامة لطلب الصيانة الطارئة',
     description: 'المؤشرات التي يستطيع مقدم الطلب تحديدها. يمكن للبيانات الوصفية رفع أولوية المراجعة تلقائياً.',
@@ -528,6 +535,15 @@ const CATEGORIES: CategoryMeta[] = [
     impact: 'low',
     usedIn: [
       { label: 'مودال نتيجة الصيانة — القطع المُستَبدَلة', route: 'الزيارات ← مهمة صيانة ← المرحلة 2', icon: <Package className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'part_customer_refusal_reason',
+    label: 'أسباب رفض الزبون للقطعة المُوصى بها',
+    description: 'الأسباب المعتمدة عندما يوصي الفني بتبديل قطعة ويرفض الزبون تبديلها (السعر، التأجيل، عدم الاقتناع، ...).',
+    impact: 'low',
+    usedIn: [
+      { label: 'مودال نتيجة الصيانة — القطع المُوصى بها', route: 'الزيارات ← مهمة صيانة ← المرحلة 2', icon: <Package className="w-3 h-3" /> },
     ],
   },
 
@@ -1105,6 +1121,7 @@ const CATEGORY_GROUP: Record<string, string> = {
   service_request_rejection_golden_warranty: 'service_requests',
   name_nomination_item_exclusion_reasons: 'service_requests',
   service_request_rejection_name_nomination: 'service_requests',
+  service_request_rejection_agent_license: 'service_requests',
   periodic_maintenance_request_reasons: 'service_requests',
   device_request_purpose: 'service_requests',
   service_request_completed_account_creation: 'service_requests',
@@ -1118,6 +1135,7 @@ const CATEGORY_GROUP: Record<string, string> = {
   emergency_maintenance_safety_indicators: 'emergency',
   emergency_maintenance_attachment_categories: 'emergency',
   part_no_retrieval_reason: 'emergency',
+  part_customer_refusal_reason: 'emergency',
 
   periodic_manual_creation_reasons: 'periodic',
   periodic_maintenance_reschedule_reasons: 'periodic',
@@ -1217,6 +1235,8 @@ export default function SystemLists() {
   const [formOrder, setFormOrder] = useState(0);
   const [formLinkedRoleId, setFormLinkedRoleId] = useState<number | null>(null);
   const [formCanSelectDevice, setFormCanSelectDevice] = useState(false);
+  // Certificate academic level (metadata.level) — drives applicant↔vacancy matching.
+  const [formLevel, setFormLevel] = useState<string>('');
   const [isItemModalOpen, setIsItemModalOpen] = useState(false);
   const [isNewCatOpen, setIsNewCatOpen] = useState(false);
   const [newCatId, setNewCatId] = useState('');
@@ -1261,6 +1281,8 @@ export default function SystemLists() {
       setFormOrder(item.displayOrder);
       setFormLinkedRoleId(item.linkedRoleId ?? null);
       setFormCanSelectDevice(!!(item.metadata as any)?.canSelectDevice);
+      const itemLevel = Number((item.metadata as any)?.level);
+      setFormLevel(Number.isInteger(itemLevel) && itemLevel > 0 ? String(itemLevel) : '');
     } else {
       setEditingItem(null);
       setFormValue('');
@@ -1269,6 +1291,7 @@ export default function SystemLists() {
       setFormOrder(filteredItems.length + 1);
       setFormLinkedRoleId(null);
       setFormCanSelectDevice(false);
+      setFormLevel('');
     }
     setIsItemModalOpen(true);
   };
@@ -1284,8 +1307,20 @@ export default function SystemLists() {
       const isSrResolveList = saveCategory.startsWith('service_request_resolve_at_intake_')
         || saveCategory === 'service_request_completed_account_creation';
 
+      const isCertificate = saveCategory === 'certificate';
+      if (isCertificate) {
+        const level = Number(formLevel);
+        if (!Number.isInteger(level) || level < 1) {
+          alert('المستوى العلمي مطلوب ويجب أن يكون رقماً صحيحاً من 1 فأكثر');
+          return;
+        }
+      }
+
       const extraFields: Record<string, unknown> = {};
       if (isJobTitle) extraFields.linkedRoleId = formLinkedRoleId;
+      if (isCertificate) {
+        extraFields.metadata = { ...(editingItem?.metadata ?? {}), level: Number(formLevel) };
+      }
       if (isDeptType) extraFields.metadata = { canSelectDevice: formCanSelectDevice };
       if (isSrResolveList) {
         extraFields.metadata = {
@@ -1567,6 +1602,15 @@ export default function SystemLists() {
                                   <Link2 className="w-3 h-3" />
                                   {majorCount > 0 ? `${majorCount} اختصاص مرتبط` : 'لا توجد اختصاصات'}
                                 </p>
+                                {Number((cert.metadata as any)?.level) > 0 ? (
+                                  <span className="inline-flex items-center mt-1 text-xs font-bold px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200">
+                                    المستوى {Number((cert.metadata as any).level)}
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center mt-1 text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-200">
+                                    بلا مستوى — لا تدخل في المطابقة
+                                  </span>
+                                )}
                               </div>
                             </div>
                             <div className="flex items-center gap-1.5">
@@ -1728,6 +1772,20 @@ export default function SystemLists() {
                 onChange={e => setFormOrder(parseInt(e.target.value))}
                 helper="الأرقام الأصغر تظهر أولاً في القائمة"
               />
+
+              {/* Academic level — only for certificates (not their majors) */}
+              {isCertificateView && !activeCertificate && (
+                <Input
+                  label="المستوى العلمي"
+                  type="number"
+                  required
+                  min="1"
+                  value={formLevel}
+                  onChange={e => setFormLevel(e.target.value)}
+                  placeholder="مثال: 5"
+                  helper="الرقم الأعلى = شهادة أعلى. يُستعمل في مطابقة المتقدم مع الشاغر: شهادة المتقدم تطابق إذا كان مستواها مساوياً أو أعلى من المطلوب. يمكن لشهادتين أن تحملا المستوى نفسه."
+                />
+              )}
 
               {/* Role selector — only for job_title category */}
               {activeCategory === 'job_title' && (

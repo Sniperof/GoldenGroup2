@@ -55,6 +55,7 @@ import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import BranchScopeIndicator from '../components/BranchScopeIndicator';
 import BulkActivateModal from '../components/appAccounts/BulkActivateModal';
 import { usePermissions } from '../hooks/usePermissions';
+import { useDidUpdateEffect, useScrollRestoration, useSessionState } from '../hooks/useListStatePersistence';
 
 function extractApiPayload(error: unknown): any | null {
     if (!(error instanceof Error)) {
@@ -109,6 +110,8 @@ export default function Clients() {
     // Selection is written to the shared branch-context store so the add-client
     // modal pins the operational branch to it automatically.
     const branchContextId = useBranchContextStore(s => s.branchId);
+    // Remembered list state (page, sort, search, filters) for this tab, per branch view.
+    const listKey = `clients:${branchContextId ?? 'all'}`;
     const isGlobalClients = clientsViewScope === 'GLOBAL';
     const isBranchClients = clientsViewScope === 'BRANCH';
     // Add rule (§5): a GLOBAL operator viewing "all branches" has no explicit branch
@@ -118,7 +121,7 @@ export default function Clients() {
     const [branchOptions, setBranchOptions] = useState<{ id: number; name: string }[]>([]);
 
     // Server-paginated data: `clients` holds ONLY the current page (not the whole
-    // table). Totals/KPIs come from the server. See docs/analysis/clients-records-performance-and-filters.md
+    // table). Totals/KPIs come from the server. See docs/engineering/api/clients-records-performance-and-filters.md
     const [clients, setClients] = useState<Client[]>([]);
     const [total, setTotal] = useState(0);
     const [kpis, setKpis] = useState({ total: 0, leads: 0, fops: 0, ops: 0 });
@@ -128,12 +131,14 @@ export default function Clients() {
     // refetches (filter/page/sort) keep the page mounted and just refresh the
     // table rows — no whole-page flash. See the render guard below.
     const [initialLoad, setInitialLoad] = useState(true);
+    // Back from a record lands on the row it was opened from.
+    useScrollRestoration(listKey, !initialLoad);
 
     // Server pagination + sort state (controlled by SmartTable's server mode).
-    const [page, setPage] = useState(1);
-    const [limit, setLimit] = useState(10);
-    const [sortKey, setSortKey] = useState<string>('id');
-    const [sortDir, setSortDir] = useState<'asc' | 'desc' | null>('desc');
+    const [page, setPage] = useSessionState(`${listKey}:page`, 1);
+    const [limit, setLimit] = useSessionState(`${listKey}:limit`, 10);
+    const [sortKey, setSortKey] = useSessionState<string>(`${listKey}:sortKey`, 'id');
+    const [sortDir, setSortDir] = useSessionState<'asc' | 'desc' | null>(`${listKey}:sortDir`, 'desc');
 
     const [activeTab, setActiveTab] = useState<'clients' | 'candidates'>('clients');
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -154,28 +159,29 @@ export default function Clients() {
     const navigate = useNavigate();
 
     // ─── Filters & Search State ───
-    const [searchTerm, setSearchTerm] = useState('');
-    const [debouncedSearch, setDebouncedSearch] = useState('');
-    const [filterClass, setFilterClass] = useState('all');
-    const [filterMediator, setFilterMediator] = useState('all');
+    const [searchTerm, setSearchTerm] = useSessionState(`${listKey}:searchTerm`, '');
+    const [debouncedSearch, setDebouncedSearch] = useState(searchTerm);
+    const [filterClass, setFilterClass] = useSessionState(`${listKey}:filterClass`, 'all');
+    const [filterMediator, setFilterMediator] = useSessionState(`${listKey}:filterMediator`, 'all');
 
     // Enriched catalog (§7) — all live in one unified, collapsible panel.
-    const [filtersOpen, setFiltersOpen] = useState(false);
-    const [filterOwner, setFilterOwner] = useState('all');
-    const [filterRating, setFilterRating] = useState('all');
+    const [filtersOpen, setFiltersOpen] = useSessionState(`${listKey}:filtersOpen`, false);
+    const [filterOwner, setFilterOwner] = useSessionState(`${listKey}:filterOwner`, 'all');
+    const [filterRating, setFilterRating] = useSessionState(`${listKey}:filterRating`, 'all');
     // Geo cascade (branch-scoped): محافظة → منطقة → ناحية → حي, each optional.
-    const [filterGov, setFilterGov] = useState('all');
-    const [filterRegion, setFilterRegion] = useState('all');
-    const [filterSubarea, setFilterSubarea] = useState('all');
-    const [filterHood, setFilterHood] = useState('all');
-    const [filterHasDevice, setFilterHasDevice] = useState('all');   // all | yes | no
-    const [filterTaskType, setFilterTaskType] = useState('all');
-    const [filterRoute, setFilterRoute] = useState('all');
-    const [filterWaterSource, setFilterWaterSource] = useState('all');
-    const [filterDataQuality, setFilterDataQuality] = useState('all');
-    const [filterSerial, setFilterSerial] = useState('');
-    const [dateFrom, setDateFrom] = useState('');
-    const [dateTo, setDateTo] = useState('');
+    const [filterGov, setFilterGov] = useSessionState(`${listKey}:filterGov`, 'all');
+    const [filterRegion, setFilterRegion] = useSessionState(`${listKey}:filterRegion`, 'all');
+    const [filterSubarea, setFilterSubarea] = useSessionState(`${listKey}:filterSubarea`, 'all');
+    const [filterHood, setFilterHood] = useSessionState(`${listKey}:filterHood`, 'all');
+    const [filterHasDevice, setFilterHasDevice] = useSessionState(`${listKey}:filterHasDevice`, 'all');   // all | yes | no
+    const [filterTaskType, setFilterTaskType] = useSessionState(`${listKey}:filterTaskType`, 'all');
+    const [filterRoute, setFilterRoute] = useSessionState(`${listKey}:filterRoute`, 'all');
+    const [filterWaterSource, setFilterWaterSource] = useSessionState(`${listKey}:filterWaterSource`, 'all');
+    const [filterDataQuality, setFilterDataQuality] = useSessionState(`${listKey}:filterDataQuality`, 'all');
+    const [filterSerial, setFilterSerial] = useSessionState(`${listKey}:filterSerial`, '');
+    const [filterReferrerName, setFilterReferrerName] = useSessionState(`${listKey}:filterReferrerName`, '');
+    const [dateFrom, setDateFrom] = useSessionState(`${listKey}:dateFrom`, '');
+    const [dateTo, setDateTo] = useSessionState(`${listKey}:dateTo`, '');
 
     // Option sources for the dynamic filters (fetched separately — cannot be
     // derived from the loaded page under server pagination).
@@ -188,20 +194,31 @@ export default function Clients() {
     const [scopedGeo, setScopedGeo] = useState<GeoUnit[]>([]);
 
     // Debounce the free-text search so we don't fire a request per keystroke.
-    useEffect(() => {
+    // (useDidUpdateEffect: page resets must not fire on mount and wipe the restored page.)
+    useDidUpdateEffect(() => {
         const t = setTimeout(() => { setDebouncedSearch(searchTerm); setPage(1); }, 300);
         return () => clearTimeout(t);
     }, [searchTerm]);
 
     // Debounce the free-text serial lookup like the main search.
-    const [debouncedSerial, setDebouncedSerial] = useState('');
-    useEffect(() => {
+    const [debouncedSerial, setDebouncedSerial] = useState(filterSerial);
+    useDidUpdateEffect(() => {
         const t = setTimeout(() => { setDebouncedSerial(filterSerial); setPage(1); }, 300);
         return () => clearTimeout(t);
     }, [filterSerial]);
 
+    // Mediator-name filter — debounced like the main search (which no longer matches it).
+    const [debouncedReferrerName, setDebouncedReferrerName] = useState(filterReferrerName);
+    useDidUpdateEffect(() => {
+        const t = setTimeout(() => { setDebouncedReferrerName(filterReferrerName); setPage(1); }, 300);
+        return () => clearTimeout(t);
+    }, [filterReferrerName]);
+
+    // A specific branch's ownership only exists in the "all branches" view.
+    useEffect(() => { setFilterOwner(v => v.startsWith('branch:') ? 'all' : v); }, [branchContextId]);
+
     // Any filter/branch change resets to the first page.
-    useEffect(() => { setPage(1); }, [
+    useDidUpdateEffect(() => { setPage(1); }, [
         filterClass, filterMediator, branchContextId,
         filterOwner, filterRating, filterGov, filterRegion, filterSubarea, filterHood,
         filterHasDevice, filterTaskType, filterRoute, filterWaterSource, filterDataQuality, dateFrom, dateTo,
@@ -253,15 +270,18 @@ export default function Clients() {
             branchId: branchParam,
             search: debouncedSearch,
             filterClass, filterMediator,
+            filterReferrerName: debouncedReferrerName,
             geoIds: geoIdsCsv,
             routeGeoIds: routeGeoIdsCsv,
-            owner: filterOwner, rating: filterRating,
+            owner: filterOwner.startsWith('branch') ? 'branch' : filterOwner,
+            ownerBranchId: filterOwner.startsWith('branch:') ? Number(filterOwner.slice(7)) : undefined,
+            rating: filterRating,
             waterSource: filterWaterSource, dataQuality: filterDataQuality,
             hasDevice: filterHasDevice, taskType: filterTaskType,
             serial: debouncedSerial,
             createdFrom: dateFrom, createdTo: dateTo,
         };
-    }, [isGlobalClients, branchContextId, debouncedSearch, filterClass, filterMediator, geoIdsCsv, routeGeoIdsCsv,
+    }, [isGlobalClients, branchContextId, debouncedSearch, filterClass, filterMediator, debouncedReferrerName, geoIdsCsv, routeGeoIdsCsv,
         filterOwner, filterRating, filterWaterSource, filterDataQuality, filterHasDevice, filterTaskType, debouncedSerial, dateFrom, dateTo]);
 
     const fetchClients = useCallback(async () => {
@@ -276,6 +296,8 @@ export default function Clients() {
         setClients(res.items as Client[]);
         setTotal(res.total);
         setKpis(res.kpis);
+        // A remembered page past the end (rows were removed meanwhile) → last page.
+        if (res.items.length === 0 && res.total > 0 && page > 1) setPage(Math.max(1, Math.ceil(res.total / limit)));
     }, [buildListParams, page, limit, sortKey, sortDir]);
 
     // Refetch whenever any server-side query input changes (page/limit/sort/filters/branch).
@@ -463,6 +485,12 @@ export default function Clients() {
         return neighborhood.name;
     };
 
+    const getClientAddressLabel = (client: Client) => {
+        const hierarchy = getNeighborhoodHierarchy(client.neighborhood);
+        if (hierarchy !== '--') return hierarchy;
+        return client.detailedAddress?.trim() || '--';
+    };
+
     // ─── Filter option lists & applied-filter chips ───
     // Gated geo cascade: a level's options populate only once its parent is
     // determined — either explicitly selected, or auto-resolved when the level
@@ -484,8 +512,14 @@ export default function Clients() {
     const YESNO_LABELS: Record<string, string> = { yes: 'نعم', no: 'لا' };
     const MEDIATOR_LABELS: Record<string, string> = { Personal: 'شخصي', Employee: 'موظف', Client: 'زبون حالي' };
 
+    // «ملكية الفرع»: a GLOBAL viewer on "all branches" can target each branch's
+    // ownership; once one branch is in scope, a single option is enough.
+    const branchOwnershipOptions = isGlobalClients && branchContextId == null && branchOptions.length > 1
+        ? [{ value: 'branch', label: 'ملكية الفرع (كل الفروع)' }, ...branchOptions.map(b => ({ value: `branch:${b.id}`, label: `ملكية فرع ${b.name}` }))]
+        : [{ value: 'branch', label: 'ملكية الفرع' }];
+
     const clearAllFilters = useCallback(() => {
-        setSearchTerm(''); setFilterClass('all'); setFilterMediator('all');
+        setSearchTerm(''); setFilterClass('all'); setFilterMediator('all'); setFilterReferrerName('');
         setFilterGov('all'); setFilterRegion('all'); setFilterSubarea('all'); setFilterHood('all');
         setFilterOwner('all'); setFilterRating('all');
         setFilterHasDevice('all'); setFilterTaskType('all');
@@ -497,8 +531,9 @@ export default function Clients() {
     const filterChips: Chip[] = [];
     if (filterClass !== 'all') filterChips.push({ key: 'class', label: 'التصنيف', value: filterClass, onRemove: () => setFilterClass('all') });
     if (filterMediator !== 'all') filterChips.push({ key: 'mediator', label: 'نوع الوسيط', value: MEDIATOR_LABELS[filterMediator] ?? filterMediator, onRemove: () => setFilterMediator('all') });
+    if (filterReferrerName) filterChips.push({ key: 'referrerName', label: 'اسم الوسيط', value: filterReferrerName, onRemove: () => setFilterReferrerName('') });
     if (deepestGeo) filterChips.push({ key: 'geo', label: 'المنطقة', value: geoName(deepestGeo), onRemove: resetGeo });
-    if (filterOwner !== 'all') filterChips.push({ key: 'owner', label: 'المسؤول', value: ownerOptions.find(o => String(o.id) === filterOwner)?.name ?? filterOwner, onRemove: () => setFilterOwner('all') });
+    if (filterOwner !== 'all') filterChips.push({ key: 'owner', label: 'المسؤول', value: branchOwnershipOptions.find(o => o.value === filterOwner)?.label ?? ownerOptions.find(o => String(o.id) === filterOwner)?.name ?? filterOwner, onRemove: () => setFilterOwner('all') });
     if (filterRating !== 'all') filterChips.push({ key: 'rating', label: 'الالتزام', value: RATING_LABELS[filterRating] ?? filterRating, onRemove: () => setFilterRating('all') });
     if (filterHasDevice !== 'all') filterChips.push({ key: 'device', label: 'لديه جهاز', value: YESNO_LABELS[filterHasDevice], onRemove: () => setFilterHasDevice('all') });
     if (filterTaskType !== 'all') filterChips.push({ key: 'taskType', label: 'نوع المهمة', value: taskTypeOptions.find(t => t.value === filterTaskType)?.label ?? filterTaskType, onRemove: () => setFilterTaskType('all') });
@@ -528,8 +563,8 @@ export default function Clients() {
                 return <span className="text-sm text-slate-600 font-mono tracking-wide">{primary}</span>;
             }
         },
-        { key: 'neighborhood', label: 'العنوان', sortable: false, render: (c) => <span className="text-sm text-slate-600 font-medium">{getNeighborhoodHierarchy(c.neighborhood)}</span> },
-        { key: 'occupation', label: 'العنوان', sortable: false, render: (c) => <span className="text-sm text-slate-600">{getNeighborhoodHierarchy(c.neighborhood)}</span> },
+        { key: 'neighborhood', label: 'العنوان', sortable: false, render: (c) => <span className="text-sm text-slate-600 font-medium">{getClientAddressLabel(c)}</span> },
+        { key: 'occupation', label: 'المهنة', sortable: false, render: (c) => <span className="text-sm text-slate-600">{c.occupation || '--'}</span> },
         {
             key: 'status', label: 'التصنيف', sortable: true,
             render: (c) => {
@@ -609,7 +644,7 @@ export default function Clients() {
     }
 
     return (
-        <div className="p-8 space-y-6">
+        <div className="p-4 sm:p-6 lg:p-8 space-y-6">
             {/* 1. Page Title */}
             <div className="flex items-center justify-between">
                 <PageHeader
@@ -678,7 +713,7 @@ export default function Clients() {
                         <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                         <input
                             type="text"
-                            placeholder="بحث ذكي (الاسم، الهاتف، المعرف، الوسيط)..."
+                            placeholder="بحث ذكي (الاسم، الهاتف، المعرف)..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                             className="w-full bg-slate-50 border border-slate-200 rounded-xl pr-10 pl-4 py-3 text-sm focus:border-sky-500 focus:outline-none transition-all focus:bg-white"
@@ -738,15 +773,17 @@ export default function Clients() {
                             <Select className="w-full" value={filterRating} onChange={setFilterRating} ariaLabel="الالتزام"
                                 options={[{ value: 'all', label: 'كل التقييمات' }, { value: 'Committed', label: 'ملتزم' }, { value: 'NotCommitted', label: 'غير ملتزم' }, { value: 'Undefined', label: 'غير محدد' }]} />
                         </FilterField>
-                        {ownerOptions.length > 0 && (
-                            <FilterField label="المسؤول">
-                                <Select className="w-full" value={filterOwner} onChange={setFilterOwner} ariaLabel="المسؤول"
-                                    options={[{ value: 'all', label: 'كل المسؤولين' }, ...ownerOptions.map(o => ({ value: String(o.id), label: o.name }))]} />
-                            </FilterField>
-                        )}
+                        <FilterField label="المسؤول">
+                            <Select className="w-full" value={filterOwner} onChange={setFilterOwner} ariaLabel="المسؤول"
+                                options={[{ value: 'all', label: 'كل المسؤولين' }, ...branchOwnershipOptions, ...ownerOptions.map(o => ({ value: String(o.id), label: o.name }))]} />
+                        </FilterField>
                         <FilterField label="نوع الوسيط">
                             <Select className="w-full" value={filterMediator} onChange={setFilterMediator} ariaLabel="نوع الوسيط"
                                 options={[{ value: 'all', label: 'كل أنواع الوسيط' }, { value: 'Personal', label: 'شخصي' }, { value: 'Employee', label: 'موظف' }, { value: 'Client', label: 'زبون حالي' }]} />
+                        </FilterField>
+                        <FilterField label="اسم الوسيط">
+                            <input type="text" value={filterReferrerName} onChange={e => setFilterReferrerName(e.target.value)} placeholder="بحث باسم الوسيط"
+                                className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 hover:border-slate-300 focus:border-sky-500 focus:outline-none transition-colors" />
                         </FilterField>
                         {govOptions.length > 1 && (
                             <FilterField label="المحافظة">

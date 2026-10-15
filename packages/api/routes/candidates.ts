@@ -7,6 +7,7 @@ import {
   canCreateCandidate,
   canDeleteCandidate,
   canEditCandidate,
+  canLinkRestrictedLead,
   getCandidateListAccessPlan,
   canViewCandidate,
 } from '../policies/candidatePolicy.js';
@@ -23,6 +24,7 @@ import {
   validateCandidateOwnershipDecision,
   type CandidateOwnershipDecision,
 } from '../services/candidateOwnershipService.js';
+import { buildReferrerFromCandidate } from '../services/candidateReferrer.js';
 import {
   getCanonicalContactNumber,
   normalizeContactsForWrite,
@@ -34,6 +36,7 @@ import {
   detectCandidateDuplicate,
 } from '../services/candidateDuplicateDetection.js';
 import { recomputeReferralSheetStats } from '../services/referralSheetStats.js';
+import { phoneNormalizationSql } from '../utils/phoneSql.js';
 import {
   createReferralGiftPromise,
   ReferralGiftPromiseError,
@@ -352,6 +355,47 @@ async function loadLinkableClient(clientId: string | number): Promise<LinkableCl
   return rows[0] ?? null;
 }
 
+async function findRestrictedSameBranchLead(
+  candidate: LinkableCandidate,
+  queryDb: Queryable = pool,
+): Promise<LinkableClient | null> {
+  const normalizedPhone = normalizePhone(candidate.mobile);
+  if (!normalizedPhone || candidate.branchId == null) return null;
+
+  const { rows } = await queryDb.query(
+    `SELECT
+       c.id,
+       c.branch_id AS "branchId",
+       (${buildClientLifecycleStatusSql('c')}) AS "lifecycleStage",
+       COALESCE(
+         (SELECT array_agg(hr_user_id)
+            FROM client_assignments
+           WHERE client_id = c.id),
+         '{}'::int[]
+       ) AS "assignedUserIds"
+     FROM clients c
+    WHERE c.is_candidate = FALSE
+      AND c.deleted_at IS NULL
+      AND c.branch_id = $2
+      AND (
+        ${phoneNormalizationSql('c.mobile')} = $1
+        OR EXISTS (
+          SELECT 1
+            FROM jsonb_array_elements(COALESCE(c.contacts, '[]'::jsonb)) contact
+           WHERE ${phoneNormalizationSql(`contact->>'number'`)} = $1
+        )
+      )
+      AND (${buildClientLifecycleStatusSql('c')}) = 'LEAD'
+    ORDER BY c.id
+    LIMIT 2`,
+    [normalizedPhone, candidate.branchId],
+  );
+
+  // Ambiguous matches must be reviewed by an already-authorized user; never
+  // let a restricted caller select between hidden records.
+  return rows.length === 1 ? rows[0] : null;
+}
+
 async function resolveTransferableCandidateAssignmentIds(db: Queryable, candidateId: number): Promise<number[]> {
   const { rows: assignmentRows } = await db.query(
     `SELECT DISTINCT u.id
@@ -667,8 +711,18 @@ router.get('/paged', requirePermission('candidates.view_list'), async (req, res)
       conditions.push(`c.branch_id = $${params.length}`);
     }
 
+    // `ownershipType=BRANCH` = no responsible user — the same rule the
+    // "ownershipType" column uses to render a candidate as branch-owned.
     const responsibleUserId = toPositiveInt(req.query.responsibleUserId);
-    if (responsibleUserId != null) {
+    if (str('ownershipType') === 'BRANCH') {
+      conditions.push(`NOT EXISTS (SELECT 1 FROM candidate_assignments f_ca WHERE f_ca.candidate_id = c.id)`);
+      // One specific branch's ownership; ANDed with the scope, never widens it.
+      const ownershipBranchId = toPositiveInt(req.query.ownershipBranchId);
+      if (ownershipBranchId != null) {
+        params.push(ownershipBranchId);
+        conditions.push(`c.branch_id = $${params.length}`);
+      }
+    } else if (responsibleUserId != null) {
       params.push(responsibleUserId);
       conditions.push(`EXISTS (SELECT 1 FROM candidate_assignments f_ca WHERE f_ca.candidate_id = c.id AND f_ca.hr_user_id = $${params.length})`);
     }
@@ -1361,8 +1415,9 @@ router.post('/:id/link-client', requirePermission('candidates.edit'), async (req
   try {
     const authContext = getRequiredAuthContext(req);
     const candidateId = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
-    const clientId = Number(req.body?.clientId);
-    if (!Number.isInteger(candidateId) || candidateId <= 0 || !Number.isInteger(clientId) || clientId <= 0) {
+    const restrictedSameBranchLead = req.body?.restrictedSameBranchLead === true;
+    let clientId = Number(req.body?.clientId);
+    if (!Number.isInteger(candidateId) || candidateId <= 0 || (!restrictedSameBranchLead && (!Number.isInteger(clientId) || clientId <= 0))) {
       return res.status(400).json({ error: 'معرّف الاسم المقترح أو الزبون غير صالح' });
     }
 
@@ -1376,11 +1431,6 @@ router.post('/:id/link-client', requirePermission('candidates.edit'), async (req
       return forbidCandidateAccess(res, editAccess.reason);
     }
 
-    const client = await loadLinkableClient(clientId);
-    if (!client) {
-      return res.status(404).json({ message: 'الزبون غير موجود' });
-    }
-
     const candidate = await loadLinkableCandidate(candidateId);
     if (!candidate) {
       return res.status(404).json({ message: 'الاسم المقترح غير موجود' });
@@ -1392,43 +1442,59 @@ router.post('/:id/link-client', requirePermission('candidates.edit'), async (req
       });
     }
 
+    if (restrictedSameBranchLead) {
+      const restrictedAccess = canLinkRestrictedLead(authContext, candidateSubject);
+      if (!restrictedAccess.allowed) {
+        return forbidCandidateAccess(res, restrictedAccess.reason);
+      }
+    }
+
+    const client = restrictedSameBranchLead
+      ? await findRestrictedSameBranchLead(candidate)
+      : await loadLinkableClient(clientId);
+    if (!client) {
+      return res.status(restrictedSameBranchLead ? 409 : 404).json({
+        error: restrictedSameBranchLead
+          ? 'تعذر ربط التطابق المقيّد: يجب أن يكون زبوناً واحداً من نوع Lead ضمن فرع الاسم نفسه'
+          : 'الزبون غير موجود',
+        code: restrictedSameBranchLead ? 'restricted_lead_match_unavailable' : undefined,
+      });
+    }
+    clientId = Number(client.id);
+
     const editClientAccess = canEditClient(authContext, {
       branchId: client.branchId,
       assignedUserIds: client.assignedUserIds,
     });
-    if (!editClientAccess.allowed) {
+    if (!restrictedSameBranchLead && !editClientAccess.allowed) {
       return res.status(403).json({
         error: 'غير مسموح بتعديل علاقة هذا الزبون',
         code: editClientAccess.reason,
       });
     }
 
-    const newReferrer = {
-      id: candidate.referralType === 'Client' ? candidate.referralEntityId : null,
-      sourceCandidateId: candidate.id,
-      name: candidate.referralNameSnapshot,
-      type: candidate.referralType,
-      channel: candidate.referralOriginChannel,
-      address: candidate.addressText,
-      referrerType: candidate.referralType,
-      referralEntityId: candidate.referralEntityId,
-      referrerName: candidate.referralNameSnapshot,
-      sourceChannel: candidate.referralOriginChannel,
+    // Linking dates the relation the day it was formed; conversion keeps the
+    // candidate's historical date instead (see buildReferrerFromCandidate).
+    const newReferrer = buildReferrerFromCandidate(candidate, {
       referralDate: currentDateKey(),
-      referralReason: candidate.referralReason,
-      referralSheetId: candidate.referralSheetId,
-      referralAddressText: candidate.addressText,
-    };
+    });
 
     const sameBranchLink =
       candidate.branchId != null &&
       client.branchId != null &&
       Number(candidate.branchId) === Number(client.branchId);
     const shouldTransferLeadOwnership = client.lifecycleStage === 'LEAD' && sameBranchLink;
+    if (restrictedSameBranchLead && !shouldTransferLeadOwnership) {
+      return res.status(409).json({
+        error: 'لا يمكن ربط تطابق مقيّد خارج الفرع أو بزبون غير مصنف Lead',
+        code: 'restricted_lead_match_unavailable',
+      });
+    }
 
     await db.query('BEGIN');
     const { rows: lockedCandidateRows } = await db.query(
-      `SELECT status, converted_to_lead_id AS "convertedToLeadId"
+      `SELECT status, converted_to_lead_id AS "convertedToLeadId",
+              branch_id AS "branchId", mobile
          FROM candidates
         WHERE id = $1
         FOR UPDATE`,
@@ -1446,23 +1512,83 @@ router.post('/:id/link-client', requirePermission('candidates.edit'), async (req
         code: 'candidate_terminal_locked',
       });
     }
+    if (restrictedSameBranchLead) {
+      const lockedMatch = await findRestrictedSameBranchLead({
+        ...candidate,
+        branchId: lockedCandidateRows[0].branchId,
+        mobile: lockedCandidateRows[0].mobile,
+      }, db);
+      if (!lockedMatch || Number(lockedMatch.id) !== clientId) {
+        throw Object.assign(new Error('تغير التطابق أو حالته أثناء الربط'), {
+          status: 409,
+          code: 'restricted_lead_match_changed',
+        });
+      }
+      await db.query('SELECT id FROM clients WHERE id = $1 FOR UPDATE', [clientId]);
+      const confirmedMatch = await findRestrictedSameBranchLead({
+        ...candidate,
+        branchId: lockedCandidateRows[0].branchId,
+        mobile: lockedCandidateRows[0].mobile,
+      }, db);
+      if (!confirmedMatch || Number(confirmedMatch.id) !== clientId) {
+        throw Object.assign(new Error('لم يعد الزبون مطابقاً لشروط الربط'), {
+          status: 409,
+          code: 'restricted_lead_match_changed',
+        });
+      }
+    }
     const transferableAssignmentIds = shouldTransferLeadOwnership
       ? await resolveTransferableCandidateAssignmentIds(db, candidateId)
       : [];
 
     await db.query(
-      `WITH next_referrers AS (
+      `WITH existing_referrers AS (
+          -- Most imported clients still carry their only mediator in the legacy
+          -- scalar columns with an empty referrers array. Appending to that
+          -- empty array made the NEW mediator element 0, and the flat columns
+          -- below were then rewritten from it — silently destroying the
+          -- historical mediator (clients.md §سلامة شبكة الوسطاء). Materialize
+          -- the legacy row first, exactly as mapClientRow does on read, so the
+          -- append lands after it.
           SELECT CASE
-                  WHEN EXISTS (
-                    SELECT 1
-                      FROM jsonb_array_elements(COALESCE(referrers, '[]'::jsonb)) AS existing_referrer
-                     WHERE existing_referrer->>'sourceCandidateId' = $2::text
-                  )
-                  THEN COALESCE(referrers, '[]'::jsonb)
-                  ELSE COALESCE(referrers, '[]'::jsonb) || $3::jsonb
+                  WHEN COALESCE(jsonb_array_length(referrers), 0) > 0
+                    THEN referrers
+                  WHEN referrer_name IS NOT NULL
+                    OR referrer_type IS NOT NULL
+                    OR referral_entity_id IS NOT NULL
+                    THEN jsonb_build_array(jsonb_build_object(
+                           'id',                  referral_entity_id,
+                           'sourceCandidateId',   NULL,
+                           'name',                referrer_name,
+                           'type',                referrer_type,
+                           'channel',             source_channel,
+                           'address',             referral_address_text,
+                           'referrerType',        referrer_type,
+                           'referrerId',          referrer_id,
+                           'referralEntityId',    referral_entity_id,
+                           'referrerName',        referrer_name,
+                           'sourceChannel',       source_channel,
+                           'referralDate',        referral_date,
+                           'referralReason',      referral_reason,
+                           'referralSheetId',     referral_sheet_id,
+                           'referralAddressText', referral_address_text
+                         ))
+                  ELSE '[]'::jsonb
                 END AS value
             FROM clients
            WHERE id = $1
+        ),
+        next_referrers AS (
+          SELECT CASE
+                  WHEN EXISTS (
+                    SELECT 1
+                      FROM jsonb_array_elements(existing_referrers.value) AS existing_referrer
+                     WHERE existing_referrer->>'sourceCandidateId' = $2::text
+                  )
+                  THEN existing_referrers.value
+                  ELSE existing_referrers.value || $3::jsonb
+                END AS value
+            FROM existing_referrers
         ),
         primary_referrer AS (
           SELECT

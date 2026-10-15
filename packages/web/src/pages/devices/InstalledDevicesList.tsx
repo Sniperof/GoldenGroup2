@@ -12,6 +12,7 @@ import { api } from '../../lib/api';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { useBranchContextStore } from '../../hooks/useBranchContextStore';
+import { useDidUpdateEffect, useScrollRestoration, useSessionState } from '../../hooks/useListStatePersistence';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -108,6 +109,8 @@ export default function InstalledDevicesList() {
     const { hasPermission } = usePermissions();
     const getPermissionScope = useAuthStore((s) => s.getPermissionScope);
     const contextBranchId = useBranchContextStore((s) => s.branchId);
+    // Remembered list state (page, sort, search, filters) for this tab, per branch view.
+    const listKey = `installed-devices:${contextBranchId ?? 'all'}`;
     const [branchOptions, setBranchOptions] = useState<{ id: number; name: string }[]>([]);
 
     const canViewDevices = hasPermission('installed_devices.view');
@@ -117,43 +120,49 @@ export default function InstalledDevicesList() {
     const isGlobalView = getPermissionScope('installed_devices.view') === 'GLOBAL';
 
     // Branch-scoped geo cascade (محافظة → منطقة → ناحية → حي) → geoIdsCsv subtree.
-    const geo = useGeoCascade({ branchId: isGlobalView ? contextBranchId : null });
+    const geo = useGeoCascade({ branchId: isGlobalView ? contextBranchId : null, persistKey: listKey });
 
     // ─── Server-paginated data: `devices` holds only the current page ───
     const [devices, setDevices] = useState<InstalledDevice[]>([]);
     const [total, setTotal] = useState(0);
     const [loading, setLoading] = useState(true);
     const [initialLoad, setInitialLoad] = useState(true);
+    // Back from a record lands on the row it was opened from.
+    useScrollRestoration(listKey, !initialLoad);
 
-    const [page, setPage] = useState(1);
-    const [limit, setLimit] = useState(10);
-    const [sortKey, setSortKey] = useState<string | null>(null);
-    const [sortDir, setSortDir] = useState<'asc' | 'desc' | null>(null);
+    const [page, setPage] = useSessionState(`${listKey}:page`, 1);
+    const [limit, setLimit] = useSessionState(`${listKey}:limit`, 10);
+    const [sortKey, setSortKey] = useSessionState<string | null>(`${listKey}:sortKey`, null);
+    const [sortDir, setSortDir] = useSessionState<'asc' | 'desc' | null>(`${listKey}:sortDir`, null);
 
     // ─── Filters & search ───
-    const [searchTerm, setSearchTerm] = useState('');
-    const [debouncedSearch, setDebouncedSearch] = useState('');
-    const [filtersOpen, setFiltersOpen] = useState(false);
-    const [filterStatus, setFilterStatus] = useState('all');
-    const [filterSource, setFilterSource] = useState('all');
-    const [filterGolden, setFilterGolden] = useState('all');
-    const [filterSaleSubtype, setFilterSaleSubtype] = useState('all');
-    const [filterDeviceModel, setFilterDeviceModel] = useState('all');
-    const [filterServiceAgreement, setFilterServiceAgreement] = useState('all');
-    const [filterWarrantyExpiring, setFilterWarrantyExpiring] = useState('all');
-    const [installFrom, setInstallFrom] = useState('');
-    const [installTo, setInstallTo] = useState('');
+    const [searchTerm, setSearchTerm] = useSessionState(`${listKey}:searchTerm`, '');
+    const [debouncedSearch, setDebouncedSearch] = useState(searchTerm);
+    const [filtersOpen, setFiltersOpen] = useSessionState(`${listKey}:filtersOpen`, false);
+    const [filterStatus, setFilterStatus] = useSessionState(`${listKey}:filterStatus`, 'all');
+    const [filterSource, setFilterSource] = useSessionState(`${listKey}:filterSource`, 'all');
+    const [filterGolden, setFilterGolden] = useSessionState(`${listKey}:filterGolden`, 'all');
+    const [filterSaleSubtype, setFilterSaleSubtype] = useSessionState(`${listKey}:filterSaleSubtype`, 'all');
+    const [filterDeviceModel, setFilterDeviceModel] = useSessionState(`${listKey}:filterDeviceModel`, 'all');
+    const [filterServiceAgreement, setFilterServiceAgreement] = useSessionState(`${listKey}:filterServiceAgreement`, 'all');
+    const [filterWarrantyExpiring, setFilterWarrantyExpiring] = useSessionState(`${listKey}:filterWarrantyExpiring`, 'all');
+    const [installFrom, setInstallFrom] = useSessionState(`${listKey}:installFrom`, '');
+    const [installTo, setInstallTo] = useSessionState(`${listKey}:installTo`, '');
 
     const [deviceModelOptions, setDeviceModelOptions] = useState<{ id: number; name: string }[]>([]);
 
-    useEffect(() => {
+    // useDidUpdateEffect: page resets must not fire on mount and wipe the restored page.
+    useDidUpdateEffect(() => {
         const t = setTimeout(() => { setDebouncedSearch(searchTerm); setPage(1); }, 300);
         return () => clearTimeout(t);
     }, [searchTerm]);
 
-    useEffect(() => { setPage(1); }, [
+    useDidUpdateEffect(() => { setPage(1); }, [
         filterStatus, filterSource, filterGolden, filterSaleSubtype, filterDeviceModel,
-        filterServiceAgreement, filterWarrantyExpiring, installFrom, installTo, contextBranchId, geo.geoIdsCsv,
+        filterServiceAgreement, filterWarrantyExpiring, installFrom, installTo, contextBranchId,
+        // Raw geo selection, not geo.geoIdsCsv: the CSV also changes by itself once the
+        // geo names tree loads, which would bounce a restored page back to 1.
+        geo.gov, geo.region, geo.subarea, geo.hood,
     ]);
 
     useEffect(() => {
@@ -199,6 +208,8 @@ export default function InstalledDevicesList() {
         });
         setDevices(res.items as InstalledDevice[]);
         setTotal(res.total);
+        // A remembered page past the end (rows were removed meanwhile) → last page.
+        if (res.items.length === 0 && res.total > 0 && page > 1) setPage(Math.max(1, Math.ceil(res.total / limit)));
     }, [buildListParams, page, limit]);
 
     const fetchAllFiltered = useCallback(() => collectAllPages<InstalledDevice>(async (exportPage, exportLimit) => {

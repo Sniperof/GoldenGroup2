@@ -37,7 +37,7 @@ import Checkbox from '../components/ui/Checkbox';
 import { useSystemListsStore } from '../hooks/useSystemLists';
 import { getUnifiedApplicationState, getUnifiedApplicationStateClasses } from '../lib/applicationState';
 import GiftRecordsTable from '../components/gifts/GiftRecordsTable';
-import type { GiftRecordPrototype } from '../data/giftsPrototype';
+import type { GiftRecord } from '../data/gifts';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -277,7 +277,7 @@ export default function EmployeeDetail() {
   const [savingProfile, setSavingProfile]   = useState(false);
   const [savingAccount, setSavingAccount]   = useState(false);
   const [activeTab, setActiveTab]           = useState<TabKey>('profile');
-  const [giftRecords, setGiftRecords]       = useState<GiftRecordPrototype[]>([]);
+  const [giftRecords, setGiftRecords]       = useState<GiftRecord[]>([]);
   const [giftRecordsError, setGiftRecordsError] = useState<string | null>(null);
   const [giftReloadToken, setGiftReloadToken]   = useState(0);
 

@@ -163,6 +163,7 @@ const PERM_LABELS: Record<string, string> = {
   'candidates.assignment.manage':   'إدارة مسؤولي الأسماء المقترحة',
   'candidates.create':              'إضافة اسم مقترح',
   'candidates.edit':                'تعديل الاسم المقترح',
+  'candidates.link_restricted_lead': 'ربط زبون Lead مقيّد ضمن الفرع',
   'candidates.name_lists.view_list': 'عرض لوائح الأسماء',
   'candidates.name_lists.create':   'إنشاء لائحة أسماء',
   'candidates.name_lists.edit':     'تعديل لائحة أسماء',

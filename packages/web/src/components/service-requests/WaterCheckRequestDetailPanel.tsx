@@ -3,6 +3,7 @@ import { ArrowUpCircle, Beaker, CheckCircle2, ExternalLink, Link2, MapPin, User,
 import type { GeoUnit } from '@golden-crm/shared';
 import { api } from '../../lib/api';
 import Button from '../ui/Button';
+import { buildMapsEmbedUrl } from '../../utils/addressUtils';
 
 function readText(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
@@ -187,9 +188,7 @@ export default function WaterCheckRequestDetailPanel({
       ].filter(Boolean).join(' / ')
     : '';
 
-  const mapUrl = mapLocation
-    ? `https://www.openstreetmap.org/export/embed.html?bbox=${mapLocation.lng - 0.01},${mapLocation.lat - 0.005},${mapLocation.lng + 0.01},${mapLocation.lat + 0.005}&layer=mapnik&marker=${mapLocation.lat},${mapLocation.lng}`
-    : null;
+  const mapUrl = buildMapsEmbedUrl(mapLocation);
 
   return (
     <div className="space-y-4">

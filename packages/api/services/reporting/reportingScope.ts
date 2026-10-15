@@ -1,5 +1,6 @@
 import type { MetricComputeContext } from './metricsCatalog.js';
 import { ReportingError } from './reportingError.js';
+import { contractSaleOwnerSql } from '../../policies/contractPolicy.js';
 
 type QueryParams = unknown[];
 
@@ -33,13 +34,17 @@ export function appendCandidateScope(ctx: MetricComputeContext, params: QueryPar
 }
 
 /**
- * Contracts are branch-only (no ASSIGNED tier — see
- * docs/analysis/contracts-records-performance-filters-and-stats.md §2): scope is
- * the branch filter alone. A viewer without BRANCH/GLOBAL contracts.view_list is
- * denied earlier by resolveListAccessScope (NONE), so no ASSIGNED handling is needed.
+ * Matches GET /api/contracts: ASSIGNED means the viewer is the contract's sale
+ * owner (policies/contractPolicy.ts) — the same predicate the list and record
+ * checks use, so the stat cards never count contracts the table hides.
  */
 export function appendContractScope(ctx: MetricComputeContext, params: QueryParams, alias = 'c'): string {
-  return appendBranchScope(ctx, params, alias);
+  let sql = appendBranchScope(ctx, params, alias);
+  if (ctx.scope === 'ASSIGNED') {
+    params.push(ctx.userId);
+    sql += ` AND ${contractSaleOwnerSql(alias, `$${params.length}`)}`;
+  }
+  return sql;
 }
 
 /**

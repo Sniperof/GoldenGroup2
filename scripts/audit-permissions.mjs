@@ -4,7 +4,7 @@ import path from 'node:path';
 const root = process.cwd();
 const scanRoots = ['migrations', 'packages/api', 'packages/web/src'];
 const codeExtensions = new Set(['.ts', '.tsx', '.sql']);
-const outputDir = path.join(root, 'docs', 'analysis');
+const outputDir = path.join(root, 'docs', 'engineering', 'audits');
 
 function walk(dir) {
   if (!fs.existsSync(dir)) return [];
@@ -233,8 +233,8 @@ ${listItems(multiPermissionEndpoints, (endpoint) => `\`${endpoint.method} ${endp
 
 ## Detail Files
 
-- \`docs/analysis/permission-inventory.csv\`: each permission, definition, and detected usage.
-- \`docs/analysis/permission-endpoints.csv\`: protected endpoints and their permissions.
+- \`docs/engineering/audits/permission-inventory.csv\`: each permission, definition, and detected usage.
+- \`docs/engineering/audits/permission-endpoints.csv\`: protected endpoints and their permissions.
 
 ## Inventory Limits
 
@@ -254,5 +254,5 @@ console.log(JSON.stringify({
   frontendOnly: frontendOnly.length,
   backendOnly: backendOnly.length,
   multiPermissionEndpoints: multiPermissionEndpoints.length,
-  report: 'docs/analysis/permission-inventory.md',
+  report: 'docs/engineering/audits/permission-inventory.md',
 }, null, 2));

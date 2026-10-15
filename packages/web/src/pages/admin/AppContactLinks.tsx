@@ -134,7 +134,7 @@ export default function AppContactLinks() {
   if (!canView) return <Navigate to="/" replace />;
 
   return (
-    <div className="p-6 max-w-5xl mx-auto" dir="rtl">
+    <div className="p-4 sm:p-6 lg:p-8" dir="rtl">
       <PageHeader
         className="mb-6"
         title="روابط التواصل في التطبيق"

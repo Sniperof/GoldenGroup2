@@ -4,7 +4,6 @@ import { requirePermission } from '../middleware/permission.js';
 import { getPlanningMarketingTargets, getAssignedLeadsForTeam } from '../services/planningMarketingTargets.js';
 import {
   getCurrentEmployeeId,
-  getCurrentEmployeeRole,
   getSystemRoleName,
   loadDaySchedule,
   getTeamFromSchedule,
@@ -52,6 +51,7 @@ import {
   resolveBookingAddress,
   withResolvedBookingAddress,
 } from '../services/telemarketingAppointmentSnapshot.js';
+import { CLIENT_SELECT, mapClientRow } from '../services/clientReadModel.js';
 
 async function acquireClientContactControlReadGuard(
   clientId: number,
@@ -640,7 +640,12 @@ async function createMarketingVisitForAppointment(
  * - TELEMARKETER: allowed only if in team.telemarketers[] for this date/teamKey.
  * - All other roles: denied.
  */
-async function verifyTaskListAccess(req: any, res: any, taskListId: string): Promise<any | null> {
+async function verifyTaskListAccess(
+  req: any,
+  res: any,
+  taskListId: string,
+  options: { allowClosed?: boolean } = {},
+): Promise<any | null> {
   const { rows } = await pool.query(
     `SELECT id, team_key, date, branch_id, status FROM telemarketing_task_lists WHERE id = $1`,
     [taskListId],
@@ -652,7 +657,7 @@ async function verifyTaskListAccess(req: any, res: any, taskListId: string): Pro
 
   const taskList = rows[0];
 
-  if (taskList.status === 'closed') {
+  if (taskList.status === 'closed' && options.allowClosed !== true) {
     res.status(409).json({
       message: 'انتهت خطة هذه القائمة؛ السجل متاح للقراءة فقط',
       code: 'PLANNING_DAY_CLOSED',
@@ -724,6 +729,56 @@ const mapTaskListRows = (rows: any[]) => {
 
   return Array.from(taskLists.values());
 };
+
+async function buildAvailableTeamOptions(date: string | undefined, taskListRows: any[]) {
+  const teamKeys = Array.from(new Set(
+    taskListRows
+      .map(row => String(row.teamKey ?? ''))
+      .filter(key => /^(team|solo)_\d+$/.test(key)),
+  ));
+  if (teamKeys.length === 0) return [];
+
+  const schedule = date ? await loadDaySchedule(date) : null;
+  const leadIds = teamKeys.map(key => {
+    const teamMatch = key.match(/^team_(\d+)$/);
+    if (teamMatch) return Number(schedule?.teams?.[Number(teamMatch[1])]?.supervisor) || null;
+    const soloMatch = key.match(/^solo_(\d+)$/);
+    return soloMatch ? Number(schedule?.solos?.[Number(soloMatch[1])]?.technician) || null : null;
+  }).filter((id): id is number => Number.isInteger(id) && id > 0);
+
+  const nameByEmployee = new Map<number, string>();
+  if (leadIds.length > 0) {
+    const { rows } = await pool.query<{ id: number; name: string }>(
+      'SELECT id, name FROM employees WHERE id = ANY($1::int[])',
+      [[...new Set(leadIds)]],
+    );
+    rows.forEach(row => nameByEmployee.set(Number(row.id), row.name));
+  }
+
+  return teamKeys.map(key => {
+    const teamMatch = key.match(/^team_(\d+)$/);
+    if (teamMatch) {
+      const index = Number(teamMatch[1]);
+      const team = schedule?.teams?.[index];
+      const supervisorName = nameByEmployee.get(Number(team?.supervisor));
+      return {
+        key,
+        label: supervisorName ? `فريق ${supervisorName}` : `فريق #${index + 1}`,
+        type: 'team' as const,
+        count: Array.isArray(team?.telemarketers) ? team.telemarketers.length : 0,
+      };
+    }
+    const index = Number(key.match(/^solo_(\d+)$/)?.[1] ?? 0);
+    const solo = schedule?.solos?.[index];
+    const technicianName = nameByEmployee.get(Number(solo?.technician));
+    return {
+      key,
+      label: technicianName ? `طوارئ: ${technicianName}` : `فريق طوارئ #${index + 1}`,
+      type: 'solo' as const,
+      count: 1,
+    };
+  });
+}
 
 /**
  * @swagger
@@ -857,13 +912,10 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view', 'telemarke
     if (systemRole && BRANCH_LEVEL_ACCESS_ROLES.has(systemRole)) {
       // ADMIN and BRANCH_MANAGER: accessibleTeamKeys remains null (all teams in branch)
     } else {
-      // Not a branch-level access role — check if they are a telemarketer
+      // Non-manager access is determined by the saved team subject, not by a
+      // denormalized employee-role label.
       const employeeId = await getCurrentEmployeeId(authContext?.userId);
-      const employeeRole = employeeId != null ? await getCurrentEmployeeRole(authContext?.userId) : null;
-
-      if (employeeRole === 'telemarketer' && employeeId != null) {
-        // Telemarketer: can see assigned teams, or all branch telemarketing
-        // fallback teams when no telemarketers are assigned.
+      if (employeeId != null) {
         accessibleTeamKeys = [];
         // Local calendar date (NOT UTC) — toISOString() is a day behind before the UTC offset.
         const dateToCheck = dateParam || (() => {
@@ -875,31 +927,13 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view', 'telemarke
           for (let i = 0; i < schedule.teams.length; i++) {
             const team = schedule.teams[i];
             const accessIds = await getTeamTelemarketerAccessEmployeeIds(team, branchId);
-            if (accessIds.includes(employeeId)) {
-              accessibleTeamKeys.push(`team_${i}`);
-            }
-          }
-        }
-      } else if (employeeRole === 'supervisor' && employeeId != null) {
-        accessibleTeamKeys = [];
-        // Local calendar date (NOT UTC) — toISOString() is a day behind before the UTC offset.
-        const dateToCheck = dateParam || (() => {
-          const d = new Date();
-          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-        })();
-        const schedule = await loadDaySchedule(dateToCheck);
-        if (schedule) {
-          for (let i = 0; i < schedule.teams.length; i++) {
-            const team = schedule.teams[i];
-            if (isEmployeeSupervisorInTeam(employeeId, team)) {
+            if (isEmployeeSupervisorInTeam(employeeId, team) || accessIds.includes(employeeId)) {
               accessibleTeamKeys.push(`team_${i}`);
             }
           }
         }
       } else {
-        // Roles like CUSTOMER_SERVICE_SUPERVISOR, TECHNICIAN, SUPERVISOR, etc.
-        // are not allowed to see telemarketing task lists in TM-4A.
-        return res.json({ taskLists: [], appointments: [], callLogs: [] });
+        return res.json({ taskLists: [], appointments: [], callLogs: [], availableTeams: [] });
       }
     }
   }
@@ -918,7 +952,7 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view', 'telemarke
   if (accessibleTeamKeys !== null) {
     if (accessibleTeamKeys.length === 0) {
       // Telemarketer with no teams: return nothing
-      return res.json({ taskLists: [], appointments: [], callLogs: [] });
+      return res.json({ taskLists: [], appointments: [], callLogs: [], availableTeams: [] });
     }
     const teamKeyClause = accessibleTeamKeys.map(() => `$${paramIdx++}`).join(', ');
     taskListWhere += taskListWhere ? ' AND' : ' WHERE';
@@ -996,6 +1030,7 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view', 'telemarke
     `,
     taskListParams,
   );
+  const availableTeams = await buildAvailableTeamOptions(dateParam, taskListRes.rows);
 
   // Filter appointments by branch and accessible teams
   // Plan 2026-06-10 Phase 2.4 — legacy telemarketing_appointments query
@@ -1174,6 +1209,7 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view', 'telemarke
           taskLists: mapTaskListRows(taskListRes.rows),
           appointments: appointmentRows,
           callLogs: [],
+          availableTeams,
         });
       }
       callLogWhere += ` WHERE task_list_id = ANY($${clParamIdx++}::varchar[])`;
@@ -1185,6 +1221,7 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view', 'telemarke
           taskLists: mapTaskListRows(taskListRes.rows),
           appointments: appointmentRows,
           callLogs: [],
+          availableTeams,
         });
       }
       callLogWhere += ` WHERE task_list_id = ANY($${clParamIdx++}::varchar[])`;
@@ -1233,8 +1270,58 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view', 'telemarke
     taskLists: mapTaskListRows(taskListRes.rows),
     appointments: appointmentRows,
     callLogs: callLogsRes.rows,
+    availableTeams,
   });
 });
+
+// Contextual client read for the telemarketing workspace. The task-list item is
+// the subject: callers do not gain general clients.view access merely because a
+// customer appears in their assigned contact queue.
+router.get(
+  '/task-lists/:taskListId/items/:itemId/client-details',
+  requirePermission('telemarketing.lists.view', 'telemarketing.lists.view_device_demo'),
+  async (req, res) => {
+    try {
+      const taskListId = String(req.params.taskListId);
+      const itemId = String(req.params.itemId);
+      const taskList = await verifyTaskListAccess(req, res, taskListId, { allowClosed: true });
+      if (!taskList) return;
+
+      const item = await loadTaskListItem(pool, taskListId, itemId);
+      if (!item) return res.status(404).json({ error: 'عنصر قائمة الاتصال غير موجود' });
+      if (item.entity_type !== 'client') {
+        return res.status(409).json({ error: 'عنصر قائمة الاتصال ليس زبوناً' });
+      }
+
+      if (getTelemarketingTaskTypeScope(req.authContext) === 'device_demo') {
+        const { rows: eligibleRows } = await pool.query(
+          `SELECT 1
+             FROM telemarketing_task_list_items sibling
+             JOIN open_tasks task ON task.id = sibling.open_task_id
+            WHERE sibling.task_list_id = $1
+              AND sibling.entity_type = 'client'
+              AND sibling.entity_id = $2
+              AND task.task_type = 'device_demo'
+            LIMIT 1`,
+          [taskListId, item.entity_id],
+        );
+        if (!eligibleRows[0]) {
+          return res.status(403).json({ error: 'هذه الجهة خارج نطاق عرض الجهاز المسموح لك' });
+        }
+      }
+
+      const { rows } = await pool.query(
+        `${CLIENT_SELECT} WHERE c.id = $1 AND c.branch_id = $2`,
+        [item.entity_id, taskList.branch_id],
+      );
+      if (!rows[0]) return res.status(404).json({ error: 'الزبون غير موجود ضمن فرع قائمة الاتصال' });
+      return res.json(mapClientRow(rows[0]));
+    } catch (error: any) {
+      console.error('[telemarketing] contextual client details failed:', error);
+      return res.status(500).json({ error: error?.message ?? 'تعذر تحميل تفاصيل الزبون' });
+    }
+  },
+);
 
 // LEGACY endpoint — kept for backwards compatibility only.
 // WARNING: this endpoint deletes and re-inserts all items unconditionally,
@@ -2678,7 +2765,7 @@ router.post('/book-visit', requirePermission('telemarketing.appointments.book'),
 });
 
 // ─── Legacy POST /telemarketing/appointments — retired 2026-06-10 (Phase 1.3)
-// Plan: docs/constitution/plans/2026-06-10-telemarketing-appointments-migration.md
+// Plan: docs/archive/plans/2026-06-10-telemarketing-appointments-migration.md
 // Replaced by /telemarketing/book-visit (DEC-003 D2). All writes to the legacy
 // telemarketing_appointments table now go away. The original handler (~335
 // lines) is preserved in git history one commit prior to this paragraph.

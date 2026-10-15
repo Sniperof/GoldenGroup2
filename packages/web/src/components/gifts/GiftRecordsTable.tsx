@@ -1,13 +1,13 @@
 import { CalendarCheck, Gift, UserRound } from '../ui/icons';
 import DataTable from '../ui/DataTable';
-import type { GiftRecordPrototype } from '../../data/giftsPrototype';
+import type { GiftRecord } from '../../data/gifts';
 import {
   giftBeneficiaryTypeLabels,
   giftConditionClasses,
   giftConditionStatusLabels,
   giftStatusClasses,
   giftStatusLabels,
-} from '../../data/giftsPrototype';
+} from '../../data/gifts';
 import GiftRecordActions from './GiftRecordActions';
 
 function Pill({ children, className }: { children: React.ReactNode; className: string }) {
@@ -34,7 +34,7 @@ export default function GiftRecordsTable({
   records,
   onChanged,
 }: {
-  records: GiftRecordPrototype[];
+  records: GiftRecord[];
   compact?: boolean;
   onChanged?: () => void;
 }) {

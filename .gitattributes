@@ -1,0 +1,21 @@
+# Normalize text files to LF in the repository; checkouts use the platform's
+# native line endings (core.autocrlf). Shell scripts always stay LF so they run
+# on Linux servers.
+* text=auto
+*.sh text eol=lf
+
+# Binary assets — never touch line endings or diff as text.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.pdf binary
+*.xlsx binary
+*.docx binary
+*.pptx binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.dump binary

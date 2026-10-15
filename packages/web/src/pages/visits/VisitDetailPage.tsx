@@ -20,6 +20,7 @@ import VisitTaskResultModalHost, {
 } from '../../components/fieldVisits/VisitTaskResultModalHost';
 import ClientSnapshot from '../../components/ClientSnapshot';
 import { useAuthStore } from '../../hooks/useAuthStore';
+import { taskDecisionLabel } from '../../lib/taskDecisionLabels';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -63,34 +64,33 @@ const TASK_STATUS_LABELS: Record<string, { label: string; color: string; bg: str
     closed:        { label: 'مغلقة',           color: 'text-slate-700',   bg: 'bg-slate-200'  },
 };
 
-const FINAL_DECISION_LABELS: Record<string, { label: string; cls: string }> = {
-    offer_presented: { label: 'تقديم عرض', cls: 'bg-sky-50 text-sky-700 border-sky-200' },
-    device_sold: { label: 'تم البيع', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-    rescheduled: { label: 'إعادة جدولة', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
-    cancelled: { label: 'إلغاء', cls: 'bg-rose-50 text-rose-700 border-rose-200' },
-    accepted: { label: 'مقبول (قديم)', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-    rejected: { label: 'مرفوض (قديم)', cls: 'bg-rose-50 text-rose-700 border-rose-200' },
-    needs_followup: { label: 'متابعة (قديم)', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
-    delivered_successfully: { label: 'تم التسليم', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-    customer_not_available: { label: 'الزبون غير متوفر', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
-    wrong_address: { label: 'عنوان خاطئ', cls: 'bg-orange-50 text-orange-700 border-orange-200' },
-    refused_delivery: { label: 'رفض التسليم', cls: 'bg-rose-50 text-rose-700 border-rose-200' },
-    installed_successfully: { label: 'تم التركيب', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-    installation_incomplete: { label: 'التركيب غير مكتمل', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
-    refused_installation: { label: 'رفض التركيب', cls: 'bg-rose-50 text-rose-700 border-rose-200' },
-    // emergency_maintenance lifecycle outcomes
-    resolved: { label: 'تَم الإصلاح', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-    unresolved: { label: 'لم يُحَلّ بالكامل', cls: 'bg-rose-50 text-rose-700 border-rose-200' },
-    needs_follow_up: { label: 'بحاجة مُتابعة', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+const FINAL_DECISION_STYLES: Record<string, string> = {
+    offer_presented: 'bg-sky-50 text-sky-700 border-sky-200',
+    device_sold: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    rescheduled: 'bg-amber-50 text-amber-700 border-amber-200',
+    cancelled: 'bg-rose-50 text-rose-700 border-rose-200',
+    accepted: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    rejected: 'bg-rose-50 text-rose-700 border-rose-200',
+    needs_followup: 'bg-amber-50 text-amber-700 border-amber-200',
+    delivered_successfully: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    customer_not_available: 'bg-amber-50 text-amber-700 border-amber-200',
+    wrong_address: 'bg-orange-50 text-orange-700 border-orange-200',
+    refused_delivery: 'bg-rose-50 text-rose-700 border-rose-200',
+    installed_successfully: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    installation_incomplete: 'bg-amber-50 text-amber-700 border-amber-200',
+    refused_installation: 'bg-rose-50 text-rose-700 border-rose-200',
+    resolved: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    unresolved: 'bg-rose-50 text-rose-700 border-rose-200',
+    needs_follow_up: 'bg-amber-50 text-amber-700 border-amber-200',
 };
 
-function getFinalDecisionMeta(value?: string | null) {
+function getFinalDecisionMeta(value?: string | null, taskType?: string | null) {
     if (!value) {
         return { label: 'غير مسجلة بعد', cls: 'bg-slate-50 text-slate-600 border-slate-200' };
     }
-    return FINAL_DECISION_LABELS[value] ?? {
-        label: value,
-        cls: 'bg-slate-50 text-slate-700 border-slate-200 font-mono',
+    return {
+        label: taskDecisionLabel(value, taskType),
+        cls: FINAL_DECISION_STYLES[value] ?? 'bg-slate-50 text-slate-700 border-slate-200',
     };
 }
 
@@ -167,7 +167,7 @@ function getDerivedOutcomeMeta(task: any) {
     }
 
     return {
-        label: 'محصلة غير محددة',
+        label: taskDecisionLabel(finalDecision, task.task_type),
         detail: null,
         cls: 'bg-slate-50 text-slate-600 border-slate-200',
         counts: { total, accepted, rejected, extension },
@@ -366,8 +366,11 @@ export default function VisitDetailPage() {
     const canCancel = canExecute && visit.status === 'scheduled';
     const canEnd = canExecute && visit.status === 'in_progress';
     const canManageReferral = visit.status === 'in_progress' || visit.status === 'ended';
-    const allTasksHaveResult = tasks.every((t: any) => t.result_id != null);
-    const canCloseVisit = visit.status === 'completed' && allTasksHaveResult;
+    // Mirrors the POST /field-visits/:id/close guard: at least one task, and
+    // every task has a result with a final decision (a bare result isn't enough).
+    const allTasksHaveFinalDecision = tasks.length > 0
+        && tasks.every((t: any) => t.result_id != null && t.final_decision != null);
+    const canCloseVisit = canExecute && visit.status === 'completed' && allTasksHaveFinalDecision;
 
     // VDP §4: reassigned team becomes primary; original becomes backup
     const reassigned = team.reassigned;
@@ -668,7 +671,7 @@ export default function VisitDetailPage() {
                             const canRecord = (visit.status === 'in_progress' || visit.status === 'ended') && !hasResult;
                             const canOpenResultModal = hasVisitTaskResultModal(task.task_type);
                             const canEditResult = visit.status === 'completed' && hasResult && canOpenResultModal;
-                            const decisionMeta = getFinalDecisionMeta(task.final_decision);
+                            const decisionMeta = getFinalDecisionMeta(task.final_decision, task.task_type);
                             const outcomeMeta = getDerivedOutcomeMeta(task);
                             return (
                                 <div key={task.id} className="rounded-xl border border-slate-200 p-4">

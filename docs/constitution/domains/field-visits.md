@@ -8,7 +8,7 @@
 > - أبرز التغييرات: حذف `visit_name_collections` (DEC-007 D40)، استبدالها بـ `referral_sheets` على مستوى الزيارة، إنشاء `visit_surveys` (DEC-007 D42)، إعادة تعريف completion guards (DEC-007 D44/D45)، تصعيد ثلاثي 24/48/72h لعدم التوثيق (DEC-006 D38)، انتقال `completed` آلي عبر `checkAndCompleteVisit()`.
 > - الحقول والجداول المُعلَّمة بـ `⛔ DEPRECATED` أدناه تبقى مذكورة للتوثيق التاريخي حتى تنفيذ migrations الإسقاط الفعلي.
 
-> **⏳ Implementation status (2026-06-01):** Phases 0-8 منفذة. Phase 9 (Legacy Removal) و Phase 10 (Sync) قيد التقدم. سجل التنفيذ الكامل: [`plans/2026-06-01-implementation-status.md`](../plans/2026-06-01-implementation-status.md).
+> **⏳ Implementation status (2026-06-01):** Phases 0-8 منفذة. Phase 9 (Legacy Removal) و Phase 10 (Sync) قيد التقدم. سجل التنفيذ الكامل: [`docs/archive/plans/2026-06-01-implementation-status.md`](../../archive/plans/2026-06-01-implementation-status.md).
 
 ---
 
@@ -474,7 +474,7 @@ erDiagram
 * **تاريخ الحل:** 2026-05-25
 
 ### GAP-028: ثغرة حقل النتيجة الوهمي (Technical Contradiction - result_fields)
-* **الموقع:** `docs/tasks/TASK_FIELD_VISITS_CONSTITUTION_PROMPT.md` vs `migrations/070_visit_core_schema.sql`
+* **الموقع:** `docs/archive/prompts/TASK_FIELD_VISITS_CONSTITUTION_PROMPT.md` vs `migrations/070_visit_core_schema.sql`
 * **الوصف:** تشير مسودة العمل السابقة إلى وجود حقل كـ JSONB باسم `result_fields` بجدول `visit_tasks` المضاف بالهجرة `087`. بالبحث، يتبين أن الهجرة `087` أضافت الحقول لجدول `marketing_visit_tasks` القديم والمتروك والذي تم إسقاطه في الهجرة `152` ولا وجود لهذا الحقل نهائياً بالجدول المعتمد حالياً.
 * **التأثير:** حدوث أخطاء برمجية وحيرة المطورين الجدد عند البحث عن الحقل.
 * **الحل المقترح:** توضيح أن نتائج المهام الفنية والتشغيلية المعتمدة حالياً تعتمد بنسبة 100% على جداول النتائج التخصصية الملحقة بنظام Unified Result Pattern.

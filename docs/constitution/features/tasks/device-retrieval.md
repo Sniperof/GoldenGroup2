@@ -1,6 +1,6 @@
 # مهمة سحب الجهاز — `device_retrieval`
 
-> **القالب المرجعي:** [`features/unified-task-template.md`](../unified-task-template.md)
+> **القالب المرجعي:** [`templates/unified-task-template.md`](../../templates/unified-task-template.md)
 > **الحالة:** Draft — توثيق دستوري مفاهيمي
 > **تاريخ الحسم الأولي:** 2026-06-23
 > **الـ display_group:** `after_sale_services`
@@ -112,7 +112,6 @@ interface CreateDeviceRetrievalTask {
   taskType: 'device_retrieval';
   installedDeviceId: string;
   retrievalPurpose: 'maintenance' | 'replacement';
-  serviceBranchId: string;
   dueDate: string;
   reasonCode?: string;
   notes?: string;
@@ -122,10 +121,11 @@ interface CreateDeviceRetrievalTask {
 قواعد الإنشاء:
 - يجب وجود `installedDeviceId`
 - يجب تحديد `retrievalPurpose`
-- يجب تحديد `serviceBranchId`
+- فرع الخدمة هو فرع الجهاز نفسه دائماً (`installed_devices.branch_id`)؛ يحدده النظام ولا يُختار عند الإنشاء ولا يتغير عند تسجيل النتيجة، فلا ينقل السحبُ الجهازَ إلى فرع آخر أبداً. ويُحفظ في المهمة كـ`service_branch_id`
+- إذا لم يكن الجهاز مرتبطاً بفرع، أو كان فرعه موقوفاً، تُرفض مهمة السحب
 - يجب أن تكون حالة الجهاز `out_of_service`
 - يجب وجود مهمة فك ناجحة سابقة
-- يجب وجود موقع حالي يمكن تنفيذ السحب منه وفرع خدمة يتم السحب إليه
+- يجب وجود موقع حالي يمكن تنفيذ السحب منه
 - لا يجوز وجود مهمة سحب نشطة لنفس الجهاز
 - `requires_retrieval_task` لا يمنع ولا يسمح وحده؛ هو فقط يساعد النظام على الاقتراح والتنبيه
 

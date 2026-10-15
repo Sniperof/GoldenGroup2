@@ -72,7 +72,7 @@ if (violations.length > 0) {
   for (const v of violations) console.error('  • ' + v);
   console.error(
     `\nFix: gate the page with ${REQUIRED_HOOK}() (needsBranchSelection / effectiveBranchId).\n` +
-    'See docs/constitution/domains/permissions-engineering-standard.md §5.3.\n',
+    'See docs/constitution/standards/permissions-engineering-standard.md §5.3.\n',
   );
   process.exit(1);
 }

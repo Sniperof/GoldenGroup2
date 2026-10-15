@@ -21,7 +21,7 @@ export default function RankedBarChart({ data }: { data: BreakdownResponse }) {
         return (
           <div key={g.key} className="flex items-center gap-2">
             <span className="w-5 shrink-0 text-center text-[11px] font-black tabular-nums text-slate-400">{i + 1}</span>
-            <span className="w-24 shrink-0 truncate text-xs font-bold text-slate-600" title={label}>{label}</span>
+            <span className="w-16 shrink-0 truncate text-xs font-bold text-slate-600 sm:w-24" title={label}>{label}</span>
             <div className="relative h-5 flex-1 overflow-hidden rounded-md bg-slate-100">
               <div
                 className="absolute inset-y-0 right-0 rounded-md bg-gradient-to-l from-sky-500 to-sky-400 transition-all duration-500"
@@ -30,7 +30,7 @@ export default function RankedBarChart({ data }: { data: BreakdownResponse }) {
             </div>
             <span className="w-12 shrink-0 text-left text-xs font-black tabular-nums text-slate-700">{fmt(g.value)}</span>
             {g.value2 != null && data.secondaryLabel && (
-              <span className="w-16 shrink-0 text-left text-[10px] tabular-nums text-slate-400">
+              <span className="hidden w-16 shrink-0 text-left text-[10px] tabular-nums text-slate-400 sm:block">
                 {data.secondaryLabel} {g.value2}%
               </span>
             )}

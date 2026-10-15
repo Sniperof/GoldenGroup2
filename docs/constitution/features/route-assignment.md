@@ -88,11 +88,11 @@
 ### 3.4 الملفات الدستورية المرتبطة
 - `docs/constitution/domains/planning.md`
 - `docs/constitution/features/team-scheduling.md`
-- `docs/constitution/features/marketing-visits.md`
+- `docs/archive/superseded/marketing-visits.md`
 
 ### 3.5 ملفات التصميم التحليلية
-- `docs/analysis/task-scheduling-patterns.md` — التصميم الكامل لأنماط الجدولة الزمنية الأربعة
-- `docs/analysis/task-model.md` — موديل المهمة الموحد + 11 حالة + 4 مراحل
+- `docs/constitution/standards/task-scheduling-patterns.md` — التصميم الكامل لأنماط الجدولة الزمنية الأربعة
+- `docs/constitution/domains/task-model.md` — موديل المهمة الموحد + 11 حالة + 4 مراحل
 - `migrations/106_task_type_config.sql` — جدول `task_type_config` + seed 20 نوع
 
 ---
@@ -136,7 +136,7 @@
 كما يجب احترام البعد الزمني: المهمة اللاحقة خارج نافذة `N` لا تدخل حساب الحمل حتى لو كانت حالتها ضمن قيد الانتظار.
 
 ### 4.7 أنماط الجدولة الزمنية (`scheduling_pattern`)
-قيمة `N` ليست رقماً موحّداً، بل تختلف **معنى** وحجماً حسب نمط المهمة. الأنماط الأربعة المعتمدة (تفاصيل كاملة في `docs/analysis/task-scheduling-patterns.md`):
+قيمة `N` ليست رقماً موحّداً، بل تختلف **معنى** وحجماً حسب نمط المهمة. الأنماط الأربعة المعتمدة (تفاصيل كاملة في `docs/constitution/standards/task-scheduling-patterns.md`):
 
 | النمط | متى تدخل المهمة نطاق العمل؟ | أمثلة |
 |------|------------------------------|------|
@@ -245,7 +245,7 @@
 - ~~مصدر قيمة `N` غير مثبت بعد~~ ← أصبح `task_type_config` (migration 106)
 - النمط الزمني يُحدَّد عبر `scheduling_pattern` و`window_basis` و`planning_window_days`.
 - التعديل من واجهة `/admin/task-types` بصلاحية `admin.task_types.manage`.
-- التفاصيل الكاملة في `docs/analysis/task-scheduling-patterns.md`.
+- التفاصيل الكاملة في `docs/constitution/standards/task-scheduling-patterns.md`.
 
 ### `RA-G002` — يجب عدم استخدام `pending` كاسم حالة Canonical
 - التعبير التشغيلي المعتمد هو **مرحلة قيد الانتظار**، لا status باسم `pending`.

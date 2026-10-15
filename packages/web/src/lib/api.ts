@@ -40,7 +40,7 @@ export interface AccountStatementResponse {
 }
 
 // GET /clients/paged — server-side pagination companion to clients.list()
-// (isolated: list() is unchanged). See docs/analysis/clients-records-performance-and-filters.md
+// (isolated: list() is unchanged). See docs/engineering/api/clients-records-performance-and-filters.md
 // ── Mobile home-screen banners (migration 422) ──────────────────────────────
 
 // ── Free-form app notifications (DEC-019 D-N6/D-N7) ──────────────────────────
@@ -57,6 +57,17 @@ export interface BroadcastAudienceInput {
   /** Geo subtree of the deepest selected level, as GeoCascadeFilter emits it. */
   geoIds?: string[];
   clientId?: number | null;
+}
+
+/** One addressable notification recipient (an active app-account holder). */
+export interface BroadcastRecipient {
+  clientId: number;
+  clientName: string;
+  /** App login phone. */
+  primaryMobile: string | null;
+  branchName: string | null;
+  /** Registered device → push reaches the phone; otherwise in-app inbox only. */
+  hasDevice: boolean;
 }
 
 export interface BroadcastAudiencePreview {
@@ -247,6 +258,8 @@ export interface PagedCandidatesParams {
   branchFilterId?: number;       // explicit branch filter, always ANDed with the caller's scope
                                  // (distinct from `branchId`, which becomes the X-Branch-Id header)
   responsibleUserId?: number;
+  ownershipType?: 'BRANCH';      // branch-owned only (no responsible user); overrides responsibleUserId
+  ownershipBranchId?: number;    // with ownershipType: one specific branch's ownership
   createdByUserId?: number;
   converted?: 'converted' | 'unconverted' | '';
   referralType?: string;
@@ -268,10 +281,12 @@ export interface PagedClientsParams {
   search?: string;
   filterClass?: string;          // Lead | FOP | OP
   filterMediator?: string;       // Personal | Employee | Client
-  // Enriched catalog (docs/analysis/clients-records-performance-and-filters.md §7)
+  filterReferrerName?: string;   // primary mediator name (partial); `search` does not match it
+  // Enriched catalog (docs/engineering/api/clients-records-performance-and-filters.md §7)
   geoIds?: string;               // comma-joined subtree ids of the deepest selected geo level
   routeGeoIds?: string;          // comma-joined subtree ids of a route's points
-  owner?: string | number;       // assigned hr_user id
+  owner?: string | number;       // assigned hr_user id, or 'branch' = branch-owned
+  ownerBranchId?: number;        // with owner='branch': one specific branch's ownership
   rating?: string;               // Committed | NotCommitted | Undefined
   referredByClientId?: number;   // clients this client referred (flat columns + referrers JSONB)
   waterSource?: string;          // admin-list value
@@ -381,6 +396,14 @@ export interface ReportCatalogItem {
     taskResult?: boolean;
     cancellationReason?: boolean;
     visitOrigin?: boolean;
+    escalationType?: boolean;
+    escalationState?: boolean;
+    activationRecord?: boolean;
+    contractScope?: boolean;
+    cardDeliveryResult?: boolean;
+    warrantyPartsPresence?: boolean;
+    trialOutcome?: boolean;
+    trialGraceState?: boolean;
   };
   guide: {
     framingTitle: string;
@@ -460,6 +483,7 @@ export interface ReportFilterOptions {
   jobTitles: Array<{ value: string; label: string }>;
   taskResults: Array<{ value: string; label: string }>;
   cancellationReasons: Array<{ value: string; label: string }>;
+  escalationTypes: Array<{ value: string; label: string }>;
 }
 
 // GET /contracts/paged — server pagination companion to contracts.list()
@@ -479,7 +503,7 @@ export interface PagedContractsParams {
   search?: string;
   status?: string;               // draft | active | completed | cancelled
   paymentType?: string;          // cash | installment
-  // Enriched catalog (docs/analysis/contracts-records-performance-filters-and-stats.md §3)
+  // Enriched catalog (docs/engineering/api/contracts-records-performance-filters-and-stats.md §3)
   saleType?: string;             // tradein | retention | direct
   oldDeviceCondition?: string;   // good | damaged (trade-in statistics)
   saleSubtype?: string;          // definitive | temporary | free
@@ -917,7 +941,7 @@ export const api = {
           if (value !== undefined && value !== null && value !== '') query.set(key, String(value));
         });
         const suffix = query.toString() ? `?${query.toString()}` : '';
-        return request<import('../data/giftsPrototype').GiftRecordPrototype[]>(`/gifts/records${suffix}`);
+        return request<import('../data/gifts').GiftRecord[]>(`/gifts/records${suffix}`);
       },
       similar: (data: any) =>
         request<{ count: number }>('/gifts/records/similar', { method: 'POST', body: JSON.stringify(data) }),
@@ -1039,6 +1063,13 @@ export const api = {
           { method: 'POST', body: JSON.stringify(data) },
         ),
       history: () => request<{ items: BroadcastRecord[] }>('/admin/app-notifications/broadcasts'),
+      // Single-recipient search: active app-account holders within the sender's scope.
+      recipients: (search: string, branchId: number | null) => {
+        const q = new URLSearchParams();
+        if (search) q.set('search', search);
+        if (branchId != null) q.set('branchId', String(branchId));
+        return request<{ items: BroadcastRecipient[] }>(`/admin/app-notifications/recipients?${q}`);
+      },
       // Options for the intake-form destination, whose id is a request_type slug.
       requestTypes: () => request<{ items: { requestType: string; labelAr: string }[] }>(
         '/admin/app-notifications/request-types',
@@ -1211,6 +1242,11 @@ export const api = {
     update: (id: number, data: any) => request<any>(`/candidates/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     linkToClient: (id: number, clientId: number) =>
       request<any>(`/candidates/${id}/link-client`, { method: 'POST', body: JSON.stringify({ clientId }) }),
+    linkRestrictedSameBranchLead: (id: number) =>
+      request<any>(`/candidates/${id}/link-client`, {
+        method: 'POST',
+        body: JSON.stringify({ restrictedSameBranchLead: true }),
+      }),
     delete: (id: number) => request<any>(`/candidates/${id}`, { method: 'DELETE' }),
   },
   referralSheets: {
@@ -1341,11 +1377,15 @@ export const api = {
     // DEC-CT-14/15: fetch the legal printable HTML with the auth header
     // attached. Returns the raw HTML; callers turn it into a Blob URL so
     // it can be opened in a new tab without exposing the JWT.
-    getPrintableHtml: async (contractId: number): Promise<string> => {
-      const res = await authFetch(`${API_BASE}/contracts/${contractId}/printable`);
+    // document='amendment' → the frozen settlement amendment of a settled trial.
+    getPrintableHtml: async (contractId: number, document: 'original' | 'amendment' = 'original'): Promise<string> => {
+      const query = document === 'amendment' ? '?document=amendment' : '';
+      const res = await authFetch(`${API_BASE}/contracts/${contractId}/printable${query}`);
       if (!res.ok) {
         const text = await res.text().catch(() => '');
-        throw new Error(`فشل تحميل النسخة القانونية (${res.status}): ${text}`);
+        let message = text;
+        try { message = JSON.parse(text)?.error || text; } catch { /* keep raw text */ }
+        throw new Error(`فشل تحميل ${document === 'amendment' ? 'ملحق تثبيت البيعة' : 'النسخة القانونية'} (${res.status}): ${message}`);
       }
       return res.text();
     },
@@ -1524,6 +1564,7 @@ export const api = {
     ),
     /** DEC-006 D37: open tasks whose attempt_count crossed system_settings.attempt_alert_threshold. */
     attemptAlerts: () => request<{
+      visibilityScope: 'GLOBAL' | 'BRANCH' | 'ASSIGNED';
       threshold: number;
       count: number;
       items: Array<{
@@ -1717,8 +1758,14 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ date, teamKey }),
       }),
-    marketingTargets: (date: string, teamKey: string, mode: 'planning' | 'assigned' = 'planning') => {
+    marketingTargets: (
+      date: string,
+      teamKey: string,
+      mode: 'planning' | 'assigned' = 'planning',
+      options?: { countsOnly?: boolean },
+    ) => {
       const query = new URLSearchParams({ date, teamKey, mode });
+      if (options?.countsOnly) query.set('countsOnly', 'true');
       return request<any>(`/planning/marketing-targets?${query.toString()}`);
     },
   },
@@ -1837,6 +1884,21 @@ export const api = {
         { method: 'DELETE' },
       ),
     /** DEC-011: create a field-initiated instant visit (starts in_progress now). */
+    instantVisitOptions: (search = '', signal?: AbortSignal) => {
+      const qs = new URLSearchParams();
+      if (search.trim()) qs.set('search', search.trim());
+      const suffix = qs.size > 0 ? `?${qs.toString()}` : '';
+      return request<{
+        available: true;
+        teamKey: string;
+        clients: Array<{
+          id: number;
+          name: string | null;
+          mobile: string | null;
+          detailedAddress: string | null;
+        }>;
+      }>(`/field-visits/instant/options${suffix}`, { signal });
+    },
     createInstant: (data: {
       clientId: number;
       lat?: number | null;
@@ -1907,6 +1969,7 @@ export const api = {
       ),
     /** DEC-006 D38: visits with active escalation alerts (scoped to caller's branch). */
     escalationAlerts: () => request<{
+      visibilityScope: 'GLOBAL' | 'BRANCH' | 'ASSIGNED';
       count: number;
       items: Array<{
         visitId: number;
@@ -1915,7 +1978,7 @@ export const api = {
         clientId: number;
         clientName: string | null;
         teamResponsibleUserId: number | null;
-        hoursSinceUpdate: number;
+        hoursSinceStart: number | null;
         tiersAlerted: number[];
       }>;
       scheduledCount: number;
@@ -1927,6 +1990,7 @@ export const api = {
         clientName: string | null;
         teamResponsibleUserId: number | null;
         teamResponsibleName: string | null;
+        responsibleUserId: number | null;
         scheduledDate: string;
         scheduledTime: string | null;
         alertedAt: string;
@@ -2034,8 +2098,16 @@ export const api = {
   telemarketing: {
     snapshot: (date?: string) => {
       const qs = date ? `?date=${encodeURIComponent(date)}` : '';
-      return request<{ taskLists: any[]; appointments: any[]; callLogs: any[] }>(`/telemarketing/snapshot${qs}`);
+      return request<{
+        taskLists: any[];
+        appointments: any[];
+        callLogs: any[];
+        availableTeams: Array<{ key: string; label: string; type: 'team' | 'solo'; count: number }>;
+      }>(`/telemarketing/snapshot${qs}`);
     },
+    clientDetails: (taskListId: string, itemId: string) => request<any>(
+      `/telemarketing/task-lists/${encodeURIComponent(taskListId)}/items/${encodeURIComponent(itemId)}/client-details`,
+    ),
     // DEC-009 لبنة 8 — the blind DELETE+re-INSERT upsert path was removed; the live
     // flow uses generateTaskListFromPlan (idempotent merge that preserves call progress).
     generateTaskListFromPlan: (data: { date: string; teamKey: string }) => request<any>('/telemarketing/task-lists/generate-from-plan', { method: 'POST', body: JSON.stringify(data) }),
@@ -2135,6 +2207,10 @@ export const api = {
   // Service Requests (Phase 3) — intake layer for emergency_maintenance
   // ─────────────────────────────────────────────────────────────────
   appAccounts: {
+    list: (params: Record<string, string | number> = {}) => {
+      const qs = new URLSearchParams(Object.entries(params).map(([key, value]) => [key, String(value)]));
+      return request<import('@golden-crm/shared').AppAccountListResult>(`/admin/app-accounts?${qs}`);
+    },
     forClient: (clientId: number) =>
       request<{ account: any | null }>(`/admin/clients/${clientId}/app-account`),
     createDirect: (clientId: number) =>

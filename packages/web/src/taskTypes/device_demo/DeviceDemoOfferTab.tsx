@@ -1,4 +1,5 @@
 import { Users, UserRound, Wrench, ShoppingCart } from '../../components/ui/icons';
+import DataTable from '../../components/ui/DataTable';
 import { Card, EmptyState, formatMoney, TabAlert } from '../../components/tasks/shared';
 import type { TaskDetailData } from '../../components/tasks/types';
 
@@ -96,45 +97,43 @@ export default function DeviceDemoOfferTab({ data }: { data: TaskDetailData }) {
 
       <Card title="العروض المسبقة" icon={ShoppingCart}>
         {offerRows.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-right border-separate border-spacing-0">
-              <thead>
-                <tr className="text-xs font-bold text-slate-500">
-                  <th className="px-3 py-2 border-b border-slate-200">#</th>
-                  <th className="px-3 py-2 border-b border-slate-200">الجهاز</th>
-                  <th className="px-3 py-2 border-b border-slate-200">نوع العرض</th>
-                  <th className="px-3 py-2 border-b border-slate-200">الكمية</th>
-                  <th className="px-3 py-2 border-b border-slate-200">الإجمالي</th>
-                  <th className="px-3 py-2 border-b border-slate-200">الحسم</th>
-                  <th className="px-3 py-2 border-b border-slate-200">رد الزبون</th>
-                  <th className="px-3 py-2 border-b border-slate-200">الإغلاق</th>
-                </tr>
-              </thead>
-              <tbody>
-                {offerRows.map((offer: any, i: number) => (
-                  <tr key={offer.id || i} className="text-sm text-slate-700">
-                    <td className="px-3 py-3 border-b border-slate-100">{i + 1}</td>
-                    <td className="px-3 py-3 border-b border-slate-100 font-medium">{offer.deviceName}</td>
-                    <td className="px-3 py-3 border-b border-slate-100">{offer.offerTypeLabel}</td>
-                    <td className="px-3 py-3 border-b border-slate-100">{offer.quantityLabel}</td>
-                    <td className="px-3 py-3 border-b border-slate-100">{offer.amountLabel}</td>
-                    <td className="px-3 py-3 border-b border-slate-100">{offer.discountLabel}</td>
-                    <td className="px-3 py-3 border-b border-slate-100">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-lg text-xs font-bold border ${offer.responseClassName}`}>
-                        {offer.responseLabel}
-                      </span>
-                    </td>
-                    <td className="px-3 py-3 border-b border-slate-100">
-                      <div className={`inline-flex flex-col gap-0.5 rounded-lg border px-2.5 py-1 text-xs font-bold ${offer.closingClassName}`}>
-                        <span>{offer.closingLabel}</span>
-                        <span className="font-normal opacity-80">{offer.closingDetail}</span>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable minWidth={760}>
+            <DataTable.Head>
+              <DataTable.Row>
+                <DataTable.Th>#</DataTable.Th>
+                <DataTable.Th>الجهاز</DataTable.Th>
+                <DataTable.Th>نوع العرض</DataTable.Th>
+                <DataTable.Th>الكمية</DataTable.Th>
+                <DataTable.Th>الإجمالي</DataTable.Th>
+                <DataTable.Th>الحسم</DataTable.Th>
+                <DataTable.Th>رد الزبون</DataTable.Th>
+                <DataTable.Th>الإغلاق</DataTable.Th>
+              </DataTable.Row>
+            </DataTable.Head>
+            <DataTable.Body>
+              {offerRows.map((offer: any, i: number) => (
+                <DataTable.Row key={offer.id || i}>
+                  <DataTable.Td>{i + 1}</DataTable.Td>
+                  <DataTable.Td className="font-medium text-slate-800">{offer.deviceName}</DataTable.Td>
+                  <DataTable.Td>{offer.offerTypeLabel}</DataTable.Td>
+                  <DataTable.Td>{offer.quantityLabel}</DataTable.Td>
+                  <DataTable.Td>{offer.amountLabel}</DataTable.Td>
+                  <DataTable.Td>{offer.discountLabel}</DataTable.Td>
+                  <DataTable.Td>
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-lg text-xs font-bold border ${offer.responseClassName}`}>
+                      {offer.responseLabel}
+                    </span>
+                  </DataTable.Td>
+                  <DataTable.Td>
+                    <div className={`inline-flex flex-col gap-0.5 rounded-lg border px-2.5 py-1 text-xs font-bold ${offer.closingClassName}`}>
+                      <span>{offer.closingLabel}</span>
+                      <span className="font-normal opacity-80">{offer.closingDetail}</span>
+                    </div>
+                  </DataTable.Td>
+                </DataTable.Row>
+              ))}
+            </DataTable.Body>
+          </DataTable>
         ) : (
           <EmptyState icon={ShoppingCart} title="لا توجد عروض مسبقة مسجلة" description="ستظهر العروض المسبقة هنا مع تفاصيلها." />
         )}

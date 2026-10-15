@@ -48,6 +48,21 @@ export default function ProfileTabsBar({
     };
   }, [updateOverflow, tabs.length]);
 
+  // Keep the active tab visible: when scroll-spy (or a click) changes activeId,
+  // slide the bar horizontally so the active tab centers. Uses physical-pixel
+  // deltas via getBoundingClientRect + scrollBy, so it is RTL-safe and never
+  // touches vertical scroll (won't fight the page's scroll-spy).
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const activeBtn = el.querySelector<HTMLButtonElement>(`[data-tab-id="${activeId}"]`);
+    if (!activeBtn) return;
+    const elRect = el.getBoundingClientRect();
+    const btnRect = activeBtn.getBoundingClientRect();
+    const delta = (btnRect.left + btnRect.width / 2) - (elRect.left + elRect.width / 2);
+    if (Math.abs(delta) > 1) el.scrollBy({ left: delta, behavior: 'smooth' });
+  }, [activeId]);
+
   const scrollToward = (dir: 'start' | 'end') => {
     const el = scrollRef.current;
     if (!el) return;
@@ -95,6 +110,7 @@ export default function ProfileTabsBar({
             return (
               <button
                 key={tab.id}
+                data-tab-id={tab.id}
                 onClick={() => onChange(tab.id)}
                 className={`relative inline-flex shrink-0 items-center justify-center gap-1.5 px-3.5 py-2.5 text-base font-bold whitespace-nowrap transition-colors ${active
                   ? 'text-sky-600 after:absolute after:inset-x-2 after:-bottom-px after:h-[2.5px] after:bg-sky-600 after:rounded-t'

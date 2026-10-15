@@ -9,9 +9,9 @@ import {
   giftConditionStatusLabels,
   type GiftBeneficiaryType,
   type GiftConditionStatus,
-  type GiftDefinitionPrototype,
-  type GiftRecordPrototype,
-} from '../../data/giftsPrototype';
+  type GiftDefinition,
+  type GiftRecord,
+} from '../../data/gifts';
 
 type DraftBeneficiaryKind =
   | 'contract_customer'
@@ -82,8 +82,8 @@ export default function ContractGiftsPanel({ contract }: { contract: any }) {
   const referrers = useMemo(() => customerReferrers(contract), [contract]);
   const isGiftContract = contract?.saleSubtype === 'free';
 
-  const [records, setRecords] = useState<GiftRecordPrototype[]>([]);
-  const [definitions, setDefinitions] = useState<GiftDefinitionPrototype[]>([]);
+  const [records, setRecords] = useState<GiftRecord[]>([]);
+  const [definitions, setDefinitions] = useState<GiftDefinition[]>([]);
   const [conditions, setConditions] = useState<PromiseConditionOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -136,7 +136,7 @@ export default function ContractGiftsPanel({ contract }: { contract: any }) {
       api.systemLists.getItemsByCode('gift_promise_conditions').catch(() => []),
     ]).then(([defs, conds]) => {
       if (!active) return;
-      setDefinitions((defs as GiftDefinitionPrototype[]).filter(d => d.isActive));
+      setDefinitions((defs as GiftDefinition[]).filter(d => d.isActive));
       setConditions((conds as any[]).map(item => ({
         id: Number(item.id),
         value: String(item.value ?? ''),

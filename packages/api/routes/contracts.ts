@@ -2,7 +2,8 @@ import { Router } from 'express';
 import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission, resolveTargetBranchId, getOrBuildAuthContext } from '../middleware/permission.js';
-import { authorize } from '../services/authorizationService.js';
+import { authorize, resolveListAccessScope } from '../services/authorizationService.js';
+import { authorizeContract, contractSaleOwnerSql } from '../policies/contractPolicy.js';
 import { assertGeoUnitInScope } from '../services/geoScopeService.js';
 import { assertDeviceModelInScope } from '../services/deviceScopeService.js';
 import { promoteClientToLifecycleStatus } from '../services/clientLifecycleService.js';
@@ -150,7 +151,7 @@ function collectContractSparePartIds(lineItems: any) {
 
 async function loadDraftContractForEdit(db: any, contractId: number | string, lock = false) {
   const { rows } = await db.query(
-    `SELECT id, status FROM contracts WHERE id = $1${lock ? ' FOR UPDATE' : ''}`,
+    `SELECT id, status, branch_id AS "branchId", sale_owner_id AS "saleOwnerId" FROM contracts WHERE id = $1${lock ? ' FOR UPDATE' : ''}`,
     [contractId],
   );
   return rows[0] ?? null;
@@ -562,13 +563,16 @@ async function fetchProjectedDuesByContractIds(dbClient: any, contractIds: numbe
  *       500:
  *         description: Server error
  */
-// Shared branch-scope for the contract list endpoints. Contracts are branch-only
-// (no ASSIGNED tier — confirmed): a viewer without BRANCH/GLOBAL contracts.view_list
-// sees nothing. Keeps GET '/' and GET '/paged' in sync (SH-1, no drift).
+// Shared scope for the contract list endpoints: the branch, plus — under an
+// ASSIGNED contracts.view_list grant — only contracts the actor is sale owner of
+// (policies/contractPolicy.ts). Keeps GET '/' and GET '/paged' in sync (SH-1, no drift).
 function appendContractListScope(authContext: any, req: any, params: any[]): string[] {
   const conditions: string[] = [];
   if (!authContext.isSuperAdmin) {
     conditions.push(`c.branch_id = $${params.push(authContext.actingBranchId)}`);
+    if (resolveListAccessScope(authContext, 'contracts.view_list').scope === 'ASSIGNED') {
+      conditions.push(contractSaleOwnerSql('c', `$${params.push(authContext.userId)}`));
+    }
   } else {
     const hb = Number(req.header('x-branch-id'));
     if (Number.isFinite(hb) && hb > 0) conditions.push(`c.branch_id = $${params.push(hb)}`);
@@ -636,7 +640,7 @@ router.get('/paged', requirePermission('contracts.view_list'), async (req, res) 
       conditions.push(`c.payment_type = $${params.length}`);
     }
 
-    // ── Enriched filter catalog (docs/analysis/contracts-records-performance-filters-and-stats.md §3) ──
+    // ── Enriched filter catalog (docs/engineering/api/contracts-records-performance-filters-and-stats.md §3) ──
     const saleType = typeof req.query.saleType === 'string' ? req.query.saleType.trim() : '';
     if (['tradein', 'retention', 'direct'].includes(saleType)) {
       params.push(saleType);
@@ -844,7 +848,7 @@ router.get('/:id', requirePermission('contracts.view_list'), async (req, res) =>
   const authContext = req.authContext!;
   const { rows } = await pool.query(`SELECT ${contractSelect} FROM contracts c LEFT JOIN installed_devices d ON d.contract_id = c.id WHERE c.id = $1`, [req.params.id]);
   if (!rows[0]) return res.status(404).json({ message: 'العقد غير موجود' });
-  const access = authorize(authContext, { permission: 'contracts.view_list', branchId: rows[0].branchId });
+  const access = await authorizeContract(authContext, 'contracts.view_list', rows[0]);
   if (!access.allowed) return res.status(403).json({ message: 'غير مسموح' });
   const contract = mapContract(rows[0]);
   // Linked open tasks (emergency, maintenance, collection, service, etc.)
@@ -1476,7 +1480,10 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
     [req.params.id],
   );
   if (!existing[0]) return res.status(404).json({ message: 'العقد غير موجود' });
-  const access = authorize(authContext, { permission: 'contracts.edit', branchId: existing[0].branch_id });
+  const access = await authorizeContract(authContext, 'contracts.edit', {
+    branchId: existing[0].branch_id,
+    saleOwnerId: existing[0].saleOwnerId,
+  });
   if (!access.allowed) return res.status(403).json({ message: 'غير مسموح' });
   const prevStatus: string = existing[0].prevStatus;
   if (prevStatus !== 'draft') {
@@ -1774,6 +1781,11 @@ router.post('/:id/payment-entries', requirePermission('contracts.edit'), async (
       await pgClient.query('ROLLBACK');
       return res.status(404).json({ error: 'العقد غير موجود' });
     }
+    const editAccess = await authorizeContract(req.authContext!, 'contracts.edit', contract);
+    if (!editAccess.allowed) {
+      await pgClient.query('ROLLBACK');
+      return res.status(403).json({ error: 'غير مسموح' });
+    }
     if (contract.status !== 'draft') {
       await pgClient.query('ROLLBACK');
       return res.status(409).json({
@@ -1880,6 +1892,11 @@ router.post('/:id/installments', requirePermission('contracts.edit'), async (req
       await pgClient.query('ROLLBACK');
       return res.status(404).json({ error: 'العقد غير موجود' });
     }
+    const editAccess = await authorizeContract(req.authContext!, 'contracts.edit', contract);
+    if (!editAccess.allowed) {
+      await pgClient.query('ROLLBACK');
+      return res.status(403).json({ error: 'غير مسموح' });
+    }
     if (contract.status !== 'draft') {
       await pgClient.query('ROLLBACK');
       return res.status(409).json({
@@ -1965,6 +1982,11 @@ router.post('/:id/installments/confirm', requirePermission('contracts.edit'), as
     if (!contract) {
       await pgClient.query('ROLLBACK');
       return res.status(404).json({ error: 'العقد غير موجود' });
+    }
+    const editAccess = await authorizeContract(req.authContext!, 'contracts.edit', contract);
+    if (!editAccess.allowed) {
+      await pgClient.query('ROLLBACK');
+      return res.status(403).json({ error: 'غير مسموح' });
     }
     if (contract.status !== 'draft') {
       await pgClient.query('ROLLBACK');
@@ -2108,10 +2130,13 @@ router.put('/:id/line-items/:itemId/installation', requirePermission('contracts.
   }
 
   const authContext = req.authContext!;
-  const { rows: existing } = await pool.query('SELECT branch_id FROM contracts WHERE id = $1', [contractId]);
+  const { rows: existing } = await pool.query('SELECT branch_id, sale_owner_id FROM contracts WHERE id = $1', [contractId]);
   if (!existing[0]) return res.status(404).json({ message: 'العقد غير موجود' });
-  
-  const access = authorize(authContext, { permission: 'contracts.edit', branchId: existing[0].branch_id });
+
+  const access = await authorizeContract(authContext, 'contracts.edit', {
+    branchId: existing[0].branch_id,
+    saleOwnerId: existing[0].sale_owner_id,
+  });
   if (!access.allowed) return res.status(403).json({ message: 'غير مسموح' });
 
   await pool.query(
@@ -2882,7 +2907,8 @@ router.post('/:id/trial-retrieval', async (req, res) => {
       });
     }
 
-    const serviceBranchId = c.service_branch_id ?? c.deviceBranchId ?? c.branch_id;
+    // Retrieval always returns the device to its own branch.
+    const serviceBranchId = c.deviceBranchId ?? c.service_branch_id ?? c.branch_id;
     const dueDate = typeof req.body?.dueDate === 'string' && req.body.dueDate
       ? req.body.dueDate
       : new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];

@@ -13,6 +13,7 @@
 // ============================================================
 import { FileText, MapPin, Wrench, ShieldCheck, Hash, Calendar, Package, ExternalLink } from '../../ui/icons';
 import { Card, InfoLine, EmptyState, formatDate, formatMoney } from '../shared';
+import { buildMapsEmbedUrl } from '../../../utils/addressUtils';
 
 const CONTRACT_STATUS_LABELS: Record<string, string> = {
   draft: 'مسودة',
@@ -252,7 +253,7 @@ export default function TaskContractTab({ task }: TaskContractTabProps) {
             <div className="space-y-2">
               <div className="rounded-xl overflow-hidden border border-slate-200 shadow-sm relative" style={{ height: 220 }}>
                 <iframe
-                  src={`https://www.openstreetmap.org/export/embed.html?bbox=${addressLng - 0.005},${addressLat - 0.0025},${addressLng + 0.005},${addressLat + 0.0025}&layer=mapnik&marker=${addressLat},${addressLng}`}
+                  src={buildMapsEmbedUrl({ lat: Number(addressLat), lng: Number(addressLng) }) ?? undefined}
                   style={{ width: '100%', height: '100%', border: 0 }}
                   loading="lazy"
                   title="موقع التركيب"

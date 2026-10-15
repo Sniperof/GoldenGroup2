@@ -3,6 +3,9 @@
     "private": true,
     "version": "1.0.0",
     "type": "module",
+    "engines": {
+        "node": ">=22"
+    },
     "scripts": {
         "dev": "concurrently -n api,web -c blue,green --kill-others-on-fail \"pnpm run dev:api\" \"pnpm run dev:web\"",
         "dev:api": "pnpm --filter @golden-crm/api dev",
@@ -12,7 +15,10 @@
         "migrate": "pnpm --filter @golden-crm/api migrate",
         "typecheck": "pnpm --filter @golden-crm/web exec tsc -p tsconfig.typecheck.json --noEmit",
         "typecheck:api": "pnpm --filter @golden-crm/api exec tsc --noEmit",
+        "test": "node scripts/run-unit-tests.mjs",
+        "check": "pnpm typecheck && pnpm typecheck:api && pnpm test",
         "audit:branch-scope": "node scripts/audit-branch-scope.mjs",
+        "docs:check": "node scripts/check-docs-links.mjs",
         "reconcile:periodic-maintenance": "tsx scripts/reconcile-periodic-maintenance.ts"
     },
     "dependencies": {

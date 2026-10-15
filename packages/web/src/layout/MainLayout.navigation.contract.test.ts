@@ -48,3 +48,10 @@ test('drawer retains permission gates while regrouping links', () => {
     assert.ok(source.includes(permission), `missing permission gate: ${permission}`);
   }
 });
+
+test('telemarketing navigation accepts either the broad or device-demo-only permission', () => {
+  assert.match(
+    source,
+    /can\('telemarketing\.lists\.view'\) \|\| can\('telemarketing\.lists\.view_device_demo'\)/,
+  );
+});

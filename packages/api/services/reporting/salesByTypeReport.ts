@@ -53,7 +53,7 @@ const SALE_SUBTYPES = new Set(['definitive', 'temporary', 'free']);
  * own date is deliberately not constrained: an offer whose contract was signed after
  * the period is a successful offer, not a failed one.
  */
-const OFFER_IS_CONVERTED_SQL = `EXISTS (
+export const OFFER_IS_CONVERTED_SQL = `EXISTS (
             SELECT 1 FROM contracts offer_contract
              WHERE offer_contract.status IN ${COUNTED_CONTRACT_STATUSES_SQL}
                AND (

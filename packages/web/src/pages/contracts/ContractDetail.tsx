@@ -215,6 +215,7 @@ export default function ContractDetail() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showAllTasks, setShowAllTasks] = useState(false);
   const [showActivateModal, setShowActivateModal] = useState(false);
   const [activatePaymentType, setActivatePaymentType] = useState<'cash' | 'installment'>('cash');
   const [activateFinalPrice, setActivateFinalPrice] = useState<number>(0);
@@ -249,7 +250,7 @@ export default function ContractDetail() {
     issues: string[];
     detail?: string;
   } | null>(null);
-  const { openPrintable, printLoading } = useContractPrintable(data?.id ?? Number(id));
+  const { openPrintable, printLoading, openAmendment, amendmentLoading } = useContractPrintable(data?.id ?? Number(id));
   const hasInstalledDevice = Boolean(data?.hasInstalledDevice || Number(data?.installedDeviceId) > 0);
   const isDraftDevicePlan = data?.status === 'draft' && !hasInstalledDevice;
 
@@ -332,6 +333,24 @@ export default function ContractDetail() {
   //   • 400 with `issues[]` → field-level validation failures
   //   • 500 with `detail`   → unexpected runtime/server error
   const parseApprovalError = (err: any, title: string): NonNullable<typeof approvalError> => {
+    // request() keeps only `error` in err.message and the full JSON body on
+    // err.payload — read the body first so `issues`/`detail` aren't lost.
+    const payload = err?.payload;
+    if (payload && typeof payload === 'object') {
+      if (Array.isArray(payload.issues) && payload.issues.length > 0) {
+        return {
+          title,
+          intro: payload.error || 'لا يمكن اعتماد العقد — البيانات المطلوبة غير مكتملة',
+          issues: payload.issues,
+        };
+      }
+      return {
+        title,
+        intro: payload.error || payload.message || title,
+        issues: [],
+        detail: payload.detail,
+      };
+    }
     const raw = String(err?.message || err || '');
     const jsonStart = raw.indexOf('{');
     if (jsonStart >= 0) {
@@ -366,6 +385,9 @@ export default function ContractDetail() {
         setData(fresh);
         setShowApprovalModal(false);
       } catch (err: any) {
+        // Close the approval modal first so the error dialog isn't stacked on
+        // top of another modal (two dimmed backdrops).
+        setShowApprovalModal(false);
         setApprovalError(parseApprovalError(err, 'فشل اعتماد العقد'));
       } finally {
         setApprovalLoading(null);
@@ -387,6 +409,9 @@ export default function ContractDetail() {
       setData(fresh);
       setShowApprovalModal(false);
     } catch (err: any) {
+      // Close the approval modal first so the error dialog isn't stacked on
+      // top of another modal (two dimmed backdrops).
+      setShowApprovalModal(false);
       setApprovalError(parseApprovalError(err, 'فشل اعتماد العقد'));
     } finally {
       setApprovalLoading(null);
@@ -545,6 +570,13 @@ export default function ContractDetail() {
   // ── Derived values ───────────────────────────────────────────────────────────
 
   const tasks          = data.tasks          ?? [];
+  // Linked tasks: open work first (newest first within each group), then a short
+  // preview — the full history is one click away.
+  const TASKS_PREVIEW  = 4;
+  const isTaskDone     = (status: string) => ['completed', 'closed', 'cancelled'].includes(status);
+  const activeTasksCount = tasks.filter((t: any) => !isTaskDone(t.status)).length;
+  const sortedTasks    = [...tasks].sort((a: any, b: any) => Number(isTaskDone(a.status)) - Number(isTaskDone(b.status)));
+  const visibleTasks   = showAllTasks ? sortedTasks : sortedTasks.slice(0, TASKS_PREVIEW);
   const dues           = data.dues           ?? [];
   const paymentEntries = data.paymentEntries ?? [];
   const installments   = data.installments   ?? [];
@@ -604,6 +636,20 @@ export default function ContractDetail() {
             >
               النسخة القانونية
             </Button>
+            {/* Settled trial: the original stays the trial agreement; the
+                definitive terms + financial section live in the amendment. */}
+            {data.startedAsTemporary && data.saleSubtype !== 'temporary' && data.temporarySettledAt && (
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={FileText}
+                onClick={openAmendment}
+                loading={amendmentLoading}
+                className="rounded-lg"
+              >
+                ملحق تثبيت البيعة
+              </Button>
+            )}
             {data.status === 'active' && data.saleSubtype !== 'temporary' && canApproveDraft && (
               <Button
                 variant="secondary"
@@ -714,6 +760,17 @@ export default function ContractDetail() {
               {data.temporarySettledAt ? ` بتاريخ ${String(data.temporarySettledAt).slice(0, 10)}` : ''}.
               البنود المالية في ملحق تثبيت البيعة المرفق بالنسخة القانونية.
             </p>
+            {data.temporarySettledAt && (
+              <button
+                type="button"
+                onClick={openAmendment}
+                disabled={amendmentLoading}
+                className="mt-2 inline-flex items-center gap-1.5 text-xs font-bold text-emerald-800 underline underline-offset-2 hover:text-emerald-900 disabled:opacity-60"
+              >
+                <FileText className="w-3.5 h-3.5" aria-hidden="true" />
+                {amendmentLoading ? 'جارٍ فتح الملحق…' : 'عرض ملحق تثبيت البيعة'}
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -1231,12 +1288,15 @@ export default function ContractDetail() {
         <Card className="!p-0 overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-100">
             <span className="text-base font-bold text-slate-800">📋 المهام المرتبطة ({tasks.length})</span>
+            {activeTasksCount > 0 && (
+              <span className="ms-2 text-xs font-bold text-sky-700 bg-sky-50 rounded-full px-2 py-0.5">{activeTasksCount} جارية</span>
+            )}
           </div>
           {tasks.length === 0 ? (
             <div className="px-5 py-8 text-center text-sm text-slate-400">لا توجد مهام مرتبطة بهذا العقد</div>
           ) : (
             <div className="divide-y divide-slate-100">
-              {tasks.map((t: any) => {
+              {visibleTasks.map((t: any) => {
                 const taskStatusMap: Record<string, { cls: string; label: string }> = {
                   open:          { cls: 'bg-sky-100 text-sky-700',      label: 'مفتوحة' },
                   assigned:      { cls: 'bg-violet-100 text-violet-700', label: 'مسندة' },
@@ -1269,6 +1329,14 @@ export default function ContractDetail() {
                 );
               })}
             </div>
+          )}
+          {tasks.length > TASKS_PREVIEW && (
+            <button
+              onClick={() => setShowAllTasks(v => !v)}
+              className="w-full px-5 py-3 border-t border-slate-100 text-sm font-bold text-sky-600 hover:bg-slate-50"
+            >
+              {showAllTasks ? 'عرض أقل' : `عرض كل المهام (${tasks.length - TASKS_PREVIEW} أخرى)`}
+            </button>
           )}
         </Card>
 

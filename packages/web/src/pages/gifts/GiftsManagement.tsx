@@ -10,9 +10,9 @@ import {
   giftConditionStatusLabels,
   giftStatusLabels,
   type GiftConditionStatus,
-  type GiftRecordPrototype,
+  type GiftRecord,
   type GiftRecordStatus,
-} from '../../data/giftsPrototype';
+} from '../../data/gifts';
 import { api } from '../../lib/api';
 
 type StatusFilter = 'all' | GiftRecordStatus;
@@ -49,7 +49,7 @@ export default function GiftsManagement() {
   const [activeTab, setActiveTab] = useState<GiftManagementTab>('records');
   const [status, setStatus] = useState<StatusFilter>('all');
   const [condition, setCondition] = useState<ConditionFilter>('all');
-  const [records, setRecords] = useState<GiftRecordPrototype[]>([]);
+  const [records, setRecords] = useState<GiftRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
@@ -87,7 +87,7 @@ export default function GiftsManagement() {
 
   return (
     <div className="h-full overflow-y-auto bg-slate-50" dir="rtl">
-      <div className="mx-auto max-w-7xl space-y-5 px-4 py-6 sm:px-6 lg:px-8">
+      <div className="space-y-5 p-4 sm:p-6 lg:p-8">
         <PageHeader
           title="إدارة الهدايا"
           subtitle="مركز متابعة الوعود والاستحقاق والتسليم وتعريف أنواع الهدايا"

@@ -4,33 +4,29 @@ import { CalendarClock, CheckCircle2, ChevronLeft, Clock, Footprints } from '../
 import { OPEN_TASK_STATUS_LABELS, type OpenTaskStatus } from '@golden-crm/shared';
 import { Card, InfoLine, TabAlert, formatDate, formatDateTime } from '../shared';
 import type { TaskResultRendererProps } from '../types';
+import { taskDecisionLabel } from '../../../lib/taskDecisionLabels';
 
 const TERMINAL_STATUSES = new Set(['completed', 'closed', 'cancelled']);
 
-// Arabic labels for the unified final_decision values (device_demo first;
-// other task types extend this map as they migrate to the new model).
-// Reference: docs/constitution/features/tasks/device-demo.md
-const FINAL_DECISION_LABELS: Record<string, { label: string; cls: string }> = {
-  offer_presented: { label: 'تقديم عرض',   cls: 'bg-sky-50 text-sky-700 border-sky-200' },
-  device_sold:     { label: 'تم البيع',    cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-  rescheduled:     { label: 'إعادة جدولة', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
-  cancelled:       { label: 'إلغاء',       cls: 'bg-rose-50 text-rose-700 border-rose-200' },
-  // legacy values kept for read-back of historical rows
-  accepted:        { label: 'مقبول (قديم)',   cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-  rejected:        { label: 'مرفوض (قديم)',   cls: 'bg-rose-50 text-rose-700 border-rose-200' },
-  needs_followup:  { label: 'متابعة (قديم)',  cls: 'bg-amber-50 text-amber-700 border-amber-200' },
-  delivered_successfully: { label: 'تم التسليم', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-  refused_gift: { label: 'رفض الهدية', cls: 'bg-rose-50 text-rose-700 border-rose-200' },
-  customer_not_available: { label: 'الزبون غير متوفر', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
-  wrong_address: { label: 'عنوان خاطئ', cls: 'bg-orange-50 text-orange-700 border-orange-200' },
-  refused_delivery: { label: 'رفض التسليم', cls: 'bg-rose-50 text-rose-700 border-rose-200' },
-  installed_successfully: { label: 'تم التركيب', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-  installation_incomplete: { label: 'التركيب غير مكتمل', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
-  refused_installation: { label: 'رفض التركيب', cls: 'bg-rose-50 text-rose-700 border-rose-200' },
-  // emergency_maintenance lifecycle outcomes
-  resolved: { label: 'تَم الإصلاح', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-  unresolved: { label: 'لم يُحَلّ بالكامل', cls: 'bg-rose-50 text-rose-700 border-rose-200' },
-  needs_follow_up: { label: 'بحاجة مُتابعة', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+const FINAL_DECISION_STYLES: Record<string, string> = {
+  offer_presented: 'bg-sky-50 text-sky-700 border-sky-200',
+  device_sold: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  rescheduled: 'bg-amber-50 text-amber-700 border-amber-200',
+  cancelled: 'bg-rose-50 text-rose-700 border-rose-200',
+  accepted: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  rejected: 'bg-rose-50 text-rose-700 border-rose-200',
+  needs_followup: 'bg-amber-50 text-amber-700 border-amber-200',
+  delivered_successfully: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  refused_gift: 'bg-rose-50 text-rose-700 border-rose-200',
+  customer_not_available: 'bg-amber-50 text-amber-700 border-amber-200',
+  wrong_address: 'bg-orange-50 text-orange-700 border-orange-200',
+  refused_delivery: 'bg-rose-50 text-rose-700 border-rose-200',
+  installed_successfully: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  installation_incomplete: 'bg-amber-50 text-amber-700 border-amber-200',
+  refused_installation: 'bg-rose-50 text-rose-700 border-rose-200',
+  resolved: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  unresolved: 'bg-rose-50 text-rose-700 border-rose-200',
+  needs_follow_up: 'bg-amber-50 text-amber-700 border-amber-200',
 };
 
 const VISIT_STATUS_LABELS: Record<string, { label: string; cls: string }> = {
@@ -43,13 +39,11 @@ const VISIT_STATUS_LABELS: Record<string, { label: string; cls: string }> = {
   closed: { label: 'مقفلة', cls: 'bg-slate-200 text-slate-700' },
 };
 
-function renderFinalDecision(value?: string | null) {
+function renderFinalDecision(value?: string | null, taskType?: string | null) {
   if (!value) return 'غير مسجلة بعد';
-  const meta = FINAL_DECISION_LABELS[value];
-  if (!meta) return <span className="font-mono text-xs">{value}</span>;
   return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-lg text-xs font-bold border ${meta.cls}`}>
-      {meta.label}
+    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-lg text-xs font-bold border ${FINAL_DECISION_STYLES[value] ?? 'bg-slate-50 text-slate-700 border-slate-200'}`}>
+      {taskDecisionLabel(value, taskType)}
     </span>
   );
 }
@@ -112,6 +106,8 @@ function renderDerivedOutcome(finalDecision: string | null, task: any, preOffers
   } else if (finalDecision === 'cancelled') {
     label = 'ألغيت / لم تنجز';
     cls = 'bg-rose-50 text-rose-700 border-rose-200';
+  } else if (finalDecision) {
+    label = taskDecisionLabel(finalDecision, task.taskType ?? task.task_type);
   }
 
   return (
@@ -178,7 +174,7 @@ export default function TaskResultTab({ task, hasResult, attempts = [], ResultRe
               : wasCancelledBeforeScheduling
               ? <span className="inline-flex items-center rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-0.5 text-xs font-bold text-rose-700">ألغيت قبل الجدولة</span>
               : isTerminal
-              ? renderFinalDecision(taskFinalDecision)
+              ? renderFinalDecision(taskFinalDecision, task.taskType ?? task.task_type)
               : <span className="inline-flex items-center px-2.5 py-0.5 rounded-lg text-xs font-bold border bg-slate-50 text-slate-600 border-slate-200">قيد المتابعة</span>}
           />
           <InfoLine
@@ -223,7 +219,7 @@ export default function TaskResultTab({ task, hasResult, attempts = [], ResultRe
                 label="نتيجة آخر محاولة"
                 value={
                   <span className="inline-flex items-center gap-2 text-xs">
-                    {renderFinalDecision(attemptFinalDecision)}
+                    {renderFinalDecision(attemptFinalDecision, task.taskType ?? task.task_type)}
                     <span className="text-slate-400">
                       · {formatDate(lastAttempt.scheduledDate)}
                       {lastAttempt.scheduledTime ? ` · ${lastAttempt.scheduledTime}` : ''}
@@ -254,7 +250,7 @@ export default function TaskResultTab({ task, hasResult, attempts = [], ResultRe
             {attempts.map((at: any, idx: number) => {
               const vs = VISIT_STATUS_LABELS[at.visitStatus] ?? { label: at.visitStatus, cls: 'bg-slate-100 text-slate-600' };
               const decision = at.finalDecision
-                ? (FINAL_DECISION_LABELS[at.finalDecision]?.label ?? at.finalDecision)
+                ? taskDecisionLabel(at.finalDecision, task.taskType ?? task.task_type)
                 : null;
               return (
                 <Link

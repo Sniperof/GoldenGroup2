@@ -123,12 +123,13 @@
 | `clients.edit` | ASSIGNED | بتعدّل زباين مسندين لها |
 | `contracts.create` | BRANCH | بتنشئ عقود |
 | `planning.schedule.appear` | BRANCH | بتظهر بجدولة الفرق |
+| `telemarketing.lists.view_device_demo` | ASSIGNED | بتشوف فقط جهات اتصال فريقها التي تحتوي على مهمة عرض جهاز، مع كامل مهام الجهة |
 | `telemarketing.appointments.create` | BRANCH | بتحجز مواعيد |
 | `telemarketing.calls.create` | BRANCH | بتسجّل نتائج اتصال |
 | `tasks.create` | BRANCH | بتنشئ مهام |
 | `tasks.edit` | BRANCH | بتعدّل مهام |
 
-**السيناريو:** المشرفة بتفتح صفحة الزباين → بيشوف بس الزباين المسندين لها أو لفريقها. ما بيشوف زباين فريق تاني.
+**السيناريو:** المشرفة بتفتح صفحة الزباين → بتشوف بس الزباين المسندين لها أو لفريقها. وعند فتح مساحة الاتصالات، لا تظهر لها إلا جهات اتصال فريقها التي تحتوي على مهمة عرض جهاز. ما بتشوف زباين فريق تاني.
 
 ### 3.4 السيناريو: فني صيانة (Technician)
 
@@ -211,7 +212,8 @@
 | **telemarketing.calls.create** | — | — | BRANCH | — | BRANCH | — |
 | **telemarketing.appointments.create** | — | — | BRANCH | — | BRANCH | — |
 | **telemarketing.targets.view** | GLOBAL | BRANCH | BRANCH | — | BRANCH | — |
-| **telemarketing.lists.view** | GLOBAL | BRANCH | BRANCH | — | BRANCH | — |
+| **telemarketing.lists.view** | GLOBAL | BRANCH | — | — | BRANCH | — |
+| **telemarketing.lists.view_device_demo** | GLOBAL | BRANCH | ASSIGNED | — | — | — |
 | **field_visits.view** | GLOBAL | BRANCH | BRANCH | BRANCH | — | — |
 | **field_visits.edit** | — | BRANCH | BRANCH | BRANCH | — | — |
 | **branches.view** | GLOBAL | BRANCH | BRANCH | — | — | — |
@@ -357,5 +359,5 @@ identity + permission + scope + subject = decision
 - `domains/clients.md` — كيف الإسناد بيشتغل (`client_assignments`)
 - `domains/planning.md` — جدولة الفرق والـ `team_snapshot`
 - `domains/telemarketing.md` — `contact_targets` والنطاق
-- `plans/permissions-view-strategy.md` — خطة العرض والنطاق (ملف منفصل)
+- `features/permissions-view-strategy.md` — خطة العرض والنطاق (ملف منفصل)
 - `decisions/DEC-005-contact-targets-filter.md` — النطاق الجغرافي

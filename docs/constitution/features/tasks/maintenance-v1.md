@@ -130,7 +130,7 @@ received  ────→  in_review  ──→  resolved_at_intake   [terminal]
 
 ## ٩ — الانعكاس على خطة التنفيذ
 
-كل المراحل في [`maintenance-implementation-plan.md`](./maintenance-implementation-plan.md) تَبقى سارية بـ **تعديلَين**:
+كل المراحل في [`maintenance-implementation-plan.md`](../../../archive/plans/maintenance-implementation-plan.md) تَبقى سارية بـ **تعديلَين**:
 
 ### Phase 0 — Migrations
 - ✅ كل الجداول تُنشأ بالـ schema الكامل (يَستوعب V2+).
@@ -170,7 +170,7 @@ received  ────→  in_review  ──→  resolved_at_intake   [terminal]
 - [ ] Reopen من الـ terminal الثلاث المسموحة يَعمل.
 - [ ] EM-UNIQ شاشة merge vs split تَظهر للبلاغ الثاني.
 - [ ] Audit log كامل لكل event.
-- [ ] السيناريوهات من [`maintenance-test-scenarios.md`](./maintenance-test-scenarios.md) المتعلقة بـ V1.0 تَمرّ — تَحديداً:
+- [ ] السيناريوهات من [`maintenance-test-scenarios.md`](../../../archive/plans/maintenance-test-scenarios.md) المتعلقة بـ V1.0 تَمرّ — تَحديداً:
   - ✅ SC-01, SC-02, SC-04 (المسارات السعيدة بزبون موجود)
   - ✅ SC-06, SC-07 (الرفض الثنائي)
   - ❌ SC-03 (walk-in) — مُؤجَّل
@@ -256,6 +256,6 @@ received  ────→  in_review  ──→  resolved_at_intake   [terminal]
 ## ١١ — المراجع
 
 - [`maintenance.md`](./maintenance.md) — الدستور الكامل (المرجع الأساسي لكل قاعدة لم تُذكَر هنا)
-- [`maintenance-implementation-plan.md`](./maintenance-implementation-plan.md) — الخطة التقنية المرحلية
-- [`maintenance-test-scenarios.md`](./maintenance-test-scenarios.md) — 35 سيناريو
+- [`maintenance-implementation-plan.md`](../../../archive/plans/maintenance-implementation-plan.md) — الخطة التقنية المرحلية
+- [`maintenance-test-scenarios.md`](../../../archive/plans/maintenance-test-scenarios.md) — 35 سيناريو
 - [`device-delivery.md`](./device-delivery.md) + [`device-demo.md`](./device-demo.md) — القالب المرجعي للمهام

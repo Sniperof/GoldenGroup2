@@ -15,6 +15,7 @@ import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import Input from '../../components/ui/Input';
 import Toggle from '../../components/ui/Toggle';
+import PageJump from '../../components/ui/PageJump';
 import { api } from '../../lib/api';
 import { Client, Candidate, GeoUnit } from '../../lib/types';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -180,7 +181,7 @@ export default function CandidatesEntry() {
     const [sheetBranchFilter, setSheetBranchFilter] = useState('');
     // Sheet Filters — the rest, all in the one unified panel. The three independent
     // roles (owner/assigned reviewer/creator) fully replace the old single merged
-    // "supervisor" filter per docs/analysis/candidates-referral-sheets-filters-audit.md §2.2.
+    // "supervisor" filter per docs/engineering/audits/candidates-referral-sheets-filters-audit.md §2.2.
     const [sheetFiltersOpen, setSheetFiltersOpen] = useState(false);
     const [sheetOwnerFilter, setSheetOwnerFilter] = useState('');
     const [sheetAssignedReviewerFilter, setSheetAssignedReviewerFilter] = useState('');
@@ -206,6 +207,7 @@ export default function CandidatesEntry() {
     const setLoadedCandidates = useCandidateStore(state => state.setLoadedCandidates);
     const qualifyCandidate = useCandidateStore(state => state.qualifyCandidate);
     const linkCandidateToClient = useCandidateStore(state => state.linkCandidateToClient);
+    const linkCandidateToRestrictedLead = useCandidateStore(state => state.linkCandidateToRestrictedLead);
     const markJunk = useCandidateStore(state => state.markJunk);
 
     // New Qualification & Client Modals
@@ -236,6 +238,11 @@ export default function CandidatesEntry() {
         () => new Map(ownerOptions.map(u => [String(u.id), u.name])),
         [ownerOptions],
     );
+    // «ملكية الفرع»: a GLOBAL viewer on "all branches" can target each branch's
+    // ownership; once one branch is in scope, a single option is enough.
+    const branchOwnershipOptions = isGlobalNames && branchContextId == null && branchOptions.length > 1
+        ? [{ value: 'branch', label: 'ملكية الفرع (كل الفروع)' }, ...branchOptions.map(b => ({ value: `branch:${b.id}`, label: `ملكية فرع ${b.name}` }))]
+        : [{ value: 'branch', label: 'ملكية الفرع' }];
     const branchNameById = useMemo(
         () => new Map(branchOptions.map(b => [String(b.id), b.name])),
         [branchOptions],
@@ -306,7 +313,9 @@ export default function CandidatesEntry() {
             sortDir: 'desc',
             search: debouncedSearch || undefined,
             status: candidateStatusFilter || undefined,
-            responsibleUserId: candidateSupervisorFilter ? Number(candidateSupervisorFilter) : undefined,
+            responsibleUserId: candidateSupervisorFilter && !candidateSupervisorFilter.startsWith('branch') ? Number(candidateSupervisorFilter) : undefined,
+            ownershipType: candidateSupervisorFilter.startsWith('branch') ? 'BRANCH' : undefined,
+            ownershipBranchId: candidateSupervisorFilter.startsWith('branch:') ? Number(candidateSupervisorFilter.slice(7)) : undefined,
             branchFilterId: candidateBranchFilter ? Number(candidateBranchFilter) : undefined,
             createdByUserId: candidateCreatorFilter ? Number(candidateCreatorFilter) : undefined,
             converted: (candidateConvertedFilter || undefined) as any,
@@ -493,6 +502,9 @@ export default function CandidatesEntry() {
         void fetchReferralSheets(isGlobalNames ? branchContextId : null);
     }, [fetchReferralSheets, isGlobalNames, branchContextId]);
 
+    // A specific branch's ownership only exists in the "all branches" view.
+    useEffect(() => { setCandidateSupervisorFilter(v => v.startsWith('branch:') ? '' : v); }, [branchContextId]);
+
     // Branch list for the management filter (shown only when the filter is visible).
     useEffect(() => {
         if (!isGlobalNames && !isBranchNames) return;
@@ -538,7 +550,7 @@ export default function CandidatesEntry() {
     type Chip = { key: string; label: string; value: string; onRemove: () => void };
     const candidateChips: Chip[] = [];
     if (candidateStatusFilter) candidateChips.push({ key: 'status', label: 'الحالة', value: candidateStatusLabels[candidateStatusFilter] ?? candidateStatusFilter, onRemove: () => { setCandidateStatusFilter(''); setCandidatePage(1); } });
-    if (candidateSupervisorFilter) candidateChips.push({ key: 'supervisor', label: 'المسؤول', value: ownerNameById.get(candidateSupervisorFilter) ?? candidateSupervisorFilter, onRemove: () => { setCandidateSupervisorFilter(''); setCandidatePage(1); } });
+    if (candidateSupervisorFilter) candidateChips.push({ key: 'supervisor', label: 'المسؤول', value: branchOwnershipOptions.find(o => o.value === candidateSupervisorFilter)?.label ?? ownerNameById.get(candidateSupervisorFilter) ?? candidateSupervisorFilter, onRemove: () => { setCandidateSupervisorFilter(''); setCandidatePage(1); } });
     if (candidateBranchFilter) candidateChips.push({ key: 'branch', label: 'الفرع', value: branchNameById.get(candidateBranchFilter) ?? candidateBranchFilter, onRemove: () => { setCandidateBranchFilter(''); setCandidatePage(1); } });
     if (candidateConvertedFilter) candidateChips.push({ key: 'converted', label: 'التحويل', value: candidateConvertedFilter === 'converted' ? 'محوَّل' : 'غير محوَّل', onRemove: () => { setCandidateConvertedFilter(''); setCandidatePage(1); } });
     if (candidateReferralTypeFilter) candidateChips.push({ key: 'referralType', label: 'نوع الترشيح', value: getReferralTypeLabel(candidateReferralTypeFilter), onRemove: () => { setCandidateReferralTypeFilter(''); setCandidatePage(1); } });
@@ -565,7 +577,7 @@ export default function CandidatesEntry() {
     if (sheetDateFrom || sheetDateTo) sheetChips.push({ key: 'date', label: 'التاريخ', value: `${sheetDateFrom || '…'} → ${sheetDateTo || '…'}`, onRemove: () => { setSheetDateFrom(''); setSheetDateTo(''); setSheetsPage(1); } });
 
     return (
-        <div className="p-8 space-y-6" dir="rtl">
+        <div className="p-4 sm:p-6 lg:p-8 space-y-6" dir="rtl">
             {/* Error Message Modal */}
             <Modal
                 isOpen={!!errorModal}
@@ -691,12 +703,10 @@ export default function CandidatesEntry() {
                                     <Select className="w-full" value={candidateStatusFilter} onChange={(v) => { setCandidateStatusFilter(v); setCandidatePage(1); }} ariaLabel="حالة المرشح"
                                         options={[{ value: '', label: 'كل الحالات' }, ...Object.entries(candidateStatusLabels).map(([value, label]) => ({ value, label }))]} />
                                 </FilterField>
-                                {ownerOptions.length > 0 && (
-                                    <FilterField label="المسؤول">
-                                        <Select className="w-full" value={candidateSupervisorFilter} onChange={(v) => { setCandidateSupervisorFilter(v); setCandidatePage(1); }} ariaLabel="المسؤول"
-                                            options={[{ value: '', label: 'كل المسؤولين' }, ...ownerOptions.map(u => ({ value: String(u.id), label: u.name }))]} />
-                                    </FilterField>
-                                )}
+                                <FilterField label="المسؤول">
+                                    <Select className="w-full" value={candidateSupervisorFilter} onChange={(v) => { setCandidateSupervisorFilter(v); setCandidatePage(1); }} ariaLabel="المسؤول"
+                                        options={[{ value: '', label: 'كل المسؤولين' }, ...branchOwnershipOptions, ...ownerOptions.map(u => ({ value: String(u.id), label: u.name }))]} />
+                                </FilterField>
                                 {branchOptions.length > 1 && (
                                     <FilterField label="الفرع">
                                         <Select className="w-full" value={candidateBranchFilter} onChange={(v) => { setCandidateBranchFilter(v); setCandidatePage(1); }} ariaLabel="الفرع"
@@ -754,7 +764,108 @@ export default function CandidatesEntry() {
                         )}
                     </div>
 
-                    <div className="flex-1 overflow-y-auto custom-scroll" style={{ minHeight: '480px', maxHeight: '480px' }}>
+                    {/* ── MOBILE CARD LIST (< md) — same data/pagination, stacked as cards.
+                        Desktop table below is unchanged (hidden on mobile). ── */}
+                    <div className="md:hidden divide-y divide-slate-100">
+                        {paginatedCandidates.length === 0 ? (
+                            <div className="px-4 py-12 text-center text-slate-400 font-medium">لا توجد بيانات</div>
+                        ) : (
+                            paginatedCandidates.map((c) => {
+                                const nameStr = c.firstName
+                                    ? `${c.firstName} ${c.lastName || ''} ${c.nickname ? `(${c.nickname})` : ''}`.trim()
+                                    : `${c.nickname || ''} ${c.lastName || ''}`.trim();
+                                const primaryPhone = c.contacts?.find(con => con.isPrimary)?.number || c.contacts?.[0]?.number || c.mobile;
+                                const extraCount = Math.max(0, (c.contacts?.length || 0) - 1);
+                                const allPhones = c.contacts?.map(con => con.number).join('\n') || '';
+                                const badge = getCandidateStatusBadge(c);
+                                const assignments = c.assignments || [];
+                                const showEdit = canEditCandidates && c.status !== 'Qualified' && c.status !== 'Junk' && c.convertedToLeadId == null;
+                                const showQualify = canEditCandidates && (c.status === 'Suggested' || c.status === 'FollowUp');
+                                return (
+                                    <div key={c.id} className="bg-white p-4 space-y-2.5">
+                                        {/* Header: name + status */}
+                                        <div className="flex items-start justify-between gap-2">
+                                            <div className="min-w-0">
+                                                <div className="font-bold text-slate-800 leading-tight">{nameStr || '--'}</div>
+                                                <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-slate-400 font-mono">
+                                                    <span>#{c.id}</span>
+                                                    <span>·</span>
+                                                    <span>{c.createdAt ? new Date(c.createdAt).toLocaleDateString('ar-SY') : '--'}</span>
+                                                </div>
+                                            </div>
+                                            <span className={`shrink-0 px-2 py-0.5 rounded text-xs font-black border ${badge.className}`}>{badge.label}</span>
+                                        </div>
+                                        {/* Phone */}
+                                        <div className="flex items-center justify-between gap-3">
+                                            <span className="shrink-0 text-xs font-medium text-slate-400">أرقام التواصل</span>
+                                            <span className="flex items-center gap-1.5 font-mono text-xs text-slate-700" dir="ltr">
+                                                <span>{primaryPhone}</span>
+                                                {extraCount > 0 && (
+                                                    <span className="bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded font-bold" title={allPhones}>+{extraCount}</span>
+                                                )}
+                                            </span>
+                                        </div>
+                                        {/* Address */}
+                                        <div className="flex items-start justify-between gap-3">
+                                            <span className="shrink-0 text-xs font-medium text-slate-400">العنوان</span>
+                                            <span className="inline-flex items-center gap-1.5 text-xs text-slate-600 text-left">
+                                                <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
+                                                {getCandidateAddressDisplay(c)}
+                                            </span>
+                                        </div>
+                                        {/* Referral */}
+                                        <div className="flex items-start justify-between gap-3">
+                                            <span className="shrink-0 text-xs font-medium text-slate-400">اسم الوسيط</span>
+                                            <span className="text-xs font-medium text-slate-700 text-left">
+                                                {c.referralType === 'Client' && c.referralEntityId ? (
+                                                    <Link to={`/clients/${c.referralEntityId}`} className="text-sky-600 hover:underline">{c.referralNameSnapshot || 'زبون مجهول'}</Link>
+                                                ) : (c.referralNameSnapshot || '--')}
+                                                {c.referralType && <span className="text-slate-400"> · {getReferralTypeLabel(c.referralType)}</span>}
+                                            </span>
+                                        </div>
+                                        {/* Assignments */}
+                                        <div className="flex items-start justify-between gap-3">
+                                            <span className="shrink-0 text-xs font-medium text-slate-400">المسؤولون</span>
+                                            <span className="text-xs text-slate-700 text-left">
+                                                {assignments.length === 0 ? <span className="text-slate-400">--</span> : (
+                                                    <span className="flex flex-col gap-0.5">
+                                                        {assignments.slice(0, 2).map((a, i) => (
+                                                            <span key={i}><span className="font-bold">{a.userName}</span>{a.roleDisplayName && <span className="text-slate-400"> · {a.roleDisplayName}</span>}</span>
+                                                        ))}
+                                                        {assignments.length > 2 && <span className="text-sky-500 font-bold">+{assignments.length - 2} آخرين</span>}
+                                                    </span>
+                                                )}
+                                            </span>
+                                        </div>
+                                        {/* Branch */}
+                                        <div className="flex items-center justify-between gap-3">
+                                            <span className="shrink-0 text-xs font-medium text-slate-400">الفرع</span>
+                                            <span className="text-xs text-slate-600 text-left">
+                                                {c.branchName ? <span className="inline-flex items-center gap-1"><Building2 className="w-3 h-3 text-slate-400" />{c.branchName}</span> : <span className="text-slate-400">--</span>}
+                                            </span>
+                                        </div>
+                                        {/* Actions */}
+                                        {(showEdit || showQualify) && (
+                                            <div className="flex items-center justify-end gap-2 border-t border-slate-100 pt-2.5">
+                                                {showEdit && (
+                                                    <button onClick={() => { setEditingCandidate(c); setIsAddModalOpen(true); }} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 text-slate-600 hover:bg-slate-600 hover:text-white rounded-lg border border-slate-200 text-xs font-bold transition-all">
+                                                        <Edit className="w-3.5 h-3.5" /> تعديل
+                                                    </button>
+                                                )}
+                                                {showQualify && (
+                                                    <button onClick={() => handleOpenQualify(c)} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-sky-50 text-sky-600 hover:bg-sky-600 hover:text-white rounded-lg border border-sky-100 text-xs font-bold transition-all">
+                                                        <ShieldCheck className="w-3.5 h-3.5" /> تأهيل
+                                                    </button>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })
+                        )}
+                    </div>
+
+                    <div className="hidden md:block flex-1 overflow-x-auto custom-scroll">
                         <table className="w-full text-sm text-right border-collapse">
                             <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200 shadow-sm">
                                 <tr className="text-slate-600 font-bold text-xs uppercase tracking-wider">
@@ -921,7 +1032,7 @@ export default function CandidatesEntry() {
 
                     {/* Footer Pagination */}
                     {candidatesTotal > 0 && (
-                        <div className="sticky bottom-0 bg-white z-10 border-t border-slate-100 p-3 flex items-center justify-between">
+                        <div className="sticky bottom-0 bg-white z-10 border-t border-slate-100 p-3 flex flex-wrap items-center justify-between gap-2">
                             <span className="text-xs font-bold text-slate-500">
                                 عرض {Math.min(candidatesTotal, (candidatePage - 1) * ITEMS_PER_PAGE + 1)}-{Math.min(candidatesTotal, candidatePage * ITEMS_PER_PAGE)} من {candidatesTotal}
                             </span>
@@ -937,6 +1048,9 @@ export default function CandidatesEntry() {
                                     onClick={() => setCandidatePage(p => p + 1)}
                                     className="px-3 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold disabled:opacity-30"
                                 >التالي</button>
+                                {totalCandidatePages > 1 && (
+                                    <PageJump current={candidatePage} total={totalCandidatePages} onJump={setCandidatePage} />
+                                )}
                             </div>
                         </div>
                     )}
@@ -1069,7 +1183,83 @@ export default function CandidatesEntry() {
                         )}
                     </div>
 
-                    <div className="flex-1 overflow-y-auto custom-scroll" style={{ maxHeight: '480px' }}>
+                    {/* ── MOBILE CARD LIST (< md) — desktop table below is unchanged (hidden on mobile). ── */}
+                    <div className="md:hidden divide-y divide-slate-100">
+                        {paginatedSheets.length === 0 ? (
+                            <div className="px-4 py-12 text-center text-slate-400 font-medium font-bold">لا توجد نتائج مطابقة للفلاتر المحددة</div>
+                        ) : (
+                            paginatedSheets.map((sheet) => (
+                                <div key={sheet.id} className="bg-white p-4 space-y-2.5">
+                                    {/* Header: id + name + status */}
+                                    <div className="flex items-start justify-between gap-2">
+                                        <div className="flex items-center gap-3 min-w-0">
+                                            <div className="w-8 h-8 shrink-0 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center font-black text-xs">{sheet.id}</div>
+                                            <div className="min-w-0">
+                                                <div className="font-bold text-slate-800 leading-tight">{sheet.referralNameSnapshot}</div>
+                                                <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                                    <span className="text-xs text-slate-400">{getReferralTypeLabel(sheet.referralType)}</span>
+                                                    {sheet.fieldVisitId ? (
+                                                        <Link to={`/field-visits/${sheet.fieldVisitId}`} className="inline-flex items-center gap-1 rounded-lg border border-sky-100 bg-sky-50 px-1.5 py-0.5 text-xs font-bold text-sky-700 hover:border-sky-200 hover:bg-sky-100">
+                                                            من زيارة #{sheet.fieldVisitId}
+                                                        </Link>
+                                                    ) : (
+                                                        <span className="inline-flex items-center rounded-lg border border-slate-100 bg-slate-50 px-1.5 py-0.5 text-xs font-bold text-slate-500">يدوي</span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <span className={`shrink-0 px-2 py-0.5 rounded text-xs font-bold border ${sheet.status === 'New' ? 'bg-green-50 text-green-700 border-green-100' : sheet.status === 'Completed' ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-slate-50 text-slate-500 border-slate-200'}`}>
+                                            {sheet.status === 'New' ? 'نشط' : sheet.status === 'Completed' ? 'مكتمل' : 'مؤرشف'}
+                                        </span>
+                                    </div>
+                                    {/* المشرفة */}
+                                    <div className="flex items-center justify-between gap-3">
+                                        <span className="shrink-0 text-xs font-medium text-slate-400">المشرفة</span>
+                                        <span className="text-xs text-left">
+                                            {sheet.assignedHrUserName ? (
+                                                <span className="inline-flex items-center gap-1 text-violet-700 font-medium"><User className="w-3 h-3" />{sheet.assignedHrUserName}</span>
+                                            ) : (<span className="text-slate-400">--</span>)}
+                                        </span>
+                                    </div>
+                                    {/* Branch */}
+                                    <div className="flex items-center justify-between gap-3">
+                                        <span className="shrink-0 text-xs font-medium text-slate-400">الفرع</span>
+                                        <span className="text-xs text-slate-600 text-left">
+                                            {sheet.branchName ? <span className="inline-flex items-center gap-1"><Building2 className="w-3 h-3 text-slate-400" />{sheet.branchName}</span> : <span className="text-slate-400">--</span>}
+                                        </span>
+                                    </div>
+                                    {/* Stats: names · quality · conversion */}
+                                    <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-2.5">
+                                        <div className="flex flex-col items-center gap-0.5">
+                                            <span className="text-[11px] text-slate-400">الأسماء</span>
+                                            <span className="font-bold text-slate-700 text-sm">
+                                                {sheet.fieldVisitId && (sheet.stats?.targetCandidates ?? 0) > 0 ? (
+                                                    <>
+                                                        <span className={(sheet.stats?.totalCandidates || 0) >= (sheet.stats?.targetCandidates ?? 0) ? 'text-emerald-600' : 'text-amber-600'}>{sheet.stats?.totalCandidates || 0}</span>
+                                                        <span className="mx-0.5 font-normal text-slate-400">/</span>
+                                                        <span className="text-slate-500">{sheet.stats.targetCandidates}</span>
+                                                    </>
+                                                ) : (sheet.stats?.totalCandidates || 0)}
+                                            </span>
+                                        </div>
+                                        <div className="flex flex-col items-center gap-0.5">
+                                            <span className="text-[11px] text-slate-400">الجودة</span>
+                                            <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded-lg border border-blue-100 font-bold text-xs">{sheet.stats?.qualityPercentage || 0}%</span>
+                                        </div>
+                                        <div className="flex flex-col items-center gap-0.5">
+                                            <span className="text-[11px] text-slate-400">التحويل</span>
+                                            <span className="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-lg border border-emerald-100 font-bold text-xs">{sheet.stats?.conversionPercentage || 0}%</span>
+                                        </div>
+                                        <button onClick={() => setSheetDetailsId(sheet.id)} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 text-amber-600 hover:bg-amber-500 hover:text-white rounded-lg border border-amber-100 text-xs font-bold transition-all">
+                                            <LayoutGrid className="w-3.5 h-3.5" /> عرض
+                                        </button>
+                                    </div>
+                                </div>
+                            ))
+                        )}
+                    </div>
+
+                    <div className="hidden md:block flex-1 overflow-x-auto custom-scroll">
                         <table className="w-full text-sm text-right border-collapse">
                             <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200 shadow-sm">
                                 <tr className="text-slate-600 font-bold text-xs uppercase tracking-wider">
@@ -1174,7 +1364,7 @@ export default function CandidatesEntry() {
 
                     {/* Footer Pagination */}
                     {filteredSheets.length > 0 && (
-                        <div className="sticky bottom-0 bg-white z-10 border-t border-slate-100 p-3 flex items-center justify-between">
+                        <div className="sticky bottom-0 bg-white z-10 border-t border-slate-100 p-3 flex flex-wrap items-center justify-between gap-2">
                             <span className="text-xs font-bold text-slate-500">
                                 عرض {Math.min(filteredSheets.length, (sheetsPage - 1) * ITEMS_PER_PAGE + 1)}-{Math.min(filteredSheets.length, sheetsPage * ITEMS_PER_PAGE)} من {filteredSheets.length}
                             </span>
@@ -1190,6 +1380,9 @@ export default function CandidatesEntry() {
                                     onClick={() => setSheetsPage(p => p + 1)}
                                     className="px-3 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold disabled:opacity-30"
                                 >التالي</button>
+                                {totalSheetsPages > 1 && (
+                                    <PageJump current={sheetsPage} total={totalSheetsPages} onJump={setSheetsPage} />
+                                )}
                             </div>
                         </div>
                     )}
@@ -1214,6 +1407,7 @@ export default function CandidatesEntry() {
 
             <QualificationModal
                 isOpen={canEditCandidates && isQualifyModalOpen}
+                canLinkRestrictedLead={hasPermission('candidates.link_restricted_lead')}
                 onClose={() => setIsQualifyModalOpen(false)}
                 candidate={activeCandidateForQualify}
                 onQualified={handleQualificationConfirmed}
@@ -1236,6 +1430,17 @@ export default function CandidatesEntry() {
                     } catch (err: any) {
                         console.error('Failed to link candidate to client:', err);
                         setErrorModal(err?.message ?? 'فشل ربط الاسم المقترح بالزبون');
+                    }
+                }}
+                onRestrictedLeadLink={async (candidateId) => {
+                    try {
+                        await linkCandidateToRestrictedLead(candidateId);
+                        reloadCandidatesPage();
+                        setIsQualifyModalOpen(false);
+                        setActiveCandidateForQualify(null);
+                    } catch (err: any) {
+                        console.error('Failed to link restricted Lead:', err);
+                        throw err;
                     }
                 }}
             />

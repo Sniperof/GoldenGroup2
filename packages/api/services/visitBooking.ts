@@ -491,6 +491,44 @@ export interface CreateInstantVisitResult {
   fieldVisitId: number;
 }
 
+export interface InstantVisitClientOption {
+  id: number;
+  name: string | null;
+  mobile: string | null;
+  detailedAddress: string | null;
+}
+
+export interface InstantVisitOptionsResult {
+  available: true;
+  teamKey: string;
+  clients: InstantVisitClientOption[];
+}
+
+interface InstantVisitContext {
+  today: string;
+  employeeId: number;
+  branchId: number;
+  teamKey: string;
+  zoneIds: number[];
+}
+
+export const INSTANT_VISIT_ELIGIBLE_CLIENTS_SQL = `
+  SELECT c.id, c.name, c.mobile, c.detailed_address AS "detailedAddress"
+  FROM clients c
+  WHERE c.branch_id = $1
+    AND c.deleted_at IS NULL
+    AND c.is_active = TRUE
+    AND COALESCE(c.do_not_contact, FALSE) = FALSE
+    AND (c.cooldown_until IS NULL OR c.cooldown_until::date < $2::date)
+    AND CASE
+      WHEN NULLIF(c.neighborhood::text, '') ~ '^[0-9]+$' THEN c.neighborhood::int
+      ELSE NULL
+    END = ANY($3::int[])
+    AND ($4::text = '' OR c.name ILIKE $5 OR c.mobile ILIKE $5)
+  ORDER BY c.name ASC NULLS LAST, c.id ASC
+  LIMIT 50
+`;
+
 /** Find the teamKey (team_N / solo_N) the employee belongs to in today's schedule. */
 async function findTeamKeyForUserToday(
   db: PoolClient,
@@ -517,6 +555,68 @@ async function findTeamKeyForUserToday(
   return null;
 }
 
+async function resolveInstantVisitContext(
+  db: PoolClient,
+  performedByUserId: number,
+): Promise<InstantVisitContext> {
+  const today = new Date().toISOString().slice(0, 10);
+  const { rows: userRows } = await db.query(
+    `SELECT u.employee_id AS "employeeId", e.branch_id AS "branchId"
+       FROM hr_users u
+       LEFT JOIN employees e ON e.id = u.employee_id
+      WHERE u.id = $1 AND u.is_active = TRUE`,
+    [performedByUserId],
+  );
+  const employeeId = Number(userRows[0]?.employeeId);
+  const branchId = Number(userRows[0]?.branchId);
+  if (!Number.isInteger(employeeId) || employeeId <= 0) {
+    throw new BookingError(403, 'حسابك غير مرتبط بموظف — لا يمكن إنشاء زيارة فورية.');
+  }
+  if (!Number.isInteger(branchId) || branchId <= 0) {
+    throw new BookingError(409, 'تعذّر تحديد فرعك من بيانات الموظف.');
+  }
+
+  const teamKey = await findTeamKeyForUserToday(db, employeeId, today);
+  if (!teamKey) {
+    throw new BookingError(409, 'لا يمكنك بدء زيارة فورية اليوم لأنك غير مدرج ضمن جدول فريق فعّال.');
+  }
+  await assertD18(db, { scheduledDate: today, teamKey });
+  const zoneIds = await resolveTeamZoneIds(today, teamKey, db);
+  if (zoneIds.length === 0) {
+    throw new BookingError(409, 'لا توجد مناطق محفوظة لمسار فريقك اليوم — لا يمكن بدء زيارة فورية.');
+  }
+  return { today, employeeId, branchId, teamKey, zoneIds };
+}
+
+/**
+ * Operation-specific lookup for DEC-011. It deliberately uses the instant-visit
+ * capability instead of clients.view_list and returns only the minimum fields for
+ * customers that the create path can accept today.
+ */
+export async function getInstantVisitOptions(
+  performedByUserId: number,
+  search = '',
+): Promise<InstantVisitOptionsResult> {
+  const db = await pool.connect();
+  try {
+    const context = await resolveInstantVisitContext(db, performedByUserId);
+    const normalizedSearch = search.trim().slice(0, 100);
+    const { rows } = await db.query<InstantVisitClientOption>(
+      INSTANT_VISIT_ELIGIBLE_CLIENTS_SQL,
+      [
+        context.branchId,
+        context.today,
+        context.zoneIds,
+        normalizedSearch,
+        `%${normalizedSearch}%`,
+      ],
+    );
+    return { available: true, teamKey: context.teamKey, clients: rows };
+  } finally {
+    db.release();
+  }
+}
+
 /**
  * DEC-011: create an off-plan visit on the spot, already in_progress. The team
  * responsible (supervisor/technician) creates it for a customer in their branch
@@ -529,34 +629,8 @@ export async function createInstantVisit(input: CreateInstantVisitInput): Promis
   const db = await pool.connect();
   try {
     await db.query('BEGIN');
-    const today = new Date().toISOString().slice(0, 10);
     const now = new Date();
-
-    // 1. Resolve performer → employee + branch.
-    const { rows: userRows } = await db.query(
-      `SELECT u.employee_id AS "employeeId", e.branch_id AS "branchId"
-         FROM hr_users u
-         LEFT JOIN employees e ON e.id = u.employee_id
-        WHERE u.id = $1 AND u.is_active = TRUE`,
-      [input.performedByUserId],
-    );
-    const employeeId = Number(userRows[0]?.employeeId);
-    const branchId = Number(userRows[0]?.branchId);
-    if (!Number.isInteger(employeeId) || employeeId <= 0) {
-      throw new BookingError(403, 'حسابك غير مرتبط بموظف — لا يمكن إنشاء زيارة فورية.');
-    }
-    if (!Number.isInteger(branchId) || branchId <= 0) {
-      throw new BookingError(409, 'تعذّر تحديد فرعك من بيانات الموظف.');
-    }
-
-    // 2. Resolve the team she leads today.
-    const teamKey = await findTeamKeyForUserToday(db, employeeId, today);
-    if (!teamKey) {
-      throw new BookingError(409, 'لست ضمن أي فريق في جدول اليوم — لا يمكن إنشاء زيارة فورية.');
-    }
-
-    // 3. D18 triple guard (day_schedule + route_assignment + date>=today).
-    await assertD18(db, { scheduledDate: today, teamKey });
+    const { today, branchId, teamKey, zoneIds } = await resolveInstantVisitContext(db, input.performedByUserId);
 
     // 4. Team snapshot + responsible user.
     const teamInfo = await loadTeamSnapshot(db, today, teamKey);
@@ -593,7 +667,6 @@ export async function createInstantVisit(input: CreateInstantVisitInput): Promis
     if (!Number.isInteger(neighborhood) || neighborhood <= 0) {
       throw new BookingError(409, 'الزبون بلا منطقة محدّدة — لا يمكن التحقق من نطاق فريقك.');
     }
-    const zoneIds = await resolveTeamZoneIds(today, teamKey);
     if (!zoneIds.includes(neighborhood)) {
       throw new BookingError(403, 'منطقة الزبون ليست ضمن مسار فريقك اليوم (DEC-011).');
     }

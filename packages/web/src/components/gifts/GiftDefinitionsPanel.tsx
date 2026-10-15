@@ -7,10 +7,10 @@ import { api } from '../../lib/api';
 import {
   giftDefinitionKindLabels,
   type GiftDefinitionKind,
-  type GiftDefinitionPrototype,
-} from '../../data/giftsPrototype';
+  type GiftDefinition,
+} from '../../data/gifts';
 
-type GiftDefinitionDraft = Pick<GiftDefinitionPrototype, 'name' | 'description' | 'kind' | 'defaultUnitLabel' | 'isActive'>;
+type GiftDefinitionDraft = Pick<GiftDefinition, 'name' | 'description' | 'kind' | 'defaultUnitLabel' | 'isActive'>;
 type DialogMode = 'create' | 'edit';
 
 const emptyDraft: GiftDefinitionDraft = {
@@ -25,7 +25,7 @@ function today() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function toDraft(definition: GiftDefinitionPrototype): GiftDefinitionDraft {
+function toDraft(definition: GiftDefinition): GiftDefinitionDraft {
   return {
     name: definition.name,
     description: definition.description ?? '',
@@ -35,11 +35,11 @@ function toDraft(definition: GiftDefinitionPrototype): GiftDefinitionDraft {
   };
 }
 
-function getDefinitionUsageCount(definition: GiftDefinitionPrototype) {
+function getDefinitionUsageCount(definition: GiftDefinition) {
   return definition.usageCount ?? 0;
 }
 
-function mustDeactivateInsteadOfDelete(definition: GiftDefinitionPrototype) {
+function mustDeactivateInsteadOfDelete(definition: GiftDefinition) {
   return definition.kind === 'gift_contract' || getDefinitionUsageCount(definition) > 0;
 }
 
@@ -130,7 +130,7 @@ function DefinitionForm({
 }
 
 export default function GiftDefinitionsPanel() {
-  const [definitions, setDefinitions] = useState<GiftDefinitionPrototype[]>([]);
+  const [definitions, setDefinitions] = useState<GiftDefinition[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogMode, setDialogMode] = useState<DialogMode>('create');
   const [editingId, setEditingId] = useState<string | number | null>(null);
@@ -167,7 +167,7 @@ export default function GiftDefinitionsPanel() {
     setDialogOpen(true);
   }
 
-  function openEditDialog(definition: GiftDefinitionPrototype) {
+  function openEditDialog(definition: GiftDefinition) {
     setDialogMode('edit');
     setEditingId(definition.id);
     setDraft(toDraft(definition));
@@ -216,7 +216,7 @@ export default function GiftDefinitionsPanel() {
     }
   }
 
-  async function removeOrDeactivateDefinition(definition: GiftDefinitionPrototype) {
+  async function removeOrDeactivateDefinition(definition: GiftDefinition) {
     if (mustDeactivateInsteadOfDelete(definition)) {
       if (!definition.isActive) return;
       const confirmed = window.confirm('لا يمكن حذف هذا التعريف لأنه عقد هدية أو لديه سجلات وعد/استحقاق. هل تريد إلغاء تفعيله؟');

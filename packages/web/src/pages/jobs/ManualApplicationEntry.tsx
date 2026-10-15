@@ -480,7 +480,9 @@ export default function ManualApplicationEntry() {
 
   const genderOpts = getValuesByCategory('gender');
   const maritalOpts = getValuesByCategory('marital_status');
-  const qualOpts = getValuesByCategory('academic_qualification');
+  // Certificates come from the «الشهادات» reference list (category 'certificate'),
+  // the same list vacancies and employees use — never a hardcoded set.
+  const qualOpts = getValuesByCategory('certificate');
   const appSourceOpts = getValuesByCategory('application_source');
   const majorOpts = getValuesByCategory('major:' + applicant.academicQualification);
   const langOpts = getValuesByCategory('foreign_language').length > 0 ? getValuesByCategory('foreign_language') : COMMON_LANGUAGES;
@@ -694,12 +696,7 @@ export default function ManualApplicationEntry() {
               placeholder="اختر الشهادة"
               ariaLabel="الشهادة العلمية"
               className="w-full"
-              options={qualOpts.length ? qualOpts.map(v => ({ value: v, label: v })) : [
-                { value: 'إعدادية', label: 'إعدادية' },
-                { value: 'بكالوريوس', label: 'بكالوريوس' },
-                { value: 'ماجستير', label: 'ماجستير' },
-                { value: 'دكتوراه', label: 'دكتوراه' },
-              ]}
+              options={qualOpts.map(v => ({ value: v, label: v }))}
             />
           </Field>
           <Field label="الاختصاص / التخصص" error={fieldErrors.specialization}>

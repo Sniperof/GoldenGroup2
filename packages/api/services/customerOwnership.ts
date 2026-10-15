@@ -267,3 +267,35 @@ export async function getCompanyOwnedClients(branchId: number, zoneIds: number[]
 
   return rows.map((r: any) => Number(r.id));
 }
+
+/**
+ * Permission subject of one client (branch + eligible personal owners), the
+ * input canViewClient / canEditClient expect. Shared so every route checks a
+ * client reference against the same rule.
+ */
+export async function loadClientSubject(
+  clientId: string | number,
+  db: { query: typeof pool.query } = pool,
+  lock = false,
+): Promise<{ branchId: number | null; assignedUserIds: number[] } | null> {
+  const { rows } = await db.query(
+    `SELECT
+       c.branch_id AS "branchId",
+       COALESCE(
+         (SELECT array_agg(hr_user_id)
+            FROM client_assignments ca
+            JOIN hr_users u ON u.id = ca.hr_user_id
+            LEFT JOIN roles r ON r.id = u.role_id
+            LEFT JOIN employees e ON e.id = u.employee_id
+           WHERE ca.client_id = c.id
+             AND ${eligiblePersonalOwnerCondition('u', 'r', 'e')}),
+         '{}'::int[]
+       ) AS "assignedUserIds"
+     FROM clients c
+    WHERE c.id = $1
+    ${lock ? 'FOR UPDATE OF c' : ''}`,
+    [clientId],
+  );
+
+  return rows[0] ?? null;
+}

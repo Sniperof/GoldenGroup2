@@ -49,6 +49,13 @@ function positiveInt(value: unknown): number | null {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
+/** A referrer reference as a comparable string; '' when absent. The form used
+ *  to serialise a missing id as the literal text "null"/"undefined". */
+function normalizeReferrerRef(value: unknown): string {
+  const text = String(value ?? '').trim();
+  return text === 'null' || text === 'undefined' ? '' : text;
+}
+
 function normalizeReferrerType(value: unknown): Exclude<GiftBeneficiaryType, 'contract_customer'> | null {
   const normalized = String(value ?? '').trim().toLowerCase();
   if (normalized === 'client' || normalized === 'customer' || normalized === 'customer_referrer') {
@@ -91,16 +98,33 @@ export function resolveDraftGiftBeneficiary(
   }
 
   const referrers = Array.isArray(contract.contract_referrers) ? contract.contract_referrers as any[] : [];
-  const wantedId = String(promise.referrerId ?? '').trim();
-  if (!wantedId) {
-    throw new Error('وسيط العقد المستفيد من وعد الهدية غير محدد');
-  }
-  const referrer = referrers.find((candidate) => (
-    String(candidate?.id ?? '') === wantedId
-    || String(candidate?.referrerId ?? '') === wantedId
-  ));
+  const wantedId = normalizeReferrerRef(promise.referrerId);
+  const matched = wantedId
+    ? referrers.find((candidate) => (
+      normalizeReferrerRef(candidate?.id) === wantedId
+      || normalizeReferrerRef(candidate?.referrerId) === wantedId
+    ))
+    : undefined;
+  // Referrers from a referral sheet («Personal» names) carry no id, so the form
+  // could only reference them as "null". contract_referrers is THIS sale's
+  // mediator (single-mediator rule — at most one row, never the customer's
+  // other referrers), so an EMPTY reference resolves to that sole row when its
+  // kind agrees. A non-empty id that matches nothing (e.g. the mediator was
+  // changed after the promise was added) is still rejected, never redirected.
+  const soleSaleReferrer = !wantedId
+    && referrers.length === 1
+    && normalizeReferrerType(referrers[0]?.referrerType) === kind
+    ? referrers[0]
+    : undefined;
+  const referrer = matched ?? soleSaleReferrer;
   if (!referrer) {
-    throw new Error(`وسيط العقد المحدد لوعد الهدية غير موجود: ${wantedId}`);
+    throw new Error(
+      referrers.length === 0
+        ? 'لا يوجد وسيط بيعة على هذا العقد، فلا يمكن منح وعد هدية لوسيط. احذف الوعد أو اختر وسيط البيعة في العقد.'
+        : wantedId
+          ? `وسيط العقد المحدد لوعد الهدية غير موجود: ${wantedId}`
+          : 'وسيط العقد المستفيد من وعد الهدية غير محدد',
+    );
   }
 
   const actualType = normalizeReferrerType(referrer.referrerType);

@@ -43,6 +43,7 @@ interface CandidateState {
     }) => Promise<Candidate>;
     qualifyCandidate: (candidateId: number, clientData?: any) => Promise<void>;
     linkCandidateToClient: (candidateId: number, clientId: number) => Promise<void>;
+    linkCandidateToRestrictedLead: (candidateId: number) => Promise<void>;
     markJunk: (candidateId: number) => Promise<void>;
     markForFollowUp: (candidateId: number) => Promise<void>;
     updateCandidate: (candidateId: number, data: Partial<Candidate>) => Promise<void>;
@@ -171,8 +172,11 @@ export const useCandidateStore = create<CandidateState>((set, get) => ({
         const candidate = state.candidates.find(c => c.id === candidateId);
         if (!candidate) throw new Error(CANDIDATE_NOT_LOADED);
 
-        if (!candidate.referralDate || !candidate.referralType) {
-            throw new Error('خطأ خطير: لا يمكن تحويل مرشح يفتقر إلى بيانات وتاريخ الاستقطاب الأساسية.');
+        // Historical/imported candidates may legitimately have no referral date.
+        // BR-3 leaves conversion authority to POST /clients with sourceCandidateId;
+        // a missing date must stay unknown rather than blocking the operation.
+        if (!candidate.referralType) {
+            throw new Error('لا يمكن تحويل اسم مقترح يفتقر إلى نوع الاستقطاب.');
         }
 
         // POST /clients is the authority on a duplicate primary phone: it takes
@@ -254,6 +258,11 @@ export const useCandidateStore = create<CandidateState>((set, get) => ({
     linkCandidateToClient: async (candidateId, clientId) => {
         await api.candidates.linkToClient(candidateId, clientId);
 
+        await get().fetchReferralSheets();
+    },
+
+    linkCandidateToRestrictedLead: async (candidateId) => {
+        await api.candidates.linkRestrictedSameBranchLead(candidateId);
         await get().fetchReferralSheets();
     },
 

@@ -13,11 +13,14 @@ import { requireAuth } from '../middleware/auth.js';
 import { requirePermission, getOrBuildAuthContext } from '../middleware/permission.js';
 import { authorize, resolveListAccessScope } from '../services/authorizationService.js';
 import { canViewOpenTask, canEditOpenTask, getOpenTaskListAccessPlan } from '../policies/openTaskPolicy.js';
+import { canViewClient } from '../policies/clientPolicy.js';
+import { supervisorAlertAccessPlan } from '../policies/supervisorAlertPolicy.js';
 import { bookVisit, BookingError } from '../services/visitBooking.js';
 import {
   buildCustomerOwnershipSelectColumns,
   buildCustomerOwnershipSql,
   buildClientLifecycleStatusSql,
+  loadClientSubject,
   mapCustomerOwnership,
   personalOwnershipPredicate,
   redactPersonalAssignments,
@@ -1138,7 +1141,10 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
   const sourceContextId = Number(req.body?.sourceContextId) || null;
   const dispatchOriginType = typeof req.body?.dispatchOriginType === 'string' ? req.body.dispatchOriginType.trim() || null : null;
   const dispatchOriginLabel = typeof req.body?.dispatchOriginLabel === 'string' ? req.body.dispatchOriginLabel.trim() || null : null;
-  const serviceBranchId = Number(req.body?.serviceBranchId ?? req.body?.service_branch_id) || null;
+  // device_retrieval: the service branch is ALWAYS the device's own branch (set
+  // below); a client-sent serviceBranchId is ignored so a retrieval can never
+  // move the device into another branch.
+  let serviceBranchId: number | null = null;
   const retrievalPurpose = typeof req.body?.retrievalPurpose === 'string'
     ? req.body.retrievalPurpose.trim()
     : (typeof req.body?.retrieval_purpose === 'string' ? req.body.retrieval_purpose.trim() : null);
@@ -1262,13 +1268,13 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
     );
     const dev = devRows[0];
     if (!dev) {
-      return res.status(400).json({ error: 'installedDeviceId ط؛ظٹط± ظ…ظˆط¬ظˆط¯' });
+      return res.status(400).json({ error: 'installedDeviceId غير موجود' });
     }
     if (Number(dev.customer_id) !== clientId) {
-      return res.status(400).json({ error: 'ط§ظ„ط¬ظ‡ط§ط² ط§ظ„ظ…ط­ط¯ط¯ ظ„ط§ ظٹط®طµ ظ‡ط°ط§ ط§ظ„ط²ط¨ظˆظ†' });
+      return res.status(400).json({ error: 'الجهاز المحدد لا يخص هذا الزبون' });
     }
     if (contractId && dev.contract_id && Number(dev.contract_id) !== contractId) {
-      return res.status(400).json({ error: 'ط§ظ„ط¬ظ‡ط§ط² ط§ظ„ظ…ط­ط¯ط¯ ظ„ط§ ظٹط·ط§ط¨ظ‚ ط§ظ„ط¹ظ‚ط¯' });
+      return res.status(400).json({ error: 'الجهاز المحدد لا يطابق العقد' });
     }
     deviceIdFromContract = Number(dev.id);
     deviceBranchIdFromContract = dev.branchId ?? null;
@@ -1320,7 +1326,7 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
 
   if (taskType === 'device_delivery') {
     if (!deviceIdFromContract) {
-      return res.status(400).json({ error: 'device_delivery ظٹطھط·ظ„ط¨ installedDeviceId ط£ظˆ ط¹ظ‚ط¯ط§ظ‹ ظ…ط±ط¨ظˆط·ط§ظ‹ ط¨ط¬ظ‡ط§ط²' });
+      return res.status(400).json({ error: 'device_delivery يتطلب installedDeviceId أو عقداً مربوطاً بجهاز' });
     }
     if (deviceStatusFromCurrentDevice === 'delivery_suspended') {
       return res.status(409).json({
@@ -1340,7 +1346,7 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
     );
     if (activeDuplicateRows.length > 0) {
       return res.status(409).json({
-        error: 'ظ„ط§ ظٹظ…ظƒظ† ط¥ظ†ط´ط§ط، ط£ظƒط«ط± ظ…ظ† ظ…ظ‡ظ…ط© طھط³ظ„ظٹظ… ظ†ط´ط·ط© ظ„ظ†ظپط³ ط§ظ„ط¬ظ‡ط§ط²',
+        error: 'لا يمكن إنشاء أكثر من مهمة تسليم نشطة لنفس الجهاز',
         existingTaskId: activeDuplicateRows[0].id,
         existingTaskStatus: activeDuplicateRows[0].status,
       });
@@ -1488,8 +1494,9 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
     if (retrievalPurpose !== 'maintenance' && retrievalPurpose !== 'replacement') {
       return res.status(400).json({ error: 'غرض السحب مطلوب ويجب أن يكون maintenance أو replacement' });
     }
+    serviceBranchId = deviceBranchIdFromContract == null ? null : Number(deviceBranchIdFromContract);
     if (!serviceBranchId || !Number.isInteger(serviceBranchId)) {
-      return res.status(400).json({ error: 'serviceBranchId مطلوب لمهمة سحب الجهاز' });
+      return res.status(400).json({ error: 'الجهاز غير مرتبط بفرع، فلا يمكن تحديد فرع الخدمة لمهمة السحب' });
     }
     if (!dueDate) {
       return res.status(400).json({ error: 'التاريخ المطلوب مطلوب عند إنشاء مهمة سحب الجهاز' });
@@ -1654,7 +1661,7 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
         return res.status(400).json({ error: 'الزبون الجديد يجب أن يختلف عن الزبون الحالي' });
       }
       const { rows: targetRows } = await pool.query(
-        `SELECT id
+        `SELECT id, is_candidate AS "isCandidate"
            FROM clients
           WHERE id = $1
           LIMIT 1`,
@@ -1662,6 +1669,16 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
       );
       if (!targetRows[0]) {
         return res.status(400).json({ error: 'الزبون الجديد غير موجود' });
+      }
+      // The new owner must be a real client the caller may see — the same rule
+      // the picker's scoped search applies, so a direct request cannot hand the
+      // device to a suggested name or to a client outside the caller's scope.
+      if (targetRows[0].isCandidate) {
+        return res.status(400).json({ error: 'لا يمكن نقل الجهاز إلى اسم مقترح؛ يجب أن يكون الزبون الجديد زبوناً فعلياً' });
+      }
+      const targetSubject = await loadClientSubject(targetClientId);
+      if (!targetSubject || !canViewClient(authContext, targetSubject).allowed) {
+        return res.status(403).json({ error: 'الزبون الجديد خارج نطاق صلاحياتك' });
       }
     }
 
@@ -1866,7 +1883,7 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
       : null;
     if (taskType === 'device_delivery' && !deliveryAddress) {
       await pgClient.query('ROLLBACK');
-      return res.status(400).json({ error: 'deliveryAddress ظ…ط·ظ„ظˆط¨ ط¹ظ†ط¯ ط¹ط¯ظ… طھظˆظپط± ط¹ظ†ظˆط§ظ† ط­ط§ظ„ظٹ ظ„ظ„ط¬ظ‡ط§ط²' });
+      return res.status(400).json({ error: 'deliveryAddress مطلوب عند عدم توفر عنوان حالي للجهاز' });
     }
 
     if (taskType === 'device_installation') {
@@ -3110,19 +3127,21 @@ router.get('/attempt-alerts', requirePermission('tasks.supervisor_alerts.view'),
     const { getSystemSettingNumber } = await import('../services/systemSettings.js');
     const threshold = await getSystemSettingNumber('attempt_alert_threshold', 5);
 
-    const plan = resolveListAccessScope(authContext, 'tasks.supervisor_alerts.view');
-    if (plan.scope === 'NONE') {
-      return res.status(403).json({ error: 'ليس لديك صلاحية عرض المهام' });
-    }
-    const params: any[] = [threshold];
-    let branchClause = '';
-    if (plan.scope !== 'GLOBAL') {
-      if (plan.allowedBranchIds.length === 0) {
-        return res.json([]);
-      }
-      params.push(plan.allowedBranchIds);
-      branchClause = `AND ot.branch_id = ANY($${params.length}::int[])`;
-    }
+    const access = supervisorAlertAccessPlan(authContext);
+    if (access == null) return res.status(403).json({ error: 'ليس لديك نطاق صالح لعرض تنبيهات هذا الفرع' });
+    const params = [threshold, access.branchId];
+    const branchClause = 'AND ot.branch_id = $2';
+    const assignedClause = access.scope === 'ASSIGNED'
+      ? `AND (${personalOwnershipPredicate('ot.client_id', '$3')}
+          OR EXISTS (
+            SELECT 1 FROM visit_tasks vt
+            JOIN field_visits fv ON fv.id = vt.field_visit_id
+            WHERE vt.source_open_task_id = ot.id
+              AND fv.status IN ('scheduled', 'in_progress', 'ended')
+              AND fv.team_responsible_user_id = $3
+          ))`
+      : '';
+    if (access.scope === 'ASSIGNED') params.push(access.userId);
 
     const { rows } = await pool.query(
       `SELECT ot.id                  AS "openTaskId",
@@ -3142,11 +3161,13 @@ router.get('/attempt-alerts', requirePermission('tasks.supervisor_alerts.view'),
         WHERE ot.attempt_count >= $1
           AND ot.status NOT IN ('completed', 'closed', 'cancelled')
           ${branchClause}
+          ${assignedClause}
         ORDER BY ot.attempt_count DESC, ot.last_attempt_at DESC NULLS LAST
         LIMIT 200`,
       params,
     );
     return res.json({
+      visibilityScope: access.scope,
       threshold,
       count: rows.length,
       items: rows,
@@ -3506,7 +3527,7 @@ router.patch('/:id', requirePermission('open_tasks.edit'), async (req, res) => {
       && req.body.status === 'completed'
       && req.body.status !== oldStatus
     ) {
-      return res.status(409).json({ error: 'device_delivery طھظڈط؛ظ„ظ‚ ظپظ‚ط· ط¹ط¨ط± ظ†طھظٹط¬ط© visit_task_device_delivery_results' });
+      return res.status(409).json({ error: 'device_delivery تُغلق فقط عبر نتيجة visit_task_device_delivery_results' });
     }
 
     const fieldMap: Record<string, string> = {

@@ -124,7 +124,7 @@ export default function EmergencyActionTypes() {
   if (!canView) return <Navigate to="/" replace />;
 
   return (
-    <div className="p-6 max-w-3xl mx-auto" dir="rtl">
+    <div className="p-4 sm:p-6 lg:p-8" dir="rtl">
       {/* Header */}
       <PageHeader
         className="mb-6"

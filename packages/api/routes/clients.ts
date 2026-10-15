@@ -24,21 +24,25 @@ import {
 } from '../policies/clientPolicy.js';
 import { canEditCandidate } from '../policies/candidatePolicy.js';
 import {
+  buildReferrerFromCandidate,
+  stripBrowserReferralInput,
+  type CandidateReferrerEntry,
+} from '../services/candidateReferrer.js';
+import {
   getCanonicalContactNumber,
   normalizeContactsForWrite,
   normalizePhone as normalizeContactPhone,
 } from '../utils/contactValidation.js';
 import {
-  buildCustomerOwnershipSelectColumns,
-  buildCustomerOwnershipSql,
   buildClientLifecycleStatusSql,
-  eligiblePersonalOwnerCondition,
+  loadClientSubject,
   getEligiblePersonalOwnerIds,
   isEligiblePersonalOwner,
-  mapCustomerOwnership,
+  personalOwnerExistsPredicate,
   personalOwnershipPredicate,
   redactPersonalAssignments,
 } from '../services/customerOwnership.js';
+import { CLIENT_SELECT, mapClientRow } from '../services/clientReadModel.js';
 import { buildClientSnapshot } from '../lib/clientSnapshot.js';
 import { phoneNormalizationSql } from '../utils/phoneSql.js';
 import { recomputeReferralSheetStats } from '../services/referralSheetStats.js';
@@ -64,82 +68,6 @@ const CLIENT_REQUEST_VIEW_PERMISSION_BY_TYPE: Record<string, string> = {
   name_nomination: 'name_nomination.view',
   account_creation: 'account_requests.view',
 };
-
-const CLIENT_SELECT = `
-  SELECT
-    c.id,
-    c.first_name AS "firstName",
-    c.father_name AS "fatherName",
-    c.last_name AS "lastName",
-    c.nickname,
-    c.name,
-    c.mobile,
-    c.contacts,
-    c.governorate,
-    c.district,
-    c.neighborhood,
-    c.detailed_address AS "detailedAddress",
-    c.gps_coordinates AS "gpsCoordinates",
-    c.gender,
-    c.national_id AS "nationalId",
-    c.birth_date AS "birthDate",
-    c.mother_name AS "motherName",
-    c.national_id_registry AS "nationalIdRegistry",
-    c.national_id_issued_by AS "nationalIdIssuedBy",
-    c.national_id_issue_date AS "nationalIdIssueDate",
-    c.national_id_box AS "nationalIdBox",
-    c.occupation,
-    c.spouse_occupation AS "spouseOccupation",
-    c.data_quality AS "dataQuality",
-    c.water_source AS "waterSource",
-    c.notes,
-    c.rating,
-    c.source_channel AS "sourceChannel",
-    c.referrer_type AS "referrerType",
-    c.referrer_id AS "referrerId",
-    c.referrer_name AS "referrerName",
-    c.referral_notes AS "referralNotes",
-    c.referrers,
-    c.referral_entity_id AS "referralEntityId",
-    c.referral_date AS "referralDate",
-    c.referral_reason AS "referralReason",
-    c.referral_sheet_id AS "referralSheetId",
-    c.referral_address_text AS "referralAddressText",
-    c.created_at AS "createdAt",
-    c.is_candidate AS "isCandidate",
-    c.target_client AS "targetClient",
-    c.candidate_status AS "candidateStatus",
-    ${buildClientLifecycleStatusSql('c')} AS "lifecycleStage",
-    -- DEC-005 D29 contact-control fields
-    c.do_not_contact AS "doNotContact",
-    c.cooldown_until AS "cooldownUntil",
-    c.cooldown_reason AS "cooldownReason",
-    c.cooldown_set_by AS "cooldownSetBy",
-    c.cooldown_set_at AS "cooldownSetAt",
-    c.branch_id AS "branchId",
-    b.name AS "branchName",
-    c.created_by AS "createdByUserId",
-    cb.name AS "createdByUserName",
-    COALESCE(rcb.display_name, cb.role) AS "createdByRoleDisplayName",
-    COALESCE(
-      (SELECT json_agg(json_build_object(
-           'userId',          u2.id,
-           'userName',        u2.name,
-           'roleDisplayName', COALESCE(r2.display_name, u2.role)
-         ) ORDER BY ca.assigned_at)
-       FROM client_assignments ca
-       JOIN hr_users u2  ON u2.id  = ca.hr_user_id
-       LEFT JOIN roles r2 ON r2.id = u2.role_id
-       WHERE ca.client_id = c.id),
-      '[]'::json
-    ) AS "assignments",
-    ${buildCustomerOwnershipSelectColumns()}
-  FROM clients c
-  LEFT JOIN branches b   ON b.id  = c.branch_id
-  LEFT JOIN hr_users cb  ON cb.id = c.created_by
-  LEFT JOIN roles    rcb ON rcb.id = cb.role_id
-  ${buildCustomerOwnershipSql({ clientAlias: 'c', branchNameExpression: 'b.name' })}
-`;
 
 const CLIENT_MUTATION_RETURNING = `
   RETURNING
@@ -206,31 +134,6 @@ function readAtomicServiceRequestLink(body: any): {
     });
   }
   return { serviceRequestId, party };
-}
-
-function mapClientRow(row: any) {
-  // Many clients still carry their (single) referrer only in the legacy scalar
-  // columns (referrer_name/type/entity) and have an empty `referrers` JSONB.
-  // Synthesize a one-element array from the legacy fields so every consumer
-  // (contract form's mediator picker, snapshot, etc.) sees the referrer
-  // uniformly — without this, those clients look like they have no mediator.
-  const referrers = Array.isArray(row.referrers) && row.referrers.length > 0
-    ? row.referrers
-    : (row.referrerName
-        ? [{
-            id: row.referralEntityId ?? null,
-            referrerName: row.referrerName,
-            referrerType: row.referrerType ?? 'unknown',
-            referralEntityId: row.referralEntityId ?? null,
-            referralDate: row.referralDate ?? null,
-            address: row.referralAddressText ?? null,
-          }]
-        : []);
-  return {
-    ...row,
-    referrers,
-    ownership: mapCustomerOwnership(row),
-  };
 }
 
 type ClientSubject = {
@@ -525,6 +428,10 @@ function enforcePersonalReferrer<T extends Record<string, any>>(
     return payload;
   }
 
+  const additionalReferrers = Array.isArray(payload.referrers)
+    ? payload.referrers.slice(1)
+    : [];
+
   return {
     ...payload,
     referrers: [{
@@ -542,7 +449,7 @@ function enforcePersonalReferrer<T extends Record<string, any>>(
       referralReason: normalizeTextValue(payload.referralReason),
       referralSheetId: normalizeNullableNumber(payload.referralSheetId),
       referralAddressText: normalizeTextValue(payload.referralAddressText),
-    }],
+    }, ...additionalReferrers],
     referrerType: 'Personal',
     referrerName: currentUser.name,
     referrerId: null,
@@ -840,35 +747,10 @@ async function hasClientDeviceOrContractInBranches(
   return rows.length > 0;
 }
 
-async function loadClientSubject(
-  clientId: string | number,
-  db: { query: typeof pool.query } = pool,
-  lock = false,
-): Promise<ClientSubject | null> {
-  const { rows } = await db.query(
-    `SELECT
-       c.branch_id AS "branchId",
-       COALESCE(
-         (SELECT array_agg(hr_user_id)
-            FROM client_assignments ca
-            JOIN hr_users u ON u.id = ca.hr_user_id
-            LEFT JOIN roles r ON r.id = u.role_id
-            LEFT JOIN employees e ON e.id = u.employee_id
-           WHERE ca.client_id = c.id
-             AND ${eligiblePersonalOwnerCondition('u', 'r', 'e')}),
-         '{}'::int[]
-       ) AS "assignedUserIds"
-     FROM clients c
-    WHERE c.id = $1
-    ${lock ? 'FOR UPDATE OF c' : ''}`,
-    [clientId],
-  );
-
-  return rows[0] ?? null;
-}
-
 async function resolveAssignmentUserIds(
   rawIds: unknown,
+  branchId: number,
+  db: { query: (text: string, params?: any[]) => Promise<any> } = pool,
 ): Promise<number[] | { error: string }> {
   const ids: number[] = Array.isArray(rawIds)
     ? Array.from(new Set(rawIds.map(Number).filter(n => Number.isInteger(n) && n > 0)))
@@ -876,14 +758,31 @@ async function resolveAssignmentUserIds(
 
   if (ids.length === 0) return [];
 
-  const { rows } = await pool.query(
-    'SELECT id FROM hr_users WHERE id = ANY($1)',
-    [ids],
+  const { rows } = await db.query(
+    `SELECT u.id,
+            EXISTS (
+              SELECT 1
+                FROM user_branch_assignments uba
+               WHERE uba.user_id = u.id
+                 AND uba.branch_id = $2
+                 AND uba.status = 'active'
+            ) AS "inTargetBranch"
+       FROM hr_users u
+      WHERE u.id = ANY($1)`,
+    [ids, branchId],
   );
   const validIds = new Set<number>(rows.map((r: any) => r.id));
   const invalid = ids.find(id => !validIds.has(id));
   if (invalid != null) {
     return { error: `المستخدم رقم ${invalid} غير موجود في النظام` };
+  }
+
+  const inTargetBranchIds = new Set<number>(
+    rows.filter((row: any) => row.inTargetBranch === true).map((row: any) => Number(row.id)),
+  );
+  const outsideBranch = ids.find(id => !inTargetBranchIds.has(id));
+  if (outsideBranch != null) {
+    return { error: `USER_OUTSIDE_CLIENT_BRANCH:${outsideBranch}` };
   }
 
   const eligibleIds = new Set(await getEligiblePersonalOwnerIds(ids));
@@ -1130,6 +1029,10 @@ router.get('/', requirePermission('clients.view_list'), async (req, res) => {
  *         name: filterMediator
  *         schema: { type: string }
  *       - in: query
+ *         name: filterReferrerName
+ *         schema: { type: string }
+ *         description: Partial match on the primary mediator's name (free `search` does not match it)
+ *       - in: query
  *         name: filterArea
  *         schema: { type: string }
  *       - in: query
@@ -1178,14 +1081,16 @@ router.get('/paged', requirePermission('clients.view_list'), async (req, res) =>
     const conditions = appendClientScopeConditions(authContext, requestedBranchId, listAccess.scope, params);
     conditions.push('c.is_candidate = FALSE');
 
+    // Free search matches the client's OWN identity only (name / id / phones).
+    // It deliberately does not match the mediator's name or the branch name:
+    // searching "أحمد" must not return every client Ahmad referred — that is
+    // the separate `filterReferrerName` filter below.
     const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
     if (search) {
       params.push(`%${search}%`);
       const likeRef = `$${params.length}`;
       const parts = [
         `c.name ILIKE ${likeRef}`,
-        `c.referrer_name ILIKE ${likeRef}`,
-        `b.name ILIKE ${likeRef}`,
         `c.id::text LIKE ${likeRef}`,
       ];
       const digits = search.replace(/\D/g, '');
@@ -1213,7 +1118,14 @@ router.get('/paged', requirePermission('clients.view_list'), async (req, res) =>
       conditions.push(`c.referrer_type = $${params.length}`);
     }
 
-    // ── Enriched filter catalog (docs/analysis/clients-records-performance-and-filters.md §7) ──
+    // Primary mediator's name (partial) — the same value the «اسم الوسيط» column shows.
+    const filterReferrerName = typeof req.query.filterReferrerName === 'string' ? req.query.filterReferrerName.trim() : '';
+    if (filterReferrerName) {
+      params.push(`%${filterReferrerName}%`);
+      conditions.push(`c.referrer_name ILIKE $${params.length}`);
+    }
+
+    // ── Enriched filter catalog (docs/engineering/api/clients-records-performance-and-filters.md §7) ──
     // Geo cascade: the frontend sends the subtree of the deepest selected level
     // (محافظة→منطقة→ناحية→حي) as `geoIds`; a client matches when any of its geo
     // columns falls inside that subtree ("match everything under the selection").
@@ -1226,9 +1138,20 @@ router.get('/paged', requirePermission('clients.view_list'), async (req, res) =>
       conditions.push(`(c.governorate::text = ANY(${ref}) OR c.district::text = ANY(${ref}) OR c.neighborhood::text = ANY(${ref}))`);
     }
 
-    // Owner/responsible: clients personally owned by a specific eligible user.
+    // Owner/responsible: `owner=branch` = company/branch-owned clients — mirrors
+    // buildCustomerOwnershipSql's company_* ownerType (OP/FOP are reclaimed by the
+    // company; otherwise no eligible personal owner). A user id = clients
+    // personally owned by that eligible user. `ownerBranchId` narrows branch
+    // ownership to one branch; it is ANDed with the scope, so it never widens it.
     const owner = toPositiveInt(req.query.owner as any);
-    if (owner != null) {
+    if (req.query.owner === 'branch') {
+      conditions.push(`((${buildClientLifecycleStatusSql('c')}) IN ('OP', 'FOP') OR NOT ${personalOwnerExistsPredicate('c.id')})`);
+      const ownerBranchId = toPositiveInt(req.query.ownerBranchId as any);
+      if (ownerBranchId != null) {
+        params.push(ownerBranchId);
+        conditions.push(`c.branch_id = $${params.length}`);
+      }
+    } else if (owner != null) {
       params.push(owner);
       conditions.push(personalOwnershipPredicate('c.id', `$${params.length}`));
     }
@@ -1785,7 +1708,7 @@ router.get('/:id/service-requests', requirePermission('clients.view'), async (re
   return res.json({ items: rows });
 });
 
-// Level-2 client snapshot (docs/.../client-snapshot.md). Reused to render a
+// Level-2 client snapshot (docs/constitution/components/client-snapshot.md). Reused to render a
 // linked beneficiary/referrer inside other domains (e.g. service requests).
 router.get('/:id/snapshot', requirePermission('clients.view'), async (req, res) => {
   const clientId = Number(req.params.id);
@@ -1894,6 +1817,8 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
 
     const incoming: Array<{
       id: number | null;
+      entityId: number | null;
+      entityKind: 'client' | 'employee' | null;
       name: string;
       sourceCandidateId: number | null;
       candidateName: string | null;
@@ -1994,12 +1919,26 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
         }) ?? null;
       };
 
+      // A mediator's entity id only means something together with its type: a
+      // `Client` id addresses `clients`, an `Employee` id addresses `employees`,
+      // and `Personal`/`Unknown` mediators have no record to open at all.
+      // Treating every id as a client id sent the "عرض" link to an unrelated
+      // client record and read a stranger's phone number.
+      const referrerEntityKinds: Record<string, 'client' | 'employee'> = {
+        client: 'client',
+        employee: 'employee',
+      };
+
       for (const ref of referrerList) {
-        const rawReferrerClientId = ref.referralEntityId ?? ref.id ?? null;
-        const referrerClientId = Number(rawReferrerClientId);
-        const linkedClientId = Number.isInteger(referrerClientId) && referrerClientId > 0
-          ? referrerClientId
+        const referrerType = ref.type ?? ref.referrerType ?? 'unknown';
+        const entityKind = referrerEntityKinds[normalizeMatchText(referrerType)] ?? null;
+        const rawReferrerEntityId = Number(ref.referralEntityId ?? ref.id ?? null);
+        const linkedEntityId = entityKind !== null
+          && Number.isInteger(rawReferrerEntityId)
+          && rawReferrerEntityId > 0
+          ? rawReferrerEntityId
           : null;
+        const linkedClientId = entityKind === 'client' ? linkedEntityId : null;
         const sourceCandidateIdValue = Number(ref.sourceCandidateId);
         const sourceCandidateId = Number.isInteger(sourceCandidateIdValue) && sourceCandidateIdValue > 0
           ? sourceCandidateIdValue
@@ -2014,6 +1953,9 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
           ?? ref.address
           ?? ref.referralAddressText
           ?? (ref.__legacy ? incomingRow.address : null);
+        // Client mediators only. An employee's phone is staff data and this
+        // view never renders the column anyway, so it is not worth widening
+        // what the client network endpoint discloses.
         let mobile = null;
         if (linkedClientId != null) {
           const { rows: mobileRows } = await pool.query(
@@ -2024,6 +1966,8 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
         }
         incoming.push({
           id: linkedClientId,
+          entityId: linkedEntityId,
+          entityKind,
           name: ref.name ?? ref.referrerName ?? ref.referralName ?? '',
           sourceCandidateId: Number.isInteger(resolvedSourceCandidateId) && resolvedSourceCandidateId > 0
             ? resolvedSourceCandidateId
@@ -2041,7 +1985,7 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
 
     // Outgoing (who this client referred)
     const { rows: outgoingRows } = await pool.query(
-      `SELECT
+      `SELECT DISTINCT
         sheet_id,
         referral_date,
         referral_address_text,
@@ -2214,6 +2158,7 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
     const hasSourceCandidate = Number.isInteger(sourceCandidateId) && sourceCandidateId > 0;
     let sourceCandidateAssignees: number[] | null = null;
     let sourceCandidateOccupation: string | null = null;
+    let sourceCandidateReferrer: CandidateReferrerEntry | null = null;
     if (hasSourceCandidate) {
       if (Array.isArray(req.body?.assignmentUserIds)) {
         return res.status(400).json({
@@ -2222,8 +2167,17 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
         });
       }
       const { rows: sourceRows } = await db.query(
-        `SELECT c.branch_id AS "branchId",
+        `SELECT c.id,
+                c.branch_id AS "branchId",
                 c.occupation,
+                c.referral_type AS "referralType",
+                c.referral_origin_channel AS "referralOriginChannel",
+                c.referral_name_snapshot AS "referralNameSnapshot",
+                c.referral_entity_id AS "referralEntityId",
+                c.referral_date AS "referralDate",
+                c.referral_reason AS "referralReason",
+                c.referral_sheet_id AS "referralSheetId",
+                c.address_text AS "addressText",
                 COALESCE(
                   (SELECT array_agg(ca.hr_user_id ORDER BY ca.assigned_at, ca.id)
                      FROM candidate_assignments ca
@@ -2257,6 +2211,12 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
         (sourceCandidate.assignedUserIds as any[]).map(Number),
       );
       sourceCandidateOccupation = sourceCandidate.occupation ?? null;
+      // BR-5: the suggested name is the server-side source of truth for the
+      // mediator. A missing historical referral date stays unknown — defaulting
+      // it to today would falsify acquisition reports.
+      sourceCandidateReferrer = buildReferrerFromCandidate(sourceCandidate, {
+        referralDate: sourceCandidate.referralDate ?? null,
+      });
     }
 
     const assignmentAccess = canManageClientAssignments(authContext, targetBranchId);
@@ -2265,11 +2225,16 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
     if (!hasSourceCandidate && hasExplicitAssignments && !canManageAssignments) {
       return forbidClientAccess(res, assignmentAccess.reason);
     }
-    const resolvedAssignees = hasSourceCandidate
+    const requestedAssignees = hasSourceCandidate
       ? sourceCandidateAssignees!
       : hasExplicitAssignments
-      ? await resolveAssignmentUserIds(req.body.assignmentUserIds)
+      ? req.body.assignmentUserIds
       : ((await isEligiblePersonalOwner(authContext.userId)) ? [authContext.userId] : []);
+    const resolvedAssignees = await resolveAssignmentUserIds(
+      requestedAssignees,
+      targetBranchId,
+      db,
+    );
     if ('error' in resolvedAssignees) {
       return res.status(400).json({ error: resolvedAssignees.error });
     }
@@ -2282,10 +2247,20 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
       return forbidClientAccess(res, createAccess.reason);
     }
 
-    const c = reconcileClientReferrers(enforcePersonalReferrer(
-      normalizeClientPayload(req.body ?? {}),
-      { id: authContext.userId, name: req.user?.name || '' },
-    ), { defaultReferralDate: currentDateKey() });
+    // Ordinary manual creation keeps the established "today" default. During
+    // candidate conversion, however, a missing historical referral date must
+    // remain unknown; defaulting it to today would falsify acquisition reports.
+    const defaultReferralDate = hasSourceCandidate ? null : currentDateKey();
+    const rawPayload = normalizeClientPayload(req.body ?? {});
+    // During conversion the mediator is derived from the suggested name on the
+    // server (BR-5). The browser's referral fields are dropped rather than
+    // reconciled: ClientModal rebuilds them from form state, which replaced a
+    // real mediator with the literal 'مجهول' for `Unknown` types and nulled the
+    // sheet link, the referral address and the source-name stamp.
+    const referrerPayload = hasSourceCandidate
+      ? { ...stripBrowserReferralInput(rawPayload), referrers: [sourceCandidateReferrer!] }
+      : enforcePersonalReferrer(rawPayload, { id: authContext.userId, name: req.user?.name || '' });
+    const c = reconcileClientReferrers(referrerPayload, { defaultReferralDate });
     c.occupation = await resolveReferenceValueForWrite(db, 'occupation', c.occupation, {
       currentValue: sourceCandidateOccupation,
     });
@@ -2512,6 +2487,8 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
  *         description: Server error
  */
 router.put('/:id', requirePermission('clients.edit', 'clients.contacts.edit'), async (req, res) => {
+  const db = await pool.connect();
+  let transactionStarted = false;
   try {
     const authContext = getRequiredAuthContext(req);
     const clientId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
@@ -2611,6 +2588,8 @@ router.put('/:id', requirePermission('clients.edit', 'clients.contacts.edit'), a
     if (canManageAssignments && Array.isArray(req.body?.assignmentUserIds)) {
       const resolved = await resolveAssignmentUserIds(
         req.body.assignmentUserIds,
+        assignmentBranchId!,
+        db,
       );
       if ('error' in resolved) {
         return res.status(400).json({ error: resolved.error });
@@ -2624,7 +2603,36 @@ router.put('/:id', requirePermission('clients.edit', 'clients.contacts.edit'), a
       existing?.candidate_status &&
       !['OP', 'FOP'].includes(existing.candidate_status);
 
-    await pool.query(
+    await db.query('BEGIN');
+    transactionStarted = true;
+
+    const lockedSubject = await loadClientSubject(clientId!, db, true);
+    if (!lockedSubject) {
+      throw Object.assign(new Error('الزبون غير موجود'), { status: 404 });
+    }
+    const lockedAccess = canEditClient(authContext, lockedSubject);
+    if (!lockedAccess.allowed) {
+      throw Object.assign(new Error('تغير نطاق الزبون؛ لم يعد مسموحاً تعديله'), { status: 403 });
+    }
+    if (Number(lockedSubject.branchId) !== Number(existing?.branch_id)) {
+      throw Object.assign(new Error('تغير فرع الزبون أثناء التعديل؛ أعد تحميل السجل'), {
+        status: 409,
+        code: 'CLIENT_CHANGED_DURING_UPDATE',
+      });
+    }
+    if (newAssigneeIds !== null) {
+      const lockedAssignees = await resolveAssignmentUserIds(
+        newAssigneeIds,
+        Number(lockedSubject.branchId),
+        db,
+      );
+      if ('error' in lockedAssignees) {
+        throw Object.assign(new Error(lockedAssignees.error), { status: 400 });
+      }
+      newAssigneeIds = lockedAssignees;
+    }
+
+    await db.query(
       `UPDATE clients SET
         first_name=$1, father_name=$2, last_name=$3, nickname=$4,
         name=$5, mobile=$6, contacts=$7, governorate=$8, district=$9, neighborhood=$10,
@@ -2652,16 +2660,16 @@ router.put('/:id', requirePermission('clients.edit', 'clients.contacts.edit'), a
 
     // If transitioning to OP/FOP: drop personal assignments + cancel marketing tasks
     if (transitioningToOpFop) {
-      await pool.query('DELETE FROM client_assignments WHERE client_id = $1', [clientId]);
-      await pool.query(
+      await db.query('DELETE FROM client_assignments WHERE client_id = $1', [clientId]);
+      await db.query(
         `UPDATE open_tasks SET status = 'cancelled', updated_at = NOW()
          WHERE client_id = $1 AND task_family = 'marketing'
            AND status NOT IN ('completed', 'cancelled')`,
         [clientId],
       );
     } else if (newAssigneeIds !== null) {
-      await pool.query('DELETE FROM client_assignments WHERE client_id = $1', [clientId]);
-      await insertClientAssignments(Number(clientId), newAssigneeIds, authContext.userId);
+      await db.query('DELETE FROM client_assignments WHERE client_id = $1', [clientId]);
+      await insertClientAssignments(Number(clientId), newAssigneeIds, authContext.userId, db);
     }
 
     // Audit log: record meaningful field changes
@@ -2672,17 +2680,24 @@ router.put('/:id', requirePermission('clients.edit', 'clients.contacts.edit'), a
       }
     }
     for (const af of auditFields) {
-      await pool.query(
+      await db.query(
         `INSERT INTO client_audit_log (client_id, field_name, old_value, new_value, changed_by, changed_at)
          VALUES ($1, $2, $3, $4, $5, NOW())`,
         [clientId, af.field, af.oldVal, af.newVal, authContext.userId],
       );
     }
 
-    const { rows } = await pool.query(`${CLIENT_SELECT} WHERE c.id = $1`, [clientId]);
+    const { rows } = await db.query(`${CLIENT_SELECT} WHERE c.id = $1`, [clientId]);
+    await db.query('COMMIT');
+    transactionStarted = false;
     res.json(mapClientRow(rows[0]));
   } catch (err: any) {
-    res.status(err.status || 500).json({ error: err.message });
+    if (transactionStarted) {
+      await db.query('ROLLBACK').catch(() => undefined);
+    }
+    res.status(err.status || 500).json({ error: err.message, code: err.code });
+  } finally {
+    db.release();
   }
 });
 

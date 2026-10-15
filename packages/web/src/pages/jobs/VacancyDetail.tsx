@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import type { JobVacancy, JobApplicationListItem, ApplicationStage } from '../../lib/types';
 import { authFetch } from '../../lib/authFetch';
@@ -19,7 +19,7 @@ import { useSystemListsStore } from '../../hooks/useSystemLists';
 import { useBranchStore } from '../../hooks/useBranchStore';
 import Select from '../../components/ui/Select';
 import type { BranchContact, BranchContactType } from '../../lib/types';
-import { calculateJobMatchScore } from '../../lib/jobMatch';
+import { calculateJobMatchScore, certificateLevelsFromLists } from '../../lib/jobMatch';
 import { getUnifiedApplicationState, getUnifiedApplicationStateDotClasses } from '../../lib/applicationState';
 
 interface VacancyDetailData extends JobVacancy {
@@ -108,7 +108,8 @@ export default function VacancyDetail() {
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
   const [branchContacts, setBranchContacts] = useState<BranchContact[]>([]);
-  const { fetchLists, getValuesByCategory } = useSystemListsStore();
+  const { fetchLists, getValuesByCategory, lists: systemLists } = useSystemListsStore();
+  const certificateLevels = useMemo(() => certificateLevelsFromLists(systemLists), [systemLists]);
   const { branches, fetchBranches } = useBranchStore();
 
   const fetchDetail = async () => {
@@ -522,6 +523,7 @@ export default function VacancyDetail() {
                   drivingLicenseRequired: Boolean(app.vacancyDrivingLicenseRequired),
                   hasCarRequired: Boolean(app.vacancyHasCarRequired),
                 },
+                certificateLevels,
               ).score;
               return (
                 <div className="flex flex-col items-start gap-1">

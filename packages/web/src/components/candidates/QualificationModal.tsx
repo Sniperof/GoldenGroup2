@@ -19,6 +19,8 @@ interface QualificationModalProps {
     onQualified: (candidate: Candidate) => void;
     onJunk: (id: number) => void;
     onLink: (candidateId: number, client: Client) => void;
+    onRestrictedLeadLink: (candidateId: number) => Promise<void>;
+    canLinkRestrictedLead: boolean;
 }
 
 // ─── Address resolution helper ───────────────────────────────────────────────
@@ -50,18 +52,19 @@ function LinkConfirmOverlay({
     const address = resolveAddressHierarchy(client, geoUnits);
 
     return (
+        // Enter via CSS keyframes (index.css) — see ui/Modal.tsx.
         <motion.div
-            initial={{ opacity: 0 }}
+            initial={false}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-slate-900/60 backdrop-blur-sm p-5"
+            className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-slate-900/60 p-5 gg-modal-backdrop-in"
         >
             <motion.div
-                initial={{ scale: 0.93, opacity: 0, y: 16 }}
+                initial={false}
                 animate={{ scale: 1, opacity: 1, y: 0 }}
                 exit={{ scale: 0.93, opacity: 0, y: 16 }}
                 transition={{ type: 'spring', damping: 22, stiffness: 300 }}
-                className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden"
+                className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden gg-modal-panel-in"
             >
                 {/* Header */}
                 <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-3">
@@ -161,7 +164,7 @@ function LinkConfirmOverlay({
 
 // ─── Main Modal ───────────────────────────────────────────────────────────────
 export default function QualificationModal({
-    isOpen, onClose, candidate, onQualified, onJunk, onLink,
+    isOpen, onClose, candidate, onQualified, onJunk, onLink, onRestrictedLeadLink, canLinkRestrictedLead,
 }: QualificationModalProps) {
     const [step, setStep] = useState<1 | 2>(1);
 
@@ -180,6 +183,9 @@ export default function QualificationModal({
 
     // Pending link confirmation
     const [pendingLinkClient, setPendingLinkClient] = useState<Client | null>(null);
+    const [restrictedLinkLoading, setRestrictedLinkLoading] = useState(false);
+    const [restrictedLinkUnavailable, setRestrictedLinkUnavailable] = useState(false);
+    const [restrictedLinkMessage, setRestrictedLinkMessage] = useState<string | null>(null);
 
     // On open: reset + auto smart-match
     useEffect(() => {
@@ -188,6 +194,9 @@ export default function QualificationModal({
             setAutoCheckResult(null);
             setAutoCheckError(false);
             setPendingLinkClient(null);
+            setRestrictedLinkLoading(false);
+            setRestrictedLinkUnavailable(false);
+            setRestrictedLinkMessage(null);
             setSearchQuery(candidate.mobile);
             setActiveSearch('');
 
@@ -374,6 +383,39 @@ export default function QualificationModal({
                                                     <p className="text-xs text-amber-700 mt-0.5">
                                                         {autoCheckResult.message}
                                                     </p>
+                                                    {canLinkRestrictedLead && autoCheckResult.reason === 'SAME_BRANCH_RESTRICTED' && !restrictedLinkUnavailable && (
+                                                        <Button
+                                                            className="mt-3"
+                                                            disabled={restrictedLinkLoading}
+                                                            onClick={async () => {
+                                                                setRestrictedLinkLoading(true);
+                                                                try {
+                                                                    await onRestrictedLeadLink(candidate.id);
+                                                                } catch (error: any) {
+                                                                    if (error?.payload?.code === 'restricted_lead_match_unavailable') {
+                                                                        setRestrictedLinkUnavailable(true);
+                                                                        setRestrictedLinkMessage('لا يمكن إتمام الربط عبر هذا الإجراء؛ فهو مخصص لتطابق وحيد مع زبون Lead ضمن فرع الاسم. لم يُربط الاسم المقترح. يرجى مراجعة مسؤول مخوّل بسجل الزبون لإتمام الربط بالطريقة المعتادة.');
+                                                                    } else {
+                                                                        setRestrictedLinkMessage('تعذّر إتمام الربط الآن. يرجى إعادة المحاولة أو مراجعة المسؤول المختص.');
+                                                                    }
+                                                                } finally {
+                                                                    setRestrictedLinkLoading(false);
+                                                                }
+                                                            }}
+                                                        >
+                                                            {restrictedLinkLoading ? 'جاري التحقق والربط...' : 'ربط الاسم بزبون Lead مؤهل'}
+                                                        </Button>
+                                                    )}
+                                                    {canLinkRestrictedLead && autoCheckResult.reason === 'SAME_BRANCH_RESTRICTED' && !restrictedLinkUnavailable && (
+                                                        <p className="mt-2 text-xs leading-5 text-amber-700">
+                                                            يُقبل هذا الربط إذا كان التطابق زبون Lead واحداً في فرع الاسم. الحالات الأخرى تحتاج مراجعة مسؤول مخوّل بسجل الزبون.
+                                                        </p>
+                                                    )}
+                                                    {restrictedLinkMessage && (
+                                                        <p role="alert" className="mt-3 rounded-xl border border-amber-200 bg-white p-3 text-sm leading-6 text-amber-900">
+                                                            {restrictedLinkMessage}
+                                                        </p>
+                                                    )}
                                                 </div>
                                             </div>
                                         </div>

@@ -31,10 +31,12 @@ router.use(requireAuth);
 const SETTLEMENT_AMENDMENT_TEMPLATE_VERSION =
   ACTIVE_TEMPLATE_VERSION[SETTLEMENT_AMENDMENT_TEMPLATE_KEY];
 
-async function loadContractDocumentSubject(contractId: number) {
+async function loadContractDocumentSubject(contractId: number, actorUserId: number) {
   const { rows } = await pool.query(
-    `SELECT branch_id AS "branchId" FROM contracts WHERE id = $1 LIMIT 1`,
-    [contractId],
+    `SELECT branch_id AS "branchId", sale_owner_id AS "saleOwnerId",
+            (SELECT employee_id FROM hr_users WHERE id = $2) AS "currentEmployeeId"
+       FROM contracts WHERE id = $1 LIMIT 1`,
+    [contractId, actorUserId],
   );
   return rows[0] ?? null;
 }
@@ -323,10 +325,36 @@ router.get(
       return res.status(400).json({ error: 'id غير صالح' });
     }
 
-    const subject = await loadContractDocumentSubject(contractId);
+    const subject = await loadContractDocumentSubject(contractId, req.authContext!.userId);
     if (!subject) return res.status(404).json({ error: 'العقد غير موجود' });
     if (!canViewContractDocument(req.authContext!, subject).allowed) {
       return res.status(403).json({ error: 'غير مسموح بعرض النسخة القانونية لهذا العقد' });
+    }
+
+    // ?document=amendment — the frozen settlement amendment (ملحق تثبيت البيعة)
+    // of a trial settled into a definitive sale. The original stays the trial
+    // agreement by design; the amendment is where the definitive financial
+    // terms live, and it was being frozen but never served.
+    if (req.query.document === 'amendment') {
+      const { rows: amendmentRows } = await pool.query(
+        `SELECT id, rendered_html, content_hash, template_version
+           FROM contract_documents
+          WHERE contract_id = $1 AND is_amendment = TRUE
+          ORDER BY frozen_at DESC, id DESC
+          LIMIT 1`,
+        [contractId],
+      );
+      const amendment = amendmentRows[0];
+      if (!amendment) {
+        return res.status(404).json({ error: 'لا يوجد ملحق تثبيت بيعة لهذا العقد' });
+      }
+      res.set({
+        'Content-Type':       'text/html; charset=utf-8',
+        'X-Contract-Document-Id':    String(amendment.id),
+        'X-Contract-Document-Hash':  amendment.content_hash,
+        'X-Contract-Template-Version': amendment.template_version,
+      });
+      return res.send(amendment.rendered_html);
     }
 
     const bundle = await loadContractForRender(pool, contractId);
@@ -406,7 +434,7 @@ router.post(
     if (!Number.isInteger(contractId) || contractId <= 0) {
       return res.status(400).json({ error: 'id غير صالح' });
     }
-    const subject = await loadContractDocumentSubject(contractId);
+    const subject = await loadContractDocumentSubject(contractId, req.authContext!.userId);
     if (!subject) return res.status(404).json({ error: 'العقد غير موجود' });
     if (!canFreezeContractDocument(req.authContext!, subject).allowed) {
       return res.status(403).json({ error: 'غير مسموح بتجميد النسخة القانونية لهذا العقد' });
