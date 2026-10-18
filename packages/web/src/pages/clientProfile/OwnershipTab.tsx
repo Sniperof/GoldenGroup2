@@ -30,6 +30,7 @@ interface Props {
 }
 
 type AssignableUser = { id: number; name: string; branchId: number | null; roleName: string | null };
+type ReasonOption = { id: number; value: string; label: string };
 
 type Dialog =
     | { kind: 'add' }
@@ -275,7 +276,10 @@ function OwnershipOperationModal({
     const [users, setUsers] = useState<AssignableUser[]>([]);
     const [usersLoading, setUsersLoading] = useState(false);
     const [selectedUserId, setSelectedUserId] = useState('');
-    const [reason, setReason] = useState('');
+    // The operation's managed reason list comes with the ownership view.
+    const reasons: ReasonOption[] = view.reasonOptions?.[dialog.kind] ?? [];
+    const [reasonId, setReasonId] = useState('');
+    const [note, setNote] = useState('');
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -319,25 +323,31 @@ function OwnershipOperationModal({
         : dialog.kind === 'transfer' ? `تنتقل ملكية ${dialog.owner.name} إلى الموظف المختار.`
         : 'تنتهي كل الملكيات الشخصية، ويصبح الزبون ملك الفرع.';
 
-    const trimmedReason = reason.trim();
-    const canSubmit = !saving && trimmedReason.length >= 3 && (!needsUser || selectedUserId !== '');
+    const trimmedNote = note.trim();
+    const selectedReason = reasons.find(r => String(r.id) === reasonId);
+    const noteRequired = selectedReason?.value === 'other';
+    const canSubmit = !saving
+        && selectedReason != null
+        && (!noteRequired || trimmedNote.length > 0)
+        && (!needsUser || selectedUserId !== '');
 
     const submit = async () => {
-        if (!canSubmit) return;
+        if (!canSubmit || !selectedReason) return;
+        const reason = { reasonId: selectedReason.id, note: trimmedNote || undefined };
         let operation: ClientOwnershipOperation;
         if (dialog.kind === 'add') {
-            operation = { action: 'add', userIds: [Number(selectedUserId)], reason: trimmedReason };
+            operation = { action: 'add', userIds: [Number(selectedUserId)], ...reason };
         } else if (dialog.kind === 'remove') {
-            operation = { action: 'remove', userId: dialog.owner.userId, reason: trimmedReason };
+            operation = { action: 'remove', userId: dialog.owner.userId, ...reason };
         } else if (dialog.kind === 'transfer') {
             operation = {
                 action: 'transfer',
                 fromUserId: dialog.owner.userId,
                 toUserId: Number(selectedUserId),
-                reason: trimmedReason,
+                ...reason,
             };
         } else {
-            operation = { action: 'release', reason: trimmedReason };
+            operation = { action: 'release', ...reason };
         }
 
         setSaving(true);
@@ -414,11 +424,33 @@ function OwnershipOperationModal({
                     <label className="text-xs font-semibold text-slate-500">
                         السبب <span className="text-red-500">*</span>
                     </label>
+                    {reasons.length === 0 ? (
+                        <p className="text-xs text-amber-700">
+                            لا توجد أسباب فعّالة لهذه العملية؛ تُضاف من «إدارة القوائم».
+                        </p>
+                    ) : (
+                        <Select<string>
+                            value={reasonId}
+                            onChange={setReasonId}
+                            ariaLabel="السبب"
+                            className="w-full"
+                            options={[
+                                { value: '', label: 'اختر السبب' },
+                                ...reasons.map(r => ({ value: String(r.id), label: r.label })),
+                            ]}
+                        />
+                    )}
+                </div>
+
+                <div className="space-y-1">
+                    <label className="text-xs font-semibold text-slate-500">
+                        ملاحظة {noteRequired ? <span className="text-red-500">*</span> : '(اختيارية)'}
+                    </label>
                     <textarea
-                        value={reason}
-                        onChange={e => setReason(e.target.value)}
-                        rows={3}
-                        placeholder="اكتب سبب العملية"
+                        value={note}
+                        onChange={e => setNote(e.target.value)}
+                        rows={2}
+                        placeholder={noteRequired ? 'وضّح السبب' : 'ملاحظة إضافية'}
                         className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none"
                     />
                 </div>

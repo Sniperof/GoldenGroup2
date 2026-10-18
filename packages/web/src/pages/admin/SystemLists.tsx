@@ -614,6 +614,42 @@ const CATEGORIES: CategoryMeta[] = [
     ],
   },
   {
+    id: 'client_ownership_add_reasons',
+    label: 'أسباب إضافة مالك للزبون',
+    description: 'سبب إلزامي عند إضافة موظف مالكاً للزبون من تبويب «الملكية». يُحفَظ مع العملية في سجل الملكية. اختيار «أخرى» يتطلب ملاحظة.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'عمليات الملكية', route: 'الزبائن ← صفحة الزبون ← الملكية ← إضافة مالك', icon: <Users className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'client_ownership_remove_reasons',
+    label: 'أسباب إزالة مالك من الزبون',
+    description: 'سبب إلزامي عند إنهاء ملكية موظف للزبون. يُحفَظ في سجل الملكية. اختيار «أخرى» يتطلب ملاحظة.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'عمليات الملكية', route: 'الزبائن ← صفحة الزبون ← الملكية ← إزالة', icon: <Users className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'client_ownership_transfer_reasons',
+    label: 'أسباب نقل الملكية بين الموظفين',
+    description: 'سبب إلزامي عند نقل ملكية الزبون من موظف إلى آخر. يُحفَظ في سجل الملكية. اختيار «أخرى» يتطلب ملاحظة.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'عمليات الملكية', route: 'الزبائن ← صفحة الزبون ← الملكية ← نقل', icon: <Users className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'client_ownership_release_reasons',
+    label: 'أسباب إرجاع الزبون لملكية الفرع',
+    description: 'سبب إلزامي عند إنهاء كل الملكيات الشخصية وإرجاع الزبون للفرع. يُحفَظ في سجل الملكية. اختيار «أخرى» يتطلب ملاحظة.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'عمليات الملكية', route: 'الزبائن ← صفحة الزبون ← الملكية ← إرجاع للفرع', icon: <Users className="w-3 h-3" /> },
+    ],
+  },
+  {
     id: 'contract_cancellation_reasons',
     label: 'أسباب إلغاء العَقد',
     description: 'أسباب إلغاء عَقد نشِط غير مُستوفى المبالغ. تُسَجَّل على `contracts.cancellation_reason` وتُغَذّي إحصائية «العقود المُلغاة حَسب السبب».',
@@ -1098,6 +1134,7 @@ const LIST_GROUPS: ListGroup[] = [
   { id: 'service_requests', label: 'قوائم الطلبات' },
   { id: 'emergency',     label: 'الصيانة الطارئة' },
   { id: 'periodic',      label: 'الصيانة الدورية' },
+  { id: 'client_ownership', label: 'ملكية الزبائن' },
   { id: 'contracts',     label: 'العقود والبيع' },
   { id: 'device_demo',   label: 'عرض جهاز' },
   { id: 'device_delivery',       label: 'تسليم الجهاز' },
@@ -1161,6 +1198,11 @@ const CATEGORY_GROUP: Record<string, string> = {
   periodic_maintenance_reschedule_reasons: 'periodic',
   periodic_partially_performed_reason: 'periodic',
   periodic_not_performed_reason: 'periodic',
+
+  client_ownership_add_reasons: 'client_ownership',
+  client_ownership_remove_reasons: 'client_ownership',
+  client_ownership_transfer_reasons: 'client_ownership',
+  client_ownership_release_reasons: 'client_ownership',
 
   contract_sale_source: 'contracts', discount_reason: 'contracts',
   transfer_company: 'contracts', contract_cancellation_reasons: 'contracts',

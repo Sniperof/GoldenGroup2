@@ -1759,6 +1759,14 @@ router.get('/:id', requirePermission('clients.view'), async (req, res) => {
 const OWNERSHIP_ACTIONS = ['add', 'remove', 'transfer', 'release'] as const;
 type OwnershipAction = typeof OWNERSHIP_ACTIONS[number];
 
+// Admin-managed reason list per operation («إدارة القوائم», migration 482).
+const OWNERSHIP_REASON_CATEGORIES: Record<OwnershipAction, string> = {
+  add: 'client_ownership_add_reasons',
+  remove: 'client_ownership_remove_reasons',
+  transfer: 'client_ownership_transfer_reasons',
+  release: 'client_ownership_release_reasons',
+};
+
 const OWNERSHIP_STAGE_LOCK_MESSAGE =
   'الملكية الشخصية تُدار حالياً لزبائن LEAD فقط؛ زبائن FOP و OP ملكيتهم للفرع';
 
@@ -1810,6 +1818,26 @@ async function loadClientOwnershipView(
   const manageAccess = canManageClientAssignments(authContext, branchId);
   const stageAllowsManage = client.stage === 'LEAD';
 
+  // The active reasons of each operation's list, served here so a manager
+  // does not also need the system-lists lookup permission.
+  const reasonOptions: Record<OwnershipAction, Array<{ id: number; value: string; label: string }>> = {
+    add: [], remove: [], transfer: [], release: [],
+  };
+  if (manageAccess.allowed) {
+    const { rows: reasonRows } = await db.query(
+      `SELECT id, category, value, COALESCE(NULLIF(metadata->>'label', ''), value) AS label
+         FROM system_lists
+        WHERE category = ANY($1::text[]) AND is_active = TRUE
+        ORDER BY display_order, id`,
+      [Object.values(OWNERSHIP_REASON_CATEGORIES)],
+    );
+    for (const action of OWNERSHIP_ACTIONS) {
+      reasonOptions[action] = reasonRows
+        .filter((row: any) => row.category === OWNERSHIP_REASON_CATEGORIES[action])
+        .map((row: any) => ({ id: Number(row.id), value: row.value, label: row.label }));
+    }
+  }
+
   return {
     clientId: Number(client.id),
     branchId,
@@ -1824,6 +1852,7 @@ async function loadClientOwnershipView(
       eligible: eligibleIds.has(Number(row.userId)),
     })),
     log: logRows.map((row: any) => ({ ...row, id: Number(row.id) })),
+    reasonOptions,
     canManage: manageAccess.allowed && stageAllowsManage,
     manageBlockedReason: !manageAccess.allowed
       ? null
@@ -1863,14 +1892,30 @@ router.post('/:id/ownership/operations', requirePermission('clients.assignment.m
   if (!OWNERSHIP_ACTIONS.includes(action)) {
     return res.status(400).json({ error: 'نوع عملية الملكية غير معروف' });
   }
-  const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
-  if (reason.length < 3) {
+  const reasonId = toPositiveInt(req.body?.reasonId);
+  if (reasonId == null) {
     return res.status(400).json({ error: 'سبب العملية مطلوب', code: 'OWNERSHIP_REASON_REQUIRED' });
   }
+  const note = typeof req.body?.note === 'string' ? req.body.note.trim() : '';
 
   const db = await pool.connect();
   let transactionStarted = false;
   try {
+    const { rows: reasonRows } = await db.query(
+      `SELECT value, COALESCE(NULLIF(metadata->>'label', ''), value) AS label
+         FROM system_lists
+        WHERE id = $1 AND category = $2 AND is_active = TRUE`,
+      [reasonId, OWNERSHIP_REASON_CATEGORIES[action]],
+    );
+    const reasonRow = reasonRows[0];
+    if (!reasonRow) {
+      return res.status(400).json({ error: 'سبب العملية غير صالح أو غير فعّال', code: 'OWNERSHIP_REASON_REQUIRED' });
+    }
+    if (reasonRow.value === 'other' && note.length === 0) {
+      return res.status(400).json({ error: 'اكتب ملاحظة توضح السبب عند اختيار «أخرى»', code: 'OWNERSHIP_NOTE_REQUIRED' });
+    }
+    const reason = note ? `${reasonRow.label} — ${note}` : reasonRow.label;
+
     await db.query('BEGIN');
     transactionStarted = true;
 
@@ -1912,8 +1957,9 @@ router.post('/:id/ownership/operations', requirePermission('clients.assignment.m
     // Transaction-local context for the ownership-log trigger (migration 481).
     await db.query(
       `SELECT set_config('app.change_context', $1, true),
-              set_config('app.change_reason', $2, true)`,
-      [`manual_${action}`, reason],
+              set_config('app.change_reason', $2, true),
+              set_config('app.ownership_reason_id', $3, true)`,
+      [`manual_${action}`, reason, String(reasonId)],
     );
 
     const resolveNewOwners = async (rawIds: unknown): Promise<number[]> => {

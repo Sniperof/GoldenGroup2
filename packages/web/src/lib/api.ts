@@ -763,15 +763,20 @@ export interface ClientOwnershipView {
   stage: 'LEAD' | 'FOP' | 'OP';
   owners: ClientOwnershipOwner[];
   log: ClientOwnershipLogEntry[];
+  /** Active reasons of each operation's managed list (empty without the manage permission). */
+  reasonOptions: Record<'add' | 'remove' | 'transfer' | 'release', Array<{ id: number; value: string; label: string }>>;
   canManage: boolean;
   manageBlockedReason: string | null;
 }
 
+/** A reason from the operation's admin-managed list + an optional note (migration 482). */
+export type ClientOwnershipReason = { reasonId: number; note?: string };
+
 export type ClientOwnershipOperation =
-  | { action: 'add'; userIds: number[]; reason: string }
-  | { action: 'remove'; userId: number; reason: string }
-  | { action: 'transfer'; fromUserId: number; toUserId: number; reason: string }
-  | { action: 'release'; reason: string };
+  | ({ action: 'add'; userIds: number[] } & ClientOwnershipReason)
+  | ({ action: 'remove'; userId: number } & ClientOwnershipReason)
+  | ({ action: 'transfer'; fromUserId: number; toUserId: number } & ClientOwnershipReason)
+  | ({ action: 'release' } & ClientOwnershipReason);
 
 function withEmergencyResultContext(path: string, context: EmergencyResultContext): string {
   const query = new URLSearchParams({
