@@ -734,6 +734,45 @@ export interface PlanningDayCycle {
   closureSummary: PlanningDayCycleSummary;
 }
 
+export interface ClientOwnershipOwner {
+  userId: number;
+  name: string;
+  roleName: string | null;
+  assignedAt: string | null;
+  assignedByName: string | null;
+  eligible: boolean;
+}
+
+export interface ClientOwnershipLogEntry {
+  id: number;
+  eventType: 'owner_added' | 'owner_removed';
+  ownerUserId: number | null;
+  ownerName: string | null;
+  changeContext: string | null;
+  reason: string | null;
+  role: string | null;
+  source: 'trigger' | 'backfill';
+  createdAt: string;
+  performedByName: string | null;
+}
+
+export interface ClientOwnershipView {
+  clientId: number;
+  branchId: number | null;
+  branchName: string | null;
+  stage: 'LEAD' | 'FOP' | 'OP';
+  owners: ClientOwnershipOwner[];
+  log: ClientOwnershipLogEntry[];
+  canManage: boolean;
+  manageBlockedReason: string | null;
+}
+
+export type ClientOwnershipOperation =
+  | { action: 'add'; userIds: number[]; reason: string }
+  | { action: 'remove'; userId: number; reason: string }
+  | { action: 'transfer'; fromUserId: number; toUserId: number; reason: string }
+  | { action: 'release'; reason: string };
+
 function withEmergencyResultContext(path: string, context: EmergencyResultContext): string {
   const query = new URLSearchParams({
     visitId: String(context.visitId),
@@ -1158,6 +1197,12 @@ export const api = {
     snapshot: (id: number) => request<{ snapshot: any }>(`/clients/${id}/snapshot`),
     listServiceRequests: (id: number) => request<{ items: any[] }>(`/clients/${id}/service-requests`),
     getNetwork: (id: number) => request<any>(`/clients/${id}/network`),
+    getOwnership: (id: number) => request<ClientOwnershipView>(`/clients/${id}/ownership`),
+    applyOwnershipOperation: (id: number, operation: ClientOwnershipOperation) =>
+      request<ClientOwnershipView>(`/clients/${id}/ownership/operations`, {
+        method: 'POST',
+        body: JSON.stringify(operation),
+      }),
     getRatingHistory: (id: number) => request<any[]>(`/clients/${id}/rating-history`),
     updateRating: (id: number, data: { rating: 'Committed' | 'NotCommitted' | 'Undefined'; notes?: string | null }) =>
       request<any>(`/clients/${id}/rating-history`, { method: 'POST', body: JSON.stringify(data) }),

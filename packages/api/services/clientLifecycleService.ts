@@ -25,6 +25,11 @@ export async function promoteClientToLifecycleStatus(
     [status, clientId],
   );
 
+  // Labels the ownership-log rows (migration 481); transaction-local, so it
+  // only applies when the caller runs this inside its transaction.
+  await db.query(`SELECT set_config('app.change_context', $1, true)`, [
+    status === 'OP' ? 'sale_op' : 'status_op_fop',
+  ]);
   await db.query(
     `DELETE FROM client_assignments WHERE client_id = $1`,
     [clientId],

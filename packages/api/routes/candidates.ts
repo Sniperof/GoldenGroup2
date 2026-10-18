@@ -1628,6 +1628,7 @@ router.post('/:id/link-client', requirePermission('candidates.edit'), async (req
     );
 
     if (shouldTransferLeadOwnership) {
+      await db.query(`SELECT set_config('app.change_context', 'candidate_linked', true)`);
       await insertLinkedClientAssignments(db, clientId, transferableAssignmentIds, authContext.userId);
     }
 

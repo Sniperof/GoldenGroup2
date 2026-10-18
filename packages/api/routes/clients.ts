@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import type { PoolClient } from 'pg';
 import pool from '../db.js';
+import { runWithChangeContext } from '../auditContext.js';
 import { requireAuth } from '../middleware/auth.js';
 import { getOrBuildAuthContext, requirePermission } from '../middleware/permission.js';
 import { authorize, resolveActingBranch } from '../services/authorizationService.js';
@@ -1750,6 +1751,234 @@ router.get('/:id', requirePermission('clients.view'), async (req, res) => {
   }
 });
 
+// ── Ownership (migration 481) ────────────────────────────────────────────────
+// Ownership is its own operation, not part of the client edit form: every
+// change carries a reason, and the client_ownership_log trigger records it
+// together with the app.* change context set below.
+
+const OWNERSHIP_ACTIONS = ['add', 'remove', 'transfer', 'release'] as const;
+type OwnershipAction = typeof OWNERSHIP_ACTIONS[number];
+
+const OWNERSHIP_STAGE_LOCK_MESSAGE =
+  'الملكية الشخصية تُدار حالياً لزبائن LEAD فقط؛ زبائن FOP و OP ملكيتهم للفرع';
+
+async function loadClientOwnershipView(
+  clientId: number,
+  authContext: any,
+  db: { query: (text: string, params?: any[]) => Promise<any> } = pool,
+) {
+  const { rows: clientRows } = await db.query(
+    `SELECT c.id, c.branch_id AS "branchId", b.name AS "branchName",
+            (${buildClientLifecycleStatusSql('c')}) AS stage
+       FROM clients c
+       LEFT JOIN branches b ON b.id = c.branch_id
+      WHERE c.id = $1`,
+    [clientId],
+  );
+  const client = clientRows[0];
+  if (!client) return null;
+
+  const [{ rows: ownerRows }, { rows: logRows }] = await Promise.all([
+    db.query(
+      `SELECT ca.hr_user_id AS "userId", u.name, r.display_name AS "roleName",
+              ca.assigned_at AS "assignedAt", ab.name AS "assignedByName"
+         FROM client_assignments ca
+         JOIN hr_users u ON u.id = ca.hr_user_id
+         LEFT JOIN roles r ON r.id = u.role_id
+         LEFT JOIN hr_users ab ON ab.id = ca.assigned_by
+        WHERE ca.client_id = $1
+        ORDER BY ca.assigned_at, ca.id`,
+      [clientId],
+    ),
+    db.query(
+      `SELECT l.id, l.event_type AS "eventType", l.owner_user_id AS "ownerUserId",
+              l.owner_name AS "ownerName", l.change_context AS "changeContext",
+              l.reason, l.role, l.source, l.created_at AS "createdAt",
+              pb.name AS "performedByName"
+         FROM client_ownership_log l
+         LEFT JOIN hr_users pb ON pb.id = l.performed_by
+        WHERE l.client_id = $1
+        ORDER BY l.created_at DESC, l.id DESC`,
+      [clientId],
+    ),
+  ]);
+
+  const eligibleIds = new Set(
+    await getEligiblePersonalOwnerIds(ownerRows.map((row: any) => Number(row.userId))),
+  );
+  const branchId = client.branchId == null ? null : Number(client.branchId);
+  const manageAccess = canManageClientAssignments(authContext, branchId);
+  const stageAllowsManage = client.stage === 'LEAD';
+
+  return {
+    clientId: Number(client.id),
+    branchId,
+    branchName: client.branchName ?? null,
+    stage: client.stage as 'LEAD' | 'FOP' | 'OP',
+    owners: ownerRows.map((row: any) => ({
+      userId: Number(row.userId),
+      name: row.name,
+      roleName: row.roleName ?? null,
+      assignedAt: row.assignedAt,
+      assignedByName: row.assignedByName ?? null,
+      eligible: eligibleIds.has(Number(row.userId)),
+    })),
+    log: logRows.map((row: any) => ({ ...row, id: Number(row.id) })),
+    canManage: manageAccess.allowed && stageAllowsManage,
+    manageBlockedReason: !manageAccess.allowed
+      ? null
+      : stageAllowsManage ? null : OWNERSHIP_STAGE_LOCK_MESSAGE,
+  };
+}
+
+router.get('/:id/ownership', requirePermission('clients.ownership.view'), async (req, res) => {
+  try {
+    const authContext = getRequiredAuthContext(req);
+    const clientId = toPositiveInt(req.params.id as string);
+    if (clientId == null) return res.status(400).json({ error: 'معرّف الزبون غير صالح' });
+
+    const subject = await loadClientSubject(clientId);
+    if (!subject) return res.status(404).json({ error: 'الزبون غير موجود' });
+
+    const access = authorize(authContext, {
+      permission: 'clients.ownership.view',
+      branchId: subject.branchId,
+    });
+    if (!access.allowed) return forbidClientAccess(res, access.reason);
+
+    const view = await loadClientOwnershipView(clientId, authContext);
+    if (!view) return res.status(404).json({ error: 'الزبون غير موجود' });
+    res.json(view);
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+router.post('/:id/ownership/operations', requirePermission('clients.assignment.manage'), async (req, res) => {
+  const authContext = getRequiredAuthContext(req);
+  const clientId = toPositiveInt(req.params.id as string);
+  if (clientId == null) return res.status(400).json({ error: 'معرّف الزبون غير صالح' });
+
+  const action = req.body?.action as OwnershipAction;
+  if (!OWNERSHIP_ACTIONS.includes(action)) {
+    return res.status(400).json({ error: 'نوع عملية الملكية غير معروف' });
+  }
+  const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+  if (reason.length < 3) {
+    return res.status(400).json({ error: 'سبب العملية مطلوب', code: 'OWNERSHIP_REASON_REQUIRED' });
+  }
+
+  const db = await pool.connect();
+  let transactionStarted = false;
+  try {
+    await db.query('BEGIN');
+    transactionStarted = true;
+
+    const { rows: lockedRows } = await db.query(
+      `SELECT c.branch_id AS "branchId", c.deleted_at AS "deletedAt",
+              (${buildClientLifecycleStatusSql('c')}) AS stage
+         FROM clients c
+        WHERE c.id = $1
+        FOR UPDATE OF c`,
+      [clientId],
+    );
+    const locked = lockedRows[0];
+    if (!locked || locked.deletedAt) {
+      throw Object.assign(new Error('الزبون غير موجود'), { status: 404 });
+    }
+    const branchId = locked.branchId == null ? null : Number(locked.branchId);
+    const access = canManageClientAssignments(authContext, branchId);
+    if (!access.allowed) {
+      await db.query('ROLLBACK');
+      transactionStarted = false;
+      return forbidClientAccess(res, access.reason);
+    }
+    if (locked.stage !== 'LEAD') {
+      throw Object.assign(new Error(OWNERSHIP_STAGE_LOCK_MESSAGE), {
+        status: 409,
+        code: 'OWNERSHIP_STAGE_LOCKED',
+      });
+    }
+    if (branchId == null) {
+      throw Object.assign(new Error('الزبون غير مرتبط بفرع'), { status: 409 });
+    }
+
+    const { rows: ownerRows } = await db.query(
+      'SELECT hr_user_id FROM client_assignments WHERE client_id = $1',
+      [clientId],
+    );
+    const currentOwners = new Set<number>(ownerRows.map((row: any) => Number(row.hr_user_id)));
+
+    // Transaction-local context for the ownership-log trigger (migration 481).
+    await db.query(
+      `SELECT set_config('app.change_context', $1, true),
+              set_config('app.change_reason', $2, true)`,
+      [`manual_${action}`, reason],
+    );
+
+    const resolveNewOwners = async (rawIds: unknown): Promise<number[]> => {
+      const resolved = await resolveAssignmentUserIds(rawIds, branchId, db);
+      if ('error' in resolved) {
+        throw Object.assign(new Error(resolved.error), { status: 400 });
+      }
+      return resolved;
+    };
+
+    if (action === 'add') {
+      const ids = await resolveNewOwners(req.body?.userIds);
+      const newIds = ids.filter(id => !currentOwners.has(id));
+      if (newIds.length === 0) {
+        throw Object.assign(new Error('اختر موظفاً واحداً على الأقل غير مالك حالياً'), { status: 400 });
+      }
+      await insertClientAssignments(clientId, newIds, authContext.userId, db);
+    } else if (action === 'remove') {
+      const userId = toPositiveInt(req.body?.userId);
+      if (userId == null || !currentOwners.has(userId)) {
+        throw Object.assign(new Error('الموظف المحدد ليس مالكاً لهذا الزبون'), { status: 400 });
+      }
+      await db.query(
+        'DELETE FROM client_assignments WHERE client_id = $1 AND hr_user_id = $2',
+        [clientId, userId],
+      );
+    } else if (action === 'transfer') {
+      const fromUserId = toPositiveInt(req.body?.fromUserId);
+      if (fromUserId == null || !currentOwners.has(fromUserId)) {
+        throw Object.assign(new Error('الموظف المنقول منه ليس مالكاً لهذا الزبون'), { status: 400 });
+      }
+      const [toUserId] = await resolveNewOwners([req.body?.toUserId]);
+      if (toUserId == null) {
+        throw Object.assign(new Error('اختر الموظف المنقول إليه'), { status: 400 });
+      }
+      if (currentOwners.has(toUserId)) {
+        throw Object.assign(new Error('الموظف المنقول إليه مالك حالياً'), { status: 400 });
+      }
+      await db.query(
+        'DELETE FROM client_assignments WHERE client_id = $1 AND hr_user_id = $2',
+        [clientId, fromUserId],
+      );
+      await insertClientAssignments(clientId, [toUserId], authContext.userId, db);
+    } else {
+      if (currentOwners.size === 0) {
+        throw Object.assign(new Error('الزبون ملك الفرع أصلاً'), { status: 400 });
+      }
+      await db.query('DELETE FROM client_assignments WHERE client_id = $1', [clientId]);
+    }
+
+    await db.query('COMMIT');
+    transactionStarted = false;
+
+    const view = await loadClientOwnershipView(clientId, authContext);
+    res.json(view);
+  } catch (err: any) {
+    if (transactionStarted) {
+      await db.query('ROLLBACK').catch(() => undefined);
+    }
+    res.status(err.status || 500).json({ error: err.message, code: err.code });
+  } finally {
+    db.release();
+  }
+});
+
 /**
  * @swagger
  * /api/clients/{id}/network:
@@ -2356,6 +2585,9 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
       ],
     );
 
+    await db.query(`SELECT set_config('app.change_context', $1, true)`, [
+      hasSourceCandidate ? 'candidate_converted' : 'client_created',
+    ]);
     await insertClientAssignments(inserted.id, resolvedAssignees, authContext.userId, db);
     await db.query(
       `INSERT INTO client_rating_history (client_id, old_rating, new_rating, notes, changed_by, changed_at)
@@ -2574,27 +2806,13 @@ router.put('/:id', requirePermission('clients.edit', 'clients.contacts.edit'), a
       });
     }
 
-    // Resolve assignment changes only if the caller explicitly provided a new list
-    let newAssigneeIds: number[] | null = null;
-    const assignmentBranchId = existing?.branch_id == null ? null : Number(existing.branch_id);
-    const assignmentAccess = canManageClientAssignments(
-      authContext,
-      Number.isInteger(assignmentBranchId) ? assignmentBranchId : null,
-    );
-    const canManageAssignments = assignmentAccess.allowed;
-    if (Array.isArray(req.body?.assignmentUserIds) && !canManageAssignments) {
-      return forbidClientAccess(res, assignmentAccess.reason);
-    }
-    if (canManageAssignments && Array.isArray(req.body?.assignmentUserIds)) {
-      const resolved = await resolveAssignmentUserIds(
-        req.body.assignmentUserIds,
-        assignmentBranchId!,
-        db,
-      );
-      if ('error' in resolved) {
-        return res.status(400).json({ error: resolved.error });
-      }
-      newAssigneeIds = resolved;
+    // Ownership is no longer part of the edit form (migration 481): it changes
+    // only through POST /:id/ownership/operations, with a reason and a log.
+    if (req.body?.assignmentUserIds !== undefined) {
+      return res.status(400).json({
+        error: 'تغيير ملكية الزبون يتم من تبويب «الملكية» وليس من نموذج التعديل',
+        code: 'OWNERSHIP_OPERATION_REQUIRED',
+      });
     }
 
     const transitioningToOpFop =
@@ -2620,18 +2838,6 @@ router.put('/:id', requirePermission('clients.edit', 'clients.contacts.edit'), a
         code: 'CLIENT_CHANGED_DURING_UPDATE',
       });
     }
-    if (newAssigneeIds !== null) {
-      const lockedAssignees = await resolveAssignmentUserIds(
-        newAssigneeIds,
-        Number(lockedSubject.branchId),
-        db,
-      );
-      if ('error' in lockedAssignees) {
-        throw Object.assign(new Error(lockedAssignees.error), { status: 400 });
-      }
-      newAssigneeIds = lockedAssignees;
-    }
-
     await db.query(
       `UPDATE clients SET
         first_name=$1, father_name=$2, last_name=$3, nickname=$4,
@@ -2660,6 +2866,7 @@ router.put('/:id', requirePermission('clients.edit', 'clients.contacts.edit'), a
 
     // If transitioning to OP/FOP: drop personal assignments + cancel marketing tasks
     if (transitioningToOpFop) {
+      await db.query(`SELECT set_config('app.change_context', 'status_op_fop', true)`);
       await db.query('DELETE FROM client_assignments WHERE client_id = $1', [clientId]);
       await db.query(
         `UPDATE open_tasks SET status = 'cancelled', updated_at = NOW()
@@ -2667,9 +2874,6 @@ router.put('/:id', requirePermission('clients.edit', 'clients.contacts.edit'), a
            AND status NOT IN ('completed', 'cancelled')`,
         [clientId],
       );
-    } else if (newAssigneeIds !== null) {
-      await db.query('DELETE FROM client_assignments WHERE client_id = $1', [clientId]);
-      await insertClientAssignments(Number(clientId), newAssigneeIds, authContext.userId, db);
     }
 
     // Audit log: record meaningful field changes
@@ -2789,7 +2993,9 @@ router.delete('/:id', requirePermission('clients.delete'), async (req, res) => {
        WHERE client_id = $1 AND status NOT IN ('completed', 'cancelled')`,
       [clientId],
     );
-    await pool.query('DELETE FROM client_assignments WHERE client_id = $1', [clientId]);
+    await runWithChangeContext({ changeContext: 'client_deleted' }, () =>
+      pool.query('DELETE FROM client_assignments WHERE client_id = $1', [clientId]),
+    );
     await pool.query('DELETE FROM contact_targets WHERE target_type = $1 AND target_id = $2', ['client', clientId]);
     // Plan 2026-06-10 Phase 2.5 — the UPDATE on telemarketing_appointments
     // that used to live here was dead code (column `status` does not exist

@@ -4,22 +4,36 @@ import test from 'node:test';
 
 const source = readFileSync(new URL('./clients.ts', import.meta.url), 'utf8');
 
-test('client data, assignment replacement, and audit commit atomically', () => {
+test('client data and audit commit atomically, and the edit form cannot change ownership', () => {
   const updateRoute = source.slice(source.indexOf("router.put('/:id'"), source.indexOf("router.delete('/:id'"));
   assert.match(updateRoute, /await db\.query\('BEGIN'\)/);
   assert.match(updateRoute, /loadClientSubject\(clientId!, db, true\)/);
   assert.match(updateRoute, /await db\.query\(\s*`UPDATE clients SET/);
-  assert.match(updateRoute, /await db\.query\('DELETE FROM client_assignments/);
-  assert.match(updateRoute, /insertClientAssignments\([^;]+, db\)/);
   assert.match(updateRoute, /INSERT INTO client_audit_log/);
   assert.match(updateRoute, /await db\.query\('COMMIT'\)/);
   assert.match(updateRoute, /await db\.query\('ROLLBACK'\)/);
+  // Ownership moved to its own operation (migration 481).
+  assert.match(updateRoute, /req\.body\?\.assignmentUserIds !== undefined[\s\S]*OWNERSHIP_OPERATION_REQUIRED/);
+  assert.doesNotMatch(updateRoute, /insertClientAssignments\(/);
 });
 
 test('assignment resolution denies users without an active assignment to the client branch', () => {
   assert.match(source, /FROM user_branch_assignments uba[\s\S]*uba\.branch_id = \$2[\s\S]*uba\.status = 'active'/);
   assert.match(source, /USER_OUTSIDE_CLIENT_BRANCH/);
-  assert.match(source, /resolveAssignmentUserIds\(\s*newAssigneeIds,[\s\S]*Number\(lockedSubject\.branchId\),[\s\S]*db/);
+});
+
+test('ownership operations lock the client, require a reason and label the log', () => {
+  const operationsRoute = source.slice(
+    source.indexOf("router.post('/:id/ownership/operations'"),
+    source.indexOf("router.get('/:id/network'"),
+  );
+  assert.match(operationsRoute, /requirePermission\('clients\.assignment\.manage'\)/);
+  assert.match(operationsRoute, /OWNERSHIP_REASON_REQUIRED/);
+  assert.match(operationsRoute, /await db\.query\('BEGIN'\)[\s\S]*FOR UPDATE OF c/);
+  assert.match(operationsRoute, /canManageClientAssignments\(authContext, branchId\)/);
+  assert.match(operationsRoute, /set_config\('app\.change_context', \$1, true\)[\s\S]*`manual_\$\{action\}`, reason/);
+  assert.match(operationsRoute, /resolveAssignmentUserIds\(rawIds, branchId, db\)/);
+  assert.match(operationsRoute, /await db\.query\('COMMIT'\)/);
 });
 
 test('network output removes duplicate rows produced by legacy sheet joins', () => {

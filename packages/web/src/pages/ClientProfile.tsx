@@ -38,6 +38,7 @@ import NewServiceRequestModal from '../components/service-requests/NewServiceReq
 import { usePermissions } from '../hooks/usePermissions';
 import ClientAppAccountCard from '../components/appAccounts/ClientAppAccountCard';
 import ServiceRequestsTab from './clientProfile/ServiceRequestsTab';
+import OwnershipTab from './clientProfile/OwnershipTab';
 import { buildMapsEmbedUrl, buildMapsUrl } from '../utils/addressUtils';
 
 type ClientProfileTabId =
@@ -46,6 +47,7 @@ type ClientProfileTabId =
     | 'calllog'
     | 'visits'
     | 'network'
+    | 'ownership'
     | 'devices'
     | 'purchase_history'
     | 'parts_stock'
@@ -594,6 +596,7 @@ export default function ClientProfile() {
     const canViewPartsStock = hasPermission('clients.parts_stock.view');
     const canViewPreOffers = hasAnyPermission('clients.pre_offers.view', 'contracts.view_list');
     const canViewNetwork = hasPermission('clients.network.view');
+    const canViewOwnership = hasPermission('clients.ownership.view');
     const canViewAccountStatement = hasPermission('clients.account_statement.view');
     const canViewRating = hasPermission('clients.rating.view');
     const canViewServiceRequests = hasAnyPermission(
@@ -689,6 +692,7 @@ export default function ClientProfile() {
         ...(canViewServiceRequests ? [{ id: 'service_requests' as const, label: 'الطلبات', icon: FileText }] : []),
         ...(canViewRating ? [{ id: 'rating' as const, label: 'تقييم الالتزام', icon: Star }] : []),
         ...(canViewNetwork ? [{ id: 'network' as const, label: 'الشبكة', icon: Share2 }] : []),
+        ...(canViewOwnership ? [{ id: 'ownership' as const, label: 'الملكية', icon: Users }] : []),
         ...(canViewAccountStatement ? [{ id: 'account_statement' as const, label: 'كشف الحساب', icon: FileText }] : []),
     ];
     const safeActiveTab: ClientProfileTabId = tabs.some(tab => tab.id === activeTab) ? activeTab : (tabs[0]?.id ?? 'contacts');
@@ -731,6 +735,7 @@ export default function ClientProfile() {
                                         { id: 'service_requests', label: 'الطلبات', icon: FileText },
                                         { id: 'rating', label: 'تقييم الالتزام', icon: Star },
                                         { id: 'network', label: 'الشبكة', icon: Share2 },
+                                        { id: 'ownership', label: 'الملكية', icon: Users },
                                         { id: 'account_statement', label: 'كشف الحساب', icon: FileText },
                                     ].filter((tab) => tabs.some(allowedTab => allowedTab.id === tab.id))}
                                     activeId={safeActiveTab}
@@ -787,6 +792,7 @@ export default function ClientProfile() {
                                     />
                                 )}
                                 {safeActiveTab === 'network' && <NetworkTab client={client} />}
+                                {safeActiveTab === 'ownership' && <OwnershipTab client={client} />}
                                 {safeActiveTab === 'account_statement' && <AccountStatementTab client={client} />}
                             </motion.div>
                         </AnimatePresence>
