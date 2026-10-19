@@ -10,6 +10,15 @@ interface QueryOptions {
   includeTotalRows?: boolean;
 }
 
+
+/**
+ * A visit task belongs to the device through its own device_id (migrated visits) or
+ * through its source open task (live visits — visit_tasks.device_id is never filled
+ * there). Both sides are indexed, so this stays an index lookup per device.
+ */
+const VISIT_TASK_DEVICE_MATCH_SQL = `(task.device_id = device.id OR task.source_open_task_id IN (
+          SELECT device_task.id FROM open_tasks device_task WHERE device_task.device_id = device.id))`;
+
 export interface ServiceDeviceReportRow {
   branchId: number;
   branchName: string;
@@ -265,7 +274,7 @@ export function buildServiceDevicesQuery(
       LEFT JOIN LATERAL (
         SELECT MAX(log.actual_end_time) AS actual_end_time FROM visit_geo_logs log WHERE log.visit_id = visit.id
       ) visit_geo ON TRUE
-      WHERE task.device_id = device.id AND task.status IN ('completed', 'closed')
+      WHERE ${VISIT_TASK_DEVICE_MATCH_SQL} AND task.status IN ('completed', 'closed')
       GROUP BY visit.id
       ORDER BY executed_at DESC NULLS LAST, visit.id DESC LIMIT 1
     ) last_completed_visit ON TRUE
@@ -277,7 +286,7 @@ export function buildServiceDevicesQuery(
       LEFT JOIN LATERAL (
         SELECT MAX(log.actual_end_time) AS actual_end_time FROM visit_geo_logs log WHERE log.visit_id = visit.id
       ) visit_geo ON TRUE
-      WHERE task.device_id = device.id
+      WHERE ${VISIT_TASK_DEVICE_MATCH_SQL}
         AND task.task_type = 'periodic_maintenance'
         AND task.status IN ('completed', 'closed')
       GROUP BY visit.id
@@ -290,7 +299,7 @@ export function buildServiceDevicesQuery(
         FROM visit_tasks task
         JOIN visit_task_results result ON result.visit_task_id = task.id
         JOIN visit_task_emergency_parts_used used ON used.visit_task_result_id = result.id
-        WHERE task.field_visit_id = last_completed_visit.id AND task.device_id = device.id
+        WHERE task.field_visit_id = last_completed_visit.id AND ${VISIT_TASK_DEVICE_MATCH_SQL}
         GROUP BY used.part_name_snapshot
       ) part
     ) last_parts ON TRUE
@@ -300,12 +309,19 @@ export function buildServiceDevicesQuery(
         SELECT DISTINCT task.source_open_task_id
         FROM visit_tasks task
         WHERE task.field_visit_id = last_completed_visit.id
-          AND task.device_id = device.id
+          AND ${VISIT_TASK_DEVICE_MATCH_SQL}
           AND task.source_open_task_id IS NOT NULL
       ) task_source
-      JOIN financial_movements movement ON movement.source_id = task_source.source_open_task_id
-        AND movement.kind = 'payment'
-        AND movement.source_type IN ('emergency_maintenance', 'periodic_maintenance', 'installation', 'golden_warranty')
+      JOIN financial_movements movement ON movement.kind = 'payment' AND (
+        (movement.source_id = task_source.source_open_task_id
+          AND movement.source_type IN ('emergency_maintenance', 'periodic_maintenance', 'installation', 'golden_warranty'))
+        -- Golden-warranty payments are keyed by the warranty, which records the offer task
+        -- that sold it (source_task_id); count the ones taken in that visit's task.
+        OR (movement.source_type = 'golden_warranty_payment'
+          AND movement.source_id IN (
+            SELECT warranty.id FROM device_warranties warranty
+             WHERE warranty.source_task_id = task_source.source_open_task_id
+               AND warranty.device_id = device.id)))
     ) last_visit_payment ON TRUE
     LEFT JOIN LATERAL (
       SELECT call.id, call.call_date, call.communication_channel, call.notes,
@@ -323,7 +339,7 @@ export function buildServiceDevicesQuery(
       WHERE visit.status = 'not_completed'
         AND EXISTS (
           SELECT 1 FROM visit_tasks task
-          WHERE task.field_visit_id = visit.id AND task.device_id = device.id
+          WHERE task.field_visit_id = visit.id AND ${VISIT_TASK_DEVICE_MATCH_SQL}
         )
       ORDER BY visit.scheduled_date DESC NULLS LAST, visit.updated_at DESC, visit.id DESC LIMIT 1
     ) last_incomplete_visit ON TRUE

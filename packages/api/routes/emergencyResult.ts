@@ -1355,6 +1355,13 @@ router.put('/:taskId/costs', requirePermission('marketing_visits.update_result')
                   updated_at     = NOW()`,
           [visitTaskId, finalDecision, closingNotes ?? null, recordedBy],
         );
+        // The visit's part of the task is done once its result is recorded — the open
+        // task may still need follow-up, but this visit task must not stay 'pending'.
+        // Same rule as the other result paths: cancelled → cancelled, else completed.
+        await db.query(
+          `UPDATE visit_tasks SET status = $1, updated_at = NOW() WHERE id = $2`,
+          [finalDecision === 'cancelled' ? 'cancelled' : 'completed', visitTaskId],
+        );
       }
 
       let directWorkshopRetrievalResult = null;
