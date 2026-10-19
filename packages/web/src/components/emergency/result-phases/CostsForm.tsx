@@ -65,6 +65,8 @@ interface Props {
     attachWindowDays: number;
   } | null;
   installedDeviceId?: number | null;
+  /** Active service agreement covering this periodic visit — visit fees are zero. */
+  serviceAgreementCoverage?: { id: number; agreementNumber: string | null; endDate: string | null } | null;
   directWorkshopRetrieval?: {
     disconnectionTaskId: number;
     retrievalTaskId: number;
@@ -124,10 +126,13 @@ export default function CostsForm({
   derivedOutcome = null,
   periodicAttachmentCandidate = null,
   installedDeviceId = null,
+  serviceAgreementCoverage = null,
   directWorkshopRetrieval = null,
 }: Props) {
   const isNewPath = sourceServiceRequestId != null;
   const isPeriodic = maintenanceKind === 'periodic';
+  // The agreement fee pays for periodic visits; the server zeroes them too.
+  const visitFeesCovered = isPeriodic && serviceAgreementCoverage != null;
   const decisionOptions: DecisionOption[] = isPeriodic ? [...PERIODIC_DECISIONS] : [...DECISIONS];
 
   // ── Decision ───────────────────────────────────────────────────────────────
@@ -236,8 +241,8 @@ export default function CostsForm({
   }, [finalDecision, directRetrievalRecorded]);
 
   // ── Calculations ───────────────────────────────────────────────────────────
-  const transport  = Number(transportFee) || 0;
-  const assembly   = Number(assemblyFee)  || 0;
+  const transport  = visitFeesCovered ? 0 : Number(transportFee) || 0;
+  const assembly   = visitFeesCovered ? 0 : Number(assemblyFee)  || 0;
   const discPctNum = Number(discountPct)  || 0;
   const subtotal   = partsCostTotal + transport + assembly;
   const discAmt    = Math.round(subtotal * discPctNum / 100);
@@ -540,16 +545,23 @@ export default function CostsForm({
             <span className="text-xs font-bold text-slate-600">إجمالي القطع المنفذة</span>
             <span className="font-black text-slate-800">{partsCostTotal.toLocaleString('ar-SY')} ل.س</span>
           </div>
+          {visitFeesCovered && (
+            <div className="px-4 py-2.5 border-b border-emerald-100 bg-emerald-50 text-xs font-bold text-emerald-800">
+              الجهاز ضمن اتفاقية خدمة{serviceAgreementCoverage?.agreementNumber ? ` ${serviceAgreementCoverage.agreementNumber}` : ''}
+              {serviceAgreementCoverage?.endDate ? ` حتى ${String(serviceAgreementCoverage.endDate).slice(0, 10)}` : ''}
+              {' '}— أجور الزيارة مشمولة برسوم الاتفاقية، والقطع على الزبون
+            </div>
+          )}
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
             <label className="text-xs font-bold text-slate-600 shrink-0">أجور مواصلات وخدمة</label>
-            <input type="number" min="0" value={transportFee} onChange={e => setTransportFee(e.target.value)}
-              placeholder="0" disabled={readOnly}
+            <input type="number" min="0" value={visitFeesCovered ? '0' : transportFee} onChange={e => setTransportFee(e.target.value)}
+              placeholder="0" disabled={readOnly || visitFeesCovered}
               className="w-36 rounded-xl border border-slate-200 px-3 py-1.5 text-sm text-left font-bold focus:outline-none focus:border-rose-400 bg-white" dir="ltr" />
           </div>
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
             <label className="text-xs font-bold text-slate-600 shrink-0">أجور فك أو تركيب</label>
-            <input type="number" min="0" value={assemblyFee} onChange={e => setAssemblyFee(e.target.value)}
-              placeholder="0" disabled={readOnly}
+            <input type="number" min="0" value={visitFeesCovered ? '0' : assemblyFee} onChange={e => setAssemblyFee(e.target.value)}
+              placeholder="0" disabled={readOnly || visitFeesCovered}
               className="w-36 rounded-xl border border-slate-200 px-3 py-1.5 text-sm text-left font-bold focus:outline-none focus:border-rose-400 bg-white" dir="ltr" />
           </div>
           <div className="flex items-center justify-between px-4 py-3 bg-slate-50 border-b border-slate-200">

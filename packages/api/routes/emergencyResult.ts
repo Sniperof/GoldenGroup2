@@ -387,6 +387,24 @@ export async function recordMaintenanceMovement(
   });
 }
 
+// Active service agreement covering a device today (DEC-CT-02, decision 2026-10-19):
+// its fee pays for the periodic visits, so periodic visit fees are zero; parts are
+// still the customer's.
+async function findCoveringServiceAgreement(db: Pick<PoolClient, 'query'>, installedDeviceId: number | null) {
+  if (!installedDeviceId) return null;
+  const { rows } = await db.query(
+    `SELECT id, agreement_number AS "agreementNumber", end_date AS "endDate"
+       FROM service_agreements
+      WHERE installed_device_id = $1 AND status = 'active'
+        AND (start_date IS NULL OR start_date <= CURRENT_DATE)
+        AND (end_date IS NULL OR end_date >= CURRENT_DATE)
+      ORDER BY agreement_date DESC, id DESC
+      LIMIT 1`,
+    [installedDeviceId],
+  );
+  return rows[0] ?? null;
+}
+
 // استحقاق لكل قسط صيانة مؤكَّد بتاريخ أجله (maintenance_installment، ref = رقم القسط).
 export async function recordMaintenanceInstallmentCharges(
   db: PoolClient,
@@ -629,6 +647,10 @@ router.get('/:taskId', requirePermission('marketing_visits.view'), async (req, r
         technicianName:
           meta.teamSnapshot?.technician?.name
             ?? null,
+        // Periodic visit fees are covered by this agreement (null = not covered).
+        serviceAgreementCoverage: meta.taskType === 'periodic_maintenance'
+          ? await findCoveringServiceAgreement(pool, meta.installedDeviceId ?? null)
+          : null,
       },
       periodicAttachmentCandidate,
       directWorkshopRetrieval,
@@ -1221,8 +1243,12 @@ router.put('/:taskId/costs', requirePermission('marketing_visits.update_result')
 
     const recordedBy = (req.authContext as any)?.userId ?? null;
     const pCost  = Number(partsCost)          || 0;
-    const tFee   = Number(transportFee)       || 0;
-    const aFee   = Number(assemblyFee)        || 0;
+    // A periodic visit under an active service agreement charges no visit fees —
+    // the agreement fee covers them; parts stay billable.
+    const agreementCoversVisit = meta.taskType === 'periodic_maintenance'
+      && (await findCoveringServiceAgreement(pool, meta.installedDeviceId ?? null)) != null;
+    const tFee   = agreementCoversVisit ? 0 : Number(transportFee) || 0;
+    const aFee   = agreementCoversVisit ? 0 : Number(assemblyFee)  || 0;
     const discPct = Number(discountPercentage) || 0;
     const subtotal = pCost + tFee + aFee;
     const discAmt  = Math.round(subtotal * discPct / 100);

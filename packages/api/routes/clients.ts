@@ -1470,6 +1470,7 @@ router.get('/:id/account-statement', requirePermission('clients.account_statemen
       'contract', 'contract_installment', 'contract_payment',
       'emergency_maintenance', 'periodic_maintenance', 'installation',
       'maintenance_installment', 'maintenance_installment_payment',
+      'service_agreement', 'service_agreement_payment',
       'golden_warranty', 'golden_warranty_installment', 'golden_warranty_payment', 'opening_balance',
     ]);
     const types = typeof req.query.types === 'string'

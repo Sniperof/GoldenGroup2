@@ -9,6 +9,11 @@ export type ServiceAgreementDraft = {
   startDate: string;
   endDate: string;
   notes: string;
+  /** Agreement fee — booked to the customer's ledger on activation (migr 485). */
+  feeSyp: string;
+  /** Collected at signing, recorded as the agreement's first payment. */
+  paidAtSigning: string;
+  paymentMethod: string;
 };
 
 export const todayYmd = () => new Date().toISOString().slice(0, 10);
@@ -23,6 +28,9 @@ export function emptyServiceAgreementDraft(): ServiceAgreementDraft {
     startDate: today,
     endDate: '',
     notes: '',
+    feeSyp: '',
+    paidAtSigning: '',
+    paymentMethod: 'cash',
   };
 }
 
@@ -32,13 +40,25 @@ export function serviceAgreementPayloadFromDraft(draft: ServiceAgreementDraft) {
     agreementDate: draft.agreementDate || todayYmd(),
     maintenancePlan: draft.maintenancePlan || null,
     visitsCount: draft.visitsCount ? Number(draft.visitsCount) : null,
-    feeSyp: 0,
+    feeSyp: draft.feeSyp ? Number(draft.feeSyp) : 0,
+    payments: Number(draft.paidAtSigning) > 0
+      ? [{ method: draft.paymentMethod || 'cash', amountValue: Number(draft.paidAtSigning) }]
+      : [],
     status: 'active',
     startDate: draft.startDate || null,
     endDate: draft.endDate || null,
     notes: draft.notes.trim() || null,
   };
 }
+
+const PAYMENT_METHOD_OPTIONS = [
+  { value: 'cash', label: 'نقدي' },
+  { value: 'sham_cash', label: 'شام كاش' },
+  { value: 'syriatel_cash', label: 'سيرياتيل كاش' },
+  { value: 'mtn_cash', label: 'إم تي إن كاش' },
+  { value: 'alharam', label: 'الهرم' },
+  { value: 'bank_transfer', label: 'حوالة بنكية' },
+];
 
 const MAINTENANCE_PLAN_OPTIONS = [
   { value: 'monthly', label: 'شهري' },
@@ -121,6 +141,48 @@ export default function ServiceAgreementForm({ value, onChange, disabled = false
           className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
         />
       </label>
+
+      <label className="space-y-1.5">
+        <span className="text-xs font-bold text-slate-500">رسوم الاتفاقية (ل.س)</span>
+        <input
+          type="number"
+          min={0}
+          value={value.feeSyp}
+          disabled={disabled}
+          onChange={(event) => set({ feeSyp: event.target.value })}
+          placeholder="0"
+          className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 disabled:opacity-60"
+          dir="ltr"
+        />
+        <span className="block text-[11px] text-slate-400">تغطي أجور الزيارات الدورية؛ القطع على الزبون. تُقفل بعد التفعيل.</span>
+      </label>
+
+      <div className="grid grid-cols-2 gap-2">
+        <label className="space-y-1.5">
+          <span className="text-xs font-bold text-slate-500">المدفوع عند التوقيع</span>
+          <input
+            type="number"
+            min={0}
+            value={value.paidAtSigning}
+            disabled={disabled || !(Number(value.feeSyp) > 0)}
+            onChange={(event) => set({ paidAtSigning: event.target.value })}
+            placeholder="0"
+            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 disabled:opacity-60"
+            dir="ltr"
+          />
+        </label>
+        <label className="space-y-1.5">
+          <span className="text-xs font-bold text-slate-500">طريقة الدفع</span>
+          <Select<string>
+            value={value.paymentMethod}
+            disabled={disabled || !(Number(value.paidAtSigning) > 0)}
+            onChange={(paymentMethod) => set({ paymentMethod })}
+            ariaLabel="طريقة الدفع"
+            className="w-full"
+            options={PAYMENT_METHOD_OPTIONS}
+          />
+        </label>
+      </div>
 
       <label className="space-y-1.5 md:col-span-2">
         <span className="text-xs font-bold text-slate-500">ملاحظات الاتفاق</span>

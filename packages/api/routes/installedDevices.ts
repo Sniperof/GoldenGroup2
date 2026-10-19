@@ -6,6 +6,8 @@ import { authorize } from '../services/authorizationService.js';
 import { assertGeoUnitInScope } from '../services/geoScopeService.js';
 import { assertDeviceModelInScope } from '../services/deviceScopeService.js';
 import { createManualPeriodicMaintenanceTask } from '../services/periodicMaintenanceTasks.js';
+import { syncServiceAgreementMovements } from '../services/financialMovements.js';
+import { insertServiceAgreementPayment, normalizeServiceAgreementPayment } from '../services/serviceAgreementPayments.js';
 import {
   assertDeviceSerialAvailable,
   deviceSerialConflictPayload,
@@ -353,6 +355,11 @@ router.post('/external', requirePermission('installed_devices.create_external'),
     if (wantsServiceAgreement && (!Number.isFinite(feeSyp) || feeSyp < 0)) {
       return res.status(400).json({ error: 'بدل اتفاق الخدمة غير صالح' });
     }
+    // Reject a bad payment-at-signing before any row is written.
+    for (const p of wantsServiceAgreement && Array.isArray(serviceAgreement.payments) ? serviceAgreement.payments : []) {
+      const n = normalizeServiceAgreementPayment(p);
+      if ('error' in n) return res.status(400).json({ error: n.error });
+    }
 
     const deviceCheck = await assertDeviceModelInScope(authContext, deviceModelId, branchId);
     if (!deviceCheck.allowed) {
@@ -453,14 +460,15 @@ router.post('/external', requirePermission('installed_devices.create_external'),
       );
 
       if (wantsServiceAgreement) {
-        await db.query(
+        const { rows: agreementRows } = await db.query(
           `INSERT INTO service_agreements (
              agreement_number, customer_id, customer_name, branch_id, installed_device_id, agreement_date,
              external_device_model_name, external_device_serial, external_device_notes,
              maintenance_plan, visits_count, fee_syp,
              status, start_date, end_date,
-             created_by, notes
-           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'active',$13,$14,$15,$16)`,
+             created_by, notes, activated_at
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'active',$13,$14,$15,$16,NOW())
+           RETURNING id`,
           [
             serviceAgreement.agreementNumber ?? serviceAgreement.agreement_number ?? null,
             customerId,
@@ -480,6 +488,15 @@ router.post('/external', requirePermission('installed_devices.create_external'),
             serviceAgreement.notes ?? null,
           ],
         );
+        // Payments taken at signing, then fee charge + payments → unified ledger (migr 485).
+        for (const p of Array.isArray(serviceAgreement.payments) ? serviceAgreement.payments : []) {
+          const n = normalizeServiceAgreementPayment(p);
+          if ('error' in n) throw Object.assign(new Error(n.error), { statusCode: 400 });
+          if (n.values.amountSyp > 0) {
+            await insertServiceAgreementPayment(db, Number(agreementRows[0].id), n.values, authContext.userId ?? null);
+          }
+        }
+        await syncServiceAgreementMovements(db, Number(agreementRows[0].id), authContext.userId ?? null);
       }
 
       await db.query('COMMIT');

@@ -213,6 +213,7 @@ export default function EmergencyResultWizard({ taskId, visitId = null, visitTas
           sourceServiceRequestId={problemServiceRequestId}
           derivedOutcome={result?.derivedOutcome ?? null}
           periodicAttachmentCandidate={result?.periodicAttachmentCandidate ?? null}
+          serviceAgreementCoverage={result?.taskMeta?.serviceAgreementCoverage ?? null}
           installedDeviceId={result?.taskMeta?.installedDeviceId ?? null}
           directWorkshopRetrieval={result?.directWorkshopRetrieval ?? null}
         />
