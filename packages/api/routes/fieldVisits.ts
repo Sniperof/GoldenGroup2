@@ -30,6 +30,23 @@ import { getOpenTaskLinkageIssue } from '../services/openTaskLinkagePolicy.js';
 const router = Router();
 router.use(requireAuth);
 
+// Installed devices a visit touches, for the list cards. The device lives on the task:
+// visit_tasks.device_id is only filled for migrated visits, new ones carry it on the
+// source open_task — so read either.
+const VISIT_DEVICES_SELECT = `
+         (SELECT COALESCE(json_agg(json_build_object(
+                   'id', d.id,
+                   'serialNumber', COALESCE(d.serial_number, d.external_device_serial),
+                   'modelName', COALESCE(d.device_model_name, d.external_device_name)
+                 ) ORDER BY d.id), '[]'::json)
+            FROM installed_devices d
+           WHERE d.id IN (
+             SELECT COALESCE(vtd.device_id, otd.device_id)
+               FROM visit_tasks vtd
+               LEFT JOIN open_tasks otd ON otd.id = vtd.source_open_task_id
+              WHERE vtd.field_visit_id = fv.id
+           )) AS "devices"`;
+
 type VisitTaskResultApplier = (
   visitTaskId: number,
   body: any,
@@ -1169,6 +1186,7 @@ router.get('/', requirePermission('clients.visits.view', 'field_visits.view'), a
              FILTER (WHERE vt.id IS NOT NULL),
            '[]'::json
          ) AS "tasksSummary",
+         ${VISIT_DEVICES_SELECT},
          (vs.id IS NOT NULL) AS "hasSurvey",
          COALESCE(vs.is_skipped, FALSE) AS "surveySkipped",
          (rs.id IS NOT NULL) AS "hasReferralSheet",
@@ -1302,7 +1320,8 @@ router.get('/my-visits', requirePermission('field_visits.my_visits.view'), async
            json_agg(DISTINCT jsonb_build_object('taskType', vt.task_type, 'taskFamily', vt.task_family, 'status', vt.status))
              FILTER (WHERE vt.id IS NOT NULL),
            '[]'::json
-         ) AS "tasksSummary"
+         ) AS "tasksSummary",
+         ${VISIT_DEVICES_SELECT}
        FROM field_visits fv
        JOIN clients c ON c.id = fv.client_id
        LEFT JOIN geo_units neigh ON neigh.id = CASE
@@ -1753,7 +1772,8 @@ router.get('/:id', requirePermission('field_visits.view', 'field_visits.my_visit
                 ot.contract_snapshot AS "contractSnapshot",
                 idev.installation_address_text AS current_device_address,
                 idev.installation_geo_unit_id AS current_device_geo_unit_id,
-                ct.contract_number, ct.device_model_name
+                ct.contract_number, ct.device_model_name,
+                COALESCE(task_dev.serial_number, task_dev.external_device_serial) AS device_serial_number
          FROM visit_tasks vt
          LEFT JOIN task_type_config ttc ON ttc.task_type = vt.task_type
          LEFT JOIN visit_task_results vtr ON vtr.visit_task_id = vt.id
@@ -1773,6 +1793,7 @@ router.get('/:id', requirePermission('field_visits.view', 'field_visits.my_visit
          LEFT JOIN branches service_branch ON service_branch.id = ot.service_branch_id
          LEFT JOIN clients target_client ON target_client.id = ot.target_client_id
          LEFT JOIN installed_devices idev ON idev.id = ot.device_id
+         LEFT JOIN installed_devices task_dev ON task_dev.id = COALESCE(vt.device_id, ot.device_id)
          LEFT JOIN contracts ct ON ct.id = COALESCE(vt.contract_id, ot.contract_id)
          WHERE vt.field_visit_id = $1
            AND vt.task_type <> ALL($2::text[])
@@ -2607,9 +2628,9 @@ router.get('/:id/pullable-tasks', requirePermission('field_visits.view', 'field_
               ct.contract_number          AS "contractNumber",
               ct.device_model_name        AS "deviceModelName",
               ot.installment_id           AS "installmentId",
-              ci.installment_number       AS "installmentNumber",
-              ci.amount_syp               AS "installmentAmount",
-              ci.remaining_balance        AS "installmentRemaining",
+              COALESCE(ci.installment_number, mi.installment_number, wi.installment_number) AS "installmentNumber",
+              COALESCE(ci.amount_syp, mi.amount_syp, wi.amount_syp)                         AS "installmentAmount",
+              COALESCE(ci.remaining_balance, mi.remaining_balance, wi.remaining_balance)    AS "installmentRemaining",
               ot.expected_amount_syp      AS "expectedAmount",
               ot.receivable_source_label  AS "receivableLabel",
               EXISTS (
@@ -2636,6 +2657,8 @@ router.get('/:id/pullable-tasks', requirePermission('field_visits.view', 'field_
          LEFT JOIN task_type_config ttc ON ttc.task_type = ot.task_type
          LEFT JOIN contracts ct ON ct.id = ot.contract_id
          LEFT JOIN contract_installments ci ON ci.id = ot.installment_id
+         LEFT JOIN emergency_installments mi ON mi.id = ot.maintenance_installment_id
+         LEFT JOIN device_warranty_installments wi ON wi.id = ot.warranty_installment_id
          LEFT JOIN installed_devices idev ON idev.id = ot.device_id
         WHERE ot.client_id = $1
           AND ot.branch_id = $2

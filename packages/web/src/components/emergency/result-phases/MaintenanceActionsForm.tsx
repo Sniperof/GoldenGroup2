@@ -39,7 +39,37 @@ type SavedPart = {
   executionStatus: 'replaced' | 'delivered_to_customer_stock' | 'not_replaced_customer_refused' | 'not_replaced_unavailable' | 'not_replaced_technician_decision';
   customerRefusalReasonId: number | null;
   customerRefusalReasonText: string;
+  // Visit attempt the part was recorded in (server-set); parts from earlier visits are read-only.
+  visitTaskId?: number | null;
+  visitId?: number | null;
+  visitDate?: string | null;
 };
+
+function savedPartFromServer(p: any): SavedPart {
+  return {
+    id:                  p.id,
+    sparePartId:         p.sparePartId ?? null,
+    partNameSnapshot:    p.partNameSnapshot,
+    partCodeSnapshot:    p.partCodeSnapshot ?? '',
+    maintenanceType:     p.maintenanceType ?? '',
+    unitPrice:           Number(p.unitPrice),
+    quantity:            Number(p.quantity),
+    retrieved:           p.retrieved !== false,
+    placementState:      p.placementState === 'customer_stock' ? 'customer_stock' : 'installed',
+    noRetrievalReasonId: p.noRetrievalReasonId ?? null,
+    noRetrievalReasonText: p.noRetrievalReasonText ?? '',
+    recommendationStatus: p.recommendationStatus === 'optional' ? 'optional' : 'required',
+    customerDecision: ['approved', 'refused', 'not_required'].includes(p.customerDecision) ? p.customerDecision : 'approved',
+    executionStatus: ['replaced', 'delivered_to_customer_stock', 'not_replaced_customer_refused', 'not_replaced_unavailable', 'not_replaced_technician_decision'].includes(p.executionStatus)
+      ? p.executionStatus
+      : (p.placementState === 'customer_stock' ? 'delivered_to_customer_stock' : 'replaced'),
+    customerRefusalReasonId: p.customerRefusalReasonId ?? null,
+    customerRefusalReasonText: p.customerRefusalReasonText ?? '',
+    visitTaskId:         p.visitTaskId ?? null,
+    visitId:             p.visitId ?? null,
+    visitDate:           p.visitDate ?? null,
+  };
+}
 
 type MaintenanceKind = 'emergency' | 'periodic';
 type ActiveWarranty = { type: 'contract' | 'golden'; endDate?: string | null } | null;
@@ -420,26 +450,7 @@ export default function MaintenanceActionsForm({ taskId, resultContext, initialD
     ]).then(([sp, at, existingParts]) => {
       setAllParts(sp.map((p: any) => ({ ...p, basePrice: Number(p.basePrice) })));
       setActionTypes(at);
-      setSavedParts(existingParts.map((p: any) => ({
-        id:                  p.id,
-        sparePartId:         p.sparePartId ?? null,
-        partNameSnapshot:    p.partNameSnapshot,
-        partCodeSnapshot:    p.partCodeSnapshot ?? '',
-        maintenanceType:     p.maintenanceType ?? '',
-        unitPrice:           Number(p.unitPrice),
-        quantity:            Number(p.quantity),
-        retrieved:           p.retrieved !== false,
-        placementState:      p.placementState === 'customer_stock' ? 'customer_stock' : 'installed',
-        noRetrievalReasonId: p.noRetrievalReasonId ?? null,
-        noRetrievalReasonText: p.noRetrievalReasonText ?? '',
-        recommendationStatus: p.recommendationStatus === 'optional' ? 'optional' : 'required',
-        customerDecision: ['approved', 'refused', 'not_required'].includes(p.customerDecision) ? p.customerDecision : 'approved',
-        executionStatus: ['replaced', 'delivered_to_customer_stock', 'not_replaced_customer_refused', 'not_replaced_unavailable', 'not_replaced_technician_decision'].includes(p.executionStatus)
-          ? p.executionStatus
-          : (p.placementState === 'customer_stock' ? 'delivered_to_customer_stock' : 'replaced'),
-        customerRefusalReasonId: p.customerRefusalReasonId ?? null,
-        customerRefusalReasonText: p.customerRefusalReasonText ?? '',
-      })));
+      setSavedParts(existingParts.map(savedPartFromServer));
     }).catch(console.error);
   }, [taskId]);
 
@@ -451,7 +462,8 @@ export default function MaintenanceActionsForm({ taskId, resultContext, initialD
     if (!resultContext) {
       throw new Error('يجب فتح نتيجة الصيانة من داخل الزيارة المرتبطة');
     }
-    await api.emergencyResult.saveParts(taskId, newParts.map(p => ({
+    const saved = await api.emergencyResult.saveParts(taskId, newParts.map(p => ({
+      id:                   p.id ?? null,
       sparePartId:          p.sparePartId,
       partNameSnapshot:     p.partNameSnapshot,
       partCodeSnapshot:     p.partCodeSnapshot || null,
@@ -469,7 +481,13 @@ export default function MaintenanceActionsForm({ taskId, resultContext, initialD
       customerRefusalReasonText: p.customerRefusalReasonText || null,
     })), resultContext);
     // intentionally NOT calling onSaved() here
+    // The server's list is authoritative: it tags new parts with this visit and keeps
+    // earlier visits' parts unchanged.
+    return saved.map(savedPartFromServer);
   };
+
+  const isLockedPart = (p: SavedPart) =>
+    p.visitTaskId != null && p.visitTaskId !== resultContext?.visitTaskId;
 
   // ── Save draft as new part ──────────────────────────────────────────────────
   const handleSaveDraft = async () => {
@@ -477,8 +495,7 @@ export default function MaintenanceActionsForm({ taskId, resultContext, initialD
     setSaving(true); setError('');
     try {
       const updated = [...savedParts, toSaved(draft)];
-      await persistParts(updated);
-      setSavedParts(updated);
+      setSavedParts(await persistParts(updated));
       setShowAddForm(false);
       setDraft(emptyDraft());
       // Stay on this phase — no navigation
@@ -491,9 +508,8 @@ export default function MaintenanceActionsForm({ taskId, resultContext, initialD
     if (editIndex === null || !draft.partNameSnapshot.trim()) return;
     setSaving(true); setError('');
     try {
-      const updated = savedParts.map((p, i) => i === editIndex ? toSaved(draft) : p);
-      await persistParts(updated);
-      setSavedParts(updated);
+      const updated = savedParts.map((p, i) => i === editIndex ? { ...toSaved(draft), id: p.id } : p);
+      setSavedParts(await persistParts(updated));
       setEditIndex(null);
       setDraft(emptyDraft());
     } catch (err: any) { setError(err.message || 'فشل الحفظ'); }
@@ -505,8 +521,7 @@ export default function MaintenanceActionsForm({ taskId, resultContext, initialD
     setSaving(true); setError('');
     try {
       const updated = savedParts.filter((_, idx) => idx !== i);
-      await persistParts(updated);
-      setSavedParts(updated);
+      setSavedParts(await persistParts(updated));
       if (editIndex === i) { setEditIndex(null); setDraft(emptyDraft()); }
     } catch (err: any) { setError(err.message || 'فشل الحذف'); }
     finally { setSaving(false); }
@@ -646,6 +661,11 @@ export default function MaintenanceActionsForm({ taskId, resultContext, initialD
                             لم تُسحب
                           </span>
                         )}
+                        {isLockedPart(p) && (
+                          <span className="text-xs font-bold rounded-full border border-slate-200 bg-slate-100 text-slate-600 px-2 py-0.5">
+                            زيارة سابقة{p.visitId ? ` #${p.visitId}` : ''}{p.visitDate ? ` · ${String(p.visitDate).slice(0, 10)}` : ''} — للقراءة فقط
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
                         <span>{p.quantity} × {p.unitPrice.toLocaleString()} ل.س</span>
@@ -656,7 +676,7 @@ export default function MaintenanceActionsForm({ taskId, resultContext, initialD
                         )}
                       </div>
                     </div>
-                    {!readOnly && (
+                    {!readOnly && !isLockedPart(p) && (
                       <div className="flex items-center gap-1 shrink-0">
                         <button onClick={() => startEdit(i)} disabled={saving}
                           className="p-1.5 text-slate-400 hover:text-sky-500 hover:bg-sky-50 rounded-lg transition-colors">

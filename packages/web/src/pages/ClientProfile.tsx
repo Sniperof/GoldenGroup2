@@ -6,7 +6,7 @@ import {
     History, ArrowLeft, ChevronLeft,
     Plus, Briefcase, Activity, LayoutDashboard, Contact2, Navigation, Users, MessageCircle, ShieldCheck,
     X, Loader2, PhoneCall, Zap, FileText, CheckCircle2, Wrench, Check, Truck, Calendar, Layers, AlertCircle,
-    Cpu, Package, Sparkles, Gift, Clock, DollarSign, Star
+    Cpu, Package, Sparkles, Gift, Clock, DollarSign, Star, ClipboardList
 } from '../components/ui/icons';
 import { DevicesTab } from './clientProfile/DevicesTab'; // plan §1 — replaces legacy ContractsTab
 import { PurchaseHistoryTab } from './clientProfile/PurchaseHistoryTab';
@@ -1253,6 +1253,13 @@ const VISIT_STATUS_LABELS: Record<string, string> = {
     needs_reschedule: 'تحتاج إعادة جدولة',
 };
 
+// field_visits.visit_type values (marketing | service | mixed) — same set VisitsListPage labels.
+const VISIT_TYPE_LABELS: Record<string, string> = {
+    marketing: 'تسويقية',
+    service: 'خدمية',
+    mixed: 'مختلطة',
+};
+
 const VISIT_STATUS_COLORS: Record<string, string> = {
     scheduled: 'bg-sky-50 text-sky-700 border-sky-200',
     in_progress: 'bg-indigo-50 text-indigo-700 border-indigo-200',
@@ -1337,6 +1344,26 @@ function Chip({ children, className }: { children: ReactNode; className?: string
     );
 }
 
+type InstalledDeviceRef = { id: number; serialNumber: string | null; modelName: string | null };
+
+function deviceRefLabel(d: InstalledDeviceRef): string {
+    return [d.modelName, d.serialNumber].filter(Boolean).join(' · ') || `جهاز #${d.id}`;
+}
+
+function DeviceChip({ device }: { device: InstalledDeviceRef }) {
+    return (
+        <Chip className="bg-blue-50 text-blue-700 border-blue-200">
+            <Cpu className="h-3 w-3" /> {deviceRefLabel(device)}
+        </Chip>
+    );
+}
+
+// Installed devices a timeline item belongs to: a task has at most one, a visit can span several.
+function timelineItemDevices(item: TimelineItem): InstalledDeviceRef[] {
+    if (item.kind === 'task') return item.data.installedDevice ? [item.data.installedDevice] : [];
+    return item.data.devices ?? [];
+}
+
 function TaskNode({ task }: { task: any }) {
     const status = task.status as string;
     const phase = getTaskPhase(status as OpenTaskStatus);
@@ -1368,6 +1395,12 @@ function TaskNode({ task }: { task: any }) {
                 {fmtDay(task.createdAt) && <span>أُنشئت: {fmtDay(task.createdAt)}</span>}
                 {fmtDay(due) && <span className={overdue ? 'font-bold text-rose-600' : ''}>التاريخ المطلوب: {fmtDay(due)}</span>}
             </div>
+
+            {task.installedDevice && (
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                    <DeviceChip device={task.installedDevice} />
+                </div>
+            )}
 
             {devices.length > 0 && (
                 <div className="mt-3 text-sm text-slate-600">
@@ -1404,8 +1437,9 @@ function TaskNode({ task }: { task: any }) {
 function VisitNode({ visit, navigate }: { visit: any; navigate: ReturnType<typeof useNavigate> }) {
     const status = visit.status as string;
     const statusLabel = VISIT_STATUS_LABELS[status] ?? status;
-    const visitTypeLabel = visit.visitType === 'emergency' ? 'طوارئ' : 'تسويقية';
+    const visitTypeLabel = VISIT_TYPE_LABELS[visit.visitType] ?? visit.visitType ?? '—';
     const summary: any[] = visit.tasksSummary ?? [];
+    const visitDevices: InstalledDeviceRef[] = visit.devices ?? [];
     const taskCount: number = visit.taskCount ?? 0;
     const documented: number = visit.documentedTaskCount ?? 0;
     const escalated: number[] = visit.escalationTiers ?? [];
@@ -1444,6 +1478,12 @@ function VisitNode({ visit, navigate }: { visit: any; navigate: ReturnType<typeo
                     <span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5 text-slate-400" /> {startT || '—'}{endT ? ` ← ${endT}` : ''}</span>
                 )}
             </div>
+
+            {visitDevices.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                    {visitDevices.map((d) => <DeviceChip key={d.id} device={d} />)}
+                </div>
+            )}
 
             {summary.length > 0 && (
                 <div className="mt-3 flex flex-wrap gap-1.5">
@@ -1547,7 +1587,23 @@ export function VisitsTab({ client }: { client: Client }) {
         return items;
     }, [tasks, visits]);
 
+    // «حسب الجهاز» — only meaningful when the client has more than one device on record.
+    const [deviceFilter, setDeviceFilter] = useState<string>('all');
+    const deviceOptions = useMemo(() => {
+        const byId = new Map<number, InstalledDeviceRef>();
+        for (const item of timeline) for (const d of timelineItemDevices(item)) byId.set(d.id, d);
+        return [...byId.values()].sort((a, b) => a.id - b.id);
+    }, [timeline]);
+    const filteredTimeline = useMemo(() => {
+        if (deviceFilter === 'all') return timeline;
+        if (deviceFilter === 'none') return timeline.filter((item) => timelineItemDevices(item).length === 0);
+        const id = Number(deviceFilter);
+        return timeline.filter((item) => timelineItemDevices(item).some((d) => d.id === id));
+    }, [timeline, deviceFilter]);
+
     const activeTaskCount = tasks.filter((t) => !['completed', 'closed', 'cancelled'].includes(t.status)).length;
+    // Tasks carried inside visits (one per visit attempt), including migrated history.
+    const visitTaskCount = visits.reduce((sum, v) => sum + (Number(v.taskCount) || 0), 0);
 
     return (
         <div className="space-y-6 max-w-7xl">
@@ -1587,18 +1643,41 @@ export function VisitsTab({ client }: { client: Client }) {
                 </div>
             ) : (
                 <div className="space-y-5">
-                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                         <SummaryStat label="مهام نشطة" value={activeTaskCount} icon={Layers} className="border-indigo-100 bg-indigo-50 text-indigo-700" />
-                        <SummaryStat label="إجمالي المهام" value={tasks.length} icon={FileText} className="border-slate-200 bg-slate-50 text-slate-700" />
+                        {/* open_tasks = the work queue; migrated history lives only in visit_tasks, so it is counted separately below. */}
+                        <SummaryStat label="المهام المفتوحة" value={tasks.length} icon={FileText} className="border-slate-200 bg-slate-50 text-slate-700" />
                         <SummaryStat label="الزيارات الميدانية" value={visits.length} icon={Navigation} className="border-sky-100 bg-sky-50 text-sky-700" />
+                        <SummaryStat label="مهام الزيارات" value={visitTaskCount} icon={ClipboardList} className="border-emerald-100 bg-emerald-50 text-emerald-700" />
                     </div>
 
+                    {deviceOptions.length > 1 && (
+                        <div className="flex flex-wrap items-center gap-2">
+                            <label htmlFor="visits-device-filter" className="text-xs font-bold text-slate-500">حسب الجهاز</label>
+                            <select
+                                id="visits-device-filter"
+                                value={deviceFilter}
+                                onChange={(e) => setDeviceFilter(e.target.value)}
+                                className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm font-bold text-slate-700"
+                            >
+                                <option value="all">كل الأجهزة</option>
+                                {deviceOptions.map((d) => (
+                                    <option key={d.id} value={String(d.id)}>{deviceRefLabel(d)}</option>
+                                ))}
+                                <option value="none">بدون جهاز</option>
+                            </select>
+                            {deviceFilter !== 'all' && (
+                                <span className="text-xs text-slate-400">عرض {filteredTimeline.length} من {timeline.length}</span>
+                            )}
+                        </div>
+                    )}
+
                     <ol className="relative">
-                        {timeline.map((item, i) => (
+                        {filteredTimeline.map((item, i) => (
                             <TimelineRow
                                 key={`${item.kind}-${item.data.id}`}
                                 item={item}
-                                isLast={i === timeline.length - 1}
+                                isLast={i === filteredTimeline.length - 1}
                                 navigate={navigate}
                             />
                         ))}

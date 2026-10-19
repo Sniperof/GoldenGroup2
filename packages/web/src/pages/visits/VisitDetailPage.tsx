@@ -686,6 +686,9 @@ export default function VisitDetailPage() {
                                                 {task.contract_number && (
                                                     <span className="text-slate-400"> · عقد {task.contract_number}{task.device_model_name ? ` — ${task.device_model_name}` : ''}</span>
                                                 )}
+                                                {task.device_serial_number && (
+                                                    <span className="text-blue-600 font-bold"> · جهاز {task.device_serial_number}</span>
+                                                )}
                                             </p>
                                         </div>
                                         <span className={`text-xs font-bold px-2 py-1 rounded-full shrink-0 ${ts.bg} ${ts.color}`}>{ts.label}</span>

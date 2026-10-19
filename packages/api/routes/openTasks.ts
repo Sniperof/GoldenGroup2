@@ -44,6 +44,11 @@ import {
 } from '../services/goldenWarrantyCardDelivery.js';
 import { lockPlanningDayMutation } from '../services/planningTaskCuration.js';
 import { isInstallationGeoLevel, INSTALLATION_GEO_LEVEL_ERROR } from '../lib/installationGeoLevel.js';
+import {
+  INSTALLMENT_FK_COLUMN,
+  loadCollectableInstallment,
+  type InstallmentKind,
+} from '../services/installmentCollectionTasks.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -1101,6 +1106,11 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
   let installedDeviceId = Number(req.body?.installedDeviceId ?? req.body?.deviceId) || null;
   const deviceEligibilityTaskTypes = new Set(['emergency_maintenance', 'periodic_maintenance', 'golden_warranty_offer']);
   const requestedInstallmentId = Number(req.body?.installmentId) || null;
+  // Which installments table installmentId refers to (migr 484); defaults to contracts.
+  const requestedInstallmentKind: InstallmentKind =
+    req.body?.installmentKind === 'maintenance' || req.body?.installmentKind === 'warranty'
+      ? req.body.installmentKind
+      : 'contract';
   // Golden-warranty tasks (offer / card delivery) can target multiple physical
   // installed devices on one task — stored in open_task_installed_devices.
   let installedDeviceIds: number[] = Array.isArray(req.body?.installedDeviceIds)
@@ -1877,7 +1887,7 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
       : [];
 
     // Phase 3: resolve device_id from installed_devices when contract_id is known
-    const deviceId: number | null = deviceIdFromContract;
+    let deviceId: number | null = deviceIdFromContract;
     const deliveryAddress = taskType === 'device_delivery' || taskType === 'device_installation' || taskType === 'device_activation' || taskType === 'device_checkup' || taskType === 'device_disconnection' || taskType === 'device_retrieval' || taskType === 'device_return' || taskType === 'device_transfer'
       ? (deliveryAddressInput || deviceAddressFromCurrentDevice)
       : null;
@@ -1920,25 +1930,16 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
     let expectedAmountSyp: number | null = null;
 
     if (taskType === 'installment_collection' && installmentId) {
-      const { rows: instRows } = await pgClient.query(
-        `SELECT i.id, i.contract_id, i.installment_number, i.remaining_balance,
-                c.customer_id, c.contract_number, c.branch_id, c.service_branch_id
-           FROM contract_installments i
-           JOIN contracts c ON c.id = i.contract_id
-          WHERE i.id = $1
-          LIMIT 1`,
-        [installmentId],
-      );
-      const inst = instRows[0];
+      const inst = await loadCollectableInstallment(pgClient, requestedInstallmentKind, installmentId);
       if (!inst) {
         await pgClient.query('ROLLBACK');
         return res.status(400).json({ error: 'القسط المحدد غير موجود' });
       }
-      if (Number(inst.customer_id) !== clientId) {
+      if (Number(inst.customerId) !== clientId) {
         await pgClient.query('ROLLBACK');
         return res.status(400).json({ error: 'القسط المحدد لا يخص هذا الزبون' });
       }
-      if (Number(inst.remaining_balance) <= 0) {
+      if (Number(inst.remainingBalance) <= 0) {
         await pgClient.query('ROLLBACK');
         return res.status(400).json({ error: 'لا يمكن إنشاء مهمة تسديد ذمة لقسط مغلق أو بلا رصيد' });
       }
@@ -1947,7 +1948,7 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
         `SELECT id, status
            FROM open_tasks
           WHERE task_type = 'installment_collection'
-            AND installment_id = $1
+            AND ${INSTALLMENT_FK_COLUMN[requestedInstallmentKind]} = $1
             AND status NOT IN ('completed', 'closed', 'cancelled')
           ORDER BY created_at DESC
           LIMIT 1`,
@@ -1962,14 +1963,19 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
         });
       }
 
-      contractId = Number(inst.contract_id);
-      branchId = Number(inst.service_branch_id ?? inst.branch_id);
-      expectedAmountSyp = Number(inst.remaining_balance);
-      receivableSourceType = ['contract', 'maintenance_task', 'golden_warranty'].includes(receivableSourceTypeInput)
-        ? receivableSourceTypeInput
-        : 'contract';
-      receivableSourceId = receivableSourceIdInput ?? contractId;
-      receivableSourceLabel = receivableSourceLabelInput ?? `عقد رقم ${inst.contract_number ?? contractId}`;
+      contractId = inst.contractId != null ? Number(inst.contractId) : null;
+      if (inst.deviceId != null) deviceId = Number(inst.deviceId);
+      branchId = Number(inst.branchId);
+      expectedAmountSyp = Number(inst.remainingBalance);
+      // A maintenance/warranty installment fixes its own source; a contract one keeps
+      // the old (overridable) behaviour.
+      receivableSourceType = requestedInstallmentKind !== 'contract'
+        ? inst.sourceType
+        : ['contract', 'maintenance_task', 'golden_warranty'].includes(receivableSourceTypeInput)
+          ? receivableSourceTypeInput
+          : 'contract';
+      receivableSourceId = requestedInstallmentKind !== 'contract' ? inst.sourceId : (receivableSourceIdInput ?? contractId);
+      receivableSourceLabel = receivableSourceLabelInput ?? inst.sourceLabel;
 
       const collectionBranchAccess = authorize(authContext, { permission: 'open_tasks.edit', branchId });
       if (!collectionBranchAccess.allowed) {
@@ -1998,7 +2004,7 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
     const openTaskValues: any[] = [
       clientId, branchId, taskType, taskFamily, reason, 'open',
       dueDate, expectedDate, priority, 'manual', notes, authContext.userId ?? null, 'manual_entry',
-      contractId, deviceId, installmentId,
+      contractId, deviceId, requestedInstallmentKind === 'contract' ? installmentId : null,
       deliveryAddress, sourceContextType, sourceContextId,
       dispatchOriginType, dispatchOriginLabel, creationOrigin, creationReason,
       receivableSourceType, receivableSourceId, receivableSourceLabel,
@@ -2011,6 +2017,10 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
       }
     };
 
+    if (taskType === 'installment_collection' && requestedInstallmentKind !== 'contract') {
+      openTaskColumns.push(INSTALLMENT_FK_COLUMN[requestedInstallmentKind]);
+      openTaskValues.push(installmentId);
+    }
     await addOptionalOpenTaskColumn('service_branch_id', taskType === 'device_retrieval' ? serviceBranchId : null);
     await addOptionalOpenTaskColumn('retrieval_purpose', taskType === 'device_retrieval' ? retrievalPurpose : null);
     await addOptionalOpenTaskColumn('pre_retrieval_branch_id', taskType === 'device_retrieval' ? deviceBranchIdFromContract : null);
@@ -2191,6 +2201,7 @@ router.get('/client/:clientId/collectable-installments', requirePermission('open
          c.id AS "contractId",
          c.contract_number AS "contractNumber",
          COALESCE(c.service_branch_id, c.branch_id) AS "branchId",
+         'contract'::text AS "installmentKind",
          'contract'::text AS "receivableSourceType",
          c.id AS "receivableSourceId",
          ('عقد رقم ' || COALESCE(c.contract_number, c.id::text)) AS "receivableSourceLabel",
@@ -2230,7 +2241,71 @@ router.get('/client/:clientId/collectable-installments', requirePermission('open
       params,
     );
 
-    return res.json(rows);
+    // Maintenance-plan and golden-warranty installments (migr 484) — same queue.
+    const otherBranchPredicate = (column: string) => accessPlan.scope !== 'GLOBAL'
+      ? `AND ${column} = ANY($2::int[])` : '';
+    const lastTaskSql = (fk: string, alias: string) => `
+       LEFT JOIN LATERAL (
+         SELECT ot2.id, ot2.status FROM open_tasks ot2
+          WHERE ot2.task_type = 'installment_collection' AND ot2.${fk} = ${alias}.id
+          ORDER BY ot2.created_at DESC LIMIT 1
+       ) last_task ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT vtr.final_decision, vtr.closed_at
+           FROM visit_tasks vt JOIN visit_task_results vtr ON vtr.visit_task_id = vt.id
+          WHERE vt.source_open_task_id = last_task.id
+          ORDER BY vtr.closed_at DESC LIMIT 1
+       ) last_result ON TRUE`;
+    const noActiveSql = (fk: string, alias: string) => `
+         AND NOT EXISTS (
+           SELECT 1 FROM open_tasks active_ot
+            WHERE active_ot.task_type = 'installment_collection' AND active_ot.${fk} = ${alias}.id
+              AND active_ot.status NOT IN ('completed', 'closed', 'cancelled'))`;
+    const { rows: maintenanceRows } = await pool.query(
+      `SELECT mi.id AS "installmentId", 'maintenance'::text AS "installmentKind",
+              mi.installment_number AS "installmentNumber", mi.due_date AS "dueDate",
+              mi.amount_syp AS "amountSyp", mi.paid_amount AS "paidAmount",
+              mi.remaining_balance AS "remainingBalance", mi.status,
+              NULL::int AS "collectionOwnerId",
+              ot.contract_id AS "contractId", NULL::text AS "contractNumber", ot.branch_id AS "branchId",
+              'maintenance_task'::text AS "receivableSourceType", ot.id AS "receivableSourceId",
+              ((CASE WHEN ot.task_type = 'periodic_maintenance' THEN 'صيانة دورية' ELSE 'صيانة طارئة' END)
+                || ' — مهمة #' || ot.id) AS "receivableSourceLabel",
+              last_task.id AS "lastTaskId", last_task.status AS "lastTaskStatus",
+              last_result.final_decision AS "lastFinalDecision", last_result.closed_at AS "lastClosedAt"
+         FROM emergency_installments mi
+         JOIN open_tasks ot ON ot.id = mi.open_task_id
+         ${lastTaskSql('maintenance_installment_id', 'mi')}
+        WHERE ot.client_id = $1 AND mi.confirmed = TRUE AND mi.remaining_balance > 0
+          ${otherBranchPredicate('ot.branch_id')}
+          ${noActiveSql('maintenance_installment_id', 'mi')}`,
+      params,
+    );
+    const { rows: warrantyRows } = await pool.query(
+      `SELECT wi.id AS "installmentId", 'warranty'::text AS "installmentKind",
+              wi.installment_number AS "installmentNumber", wi.due_date AS "dueDate",
+              wi.amount_syp AS "amountSyp", wi.paid_amount AS "paidAmount",
+              wi.remaining_balance AS "remainingBalance", wi.status,
+              NULL::int AS "collectionOwnerId",
+              d.contract_id AS "contractId", NULL::text AS "contractNumber", d.branch_id AS "branchId",
+              'golden_warranty'::text AS "receivableSourceType", w.id AS "receivableSourceId",
+              ('الكفالة الذهبية #' || w.id || COALESCE(' — جهاز ' || d.serial_number, '')) AS "receivableSourceLabel",
+              last_task.id AS "lastTaskId", last_task.status AS "lastTaskStatus",
+              last_result.final_decision AS "lastFinalDecision", last_result.closed_at AS "lastClosedAt"
+         FROM device_warranty_installments wi
+         JOIN device_warranties w ON w.id = wi.warranty_id AND w.warranty_type = 'golden'
+         JOIN installed_devices d ON d.id = w.device_id
+         ${lastTaskSql('warranty_installment_id', 'wi')}
+        WHERE d.customer_id = $1 AND wi.confirmed = TRUE AND wi.remaining_balance > 0
+          ${otherBranchPredicate('d.branch_id')}
+          ${noActiveSql('warranty_installment_id', 'wi')}`,
+      params,
+    );
+
+    const all = [...rows, ...maintenanceRows, ...warrantyRows].sort((a: any, b: any) =>
+      new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()
+      || Number(a.installmentNumber) - Number(b.installmentNumber));
+    return res.json(all);
   } catch (err: any) {
     console.error('[open-tasks] GET /client/:clientId/collectable-installments error:', err);
     return res.status(500).json({ error: err.message });
@@ -2324,6 +2399,11 @@ router.get('/client/:clientId', requirePermission('clients.visits.view', 'open_t
        ot.id,
        ot.contract_id AS "contractId",
        ot.device_id AS "deviceId",
+       (SELECT json_build_object(
+                 'id', d.id,
+                 'serialNumber', COALESCE(d.serial_number, d.external_device_serial),
+                 'modelName', COALESCE(d.device_model_name, d.external_device_name))
+          FROM installed_devices d WHERE d.id = ot.device_id) AS "installedDevice",
        ot.task_type AS "taskType",
        ot.task_family AS "taskFamily",
        ot.reason,

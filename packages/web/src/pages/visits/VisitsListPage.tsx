@@ -69,6 +69,7 @@ interface VisitRow {
   taskCount: number;
   documentedTaskCount: number;
   tasksSummary: Array<{ taskType: string; taskFamily: string; status: string }>;
+  devices?: Array<{ id: number; serialNumber: string | null; modelName: string | null }>;
   hasSurvey: boolean;
   surveySkipped: boolean;
   hasReferralSheet: boolean;
@@ -425,6 +426,20 @@ function TasksCell({ row }: { row: VisitRow }) {
         </span>
       ))}
       {extra > 0 && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-500">+{extra}</span>}
+    </div>
+  );
+}
+
+function DevicesCell({ row }: { row: VisitRow }) {
+  const devices = Array.isArray(row.devices) ? row.devices : [];
+  if (devices.length === 0) return <span className="text-slate-400">—</span>;
+  return (
+    <div className="flex min-w-[160px] flex-wrap gap-1">
+      {devices.map((d) => (
+        <span key={d.id} className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-xs font-bold text-blue-700">
+          {[d.modelName, d.serialNumber].filter(Boolean).join(' · ') || `جهاز #${d.id}`}
+        </span>
+      ))}
     </div>
   );
 }
@@ -1142,6 +1157,12 @@ export default function VisitsListPage() {
         label: 'المهام داخل الزيارة',
         minWidth: '220px',
         render: (row) => <TasksCell row={row} />,
+      },
+      {
+        key: 'devices',
+        label: 'الجهاز',
+        minWidth: '180px',
+        render: (row) => <DevicesCell row={row} />,
       },
       {
         key: 'execution',

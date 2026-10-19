@@ -1469,7 +1469,8 @@ router.get('/:id/account-statement', requirePermission('clients.account_statemen
     const allowedTypes = new Set([
       'contract', 'contract_installment', 'contract_payment',
       'emergency_maintenance', 'periodic_maintenance', 'installation',
-      'golden_warranty', 'opening_balance',
+      'maintenance_installment', 'maintenance_installment_payment',
+      'golden_warranty', 'golden_warranty_installment', 'golden_warranty_payment', 'opening_balance',
     ]);
     const types = typeof req.query.types === 'string'
       ? req.query.types.split(',').map(type => type.trim()).filter(Boolean)

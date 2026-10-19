@@ -10,13 +10,14 @@ interface Props {
   client: { id: number };
 }
 
-type TypeFilter = 'all' | 'contracts' | 'maintenance' | 'installation';
+type TypeFilter = 'all' | 'contracts' | 'maintenance' | 'installation' | 'golden_warranty';
 
 const TYPE_FILTERS: Array<{ id: TypeFilter; label: string; types?: string }> = [
   { id: 'all', label: 'الكل' },
   { id: 'contracts', label: 'عقود', types: 'contract,contract_installment,contract_payment' },
-  { id: 'maintenance', label: 'صيانة', types: 'emergency_maintenance,periodic_maintenance' },
+  { id: 'maintenance', label: 'صيانة', types: 'emergency_maintenance,periodic_maintenance,maintenance_installment,maintenance_installment_payment' },
   { id: 'installation', label: 'تركيب', types: 'installation' },
+  { id: 'golden_warranty', label: 'كفالة ذهبية', types: 'golden_warranty,golden_warranty_installment,golden_warranty_payment' },
 ];
 
 function toInputDate(date: Date): string {

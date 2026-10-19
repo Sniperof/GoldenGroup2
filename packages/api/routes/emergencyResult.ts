@@ -10,6 +10,7 @@
  */
 
 import { Router } from 'express';
+import type { PoolClient } from 'pg';
 import { evaluateMembraneEfficiency, membraneEfficiencyIssueMessage } from '@golden-crm/shared';
 import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -22,6 +23,7 @@ import {
 import { computeDerivedOutcome } from '../services/serviceRequests/derivedOutcomeCalc.js';
 import { checkAndCompleteVisit } from '../services/visitCompletion.js';
 import { recordMovement } from '../services/financialMovements.js';
+import { createInstallmentCollectionTasksForMaintenance } from '../services/installmentCollectionTasks.js';
 import {
   findPeriodicAttachmentCandidate,
   generateNextPeriodicMaintenanceTask,
@@ -344,6 +346,118 @@ export function mapTechState(r: any) {
 function membraneReadingError(body: any): string | null {
   const evaluation = evaluateMembraneEfficiency(body?.membraneInputTds, body?.membraneOutputTds);
   return evaluation.status === 'invalid' ? membraneEfficiencyIssueMessage(evaluation.issue) : null;
+}
+
+// سجل الحركات المالية لنتيجة الصيانة: تكلفة الخدمة (charge) والمبلغ المحصّل (payment).
+// النتيجة تراكمية على مستوى المهمة (المحاولة الثانية تكمل على الأولى)، فتُكتب حركة واحدة
+// لكل (المهمة، زيارة المحاولة، النوع) بقيمة «التراكمي − ما سجّلته محاولات سابقة».
+// أول حفظ بمبلغ فعلي داخل المحاولة يثبّتها (السجل append-only)؛ النقصان لا يُعكس هنا.
+// Legacy rows keyed by costsId (before per-attempt booking) count as earlier attempts.
+export async function recordMaintenanceMovement(
+  db: PoolClient,
+  m: { taskId: number; taskType: string; visitTaskId: number; kind: 'charge' | 'payment'; cumulativeSyp: number; recordedBy: number | null },
+) {
+  const { rows } = await db.query(
+    `SELECT client_id, branch_id, contract_id FROM open_tasks WHERE id = $1 LIMIT 1`,
+    [m.taskId],
+  );
+  const ot = rows[0];
+  if (!ot?.client_id || !(m.visitTaskId > 0)) return;
+  const isPeriodic = m.taskType === 'periodic_maintenance';
+  const sourceType = isPeriodic ? 'periodic_maintenance' : 'emergency_maintenance';
+  // Installment charges (maintenance_installment, booked at confirm) are part of the
+  // same cost, so they count as already booked.
+  const { rows: bookedRows } = await db.query<{ booked: string }>(
+    `SELECT COALESCE(SUM(amount_syp), 0) AS booked
+       FROM financial_movements
+      WHERE source_id = $2 AND kind = $3
+        AND (
+          (source_type = $1 AND source_ref_id IS DISTINCT FROM $4)
+          OR ($3 = 'charge' AND source_type = 'maintenance_installment')
+        )`,
+    [sourceType, m.taskId, m.kind, m.visitTaskId],
+  );
+  const delta = m.cumulativeSyp - Number(bookedRows[0]?.booked ?? 0);
+  const serviceLabel = isPeriodic ? 'صيانة دورية' : 'صيانة طارئة';
+  await recordMovement(db, {
+    clientId: Number(ot.client_id), occurredAt: new Date(), kind: m.kind, amountSyp: delta,
+    sourceType, sourceId: m.taskId, sourceRefId: m.visitTaskId, contractId: ot.contract_id ?? null,
+    description: `${m.kind === 'charge' ? 'تكلفة' : 'تحصيل'} ${serviceLabel} (مهمة #${m.taskId})`,
+    occurredBranchId: ot.branch_id ?? null, recordedBy: m.recordedBy,
+  });
+}
+
+// استحقاق لكل قسط صيانة مؤكَّد بتاريخ أجله (maintenance_installment، ref = رقم القسط).
+export async function recordMaintenanceInstallmentCharges(
+  db: PoolClient,
+  m: { taskId: number; taskType: string; installmentIds: number[]; recordedBy: number | null },
+) {
+  if (m.installmentIds.length === 0) return;
+  // Guard: a cost booked in full before installment plans were split (legacy) already
+  // covers these installments — booking them again would double the debt.
+  const { rows: guard } = await db.query<{ booked: string; total: string; inst: string }>(
+    `SELECT
+       (SELECT COALESCE(SUM(amount_syp), 0) FROM financial_movements
+         WHERE source_id = $1 AND kind = 'charge'
+           AND source_type IN ('periodic_maintenance', 'emergency_maintenance', 'maintenance_installment')) AS booked,
+       (SELECT COALESCE(MAX(c.total_cost), 0) FROM emergency_result_costs c
+          JOIN open_tasks ot ON ot.em_costs_id = c.id WHERE ot.id = $1) AS total,
+       (SELECT COALESCE(SUM(amount_syp), 0) FROM emergency_installments WHERE id = ANY($2::int[])) AS inst`,
+    [m.taskId, m.installmentIds],
+  );
+  if (Number(guard[0].booked) + Number(guard[0].inst) > Number(guard[0].total)) return;
+  const { rows } = await db.query(
+    `SELECT i.id, i.installment_number, i.due_date, i.amount_syp,
+            ot.client_id, ot.branch_id, ot.contract_id
+       FROM emergency_installments i
+       JOIN open_tasks ot ON ot.id = i.open_task_id
+      WHERE i.id = ANY($1::int[])
+      ORDER BY i.installment_number`,
+    [m.installmentIds],
+  );
+  const serviceLabel = m.taskType === 'periodic_maintenance' ? 'صيانة دورية' : 'صيانة طارئة';
+  for (const i of rows) {
+    if (!i.client_id) continue;
+    await recordMovement(db, {
+      clientId: Number(i.client_id), occurredAt: i.due_date, kind: 'charge', amountSyp: Number(i.amount_syp),
+      sourceType: 'maintenance_installment', sourceId: m.taskId, sourceRefId: Number(i.id),
+      contractId: i.contract_id ?? null,
+      description: `استحقاق قسط رقم ${i.installment_number} — ${serviceLabel} (مهمة #${m.taskId})`,
+      occurredBranchId: i.branch_id ?? null, recordedBy: m.recordedBy,
+    });
+  }
+}
+
+// Parts of a maintenance task across all its visit attempts, each tagged with the visit
+// it was recorded in (the UI locks parts from earlier visits).
+async function listTaskParts(db: Pick<PoolClient, 'query'>, taskId: number) {
+  const { rows } = await db.query(
+    `SELECT erp.id, erp.spare_part_id AS "sparePartId",
+              erp.part_name_snapshot AS "partNameSnapshot",
+              erp.part_code_snapshot AS "partCodeSnapshot",
+              erp.maintenance_type AS "maintenanceType",
+              erp.unit_price AS "unitPrice", erp.quantity, erp.line_total AS "lineTotal",
+              erp.retrieved, erp.placement_state AS "placementState",
+              erp.no_retrieval_reason_id AS "noRetrievalReasonId",
+              erp.no_retrieval_reason_text AS "noRetrievalReasonText",
+              erp.recommendation_status AS "recommendationStatus",
+              erp.customer_decision AS "customerDecision",
+              erp.execution_status AS "executionStatus",
+              erp.customer_refusal_reason_id AS "customerRefusalReasonId",
+              erp.customer_refusal_reason_text AS "customerRefusalReasonText",
+              sl.value AS "noRetrievalReasonLabel",
+              erp.visit_task_id AS "visitTaskId",
+              vt.field_visit_id AS "visitId",
+              fv.scheduled_date AS "visitDate"
+         FROM emergency_result_parts erp
+         LEFT JOIN system_lists sl ON sl.id = erp.no_retrieval_reason_id
+         LEFT JOIN visit_tasks vt ON vt.id = erp.visit_task_id
+         LEFT JOIN field_visits fv ON fv.id = vt.field_visit_id
+        WHERE erp.open_task_id = $1
+        ORDER BY erp.id`,
+    [taskId],
+  );
+  return rows.map((r: any) => ({ ...r, unitPrice: Number(r.unitPrice), lineTotal: Number(r.lineTotal) }));
 }
 
 async function getTaskMeta(taskId: number) {
@@ -1211,25 +1325,13 @@ router.put('/:taskId/costs', requirePermission('marketing_visits.update_result')
 
       // سجل الحركات المالية: تكلفة الخدمة (charge) والمبلغ المحصّل (payment).
       // تُكتب مرّة واحدة لكل (المصدر، costsId، النوع) — أول حفظ بمبلغ فعلي يثبّتها.
-      const { rows: otRows } = await db.query(
-        `SELECT client_id, branch_id, contract_id FROM open_tasks WHERE id = $1 LIMIT 1`,
-        [taskId],
-      );
-      const ot = otRows[0];
-      if (ot?.client_id) {
-        const moneySourceType = meta.taskType === 'periodic_maintenance' ? 'periodic_maintenance' : 'emergency_maintenance';
-        const serviceLabel = meta.taskType === 'periodic_maintenance' ? 'صيانة دورية' : 'صيانة طارئة';
-        await recordMovement(db, {
-          clientId: Number(ot.client_id), occurredAt: new Date(), kind: 'charge', amountSyp: total,
-          sourceType: moneySourceType, sourceId: taskId, sourceRefId: costsId, contractId: ot.contract_id ?? null,
-          description: `تكلفة ${serviceLabel} (مهمة #${taskId})`, occurredBranchId: ot.branch_id ?? null, recordedBy,
-        });
-        await recordMovement(db, {
-          clientId: Number(ot.client_id), occurredAt: new Date(), kind: 'payment', amountSyp: totalPaidSyp,
-          sourceType: moneySourceType, sourceId: taskId, sourceRefId: costsId, contractId: ot.contract_id ?? null,
-          description: `تحصيل ${serviceLabel} (مهمة #${taskId})`, occurredBranchId: ot.branch_id ?? null, recordedBy,
-        });
+      const attemptVisitTaskId = Number((req as any).visitTaskResultContext.visitTaskId);
+      // Installment plans book their charges at confirm (upfront part + one per installment
+      // at its due date), so the full cost isn't shown as due today.
+      if (paymentType !== 'installment') {
+        await recordMaintenanceMovement(db, { taskId, taskType: meta.taskType, visitTaskId: attemptVisitTaskId, kind: 'charge', cumulativeSyp: total, recordedBy });
       }
+      await recordMaintenanceMovement(db, { taskId, taskType: meta.taskType, visitTaskId: attemptVisitTaskId, kind: 'payment', cumulativeSyp: totalPaidSyp, recordedBy });
 
       // Update open_task status
       await db.query('UPDATE open_tasks SET status = $1 WHERE id = $2', [newTaskStatus, taskId]);
@@ -1237,11 +1339,9 @@ router.put('/:taskId/costs', requirePermission('marketing_visits.update_result')
       // Mirror the final decision onto visit_task_results so the visit
       // page sees "النتيجة مسجلة" and checkAndCompleteVisit's guard passes.
       // (Reflection service doesn't cover emergency_maintenance yet.)
-      const { rows: vtRows } = await db.query<{ id: number }>(
-        `SELECT id FROM visit_tasks WHERE source_open_task_id = $1 ORDER BY id DESC LIMIT 1`,
-        [taskId],
-      );
-      const visitTaskId = vtRows[0]?.id ?? null;
+      // The visit the technician is working in (verified by requireVisitResultContext),
+      // not a guess — a re-attempted task has several visit_tasks.
+      const visitTaskId: number | null = Number((req as any).visitTaskResultContext?.visitTaskId) || null;
       if (visitTaskId) {
         await db.query(
           `INSERT INTO visit_task_results
@@ -1357,11 +1457,9 @@ router.put('/:taskId/costs', requirePermission('marketing_visits.update_result')
       // Mirrors the unified result endpoint's behavior for device_demo etc.
       let visitCompletion: unknown = null;
       try {
-        const { rows: vtRows } = await pool.query<{ field_visit_id: number | null }>(
-          `SELECT field_visit_id FROM visit_tasks WHERE source_open_task_id = $1 LIMIT 1`,
-          [taskId],
-        );
-        const visitId = vtRows[0]?.field_visit_id ?? null;
+        // Same visit the result was recorded in — an unordered lookup by task could pick
+        // an earlier, already-closed attempt and leave the current visit open.
+        const visitId: number | null = Number((req as any).visitTaskResultContext?.visitId) || null;
         if (visitId) {
           visitCompletion = await checkAndCompleteVisit(visitId, recordedBy ?? null);
         }
@@ -1458,14 +1556,26 @@ router.put('/:taskId/parts', requirePermission('marketing_visits.update_result')
     const { parts } = req.body ?? {};
     if (!Array.isArray(parts)) return res.status(400).json({ error: 'parts must be array' });
 
+    // The result is cumulative per task (a re-attempt continues the first), but each part
+    // belongs to the visit it was recorded in. Parts from earlier visits are read-only:
+    // only the current visit's parts are replaced, earlier ones are kept whatever is sent.
+    const currentVisitTaskId = Number((req as any).visitTaskResultContext.visitTaskId);
     const db = await pool.connect();
     try {
       await db.query('BEGIN');
-      // Delete existing parts for this task
-      await db.query('DELETE FROM emergency_result_parts WHERE open_task_id = $1', [taskId]);
-      // Insert new parts
-      const rows: any[] = [];
-      for (const p of parts) {
+      const { rows: lockedRows } = await db.query<{ id: number }>(
+        `SELECT id FROM emergency_result_parts
+          WHERE open_task_id = $1 AND visit_task_id IS NOT NULL AND visit_task_id <> $2`,
+        [taskId, currentVisitTaskId],
+      );
+      const lockedIds = new Set(lockedRows.map((r) => Number(r.id)));
+      const editableParts = parts.filter((p: any) => !(p?.id && lockedIds.has(Number(p.id))));
+      await db.query(
+        `DELETE FROM emergency_result_parts
+          WHERE open_task_id = $1 AND (visit_task_id = $2 OR visit_task_id IS NULL)`,
+        [taskId, currentVisitTaskId],
+      );
+      for (const p of editableParts) {
         if (!p.partNameSnapshot?.trim()) continue;
         const executionStatus = ['replaced', 'delivered_to_customer_stock', 'not_replaced_customer_refused', 'not_replaced_unavailable', 'not_replaced_technician_decision'].includes(p.executionStatus)
           ? p.executionStatus
@@ -1477,14 +1587,14 @@ router.put('/:taskId/parts', requirePermission('marketing_visits.update_result')
             : ['replaced', 'delivered_to_customer_stock'].includes(executionStatus)
               ? 'approved'
               : 'not_required';
-        const { rows: inserted } = await db.query(
+        await db.query(
           `INSERT INTO emergency_result_parts
              (open_task_id, spare_part_id, part_name_snapshot, part_code_snapshot,
               maintenance_type, unit_price, quantity, retrieved, placement_state,
               no_retrieval_reason_id, no_retrieval_reason_text,
               recommendation_status, customer_decision, execution_status,
-              customer_refusal_reason_id, customer_refusal_reason_text)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
+              customer_refusal_reason_id, customer_refusal_reason_text, visit_task_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
           [
             taskId,
             p.sparePartId ?? null,
@@ -1502,9 +1612,9 @@ router.put('/:taskId/parts', requirePermission('marketing_visits.update_result')
             executionStatus,
             p.customerRefusalReasonId ?? null,
             p.customerRefusalReasonText ?? null,
+            currentVisitTaskId,
           ],
         );
-        rows.push(inserted[0]);
       }
 
       // Phase 5: sync parts to device_installed_parts (device-centric history)
@@ -1514,8 +1624,12 @@ router.put('/:taskId/parts', requirePermission('marketing_visits.update_result')
       );
       const deviceId: number | null = taskRows[0]?.device_id ?? null;
       if (deviceId) {
-        await db.query('DELETE FROM device_installed_parts WHERE open_task_id = $1', [taskId]);
-        for (const p of parts) {
+        await db.query(
+          `DELETE FROM device_installed_parts
+            WHERE open_task_id = $1 AND (visit_task_id = $2 OR visit_task_id IS NULL)`,
+          [taskId, currentVisitTaskId],
+        );
+        for (const p of editableParts) {
           if (!p.partNameSnapshot?.trim()) continue;
           const executionStatus = ['replaced', 'delivered_to_customer_stock', 'not_replaced_customer_refused', 'not_replaced_unavailable', 'not_replaced_technician_decision'].includes(p.executionStatus)
             ? p.executionStatus
@@ -1524,8 +1638,8 @@ router.put('/:taskId/parts', requirePermission('marketing_visits.update_result')
           await db.query(
             `INSERT INTO device_installed_parts
                (device_id, open_task_id, spare_part_id, part_name_snapshot, part_code_snapshot,
-                maintenance_type, unit_price, quantity, line_total)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+                maintenance_type, unit_price, quantity, line_total, visit_task_id)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
             [
               deviceId,
               taskId,
@@ -1536,13 +1650,14 @@ router.put('/:taskId/parts', requirePermission('marketing_visits.update_result')
               Number(p.unitPrice) || 0,
               Number(p.quantity) || 1,
               (Number(p.unitPrice) || 0) * (Number(p.quantity) || 1),
+              currentVisitTaskId,
             ],
           );
         }
       }
 
       await db.query('COMMIT');
-      res.json(rows);
+      res.json(await listTaskParts(pool, taskId));
     } catch (err) {
       await db.query('ROLLBACK');
       throw err;
@@ -1592,28 +1707,7 @@ router.put('/:taskId/parts', requirePermission('marketing_visits.update_result')
  */
 router.get('/:taskId/parts', requirePermission('marketing_visits.view'), async (req, res) => {
   try {
-    const { rows } = await pool.query(
-      `SELECT erp.id, erp.spare_part_id AS "sparePartId",
-              erp.part_name_snapshot AS "partNameSnapshot",
-              erp.part_code_snapshot AS "partCodeSnapshot",
-              erp.maintenance_type AS "maintenanceType",
-              erp.unit_price AS "unitPrice", erp.quantity, erp.line_total AS "lineTotal",
-              erp.retrieved, erp.placement_state AS "placementState",
-              erp.no_retrieval_reason_id AS "noRetrievalReasonId",
-              erp.no_retrieval_reason_text AS "noRetrievalReasonText",
-              erp.recommendation_status AS "recommendationStatus",
-              erp.customer_decision AS "customerDecision",
-              erp.execution_status AS "executionStatus",
-              erp.customer_refusal_reason_id AS "customerRefusalReasonId",
-              erp.customer_refusal_reason_text AS "customerRefusalReasonText",
-              sl.value AS "noRetrievalReasonLabel"
-         FROM emergency_result_parts erp
-         LEFT JOIN system_lists sl ON sl.id = erp.no_retrieval_reason_id
-        WHERE erp.open_task_id = $1
-        ORDER BY erp.id`,
-      [req.params.taskId],
-    );
-    res.json(rows.map((r: any) => ({ ...r, unitPrice: Number(r.unitPrice), lineTotal: Number(r.lineTotal) })));
+    res.json(await listTaskParts(pool, Number(req.params.taskId)));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -1725,7 +1819,7 @@ router.get('/:taskId/payment-entries', requirePermission('marketing_visits.view'
               epe.sort_order AS "sortOrder"
          FROM emergency_payment_entries epe
          LEFT JOIN system_lists sl ON sl.id = epe.transfer_company_id
-        WHERE epe.costs_id = $1
+        WHERE epe.costs_id = $1 AND epe.installment_id IS NULL  -- upfront only; installment collections are their own receivable
         ORDER BY epe.sort_order, epe.id`,
       [meta.costsId],
     );
@@ -1789,7 +1883,8 @@ router.put('/:taskId/payment-entries', requirePermission('marketing_visits.updat
     const db = await pool.connect();
     try {
       await db.query('BEGIN');
-      await db.query('DELETE FROM emergency_payment_entries WHERE costs_id = $1', [meta.costsId]);
+      // Only the upfront payments are replaced; installment collections are kept.
+      await db.query('DELETE FROM emergency_payment_entries WHERE costs_id = $1 AND installment_id IS NULL', [meta.costsId]);
 
       let totalSyp = 0;
       const saved: any[] = [];
@@ -1812,6 +1907,14 @@ router.put('/:taskId/payment-entries', requirePermission('marketing_visits.updat
       }
       // Update collected_amount
       await db.query('UPDATE emergency_result_costs SET collected_amount = $1 WHERE id = $2', [totalSyp, meta.costsId]);
+      // The costs save only books pay1/pay2; the current UI sends payments here, so book
+      // them now. Same (task, attempt, payment) key → never double-counted with costs.
+      await recordMaintenanceMovement(db, {
+        taskId, taskType: meta.taskType,
+        visitTaskId: Number((req as any).visitTaskResultContext.visitTaskId),
+        kind: 'payment', cumulativeSyp: totalSyp,
+        recordedBy: (req.authContext as any)?.userId ?? null,
+      });
       await db.query('COMMIT');
       res.json({ entries: saved, totalSyp });
     } catch (err) { await db.query('ROLLBACK'); throw err; }
@@ -1879,7 +1982,8 @@ router.get('/:taskId/installments', requirePermission('marketing_visits.view'), 
     const { rows } = await pool.query(
       `SELECT id, installment_number AS "installmentNumber",
               due_date AS "dueDate", amount_syp AS "amountSyp",
-              status, due_id AS "dueId"
+              status, confirmed,
+              paid_amount AS "paidAmount", remaining_balance AS "remainingBalance"
          FROM emergency_installments
         WHERE costs_id = $1
         ORDER BY installment_number`,
@@ -1956,15 +2060,16 @@ router.put('/:taskId/installments', requirePermission('marketing_visits.update_r
       await db.query('BEGIN');
       // Delete unconfirmed installments only (keep confirmed/paid)
       await db.query(
-        `DELETE FROM emergency_installments WHERE costs_id = $1 AND due_id IS NULL`,
+        `DELETE FROM emergency_installments WHERE costs_id = $1 AND confirmed = FALSE`,
         [meta.costsId],
       );
       for (const inst of installments) {
+        const amount = Number(inst.amountSyp) || 0;
         await db.query(
           `INSERT INTO emergency_installments
-             (costs_id, open_task_id, installment_number, due_date, amount_syp)
-           VALUES ($1,$2,$3,$4,$5)`,
-          [meta.costsId, taskId, inst.installmentNumber, inst.dueDate, Number(inst.amountSyp) || 0],
+             (costs_id, open_task_id, installment_number, due_date, amount_syp, remaining_balance)
+           VALUES ($1,$2,$3,$4,$5,$5)`,
+          [meta.costsId, taskId, inst.installmentNumber, inst.dueDate, amount],
         );
       }
       await db.query(
@@ -2018,12 +2123,12 @@ router.post('/:taskId/installments/confirm', requirePermission('marketing_visits
     const meta = await getTaskMeta(taskId);
     if (!meta) return res.status(404).json({ error: 'المهمة غير موجودة' });
     if (!meta.costsId) return res.status(400).json({ error: 'يجب حفظ التكاليف أولاً' });
-    if (!meta.contractId) return res.status(400).json({ error: 'لا يوجد عقد مرتبط بالمهمة' });
+    // No contract required: the receivable is the customer's (e.g. an external device).
 
     // Load installments + costs + first payment total
     const { rows: instRows } = await pool.query(
       `SELECT id, installment_number AS "installmentNumber", due_date AS "dueDate", amount_syp AS "amountSyp"
-         FROM emergency_installments WHERE costs_id = $1 AND due_id IS NULL
+         FROM emergency_installments WHERE costs_id = $1 AND confirmed = FALSE
          ORDER BY installment_number`,
       [meta.costsId],
     );
@@ -2033,7 +2138,7 @@ router.post('/:taskId/installments/confirm', requirePermission('marketing_visits
          FROM emergency_result_costs WHERE id = $1`, [meta.costsId],
     );
     const { rows: entryRows } = await pool.query(
-      `SELECT SUM(amount_syp) AS total FROM emergency_payment_entries WHERE costs_id = $1`,
+      `SELECT SUM(amount_syp) AS total FROM emergency_payment_entries WHERE costs_id = $1 AND installment_id IS NULL`,
       [meta.costsId],
     );
 
@@ -2052,23 +2157,33 @@ router.post('/:taskId/installments/confirm', requirePermission('marketing_visits
     const db = await pool.connect();
     try {
       await db.query('BEGIN');
-      for (const inst of instRows) {
-        const { rows: dueRows } = await db.query(
-          `INSERT INTO dues (contract_id, type, scheduled_date, original_amount, remaining_balance, status)
-           VALUES ($1, 'maintenance_installment', $2, $3, $3, 'Pending') RETURNING id`,
-          [meta.contractId, inst.dueDate, mapNum(inst.amountSyp)],
-        );
-        await db.query(
-          `UPDATE emergency_installments SET due_id = $1 WHERE id = $2`,
-          [dueRows[0].id, inst.id],
-        );
-      }
+      // The plan becomes a receivable: each installment is its own balance (collected
+      // later through installment_collection tasks) and its own ledger charge at its
+      // due date. Replaces the old unread `dues` rows.
+      await db.query(
+        `UPDATE emergency_installments
+            SET confirmed = TRUE, remaining_balance = amount_syp
+          WHERE id = ANY($1::int[])`,
+        [instRows.map((r: any) => Number(r.id))],
+      );
       await db.query(
         `UPDATE emergency_result_costs SET installments_confirmed = TRUE WHERE id = $1`,
         [meta.costsId],
       );
+      const recordedBy = (req.authContext as any)?.userId ?? null;
+      await recordMaintenanceInstallmentCharges(db, { taskId, taskType: meta.taskType, installmentIds: instRows.map((r: any) => Number(r.id)), recordedBy });
+      // Upfront part = cumulative cost − every installment charge (booked just above).
+      await recordMaintenanceMovement(db, {
+        taskId, taskType: meta.taskType,
+        visitTaskId: Number((req as any).visitTaskResultContext.visitTaskId),
+        kind: 'charge', cumulativeSyp: grandTotal, recordedBy,
+      });
+      // One collection task per installment, in the same queue as contract installments.
+      const collection = await createInstallmentCollectionTasksForMaintenance(
+        db, instRows.map((r: any) => Number(r.id)), recordedBy,
+      );
       await db.query('COMMIT');
-      res.json({ confirmed: true, duesCreated: instRows.length });
+      res.json({ confirmed: true, installmentsConfirmed: instRows.length, collectionTaskIds: collection.created });
     } catch (err) { await db.query('ROLLBACK'); throw err; }
     finally { db.release(); }
   } catch (err: any) { res.status(500).json({ error: err.message }); }
