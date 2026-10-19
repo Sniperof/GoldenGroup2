@@ -26,6 +26,7 @@ import {
 import { createInstantVisit, getInstantVisitOptions, BookingError } from '../services/visitBooking.js';
 import { refreshVisitType } from '../services/visitClassification.js';
 import { getOpenTaskLinkageIssue } from '../services/openTaskLinkagePolicy.js';
+import { loadVisitMaintenanceFinance } from '../services/visitMaintenanceFinance.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -1925,10 +1926,13 @@ router.get('/:id', requirePermission('field_visits.view', 'field_visits.my_visit
       preOffersByOpenTask.get(key)!.push(offer);
     });
 
+    // Parts and money of each maintenance task in THIS visit (live + migrated paths).
+    const maintenanceFinance = await loadVisitMaintenanceFinance(pool, tasksRes.rows);
     const tasks = tasksRes.rows.map((t: any) => ({
       ...t,
       directSuggestions: suggestByTask.get(String(t.id)) ?? [],
       preOffers: preOffersByOpenTask.get(Number(t.source_open_task_id)) ?? [],
+      maintenanceFinance: maintenanceFinance.get(Number(t.id)) ?? null,
     }));
 
     // ── Resolve team member names (VDP §4) ─────────────────────────────────

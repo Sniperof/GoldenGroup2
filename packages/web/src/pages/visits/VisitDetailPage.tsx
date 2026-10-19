@@ -19,6 +19,7 @@ import VisitTaskResultModalHost, {
     hasVisitTaskResultModal,
 } from '../../components/fieldVisits/VisitTaskResultModalHost';
 import ClientSnapshot from '../../components/ClientSnapshot';
+import MaintenanceFinanceBlock from '../../components/fieldVisits/MaintenanceFinanceBlock';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { taskDecisionLabel } from '../../lib/taskDecisionLabels';
 
@@ -730,6 +731,9 @@ export default function VisitDetailPage() {
                                             )}
                                         </div>
                                     )}
+
+                                    {/* القطع والمبالغ لمهام الصيانة بهذه الزيارة */}
+                                    {task.maintenanceFinance && <MaintenanceFinanceBlock finance={task.maintenanceFinance} />}
 
                                     {/* الإجراء حسب حالة الزيارة */}
                                     <div className="mt-3 flex items-center gap-2 flex-wrap">
