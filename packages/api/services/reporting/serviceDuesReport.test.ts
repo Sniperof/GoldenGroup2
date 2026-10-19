@@ -15,7 +15,11 @@ const dates = {
 test('service dues keeps one installment grain, opens rows at the cutoff, and reports money before each due date', () => {
   const { sql, params } = buildServiceDuesQuery(globalAccess, dates, { limit: 10 });
 
-  assert.match(sql, /FROM contract_installments installment/);
+  // One grain over all three receivable installment kinds (migr 484).
+  assert.match(sql, /FROM contract_installments i\s+JOIN contracts c ON c\.id = i\.contract_id/);
+  assert.match(sql, /FROM emergency_installments mi/);
+  assert.match(sql, /FROM device_warranty_installments wi/);
+  assert.match(sql, /\) installment\s+LEFT JOIN contracts contract ON installment\.kind = 'contract'/);
   assert.match(sql, /historical_installment\.remaining_balance > 0/);
   assert.match(sql, /entry\.received_at < \(\(\$3::text::date \+ 1\)::text \|\| ' 00:00'\)::timestamp AT TIME ZONE 'Asia\/Damascus'/);
   assert.match(sql, /movement\.occurred_at < \(installment\.due_date::timestamp AT TIME ZONE 'Asia\/Damascus'\)/);
@@ -41,7 +45,9 @@ test('service dues enforces branch and assigned subject scope independently of f
   };
   const { sql, params } = buildServiceDuesQuery(access, dates, { limit: 10 });
 
-  assert.match(sql, /COALESCE\(contract\.service_branch_id, contract\.branch_id\) = ANY\(\$1::int\[\]\)/);
+  // The contract branch still resolves service branch first; every kind exposes branch_id.
+  assert.match(sql, /COALESCE\(c\.service_branch_id, c\.branch_id\) AS branch_id/);
+  assert.match(sql, /installment\.branch_id = ANY\(\$1::int\[\]\)/);
   assert.match(sql, /installment\.collection_owner_id = \$2/);
   assert.deepEqual(params.slice(0, 2), [[1002], 77]);
 });
@@ -77,8 +83,9 @@ test('the receivable kind reads the same COALESCE the source column falls back t
   // An installment with no collection task yet has no source type, and the source
   // column already reads it as the contract's own money — so the filter must read it
   // the same way or «قيمة العقد» would silently exclude those rows.
-  assert.match(sql, /COALESCE\(latest_task\.receivable_source_type, 'contract'\) = \$\d+/);
-  assert.match(sql, /CASE COALESCE\(latest_task\.receivable_source_type, 'contract'\)[\s\S]*AS "receivableSourceKind"/);
+  // Maintenance/warranty installments are their own source; contract ones keep the COALESCE.
+  assert.match(sql, /ELSE COALESCE\(latest_task\.receivable_source_type, 'contract'\) END = \$\d+/);
+  assert.match(sql, /CASE CASE installment\.kind[\s\S]*AS "receivableSourceKind"/);
   assert.ok(params.includes('maintenance_task'));
 
   assert.throws(
@@ -150,4 +157,17 @@ test('the collection-appointment range and its presence read the same lateral', 
     () => buildServiceDuesQuery(globalAccess, { ...dates, collectionAppointmentPresence: 'maybe' }, { limit: 10 }),
     /حالة موعد التحصيل غير صالحة/,
   );
+});
+
+test('maintenance and warranty installments read their own payments, tasks and source money', () => {
+  const { sql } = buildServiceDuesQuery(globalAccess, dates, { limit: 10 });
+
+  assert.match(sql, /installment\.kind = 'maintenance' AND p\.installment_id = installment\.id/);
+  assert.match(sql, /installment\.kind = 'warranty' AND p\.installment_id = installment\.id/);
+  assert.match(sql, /installment\.kind = 'maintenance' AND task\.maintenance_installment_id = installment\.id/);
+  assert.match(sql, /installment\.kind = 'warranty' AND task\.warranty_installment_id = installment\.id/);
+  assert.match(sql, /'maintenance_installment', 'maintenance_installment_payment'/);
+  assert.match(sql, /'golden_warranty', 'golden_warranty_installment', 'golden_warranty_payment'/);
+  // Contract rules never filter out a non-contract receivable.
+  assert.match(sql, /installment\.kind <> 'contract' OR \(contract\.sale_subtype = 'definitive'/);
 });
