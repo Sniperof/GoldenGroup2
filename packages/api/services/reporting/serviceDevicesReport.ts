@@ -297,8 +297,19 @@ export function buildServiceDevicesQuery(
       FROM (
         SELECT used.part_name_snapshot, SUM(used.quantity)::int AS quantity
         FROM visit_tasks task
-        JOIN visit_task_results result ON result.visit_task_id = task.id
-        JOIN visit_task_emergency_parts_used used ON used.visit_task_result_id = result.id
+        -- Migrated visits keep parts on the result; live visits keep them on the
+        -- maintenance result, tied to the visit attempt (migr 483) — only the ones
+        -- actually replaced, not refused / unavailable recommendations.
+        JOIN LATERAL (
+          SELECT migrated.part_name_snapshot, migrated.quantity
+            FROM visit_task_results result
+            JOIN visit_task_emergency_parts_used migrated ON migrated.visit_task_result_id = result.id
+           WHERE result.visit_task_id = task.id
+          UNION ALL
+          SELECT live.part_name_snapshot, live.quantity
+            FROM emergency_result_parts live
+           WHERE live.visit_task_id = task.id AND live.execution_status = 'replaced'
+        ) used ON TRUE
         WHERE task.field_visit_id = last_completed_visit.id AND ${VISIT_TASK_DEVICE_MATCH_SQL}
         GROUP BY used.part_name_snapshot
       ) part
