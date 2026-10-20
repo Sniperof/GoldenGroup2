@@ -19,11 +19,20 @@ import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
 import { authorize } from '../services/authorizationService.js';
+import {
+  recordServiceAgreementCancellation,
+  recordServiceAgreementPaymentMovement,
+  reverseServiceAgreementPaymentMovement,
+  syncServiceAgreementMovements,
+} from '../services/financialMovements.js';
+import { insertServiceAgreementPayment as insertPayment, mapServiceAgreementPayment as mapPayment, normalizeServiceAgreementPayment as normalizePayment } from '../services/serviceAgreementPayments.js';
 
 const router = Router();
 router.use(requireAuth);
 
 const ALLOWED_STATUS = ['draft', 'active', 'cancelled', 'completed', 'discarded'] as const;
+// Once active the fee is a booked charge: it cannot change (renewal = a new agreement).
+const FINANCIAL_STATUSES = new Set(['active', 'completed', 'cancelled']);
 
 function mapRow(r: any) {
   return {
@@ -131,15 +140,26 @@ router.post('/', requirePermission('contracts.edit'), async (req, res) => {
     const deviceCheck = await assertExternalDeviceLink(installedDeviceId, Number(b.customerId), b.branchId ?? null);
     if (!deviceCheck.ok) return res.status(deviceCheck.status).json({ error: deviceCheck.error });
   }
+  // Payments taken at signing (optional).
+  const initialPayments: any[] = [];
+  for (const p of Array.isArray(b.payments) ? b.payments : []) {
+    const n = normalizePayment(p);
+    if ('error' in n) return res.status(400).json({ error: n.error });
+    if (n.values.amountSyp > 0) initialPayments.push(n.values);
+  }
 
-  const { rows } = await pool.query(
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
     `INSERT INTO service_agreements (
        agreement_number, customer_id, customer_name, branch_id, installed_device_id, agreement_date,
        external_device_model_name, external_device_serial, external_device_notes,
        maintenance_plan, visits_count, fee_syp,
        status, start_date, end_date,
-       closing_employee_id, created_by, notes
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+       closing_employee_id, created_by, notes, activated_at
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,
+               CASE WHEN $13 IN ('active', 'completed') THEN NOW() END)
      RETURNING *`,
     [
       b.agreementNumber ?? null,
@@ -162,7 +182,18 @@ router.post('/', requirePermission('contracts.edit'), async (req, res) => {
       b.notes ?? null,
     ],
   );
-  res.status(201).json(mapRow(rows[0]));
+    for (const v of initialPayments) await insertPayment(client, Number(rows[0].id), v, actorId);
+    // Fee charge + payments → unified ledger (only once the agreement is active).
+    await syncServiceAgreementMovements(client, Number(rows[0].id), actorId);
+    await client.query('COMMIT');
+    res.status(201).json(mapRow(rows[0]));
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[service-agreements] create error:', err);
+    res.status(500).json({ error: 'فشل إنشاء اتفاقية الخدمة' });
+  } finally {
+    client.release();
+  }
 });
 
 // PUT /api/service-agreements/:id
@@ -170,7 +201,7 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
   const id = Number(req.params.id);
   const b  = req.body ?? {};
 
-  const { rows: existing } = await pool.query('SELECT customer_id, branch_id FROM service_agreements WHERE id = $1', [id]);
+  const { rows: existing } = await pool.query('SELECT customer_id, branch_id, status, fee_syp FROM service_agreements WHERE id = $1', [id]);
   if (!existing[0]) return res.status(404).json({ error: 'اتفاقية الخدمة غير موجودة' });
 
   const access = authorize(req.authContext!, { permission: 'contracts.edit', branchId: existing[0].branch_id });
@@ -179,6 +210,15 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
   if (b.status !== undefined && !ALLOWED_STATUS.includes(b.status)) {
     return res.status(400).json({ error: `status غير صالح. القيم: ${ALLOWED_STATUS.join(', ')}` });
   }
+  const wasFinancial = FINANCIAL_STATUSES.has(existing[0].status);
+  if (wasFinancial && b.feeSyp !== undefined && Number(b.feeSyp) !== Number(existing[0].fee_syp)) {
+    return res.status(400).json({ error: 'رسوم الاتفاقية مقفلة بعد التفعيل — لتغييرها ألغِ الاتفاقية وأنشئ اتفاقية جديدة' });
+  }
+  if (existing[0].status === 'cancelled' && b.status !== undefined && b.status !== 'cancelled') {
+    return res.status(400).json({ error: 'الاتفاقية الملغاة لا تُعاد — أنشئ اتفاقية جديدة' });
+  }
+  const activating = !wasFinancial && (b.status === 'active' || b.status === 'completed');
+  const cancelling = existing[0].status !== 'cancelled' && b.status === 'cancelled';
 
   // Dynamic SET — only update what was sent. legacy_contract_id stays immutable.
   const sets: string[] = [];
@@ -214,11 +254,114 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
   if (b.notes                   !== undefined) push('notes',                      b.notes);
 
   if (sets.length === 0) return res.status(400).json({ error: 'لا توجد حقول للتحديث' });
+  if (activating) sets.push('activated_at = COALESCE(activated_at, NOW())');
+  if (cancelling) sets.push('cancelled_at = NOW()');
 
   vals.push(id);
   const sql = `UPDATE service_agreements SET ${sets.join(', ')} WHERE id = $${vals.length} RETURNING *`;
-  const { rows } = await pool.query(sql, vals);
-  res.json(mapRow(rows[0]));
+  const actorId = (req as any).user?.id ?? null;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(sql, vals);
+    // Activation books the fee (and any payments taken while draft); cancellation
+    // waives what is still unpaid.
+    if (activating) await syncServiceAgreementMovements(client, id, actorId);
+    if (cancelling && wasFinancial) await recordServiceAgreementCancellation(client, id, actorId);
+    await client.query('COMMIT');
+    res.json(mapRow(rows[0]));
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[service-agreements] update error:', err);
+    res.status(500).json({ error: 'فشل تحديث اتفاقية الخدمة' });
+  } finally {
+    client.release();
+  }
+});
+
+// ── Payments (migr 485) ───────────────────────────────────────────────────────
+
+async function loadAgreementForAccess(agreementId: any) {
+  const { rows } = await pool.query(
+    'SELECT id, branch_id, fee_syp, status FROM service_agreements WHERE id = $1',
+    [agreementId],
+  );
+  return rows[0] ?? null;
+}
+
+// GET /api/service-agreements/:id/payments
+router.get('/:id/payments', requirePermission('contracts.view_list'), async (req, res) => {
+  const a = await loadAgreementForAccess(req.params.id);
+  if (!a) return res.status(404).json({ error: 'اتفاقية الخدمة غير موجودة' });
+  if (!authorize(req.authContext!, { permission: 'contracts.view_list', branchId: a.branch_id }).allowed) {
+    return res.status(403).json({ error: 'غير مسموح' });
+  }
+  const { rows } = await pool.query(
+    'SELECT * FROM service_agreement_payments WHERE agreement_id = $1 ORDER BY received_at DESC, id DESC',
+    [req.params.id],
+  );
+  const paid = rows.reduce((sum, r) => sum + Number(r.entry_type === 'refund' ? -r.amount_syp : r.amount_syp), 0);
+  res.json({
+    payments: rows.map(mapPayment), feeSyp: Number(a.fee_syp ?? 0), paidSyp: paid,
+    remainingSyp: Math.max(Number(a.fee_syp ?? 0) - paid, 0),
+  });
+});
+
+// POST /api/service-agreements/:id/payments
+router.post('/:id/payments', requirePermission('contracts.edit'), async (req, res) => {
+  const a = await loadAgreementForAccess(req.params.id);
+  if (!a) return res.status(404).json({ error: 'اتفاقية الخدمة غير موجودة' });
+  if (!authorize(req.authContext!, { permission: 'contracts.edit', branchId: a.branch_id }).allowed) {
+    return res.status(403).json({ error: 'غير مسموح' });
+  }
+  if (['cancelled', 'discarded'].includes(a.status)) {
+    return res.status(400).json({ error: 'لا تُسجّل دفعات على اتفاقية ملغاة' });
+  }
+  const n = normalizePayment(req.body ?? {});
+  if ('error' in n) return res.status(400).json({ error: n.error });
+  const actorId = (req as any).user?.id ?? null;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const row = await insertPayment(client, Number(a.id), n.values, actorId);
+    await recordServiceAgreementPaymentMovement(client, Number(row.id), actorId);
+    await client.query('COMMIT');
+    res.status(201).json(mapPayment(row));
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[service-agreements] add payment error:', err);
+    res.status(500).json({ error: 'فشل تسجيل دفعة الاتفاقية' });
+  } finally {
+    client.release();
+  }
+});
+
+// DELETE /api/service-agreements/payments/:paymentId
+router.delete('/payments/:paymentId', requirePermission('contracts.edit'), async (req, res) => {
+  const { rows: pRows } = await pool.query(
+    `SELECT p.id, a.branch_id FROM service_agreement_payments p
+       JOIN service_agreements a ON a.id = p.agreement_id WHERE p.id = $1`,
+    [req.params.paymentId],
+  );
+  if (!pRows[0]) return res.status(404).json({ error: 'الدفعة غير موجودة' });
+  if (!authorize(req.authContext!, { permission: 'contracts.edit', branchId: pRows[0].branch_id }).allowed) {
+    return res.status(403).json({ error: 'غير مسموح' });
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    // Append-only ledger: book the reversal, then drop the payment row.
+    await reverseServiceAgreementPaymentMovement(client, Number(req.params.paymentId), (req as any).user?.id ?? null);
+    await client.query('DELETE FROM service_agreement_payments WHERE id = $1', [req.params.paymentId]);
+    await client.query('COMMIT');
+    res.json({ ok: true });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[service-agreements] delete payment error:', err);
+    res.status(500).json({ error: 'فشل حذف دفعة الاتفاقية' });
+  } finally {
+    client.release();
+  }
 });
 
 export default router;

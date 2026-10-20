@@ -1518,6 +1518,9 @@ export const api = {
     get: (id: number) => request<any>(`/service-agreements/${id}`),
     create: (data: any) => request<any>('/service-agreements', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/service-agreements/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    payments: (id: number) => request<any>(`/service-agreements/${id}/payments`),
+    addPayment: (id: number, data: any) => request<any>(`/service-agreements/${id}/payments`, { method: 'POST', body: JSON.stringify(data) }),
+    deletePayment: (paymentId: number) => request<any>(`/service-agreements/payments/${paymentId}`, { method: 'DELETE' }),
   },
   // DEC-CT-09: device possession ledger.
   // Backend route is mounted at /api/devices/:deviceId/possession.

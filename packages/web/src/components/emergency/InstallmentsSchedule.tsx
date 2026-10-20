@@ -8,7 +8,8 @@ export interface Installment {
   installmentNumber: number;
   dueDate: string;
   amountSyp: string;
-  dueId?: number | null;   // set once confirmed + linked to dues
+  confirmed?: boolean;     // set once the plan is confirmed (a collectable receivable)
+  remainingBalance?: number | string | null;
   status?: string;
 }
 
@@ -105,7 +106,7 @@ export default function InstallmentsSchedule({
               </div>
               <div className="flex items-center gap-2">
                 <span className="font-black text-slate-800">{Number(r.amountSyp).toLocaleString('ar-SY')} ل.س</span>
-                {r.dueId && <span className="text-xs font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5">استحقاق #{r.dueId}</span>}
+                {r.confirmed && <span className="text-xs font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5">ذمة معتمدة{r.remainingBalance != null && Number(r.remainingBalance) < Number(r.amountSyp) ? ` · متبقٍ ${Number(r.remainingBalance).toLocaleString('ar-SY')}` : ''}</span>}
               </div>
             </div>
           ))}

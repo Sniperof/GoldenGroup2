@@ -1082,7 +1082,8 @@ router.get('/paged', requirePermission('clients.view_list'), async (req, res) =>
     const conditions = appendClientScopeConditions(authContext, requestedBranchId, listAccess.scope, params);
     conditions.push('c.is_candidate = FALSE');
 
-    // Free search matches the client's OWN identity only (name / id / phones).
+    // Free search matches the client's OWN identity only (name / id / phones)
+    // plus the client's own detailed address text.
     // It deliberately does not match the mediator's name or the branch name:
     // searching "أحمد" must not return every client Ahmad referred — that is
     // the separate `filterReferrerName` filter below.
@@ -1093,6 +1094,7 @@ router.get('/paged', requirePermission('clients.view_list'), async (req, res) =>
       const parts = [
         `c.name ILIKE ${likeRef}`,
         `c.id::text LIKE ${likeRef}`,
+        `c.detailed_address ILIKE ${likeRef}`,
       ];
       const digits = search.replace(/\D/g, '');
       if (digits) {
@@ -1468,7 +1470,9 @@ router.get('/:id/account-statement', requirePermission('clients.account_statemen
     const allowedTypes = new Set([
       'contract', 'contract_installment', 'contract_payment',
       'emergency_maintenance', 'periodic_maintenance', 'installation',
-      'golden_warranty', 'opening_balance',
+      'maintenance_installment', 'maintenance_installment_payment',
+      'service_agreement', 'service_agreement_payment',
+      'golden_warranty', 'golden_warranty_installment', 'golden_warranty_payment', 'opening_balance',
     ]);
     const types = typeof req.query.types === 'string'
       ? req.query.types.split(',').map(type => type.trim()).filter(Boolean)
