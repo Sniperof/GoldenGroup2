@@ -2475,6 +2475,8 @@ router.post('/:id/tasks', requirePermission('field_visits.edit'), async (req, re
     const { rows: existingRows } = await client.query(
       `SELECT ot.id, ot.client_id, ot.branch_id, ot.task_type AS "taskType", ot.status,
               ot.device_id AS "deviceId", ot.installment_id AS "installmentId",
+              ot.maintenance_installment_id AS "maintenanceInstallmentId",
+              ot.warranty_installment_id AS "warrantyInstallmentId",
               EXISTS (
                 SELECT 1
                   FROM gift_delivery_task_records gift_link
@@ -2632,6 +2634,8 @@ router.get('/:id/pullable-tasks', requirePermission('field_visits.view', 'field_
               ct.contract_number          AS "contractNumber",
               ct.device_model_name        AS "deviceModelName",
               ot.installment_id           AS "installmentId",
+              ot.maintenance_installment_id AS "maintenanceInstallmentId",
+              ot.warranty_installment_id  AS "warrantyInstallmentId",
               COALESCE(ci.installment_number, mi.installment_number, wi.installment_number) AS "installmentNumber",
               COALESCE(ci.amount_syp, mi.amount_syp, wi.amount_syp)                         AS "installmentAmount",
               COALESCE(ci.remaining_balance, mi.remaining_balance, wi.remaining_balance)    AS "installmentRemaining",

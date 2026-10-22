@@ -40,6 +40,24 @@ test('rejects installment, gift and warranty delivery tasks without their domain
   );
 });
 
+test('accepts a collection task linked to a maintenance or golden-warranty installment', () => {
+  assert.equal(getOpenTaskLinkageIssue({ taskType: 'installment_collection', installmentId: 5 }), null);
+  assert.equal(
+    getOpenTaskLinkageIssue({ taskType: 'installment_collection', installmentId: null, maintenanceInstallmentId: 8 }),
+    null,
+  );
+  assert.equal(
+    getOpenTaskLinkageIssue({ taskType: 'installment_collection', installmentId: null, warrantyInstallmentId: 3 }),
+    null,
+  );
+  assert.equal(
+    getOpenTaskLinkageIssue({
+      taskType: 'installment_collection', installmentId: null, maintenanceInstallmentId: null, warrantyInstallmentId: null,
+    })?.code,
+    'INSTALLMENT_REQUIRED',
+  );
+});
+
 test('requires a device link for maintenance task types', () => {
   assert.equal(getOpenTaskLinkageIssue({ taskType: 'periodic_maintenance' })?.code, 'DEVICE_REQUIRED');
   assert.equal(getOpenTaskLinkageIssue({ taskType: 'emergency_maintenance' })?.code, 'DEVICE_REQUIRED');
