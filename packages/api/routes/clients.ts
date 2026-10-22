@@ -1523,7 +1523,10 @@ router.get('/:id/account-statement', requirePermission('clients.account_statemen
            COALESCE(SUM(CASE WHEN occurred_at <= NOW()
                              THEN (CASE WHEN kind IN ('charge','refund') THEN amount_syp ELSE -amount_syp END)
                              ELSE 0 END), 0) AS current_balance,
-           COALESCE(SUM(CASE WHEN kind IN ('payment','discount') THEN amount_syp ELSE 0 END), 0) AS total_paid,
+           -- Money actually received only: a discount (a write-off, a cancelled
+           -- remainder, the reversal of a wrong charge) lowers the balance but is
+           -- never a payment.
+           COALESCE(SUM(CASE WHEN kind = 'payment' THEN amount_syp ELSE 0 END), 0) AS total_paid,
            COALESCE(SUM(CASE WHEN kind = 'charge' AND occurred_at > NOW() THEN amount_syp ELSE 0 END), 0) AS upcoming_total,
            GREATEST(COALESCE(SUM(CASE WHEN occurred_at < date_trunc('day', NOW())
                              THEN (CASE WHEN kind IN ('charge','refund') THEN amount_syp ELSE -amount_syp END)
