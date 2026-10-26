@@ -4,6 +4,15 @@ import { auditSettingValues, getAuditContext } from './auditContext.js';
 
 const { Pool } = pg;
 
+// PostgreSQL DATE has no time and no zone. By default node-postgres turns it
+// into a JS Date at LOCAL midnight, which JSON then writes in UTC: in Damascus
+// (UTC+3) '2018-04-15' left the API as '2018-04-14T21:00:00.000Z', forms took
+// the first 10 characters, and every save moved the date one day back (seen on
+// employee birth/hire dates). Keep DATE as its own 'YYYY-MM-DD' text.
+// Timestamps (timestamp/timestamptz) are unaffected.
+const PG_DATE_OID = 1082;
+pg.types.setTypeParser(PG_DATE_OID, (value: string) => value);
+
 const pool = new Pool({
   connectionString: DATABASE_URL,
 });
