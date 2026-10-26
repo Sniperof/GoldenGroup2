@@ -212,8 +212,8 @@ function buildEmployeeInitialValues(detail: EmployeeDetailType): EmployeeFormIni
 /** A horizontal label → value row. Renders nothing when value is empty. */
 function InfoRow({ label, children, span }: { label: string; children: React.ReactNode; span?: boolean }) {
   return (
-    <div className={`flex items-start gap-3 py-2.5 border-b border-slate-100 last:border-0 ${span ? 'col-span-2' : ''}`}>
-      <span className="w-36 shrink-0 text-xs font-medium text-slate-400 pt-0.5 leading-5">{label}</span>
+    <div className={`flex items-start gap-3 py-2 border-b border-slate-100 last:border-0 ${span ? 'col-span-2' : ''}`}>
+      <span className="w-32 shrink-0 text-sm font-medium text-slate-500 leading-5">{label}</span>
       <span className="flex-1 text-sm font-semibold text-slate-800 leading-5 min-w-0">{children || '—'}</span>
     </div>
   );
@@ -239,13 +239,13 @@ function SectionCard({
   };
   return (
     <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
-      <div className="flex items-center gap-3 px-5 py-3.5 border-b border-slate-100 bg-slate-50/60">
-        <div className={`flex h-7 w-7 items-center justify-center rounded-xl border ${colors[accent]}`}>
+      <div className="flex items-center gap-2.5 px-4 py-2 border-b border-slate-100 bg-slate-50/60">
+        <div className={`flex h-7 w-7 items-center justify-center rounded-lg border ${colors[accent]}`}>
           {icon}
         </div>
         <h4 className="text-sm font-bold text-slate-800">{title}</h4>
       </div>
-      <div className="px-5 py-1">{children}</div>
+      <div className="px-4">{children}</div>
     </div>
   );
 }
@@ -491,8 +491,14 @@ export default function EmployeeDetail() {
   // ── Tab content renderers ──────────────────────────────────────────────────
 
   function renderProfile() {
+    const statusColors: Record<string, string> = {
+      active:           'bg-emerald-50 text-emerald-700 border-emerald-200',
+      preferred:        'bg-sky-50 text-sky-700 border-sky-200',
+      'out-of-coverage': 'bg-amber-50 text-amber-700 border-amber-200',
+      unused:           'bg-slate-100 text-slate-500 border-slate-200',
+    };
     return (
-      <div className="grid gap-5 lg:grid-cols-2">
+      <div className="grid gap-3 lg:grid-cols-2 items-start">
         {/* Identity */}
         <SectionCard title="البيانات الشخصية" icon={<UserRound className="h-3.5 w-3.5" />} accent="sky">
           <InfoRow label="رقم الموظف">{detail!.employeeNumber ? `#${detail!.employeeNumber}` : '—'}</InfoRow>
@@ -506,68 +512,63 @@ export default function EmployeeDetail() {
           <InfoRow label="الخدمة العسكرية">{detail!.militaryService}</InfoRow>
         </SectionCard>
 
-        {/* Address */}
-        <SectionCard title="عنوان الإقامة" icon={<MapPin className="h-3.5 w-3.5" />} accent="violet">
-          <InfoRow label="المحافظة">{detail!.residenceGovernorate}</InfoRow>
-          <InfoRow label="المنطقة">{detail!.residenceRegion}</InfoRow>
-          <InfoRow label="الناحية">{detail!.residenceSubArea}</InfoRow>
-          <InfoRow label="الحي">{detail!.residenceNeighborhood}</InfoRow>
-          <InfoRow label="العنوان المختصر">{detail!.residenceShort || detail!.residence}</InfoRow>
-          <InfoRow label="تفاصيل العنوان">{detail!.detailedAddress}</InfoRow>
-        </SectionCard>
-
-        {/* Contacts */}
-        <div className="lg:col-span-2">
+        <div className="space-y-3">
+          {/* Contacts */}
           <SectionCard title="وسائل التواصل" icon={<Phone className="h-3.5 w-3.5" />} accent="emerald">
             {(!detail!.contacts || detail!.contacts.length === 0) ? (
-              <p className="py-4 text-sm text-slate-400">لا توجد وسائل تواصل مسجلة.</p>
+              <p className="py-3 text-sm text-slate-400">لا توجد وسائل تواصل مسجلة.</p>
             ) : (
-              <div className="grid gap-3 py-3 md:grid-cols-2 xl:grid-cols-3">
-                {detail!.contacts.map((contact, idx) => {
-                  const statusColors: Record<string, string> = {
-                    active:           'bg-emerald-50 text-emerald-700 border-emerald-200',
-                    preferred:        'bg-sky-50 text-sky-700 border-sky-200',
-                    'out-of-coverage': 'bg-amber-50 text-amber-700 border-amber-200',
-                    unused:           'bg-slate-100 text-slate-500 border-slate-200',
-                  };
-                  const statusCls = statusColors[contact.status ?? 'active'] ?? statusColors.active;
-                  return (
-                    <div key={contact.id || idx} className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-2.5">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-bold text-slate-500">{formatContactType(contact.type)} #{idx + 1}</span>
-                        <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${statusCls}`}>
-                          {formatContactStatus(contact.status)}
-                        </span>
-                      </div>
-                      <div className="text-base font-bold text-slate-900 tracking-wide">
+              detail!.contacts.map((contact, idx) => {
+                const statusCls = statusColors[contact.status ?? 'active'] ?? statusColors.active;
+                return (
+                  <InfoRow key={contact.id || idx} label={`${formatContactType(contact.type)} #${idx + 1}`}>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span dir="ltr" className="tracking-wide">
                         {contact.type === 'mobile' ? '+963 ' : (contact.areaCode ? `${contact.areaCode} ` : '')}
                         {contact.number || '—'}
-                      </div>
-                      <div className="flex items-center gap-3 text-xs text-slate-500">
-                        {contact.label && <span className="rounded bg-white border border-slate-200 px-2 py-0.5">{contact.label}</span>}
-                        {contact.hasWhatsApp && (
-                          <span className="inline-flex items-center gap-1 rounded bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-emerald-700 font-medium">
-                            <MessageSquare className="h-3 w-3" /> واتساب
-                          </span>
-                        )}
-                      </div>
+                      </span>
+                      <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${statusCls}`}>
+                        {formatContactStatus(contact.status)}
+                      </span>
+                      {contact.hasWhatsApp && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-xs text-emerald-700 font-medium">
+                          <MessageSquare className="h-3 w-3" /> واتساب
+                        </span>
+                      )}
+                      {contact.label && (
+                        <span className="rounded-full bg-slate-50 border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-500">{contact.label}</span>
+                      )}
                     </div>
-                  );
-                })}
-              </div>
+                  </InfoRow>
+                );
+              })
             )}
+          </SectionCard>
+
+          {/* Address */}
+          <SectionCard title="عنوان الإقامة" icon={<MapPin className="h-3.5 w-3.5" />} accent="violet">
+            <InfoRow label="المحافظة">{detail!.residenceGovernorate}</InfoRow>
+            <InfoRow label="المنطقة">{detail!.residenceRegion}</InfoRow>
+            <InfoRow label="الناحية">{detail!.residenceSubArea}</InfoRow>
+            <InfoRow label="الحي">{detail!.residenceNeighborhood}</InfoRow>
+            <InfoRow label="العنوان المختصر">{detail!.residenceShort || detail!.residence}</InfoRow>
+            <InfoRow label="تفاصيل العنوان">{detail!.detailedAddress}</InfoRow>
           </SectionCard>
         </div>
 
         {/* Referral */}
         <div className="lg:col-span-2">
           <SectionCard title="الوسيط ومصدر التوظيف" icon={<Users className="h-3.5 w-3.5" />} accent="amber">
-            <div className="grid md:grid-cols-2">
+            <div className="grid md:grid-cols-3 md:gap-x-6">
               <InfoRow label="نوع الوسيط">{detail!.referrerType ? (REFERRER_TYPE_LABELS[detail!.referrerType] ?? detail!.referrerType) : undefined}</InfoRow>
               <InfoRow label="نوع التواصل">{detail!.sourceChannel ? (SOURCE_CHANNEL_LABELS[detail!.sourceChannel] ?? detail!.sourceChannel) : undefined}</InfoRow>
               <InfoRow label="اسم الوسيط">{detail!.referrerName}</InfoRow>
-              <InfoRow label="ملاحظات" span>{detail!.referralNotes}</InfoRow>
             </div>
+            {detail!.referralNotes && (
+              <div className="border-t border-slate-100">
+                <InfoRow label="ملاحظات">{detail!.referralNotes}</InfoRow>
+              </div>
+            )}
           </SectionCard>
         </div>
       </div>
@@ -576,7 +577,7 @@ export default function EmployeeDetail() {
 
   function renderQualifications() {
     return (
-      <div className="grid gap-5 lg:grid-cols-2">
+      <div className="grid gap-3 lg:grid-cols-2 items-start">
         <SectionCard title="التعليم والخبرة" icon={<GraduationCap className="h-3.5 w-3.5" />} accent="violet">
           <InfoRow label="الشهادة العلمية">{detail!.academicQualification}</InfoRow>
           <InfoRow label="الاختصاص">{detail!.specialization}</InfoRow>
@@ -588,7 +589,7 @@ export default function EmployeeDetail() {
           <InfoRow label="العمل السابق">{detail!.previousEmployment}</InfoRow>
         </SectionCard>
 
-        <div className="space-y-5">
+        <div className="space-y-3">
           <SectionCard title="اللغات الأجنبية" icon={<BadgeCheck className="h-3.5 w-3.5" />} accent="sky">
             {!detail!.foreignLanguages || detail!.foreignLanguages.length === 0 ? (
               <p className="py-3 text-sm text-slate-400">لم تُحدَّد لغات أجنبية.</p>
@@ -617,7 +618,7 @@ export default function EmployeeDetail() {
 
   function renderEmployment() {
     return (
-      <div className="grid gap-5 lg:grid-cols-2">
+      <div className="grid gap-3 lg:grid-cols-2 items-start">
         <SectionCard title="بيانات التعيين" icon={<Briefcase className="h-3.5 w-3.5" />} accent="sky">
           <InfoRow label="الفرع">{detail!.branch}</InfoRow>
           <InfoRow label="القسم">{detail!.departmentName}</InfoRow>
@@ -654,7 +655,7 @@ export default function EmployeeDetail() {
 
     if (!detail!.systemAccount) {
       return (
-        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-5 py-12 text-center">
+        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-5 py-8 text-center">
           <ListChecks className="w-8 h-8 text-slate-300 mx-auto mb-3" />
           <div className="text-sm font-semibold text-slate-600">لا يوجد دور مسند لهذا الموظف بعد</div>
           <p className="text-xs text-slate-400 mt-1">تظهر المهام الوظيفية هنا بعد إنشاء حساب نظام وإسناد دور للموظف.</p>
@@ -663,8 +664,8 @@ export default function EmployeeDetail() {
     }
 
     return (
-      <div className="space-y-5">
-        <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-5 py-4 flex items-center justify-between gap-3">
+      <div className="space-y-3">
+        <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-2.5 flex items-center justify-between gap-3">
           <div>
             <div className="text-xs font-semibold text-emerald-600 mb-1">الدور المسند</div>
             <div className="text-sm font-bold text-emerald-900">{roleName || '—'}</div>
@@ -675,7 +676,7 @@ export default function EmployeeDetail() {
         </div>
 
         {tasks.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-5 py-12 text-center">
+          <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-5 py-8 text-center">
             <ListChecks className="w-8 h-8 text-slate-300 mx-auto mb-3" />
             <div className="text-sm font-semibold text-slate-600">لا توجد مهام معرفة لهذا الدور</div>
             <p className="text-xs text-slate-400 mt-1">يمكن إضافتها من إدارة الأدوار ثم زر المهام الخاص بالدور.</p>
@@ -683,7 +684,7 @@ export default function EmployeeDetail() {
         ) : (
           <div className="grid gap-3">
             {tasks.map((task, index) => (
-              <div key={task.id} className="rounded-2xl border border-slate-200 bg-white px-5 py-4 flex gap-4">
+              <div key={task.id} className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 flex gap-4">
                 <div className="w-8 h-8 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-700 flex items-center justify-center text-xs font-black shrink-0">
                   {index + 1}
                 </div>
@@ -708,31 +709,31 @@ export default function EmployeeDetail() {
     const doneCount = records.filter(record => record.status === 'delivered' || record.status === 'delivered_manually').length;
 
     return (
-      <div className="space-y-5">
+      <div className="space-y-3">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-          <div className="rounded-2xl border border-amber-100 bg-amber-50 px-5 py-4">
+          <div className="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-2.5">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="text-xs font-bold text-amber-700">وعود مفتوحة</div>
-                <div className="mt-2 text-2xl font-black text-slate-900">{promisedCount}</div>
+                <div className="mt-1 text-xl font-black text-slate-900">{promisedCount}</div>
               </div>
               <Gift className="h-6 w-6 text-amber-600" />
             </div>
           </div>
-          <div className="rounded-2xl border border-sky-100 bg-sky-50 px-5 py-4">
+          <div className="rounded-2xl border border-sky-100 bg-sky-50 px-4 py-2.5">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="text-xs font-bold text-sky-700">جاهزة للتسليم</div>
-                <div className="mt-2 text-2xl font-black text-slate-900">{readyCount}</div>
+                <div className="mt-1 text-xl font-black text-slate-900">{readyCount}</div>
               </div>
               <PackageCheck className="h-6 w-6 text-sky-600" />
             </div>
           </div>
-          <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-5 py-4">
+          <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-2.5">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="text-xs font-bold text-emerald-700">تم تأكيدها يدوياً</div>
-                <div className="mt-2 text-2xl font-black text-slate-900">{doneCount}</div>
+                <div className="mt-1 text-xl font-black text-slate-900">{doneCount}</div>
               </div>
               <ShieldCheck className="h-6 w-6 text-emerald-600" />
             </div>
@@ -740,8 +741,8 @@ export default function EmployeeDetail() {
         </div>
 
         <SectionCard title="هدايا الموظف" icon={<Gift className="h-3.5 w-3.5" />} accent="amber">
-          <div className="py-4">
-            <p className="mb-4 text-xs leading-6 text-slate-500">
+          <div className="py-3">
+            <p className="mb-2 text-xs leading-6 text-slate-500">
               يعرض هذا التبويب وعود الهدايا التي يكون الموظف مستفيدا منها كوسيط داخلي. هذه السجلات لا تنشئ مهمة تسليم ميدانية، ويتم تأكيد التسليم يدويا.
             </p>
             {giftRecordsError && (
@@ -758,9 +759,9 @@ export default function EmployeeDetail() {
 
   function renderSystemAccount() {
     return (
-      <div className="max-w-xl space-y-5">
+      <div className="max-w-xl space-y-3">
         {/* Current account status */}
-        <div className={`rounded-2xl border p-5 flex items-start gap-4 ${detail!.systemAccount ? 'border-emerald-200 bg-emerald-50' : 'border-dashed border-slate-200 bg-slate-50'}`}>
+        <div className={`rounded-2xl border p-4 flex items-start gap-4 ${detail!.systemAccount ? 'border-emerald-200 bg-emerald-50' : 'border-dashed border-slate-200 bg-slate-50'}`}>
           <div className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl ${detail!.systemAccount ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-500'}`}>
             <Lock className="h-4 w-4" />
           </div>
@@ -783,17 +784,17 @@ export default function EmployeeDetail() {
 
         {canManageSystemAccess ? (
           <div className="rounded-2xl border border-slate-200 bg-white divide-y divide-slate-100 overflow-hidden">
-            <div className="px-5 py-4 bg-slate-50/60">
+            <div className="px-4 py-2.5 bg-slate-50/60">
               <h4 className="text-sm font-bold text-slate-800">إعدادات الحساب</h4>
             </div>
-            <div className="p-5 space-y-4">
+            <div className="p-4 space-y-3">
               <label className="block">
                 <span className="block text-xs font-semibold text-slate-500 mb-2">اسم الدخول</span>
                 <input
                   value={accountForm.username}
                   onChange={(e) => setAccountForm((c) => ({ ...c, username: e.target.value }))}
                   placeholder="مثال: ahmed.ali"
-                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-400"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-400"
                 />
               </label>
 
@@ -806,7 +807,7 @@ export default function EmployeeDetail() {
                   value={accountForm.password}
                   onChange={(e) => setAccountForm((c) => ({ ...c, password: e.target.value }))}
                   placeholder={detail!.systemAccount ? '••••••••' : 'كلمة مرور قوية'}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-400"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-400"
                 />
               </label>
 
@@ -823,7 +824,7 @@ export default function EmployeeDetail() {
                 />
               </label>
 
-              <label className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 cursor-pointer hover:bg-slate-50 transition-colors">
+              <label className="flex items-center justify-between rounded-xl border border-slate-200 px-3 py-2 cursor-pointer hover:bg-slate-50 transition-colors">
                 <div>
                   <div className="text-sm font-semibold text-slate-800">تفعيل الحساب</div>
                   <div className="text-xs text-slate-500 mt-0.5">إيقاف الوصول بدون حذف الربط</div>
@@ -836,7 +837,7 @@ export default function EmployeeDetail() {
               </label>
             </div>
 
-            <div className="flex items-center justify-between px-5 py-4 bg-slate-50/60">
+            <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50/60">
               {accountMessage ? (
                 <span className="text-sm text-emerald-600 font-medium">{accountMessage}</span>
               ) : <span />}
@@ -851,7 +852,7 @@ export default function EmployeeDetail() {
             </div>
           </div>
         ) : (
-          <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4 text-sm text-slate-500 leading-relaxed">
+          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-500 leading-relaxed">
             عرض فقط — تحتاج إلى صلاحية إدارة الأدوار لتعديل حساب النظام.
           </div>
         )}
@@ -863,7 +864,7 @@ export default function EmployeeDetail() {
     const app = detail!.hiringApplication;
     if (!app) {
       return (
-        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-5 py-12 text-center">
+        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-5 py-8 text-center">
           <FileText className="w-8 h-8 text-slate-300 mx-auto mb-3" />
           <div className="text-sm font-semibold text-slate-600">لا توجد بيانات توظيف مرتبطة</div>
           <p className="text-xs text-slate-400 mt-1">هذا السجل لم يُنشأ من طلب توظيف، أو لم يتم ربط الطلب به بعد.</p>
@@ -872,7 +873,7 @@ export default function EmployeeDetail() {
     }
 
     return (
-      <div className="space-y-5">
+      <div className="space-y-3">
         {/* Summary chips */}
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           {[
@@ -885,14 +886,14 @@ export default function EmployeeDetail() {
               </span>
             ) },
           ].map((chip) => (
-            <div key={chip.label} className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
-              <div className="text-xs text-slate-400 mb-1">{chip.label}</div>
+            <div key={chip.label} className="rounded-2xl border border-slate-200 bg-white px-3 py-2">
+              <div className="text-xs text-slate-400 mb-0.5">{chip.label}</div>
               <div className="text-sm font-bold text-slate-900">{chip.value}</div>
             </div>
           ))}
         </div>
 
-        <div className="grid gap-5 lg:grid-cols-2">
+        <div className="grid gap-3 lg:grid-cols-2 items-start">
           {/* Applicant */}
           <SectionCard title="بيانات المتقدم" icon={<UserRound className="h-3.5 w-3.5" />} accent="sky">
             <InfoRow label="الاسم">
@@ -920,11 +921,11 @@ export default function EmployeeDetail() {
           {/* Interviews */}
           <SectionCard title="سجل المقابلات" icon={<CalendarDays className="h-3.5 w-3.5" />} accent="emerald">
             {app.interviews.length === 0 ? (
-              <p className="py-4 text-sm text-slate-400">لا توجد مقابلات مسجلة.</p>
+              <p className="py-3 text-sm text-slate-400">لا توجد مقابلات مسجلة.</p>
             ) : (
               <div className="space-y-2 py-2">
                 {app.interviews.map((interview) => (
-                  <div key={interview.id} className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
+                  <div key={interview.id} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-sm font-semibold text-slate-800">{interview.interviewerName}</span>
                       <span className="rounded-full bg-white border border-slate-200 px-2.5 py-0.5 text-xs font-bold text-slate-700">
@@ -945,11 +946,11 @@ export default function EmployeeDetail() {
           {/* Training */}
           <SectionCard title="سجل التدريب" icon={<GraduationCap className="h-3.5 w-3.5" />} accent="amber">
             {app.trainings.length === 0 ? (
-              <p className="py-4 text-sm text-slate-400">لا توجد دورات تدريب مرتبطة.</p>
+              <p className="py-3 text-sm text-slate-400">لا توجد دورات تدريب مرتبطة.</p>
             ) : (
               <div className="space-y-2 py-2">
                 {app.trainings.map((training) => (
-                  <div key={training.id} className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
+                  <div key={training.id} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-sm font-semibold text-slate-800">{training.trainingName}</span>
                       <span className="rounded-full bg-white border border-slate-200 px-2.5 py-0.5 text-xs font-bold text-slate-700">
@@ -990,43 +991,43 @@ export default function EmployeeDetail() {
 
   return (
     <div className="h-full overflow-y-auto bg-slate-50" dir="rtl">
-      <div className="max-w-6xl mx-auto px-4 py-6 space-y-5">
+      <div className="px-4 py-3 space-y-3">
 
         {/* ── Hero card ───────────────────────────────────────────────────── */}
         <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
           {/* Decorative top bar */}
-          <div className="h-2 bg-gradient-to-l from-sky-400 via-sky-500 to-indigo-500" />
+          <div className="h-1 bg-gradient-to-l from-sky-400 via-sky-500 to-indigo-500" />
 
-          <div className="px-6 py-5">
-            <div className="flex flex-col gap-5 md:flex-row md:items-start">
+          <div className="px-4 py-3">
+            <div className="flex flex-col gap-3 md:flex-row md:items-start">
               {/* Back + avatar */}
-              <div className="flex items-start gap-4">
+              <div className="flex items-start gap-3">
                 <button
                   onClick={() => navigate('/employees')}
-                  className="mt-1 inline-flex items-center justify-center w-9 h-9 rounded-xl border border-slate-200 bg-white text-slate-400 hover:text-sky-600 hover:border-sky-200 transition-colors shrink-0"
+                  className="inline-flex items-center justify-center w-8 h-8 rounded-xl border border-slate-200 bg-white text-slate-400 hover:text-sky-600 hover:border-sky-200 transition-colors shrink-0"
                   title="العودة إلى الموظفين"
                 >
                   <ArrowRight className="w-4 h-4" />
                 </button>
                 <div className="relative shrink-0">
-                  <div className="w-16 h-16 rounded-2xl overflow-hidden border-2 border-slate-200 bg-white shadow-sm">
+                  <div className="w-12 h-12 rounded-xl overflow-hidden border-2 border-slate-200 bg-white shadow-sm">
                     {detail.avatar ? (
                       <img src={detail.avatar} alt={detail.name} className="w-full h-full object-cover" />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center bg-sky-50 text-sky-500">
-                        <UserCircle2 className="w-8 h-8" />
+                        <UserCircle2 className="w-6 h-6" />
                       </div>
                     )}
                   </div>
                   {/* Online-ish status dot */}
-                  <span className={`absolute -bottom-1 -left-1 w-4 h-4 rounded-full border-2 border-white ${detail.status === 'active' ? 'bg-emerald-400' : detail.status === 'vacation' ? 'bg-amber-400' : detail.status === 'suspended' ? 'bg-orange-400' : 'bg-slate-300'}`} />
+                  <span className={`absolute -bottom-1 -left-1 w-3.5 h-3.5 rounded-full border-2 border-white ${detail.status === 'active' ? 'bg-emerald-400' : detail.status === 'vacation' ? 'bg-amber-400' : detail.status === 'suspended' ? 'bg-orange-400' : 'bg-slate-300'}`} />
                 </div>
               </div>
 
               {/* Identity */}
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2.5 flex-wrap">
-                  <h1 className="text-2xl font-bold text-slate-800 leading-tight">{detail.name}</h1>
+                  <h1 className="text-xl font-bold text-slate-800 leading-tight">{detail.name}</h1>
                   <span className={`rounded-full border px-2.5 py-0.5 text-xs font-bold ${statusMeta.className}`}>
                     {statusMeta.label}
                   </span>
@@ -1037,32 +1038,32 @@ export default function EmployeeDetail() {
                   )}
                 </div>
 
-                <p className="mt-1 text-sm font-medium text-sky-600">{detail.jobTitle || '—'}</p>
+                <p className="mt-0.5 text-sm font-medium text-sky-600">{detail.jobTitle || '—'}</p>
 
                 {/* Quick info pills */}
-                <div className="mt-3 flex flex-wrap gap-2">
+                <div className="mt-2 flex flex-wrap gap-1.5">
                   {detail.branch && (
-                    <span className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-600">
+                    <span className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-600">
                       <Building2 className="h-3.5 w-3.5 text-slate-400" /> {detail.branch}
                     </span>
                   )}
                   {detail.departmentName && (
-                    <span className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-600">
+                    <span className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-600">
                       <Briefcase className="h-3.5 w-3.5 text-slate-400" /> {detail.departmentName}
                     </span>
                   )}
                   {detail.mobile && (
-                    <span className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-600">
+                    <span className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-600">
                       <Phone className="h-3.5 w-3.5 text-slate-400" /> {detail.mobile}
                     </span>
                   )}
                   {detail.directManagerName && (
-                    <span className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-600">
+                    <span className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-600">
                       <UserRoundCog className="h-3.5 w-3.5 text-slate-400" /> {detail.directManagerName}
                     </span>
                   )}
                   {detail.residenceShort && (
-                    <span className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-600">
+                    <span className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-600">
                       <MapPin className="h-3.5 w-3.5 text-slate-400" /> {detail.residenceShort}
                     </span>
                   )}
@@ -1070,9 +1071,10 @@ export default function EmployeeDetail() {
               </div>
 
               {/* Action + linked hiring badge */}
-              <div className="flex items-center gap-3 md:flex-col md:items-end md:gap-2">
+              <div className="flex flex-wrap items-center gap-2 md:shrink-0">
                 {canEditEmployee && (
                   <Button
+                    size="sm"
                     icon={Save}
                     onClick={() => { setProfileMessage(''); setError(''); setShowEditModal(true); }}
                   >
@@ -1081,6 +1083,7 @@ export default function EmployeeDetail() {
                 )}
                 {canChangeStatus && (
                   <Button
+                    size="sm"
                     variant="secondary"
                     icon={RefreshCw}
                     onClick={() => { setProfileMessage(''); setShowStatusModal(true); }}
@@ -1090,6 +1093,7 @@ export default function EmployeeDetail() {
                 )}
                 {detail.hiringApplication && (
                   <Button
+                    size="sm"
                     variant="secondary"
                     icon={FileText}
                     onClick={() => navigate(`/jobs/applications/${detail.hiringApplication!.id}`)}
@@ -1103,7 +1107,7 @@ export default function EmployeeDetail() {
 
           {/* Hiring application linked notice */}
           {detail.hiringApplication && (
-            <div className="mx-6 mb-4 rounded-2xl border border-sky-100 bg-sky-50 px-4 py-2.5 text-xs text-sky-700 font-medium">
+            <div className="mx-4 mb-3 rounded-xl border border-sky-100 bg-sky-50 px-3 py-2 text-xs text-sky-700 font-medium">
               هذا السجل مرتبط بطلب توظيف — يمكنك مراجعة المقابلات والتدريب في تبويب "ملف التوظيف".
             </div>
           )}
@@ -1123,8 +1127,8 @@ export default function EmployeeDetail() {
 
         {/* ── Tab bar ──────────────────────────────────────────────────────── */}
         <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <div className="flex gap-1 border-b border-[#E3E7EC] min-w-max">
+          <div>
+            <div className="flex flex-wrap gap-1 border-b border-[#E3E7EC] px-2">
               {TABS.map((tab) => {
                 const Icon = tab.icon;
                 const isActive = activeTab === tab.key;
@@ -1135,7 +1139,7 @@ export default function EmployeeDetail() {
                     key={tab.key}
                     type="button"
                     onClick={() => setActiveTab(tab.key)}
-                    className={`relative flex items-center gap-1.5 px-3.5 py-2.5 text-base font-bold transition-colors whitespace-nowrap ${
+                    className={`relative flex items-center gap-1.5 px-3 py-2.5 text-sm font-semibold transition-colors whitespace-nowrap ${
                       isActive
                         ? 'text-sky-600 after:absolute after:inset-x-2 after:-bottom-px after:h-[2.5px] after:bg-sky-600 after:rounded-t'
                         : 'text-slate-500 hover:text-slate-800'
@@ -1153,7 +1157,7 @@ export default function EmployeeDetail() {
           </div>
 
           {/* Tab body */}
-          <div className="p-5">
+          <div className="p-3">
             {activeTab === 'profile'        && renderProfile()}
             {activeTab === 'qualifications' && renderQualifications()}
             {activeTab === 'employment'     && renderEmployment()}
@@ -1202,11 +1206,11 @@ export default function EmployeeDetail() {
       {showTransferModal && detail && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-md rounded-2xl bg-white shadow-xl">
-            <div className="flex items-center gap-2 border-b border-slate-100 px-5 py-4">
+            <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-2.5">
               <ArrowRight className="h-4 w-4 text-sky-600" />
               <h3 className="text-sm font-bold text-slate-800">نقل الموظف إلى فرع آخر</h3>
             </div>
-            <div className="space-y-4 px-5 py-4">
+            <div className="space-y-4 px-4 py-2.5">
               <p className="text-xs leading-relaxed text-slate-500">
                 سيُنقل سجل الموظف وحسابه إلى الفرع الجديد. يبقى ما أنشأه أو يملكه (عقود/عملاء/مهام سابقة) في الفرع الحالي،
                 وتُصفَّر روابط المدير المباشر. لا يمكن النقل إذا كانت لديه مهام أو زيارات مفتوحة خارج الفرع الهدف.
@@ -1236,7 +1240,7 @@ export default function EmployeeDetail() {
                 <p className="rounded-lg bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{transferError}</p>
               )}
             </div>
-            <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-5 py-4">
+            <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-4 py-2.5">
               <Button variant="ghost" size="sm" onClick={() => { if (!transferring) setShowTransferModal(false); }} disabled={transferring}>
                 إلغاء
               </Button>
