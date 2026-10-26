@@ -36,6 +36,7 @@ import {
 } from '../utils/contactValidation.js';
 import {
   buildClientLifecycleStatusSql,
+  eligiblePersonalOwnerCondition,
   loadClientSubject,
   getEligiblePersonalOwnerIds,
   isEligiblePersonalOwner,
@@ -997,6 +998,173 @@ router.get('/', requirePermission('clients.view_list'), async (req, res) => {
   }
 });
 
+// Optional filters of the clients records table (GET /paged), shared with the
+// bulk ownership operation so both act on exactly the same result set.
+// Pushes bound params onto `params` and conditions onto `conditions`.
+function appendClientListFilterConditions(query: any, params: any[], conditions: string[]): void {
+  // Free search matches the client's OWN identity only (name / id / phones)
+  // plus the client's own detailed address text.
+  // It deliberately does not match the mediator's name or the branch name:
+  // searching "أحمد" must not return every client Ahmad referred — that is
+  // the separate `filterReferrerName` filter below.
+  const search = typeof query.search === 'string' ? query.search.trim() : '';
+  if (search) {
+    params.push(`%${search}%`);
+    const likeRef = `$${params.length}`;
+    const parts = [
+      `c.name ILIKE ${likeRef}`,
+      `c.id::text LIKE ${likeRef}`,
+      `c.detailed_address ILIKE ${likeRef}`,
+    ];
+    const digits = search.replace(/\D/g, '');
+    if (digits) {
+      params.push(`%${digits}%`);
+      const phoneRef = `$${params.length}`;
+      parts.push(`${phoneNormalizationSql('c.mobile')} LIKE ${phoneRef}`);
+      parts.push(
+        `EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(c.contacts, '[]'::jsonb)) AS contact
+           WHERE ${phoneNormalizationSql(`contact->>'number'`)} LIKE ${phoneRef})`,
+      );
+    }
+    conditions.push(`(${parts.join(' OR ')})`);
+  }
+
+  const filterClass = typeof query.filterClass === 'string' ? query.filterClass.toUpperCase() : '';
+  if (['OP', 'FOP', 'LEAD'].includes(filterClass)) {
+    params.push(filterClass);
+    conditions.push(`(${buildClientLifecycleStatusSql('c')}) = $${params.length}`);
+  }
+
+  const filterMediator = typeof query.filterMediator === 'string' ? query.filterMediator.trim() : '';
+  if (filterMediator) {
+    params.push(filterMediator);
+    conditions.push(`c.referrer_type = $${params.length}`);
+  }
+
+  // Primary mediator's name (partial) — the same value the «اسم الوسيط» column shows.
+  const filterReferrerName = typeof query.filterReferrerName === 'string' ? query.filterReferrerName.trim() : '';
+  if (filterReferrerName) {
+    params.push(`%${filterReferrerName}%`);
+    conditions.push(`c.referrer_name ILIKE $${params.length}`);
+  }
+
+  // ── Enriched filter catalog (docs/engineering/api/clients-records-performance-and-filters.md §7) ──
+  // Geo cascade: the frontend sends the subtree of the deepest selected level
+  // (محافظة→منطقة→ناحية→حي) as `geoIds`; a client matches when any of its geo
+  // columns falls inside that subtree ("match everything under the selection").
+  const geoIds = typeof query.geoIds === 'string'
+    ? query.geoIds.split(',').map(s => s.trim()).filter(s => /^\d+$/.test(s))
+    : [];
+  if (geoIds.length > 0) {
+    params.push(geoIds);
+    const ref = `$${params.length}::text[]`;
+    conditions.push(`(c.governorate::text = ANY(${ref}) OR c.district::text = ANY(${ref}) OR c.neighborhood::text = ANY(${ref}))`);
+  }
+
+  // Owner/responsible: `owner=branch` = company/branch-owned clients — mirrors
+  // buildCustomerOwnershipSql's company_* ownerType (no eligible personal
+  // owner, whatever the lifecycle stage). A user id = clients
+  // personally owned by that eligible user. `ownerBranchId` narrows branch
+  // ownership to one branch; it is ANDed with the scope, so it never widens it.
+  const owner = toPositiveInt(query.owner as any);
+  if (query.owner === 'branch') {
+    conditions.push(`NOT ${personalOwnerExistsPredicate('c.id')}`);
+    const ownerBranchId = toPositiveInt(query.ownerBranchId as any);
+    if (ownerBranchId != null) {
+      params.push(ownerBranchId);
+      conditions.push(`c.branch_id = $${params.length}`);
+    }
+  } else if (owner != null) {
+    params.push(owner);
+    conditions.push(personalOwnershipPredicate('c.id', `$${params.length}`));
+  }
+
+  // Commitment rating.
+  const rating = typeof query.rating === 'string' ? query.rating.trim() : '';
+  if (['Committed', 'NotCommitted', 'Undefined'].includes(rating)) {
+    params.push(rating);
+    conditions.push(`COALESCE(c.rating, 'Undefined') = $${params.length}`);
+  }
+
+  // Registration date range.
+  const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+  const createdFrom = typeof query.createdFrom === 'string' && dateRe.test(query.createdFrom) ? query.createdFrom : '';
+  if (createdFrom) {
+    params.push(createdFrom);
+    conditions.push(`c.created_at >= $${params.length}::date`);
+  }
+  const createdTo = typeof query.createdTo === 'string' && dateRe.test(query.createdTo) ? query.createdTo : '';
+  if (createdTo) {
+    params.push(createdTo);
+    conditions.push(`c.created_at < ($${params.length}::date + INTERVAL '1 day')`);
+  }
+
+  // Device serial lookup (cross-entity → installed_devices).
+  const serial = typeof query.serial === 'string' ? query.serial.trim() : '';
+  if (serial) {
+    params.push(`%${serial}%`);
+    conditions.push(`EXISTS (SELECT 1 FROM installed_devices d WHERE d.customer_id = c.id AND d.serial_number ILIKE $${params.length})`);
+  }
+
+  // Has an installed device? (boolean)
+  const hasDevice = query.hasDevice;
+  if (hasDevice === 'yes' || hasDevice === 'no') {
+    const op = hasDevice === 'yes' ? 'EXISTS' : 'NOT EXISTS';
+    conditions.push(`${op} (SELECT 1 FROM installed_devices d WHERE d.customer_id = c.id)`);
+  }
+
+  // Has an active task of a given type (cross-entity → open_tasks). "Active" =
+  // any stage that isn't closed/cancelled/completed (confirmed with user).
+  const taskType = typeof query.taskType === 'string' ? query.taskType.trim() : '';
+  if (taskType) {
+    params.push(taskType);
+    conditions.push(`EXISTS (SELECT 1 FROM open_tasks ot WHERE ot.client_id = c.id AND ot.task_type = $${params.length} AND ot.status NOT IN ('closed', 'cancelled', 'completed'))`);
+  }
+
+  // Route line: clients whose address falls inside the route's covered areas.
+  // The frontend expands the route's points to their geo subtree (like geoIds).
+  const routeGeoIds = typeof query.routeGeoIds === 'string'
+    ? query.routeGeoIds.split(',').map(s => s.trim()).filter(s => /^\d+$/.test(s))
+    : [];
+  if (routeGeoIds.length > 0) {
+    params.push(routeGeoIds);
+    const ref = `$${params.length}::text[]`;
+    conditions.push(`(c.governorate::text = ANY(${ref}) OR c.district::text = ANY(${ref}) OR c.neighborhood::text = ANY(${ref}))`);
+  }
+
+  // Water source (admin list value) and data quality (fixed enum).
+  const waterSource = typeof query.waterSource === 'string' ? query.waterSource.trim() : '';
+  if (waterSource) {
+    params.push(waterSource);
+    conditions.push(`c.water_source = $${params.length}`);
+  }
+  const dataQuality = typeof query.dataQuality === 'string' ? query.dataQuality.trim() : '';
+  if (['correct', 'incorrect', 'needs_edit'].includes(dataQuality)) {
+    params.push(dataQuality);
+    conditions.push(`c.data_quality = $${params.length}`);
+  }
+
+  // Clients referred BY a given client. Covers both storage shapes the row
+  // mapper already reconciles: the legacy flat columns and the `referrers`
+  // JSONB array. Lets the client profile list its referrals without the modal
+  // pulling the whole clients table to filter it in the browser.
+  const referredByClientId = toPositiveInt(query.referredByClientId as any);
+  if (referredByClientId != null) {
+    params.push(referredByClientId);
+    const ref = `$${params.length}`;
+    // Containment (@>) rather than expanding the array per row: it is the form
+    // the GIN index from migration 439 can answer. `referralEntityId` is stored
+    // as a JSON number, so the probe is built with jsonb_build_object to match
+    // the type exactly.
+    conditions.push(`(
+      (c.referral_entity_id = ${ref} AND c.referrer_type = 'Client')
+      OR c.referrers @> jsonb_build_array(
+           jsonb_build_object('referralEntityId', ${ref}::int, 'referrerType', 'Client')
+         )
+    )`);
+  }
+}
+
 /**
  * @swagger
  * /api/clients/paged:
@@ -1082,167 +1250,7 @@ router.get('/paged', requirePermission('clients.view_list'), async (req, res) =>
     const conditions = appendClientScopeConditions(authContext, requestedBranchId, listAccess.scope, params);
     conditions.push('c.is_candidate = FALSE');
 
-    // Free search matches the client's OWN identity only (name / id / phones)
-    // plus the client's own detailed address text.
-    // It deliberately does not match the mediator's name or the branch name:
-    // searching "أحمد" must not return every client Ahmad referred — that is
-    // the separate `filterReferrerName` filter below.
-    const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
-    if (search) {
-      params.push(`%${search}%`);
-      const likeRef = `$${params.length}`;
-      const parts = [
-        `c.name ILIKE ${likeRef}`,
-        `c.id::text LIKE ${likeRef}`,
-        `c.detailed_address ILIKE ${likeRef}`,
-      ];
-      const digits = search.replace(/\D/g, '');
-      if (digits) {
-        params.push(`%${digits}%`);
-        const phoneRef = `$${params.length}`;
-        parts.push(`${phoneNormalizationSql('c.mobile')} LIKE ${phoneRef}`);
-        parts.push(
-          `EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(c.contacts, '[]'::jsonb)) AS contact
-             WHERE ${phoneNormalizationSql(`contact->>'number'`)} LIKE ${phoneRef})`,
-        );
-      }
-      conditions.push(`(${parts.join(' OR ')})`);
-    }
-
-    const filterClass = typeof req.query.filterClass === 'string' ? req.query.filterClass.toUpperCase() : '';
-    if (['OP', 'FOP', 'LEAD'].includes(filterClass)) {
-      params.push(filterClass);
-      conditions.push(`(${buildClientLifecycleStatusSql('c')}) = $${params.length}`);
-    }
-
-    const filterMediator = typeof req.query.filterMediator === 'string' ? req.query.filterMediator.trim() : '';
-    if (filterMediator) {
-      params.push(filterMediator);
-      conditions.push(`c.referrer_type = $${params.length}`);
-    }
-
-    // Primary mediator's name (partial) — the same value the «اسم الوسيط» column shows.
-    const filterReferrerName = typeof req.query.filterReferrerName === 'string' ? req.query.filterReferrerName.trim() : '';
-    if (filterReferrerName) {
-      params.push(`%${filterReferrerName}%`);
-      conditions.push(`c.referrer_name ILIKE $${params.length}`);
-    }
-
-    // ── Enriched filter catalog (docs/engineering/api/clients-records-performance-and-filters.md §7) ──
-    // Geo cascade: the frontend sends the subtree of the deepest selected level
-    // (محافظة→منطقة→ناحية→حي) as `geoIds`; a client matches when any of its geo
-    // columns falls inside that subtree ("match everything under the selection").
-    const geoIds = typeof req.query.geoIds === 'string'
-      ? req.query.geoIds.split(',').map(s => s.trim()).filter(s => /^\d+$/.test(s))
-      : [];
-    if (geoIds.length > 0) {
-      params.push(geoIds);
-      const ref = `$${params.length}::text[]`;
-      conditions.push(`(c.governorate::text = ANY(${ref}) OR c.district::text = ANY(${ref}) OR c.neighborhood::text = ANY(${ref}))`);
-    }
-
-    // Owner/responsible: `owner=branch` = company/branch-owned clients — mirrors
-    // buildCustomerOwnershipSql's company_* ownerType (OP/FOP are reclaimed by the
-    // company; otherwise no eligible personal owner). A user id = clients
-    // personally owned by that eligible user. `ownerBranchId` narrows branch
-    // ownership to one branch; it is ANDed with the scope, so it never widens it.
-    const owner = toPositiveInt(req.query.owner as any);
-    if (req.query.owner === 'branch') {
-      conditions.push(`((${buildClientLifecycleStatusSql('c')}) IN ('OP', 'FOP') OR NOT ${personalOwnerExistsPredicate('c.id')})`);
-      const ownerBranchId = toPositiveInt(req.query.ownerBranchId as any);
-      if (ownerBranchId != null) {
-        params.push(ownerBranchId);
-        conditions.push(`c.branch_id = $${params.length}`);
-      }
-    } else if (owner != null) {
-      params.push(owner);
-      conditions.push(personalOwnershipPredicate('c.id', `$${params.length}`));
-    }
-
-    // Commitment rating.
-    const rating = typeof req.query.rating === 'string' ? req.query.rating.trim() : '';
-    if (['Committed', 'NotCommitted', 'Undefined'].includes(rating)) {
-      params.push(rating);
-      conditions.push(`COALESCE(c.rating, 'Undefined') = $${params.length}`);
-    }
-
-    // Registration date range.
-    const dateRe = /^\d{4}-\d{2}-\d{2}$/;
-    const createdFrom = typeof req.query.createdFrom === 'string' && dateRe.test(req.query.createdFrom) ? req.query.createdFrom : '';
-    if (createdFrom) {
-      params.push(createdFrom);
-      conditions.push(`c.created_at >= $${params.length}::date`);
-    }
-    const createdTo = typeof req.query.createdTo === 'string' && dateRe.test(req.query.createdTo) ? req.query.createdTo : '';
-    if (createdTo) {
-      params.push(createdTo);
-      conditions.push(`c.created_at < ($${params.length}::date + INTERVAL '1 day')`);
-    }
-
-    // Device serial lookup (cross-entity → installed_devices).
-    const serial = typeof req.query.serial === 'string' ? req.query.serial.trim() : '';
-    if (serial) {
-      params.push(`%${serial}%`);
-      conditions.push(`EXISTS (SELECT 1 FROM installed_devices d WHERE d.customer_id = c.id AND d.serial_number ILIKE $${params.length})`);
-    }
-
-    // Has an installed device? (boolean)
-    const hasDevice = req.query.hasDevice;
-    if (hasDevice === 'yes' || hasDevice === 'no') {
-      const op = hasDevice === 'yes' ? 'EXISTS' : 'NOT EXISTS';
-      conditions.push(`${op} (SELECT 1 FROM installed_devices d WHERE d.customer_id = c.id)`);
-    }
-
-    // Has an active task of a given type (cross-entity → open_tasks). "Active" =
-    // any stage that isn't closed/cancelled/completed (confirmed with user).
-    const taskType = typeof req.query.taskType === 'string' ? req.query.taskType.trim() : '';
-    if (taskType) {
-      params.push(taskType);
-      conditions.push(`EXISTS (SELECT 1 FROM open_tasks ot WHERE ot.client_id = c.id AND ot.task_type = $${params.length} AND ot.status NOT IN ('closed', 'cancelled', 'completed'))`);
-    }
-
-    // Route line: clients whose address falls inside the route's covered areas.
-    // The frontend expands the route's points to their geo subtree (like geoIds).
-    const routeGeoIds = typeof req.query.routeGeoIds === 'string'
-      ? req.query.routeGeoIds.split(',').map(s => s.trim()).filter(s => /^\d+$/.test(s))
-      : [];
-    if (routeGeoIds.length > 0) {
-      params.push(routeGeoIds);
-      const ref = `$${params.length}::text[]`;
-      conditions.push(`(c.governorate::text = ANY(${ref}) OR c.district::text = ANY(${ref}) OR c.neighborhood::text = ANY(${ref}))`);
-    }
-
-    // Water source (admin list value) and data quality (fixed enum).
-    const waterSource = typeof req.query.waterSource === 'string' ? req.query.waterSource.trim() : '';
-    if (waterSource) {
-      params.push(waterSource);
-      conditions.push(`c.water_source = $${params.length}`);
-    }
-    const dataQuality = typeof req.query.dataQuality === 'string' ? req.query.dataQuality.trim() : '';
-    if (['correct', 'incorrect', 'needs_edit'].includes(dataQuality)) {
-      params.push(dataQuality);
-      conditions.push(`c.data_quality = $${params.length}`);
-    }
-
-    // Clients referred BY a given client. Covers both storage shapes the row
-    // mapper already reconciles: the legacy flat columns and the `referrers`
-    // JSONB array. Lets the client profile list its referrals without the modal
-    // pulling the whole clients table to filter it in the browser.
-    const referredByClientId = toPositiveInt(req.query.referredByClientId as any);
-    if (referredByClientId != null) {
-      params.push(referredByClientId);
-      const ref = `$${params.length}`;
-      // Containment (@>) rather than expanding the array per row: it is the form
-      // the GIN index from migration 439 can answer. `referralEntityId` is stored
-      // as a JSON number, so the probe is built with jsonb_build_object to match
-      // the type exactly.
-      conditions.push(`(
-        (c.referral_entity_id = ${ref} AND c.referrer_type = 'Client')
-        OR c.referrers @> jsonb_build_array(
-             jsonb_build_object('referralEntityId', ${ref}::int, 'referrerType', 'Client')
-           )
-      )`);
-    }
+    appendClientListFilterConditions(req.query, params, conditions);
 
     const where = ` WHERE ${conditions.join(' AND ')}`;
 
@@ -1771,9 +1779,6 @@ const OWNERSHIP_REASON_CATEGORIES: Record<OwnershipAction, string> = {
   release: 'client_ownership_release_reasons',
 };
 
-const OWNERSHIP_STAGE_LOCK_MESSAGE =
-  'الملكية الشخصية تُدار حالياً لزبائن LEAD فقط؛ زبائن FOP و OP ملكيتهم للفرع';
-
 async function loadClientOwnershipView(
   clientId: number,
   authContext: any,
@@ -1792,12 +1797,29 @@ async function loadClientOwnershipView(
 
   const [{ rows: ownerRows }, { rows: logRows }] = await Promise.all([
     db.query(
+      // Each current owner with how the ownership was acquired: the latest
+      // «owner_added» log row for that owner (source + reason + actor).
       `SELECT ca.hr_user_id AS "userId", u.name, r.display_name AS "roleName",
-              ca.assigned_at AS "assignedAt", ab.name AS "assignedByName"
+              ca.assigned_at AS "assignedAt",
+              COALESCE(acq.performed_by_name, ab.name) AS "assignedByName",
+              e.status AS "employeeStatus", u.is_active AS "accountActive",
+              acq.change_context AS "acquiredContext", acq.reason AS "acquiredReason",
+              acq.source AS "acquiredSource"
          FROM client_assignments ca
          JOIN hr_users u ON u.id = ca.hr_user_id
          LEFT JOIN roles r ON r.id = u.role_id
+         LEFT JOIN employees e ON e.id = u.employee_id
          LEFT JOIN hr_users ab ON ab.id = ca.assigned_by
+         LEFT JOIN LATERAL (
+           SELECT l.change_context, l.reason, l.source, pb.name AS performed_by_name
+             FROM client_ownership_log l
+             LEFT JOIN hr_users pb ON pb.id = l.performed_by
+            WHERE l.client_id = ca.client_id
+              AND l.owner_user_id = ca.hr_user_id
+              AND l.event_type = 'owner_added'
+            ORDER BY l.created_at DESC, l.id DESC
+            LIMIT 1
+         ) acq ON TRUE
         WHERE ca.client_id = $1
         ORDER BY ca.assigned_at, ca.id`,
       [clientId],
@@ -1819,8 +1841,8 @@ async function loadClientOwnershipView(
     await getEligiblePersonalOwnerIds(ownerRows.map((row: any) => Number(row.userId))),
   );
   const branchId = client.branchId == null ? null : Number(client.branchId);
+  // Manual operations apply at every stage (LEAD / FOP / OP, 2026-10-20).
   const manageAccess = canManageClientAssignments(authContext, branchId);
-  const stageAllowsManage = client.stage === 'LEAD';
 
   // The active reasons of each operation's list, served here so a manager
   // does not also need the system-lists lookup permission.
@@ -1854,13 +1876,16 @@ async function loadClientOwnershipView(
       assignedAt: row.assignedAt,
       assignedByName: row.assignedByName ?? null,
       eligible: eligibleIds.has(Number(row.userId)),
+      employeeStatus: row.employeeStatus ?? null,
+      accountActive: row.accountActive !== false,
+      // No log row → the assignment predates the log (migration 481 backfill gap).
+      acquiredContext: row.acquiredSource === 'backfill' ? 'backfill' : (row.acquiredContext ?? null),
+      acquiredReason: row.acquiredReason ?? null,
     })),
     log: logRows.map((row: any) => ({ ...row, id: Number(row.id) })),
     reasonOptions,
-    canManage: manageAccess.allowed && stageAllowsManage,
-    manageBlockedReason: !manageAccess.allowed
-      ? null
-      : stageAllowsManage ? null : OWNERSHIP_STAGE_LOCK_MESSAGE,
+    canManage: manageAccess.allowed,
+    manageBlockedReason: null,
   };
 }
 
@@ -1924,8 +1949,7 @@ router.post('/:id/ownership/operations', requirePermission('clients.assignment.m
     transactionStarted = true;
 
     const { rows: lockedRows } = await db.query(
-      `SELECT c.branch_id AS "branchId", c.deleted_at AS "deletedAt",
-              (${buildClientLifecycleStatusSql('c')}) AS stage
+      `SELECT c.branch_id AS "branchId", c.deleted_at AS "deletedAt"
          FROM clients c
         WHERE c.id = $1
         FOR UPDATE OF c`,
@@ -1941,12 +1965,6 @@ router.post('/:id/ownership/operations', requirePermission('clients.assignment.m
       await db.query('ROLLBACK');
       transactionStarted = false;
       return forbidClientAccess(res, access.reason);
-    }
-    if (locked.stage !== 'LEAD') {
-      throw Object.assign(new Error(OWNERSHIP_STAGE_LOCK_MESSAGE), {
-        status: 409,
-        code: 'OWNERSHIP_STAGE_LOCKED',
-      });
     }
     if (branchId == null) {
       throw Object.assign(new Error('الزبون غير مرتبط بفرع'), { status: 409 });
@@ -2019,6 +2037,174 @@ router.post('/:id/ownership/operations', requirePermission('clients.assignment.m
 
     const view = await loadClientOwnershipView(clientId, authContext);
     res.json(view);
+  } catch (err: any) {
+    if (transactionStarted) {
+      await db.query('ROLLBACK').catch(() => undefined);
+    }
+    res.status(err.status || 500).json({ error: err.message, code: err.code });
+  } finally {
+    db.release();
+  }
+});
+
+// Bulk «إضافة مالك» on the clients table's current filter result, or on the
+// rows ticked in the table (`clientIds`). For a filter the server rebuilds the
+// result from the same filters as GET /paged; ticked ids go through the same
+// scope checks. Either way it acts on clients of ONE branch, at any stage. Clients already
+// owned by the chosen employee are skipped; other owners stay (co-ownership).
+// `dryRun: true` returns the counts only; the apply call must send the
+// `expectedCount` it was shown, so a result that changed meanwhile is refused.
+const BULK_OWNERSHIP_MAX_SELECTED = 500;
+
+router.post('/bulk-ownership', requirePermission('clients.assignment.manage'), async (req, res) => {
+  const authContext = getRequiredAuthContext(req);
+  const filters = req.body?.filters && typeof req.body.filters === 'object' ? req.body.filters : {};
+  const userId = toPositiveInt(req.body?.userId);
+  const dryRun = req.body?.dryRun === true;
+  // Ticked rows replace the filters when sent (one table page at most).
+  const rawClientIds = Array.isArray(req.body?.clientIds) ? req.body.clientIds : null;
+  const clientIds = rawClientIds == null ? null
+    : Array.from(new Set(rawClientIds.map((id: unknown) => toPositiveInt(id as any)).filter((id: number | null): id is number => id != null)));
+  if (clientIds != null && (clientIds.length === 0 || clientIds.length !== rawClientIds.length || clientIds.length > BULK_OWNERSHIP_MAX_SELECTED)) {
+    return res.status(400).json({
+      error: `حدّد بين 1 و${BULK_OWNERSHIP_MAX_SELECTED} زبون`,
+      code: 'BULK_OWNERSHIP_INVALID_SELECTION',
+    });
+  }
+
+  const headerBranchId = resolveClientListBranchFilter(req);
+  let branchId = headerBranchId
+    ?? (authContext.allowedBranchIds.length === 1 ? Number(authContext.allowedBranchIds[0]) : null);
+  // Ticked rows carry their own branch (a GLOBAL viewer may be on «all
+  // branches»); they must all belong to one.
+  if (branchId == null && clientIds != null) {
+    const { rows: branchRows } = await pool.query(
+      `SELECT DISTINCT branch_id FROM clients WHERE id = ANY($1::int[]) AND branch_id IS NOT NULL`,
+      [clientIds],
+    );
+    if (branchRows.length > 1) {
+      return res.status(400).json({ error: 'الزبائن المحددون من أكثر من فرع؛ حدّد زبائن فرع واحد', code: 'BULK_OWNERSHIP_MIXED_BRANCHES' });
+    }
+    if (branchRows.length === 1) branchId = Number(branchRows[0].branch_id);
+  }
+  if (branchId == null) {
+    return res.status(400).json({ error: 'حدّد فرعاً واحداً قبل الإسناد الجماعي', code: 'BULK_OWNERSHIP_BRANCH_REQUIRED' });
+  }
+  const access = canManageClientAssignments(authContext, branchId);
+  if (!access.allowed) return forbidClientAccess(res, access.reason);
+  const listAccess = getClientListAccessPlan(authContext);
+  if (listAccess.scope === 'NONE') return forbidClientAccess(res, 'MISSING_PERMISSION');
+  // A preview may run before the employee is picked (counts without the
+  // «already owner» split); applying always needs one.
+  if (userId == null && !dryRun) {
+    return res.status(400).json({ error: 'اختر الموظف', code: 'BULK_OWNERSHIP_USER_REQUIRED' });
+  }
+
+  const db = await pool.connect();
+  let transactionStarted = false;
+  try {
+    if (userId != null) {
+      const resolvedUser = await resolveAssignmentUserIds([userId], branchId, db);
+      if ('error' in resolvedUser) {
+        return res.status(400).json({ error: resolvedUser.error });
+      }
+    }
+
+    // Same scope + filters as the records table, narrowed to the branch.
+    const params: any[] = [];
+    const conditions = appendClientScopeConditions(authContext, branchId, listAccess.scope, params);
+    conditions.push('c.is_candidate = FALSE', 'c.deleted_at IS NULL');
+    const conditionsBeforeFilters = conditions.length;
+    if (clientIds != null) {
+      params.push(clientIds);
+      conditions.push(`c.id = ANY($${params.length}::int[])`);
+    } else {
+      appendClientListFilterConditions(filters, params, conditions);
+    }
+    // Never the whole branch by accident: at least one table filter applies.
+    if (conditions.length === conditionsBeforeFilters) {
+      return res.status(400).json({
+        error: 'طبّق فلتراً واحداً على الأقل (منطقة، خط سير، …) قبل الإسناد الجماعي',
+        code: 'BULK_OWNERSHIP_FILTER_REQUIRED',
+      });
+    }
+    params.push(branchId);
+    conditions.push(`c.branch_id = $${params.length}`);
+    const matchedWhere = `WHERE ${conditions.join(' AND ')}`;
+    params.push(userId);
+    const userRef = `$${params.length}`;
+    const alreadyOwnerSql = `EXISTS (SELECT 1 FROM client_assignments ca WHERE ca.client_id = c.id AND ca.hr_user_id = ${userRef})`;
+
+    const { rows: countRows } = await db.query(
+      `SELECT COUNT(*)::int AS matched,
+              COUNT(*) FILTER (WHERE ${alreadyOwnerSql})::int AS "alreadyOwner",
+              COUNT(*) FILTER (WHERE NOT ${alreadyOwnerSql})::int AS "toAssign"
+         FROM clients c
+         LEFT JOIN branches b ON b.id = c.branch_id
+         ${matchedWhere}`,
+      params,
+    );
+    const counts = countRows[0];
+    if (dryRun) {
+      const { rows: reasonOptions } = await db.query(
+        `SELECT id, value, COALESCE(NULLIF(metadata->>'label', ''), value) AS label
+           FROM system_lists
+          WHERE category = $1 AND is_active = TRUE
+          ORDER BY display_order, id`,
+        [OWNERSHIP_REASON_CATEGORIES.add],
+      );
+      return res.json({ ...counts, applied: 0, reasonOptions });
+    }
+
+    const reasonId = toPositiveInt(req.body?.reasonId);
+    const note = typeof req.body?.note === 'string' ? req.body.note.trim() : '';
+    const { rows: reasonRows } = reasonId == null ? { rows: [] as any[] } : await db.query(
+      `SELECT value, COALESCE(NULLIF(metadata->>'label', ''), value) AS label
+         FROM system_lists
+        WHERE id = $1 AND category = $2 AND is_active = TRUE`,
+      [reasonId, OWNERSHIP_REASON_CATEGORIES.add],
+    );
+    const reasonRow = reasonRows[0];
+    if (!reasonRow) {
+      return res.status(400).json({ error: 'سبب العملية مطلوب', code: 'OWNERSHIP_REASON_REQUIRED' });
+    }
+    if (reasonRow.value === 'other' && note.length === 0) {
+      return res.status(400).json({ error: 'اكتب ملاحظة توضح السبب عند اختيار «أخرى»', code: 'OWNERSHIP_NOTE_REQUIRED' });
+    }
+    if (Number(req.body?.expectedCount) !== counts.toAssign) {
+      return res.status(409).json({
+        error: 'تغيّرت نتيجة الفلتر منذ المعاينة؛ أعد المعاينة قبل التنفيذ',
+        code: 'BULK_OWNERSHIP_STALE',
+        ...counts,
+      });
+    }
+    if (counts.toAssign === 0) {
+      return res.status(400).json({ error: 'لا يوجد زبائن لإسنادهم ضمن النتيجة', code: 'BULK_OWNERSHIP_EMPTY' });
+    }
+
+    await db.query('BEGIN');
+    transactionStarted = true;
+    await db.query(
+      `SELECT set_config('app.change_context', 'bulk_add', true),
+              set_config('app.change_reason', $1, true),
+              set_config('app.ownership_reason_id', $2, true)`,
+      [note ? `${reasonRow.label} — ${note}` : reasonRow.label, String(reasonId)],
+    );
+    params.push(authContext.userId);
+    const actorRef = `$${params.length}`;
+    const { rowCount } = await db.query(
+      `INSERT INTO client_assignments (client_id, hr_user_id, assigned_by)
+       SELECT c.id, ${userRef}, ${actorRef}
+         FROM clients c
+         LEFT JOIN branches b ON b.id = c.branch_id
+         ${matchedWhere}
+          AND NOT ${alreadyOwnerSql}
+       ON CONFLICT (client_id, hr_user_id) DO NOTHING`,
+      params,
+    );
+    await db.query('COMMIT');
+    transactionStarted = false;
+    res.json({ ...counts, applied: rowCount ?? 0 });
   } catch (err: any) {
     if (transactionStarted) {
       await db.query('ROLLBACK').catch(() => undefined);
@@ -2914,10 +3100,9 @@ router.put('/:id', requirePermission('clients.edit', 'clients.contacts.edit'), a
       ],
     );
 
-    // If transitioning to OP/FOP: drop personal assignments + cancel marketing tasks
+    // If transitioning to OP/FOP: cancel open marketing tasks. Personal owners
+    // stay (2026-10-20): ownership no longer moves to the branch at FOP/OP.
     if (transitioningToOpFop) {
-      await db.query(`SELECT set_config('app.change_context', 'status_op_fop', true)`);
-      await db.query('DELETE FROM client_assignments WHERE client_id = $1', [clientId]);
       await db.query(
         `UPDATE open_tasks SET status = 'cancelled', updated_at = NOW()
          WHERE client_id = $1 AND task_family = 'marketing'

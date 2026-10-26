@@ -54,6 +54,7 @@ import { useAuthStore } from '../hooks/useAuthStore';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import BranchScopeIndicator from '../components/BranchScopeIndicator';
 import BulkActivateModal from '../components/appAccounts/BulkActivateModal';
+import BulkOwnershipModal from '../components/clients/BulkOwnershipModal';
 import { usePermissions } from '../hooks/usePermissions';
 import { useDidUpdateEffect, useScrollRestoration, useSessionState } from '../hooks/useListStatePersistence';
 
@@ -150,6 +151,11 @@ export default function Clients() {
     } | null>(null);
     const { hasPermission } = usePermissions();
     const canBulkActivate = hasPermission('app_accounts.bulk_activate');
+    // Bulk ownership acts on ONE branch: GLOBAL viewers pick it in the page filter.
+    const canBulkOwnership = hasPermission('clients.assignment.manage');
+    const [bulkOwnershipOpen, setBulkOwnershipOpen] = useState(false);
+    // Ticked rows for «إسناد ملكية المحددين»; null = the filter result.
+    const [bulkOwnershipSelection, setBulkOwnershipSelection] = useState<{ ids: number[]; branchId: number | null } | null>(null);
     const canDeleteClients = hasPermission('clients.delete');
     const [activeCandidateForSearch, setActiveCandidateForSearch] = useState<any>(null);
     const [verifiedPhone, setVerifiedPhone] = useState('');
@@ -446,7 +452,7 @@ export default function Clients() {
                 const wasOpFop = ['OP', 'FOP'].includes(editingClient.candidateStatus ?? '');
                 const nowOpFop = ['OP', 'FOP'].includes(clientData.candidateStatus ?? '');
                 if (!wasOpFop && nowOpFop) {
-                    const ok = confirm('تغيير الحالة إلى OP/FOP سيحذف جميع التعيينات الشخصية ويلغي المهام التسويقية. تأكيد؟');
+                    const ok = confirm('تغيير الحالة إلى OP/FOP سيلغي المهام التسويقية المفتوحة، ويبقى المالكون كما هم. تأكيد؟');
                     if (!ok) return;
                 }
                 await api.clients.update(clientData.id, clientData);
@@ -796,6 +802,20 @@ export default function Clients() {
                             تفعيل نتائج الفلاتر ({total})
                         </button>
                     )}
+
+                    {canBulkOwnership && total > 0 && !mustPickBranch && (
+                        <button
+                            onClick={() => { setBulkOwnershipSelection(null); setBulkOwnershipOpen(true); }}
+                            disabled={filterChips.length === 0 && !debouncedSearch}
+                            title={filterChips.length === 0 && !debouncedSearch
+                                ? 'طبّق فلتراً واحداً على الأقل (منطقة، خط سير، …) قبل الإسناد الجماعي'
+                                : 'إضافة موظف مالكاً للزبائن المطابقين للفلاتر الحالية'}
+                            className="text-xs font-bold text-sky-600 hover:text-sky-700 border border-sky-200 hover:border-sky-300 rounded-lg px-2.5 py-1 inline-flex items-center gap-1 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            <UserPlus className="w-3.5 h-3.5" />
+                            إسناد ملكية النتائج
+                        </button>
+                    )}
                 </div>
 
                 {/* Applied-filter chips — always-visible "what's applied", each removable */}
@@ -922,15 +942,30 @@ export default function Clients() {
                     onSortChange: (key, dir) => { setSortKey(key); setSortDir(dir); setPage(1); },
                 }}
                 onRowClick={(c) => navigate(`/clients/${c.id}`)}
-                bulkActions={canBulkActivate ? [
-                    {
+                bulkActions={canBulkActivate || canBulkOwnership ? [
+                    ...(canBulkActivate ? [{
                         label: 'تفعيل حسابات المحددين',
                         icon: CheckCircle2,
-                        onClick: (items) => setBulkActivationTarget({
+                        onClick: (items: Client[]) => setBulkActivationTarget({
                             scope: 'selected',
                             clients: items,
                         }),
-                    },
+                    }] : []),
+                    ...(canBulkOwnership ? [{
+                        label: 'إسناد ملكية المحددين',
+                        icon: UserPlus,
+                        onClick: (items: Client[]) => {
+                            const branchIds = Array.from(new Set(items
+                                .map(item => Number((item as any).branchId) || null)
+                                .filter((id): id is number => id != null)));
+                            if (branchIds.length > 1) {
+                                alert('الزبائن المحددون من أكثر من فرع؛ حدّد زبائن فرع واحد');
+                                return;
+                            }
+                            setBulkOwnershipSelection({ ids: items.map(item => Number(item.id)), branchId: branchIds[0] ?? null });
+                            setBulkOwnershipOpen(true);
+                        },
+                    }] : []),
                 ] : undefined}
                 actions={(c) => (
                     <div className="flex items-center gap-1">
@@ -965,6 +1000,18 @@ export default function Clients() {
                     name: client.name || [client.firstName, client.fatherName, client.lastName].filter(Boolean).join(' ') || `#${client.id}`,
                     mobile: client.mobile ?? null,
                 }))}
+            />
+
+            <BulkOwnershipModal
+                open={bulkOwnershipOpen}
+                onClose={() => { setBulkOwnershipOpen(false); setBulkOwnershipSelection(null); }}
+                filters={bulkOwnershipSelection
+                    ? { branchId: isGlobalClients ? (branchContextId ?? bulkOwnershipSelection.branchId) : null } as any
+                    : buildListParams() ?? {}}
+                clientIds={bulkOwnershipSelection?.ids ?? null}
+                branchId={bulkOwnershipSelection?.branchId
+                    ?? (isGlobalClients ? branchContextId : (Number(authUser?.branchId) || null))}
+                onApplied={() => { void fetchClients(); }}
             />
 
             <ClientModal

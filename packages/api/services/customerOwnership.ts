@@ -62,19 +62,16 @@ export function buildClientLifecycleStatusSql(clientAlias: string): string {
   `;
 }
 
+// Ownership does not depend on the lifecycle stage (2026-10-20): a client's
+// eligible personal owners stay through FOP and OP. With none, the client is
+// the branch's (or the company's when it has no branch).
 export function buildCustomerOwnershipSql(args: BuildCustomerOwnershipSqlArgs): string {
   const { clientAlias, branchNameExpression, outputAlias = 'ownership' } = args;
-  const lifecycleStatusSql = buildClientLifecycleStatusSql(clientAlias);
 
   return `
     LEFT JOIN LATERAL (
       SELECT
         CASE
-          WHEN (${lifecycleStatusSql}) IN ('OP', 'FOP')
-            THEN CASE
-              WHEN ${clientAlias}.branch_id IS NOT NULL THEN 'company_branch'
-              ELSE 'company_global'
-            END
           WHEN assignment_summary.eligible_personal_count > 1
             THEN 'personal_multi'
           WHEN assignment_summary.eligible_personal_count = 1
@@ -91,15 +88,11 @@ export function buildCustomerOwnershipSql(args: BuildCustomerOwnershipSqlArgs): 
           END
         END AS "ownerType",
         CASE
-          WHEN (${lifecycleStatusSql}) IN ('OP', 'FOP')
-            THEN COALESCE(${branchNameExpression}, 'الشركة العامة')
           WHEN assignment_summary.eligible_personal_count > 0
             THEN assignment_summary.personal_owner_label
           ELSE COALESCE(${branchNameExpression}, 'الشركة العامة')
         END AS "ownerLabel",
         CASE
-          WHEN (${lifecycleStatusSql}) IN ('OP', 'FOP')
-            THEN '[]'::json
           WHEN assignment_summary.eligible_personal_count > 0
             THEN assignment_summary.personal_assignments
           ELSE '[]'::json
@@ -109,8 +102,6 @@ export function buildCustomerOwnershipSql(args: BuildCustomerOwnershipSqlArgs): 
           ELSE 'global'
         END AS "companyOwnershipScope",
         CASE
-          WHEN (${lifecycleStatusSql}) IN ('OP', 'FOP')
-            THEN 'company_reclaimed_op_fop'
           WHEN assignment_summary.eligible_personal_count > 0
             THEN 'personal_assignment_active'
           WHEN assignment_summary.raw_assignment_count > 0
@@ -238,7 +229,7 @@ export function mapCustomerOwnership(row: any): CustomerOwnership {
 
 /**
  * Returns IDs of clients that are company-owned within the given branch and zones.
- * Company-owned = OP/FOP status OR no active personal assignment.
+ * Company-owned = no active personal assignment (whatever the lifecycle stage).
  */
 export async function getCompanyOwnedClients(branchId: number, zoneIds: number[]): Promise<number[]> {
   if (zoneIds.length === 0) return [];
@@ -251,8 +242,7 @@ export async function getCompanyOwnedClients(branchId: number, zoneIds: number[]
        AND c.deleted_at IS NULL
        AND c.neighborhood = ANY($2::int[])
        AND (
-         (${buildClientLifecycleStatusSql('c')}) IN ('OP', 'FOP')
-         OR NOT EXISTS (
+         NOT EXISTS (
            SELECT 1
            FROM client_assignments ca
            JOIN hr_users u ON u.id = ca.hr_user_id

@@ -374,8 +374,7 @@ export type CompanyOwnershipScope = 'branch' | 'global';
 export type EffectiveOwnershipReason =
     | 'personal_assignment_active'
     | 'company_default_unassigned'
-    | 'company_default_non_owner_assignments_ignored'
-    | 'company_reclaimed_op_fop';
+    | 'company_default_non_owner_assignments_ignored';
 
 export interface PersonalOwnershipAssignment {
     userId: number;

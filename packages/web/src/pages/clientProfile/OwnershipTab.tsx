@@ -16,6 +16,7 @@ import {
     Users,
 } from '../../components/ui/icons';
 import Modal from '../../components/ui/Modal';
+import SmartTable, { type ColumnDef } from '../../components/SmartTable';
 import Select from '../../components/ui/Select';
 import {
     api,
@@ -49,6 +50,7 @@ const CONTEXT_LABELS: Record<string, string> = {
     manual_remove: 'إزالة يدوية',
     manual_transfer: 'نقل بين موظفين',
     manual_release: 'إرجاع للفرع',
+    bulk_add: 'إسناد جماعي من جدول الزبائن',
     client_created: 'عند إضافة الزبون',
     candidate_converted: 'تحويل من اسم مقترح',
     candidate_linked: 'ربط اسم مقترح',
@@ -67,19 +69,89 @@ function formatDateTime(value?: string | null) {
     }
 }
 
-function formatDate(value?: string | null) {
-    if (!value) return '—';
-    try {
-        return new Date(value).toLocaleDateString('ar-SY');
-    } catch {
-        return value;
-    }
-}
-
 function contextLabel(entry: ClientOwnershipLogEntry) {
     if (entry.changeContext && CONTEXT_LABELS[entry.changeContext]) return CONTEXT_LABELS[entry.changeContext];
     return entry.role === 'system' ? 'النظام' : 'تعديل';
 }
+
+// Paths that add an owner without anyone choosing a reason: the reason column
+// describes the path instead of staying empty.
+const AUTOMATIC_REASONS: Record<string, string> = {
+    client_created: 'اختير مالكاً عند تسجيل الزبون',
+    candidate_converted: 'كان مسؤول الاسم المقترح الذي تحوّل إلى زبون',
+    candidate_linked: 'مسؤول اسم مقترح مكرر رُبط بهذا الزبون',
+    edit_form: 'من نموذج تعديل الزبون (قبل فصل الملكية)',
+};
+
+const EMPLOYEE_STATUS: Record<string, { label: string; className: string }> = {
+    active: { label: 'فعّال', className: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+    vacation: { label: 'بإجازة', className: 'bg-amber-50 text-amber-700 border-amber-200' },
+    suspended: { label: 'موقوف', className: 'bg-orange-50 text-orange-700 border-orange-200' },
+    terminated: { label: 'غادر', className: 'bg-slate-100 text-slate-600 border-slate-200' },
+};
+
+function OwnerStatusBadge({ owner }: { owner: ClientOwnershipOwner }) {
+    const status = !owner.accountActive
+        ? { label: 'الحساب موقوف', className: 'bg-slate-100 text-slate-600 border-slate-200' }
+        : EMPLOYEE_STATUS[owner.employeeStatus ?? ''] ?? (owner.eligible
+            ? EMPLOYEE_STATUS.active
+            : { label: 'غير مؤهل للملكية', className: 'bg-slate-100 text-slate-600 border-slate-200' });
+    return (
+        <div className="space-y-1">
+            <span className={`inline-block whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-bold ${status.className}`}>
+                {status.label}
+            </span>
+            {!owner.eligible && (
+                <p className="text-[11px] text-slate-400">الملكية للفرع مؤقتاً</p>
+            )}
+        </div>
+    );
+}
+
+const ownerColumns: ColumnDef<ClientOwnershipOwner>[] = [
+    { key: 'name', label: 'الموظف', render: o => <span className="font-bold text-slate-800">{o.name}</span>, exportValue: o => o.name },
+    { key: 'roleName', label: 'الصفة', render: o => <span className="text-sm text-slate-600">{o.roleName ?? '—'}</span>, exportValue: o => o.roleName ?? '' },
+    { key: 'employeeStatus', label: 'حالة الموظف', render: o => <OwnerStatusBadge owner={o} /> },
+    { key: 'assignedAt', label: 'تاريخ الإسناد', render: o => <span className="whitespace-nowrap text-sm text-slate-600">{formatDateTime(o.assignedAt)}</span>, exportValue: o => o.assignedAt ?? '' },
+    {
+        key: 'acquiredContext',
+        label: 'مصدر الملكية',
+        render: o => <span className="text-sm text-slate-700">{(o.acquiredContext && CONTEXT_LABELS[o.acquiredContext]) || 'غير مسجل'}</span>,
+        exportValue: o => (o.acquiredContext && CONTEXT_LABELS[o.acquiredContext]) || '',
+    },
+    {
+        key: 'acquiredReason',
+        label: 'السبب',
+        render: o => o.acquiredReason
+            ? <span className="text-sm text-slate-800">{o.acquiredReason}</span>
+            : <span className="text-sm text-slate-400">{AUTOMATIC_REASONS[o.acquiredContext ?? ''] ?? '—'}</span>,
+        exportValue: o => o.acquiredReason ?? AUTOMATIC_REASONS[o.acquiredContext ?? ''] ?? '',
+    },
+    { key: 'assignedByName', label: 'بواسطة', render: o => <span className="text-sm text-slate-600">{o.assignedByName ?? '—'}</span>, exportValue: o => o.assignedByName ?? '' },
+];
+
+const logColumns: ColumnDef<ClientOwnershipLogEntry>[] = [
+    { key: 'createdAt', label: 'التاريخ', render: e => <span className="whitespace-nowrap text-sm text-slate-600">{formatDateTime(e.createdAt)}</span>, exportValue: e => e.createdAt },
+    {
+        key: 'eventType',
+        label: 'الحدث',
+        render: e => e.eventType === 'owner_added'
+            ? <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-bold text-emerald-700"><UserPlus className="h-3 w-3" /> أصبح مالكاً</span>
+            : <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-red-50 px-2 py-0.5 text-xs font-bold text-red-600"><UserMinus className="h-3 w-3" /> انتهت ملكيته</span>,
+        exportValue: e => (e.eventType === 'owner_added' ? 'أصبح مالكاً' : 'انتهت ملكيته'),
+    },
+    { key: 'ownerName', label: 'الموظف', render: e => <span className="font-bold text-slate-800">{e.ownerName ?? 'مستخدم محذوف'}</span>, exportValue: e => e.ownerName ?? '' },
+    { key: 'changeContext', label: 'المصدر', render: e => <span className="text-sm text-slate-700">{contextLabel(e)}</span>, exportValue: e => contextLabel(e) },
+    {
+        key: 'reason',
+        label: 'السبب',
+        render: e => e.reason
+            ? <span className="text-sm text-slate-800">{e.reason}</span>
+            : <span className="text-sm text-slate-400">{(e.eventType === 'owner_added' && AUTOMATIC_REASONS[e.source === 'backfill' ? 'backfill' : e.changeContext ?? '']) || '—'}</span>,
+        exportValue: e => e.reason ?? '',
+    },
+    { key: 'performedByName', label: 'بواسطة', render: e => <span className="text-sm text-slate-600">{e.performedByName ?? (e.role === 'system' ? 'النظام' : '—')}</span>, exportValue: e => e.performedByName ?? '' },
+];
 
 export default function OwnershipTab({ client }: Props) {
     const [view, setView] = useState<ClientOwnershipView | null>(null);
@@ -117,7 +189,8 @@ export default function OwnershipTab({ client }: Props) {
         );
     }
 
-    const isBranchOwned = view.stage !== 'LEAD' || view.owners.every(owner => !owner.eligible);
+    // Owners stay through FOP/OP (2026-10-20): branch-owned = no eligible owner.
+    const isBranchOwned = view.owners.every(owner => !owner.eligible);
 
     return (
         <div className="space-y-5">
@@ -167,85 +240,52 @@ export default function OwnershipTab({ client }: Props) {
                     </div>
                 )}
 
-                {view.owners.length > 0 && (
-                    <ul className="mt-4 divide-y divide-slate-100 rounded-xl border border-slate-200">
-                        {view.owners.map(owner => (
-                            <li key={owner.userId} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-                                <div className="min-w-0">
-                                    <div className="flex flex-wrap items-center gap-2">
-                                        <span className="font-bold text-slate-800">{owner.name}</span>
-                                        {owner.roleName && <span className="text-xs text-slate-400">{owner.roleName}</span>}
-                                        {!owner.eligible && (
-                                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-700">
-                                                غير فعّال حالياً
-                                            </span>
-                                        )}
-                                    </div>
-                                    <p className="mt-0.5 text-xs text-slate-500">
-                                        مالك منذ {formatDate(owner.assignedAt)}
-                                        {owner.assignedByName ? ` · بواسطة ${owner.assignedByName}` : ''}
-                                    </p>
-                                </div>
-                                {view.canManage && (
-                                    <div className="flex gap-1.5">
-                                        <button
-                                            type="button"
-                                            onClick={() => setDialog({ kind: 'transfer', owner })}
-                                            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50"
-                                        >
-                                            <ArrowLeftRight className="h-3.5 w-3.5" /> نقل
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => setDialog({ kind: 'remove', owner })}
-                                            className="inline-flex items-center gap-1 rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50"
-                                        >
-                                            <UserMinus className="h-3.5 w-3.5" /> إزالة
-                                        </button>
-                                    </div>
-                                )}
-                            </li>
-                        ))}
-                    </ul>
-                )}
             </section>
 
-            {/* History */}
-            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                <h3 className="flex items-center gap-2 text-base font-bold text-slate-800">
-                    <History className="h-5 w-5 text-slate-500" /> سجل الملكية
-                </h3>
-                {view.log.length === 0 ? (
-                    <p className="mt-3 text-sm text-slate-400">لا توجد تغييرات مسجلة على ملكية هذا الزبون.</p>
-                ) : (
-                    <ol className="mt-4 space-y-3">
-                        {view.log.map(entry => {
-                            const added = entry.eventType === 'owner_added';
-                            return (
-                                <li key={entry.id} className="flex gap-3">
-                                    <span className={`mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${added ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'}`}>
-                                        {added ? <UserPlus className="h-3.5 w-3.5" /> : <UserMinus className="h-3.5 w-3.5" />}
-                                    </span>
-                                    <div className="min-w-0 flex-1 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
-                                        <div className="flex flex-wrap items-center justify-between gap-2">
-                                            <span className="text-sm font-bold text-slate-800">
-                                                {added ? 'أصبح مالكاً: ' : 'انتهت ملكية: '}
-                                                {entry.ownerName ?? 'مستخدم محذوف'}
-                                            </span>
-                                            <span className="text-xs text-slate-400">{formatDateTime(entry.createdAt)}</span>
-                                        </div>
-                                        <p className="mt-0.5 text-xs text-slate-500">
-                                            {contextLabel(entry)}
-                                            {entry.performedByName ? ` · بواسطة ${entry.performedByName}` : ''}
-                                        </p>
-                                        {entry.reason && <p className="mt-1 text-xs text-slate-700">السبب: {entry.reason}</p>}
-                                    </div>
-                                </li>
-                            );
-                        })}
-                    </ol>
-                )}
-            </section>
+            {view.owners.length > 0 && (
+                <SmartTable<ClientOwnershipOwner>
+                    title="المالكون الحاليون"
+                    icon={Users}
+                    data={view.owners}
+                    columns={ownerColumns}
+                    getId={owner => owner.userId}
+                    actions={view.canManage ? (owner) => (
+                        <div className="flex gap-1.5">
+                            <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); setDialog({ kind: 'transfer', owner }); }}
+                                className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                            >
+                                <ArrowLeftRight className="h-3.5 w-3.5" /> نقل
+                            </button>
+                            <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); setDialog({ kind: 'remove', owner }); }}
+                                className="inline-flex items-center gap-1 rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50"
+                            >
+                                <UserMinus className="h-3.5 w-3.5" /> إزالة
+                            </button>
+                        </div>
+                    ) : undefined}
+                    hideFilterBar
+                    paginated={false}
+                    tableMinWidth={1000}
+                    emptyIcon={Users}
+                    emptyMessage="لا يوجد مالكون"
+                />
+            )}
+
+            <SmartTable<ClientOwnershipLogEntry>
+                title="سجل الملكية"
+                icon={History}
+                data={view.log}
+                columns={logColumns}
+                getId={entry => entry.id}
+                hideFilterBar
+                tableMinWidth={900}
+                emptyIcon={History}
+                emptyMessage="لا توجد تغييرات مسجلة على ملكية هذا الزبون"
+            />
 
             {dialog && (
                 <OwnershipOperationModal

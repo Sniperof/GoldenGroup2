@@ -741,6 +741,12 @@ export interface ClientOwnershipOwner {
   assignedAt: string | null;
   assignedByName: string | null;
   eligible: boolean;
+  /** The owner's employee record status; null when the account has no employee. */
+  employeeStatus: 'active' | 'vacation' | 'suspended' | 'terminated' | string | null;
+  accountActive: boolean;
+  /** How the ownership was acquired: the change_context of its latest «owner_added» log row ('backfill' = predates the log). */
+  acquiredContext: string | null;
+  acquiredReason: string | null;
 }
 
 export interface ClientOwnershipLogEntry {
@@ -767,6 +773,33 @@ export interface ClientOwnershipView {
   reasonOptions: Record<'add' | 'remove' | 'transfer' | 'release', Array<{ id: number; value: string; label: string }>>;
   canManage: boolean;
   manageBlockedReason: string | null;
+}
+
+/** GET /gifts/records/:id/source-status — see services/referralCredit.ts on the API. */
+export interface GiftSourceStatus {
+  applicable: boolean;
+  summary: { names: number; converted: number; linked: number; purchaseCredited: number; linkedBoughtBefore: number };
+  names: Array<{
+    candidateId: number;
+    name: string;
+    state: 'open' | 'rejected' | 'converted' | 'linked';
+    clientId: number | null;
+    clientName: string | null;
+    stage: 'LEAD' | 'FOP' | 'OP' | null;
+    linkedOn: string | null;
+    firstPurchaseOn: string | null;
+    purchaseCredited: boolean;
+  }>;
+  truncated: boolean;
+}
+
+export interface ClientBulkOwnershipResult {
+  matched: number;
+  alreadyOwner: number;
+  toAssign: number;
+  applied: number;
+  /** dryRun only: the active «إضافة مالك» reasons. */
+  reasonOptions?: Array<{ id: number; value: string; label: string }>;
 }
 
 /** A reason from the operation's admin-managed list + an optional note (migration 482). */
@@ -1202,6 +1235,27 @@ export const api = {
     snapshot: (id: number) => request<{ snapshot: any }>(`/clients/${id}/snapshot`),
     listServiceRequests: (id: number) => request<{ items: any[] }>(`/clients/${id}/service-requests`),
     getNetwork: (id: number) => request<any>(`/clients/${id}/network`),
+    /**
+     * Bulk «إضافة مالك» on the records table's filter result (clients of one
+     * branch, any stage). `filters` = the same params as listPaged; the server rebuilds
+     * the result itself. dryRun → counts + the add-reason list only.
+     */
+    /** `body.clientIds` (ticked rows) replaces the filters; `filters.branchId` still sets the branch header. */
+    bulkOwnership: (
+      filters: PagedClientsParams,
+      body: { dryRun: boolean; clientIds?: number[]; userId?: number; reasonId?: number; note?: string; expectedCount?: number },
+    ) => {
+      const { branchId, page: _page, limit: _limit, sortKey: _sortKey, sortDir: _sortDir, ...rest } = filters as any;
+      const cleaned: Record<string, string> = {};
+      Object.entries(rest).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '' && value !== 'all') cleaned[key] = String(value);
+      });
+      return request<ClientBulkOwnershipResult>('/clients/bulk-ownership', {
+        method: 'POST',
+        body: JSON.stringify(body.clientIds ? body : { ...body, filters: cleaned }),
+        ...(branchId != null ? { headers: { 'X-Branch-Id': String(branchId) } } : {}),
+      });
+    },
     getOwnership: (id: number) => request<ClientOwnershipView>(`/clients/${id}/ownership`),
     applyOwnershipOperation: (id: number, operation: ClientOwnershipOperation) =>
       request<ClientOwnershipView>(`/clients/${id}/ownership/operations`, {

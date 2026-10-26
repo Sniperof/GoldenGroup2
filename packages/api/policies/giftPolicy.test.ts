@@ -62,8 +62,8 @@ test('gift ASSIGNED access requires an assigned subject', () => {
 });
 
 test('gift ASSIGNED access includes gifts on a contract linked to the current user', () => {
-  // A supervisor promising a gift in a contract she created must still see it
-  // after approval wipes client_assignments (OP promotion).
+  // A supervisor promising a gift in a contract she created must see it even
+  // when she is not the beneficiary's owner.
   const assignedContext = context({ permission: 'contract_gifts.view', scope: 'ASSIGNED' });
   assert.equal(canAccessGift(assignedContext, 'contract_gifts.view', branchGift), false);
   assert.equal(canAccessGift(

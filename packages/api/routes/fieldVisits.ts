@@ -154,7 +154,6 @@ async function resolveVisitSource(visitId: number): Promise<{
 } | null> {
   const { rows: fvRows } = await pool.query(
     `SELECT fv.client_id, fv.branch_id, fv.team_snapshot,
-            c.candidate_status,
             b.name AS branch_name
      FROM field_visits fv
      JOIN clients c ON c.id = fv.client_id
@@ -166,7 +165,6 @@ async function resolveVisitSource(visitId: number): Promise<{
 
   const fv = fvRows[0];
   const teamSnap = fv.team_snapshot as any;
-  const isOpFop = ['OP', 'FOP'].includes(fv.candidate_status ?? '');
 
   // Check personal assignments
   const { rows: assignRows } = await pool.query(
@@ -184,7 +182,8 @@ async function resolveVisitSource(visitId: number): Promise<{
     [fv.client_id],
   );
 
-  if (isOpFop || assignRows.length === 0) {
+  // Personal owners stay through FOP/OP (2026-10-20); none → the branch.
+  if (assignRows.length === 0) {
     return {
       source_type: fv.branch_id ? 'company_branch' : 'company_global',
       source_label: fv.branch_id

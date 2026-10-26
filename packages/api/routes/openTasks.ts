@@ -2916,7 +2916,10 @@ router.get('/my-customers', requirePermission('tasks.my_customers.view'), async 
     const hasDeliveryAddressColumn = await hasOpenTaskColumn('delivery_address');
 
     const params: any[] = [authContext.userId];
-    const ownershipClause = personalOwnershipPredicate('ot.client_id', '$1');
+    // Path 1: device-demo tasks of personally-owned customers. Only demo work is
+    // the owner's (2026-10-20); every other task belongs to the service branch
+    // and reaches the holder only through Path 2 (their team's visits).
+    const ownershipClause = `(ot.task_type = 'device_demo' AND ${personalOwnershipPredicate('ot.client_id', '$1')})`;
 
     // Path 2 (المهام تتبع الزيارات): a task also belongs to «مهامي» when one of its
     // visits is assigned to the holder's team — even if the holder doesn't own the
@@ -2925,7 +2928,7 @@ router.get('/my-customers', requirePermission('tasks.my_customers.view'), async 
     //   • active  ⟺ a LIVE visit (scheduled/in_progress/ended, not yet resulted) is mine.
     //   • closed  ⟺ task is completed/closed AND any visit in its history was mine.
     // open/needs_follow_up (back to the planner) and cancelled never appear.
-    // Path 1 (personally-owned customers) is unconditional — handled by ownershipClause.
+    // Path 1 (demo tasks of personally-owned customers) is unconditional — handled by ownershipClause.
     // Team-match mirrors GET /field-visits/my-visits (reassignment override → team_snapshot).
     const { rows: userRows } = await pool.query(
       `SELECT employee_id FROM hr_users WHERE id = $1 AND is_active = TRUE`,
@@ -3212,7 +3215,7 @@ router.get('/attempt-alerts', requirePermission('tasks.supervisor_alerts.view'),
     const params = [threshold, access.branchId];
     const branchClause = 'AND ot.branch_id = $2';
     const assignedClause = access.scope === 'ASSIGNED'
-      ? `AND (${personalOwnershipPredicate('ot.client_id', '$3')}
+      ? `AND ((ot.task_type = 'device_demo' AND ${personalOwnershipPredicate('ot.client_id', '$3')})
           OR EXISTS (
             SELECT 1 FROM visit_tasks vt
             JOIN field_visits fv ON fv.id = vt.field_visit_id
