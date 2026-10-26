@@ -15,6 +15,9 @@ export interface OpenTaskLinkageSnapshot {
   taskType: string;
   deviceId?: number | null;
   installmentId?: number | null;
+  // A collection task points at one installment of three kinds (migr 484).
+  maintenanceInstallmentId?: number | null;
+  warrantyInstallmentId?: number | null;
   hasGiftDeliveryLink?: boolean;
   hasGoldenWarrantyLink?: boolean;
 }
@@ -43,7 +46,10 @@ export function getOpenTaskLinkageIssue(task: OpenTaskLinkageSnapshot): OpenTask
     };
   }
 
-  if (task.taskType === 'installment_collection' && !task.installmentId) {
+  if (
+    task.taskType === 'installment_collection'
+    && !task.installmentId && !task.maintenanceInstallmentId && !task.warrantyInstallmentId
+  ) {
     return {
       code: 'INSTALLMENT_REQUIRED',
       message: 'لا يمكن سحب مهمة التحصيل لأنها غير مرتبطة بقسط',

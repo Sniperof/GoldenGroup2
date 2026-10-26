@@ -19,7 +19,8 @@
         "check": "pnpm typecheck && pnpm typecheck:api && pnpm test",
         "audit:branch-scope": "node scripts/audit-branch-scope.mjs",
         "docs:check": "node scripts/check-docs-links.mjs",
-        "reconcile:periodic-maintenance": "tsx scripts/reconcile-periodic-maintenance.ts"
+        "reconcile:periodic-maintenance": "tsx scripts/reconcile-periodic-maintenance.ts",
+        "migration:complete-tasks": "tsx scripts/complete-migrated-tasks.ts"
     },
     "dependencies": {
         "@types/cors": "^2.8.19",
