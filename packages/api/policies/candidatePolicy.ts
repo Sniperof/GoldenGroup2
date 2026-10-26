@@ -89,6 +89,7 @@ export function canEditCandidate(
   return authorizeCandidatePermission(context, 'candidates.edit', candidate);
 }
 
+/** @deprecated 2026-10-21 — blind linking is gated on add-client (canCreateClient) in the link route; kept for the permission catalogue only. */
 export function canLinkRestrictedLead(
   context: AuthContext,
   candidate: CandidatePolicySubject,

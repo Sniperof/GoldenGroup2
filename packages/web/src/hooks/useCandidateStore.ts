@@ -2,6 +2,9 @@ import { create } from 'zustand';
 import { Candidate, ReferralSheet } from '../lib/types';
 import { api } from '../lib/api';
 
+/** same_branch_lead: blind link + shared ownership (special permission); other_branch: blind link, no ownership. */
+export type RestrictedLinkMode = 'same_branch_lead' | 'other_branch';
+
 // A mutation used to exit silently when the candidate was missing from the
 // loaded array (`if (!candidate) return;`): no error, no effect. That is what
 // made qualify / junk / edit fail invisibly on every surface that does not call
@@ -43,7 +46,7 @@ interface CandidateState {
     }) => Promise<Candidate>;
     qualifyCandidate: (candidateId: number, clientData?: any) => Promise<void>;
     linkCandidateToClient: (candidateId: number, clientId: number) => Promise<void>;
-    linkCandidateToRestrictedLead: (candidateId: number) => Promise<void>;
+    linkCandidateToRestrictedLead: (candidateId: number, mode?: RestrictedLinkMode) => Promise<void>;
     markJunk: (candidateId: number) => Promise<void>;
     markForFollowUp: (candidateId: number) => Promise<void>;
     updateCandidate: (candidateId: number, data: Partial<Candidate>) => Promise<void>;
@@ -261,8 +264,9 @@ export const useCandidateStore = create<CandidateState>((set, get) => ({
         await get().fetchReferralSheets();
     },
 
-    linkCandidateToRestrictedLead: async (candidateId) => {
-        await api.candidates.linkRestrictedSameBranchLead(candidateId);
+    linkCandidateToRestrictedLead: async (candidateId, mode = 'same_branch_lead') => {
+        if (mode === 'other_branch') await api.candidates.linkRestrictedOtherBranch(candidateId);
+        else await api.candidates.linkRestrictedSameBranchLead(candidateId);
         await get().fetchReferralSheets();
     },
 

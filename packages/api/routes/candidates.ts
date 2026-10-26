@@ -7,11 +7,10 @@ import {
   canCreateCandidate,
   canDeleteCandidate,
   canEditCandidate,
-  canLinkRestrictedLead,
   getCandidateListAccessPlan,
   canViewCandidate,
 } from '../policies/candidatePolicy.js';
-import { canEditClient, canViewClient } from '../policies/clientPolicy.js';
+import { canCreateClient, canEditClient, canViewClient } from '../policies/clientPolicy.js';
 import { canViewReferralSheet } from '../policies/referralSheetPolicy.js';
 import { eligibleHrUserWithPermissionCondition } from '../services/assigneeEligibility.js';
 import { buildClientLifecycleStatusSql } from '../services/customerOwnership.js';
@@ -355,6 +354,8 @@ async function loadLinkableClient(clientId: string | number): Promise<LinkableCl
   return rows[0] ?? null;
 }
 
+// Same-branch blind link: the only client in the name's branch matching its
+// phone, at any lifecycle stage (the "Lead" in the name predates 2026-10-21).
 async function findRestrictedSameBranchLead(
   candidate: LinkableCandidate,
   queryDb: Queryable = pool,
@@ -385,7 +386,6 @@ async function findRestrictedSameBranchLead(
            WHERE ${phoneNormalizationSql(`contact->>'number'`)} = $1
         )
       )
-      AND (${buildClientLifecycleStatusSql('c')}) = 'LEAD'
     ORDER BY c.id
     LIMIT 2`,
     [normalizedPhone, candidate.branchId],
@@ -394,6 +394,51 @@ async function findRestrictedSameBranchLead(
   // Ambiguous matches must be reviewed by an already-authorized user; never
   // let a restricted caller select between hidden records.
   return rows.length === 1 ? rows[0] : null;
+}
+
+// Cross-branch blind link (2026-10-21): the name's phone matches exactly one
+// client in the whole company and that client is in ANOTHER branch. The caller
+// only needs to edit the name; the client's details stay hidden, no ownership
+// is shared (one ownership branch per client), and the name's mediator is
+// added to the client marked as a duplicate link. Any lifecycle stage.
+async function findRestrictedOtherBranchClient(
+  candidate: LinkableCandidate,
+  queryDb: Queryable = pool,
+): Promise<LinkableClient | null> {
+  const normalizedPhone = normalizePhone(candidate.mobile);
+  if (!normalizedPhone || candidate.branchId == null) return null;
+
+  const { rows } = await queryDb.query(
+    `SELECT
+       c.id,
+       c.branch_id AS "branchId",
+       (${buildClientLifecycleStatusSql('c')}) AS "lifecycleStage",
+       COALESCE(
+         (SELECT array_agg(hr_user_id)
+            FROM client_assignments
+           WHERE client_id = c.id),
+         '{}'::int[]
+       ) AS "assignedUserIds"
+     FROM clients c
+    WHERE c.is_candidate = FALSE
+      AND c.deleted_at IS NULL
+      AND (
+        ${phoneNormalizationSql('c.mobile')} = $1
+        OR EXISTS (
+          SELECT 1
+            FROM jsonb_array_elements(COALESCE(c.contacts, '[]'::jsonb)) contact
+           WHERE ${phoneNormalizationSql(`contact->>'number'`)} = $1
+        )
+      )
+    ORDER BY c.id
+    LIMIT 2`,
+    [normalizedPhone],
+  );
+
+  // Exactly one match in the company, and not in the name's own branch.
+  if (rows.length !== 1) return null;
+  const match = rows[0];
+  return match.branchId != null && Number(match.branchId) !== Number(candidate.branchId) ? match : null;
 }
 
 async function resolveTransferableCandidateAssignmentIds(db: Queryable, candidateId: number): Promise<number[]> {
@@ -1416,8 +1461,13 @@ router.post('/:id/link-client', requirePermission('candidates.edit'), async (req
     const authContext = getRequiredAuthContext(req);
     const candidateId = Number(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id);
     const restrictedSameBranchLead = req.body?.restrictedSameBranchLead === true;
+    const restrictedOtherBranch = req.body?.restrictedOtherBranch === true;
+    const restrictedLink = restrictedSameBranchLead || restrictedOtherBranch;
     let clientId = Number(req.body?.clientId);
-    if (!Number.isInteger(candidateId) || candidateId <= 0 || (!restrictedSameBranchLead && (!Number.isInteger(clientId) || clientId <= 0))) {
+    if (restrictedSameBranchLead && restrictedOtherBranch) {
+      return res.status(400).json({ error: 'اختر نوع ربط مقيّد واحداً' });
+    }
+    if (!Number.isInteger(candidateId) || candidateId <= 0 || (!restrictedLink && (!Number.isInteger(clientId) || clientId <= 0))) {
       return res.status(400).json({ error: 'معرّف الاسم المقترح أو الزبون غير صالح' });
     }
 
@@ -1442,8 +1492,14 @@ router.post('/:id/link-client', requirePermission('candidates.edit'), async (req
       });
     }
 
-    if (restrictedSameBranchLead) {
-      const restrictedAccess = canLinkRestrictedLead(authContext, candidateSubject);
+    // Whoever may convert the name may link it blind (2026-10-21): the same
+    // add-client permission conversion needs, in the name's branch. An
+    // ASSIGNED add-client grant covers only names assigned to the caller.
+    if (restrictedLink) {
+      const restrictedAccess = canCreateClient(authContext, {
+        branchId: candidateSubject.branchId,
+        assignedUserIds: candidateSubject.assignedUserIds,
+      });
       if (!restrictedAccess.allowed) {
         return forbidCandidateAccess(res, restrictedAccess.reason);
       }
@@ -1451,22 +1507,30 @@ router.post('/:id/link-client', requirePermission('candidates.edit'), async (req
 
     const client = restrictedSameBranchLead
       ? await findRestrictedSameBranchLead(candidate)
-      : await loadLinkableClient(clientId);
+      : restrictedOtherBranch
+        ? await findRestrictedOtherBranchClient(candidate)
+        : await loadLinkableClient(clientId);
     if (!client) {
-      return res.status(restrictedSameBranchLead ? 409 : 404).json({
+      return res.status(restrictedLink ? 409 : 404).json({
         error: restrictedSameBranchLead
-          ? 'تعذر ربط التطابق المقيّد: يجب أن يكون زبوناً واحداً من نوع Lead ضمن فرع الاسم نفسه'
-          : 'الزبون غير موجود',
-        code: restrictedSameBranchLead ? 'restricted_lead_match_unavailable' : undefined,
+          ? 'تعذر ربط التطابق المقيّد: يجب أن يطابق الرقم زبوناً واحداً ضمن فرع الاسم نفسه'
+          : restrictedOtherBranch
+            ? 'تعذر الربط: يجب أن يطابق الرقم زبوناً واحداً فقط في الشركة، تابعاً لفرع آخر'
+            : 'الزبون غير موجود',
+        code: restrictedSameBranchLead
+          ? 'restricted_lead_match_unavailable'
+          : restrictedOtherBranch ? 'restricted_other_branch_match_unavailable' : undefined,
       });
     }
     clientId = Number(client.id);
 
+    // Both restricted paths link without the caller seeing or editing the
+    // client; the normal path needs edit access to the client.
     const editClientAccess = canEditClient(authContext, {
       branchId: client.branchId,
       assignedUserIds: client.assignedUserIds,
     });
-    if (!restrictedSameBranchLead && !editClientAccess.allowed) {
+    if (!restrictedLink && !editClientAccess.allowed) {
       return res.status(403).json({
         error: 'غير مسموح بتعديل علاقة هذا الزبون',
         code: editClientAccess.reason,
@@ -1483,10 +1547,15 @@ router.post('/:id/link-client', requirePermission('candidates.edit'), async (req
       candidate.branchId != null &&
       client.branchId != null &&
       Number(candidate.branchId) === Number(client.branchId);
-    const shouldTransferLeadOwnership = client.lifecycleStage === 'LEAD' && sameBranchLink;
-    if (restrictedSameBranchLead && !shouldTransferLeadOwnership) {
+    // Linking shares ownership with the name's responsible employee when the
+    // client is LEAD or FOP in the same branch (2026-10-20). An OP client's
+    // owners stay as they are; adding one is a manual ownership operation.
+    const shouldShareOwnership = (client.lifecycleStage === 'LEAD' || client.lifecycleStage === 'FOP') && sameBranchLink;
+    // The same-branch restricted path takes any stage (2026-10-21): LEAD/FOP
+    // share ownership as above, OP adds the mediator only.
+    if (restrictedSameBranchLead && !sameBranchLink) {
       return res.status(409).json({
-        error: 'لا يمكن ربط تطابق مقيّد خارج الفرع أو بزبون غير مصنف Lead',
+        error: 'لا يمكن ربط تطابق مقيّد خارج فرع الاسم',
         code: 'restricted_lead_match_unavailable',
       });
     }
@@ -1537,7 +1606,23 @@ router.post('/:id/link-client', requirePermission('candidates.edit'), async (req
         });
       }
     }
-    const transferableAssignmentIds = shouldTransferLeadOwnership
+    if (restrictedOtherBranch) {
+      // Re-check under the locks: the match must still be the only one, in another branch.
+      await db.query('SELECT id FROM clients WHERE id = $1 FOR UPDATE', [clientId]);
+      const lockedMatch = await findRestrictedOtherBranchClient({
+        ...candidate,
+        branchId: lockedCandidateRows[0].branchId,
+        mobile: lockedCandidateRows[0].mobile,
+      }, db);
+      if (!lockedMatch || Number(lockedMatch.id) !== clientId) {
+        throw Object.assign(new Error('تغير التطابق أثناء الربط'), {
+          status: 409,
+          code: 'restricted_other_branch_match_changed',
+        });
+      }
+    }
+    // A cross-branch link never shares ownership: sameBranchLink is false.
+    const transferableAssignmentIds = shouldShareOwnership
       ? await resolveTransferableCandidateAssignmentIds(db, candidateId)
       : [];
 
@@ -1627,7 +1712,7 @@ router.post('/:id/link-client', requirePermission('candidates.edit'), async (req
       ],
     );
 
-    if (shouldTransferLeadOwnership) {
+    if (shouldShareOwnership) {
       await db.query(`SELECT set_config('app.change_context', 'candidate_linked', true)`);
       await insertLinkedClientAssignments(db, clientId, transferableAssignmentIds, authContext.userId);
     }
@@ -1667,10 +1752,11 @@ router.post('/:id/link-client', requirePermission('candidates.edit'), async (req
 
     res.json({
       success: true,
-      clientId,
+      // A restricted link stays blind: nothing about the client is returned.
+      clientId: restrictedLink ? null : clientId,
       candidateId,
-      lifecycleStage: client.lifecycleStage,
-      addedAssignmentUserIds: shouldTransferLeadOwnership ? transferableAssignmentIds : [],
+      lifecycleStage: restrictedLink ? null : client.lifecycleStage,
+      addedAssignmentUserIds: shouldShareOwnership ? transferableAssignmentIds : [],
     });
   } catch (err: any) {
     await db.query('ROLLBACK').catch(() => undefined);

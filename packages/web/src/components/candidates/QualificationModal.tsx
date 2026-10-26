@@ -6,6 +6,7 @@ import {
 } from '../ui/icons';
 import { Candidate, Client, ClientSmartMatchResponse, GeoUnit } from '../../lib/types';
 import { api } from '../../lib/api';
+import type { RestrictedLinkMode } from '../../hooks/useCandidateStore';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
 import Modal from '../ui/Modal';
@@ -19,7 +20,7 @@ interface QualificationModalProps {
     onQualified: (candidate: Candidate) => void;
     onJunk: (id: number) => void;
     onLink: (candidateId: number, client: Client) => void;
-    onRestrictedLeadLink: (candidateId: number) => Promise<void>;
+    onRestrictedLeadLink: (candidateId: number, mode?: RestrictedLinkMode) => Promise<void>;
     canLinkRestrictedLead: boolean;
 }
 
@@ -394,7 +395,7 @@ export default function QualificationModal({
                                                                 } catch (error: any) {
                                                                     if (error?.payload?.code === 'restricted_lead_match_unavailable') {
                                                                         setRestrictedLinkUnavailable(true);
-                                                                        setRestrictedLinkMessage('لا يمكن إتمام الربط عبر هذا الإجراء؛ فهو مخصص لتطابق وحيد مع زبون Lead ضمن فرع الاسم. لم يُربط الاسم المقترح. يرجى مراجعة مسؤول مخوّل بسجل الزبون لإتمام الربط بالطريقة المعتادة.');
+                                                                        setRestrictedLinkMessage('لا يمكن إتمام الربط عبر هذا الإجراء؛ فهو مخصص لتطابق وحيد مع زبون ضمن فرع الاسم. لم يُربط الاسم المقترح. يرجى مراجعة مسؤول مخوّل بسجل الزبون لإتمام الربط بالطريقة المعتادة.');
                                                                     } else {
                                                                         setRestrictedLinkMessage('تعذّر إتمام الربط الآن. يرجى إعادة المحاولة أو مراجعة المسؤول المختص.');
                                                                     }
@@ -403,13 +404,42 @@ export default function QualificationModal({
                                                                 }
                                                             }}
                                                         >
-                                                            {restrictedLinkLoading ? 'جاري التحقق والربط...' : 'ربط الاسم بزبون Lead مؤهل'}
+                                                            {restrictedLinkLoading ? 'جاري التحقق والربط...' : 'ربط الاسم بالزبون'}
                                                         </Button>
                                                     )}
                                                     {canLinkRestrictedLead && autoCheckResult.reason === 'SAME_BRANCH_RESTRICTED' && !restrictedLinkUnavailable && (
                                                         <p className="mt-2 text-xs leading-5 text-amber-700">
-                                                            يُقبل هذا الربط إذا كان التطابق زبون Lead واحداً في فرع الاسم. الحالات الأخرى تحتاج مراجعة مسؤول مخوّل بسجل الزبون.
+                                                            يُقبل إذا كان الرقم يطابق زبوناً واحداً في فرع الاسم، دون عرض بيانات الزبون. إذا كان الزبون مرشحاً أو مستهدفاً (LEAD أو FOP) يصبح مسؤول الاسم مالكاً مشاركاً؛ وإذا كان زبوناً فعلياً (OP) يُضاف الوسيط فقط بعلامة «اسم مكرر».
                                                         </p>
+                                                    )}
+                                                    {/* Cross-branch blind link (2026-10-21): no ownership, client details stay hidden. */}
+                                                    {canLinkRestrictedLead && autoCheckResult.reason === 'OTHER_BRANCH_RESTRICTED' && !restrictedLinkUnavailable && (
+                                                        <>
+                                                            <Button
+                                                                className="mt-3"
+                                                                disabled={restrictedLinkLoading}
+                                                                onClick={async () => {
+                                                                    setRestrictedLinkLoading(true);
+                                                                    try {
+                                                                        await onRestrictedLeadLink(candidate.id, 'other_branch');
+                                                                    } catch (error: any) {
+                                                                        if (error?.payload?.code === 'restricted_other_branch_match_unavailable') {
+                                                                            setRestrictedLinkUnavailable(true);
+                                                                            setRestrictedLinkMessage('لا يمكن إتمام الربط: الرقم يطابق أكثر من زبون، أو لم يعد التطابق في فرع آخر. لم يُربط الاسم المقترح. يرجى مراجعة الإدارة.');
+                                                                        } else {
+                                                                            setRestrictedLinkMessage('تعذّر إتمام الربط الآن. يرجى إعادة المحاولة أو مراجعة المسؤول المختص.');
+                                                                        }
+                                                                    } finally {
+                                                                        setRestrictedLinkLoading(false);
+                                                                    }
+                                                                }}
+                                                            >
+                                                                {restrictedLinkLoading ? 'جاري التحقق والربط...' : 'ربط الاسم بزبون الفرع الآخر'}
+                                                            </Button>
+                                                            <p className="mt-2 text-xs leading-5 text-amber-700">
+                                                                يُضاف وسيط هذا الاسم إلى الزبون بعلامة «اسم مكرر»، دون أي ملكية ودون عرض بيانات الزبون، ويُغلق الاسم كمؤهَّل. يُقبل إذا كان الرقم يطابق زبوناً واحداً في الشركة.
+                                                            </p>
+                                                        </>
                                                     )}
                                                     {restrictedLinkMessage && (
                                                         <p role="alert" className="mt-3 rounded-xl border border-amber-200 bg-white p-3 text-sm leading-6 text-amber-900">

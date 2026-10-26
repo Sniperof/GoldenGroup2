@@ -1366,6 +1366,12 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ restrictedSameBranchLead: true }),
       }),
+    /** Blind link to the only matching client, in another branch: no ownership, no client data back. */
+    linkRestrictedOtherBranch: (id: number) =>
+      request<any>(`/candidates/${id}/link-client`, {
+        method: 'POST',
+        body: JSON.stringify({ restrictedOtherBranch: true }),
+      }),
     delete: (id: number) => request<any>(`/candidates/${id}`, { method: 'DELETE' }),
   },
   referralSheets: {

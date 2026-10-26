@@ -1414,7 +1414,8 @@ export default function CandidatesEntry() {
 
             <QualificationModal
                 isOpen={canEditCandidates && isQualifyModalOpen}
-                canLinkRestrictedLead={hasPermission('candidates.link_restricted_lead')}
+                // Whoever may convert the name may link it blind (add-client permission, 2026-10-21).
+                canLinkRestrictedLead={hasPermission('clients.create')}
                 onClose={() => setIsQualifyModalOpen(false)}
                 candidate={activeCandidateForQualify}
                 onQualified={handleQualificationConfirmed}
@@ -1439,9 +1440,9 @@ export default function CandidatesEntry() {
                         setErrorModal(err?.message ?? 'فشل ربط الاسم المقترح بالزبون');
                     }
                 }}
-                onRestrictedLeadLink={async (candidateId) => {
+                onRestrictedLeadLink={async (candidateId, mode) => {
                     try {
-                        await linkCandidateToRestrictedLead(candidateId);
+                        await linkCandidateToRestrictedLead(candidateId, mode);
                         reloadCandidatesPage();
                         setIsQualifyModalOpen(false);
                         setActiveCandidateForQualify(null);
