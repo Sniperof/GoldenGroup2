@@ -1734,7 +1734,9 @@ router.post('/:id/link-client', requirePermission('candidates.edit'), async (req
               qualification_kind = 'linked',
               duplicate_flag = $3,
               duplicate_type = $4,
-              duplicate_reference_id = $5
+              duplicate_reference_id = $5,
+              qualified_by = $6,
+              qualified_at = NOW()
         WHERE id = $1`,
       [
         candidateId,
@@ -1742,6 +1744,7 @@ router.post('/:id/link-client', requirePermission('candidates.edit'), async (req
         linkDuplicate.duplicateFlag,
         linkDuplicate.duplicateType,
         linkDuplicate.duplicateReferenceId,
+        authContext.userId,
       ],
     );
 

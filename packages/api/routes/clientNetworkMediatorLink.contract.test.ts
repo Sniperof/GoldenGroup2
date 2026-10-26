@@ -7,9 +7,13 @@ const networkRoute = source.slice(
   source.indexOf("router.get('/:id/network'"),
   source.indexOf("router.post('/',"),
 );
-const clientProfile = readFileSync(
-  new URL('../../web/src/pages/ClientProfile.tsx', import.meta.url),
+const networkTab = readFileSync(
+  new URL('../../web/src/pages/clientProfile/NetworkTab.tsx', import.meta.url),
   'utf8',
+);
+const mediatorTable = networkTab.slice(
+  networkTab.indexOf('const mediatorColumns'),
+  networkTab.indexOf('const referralColumns'),
 );
 
 test('a mediator entity id is resolved together with its type, not as a bare client id', () => {
@@ -32,25 +36,48 @@ test('the mediator phone lookup stays restricted to client mediators', () => {
 });
 
 test('the network tab routes the mediator link by entity kind', () => {
-  assert.match(clientProfile, /function referrerLink\(ref: any\)/);
-  assert.match(clientProfile, /ref\.entityKind === 'client' && ref\.entityId\) return \{ path: `\/clients\/\$\{ref\.entityId\}`/);
-  assert.match(clientProfile, /ref\.entityKind === 'employee' && ref\.entityId\) return \{ path: `\/employees\/\$\{ref\.entityId\}`/);
+  assert.match(networkTab, /function mediatorLink\(ref: NetworkMediator\)/);
+  assert.match(networkTab, /ref\.entityKind === 'client' && ref\.entityId\) return `\/clients\/\$\{ref\.entityId\}`/);
+  assert.match(networkTab, /ref\.entityKind === 'employee' && ref\.entityId\) return `\/employees\/\$\{ref\.entityId\}`/);
   // An employee mediator must never be rendered as a client link again.
-  const incomingRow = clientProfile.slice(
-    clientProfile.indexOf('{incoming.map('),
-    clientProfile.indexOf('القسم 2: الأسماء المقترحة'),
-  );
-  assert.doesNotMatch(incomingRow, /to=\{`\/clients\/\$\{ref\.id\}`\}/);
-  assert.match(incomingRow, /referrerLink\(ref\)/);
+  assert.doesNotMatch(mediatorTable, /\/clients\/\$\{ref\.id\}/);
+  assert.match(mediatorTable, /mediatorLink\(ref\)/);
 });
 
-test('a mediator with no record of its own falls back to the suggested name', () => {
+test('a mediator with no record of its own still opens the suggested name', () => {
   // A free-text snapshot is never matched against the directory by name — the
-  // same snapshot regularly matches several different people.
-  assert.match(
-    clientProfile,
-    /ref\.sourceCandidateId\) return \{ path: `\/candidates\/\$\{ref\.sourceCandidateId\}`, label: 'الاسم المقترح' \}/,
-  );
-  // Which means the server must keep returning the stamp the fallback needs.
+  // same snapshot regularly matches several different people. The suggested
+  // name the client was qualified from has its own column and link.
+  assert.match(mediatorTable, /to=\{`\/candidates\/\$\{ref\.sourceCandidateId\}`\}/);
+  // Which means the server must keep returning the stamp the link needs.
   assert.match(networkRoute, /sourceCandidateId: Number\.isInteger\(resolvedSourceCandidateId\)/);
+});
+
+test('a linked duplicate earns no acquisition credit and purchase credit only after the link (2026-10-20)', () => {
+  // Server: "via link" follows how the name was qualified, never the client's primary referrer.
+  assert.match(networkRoute, /const viaLinkSql = `\(n\.is_client AND n\.link_kind = 'linked'\)`/);
+  assert.match(networkRoute, /COALESCE\(buy\.closing_date, buy\.created_at\)::date >= lk\.linked_on/);
+  assert.match(networkRoute, /viaDuplicateLink: linkedCandidate\?\.qualificationKind === 'linked'/);
+  // Sheet names follow their own conversion link, not a sheet-wide client join.
+  assert.match(networkRoute, /LEFT JOIN clients cli ON cli\.id = can\.converted_to_lead_id AND cli\.deleted_at IS NULL/);
+  assert.doesNotMatch(networkRoute, /LEFT JOIN clients cli ON cli\.referral_sheet_id = rs\.id/);
+  // UI: the summary counts credit, not raw client rows.
+  assert.match(networkTab, /return ref\.isClient && !ref\.viaDuplicateLink;/);
+  assert.match(networkTab, /return !ref\.viaDuplicateLink \|\| ref\.boughtAfterLink;/);
+  assert.match(networkTab, /outgoing\.filter\(earnsAcquisition\)/);
+  assert.match(networkTab, /outgoing\.filter\(earnsPurchase\)/);
+});
+
+test('each mediator shows who made them a mediator of the client (migration 486, 2026-10-21)', () => {
+  const candidatesRoute = readFileSync(new URL('./candidates.ts', import.meta.url), 'utf8');
+  const migration = readFileSync(new URL('../../../migrations/486_candidate_qualified_by.sql', import.meta.url), 'utf8');
+  // Linking and converting both stamp the actor and the time on the name.
+  assert.match(candidatesRoute, /qualification_kind = 'linked',[\s\S]{0,200}qualified_by = \$6,\s*qualified_at = NOW\(\)/);
+  assert.match(source, /qualification_kind = 'converted',[\s\S]{0,200}qualified_by = \$6,\s*qualified_at = NOW\(\)/);
+  assert.match(migration, /ADD COLUMN IF NOT EXISTS qualified_by INTEGER REFERENCES public\.hr_users\(id\) ON DELETE SET NULL/);
+  // Network: the qualifier of the name behind the entry, else the client's creator.
+  assert.match(networkRoute, /recordedByName: linkedCandidate \? \(linkedCandidate\.qualifiedByName \?\? null\) : \(incomingRow\.creator_name \?\? null\)/);
+  // An unstamped entry never claims a name another entry is stamped with.
+  assert.match(networkRoute, /if \(sourceCandidateIds\.includes\(Number\(row\.id\)\)\) return false;/);
+  assert.match(networkTab, /label: 'سجّله'/);
 });

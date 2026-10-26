@@ -7,6 +7,7 @@ import { authorizeContract, contractSaleOwnerSql } from '../policies/contractPol
 import { assertGeoUnitInScope } from '../services/geoScopeService.js';
 import { assertDeviceModelInScope } from '../services/deviceScopeService.js';
 import { promoteClientToLifecycleStatus } from '../services/clientLifecycleService.js';
+import { annotateDuplicateLinkReferrers } from '../services/candidateReferrer.js';
 import { freezeContractDocument, freezeContractSettlementAmendment } from './contractDocuments.js'; // DEC-CT-15
 import { persistOpenTaskSnapshots } from './openTasks.js';
 import { createInstallmentCollectionTasksForContract } from '../services/installmentCollectionTasks.js';
@@ -880,6 +881,9 @@ router.get('/:id', requirePermission('contracts.view_list'), async (req, res) =>
     [contract.customerId],
   );
   const client = clientRows[0] ?? null;
+  if (client && Array.isArray(client.referrers)) {
+    client.referrers = await annotateDuplicateLinkReferrers(pool, client.referrers, client.id);
+  }
 
   // Client geo path (neighborhood → sub → district → governorate)
   let clientGeoPath: string[] = [];

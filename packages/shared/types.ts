@@ -353,6 +353,10 @@ export interface ClientReferrer {
     referralDate: string;
     referralReason: string;
     referralSheetId?: number | null;
+    /** The suggested name this entry came from (set by conversion and linking). */
+    sourceCandidateId?: number | null;
+    /** Added by linking a duplicate name to an existing client, not the mediator who brought it (sale form, 2026-10-20). */
+    viaDuplicateLink?: boolean;
 }
 
 export interface ClientAssignment {

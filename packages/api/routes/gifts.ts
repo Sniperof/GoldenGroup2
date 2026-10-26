@@ -14,6 +14,7 @@ import {
   ReferralGiftPromiseError,
   updateReferralGiftPromise,
 } from '../services/referralGiftPromises.js';
+import { loadGiftSourceStatus } from '../services/referralCredit.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -1104,6 +1105,21 @@ router.post('/records/:id/create-delivery-task', requirePermission('contract_gif
     ? req.body.giftRecordIds.map(normalizePositiveInt).filter((value: number | null): value is number => value != null)
     : [];
   return createDeliveryTaskForGiftRecords(req, res, Array.from(new Set([id, ...extraIds])));
+});
+
+// What the suggested names behind a referral promise became (converted /
+// linked duplicate / still open) and which of them earn the mediator purchase
+// credit. Read-only decision support for the manual condition check.
+router.get('/records/:id/source-status', requirePermission('contract_gifts.view'), async (req, res) => {
+  const id = normalizePositiveInt(req.params.id);
+  if (!id) return res.status(400).json({ error: 'معرف غير صالح' });
+  const access = await requireGiftAccess(req, res, id, 'contract_gifts.view');
+  if (!access) return;
+  try {
+    res.json(await loadGiftSourceStatus(pool, id));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 router.patch('/records/:id/condition', requirePermission('contract_gifts.verify_condition'), async (req, res) => {

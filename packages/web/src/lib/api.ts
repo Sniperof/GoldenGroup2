@@ -1042,6 +1042,9 @@ export const api = {
         request<any>(`/gifts/records/${id}/referral-promise`, { method: 'PATCH', body: JSON.stringify(data) }),
       updateCondition: (id: number | string, data: { conditionStatus: string; conditionNotes?: string }) =>
         request<any>(`/gifts/records/${id}/condition`, { method: 'PATCH', body: JSON.stringify(data) }),
+      /** What the suggested names behind a referral promise became, and which earn the mediator purchase credit. */
+      sourceStatus: (id: number | string) =>
+        request<GiftSourceStatus>(`/gifts/records/${id}/source-status`),
       approve: (id: number | string, data?: { approvedQuantity?: number; approvalNotes?: string }) =>
         request<any>(`/gifts/records/${id}/approve`, { method: 'POST', body: JSON.stringify(data ?? {}) }),
       withdrawApproval: (id: number | string, data: { reason: string }) =>

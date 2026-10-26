@@ -4,6 +4,7 @@ import { positiveInt } from './tabularReportAccess.js';
 import { buildTabularReportOrderBy } from './tabularReportSorting.js';
 import { ReportingError } from './reportingError.js';
 import type { TabularReportFilterOptions } from './tabularReportFilterOptions.js';
+import { linkedOnSql, purchaseCreditSql } from '../referralCredit.js';
 
 interface QueryOptions { offset?: number; limit: number; includeTotalRows?: boolean }
 
@@ -12,6 +13,19 @@ const GIFT_STATUSES = new Set(['none', 'promised', 'approved_for_delivery', 'del
 const GIFT_CONDITION_STATUSES = new Set(['none', 'pending', 'met', 'not_met']);
 const GIFT_DELIVERY_RESULTS = new Set(['none', 'delivered_successfully', 'refused_gift', 'rescheduled']);
 const VISIT_TECHNICIAN_ID_SQL = `COALESCE(visit.reassigned_technician_id, NULLIF(visit.team_snapshot->>'technicianEmployeeId', '')::int)`;
+// A name enters the report when it earns its mediator purchase credit
+// (services/referralCredit.ts): a converted name whose client is OP (computed,
+// not the stored status), or a linked duplicate whose client bought on or after
+// the link day. For a linked name the reference sale is the first one after
+// the link, never an earlier purchase.
+function eligibleNameSql(candidateAlias: string, clientAlias: string): string {
+  return `${candidateAlias}.qualification_kind IN ('converted','linked') AND ${purchaseCreditSql(candidateAlias, clientAlias)}`;
+}
+function saleAfterLinkSql(candidateAlias: string, clientAlias: string): string {
+  return `(${candidateAlias}.qualification_kind <> 'linked'
+    OR (COALESCE(contract.closing_date, contract.created_at) AT TIME ZONE 'Asia/Damascus')::date >= ${linkedOnSql(candidateAlias, clientAlias)})`;
+}
+
 const VISIT_SUPERVISOR_ID_SQL = `COALESCE(visit.reassigned_supervisor_id, NULLIF(visit.team_snapshot->>'supervisorEmployeeId', '')::int)`;
 
 function textFilter(value: unknown): string | null {
@@ -77,9 +91,8 @@ export function buildMediatorGiftsQuery(
 ): { sql: string; params: unknown[] } {
   const params: unknown[] = [];
   const filters: string[] = [
-    `candidate.qualification_kind='converted'`,
+    eligibleNameSql('candidate', 'converted_client'),
     `candidate.converted_to_lead_id IS NOT NULL`,
-    `converted_client.candidate_status='OP'`,
     `converted_client.deleted_at IS NULL`,
     `NULLIF(BTRIM(COALESCE(sheet.referral_name_snapshot,candidate.referral_name_snapshot,mediator_client.name,mediator_employee.name,'')), '') IS NOT NULL`,
   ];
@@ -170,6 +183,7 @@ export function buildMediatorGiftsQuery(
            COALESCE(branch.name,'غير محدد') AS "branchName",
            candidate.id AS "candidateId",
            CASE WHEN candidate.referral_sheet_id IS NULL THEN 'ترشيح مباشر' ELSE 'لائحة أسماء' END AS "referralPath",
+           CASE WHEN candidate.qualification_kind='linked' THEN 'اسم مكرر لزبون قائم' ELSE 'تحويل لزبون جديد' END AS "qualificationKind",
            candidate.referral_sheet_id AS "referralSheetNumber",
            (candidate.created_at AT TIME ZONE 'Asia/Damascus')::date AS "candidateAddedDate",
            COALESCE(NULLIF(BTRIM(sheet.referral_name_snapshot),''),NULLIF(BTRIM(candidate.referral_name_snapshot),''),
@@ -226,6 +240,7 @@ export function buildMediatorGiftsQuery(
           LEFT JOIN installed_devices device ON device.contract_id=contract.id
          WHERE contract.customer_id=converted_client.id
            AND contract.status IN ('active','completed','cancelled')
+           AND ${saleAfterLinkSql('candidate', 'converted_client')}
          ORDER BY contract.closing_date ASC NULLS LAST, contract.created_at ASC, contract.id ASC
          LIMIT 1
       ) sale ON TRUE
@@ -306,7 +321,7 @@ export async function getMediatorGiftsFilterOptions(
   access: TabularReportAccess,
 ): Promise<Partial<TabularReportFilterOptions>> {
   const params: unknown[] = [];
-  const scope = [`candidate.qualification_kind='converted'`, `client.candidate_status='OP'`, `client.deleted_at IS NULL`];
+  const scope = [eligibleNameSql('candidate', 'client'), `client.deleted_at IS NULL`];
   if (access.branchIds.length > 0) { params.push(access.branchIds); scope.push(`candidate.branch_id=ANY($${params.length}::int[])`); }
   if (access.scope === 'ASSIGNED') {
     params.push(access.userId);
@@ -314,7 +329,8 @@ export async function getMediatorGiftsFilterOptions(
   }
   const { rows } = await pool.query(`
     WITH eligible AS (
-      SELECT candidate.id,candidate.referral_sheet_id,client.id AS client_id
+      SELECT candidate.id,candidate.referral_sheet_id,client.id AS client_id,
+             candidate.qualification_kind,${linkedOnSql('candidate', 'client')} AS linked_on
         FROM candidates candidate JOIN clients client ON client.id=candidate.converted_to_lead_id
        WHERE ${scope.join(' AND ')}
     ), sales AS (
@@ -324,6 +340,8 @@ export async function getMediatorGiftsFilterOptions(
           SELECT contract.id AS contract_id,COALESCE(device.device_model_id,contract.device_model_id) AS device_model_id
             FROM contracts contract LEFT JOIN installed_devices device ON device.contract_id=contract.id
            WHERE contract.customer_id=eligible.client_id AND contract.status IN ('active','completed','cancelled')
+             AND (eligible.qualification_kind <> 'linked'
+               OR (COALESCE(contract.closing_date, contract.created_at) AT TIME ZONE 'Asia/Damascus')::date >= eligible.linked_on)
            ORDER BY contract.closing_date ASC NULLS LAST,contract.created_at ASC,contract.id ASC LIMIT 1
         ) sale ON TRUE
     ), installations AS (

@@ -2274,7 +2274,9 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
         c.referral_date as referral_date,
         c.referral_sheet_id as referral_sheet_id,
         c.referral_address_text as address,
-        c.referrers as referrers_json
+        c.referrers as referrers_json,
+        (SELECT name FROM hr_users WHERE id = c.created_by) AS creator_name,
+        c.created_at AS client_created_at
       FROM clients c
       WHERE c.id = $1`,
       [clientId],
@@ -2289,6 +2291,13 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
       candidateName: string | null;
       type: string;
       referralDate: string | null;
+      referralSheetId: number | null;
+      /** Added by linking a duplicate suggested name to this existing client (not the acquisition). */
+      viaDuplicateLink: boolean;
+      /** Who made this a mediator of the client: whoever linked or converted the
+       *  name (candidates.qualified_by, migration 486), else the client's creator. */
+      recordedByName: string | null;
+      recordedAt: string | null;
       address: string | null;
       mobile: string | null;
     }> = [];
@@ -2338,6 +2347,9 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
            referral_date AS "referralDate",
            referral_sheet_id AS "referralSheetId",
            address_text AS "addressText",
+           qualification_kind AS "qualificationKind",
+           (SELECT name FROM hr_users WHERE id = candidates.qualified_by) AS "qualifiedByName",
+           qualified_at AS "qualifiedAt",
            COALESCE(
              NULLIF(TRIM(CONCAT_WS(' ', first_name, last_name)), ''),
              NULLIF(nickname, ''),
@@ -2371,7 +2383,10 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
         const referralSheetId = Number(ref.referralSheetId ?? incomingRow.referral_sheet_id);
         const normalizedSheetId = Number.isInteger(referralSheetId) && referralSheetId > 0 ? referralSheetId : null;
 
+        // A name already stamped on another entry (sourceCandidateId) is that
+        // entry's; an unstamped entry never claims it a second time.
         return linkedCandidateRows.find((row: any) => {
+          if (sourceCandidateIds.includes(Number(row.id))) return false;
           const rowEntityId = Number(row.referralEntityId);
           const normalizedRowEntityId = Number.isInteger(rowEntityId) && rowEntityId > 0 ? rowEntityId : null;
           const entityMatches = normalizedEntityId == null || normalizedRowEntityId === normalizedEntityId;
@@ -2414,6 +2429,10 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
           : sourceCandidateId;
         const referralDate = ref.referralDate
           ?? (ref.__legacy ? incomingRow.referral_date : null);
+        const rawSheetId = Number(
+          ref.referralSheetId ?? linkedCandidate?.referralSheetId ?? (ref.__legacy ? incomingRow.referral_sheet_id : null),
+        );
+        const referralSheetId = Number.isInteger(rawSheetId) && rawSheetId > 0 ? rawSheetId : null;
         const address = linkedCandidate?.addressText
           ?? ref.address
           ?? ref.referralAddressText
@@ -2442,6 +2461,12 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
             : null,
           type: ref.type ?? ref.referrerType ?? 'unknown',
           referralDate: toDateKey(referralDate),
+          referralSheetId,
+          viaDuplicateLink: linkedCandidate?.qualificationKind === 'linked',
+          // A name behind the mediator → whoever qualified it (unknown for links
+          // before migration 486); no name → the mediator was recorded with the client.
+          recordedByName: linkedCandidate ? (linkedCandidate.qualifiedByName ?? null) : (incomingRow.creator_name ?? null),
+          recordedAt: toDateKey(linkedCandidate ? linkedCandidate.qualifiedAt : incomingRow.client_created_at),
           address,
           mobile,
         });
@@ -2449,8 +2474,33 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
     }
 
     // Outgoing (who this client referred)
+    // Wrapped so each referred name also carries its lifecycle stage (clients,
+    // computed like everywhere else — the stored candidate_status is unreliable)
+    // and who holds it: the client's eligible owners, or the candidate's
+    // responsible user. Neither → the branch.
+    //
+    // A referred client reached this list either as the mediator's ORIGINAL
+    // referral (a name converted into a new client, or a client registered with
+    // this mediator) or by LINKING a duplicate name to a client that already
+    // existed (qualification_kind = 'linked'). A linked client
+    // earns no acquisition credit, and purchase credit only for a contract made
+    // on or after the link day (the date stamped on the linked referrer entry;
+    // the name's creation day as a fallback).
+    const viaLinkSql = `(n.is_client AND n.link_kind = 'linked')`;
     const { rows: outgoingRows } = await pool.query(
-      `SELECT DISTINCT
+      `SELECT n.*,
+        CASE WHEN n.is_client THEN (${buildClientLifecycleStatusSql('oc')}) END AS stage,
+        holder.names AS holder_names,
+        ${viaLinkSql} AS via_link,
+        lk.linked_on,
+        (lk.linked_on IS NOT NULL AND EXISTS (
+          SELECT 1 FROM contracts buy
+           WHERE buy.customer_id = n.id
+             AND buy.status NOT IN ('draft', 'discarded')
+             AND COALESCE(buy.closing_date, buy.created_at)::date >= lk.linked_on
+        )) AS bought_after_link
+      FROM (
+      SELECT DISTINCT
         sheet_id,
         referral_date,
         referral_address_text,
@@ -2459,22 +2509,56 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
         mobile,
         address,
         is_client,
-        status
+        status,
+        link_kind
       FROM (
+        -- Names on this mediator's sheets. A converted or linked name is shown
+        -- as the client it became (followed through converted_to_lead_id; the
+        -- old sheet-wide client join paired every name with every client of
+        -- the sheet and hid the names behind them).
         SELECT
           rs.id as sheet_id,
           rs.referral_date,
           rs.referral_address_text,
           COALESCE(cli.id, can.id) as id,
-          COALESCE(cli.name, NULLIF(TRIM(CONCAT_WS(' ', can.first_name, can.last_name)), '')) as name,
+          COALESCE(
+            cli.name,
+            NULLIF(TRIM(CONCAT_WS(' ', can.first_name, can.last_name)), ''),
+            NULLIF(can.nickname, ''),
+            CONCAT('#', can.id)
+          ) as name,
           COALESCE(cli.mobile, can.mobile) as mobile,
           COALESCE(cli.detailed_address, can.address_text) as address,
           CASE WHEN cli.id IS NOT NULL THEN true ELSE false END as is_client,
-          COALESCE(cli.candidate_status, can.status) as status
+          COALESCE(cli.candidate_status, can.status) as status,
+          can.qualification_kind as link_kind
         FROM referral_sheets rs
-        LEFT JOIN candidates can ON can.referral_sheet_id = rs.id
-        LEFT JOIN clients cli ON cli.referral_sheet_id = rs.id
+        JOIN candidates can ON can.referral_sheet_id = rs.id
+        LEFT JOIN clients cli ON cli.id = can.converted_to_lead_id AND cli.deleted_at IS NULL
         WHERE rs.referral_entity_id = $1 AND rs.referral_type = 'Client'
+
+        UNION ALL
+
+        -- Clients registered on this mediator's sheets without a name behind them.
+        SELECT
+          rs.id as sheet_id,
+          rs.referral_date,
+          rs.referral_address_text,
+          cli.id,
+          cli.name,
+          cli.mobile,
+          cli.detailed_address as address,
+          true as is_client,
+          cli.candidate_status as status,
+          NULL::text as link_kind
+        FROM referral_sheets rs
+        JOIN clients cli ON cli.referral_sheet_id = rs.id AND cli.deleted_at IS NULL
+        WHERE rs.referral_entity_id = $1 AND rs.referral_type = 'Client'
+          AND NOT EXISTS (
+            SELECT 1 FROM candidates sheet_can
+             WHERE sheet_can.converted_to_lead_id = cli.id
+               AND sheet_can.referral_sheet_id = rs.id
+          )
 
         UNION ALL
 
@@ -2492,7 +2576,8 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
           COALESCE(cli.mobile, can.mobile) as mobile,
           COALESCE(cli.detailed_address, can.address_text) as address,
           CASE WHEN cli.id IS NOT NULL THEN true ELSE false END as is_client,
-          COALESCE(cli.candidate_status, can.status) as status
+          COALESCE(cli.candidate_status, can.status) as status,
+          can.qualification_kind as link_kind
         FROM candidates can
         LEFT JOIN clients cli ON cli.id = can.converted_to_lead_id
         WHERE can.referral_entity_id = $1
@@ -2510,7 +2595,8 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
           cli.mobile,
           cli.detailed_address as address,
           true as is_client,
-          cli.candidate_status as status
+          cli.candidate_status as status,
+          NULL::text as link_kind
         FROM clients cli
         WHERE cli.referral_entity_id = $1
           AND cli.referrer_type = 'Client'
@@ -2524,8 +2610,43 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
           )
       ) outgoing_network
       WHERE id IS NOT NULL
-      ORDER BY referral_date DESC NULLS LAST, id DESC`,
-      [clientId],
+      ) n
+      LEFT JOIN clients oc ON n.is_client AND oc.id = n.id
+      LEFT JOIN LATERAL (
+        SELECT COALESCE(
+          (SELECT MIN(LEFT(e->>'referralDate', 10)::date)
+             FROM jsonb_array_elements(
+                    CASE WHEN jsonb_typeof(oc.referrers) = 'array' THEN oc.referrers ELSE '[]'::jsonb END
+                  ) e
+            WHERE COALESCE(e->>'referralEntityId', e->>'id') = $2
+              AND e->>'sourceCandidateId' IS NOT NULL
+              AND e->>'referralDate' ~ '^\\d{4}-\\d{2}-\\d{2}'),
+          (SELECT MIN(link_can.created_at)::date
+             FROM candidates link_can
+            WHERE link_can.converted_to_lead_id = n.id
+              AND link_can.referral_entity_id = $1
+              AND link_can.qualification_kind = 'linked')
+        ) AS linked_on
+      ) lk ON ${viaLinkSql}
+      LEFT JOIN LATERAL (
+        SELECT string_agg(h.name, ' + ' ORDER BY h.ord) AS names
+          FROM (
+            SELECT u.name, ca.assigned_at AS ord
+              FROM client_assignments ca
+              JOIN hr_users u ON u.id = ca.hr_user_id
+              LEFT JOIN roles r ON r.id = u.role_id
+              LEFT JOIN employees e ON e.id = u.employee_id
+             WHERE n.is_client AND ca.client_id = n.id
+               AND ${eligiblePersonalOwnerCondition('u', 'r', 'e')}
+            UNION ALL
+            SELECT u.name, cas.assigned_at AS ord
+              FROM candidate_assignments cas
+              JOIN hr_users u ON u.id = cas.hr_user_id
+             WHERE NOT n.is_client AND cas.candidate_id = n.id
+          ) h
+      ) holder ON TRUE
+      ORDER BY n.referral_date DESC NULLS LAST, n.id DESC`,
+      [clientId, String(clientId)],
     );
 
     const outgoing = outgoingRows.map((r: any) => ({
@@ -2534,10 +2655,19 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
       mobile: r.mobile ?? null,
       address: r.address ?? null,
       status: r.status ?? 'Unknown',
+      /** LEAD / FOP / OP for clients; null for candidates (see `status`). */
+      stage: r.stage ?? null,
       referralDate: r.referral_date
         ? new Date(r.referral_date).toISOString().split('T')[0]
         : null,
+      referralSheetId: r.sheet_id == null ? null : Number(r.sheet_id),
       isClient: r.is_client,
+      holderNames: r.holder_names ?? null,
+      /** The client existed before this mediator suggested it (a linked duplicate). */
+      viaDuplicateLink: r.via_link === true,
+      linkedOn: r.linked_on ? new Date(r.linked_on).toISOString().split('T')[0] : null,
+      /** Linked duplicates only: a contract was made on or after the link day. */
+      boughtAfterLink: r.bought_after_link === true,
     }));
 
     res.json({ incoming, outgoing });
@@ -2866,7 +2996,9 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
                 qualification_kind = 'converted',
                 duplicate_flag = $3,
                 duplicate_type = $4,
-                duplicate_reference_id = $5
+                duplicate_reference_id = $5,
+                qualified_by = $6,
+                qualified_at = NOW()
           WHERE id = $1
         RETURNING referral_sheet_id AS "referralSheetId"`,
         [
@@ -2875,6 +3007,7 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
           convertedDuplicate.duplicateFlag,
           convertedDuplicate.duplicateType,
           convertedDuplicate.duplicateReferenceId,
+          authContext.userId,
         ],
       );
       // Qualifying a name changes its sheet's quality/conversion percentages.

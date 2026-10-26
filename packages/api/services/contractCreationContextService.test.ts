@@ -55,6 +55,8 @@ function dbFixture(options: {
       if (text.includes('FROM open_task_pre_offers')) return {
         rows: options.offers ?? [{ id: 801, contractId: null, saleReferenceNumber: 'S-801' }],
       };
+      // Mediators added by a duplicate link (annotateDuplicateLinkReferrers): none here.
+      if (text.includes("qualification_kind = 'linked'")) return { rows: [] };
       throw new Error(`Unexpected query: ${text}`);
     },
   };
