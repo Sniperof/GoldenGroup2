@@ -17,6 +17,9 @@ const apiProxy = {
 }
 
 export default defineConfig({
+    // Read .env files from the repo root (one place for API and web settings).
+    // Only VITE_-prefixed variables reach the browser bundle.
+    envDir: path.resolve(__dirname, '../..'),
     resolve: {
         alias: {
             '@golden-crm/shared': path.resolve(__dirname, '../shared/index.ts'),
