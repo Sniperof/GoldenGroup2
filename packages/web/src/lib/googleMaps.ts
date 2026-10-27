@@ -8,7 +8,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export type GoogleMapsApi = any;
 
-export const GOOGLE_MAPS_API_KEY: string = (import.meta.env.VITE_GOOGLE_MAPS_API_KEY ?? '').trim();
+// `?.`: import.meta.env only exists under Vite — Node tests import this module too.
+export const GOOGLE_MAPS_API_KEY: string = (import.meta.env?.VITE_GOOGLE_MAPS_API_KEY ?? '').trim();
 
 let loading: Promise<GoogleMapsApi> | null = null;
 let authFailed = false;

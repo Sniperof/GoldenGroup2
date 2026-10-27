@@ -325,7 +325,7 @@ export default function RouteManager() {
             >
                 {previewRoute && (
                     <div className="p-4 space-y-3" dir="rtl">
-                        <RoutePreviewMap points={previewRoute.points} geoUnits={geoUnits} name={getUnitName} height={420} />
+                        <RoutePreviewMap points={previewRoute.points} geoUnits={geoUnits} name={getUnitName} height={420} roadMode="auto" />
                         <div className="flex flex-wrap gap-1">
                             {[...previewRoute.points].sort((a, b) => a.order - b.order).map((p, i) => {
                                 const colors = levelColors[p.level] || levelColors[4];

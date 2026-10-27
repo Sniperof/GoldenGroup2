@@ -1,6 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { GeoUnit, RoutePoint } from '@golden-crm/shared';
+import { hasGoogleMapsKey } from '../../lib/googleMaps';
+import { computeRoadRoute, formatDistance, formatDuration, type RoadRoute } from '../../lib/googleRoutes';
 import ZoneMapCanvas from './ZoneMapCanvas';
 import type { MapLine, MapPin } from './zoneMapPins';
 
@@ -9,18 +11,27 @@ import type { MapLine, MapPin } from './zoneMapPins';
 // are NOT stations themselves. Station matching is literal (see RouteManager):
 // those أحياء are not served by this route, so the preview shows the gap.
 // Read-only: centers are set on the geo settings form (or the zone map).
+//
+// Road route (Google Routes API, shortest, no traffic): `roadMode="auto"`
+// computes it as soon as the preview opens (read-only preview — one request);
+// `roadMode="button"` waits for a click (the builder, where stations change
+// often). A computed road is dropped as soon as the stations change.
 
 interface Props {
   points: RoutePoint[];
   geoUnits: GeoUnit[];
   name: (id: number) => string;
   height?: number;
+  roadMode?: 'auto' | 'button';
 }
 
 const GHOST_ID_OFFSET = 1_000_000_000; // keeps ghost pin ids apart from station ids
 
-export default function RoutePreviewMap({ points, geoUnits, name, height = 280 }: Props) {
+export default function RoutePreviewMap({ points, geoUnits, name, height = 280, roadMode = 'button' }: Props) {
   const [selected, setSelected] = useState<number | null>(null);
+  const [road, setRoad] = useState<{ key: string; route: RoadRoute } | null>(null);
+  const [roadLoading, setRoadLoading] = useState(false);
+  const [roadError, setRoadError] = useState<string | null>(null);
 
   const view = useMemo(() => {
     const byId = new Map(geoUnits.map(u => [u.id, u]));
@@ -58,15 +69,14 @@ export default function RoutePreviewMap({ points, geoUnits, name, height = 280 }
         label: String(s.order),
       })),
     ];
-    const line: MapLine = {
-      id: 1,
-      label: 'المسار',
-      active: true,
-      points: stations.filter(s => s.center).map(s => [s.center!.lat, s.center!.lng] as [number, number]),
-    };
+    const placed = stations.filter(s => s.center);
+    const straight = placed.map(s => [s.center!.lat, s.center!.lng] as [number, number]);
     return {
       pins,
-      lines: line.points.length > 1 ? [line] : [],
+      placed,
+      straight,
+      // Identity of what a road route was computed for: the placed stations, in order.
+      roadKey: JSON.stringify(straight),
       stations,
       missing: stations.filter(s => !s.center),
       uncoveredCount: uncovered.length,
@@ -74,6 +84,36 @@ export default function RoutePreviewMap({ points, geoUnits, name, height = 280 }
       fitKey: ordered.map(p => p.geoUnitId).sort((a, b) => a - b).join(','),
     };
   }, [points, geoUnits, name]);
+
+  const canRoad = hasGoogleMapsKey() && view.straight.length >= 2;
+  const currentRoad = road?.key === view.roadKey ? road.route : null;
+  const line: MapLine = { id: 1, label: 'المسار', active: true, points: currentRoad?.path ?? view.straight };
+  const lines = line.points.length > 1 ? [line] : [];
+
+  const computeRoad = async (signal?: AbortSignal) => {
+    const key = view.roadKey;
+    setRoadLoading(true);
+    setRoadError(null);
+    try {
+      const route = await computeRoadRoute(view.straight, signal);
+      setRoad({ key, route });
+    } catch (err) {
+      if ((err as Error)?.name !== 'AbortError') setRoadError((err as Error)?.message || 'تعذّر حساب المسار');
+    } finally {
+      setRoadLoading(false);
+    }
+  };
+
+  // Stations changed → the computed road no longer applies.
+  useEffect(() => { setRoadError(null); }, [view.roadKey]);
+
+  useEffect(() => {
+    if (roadMode !== 'auto' || !canRoad) return;
+    const ctrl = new AbortController();
+    void computeRoad(ctrl.signal);
+    return () => ctrl.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roadMode, canRoad, view.roadKey]);
 
   const selectedLabel = selected == null
     ? null
@@ -90,7 +130,7 @@ export default function RoutePreviewMap({ points, geoUnits, name, height = 280 }
       <div className="rounded-xl border border-slate-200 overflow-hidden" style={{ height }}>
         <ZoneMapCanvas
           pins={view.pins}
-          lines={view.lines}
+          lines={lines}
           selectedId={selected}
           onSelect={setSelected}
           fitKey={view.fitKey}
@@ -98,6 +138,33 @@ export default function RoutePreviewMap({ points, geoUnits, name, height = 280 }
         />
       </div>
       {selectedLabel && <p className="font-bold text-slate-700">{selectedLabel}</p>}
+      {canRoad && (
+        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 space-y-1">
+          {currentRoad ? (
+            <>
+              <p className="font-bold text-slate-700">
+                على الطرق: {formatDistance(currentRoad.distanceMeters)} · {formatDuration(currentRoad.durationSec)} قيادة
+              </p>
+              <p className="text-slate-500 leading-relaxed">
+                {currentRoad.legs.map((leg, i) => `${view.placed[i]?.order} ← ${view.placed[i + 1]?.order}: ${formatDistance(leg.distanceMeters)}`).join(' · ')}
+              </p>
+              <p className="text-[11px] text-slate-400">
+                أقصر مسار على الطرق بلا ازدحام، بين مراكز المناطق — تقدير لطول الخط لا مسار الفريق باباً بباب.
+                {view.missing.length > 0 && ' المحطات التي بلا مركز غير داخلة في الحساب.'}
+              </p>
+            </>
+          ) : roadLoading ? (
+            <p className="text-slate-500">جارٍ حساب المسار على الطرق…</p>
+          ) : (
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-slate-500">{roadError ? `تعذّر الحساب: ${roadError}` : 'الخط الظاهر مستقيم بين المحطات.'}</p>
+              <button type="button" onClick={() => void computeRoad()} className="shrink-0 rounded-lg bg-orange-600 px-2.5 py-1 font-bold text-white hover:bg-orange-500">
+                {roadError ? 'إعادة المحاولة' : 'احسب على الطرق'}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
       <p className="text-slate-500">
         {view.stations.length - view.missing.length} من {view.stations.length} محطة على الخريطة
         {view.uncoveredCount > 0 && ` · ${view.uncoveredCount} حي غير مضاف تحت نواحي المسار (الباهتة على الخريطة${view.uncoveredPlaced < view.uncoveredCount ? `، ${view.uncoveredPlaced} منها لها مركز` : ''})`}
