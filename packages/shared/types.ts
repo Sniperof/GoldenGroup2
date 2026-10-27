@@ -6,6 +6,8 @@ export interface GeoUnit {
     level: number;
     parentId: number | null;
     status?: 'active' | 'inactive';
+    // Map center of the area (migr 487) — set on the geo settings form or the zone map.
+    center?: { lat: number; lng: number } | null;
 }
 
 export interface RoutePoint {

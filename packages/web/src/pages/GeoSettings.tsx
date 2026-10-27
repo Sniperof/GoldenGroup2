@@ -14,6 +14,12 @@ import PageHeader from '../components/ui/PageHeader';
 import { usePermissions } from '../hooks/usePermissions';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import BranchScopeIndicator from '../components/BranchScopeIndicator';
+import MapPicker from '../components/MapPicker';
+
+// نواحي and أحياء carry a map center (the zone map study draws one pin per area).
+const hasCenter = (level: number) => level >= 3;
+type Center = { lat: number; lng: number } | null;
+const sameCenter = (a: Center, b: Center) => (a?.lat ?? null) === (b?.lat ?? null) && (a?.lng ?? null) === (b?.lng ?? null);
 
 const tabs = [
     { level: 1, label: 'المحافظات', icon: MapPin },
@@ -38,10 +44,12 @@ export default function GeoSettings() {
     const [modalSubDistrict, setModalSubDistrict] = useState('');
     const [modalName, setModalName] = useState('');
     const [addError, setAddError] = useState('');
+    const [modalCenter, setModalCenter] = useState<Center>(null);
 
     const [editUnit, setEditUnit] = useState<GeoUnit | null>(null);
     const [editName, setEditName] = useState('');
     const [editError, setEditError] = useState('');
+    const [editCenter, setEditCenter] = useState<Center>(null);
     const [deleteError, setDeleteError] = useState<string | null>(null);
 
     if (!hasPermission('geo.view')) {
@@ -107,6 +115,7 @@ export default function GeoSettings() {
     const openEditModal = (unit: GeoUnit) => {
         setEditUnit(unit);
         setEditName(unit.name);
+        setEditCenter(unit.center ?? null);
         setEditError('');
     };
 
@@ -115,7 +124,8 @@ export default function GeoSettings() {
         setEditError('');
         const name = editName.trim();
         if (!name) { setEditError('يرجى إدخال الاسم'); return; }
-        if (name === editUnit.name) { setEditUnit(null); return; }
+        const centerChanged = !sameCenter(editCenter, editUnit.center ?? null);
+        if (name === editUnit.name && !centerChanged) { setEditUnit(null); return; }
         const isDuplicate = geoUnits.some(
             u => u.id !== editUnit.id && u.level === editUnit.level && u.parentId === editUnit.parentId && u.name.trim().toLowerCase() === name.toLowerCase()
         );
@@ -124,7 +134,7 @@ export default function GeoSettings() {
             return;
         }
         try {
-            await api.geoUnits.update(editUnit.id, { name });
+            await api.geoUnits.update(editUnit.id, { name, ...(centerChanged ? { center: editCenter } : {}) });
             await fetchGeoUnits();
             setEditUnit(null);
         } catch (err) {
@@ -137,6 +147,7 @@ export default function GeoSettings() {
         setModalRegion('');
         setModalSubDistrict('');
         setModalName('');
+        setModalCenter(null);
         setIsModalOpen(true);
     };
 
@@ -159,7 +170,7 @@ export default function GeoSettings() {
             return;
         }
         try {
-            await api.geoUnits.create({ name, level, parentId });
+            await api.geoUnits.create({ name, level, parentId, ...(hasCenter(level) && modalCenter ? { center: modalCenter } : {}) });
             await fetchGeoUnits();
             setIsModalOpen(false);
         } catch (err) {
@@ -219,11 +230,22 @@ export default function GeoSettings() {
         { key: 'status', label: 'الحالة', render: (u) => <StatusBadge unit={u} />, getValue: (u) => u.status ?? 'active' },
     ];
 
+    const centerColumn: ColumnDef<GeoUnit> = {
+        key: 'center',
+        label: 'المركز على الخريطة',
+        sortable: true,
+        render: (u) => u.center
+            ? <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-xs font-medium border border-emerald-100">محدد</span>
+            : <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-xs font-medium border border-slate-200">غير محدد</span>,
+        getValue: (u) => (u.center ? 1 : 0),
+    };
+
     const subDistrictColumns: ColumnDef<GeoUnit>[] = [
         idColumn,
         { key: 'name', label: 'اسم الناحية', sortable: true, render: (u) => <span className="text-sm font-semibold text-slate-800">{u.name}</span> },
         { key: 'path', label: 'المسار', render: (u) => <span className="text-xs text-slate-500">{getPath(u)}</span>, getValue: (u) => getPath(u) },
         { key: 'children', label: 'عدد الأحياء', sortable: true, render: (u) => <span className="text-sm text-slate-600">{geoUnits.filter(c => c.parentId === u.id).length}</span>, getValue: (u) => geoUnits.filter(c => c.parentId === u.id).length },
+        centerColumn,
         { key: 'status', label: 'الحالة', render: (u) => <StatusBadge unit={u} />, getValue: (u) => u.status ?? 'active' },
     ];
 
@@ -231,6 +253,7 @@ export default function GeoSettings() {
         idColumn,
         { key: 'name', label: 'اسم الحي', sortable: true, render: (u) => <span className="text-sm font-semibold text-slate-800">{u.name}</span> },
         { key: 'path', label: 'المسار', render: (u) => <span className="text-xs text-slate-500">{getPath(u)}</span>, getValue: (u) => getPath(u) },
+        centerColumn,
         { key: 'status', label: 'الحالة', render: (u) => <StatusBadge unit={u} />, getValue: (u) => u.status ?? 'active' },
     ];
 
@@ -350,7 +373,7 @@ export default function GeoSettings() {
             <Modal
                 isOpen={!!editUnit && canManageGeo}
                 onClose={() => setEditUnit(null)}
-                size="sm"
+                size={editUnit && hasCenter(editUnit.level) ? 'xl' : 'sm'}
                 title={editUnit ? `تعديل ${levelNames[editUnit.level]}` : ''}
                 footer={
                     <div className="w-full flex gap-3">
@@ -375,6 +398,9 @@ export default function GeoSettings() {
                                         autoFocus
                                     />
                                 </div>
+                                {editUnit && hasCenter(editUnit.level) && (
+                                    <CenterField value={editCenter} onChange={setEditCenter} />
+                                )}
                                 {editError && (
                                     <div className="flex items-center gap-2 text-red-600 text-sm bg-red-50 border border-red-100 rounded-lg px-3 py-2">
                                         <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
@@ -388,7 +414,7 @@ export default function GeoSettings() {
             <Modal
                 isOpen={isModalOpen && canManageGeo}
                 onClose={() => setIsModalOpen(false)}
-                size="md"
+                size={hasCenter(activeTab) ? 'xl' : 'md'}
                 title={`إضافة ${levelNames[activeTab]}`}
                 footer={
                     <div className="w-full flex gap-3">
@@ -462,6 +488,9 @@ export default function GeoSettings() {
                                         autoFocus
                                     />
                                 </div>
+                                {hasCenter(activeTab) && (
+                                    <CenterField value={modalCenter} onChange={setModalCenter} />
+                                )}
                                 {addError && (
                                     <div className="flex items-center gap-2 text-red-600 text-sm bg-red-50 border border-red-100 rounded-lg px-3 py-2">
                                         <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
@@ -470,6 +499,32 @@ export default function GeoSettings() {
                                 )}
                             </div>
             </Modal>
+        </div>
+    );
+}
+
+// Map center of a ناحية / حي: click the map (or use GPS / type coordinates in
+// MapPicker). The zone map study draws the area's pin on this point.
+function CenterField({ value, onChange }: { value: Center; onChange: (c: Center) => void }) {
+    return (
+        <div>
+            <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-sm font-medium text-slate-700">مركز المنطقة على الخريطة</label>
+                {value && (
+                    <button type="button" onClick={() => onChange(null)} className="text-xs font-bold text-slate-500 hover:text-red-600">
+                        إزالة المركز
+                    </button>
+                )}
+            </div>
+            <p className="text-xs text-slate-400 mb-2">
+                {value
+                    ? `محدد: ${value.lat.toFixed(5)}، ${value.lng.toFixed(5)}`
+                    : 'غير محدد — انقر على الخريطة لتحديده. يظهر دبوس المنطقة في دراسة النطاقات على هذه النقطة.'}
+            </p>
+            <MapPicker
+                position={value ? [value.lat, value.lng] : null}
+                onLocationSelect={(lat, lng) => onChange({ lat, lng })}
+            />
         </div>
     );
 }

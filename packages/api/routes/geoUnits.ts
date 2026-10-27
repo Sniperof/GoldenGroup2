@@ -12,6 +12,44 @@ import {
 
 const router = Router();
 
+// Map center of an area (migr 487). Optional on create/update: `center` absent
+// leaves it as is, `null` clears it, `{ lat, lng }` sets it.
+type CenterInput = { lat: number; lng: number } | null | undefined;
+
+function parseCenter(raw: unknown): { ok: true; value: CenterInput } | { ok: false } {
+  if (raw === undefined) return { ok: true, value: undefined };
+  if (raw === null) return { ok: true, value: null };
+  const lat = Number((raw as any)?.lat);
+  const lng = Number((raw as any)?.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+    return { ok: false };
+  }
+  return { ok: true, value: { lat, lng } };
+}
+
+async function saveCenter(id: number, center: { lat: number; lng: number } | null, userId: number | null) {
+  await pool.query(
+    `UPDATE geo_units
+        SET center_lat = $2, center_lng = $3,
+            center_source = CASE WHEN $2::numeric IS NULL THEN NULL ELSE 'manual' END,
+            center_updated_by = $4, center_updated_at = NOW()
+      WHERE id = $1`,
+    [id, center?.lat ?? null, center?.lng ?? null, userId],
+  );
+}
+
+async function loadCenters(ids: number[]): Promise<Map<number, { lat: number; lng: number }>> {
+  const map = new Map<number, { lat: number; lng: number }>();
+  if (ids.length === 0) return map;
+  const { rows } = await pool.query(
+    `SELECT id, center_lat::float8 AS lat, center_lng::float8 AS lng
+       FROM geo_units WHERE id = ANY($1::int[]) AND center_lat IS NOT NULL`,
+    [ids],
+  );
+  rows.forEach((r: any) => map.set(Number(r.id), { lat: Number(r.lat), lng: Number(r.lng) }));
+  return map;
+}
+
 function emptyGeoScope(branchId: number | null): GeoScope {
   return {
     branchId,
@@ -99,7 +137,9 @@ router.get('/', requirePermission('geo.view', 'geo_units.lookup'), async (req, r
     ? 'geo.view'
     : 'geo_units.lookup';
   const scope = await resolveRequestedGeoScope(req, permission, geoUnits);
-  res.json(filterGeoUnitsByScope(geoUnits, scope));
+  const visible = filterGeoUnitsByScope(geoUnits, scope);
+  const centers = await loadCenters(visible.map(u => u.id));
+  res.json(visible.map(u => ({ ...u, center: centers.get(u.id) ?? null })));
 });
 
 router.get('/active', requirePermission('geo.view', 'geo_units.lookup'), async (req, res) => {
@@ -210,6 +250,11 @@ router.get('/:id', requirePermission('geo.view', 'geo_units.lookup'), async (req
  */
 router.post('/', requirePermission('geo.manage'), async (req, res) => {
   const { name, level, parentId } = req.body;
+  const center = parseCenter(req.body?.center);
+  if (!center.ok) {
+    res.status(400).json({ error: 'إحداثيات المركز غير صالحة' });
+    return;
+  }
 
   // GAP-035: Validate level range
   if (![1, 2, 3, 4].includes(level)) {
@@ -250,7 +295,8 @@ router.post('/', requirePermission('geo.manage'), async (req, res) => {
       'INSERT INTO geo_units (name, level, parent_id) VALUES ($1, $2, $3) RETURNING id, name, level, parent_id AS "parentId", status',
       [name, level, parentId || null],
     );
-    res.json(rows[0]);
+    if (center.value) await saveCenter(rows[0].id, center.value, req.authContext?.userId ?? null);
+    res.json({ ...rows[0], center: center.value ?? null });
   } catch (err: any) {
     if (err.code === '23505') {
       res.status(409).json({ error: 'إسم مكرر: توجد وحدة جغرافية بنفس الاسم والمستوى' });
@@ -298,6 +344,11 @@ router.put('/:id', requirePermission('geo.manage'), async (req, res) => {
     res.status(400).json({ error: 'الاسم مطلوب' });
     return;
   }
+  const center = parseCenter(req.body?.center);
+  if (!center.ok) {
+    res.status(400).json({ error: 'إحداثيات المركز غير صالحة' });
+    return;
+  }
 
   try {
     const { rows } = await pool.query(
@@ -308,7 +359,9 @@ router.put('/:id', requirePermission('geo.manage'), async (req, res) => {
       res.status(404).json({ error: 'الوحدة الجغرافية غير موجودة' });
       return;
     }
-    res.json(rows[0]);
+    if (center.value !== undefined) await saveCenter(rows[0].id, center.value, req.authContext?.userId ?? null);
+    const centers = await loadCenters([rows[0].id]);
+    res.json({ ...rows[0], center: centers.get(rows[0].id) ?? null });
   } catch (err: any) {
     if (err.code === '23505') {
       res.status(409).json({ error: 'إسم مكرر: توجد وحدة جغرافية بنفس الاسم والمستوى' });
