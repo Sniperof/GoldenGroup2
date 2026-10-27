@@ -6,6 +6,7 @@ import type {
   TaskTypeConfig,
   ZoneStudyMode,
   ZoneStudyResponse,
+  ZoneMapResponse,
 } from '@golden-crm/shared';
 import { shouldAttachBranchContextHeader } from './branchContext';
 import { authFetch } from './authFetch';
@@ -1925,6 +1926,15 @@ export const api = {
         { method: 'DELETE' },
       );
     },
+  },
+  zoneMap: {
+    get: (date: string) =>
+      request<ZoneMapResponse>(`/planning/zone-map?${new URLSearchParams({ date }).toString()}`),
+    setCenter: (geoUnitId: number, center: { lat: number; lng: number } | null) =>
+      request<{ geoUnitId: number; center: { lat: number; lng: number } | null }>(
+        `/planning/zone-map/areas/${geoUnitId}/center`,
+        { method: 'PUT', body: JSON.stringify(center ?? { lat: null, lng: null }) },
+      ),
   },
   workScopes: {
     get: (date: string, teamKey: string, branchId?: number) => {

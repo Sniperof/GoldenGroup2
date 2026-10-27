@@ -195,6 +195,7 @@ export default function MainLayout() {
       ...(can('service_requests.view') ? [{ path: '/service-requests', label: 'طلبات الخدمة', icon: Wrench, exact: true }] : []),
       ...(can('planning.view') ? [
         { path: '/planning/overview', label: 'ملخص الخطة', icon: Eye, dividerLabel: 'التخطيط والجدولة' },
+        { path: '/planning/zone-map', label: 'دراسة النطاقات (الخريطة)', icon: Layers, dividerLabel: 'التخطيط والجدولة' },
         { path: '/planning/schedule', label: 'جدولة الفرق', icon: UsersRound, dividerLabel: 'التخطيط والجدولة' },
         { path: '/planning/zone-study', label: 'دراسة النطاقات', icon: LayoutGrid, dividerLabel: 'التخطيط والجدولة' },
         { path: '/planning/assign', label: 'تعيين المسارات', icon: MapPinned, dividerLabel: 'التخطيط والجدولة' },

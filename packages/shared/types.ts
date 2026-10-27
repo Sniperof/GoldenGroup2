@@ -436,6 +436,80 @@ export interface ZoneStudyResponse {
     snapshot: ZoneStudySnapshotData | null;
 }
 
+// ── Zone map study (pre-scheduling picture) ──────────────────────────────────
+// Customer's study columns. Task-backed columns count clients or devices;
+// request_* columns count pending service requests (not yet tasks).
+export type ZoneMapColumnKey =
+    | 'emergency'
+    | 'collection'
+    | 'retrieved_return'
+    | 'gift'
+    | 'golden_warranty'
+    | 'request_device'
+    | 'request_water_check'
+    | 'request_periodic'
+    | 'periodic'
+    | 'demo'
+    | 'other';
+
+export interface ZoneMapArea {
+    geoUnitId: number;
+    name: string;
+    level: number;
+    parentId: number | null;
+    inBranchCoverage: boolean;
+    center: { lat: number; lng: number } | null;
+}
+
+export interface ZoneMapRoute {
+    id: number;
+    name: string;
+    stationGeoUnitIds: number[]; // in route order
+}
+
+export interface ZoneMapOwner {
+    hrUserId: number;
+    name: string;
+    roleName: string | null;
+    slotType: string | null;
+}
+
+export interface ZoneMapTaskItem {
+    taskId: number;
+    taskType: string;
+    taskLabel: string;
+    column: ZoneMapColumnKey;
+    clientId: number;
+    clientName: string;
+    deviceId: number | null;
+    deviceLabel: string | null;
+    countsBy: 'client' | 'device';
+    geoUnitId: number | null;     // work location: device's installation unit or client's area
+    ownerHrUserIds: number[];     // device_demo only; empty = branch-owned
+    overdue: boolean;
+}
+
+export interface ZoneMapRequestItem {
+    requestId: number;
+    requestType: string;
+    column: ZoneMapColumnKey;
+    refNumber: string | null;
+    clientId: number | null;
+    clientName: string | null;
+    geoUnitId: number | null;
+}
+
+export interface ZoneMapResponse {
+    date: string;
+    branchId: number;
+    coveredGeoUnitIds: number[];
+    areas: ZoneMapArea[];
+    routes: ZoneMapRoute[];
+    owners: ZoneMapOwner[];
+    tasks: ZoneMapTaskItem[];
+    requests: ZoneMapRequestItem[];
+}
+
 export interface Client {
     id: number;
     firstName: string;

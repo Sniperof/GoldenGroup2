@@ -18,6 +18,7 @@ import CandidatesEntry from './pages/candidates/CandidatesEntry';
 import CandidateDetail from './pages/candidates/CandidateDetail';
 import TeamScheduler from './pages/planning/TeamScheduler';
 import ZoneStudy from './pages/planning/ZoneStudy';
+import ZoneMapStudy from './pages/planning/ZoneMapStudy';
 import RouteAssigner from './pages/planning/RouteAssigner';
 import PlanOverview from './pages/planning/PlanOverview';
 import PlanningContactTargets from './pages/planning/PlanningContactTargets';
@@ -132,6 +133,7 @@ export default function App() {
                         {/* Group 3 — single-branch operational pages: hidden on "all branches" (§6 / Phase 3.2). */}
                         <Route path="/planning/schedule" element={<RequireBranchContext><TeamScheduler /></RequireBranchContext>} />
                         <Route path="/planning/zone-study" element={<RequireBranchContext><ZoneStudy /></RequireBranchContext>} />
+                        <Route path="/planning/zone-map" element={<RequireBranchContext><ZoneMapStudy /></RequireBranchContext>} />
                         <Route path="/planning/assign" element={<RequireBranchContext><RouteAssigner /></RequireBranchContext>} />
                         <Route path="/planning/overview" element={<RequireBranchContext><PlanOverview /></RequireBranchContext>} />
                         <Route path="/planning/contact-targets/:teamKey" element={<RequireBranchContext><PlanningContactTargets /></RequireBranchContext>} />
