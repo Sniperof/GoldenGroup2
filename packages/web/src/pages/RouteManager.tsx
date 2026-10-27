@@ -3,8 +3,10 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Navigate } from 'react-router-dom';
 import {
     Plus, Eye, Trash2, X, ArrowUp, ArrowDown,
-    Route as RouteIcon, ChevronRight,
+    Route as RouteIcon, ChevronRight, Map as MapIcon,
 } from '../components/ui/icons';
+import Modal from '../components/ui/Modal';
+import RoutePreviewMap from './planning/RoutePreviewMap';
 import { api } from '../lib/api';
 import { levelNames } from '../lib/geoConstants';
 import SmartTable, { type ColumnDef } from '../components/SmartTable';
@@ -57,6 +59,8 @@ export default function RouteManager() {
     const [builderName, setBuilderName] = useState('');
     const [builderPoints, setBuilderPoints] = useState<RoutePoint[]>([]);
     const [treeSel, setTreeSel] = useState<(number | null)[]>([null, null, null, null]);
+    // Read-only map preview from the table (routes.view is enough).
+    const [previewRoute, setPreviewRoute] = useState<Route | null>(null);
 
     if (!hasPermission('routes.view')) return <Navigate to="/" replace />;
 
@@ -299,6 +303,9 @@ export default function RouteManager() {
                 defaultSortDir="asc"
                 actions={(r) => (
                     <div className="flex items-center gap-2">
+                        <button onClick={(e) => { e.stopPropagation(); setPreviewRoute(r); }} title="معاينة على الخريطة" className="p-1.5 rounded-lg hover:bg-orange-50 text-slate-400 hover:text-orange-600 transition-all">
+                            <MapIcon className="w-4 h-4" />
+                        </button>
                         <button onClick={(e) => { e.stopPropagation(); openBuilder(r); }} disabled={!canManageGeo} className="p-1.5 rounded-lg hover:bg-sky-50 text-slate-400 hover:text-sky-600 transition-all disabled:opacity-50">
                             <Eye className="w-4 h-4" />
                         </button>
@@ -308,6 +315,32 @@ export default function RouteManager() {
                     </div>
                 )}
             />
+
+            {/* ── Read-only route preview ── */}
+            <Modal
+                isOpen={!!previewRoute}
+                onClose={() => setPreviewRoute(null)}
+                size="3xl"
+                title={previewRoute ? `معاينة المسار «${previewRoute.name}»` : ''}
+            >
+                {previewRoute && (
+                    <div className="p-4 space-y-3" dir="rtl">
+                        <RoutePreviewMap points={previewRoute.points} geoUnits={geoUnits} name={getUnitName} height={420} />
+                        <div className="flex flex-wrap gap-1">
+                            {[...previewRoute.points].sort((a, b) => a.order - b.order).map((p, i) => {
+                                const colors = levelColors[p.level] || levelColors[4];
+                                return (
+                                    <span key={p.geoUnitId} className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs ${colors.bg} ${colors.text} border ${colors.border}`}>
+                                        <span className="font-bold">{i + 1}</span>
+                                        {getUnitName(p.geoUnitId)}
+                                        <span className="opacity-60">{levelNames[p.level]}</span>
+                                    </span>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
+            </Modal>
 
             {/* ── Route Builder Slide-in ── */}
             <AnimatePresence>
@@ -412,6 +445,12 @@ export default function RouteManager() {
                                             </span>
                                         </motion.button>
                                     )}
+                                </div>
+
+                                {/* Live map preview — follows every add / remove / reorder before saving. */}
+                                <div className="space-y-2">
+                                    <p className="text-xs font-semibold text-slate-600">معاينة المسار على الخريطة</p>
+                                    <RoutePreviewMap points={builderPoints} geoUnits={geoUnits} name={getUnitName} height={240} />
                                 </div>
 
                                 {/* Stations list */}

@@ -24,8 +24,11 @@ function createPinOverlayClass(gm: GoogleMapsApi) {
       (this as any).getPanes().overlayMouseTarget.appendChild(div);
     }
     draw() {
-      if (!this.div) return;
-      const point = (this as any).getProjection().fromLatLngToDivPixel(this.position);
+      // Google can call draw() before the projection exists (map still
+      // initializing, e.g. inside a modal that is animating in).
+      const projection = (this as any).getProjection();
+      if (!this.div || !projection) return;
+      const point = projection.fromLatLngToDivPixel(this.position);
       if (!point) return;
       this.div.style.left = `${point.x}px`;
       this.div.style.top = `${point.y}px`;
@@ -37,7 +40,7 @@ function createPinOverlayClass(gm: GoogleMapsApi) {
   };
 }
 
-export default function ZoneMapGoogle({ pins, lines, selectedId, onSelect, onPlace, fitKey, onLoadError }: ZoneMapProps & { onLoadError: () => void }) {
+export default function ZoneMapGoogle({ pins, lines, selectedId, onSelect, onPlace, fitKey, minHeight = 420, onLoadError }: ZoneMapProps & { onLoadError: () => void }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const gmRef = useRef<GoogleMapsApi | null>(null);
   const mapRef = useRef<any>(null);
@@ -144,5 +147,7 @@ export default function ZoneMapGoogle({ pins, lines, selectedId, onSelect, onPla
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, fitKey]);
 
-  return <div ref={containerRef} className="h-full w-full overflow-hidden rounded-xl" style={{ minHeight: 420 }} />;
+  // dir="ltr": inside an RTL page Google Maps offsets its tiles and leaves a
+  // grey strip along one edge. The map's own labels stay Arabic (language=ar).
+  return <div ref={containerRef} dir="ltr" className="h-full w-full overflow-hidden rounded-xl" style={{ minHeight }} />;
 }

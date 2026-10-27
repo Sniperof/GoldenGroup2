@@ -106,11 +106,6 @@ export class GeoIndex {
     return chain.find(x => this.byId.get(x)?.level === level) ?? id;
   }
 
-  // Station covers an area when it is the area or one of its ancestors.
-  covers(stationId: number, id: number): boolean {
-    return this.ancestorsOrSelf(id).includes(stationId);
-  }
-
   descendantsOrSelf(id: number): Set<number> {
     const out = new Set<number>([id]);
     const stack = [id];
@@ -197,13 +192,16 @@ export function aggregateAreas(
   ));
 }
 
+// Station matching is LITERAL, as in planning (RouteManager): a station serves
+// work recorded on exactly that unit. A ناحية station does not pull its أحياء —
+// each حي to be visited is its own station.
 export function aggregateRoutes(data: ZoneMapResponse, geo: GeoIndex, filters: ZoneMapFilters): RouteRow[] {
   const tasks = data.tasks.filter(t => taskPassesFilters(t, filters) && t.geoUnitId != null);
   const requests = data.requests.filter(r => filters.columns.has(r.column) && r.geoUnitId != null);
   return data.routes.map(route => {
     const stations = route.stationGeoUnitIds.map(sid => {
-      const st = tasks.filter(t => geo.covers(sid, t.geoUnitId!));
-      const sr = requests.filter(r => geo.covers(sid, r.geoUnitId!));
+      const st = tasks.filter(t => t.geoUnitId === sid);
+      const sr = requests.filter(r => r.geoUnitId === sid);
       return {
         geoUnitId: sid,
         name: geo.name(sid),
@@ -226,9 +224,10 @@ export function aggregateRoutes(data: ZoneMapResponse, geo: GeoIndex, filters: Z
   });
 }
 
-// Routes containing an area: a station that is the area, an ancestor of it,
-// or inside it.
+// Routes passing through an area (route search): a station that is the area
+// itself or a unit inside it. A ناحية station does not pass through its أحياء
+// (literal matching), so searching one of those أحياء does not find it.
 export function routeContainsArea(stationIds: number[], areaId: number, geo: GeoIndex): boolean {
   const inside = geo.descendantsOrSelf(areaId);
-  return stationIds.some(s => inside.has(s) || geo.covers(s, areaId));
+  return stationIds.some(s => inside.has(s));
 }

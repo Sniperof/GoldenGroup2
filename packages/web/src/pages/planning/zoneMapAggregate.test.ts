@@ -91,11 +91,15 @@ test('demo owner filter: branch demos and per-owner demos are separate', () => {
   assert.equal(rows[0].visitCount, 1);
 });
 
-test('route stations cover their sub-areas; route totals dedupe visits', () => {
+test('route stations match literally: a ناحية station does not pull its أحياء', () => {
   const [mezzehRoute, babTouma] = aggregateRoutes(data, geo, everything);
-  assert.equal(mezzehRoute.total.visitCount, 4);
-  assert.equal(babTouma.total.visitCount, 2);
-  assert.equal(routeContainsArea([10], 12, geo), true); // حي inside the station ناحية
+  // Station 10 (ناحية المزة) serves only work recorded on 10 itself: client3's demo.
+  // The visits in أحياء 11 and 12 are NOT on this route.
+  assert.equal(mezzehRoute.total.visitCount, 1);
+  assert.equal(mezzehRoute.total.requests.length, 0);
+  assert.equal(babTouma.total.visitCount, 2); // station 21 = client1@21 + client5@21
+  assert.equal(routeContainsArea([10], 10, geo), true);
   assert.equal(routeContainsArea([11], 10, geo), true); // station حي inside the searched ناحية
+  assert.equal(routeContainsArea([10], 12, geo), false); // ناحية station doesn't pass through its حي
   assert.equal(routeContainsArea([21], 10, geo), false);
 });

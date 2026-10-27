@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import type * as Leaflet from 'leaflet';
 import { fitPoints, LINE_STYLE, pinHtml, SYRIA_CENTER, type ZoneMapProps } from './zoneMapPins';
 
-export default function ZoneMapLeaflet({ pins, lines, selectedId, onSelect, onPlace, fitKey }: ZoneMapProps) {
+export default function ZoneMapLeaflet({ pins, lines, selectedId, onSelect, onPlace, fitKey, minHeight = 420 }: ZoneMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const leafletRef = useRef<typeof Leaflet | null>(null);
   const mapRef = useRef<Leaflet.Map | null>(null);
@@ -83,7 +83,7 @@ export default function ZoneMapLeaflet({ pins, lines, selectedId, onSelect, onPl
   // re-render that element's className — the changing cursor lives on a wrapper.
   return (
     <div className={`h-full w-full overflow-hidden rounded-xl ${onPlace ? '[&_.leaflet-container]:cursor-crosshair' : ''}`}>
-      <div ref={containerRef} className="h-full w-full" style={{ minHeight: 420 }} />
+      <div ref={containerRef} className="h-full w-full" style={{ minHeight }} />
     </div>
   );
 }
