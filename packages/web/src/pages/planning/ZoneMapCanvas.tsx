@@ -21,7 +21,7 @@ export default function ZoneMapCanvas(props: ZoneMapProps) {
         ? <ZoneMapGoogle {...props} onLoadError={() => setGoogleFailed('تعذّر تحميل خرائط Google')} />
         : <ZoneMapLeaflet {...props} />}
       {googleFailed && (
-        <div className="absolute bottom-2 right-2 z-[1000] rounded-md bg-white/90 px-2 py-1 text-[11px] text-amber-700 border border-amber-200">
+        <div className="absolute top-2 right-2 z-[1000] rounded-md bg-white/90 px-2 py-1 text-[11px] text-amber-700 border border-amber-200">
           {googleFailed} — تُعرض الخريطة البديلة
         </div>
       )}
