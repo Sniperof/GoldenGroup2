@@ -57,6 +57,8 @@ export default function ZoneMapStudy() {
 
   const [date, setDate] = useState(getPlanningDate);
   const [data, setData] = useState<ZoneMapResponse | null>(null);
+  // Bumped on every load: the map re-fits to the pins then, not when a center is placed.
+  const [loadSeq, setLoadSeq] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -78,6 +80,7 @@ export default function ZoneMapStudy() {
     try {
       const res = await api.zoneMap.get(date);
       setData(res);
+      setLoadSeq(s => s + 1);
       // Every owner starts selected: the first picture is "everything".
       setDemoOwnerIds(new Set(res.owners.map(o => o.hrUserId)));
     } catch (err) {
@@ -142,7 +145,12 @@ export default function ZoneMapStudy() {
     active: r.routeId === routeId,
     points: r.stations.filter(s => s.center).map(s => [s.center!.lat, s.center!.lng] as [number, number]),
   }));
-  const missingCenters = shownAreaRows.filter(r => r.geoUnitId != null && !r.center && r.visitCount + r.requests.length > 0);
+  // With a route picked: every station without a center, in route order — a
+  // station with no work today still needs one for the route line to draw.
+  // Otherwise: the areas that carry work but have no pin.
+  const missingCenters = activeRoute
+    ? activeRoute.stations.filter(s => !s.center).map(s => s.row)
+    : shownAreaRows.filter(r => r.geoUnitId != null && !r.center && r.visitCount + r.requests.length > 0);
   const noAreaRow = areaRows.find(r => r.geoUnitId == null) ?? null;
 
   const detailRow: AreaRow | null =
@@ -169,7 +177,8 @@ export default function ZoneMapStudy() {
         ...prev,
         areas: prev.areas.map(a => (a.geoUnitId === geoUnitId ? { ...a, center: res.center } : a)),
       }));
-      setSelectedArea(geoUnitId);
+      // Placing a route's stations one after another: stay on the list.
+      if (!activeRoute) setSelectedArea(geoUnitId);
     } catch (err) {
       setError(extractError(err));
     }
@@ -321,7 +330,7 @@ export default function ZoneMapStudy() {
             selectedId={selectedArea}
             onSelect={setSelectedArea}
             onPlace={placing != null ? handlePlace : null}
-            fitKey={`${date}|${level}|${routeId ?? ''}|${data?.areas.filter(a => a.center).length ?? 0}`}
+            fitKey={`${loadSeq}|${level}|${routeId ?? ''}`}
           />
           {placing != null && (
             <div className="absolute top-4 right-4 left-4 z-[1000] rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs font-bold text-amber-800 flex items-center gap-2">
@@ -377,9 +386,17 @@ export default function ZoneMapStudy() {
             </div>
           ) : (
             <div>
-              <p className="font-bold text-slate-700 mb-1">مناطق بلا مركز</p>
-              <p className="text-xs text-slate-400 mb-3">فيها شغل لكن لا دبوس لها على الخريطة. تظهر في الجدول بكل الأحوال.</p>
-              {missingCenters.length === 0 && <p className="text-xs text-slate-400">كل المناطق المعروضة لها مركز.</p>}
+              <p className="font-bold text-slate-700 mb-1">
+                {activeRoute ? `محطات «${activeRoute.name}» بلا مركز` : 'مناطق بلا مركز'}
+              </p>
+              <p className="text-xs text-slate-400 mb-3">
+                {activeRoute
+                  ? `${activeRoute.stations.length - missingCenters.length} من ${activeRoute.stations.length} محطة لها مركز. يُرسم الخط بين المحطات التي لها مركز فقط.`
+                  : 'فيها شغل لكن لا دبوس لها على الخريطة. تظهر في الجدول بكل الأحوال.'}
+              </p>
+              {missingCenters.length === 0 && (
+                <p className="text-xs text-slate-400">{activeRoute ? 'كل محطات الخط لها مركز.' : 'كل المناطق المعروضة لها مركز.'}</p>
+              )}
               <ul className="space-y-1">
                 {missingCenters.map(r => (
                   <li key={r.geoUnitId} className="flex items-center justify-between gap-2">

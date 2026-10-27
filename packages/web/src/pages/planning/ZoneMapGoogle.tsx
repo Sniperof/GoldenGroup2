@@ -134,7 +134,7 @@ export default function ZoneMapGoogle({ pins, lines, selectedId, onSelect, onPla
     const pts = fitPoints(pins, lines);
     if (pts.length === 1) {
       map.setCenter({ lat: pts[0][0], lng: pts[0][1] });
-      map.setZoom(13);
+      map.setZoom(12);
     } else if (pts.length > 1) {
       const bounds = new gm.LatLngBounds();
       pts.forEach(([lat, lng]) => bounds.extend({ lat, lng }));

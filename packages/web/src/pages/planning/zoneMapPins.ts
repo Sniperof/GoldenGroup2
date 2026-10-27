@@ -43,6 +43,15 @@ export function pinHtml(pin: MapPin, selected: boolean): string {
   return `<div style="width:${size}px;height:${size}px;margin-left:-${size / 2}px;margin-top:-${size / 2}px;border-radius:50%;background:${bg};border:3px solid ${ring};color:#fff;display:flex;align-items:center;justify-content:center;font:700 13px sans-serif;box-shadow:0 2px 6px rgba(0,0,0,.35);cursor:pointer">${pin.count}</div>`;
 }
 
+// Distinct points to fit the view to. A pin sitting on a route station would
+// otherwise count twice, and two identical points fit to the max zoom.
 export function fitPoints(pins: MapPin[], lines: MapLine[]): [number, number][] {
-  return [...pins.map(p => [p.lat, p.lng] as [number, number]), ...lines.flatMap(l => l.points)];
+  const all = [...pins.map(p => [p.lat, p.lng] as [number, number]), ...lines.flatMap(l => l.points)];
+  const seen = new Set<string>();
+  return all.filter(([lat, lng]) => {
+    const key = `${lat.toFixed(6)},${lng.toFixed(6)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }

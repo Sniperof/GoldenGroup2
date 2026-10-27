@@ -74,7 +74,7 @@ export default function ZoneMapLeaflet({ pins, lines, selectedId, onSelect, onPl
     const map = mapRef.current;
     if (!ready || !L || !map) return;
     const pts = fitPoints(pins, lines);
-    if (pts.length === 1) map.setView(pts[0], 13);
+    if (pts.length === 1) map.setView(pts[0], 12);
     else if (pts.length > 1) map.fitBounds(L.latLngBounds(pts), { padding: [30, 30], maxZoom: 14 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, fitKey]);
