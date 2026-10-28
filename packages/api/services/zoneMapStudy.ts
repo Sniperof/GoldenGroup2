@@ -24,16 +24,21 @@ export class ZoneMapValidationError extends Error {
 // Customer's study columns → task types. A type not listed falls into «other»
 // so no open work disappears from the picture.
 const TASK_TYPE_COLUMN: Record<string, ZoneMapColumnKey> = {
-  emergency_maintenance: 'emergency',
   installment_collection: 'collection',
   maintenance_collection: 'collection',
-  device_return: 'retrieved_return',
+  emergency_maintenance: 'emergency',
+  periodic_maintenance: 'periodic',
+  device_demo: 'demo',
   gift_delivery: 'gift',
   golden_warranty: 'golden_warranty',
   golden_warranty_offer: 'golden_warranty',
   golden_warranty_card_delivery: 'golden_warranty',
-  periodic_maintenance: 'periodic',
-  device_demo: 'demo',
+  device_delivery: 'delivery',
+  device_installation: 'installation',
+  device_activation: 'activation',
+  device_retrieval: 'retrieval',
+  device_disconnection: 'disconnection',
+  device_return: 'return',
 };
 
 // Service requests not yet promoted to a task: upcoming work the branch already knows of.
@@ -55,6 +60,8 @@ async function loadTasks(branchId: number, date: string): Promise<ZoneMapTaskIte
         ot.status            AS "status",
         ot.due_date::text    AS "dueDate",
         ot.expected_date::text AS "expectedDate",
+        COALESCE(ot.attempt_count, 0) AS "attemptCount",
+        ot.expected_amount_syp AS "expectedAmount",
         c.id                 AS "clientId",
         c.name               AS "clientName",
         inst.id              AS "deviceId",
@@ -116,6 +123,11 @@ async function loadTasks(branchId: number, date: string): Promise<ZoneMapTaskIte
       geoUnitId: r.geoUnitId == null ? null : Number(r.geoUnitId),
       ownerHrUserIds: (r.ownerHrUserIds ?? []).map(Number),
       overdue: dueRef != null && dueRef < date,
+      status: String(r.status),
+      dueDate: r.dueDate ?? null,
+      followUpDate: r.expectedDate ?? null,
+      attemptCount: Number(r.attemptCount ?? 0),
+      expectedAmount: r.expectedAmount == null ? null : Number(r.expectedAmount),
     };
   });
 }
@@ -153,7 +165,7 @@ async function loadOwners(hrUserIds: number[]): Promise<ZoneMapOwner[]> {
     `
       SELECT u.id AS "hrUserId",
              COALESCE(e.name, u.name, u.username) AS name,
-             r.name AS "roleName",
+             COALESCE(NULLIF(r.display_name, ''), r.name) AS "roleName",
              r.team_slot_type AS "slotType"
       FROM hr_users u
       LEFT JOIN employees e ON e.id = u.employee_id
@@ -234,6 +246,8 @@ export async function getZoneMapStudy(opts: { branchId: number; date: string }):
     }
   }
   const centers = await loadCenters([...needed]);
+  // A unit with active children is not the lowest level (an inactive حي is no longer an option).
+  const parents = new Set(units.filter(u => u.status === 'active' && u.parentId != null).map(u => u.parentId!));
   const areas: ZoneMapArea[] = [...needed]
     .map(id => byId.get(id))
     .filter((u): u is NonNullable<typeof u> => u != null)
@@ -242,6 +256,7 @@ export async function getZoneMapStudy(opts: { branchId: number; date: string }):
       name: u.name,
       level: u.level,
       parentId: u.parentId,
+      hasChildren: parents.has(u.id),
       inBranchCoverage: scope.serviceGeoIds.has(u.id),
       center: centers.get(u.id) ?? null,
     }));

@@ -442,16 +442,21 @@ export interface ZoneStudyResponse {
 // Customer's study columns. Task-backed columns count clients or devices;
 // request_* columns count pending service requests (not yet tasks).
 export type ZoneMapColumnKey =
-    | 'emergency'
     | 'collection'
-    | 'retrieved_return'
+    | 'emergency'
+    | 'periodic'
+    | 'demo'
     | 'gift'
     | 'golden_warranty'
+    | 'delivery'
+    | 'installation'
+    | 'activation'
+    | 'retrieval'
+    | 'disconnection'
+    | 'return'
     | 'request_device'
     | 'request_water_check'
     | 'request_periodic'
-    | 'periodic'
-    | 'demo'
     | 'other';
 
 export interface ZoneMapArea {
@@ -459,6 +464,10 @@ export interface ZoneMapArea {
     name: string;
     level: number;
     parentId: number | null;
+    // Has child units in the geo tree (the whole tree, not just `areas`). The
+    // study counts on leaves only: work on a unit with children is an
+    // incomplete address and lands in the no-area row.
+    hasChildren: boolean;
     inBranchCoverage: boolean;
     center: { lat: number; lng: number } | null;
 }
@@ -489,6 +498,11 @@ export interface ZoneMapTaskItem {
     geoUnitId: number | null;     // work location: device's installation unit or client's area
     ownerHrUserIds: number[];     // device_demo only; empty = branch-owned
     overdue: boolean;
+    status: string;               // open | needs_follow_up
+    dueDate: string | null;       // YYYY-MM-DD
+    followUpDate: string | null;  // expected_date: the agreed next contact
+    attemptCount: number;
+    expectedAmount: number | null; // collection tasks (SYP)
 }
 
 export interface ZoneMapRequestItem {

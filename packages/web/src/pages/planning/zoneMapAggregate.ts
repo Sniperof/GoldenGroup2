@@ -14,13 +14,19 @@ import type {
 // many visits carry more than one type.
 
 export const TASK_COLUMNS: { key: ZoneMapColumnKey; label: string }[] = [
+  { key: 'collection', label: 'تحصيل ذمة' },
   { key: 'emergency', label: 'طارئة' },
-  { key: 'collection', label: 'ذمة' },
-  { key: 'retrieved_return', label: 'إعادة مسحوب' },
-  { key: 'gift', label: 'تسليم هدية' },
-  { key: 'golden_warranty', label: 'كفالة ذهبية' },
-  { key: 'periodic', label: 'صيانة دورية' },
+  { key: 'periodic', label: 'دورية' },
   { key: 'demo', label: 'عرض جهاز' },
+  { key: 'gift', label: 'تسليم هدية' },
+  { key: 'golden_warranty', label: 'عرض كفالة' },
+  { key: 'delivery', label: 'تسليم' },
+  { key: 'installation', label: 'تركيب' },
+  { key: 'activation', label: 'تشغيل' },
+  { key: 'retrieval', label: 'سحب' },
+  { key: 'disconnection', label: 'فك' },
+  { key: 'return', label: 'إرجاع' },
+  // Any type outside the list (e.g. device_transfer); shown only when present.
   { key: 'other', label: 'أخرى' },
 ];
 
@@ -30,13 +36,12 @@ export const REQUEST_COLUMNS: { key: ZoneMapColumnKey; label: string }[] = [
   { key: 'request_periodic', label: 'طلب دورية' },
 ];
 
-export type GroupLevel = 3 | 4;
-
 export interface ZoneMapFilters {
   columns: Set<ZoneMapColumnKey>;
-  // Device demos: the branch's own (no personal owner) and/or specific owners.
-  demoBranch: boolean;
-  demoOwnerIds: Set<number>;
+  // Ownership: only a device demo can belong to an employee; every other task,
+  // and a demo with no personal owner, belongs to the branch.
+  branchOwned: boolean;
+  ownerIds: Set<number>;
 }
 
 export interface VisitGroup {
@@ -57,6 +62,7 @@ export interface AreaRow {
   sharedVisitCount: number;
   columnCounts: Partial<Record<ZoneMapColumnKey, number>>;
   demoBranchCount: number;
+  demoOwnedCount: number; // clients with a demo owned by any (filtered-in) employee
   demoByOwner: Record<number, number>;
 }
 
@@ -69,9 +75,13 @@ export interface RouteRow {
 
 export function taskPassesFilters(task: ZoneMapTaskItem, f: ZoneMapFilters): boolean {
   if (!f.columns.has(task.column)) return false;
-  if (task.column !== 'demo') return true;
-  if (task.ownerHrUserIds.length === 0) return f.demoBranch;
-  return task.ownerHrUserIds.some(id => f.demoOwnerIds.has(id));
+  return isBranchOwned(task)
+    ? f.branchOwned
+    : task.ownerHrUserIds.some(id => f.ownerIds.has(id));
+}
+
+export function isBranchOwned(task: ZoneMapTaskItem): boolean {
+  return task.column !== 'demo' || task.ownerHrUserIds.length === 0;
 }
 
 export class GeoIndex {
@@ -100,10 +110,20 @@ export class GeoIndex {
     return out;
   }
 
-  // The unit at `level` that contains `id`; a unit coarser than `level` stays itself.
-  groupAt(id: number, level: GroupLevel): number {
-    const chain = this.ancestorsOrSelf(id);
-    return chain.find(x => this.byId.get(x)?.level === level) ?? id;
+  // The study's unit is the lowest administrative level: a حي, or a ناحية that
+  // has no أحياء. Work recorded on a unit that has children (a ناحية without
+  // its حي) is an incomplete address → null, the no-area row.
+  leafOf(id: number | null): number | null {
+    if (id == null) return null;
+    return this.byId.get(id)?.hasChildren ? null : id;
+  }
+
+  // A حي reads with its ناحية: «القصور (مدينة بانياس)».
+  label(id: number | null): string {
+    if (id == null) return this.name(null);
+    const unit = this.byId.get(id);
+    const parent = unit?.parentId != null ? this.byId.get(unit.parentId) : undefined;
+    return unit && unit.level >= 4 && parent ? `${unit.name} (${parent.name})` : this.name(id);
   }
 
   descendantsOrSelf(id: number): Set<number> {
@@ -125,7 +145,7 @@ export class GeoIndex {
 function emptyRow(geoUnitId: number | null, name: string, center: AreaRow['center']): AreaRow {
   return {
     geoUnitId, name, center, visits: [], requests: [],
-    visitCount: 0, sharedVisitCount: 0, columnCounts: {}, demoBranchCount: 0, demoByOwner: {},
+    visitCount: 0, sharedVisitCount: 0, columnCounts: {}, demoBranchCount: 0, demoOwnedCount: 0, demoByOwner: {},
   };
 }
 
@@ -135,6 +155,7 @@ function finalizeRow(row: AreaRow, tasks: ZoneMapTaskItem[], requests: ZoneMapRe
   const perColumn = new Map<ZoneMapColumnKey, Set<string>>();
   const demoBranch = new Set<number>();
   const demoOwner = new Map<number, Set<number>>();
+  const demoOwned = new Set<number>();
   tasks.forEach(t => {
     const vKey = `${t.clientId}|${t.geoUnitId ?? 'x'}`;
     if (!visits.has(vKey)) {
@@ -145,7 +166,7 @@ function finalizeRow(row: AreaRow, tasks: ZoneMapTaskItem[], requests: ZoneMapRe
     if (!perColumn.has(t.column)) perColumn.set(t.column, new Set());
     perColumn.get(t.column)!.add(unitKey);
     if (t.column === 'demo') {
-      if (t.ownerHrUserIds.length === 0) demoBranch.add(t.clientId);
+      if (t.ownerHrUserIds.length === 0) demoBranch.add(t.clientId); else demoOwned.add(t.clientId);
       t.ownerHrUserIds.forEach(id => {
         if (!demoOwner.has(id)) demoOwner.set(id, new Set());
         demoOwner.get(id)!.add(t.clientId);
@@ -162,6 +183,7 @@ function finalizeRow(row: AreaRow, tasks: ZoneMapTaskItem[], requests: ZoneMapRe
   perColumn.forEach((set, key) => { row.columnCounts[key] = set.size; });
   reqPerColumn.forEach((n, key) => { row.columnCounts[key] = n; });
   row.demoBranchCount = demoBranch.size;
+  row.demoOwnedCount = demoOwned.size;
   demoOwner.forEach((set, id) => { row.demoByOwner[id] = set.size; });
   return row;
 }
@@ -170,23 +192,22 @@ export function aggregateAreas(
   data: ZoneMapResponse,
   geo: GeoIndex,
   filters: ZoneMapFilters,
-  level: GroupLevel,
 ): AreaRow[] {
   const tasksBy = new Map<number | null, ZoneMapTaskItem[]>();
   const reqsBy = new Map<number | null, ZoneMapRequestItem[]>();
   data.tasks.filter(t => taskPassesFilters(t, filters)).forEach(t => {
-    const g = t.geoUnitId == null ? null : geo.groupAt(t.geoUnitId, level);
+    const g = geo.leafOf(t.geoUnitId);
     if (!tasksBy.has(g)) tasksBy.set(g, []);
     tasksBy.get(g)!.push(t);
   });
   data.requests.filter(r => filters.columns.has(r.column)).forEach(r => {
-    const g = r.geoUnitId == null ? null : geo.groupAt(r.geoUnitId, level);
+    const g = geo.leafOf(r.geoUnitId);
     if (!reqsBy.has(g)) reqsBy.set(g, []);
     reqsBy.get(g)!.push(r);
   });
   const keys = new Set<number | null>([...tasksBy.keys(), ...reqsBy.keys()]);
   return [...keys].map(g => finalizeRow(
-    emptyRow(g, geo.name(g), g == null ? null : geo.byId.get(g)?.center ?? null),
+    emptyRow(g, geo.label(g), g == null ? null : geo.byId.get(g)?.center ?? null),
     tasksBy.get(g) ?? [],
     reqsBy.get(g) ?? [],
   ));
@@ -204,9 +225,9 @@ export function aggregateRoutes(data: ZoneMapResponse, geo: GeoIndex, filters: Z
       const sr = requests.filter(r => r.geoUnitId === sid);
       return {
         geoUnitId: sid,
-        name: geo.name(sid),
+        name: geo.label(sid),
         center: geo.byId.get(sid)?.center ?? null,
-        row: finalizeRow(emptyRow(sid, geo.name(sid), geo.byId.get(sid)?.center ?? null), st, sr),
+        row: finalizeRow(emptyRow(sid, geo.label(sid), geo.byId.get(sid)?.center ?? null), st, sr),
       };
     });
     const allTasks = new Map<number, ZoneMapTaskItem>();
@@ -230,4 +251,61 @@ export function aggregateRoutes(data: ZoneMapResponse, geo: GeoIndex, filters: Z
 export function routeContainsArea(stationIds: number[], areaId: number, geo: GeoIndex): boolean {
   const inside = geo.descendantsOrSelf(areaId);
   return stationIds.some(s => inside.has(s));
+}
+
+// «عرض المهام»: one row per task, in the branch's working priority. Types not
+// in the list (gift, golden warranty, other) follow, in TASK_COLUMNS order.
+export const TASK_PRIORITY: ZoneMapColumnKey[] = [
+  'collection', 'emergency', 'periodic', 'return', 'delivery',
+  'demo', 'activation', 'installation', 'retrieval', 'disconnection',
+];
+
+export interface TaskListRow {
+  task: ZoneMapTaskItem;
+  station: string;      // the task's area (lowest level), or «بدون منطقة»
+  stationId: number | null;
+  routeNames: string[]; // routes with that exact area as a station (literal matching)
+  daysLate: number;     // vs the planning day; 0 when not late
+}
+
+function priorityRank(column: ZoneMapColumnKey): number {
+  const i = TASK_PRIORITY.indexOf(column);
+  return i >= 0 ? i : TASK_PRIORITY.length + TASK_COLUMNS.findIndex(c => c.key === column);
+}
+
+function daysBetween(from: string, to: string): number {
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
+}
+
+export function listTasks(
+  data: ZoneMapResponse,
+  geo: GeoIndex,
+  filters: ZoneMapFilters,
+  onlyStations?: number[] | null,
+): TaskListRow[] {
+  const stations = onlyStations ? new Set(onlyStations) : null;
+  const routesAt = new Map<number, string[]>();
+  data.routes.forEach(r => r.stationGeoUnitIds.forEach(id => {
+    const list = routesAt.get(id) ?? [];
+    if (!list.includes(r.name)) list.push(r.name);
+    routesAt.set(id, list);
+  }));
+  return data.tasks
+    .filter(t => taskPassesFilters(t, filters))
+    .filter(t => !stations || (t.geoUnitId != null && stations.has(t.geoUnitId)))
+    .map(t => {
+      const stationId = geo.leafOf(t.geoUnitId);
+      const dueRef = t.status === 'needs_follow_up' ? t.followUpDate : (t.dueDate ?? t.followUpDate);
+      return {
+        task: t,
+        stationId,
+        station: stationId == null ? geo.name(null) : geo.label(stationId),
+        routeNames: t.geoUnitId == null ? [] : routesAt.get(t.geoUnitId) ?? [],
+        daysLate: dueRef ? Math.max(0, daysBetween(dueRef, data.date)) : 0,
+      };
+    })
+    .sort((a, b) =>
+      priorityRank(a.task.column) - priorityRank(b.task.column)
+      || b.daysLate - a.daysLate
+      || a.task.taskId - b.task.taskId);
 }
