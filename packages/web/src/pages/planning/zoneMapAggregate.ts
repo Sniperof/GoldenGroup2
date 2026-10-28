@@ -20,6 +20,7 @@ export const TASK_COLUMNS: { key: ZoneMapColumnKey; label: string }[] = [
   { key: 'demo', label: 'عرض جهاز' },
   { key: 'gift', label: 'تسليم هدية' },
   { key: 'golden_warranty', label: 'عرض كفالة' },
+  { key: 'warranty_card', label: 'تسليم بطاقة كفالة' },
   { key: 'delivery', label: 'تسليم' },
   { key: 'installation', label: 'تركيب' },
   { key: 'activation', label: 'تشغيل' },

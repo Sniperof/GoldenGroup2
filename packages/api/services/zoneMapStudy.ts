@@ -32,7 +32,7 @@ const TASK_TYPE_COLUMN: Record<string, ZoneMapColumnKey> = {
   gift_delivery: 'gift',
   golden_warranty: 'golden_warranty',
   golden_warranty_offer: 'golden_warranty',
-  golden_warranty_card_delivery: 'golden_warranty',
+  golden_warranty_card_delivery: 'warranty_card',
   device_delivery: 'delivery',
   device_installation: 'installation',
   device_activation: 'activation',

@@ -448,6 +448,7 @@ export type ZoneMapColumnKey =
     | 'demo'
     | 'gift'
     | 'golden_warranty'
+    | 'warranty_card'
     | 'delivery'
     | 'installation'
     | 'activation'
