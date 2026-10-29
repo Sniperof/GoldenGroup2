@@ -28,7 +28,9 @@ const getPlanningDate = () => {
 
 // Requests (not yet tasks) are hidden from the study for now.
 const ALL_COLUMNS: ZoneMapColumnKey[] = TASK_COLUMNS.map(c => c.key);
-type SortKey = 'visits' | 'owned' | ZoneMapColumnKey;
+type SortKey = 'visits' | 'owned' | ZoneMapColumnKey | `owner:${number}`;
+// More picked employees than this → one «عروض الموظفين» total column instead.
+const MAX_OWNER_COLUMNS = 5;
 type View = 'areas' | 'routes' | 'tasks';
 // Selection key for the «no known area» row (real geo ids are positive).
 const NO_AREA = -1;
@@ -176,10 +178,14 @@ export default function ZoneMapStudy() {
   }, [data]);
   const selectedOwners = owners.filter(o => ownerIds.has(o.hrUserId));
   // Table columns: only the selected types that have work today — a column of
-  // zeros is empty space. Employee demos are one column; who owns them is in
-  // the area detail.
+  // zeros is empty space. Demos split into the branch's and the employees':
+  // one column per picked employee while few are picked, else one total
+  // (who owns what is then in the area detail).
   const visibleColumns = TASK_COLUMNS.filter(c => columns.has(c.key) && (typeCounts[c.key] ?? 0) > 0);
-  const showDemoSplit = columns.has('demo') && (typeCounts.demo ?? 0) > 0 && branchOwned && selectedOwners.length > 0;
+  const demoShown = columns.has('demo') && (typeCounts.demo ?? 0) > 0;
+  const showBranchDemos = demoShown && branchOwned;
+  const ownerColumns = demoShown && selectedOwners.length <= MAX_OWNER_COLUMNS ? selectedOwners : [];
+  const showOwnedTotal = demoShown && selectedOwners.length > MAX_OWNER_COLUMNS;
   const ownerName = useMemo(() => new Map(owners.map(o => [o.hrUserId, o.name])), [owners]);
   const shownOwners = useMemo(() => {
     const q = ownerSearch.trim();
@@ -189,6 +195,7 @@ export default function ZoneMapStudy() {
   const sortValue = useCallback((row: AreaRow): number => {
     if (sort === 'visits') return row.visitCount;
     if (sort === 'owned') return row.demoOwnedCount;
+    if (sort.startsWith('owner:')) return row.demoByOwner[Number(sort.slice(6))] ?? 0;
     return row.columnCounts[sort as ZoneMapColumnKey] ?? 0;
   }, [sort]);
 
@@ -313,8 +320,13 @@ export default function ZoneMapStudy() {
     <DataTable.Td align="center"><span className="font-bold text-sky-700">{row.visitCount}</span></DataTable.Td>
     <DataTable.Td align="center" className="text-slate-500">{row.sharedVisitCount}</DataTable.Td>
     {visibleColumns.map(c => <DataTable.Td key={c.key} align="center">{countCell(row, c.key)}</DataTable.Td>)}
-    {showDemoSplit && <DataTable.Td align="center">{row.demoBranchCount || <span className="text-slate-300">0</span>}</DataTable.Td>}
-    {showDemoSplit && (
+    {showBranchDemos && <DataTable.Td align="center">{row.demoBranchCount || <span className="text-slate-300">0</span>}</DataTable.Td>}
+    {ownerColumns.map(o => (
+      <DataTable.Td key={o.hrUserId} align="center">
+        {row.demoByOwner[o.hrUserId] ? <span className="font-bold text-violet-700">{row.demoByOwner[o.hrUserId]}</span> : <span className="text-slate-300">0</span>}
+      </DataTable.Td>
+    ))}
+    {showOwnedTotal && (
       <DataTable.Td align="center">
         {row.demoOwnedCount ? <span className="font-bold text-violet-700">{row.demoOwnedCount}</span> : <span className="text-slate-300">0</span>}
       </DataTable.Td>
@@ -324,8 +336,11 @@ export default function ZoneMapStudy() {
     {sortableTh('visits', 'الزيارات')}
     <DataTable.Th align="center" title="زيارات تجمع أكثر من نوع مهمة">مشتركة</DataTable.Th>
     {visibleColumns.map(c => <Fragment key={c.key}>{sortableTh(c.key, c.label)}</Fragment>)}
-    {showDemoSplit && <DataTable.Th align="center">عروض الفرع</DataTable.Th>}
-    {showDemoSplit && sortableTh('owned', <span title={selectedOwners.map(o => o.name).join('، ')}>عروض الموظفين</span>)}
+    {showBranchDemos && <DataTable.Th align="center">عروض الفرع</DataTable.Th>}
+    {ownerColumns.map(o => (
+      <Fragment key={o.hrUserId}>{sortableTh(`owner:${o.hrUserId}`, <span title={o.roleName ?? undefined}>عروض {o.name}</span>)}</Fragment>
+    ))}
+    {showOwnedTotal && sortableTh('owned', <span title={selectedOwners.map(o => o.name).join('، ')}>عروض الموظفين ({selectedOwners.length})</span>)}
   </>);
 
   return (
