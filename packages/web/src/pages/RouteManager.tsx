@@ -2,7 +2,7 @@ import { useState, useCallback, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Navigate } from 'react-router-dom';
 import {
-    Plus, Eye, Trash2, X, ArrowUp, ArrowDown,
+    Plus, Eye, Trash2, X, ArrowUp, ArrowDown, Search,
     Route as RouteIcon, ChevronRight, Map as MapIcon,
 } from '../components/ui/icons';
 import Modal from '../components/ui/Modal';
@@ -125,6 +125,38 @@ export default function RouteManager() {
         return null;
     }, [treeSel, getChildren]);
 
+    // بحث في الخريطة: يجد الناحية أو الحي بالاسم ويختاره في الشجرة (المسار كاملاً)
+    // فيظهر على الخريطة بدبوس «+» وزر الإضافة جاهز.
+    const [builderSearch, setBuilderSearch] = useState('');
+    const searchResults = useMemo(() => {
+        const q = builderSearch.trim();
+        if (q.length < 2) return [];
+        return geoUnits
+            .filter(u => u.level >= 3 && u.name.includes(q))
+            .sort((a, b) => Number(!a.name.startsWith(q)) - Number(!b.name.startsWith(q)) || a.level - b.level || a.name.localeCompare(b.name, 'ar'))
+            .slice(0, 12);
+    }, [builderSearch, geoUnits]);
+    const unitPath = useCallback((u: GeoUnit) => {
+        const names: string[] = [];
+        let parent = geoUnits.find(x => x.id === u.parentId);
+        while (parent) {
+            names.push(parent.name);
+            parent = geoUnits.find(x => x.id === parent!.parentId);
+        }
+        return names.join(' · ');
+    }, [geoUnits]);
+    const pickSearchResult = (u: GeoUnit) => {
+        const next: (number | null)[] = [null, null, null, null];
+        let cur: GeoUnit | undefined = u;
+        while (cur) {
+            if (cur.level >= 1 && cur.level <= 4) next[cur.level - 1] = cur.id;
+            const parentId: number | null = cur.parentId;
+            cur = geoUnits.find(x => x.id === parentId);
+        }
+        setTreeSel(next);
+        setBuilderSearch('');
+    };
+
     const handleTreeSelect = (level: number, id: number) => {
         const next = [...treeSel];
         next[level - 1] = id;
@@ -159,7 +191,9 @@ export default function RouteManager() {
             level: addableUnit.level,
             order: builderPoints.length + 1,
         }]);
-        setTreeSel([null, null, null, null]);
+        // نُبقي المستويات الأعلى من المحطة المضافة ونفرّغ مستواها فقط، ليُختار
+        // الحي (أو الناحية) التالي مباشرة. تغيير مستوى أعلى يفرّغ ما تحته كالعادة.
+        setTreeSel(treeSel.map((id, i) => (i < addableUnit.level - 1 ? id : null)));
     };
 
     const removePoint = (idx: number) =>
@@ -354,7 +388,7 @@ export default function RouteManager() {
                         <motion.div
                             initial={{ x: '-100%' }} animate={{ x: 0 }} exit={{ x: '-100%' }}
                             transition={{ type: 'spring', damping: 25 }}
-                            className="fixed top-0 left-0 h-full w-[480px] bg-white border-r border-slate-200 z-50 flex flex-col shadow-2xl"
+                            className="fixed top-0 left-0 h-full w-[min(1240px,96vw)] bg-white border-r border-slate-200 z-50 flex flex-col shadow-2xl"
                             style={{ direction: 'rtl' }}
                         >
                             {/* Builder header */}
@@ -367,7 +401,9 @@ export default function RouteManager() {
                                 <IconButton icon={X} label="إغلاق" onClick={() => setShowBuilder(false)} />
                             </div>
 
-                            <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scroll">
+                            <div className="flex-1 min-h-0 overflow-y-auto lg:overflow-hidden lg:grid lg:grid-cols-[420px_minmax(0,1fr)]">
+                            {/* Picker + stations */}
+                            <div className="p-4 space-y-4 lg:overflow-y-auto custom-scroll">
                                 {/* Route name */}
                                 <div className="space-y-1">
                                     <label className="text-xs font-semibold text-slate-600">اسم المسار</label>
@@ -447,12 +483,6 @@ export default function RouteManager() {
                                     )}
                                 </div>
 
-                                {/* Live map preview — follows every add / remove / reorder before saving. */}
-                                <div className="space-y-2">
-                                    <p className="text-xs font-semibold text-slate-600">معاينة المسار على الخريطة</p>
-                                    <RoutePreviewMap points={builderPoints} geoUnits={geoUnits} name={getUnitName} height={240} />
-                                </div>
-
                                 {/* Stations list */}
                                 <div className="space-y-2">
                                     <p className="text-xs font-semibold text-slate-600">المحطات ({builderPoints.length})</p>
@@ -502,6 +532,63 @@ export default function RouteManager() {
                                         );
                                     })}
                                 </div>
+                            </div>
+
+                            {/* Map: search an area, see it before adding, follow every add / remove / reorder. */}
+                            <div className="p-4 space-y-3 border-t lg:border-t-0 lg:border-r border-slate-200 bg-slate-50/60 lg:overflow-y-auto custom-scroll">
+                                <div className="relative">
+                                    <Search className="absolute right-3 top-2.5 w-4 h-4 text-slate-400" />
+                                    <input
+                                        value={builderSearch}
+                                        onChange={e => setBuilderSearch(e.target.value)}
+                                        placeholder="ابحث عن ناحية أو حي…"
+                                        className="w-full rounded-lg border border-slate-200 bg-white py-2 pr-9 pl-3 text-sm focus:border-sky-500 focus:ring-1 focus:ring-sky-500 focus:outline-none"
+                                    />
+                                    {builderSearch.trim().length >= 2 && (
+                                        <div className="absolute inset-x-0 top-full z-20 mt-1 max-h-72 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg custom-scroll">
+                                            {searchResults.length === 0 && <p className="px-3 py-2 text-xs text-slate-400">لا نتائج.</p>}
+                                            {searchResults.map(u => {
+                                                const added = builderPoints.some(p => p.geoUnitId === u.id);
+                                                const colors = levelColors[u.level] || levelColors[4];
+                                                return (
+                                                    <button
+                                                        key={u.id}
+                                                        type="button"
+                                                        disabled={added}
+                                                        onClick={() => pickSearchResult(u)}
+                                                        className="flex w-full items-center gap-2 px-3 py-2 text-right hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                                    >
+                                                        <span className="min-w-0 flex-1">
+                                                            <span className="block truncate text-sm font-bold text-slate-800">{u.name}</span>
+                                                            <span className="block truncate text-[11px] text-slate-400">{unitPath(u)}</span>
+                                                        </span>
+                                                        {!u.center && <span className="shrink-0 text-[10px] text-amber-600">بلا مركز</span>}
+                                                        <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] ${colors.bg} ${colors.text}`}>
+                                                            {added ? 'مضافة' : levelNames[u.level]}
+                                                        </span>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+                                <RoutePreviewMap
+                                    points={builderPoints}
+                                    geoUnits={geoUnits}
+                                    name={getUnitName}
+                                    height={560}
+                                    candidateId={addableUnit?.id ?? null}
+                                />
+                                {addableUnit && (
+                                    <button
+                                        type="button"
+                                        onClick={addPoint}
+                                        className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white py-2 rounded-lg text-sm font-bold"
+                                    >
+                                        <Plus className="w-4 h-4" /> إضافة «{getUnitName(addableUnit.id)}» كمحطة {builderPoints.length + 1}
+                                    </button>
+                                )}
+                            </div>
                             </div>
 
                             <div className="p-4 border-t border-slate-200">

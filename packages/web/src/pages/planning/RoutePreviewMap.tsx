@@ -23,11 +23,15 @@ interface Props {
   name: (id: number) => string;
   height?: number;
   roadMode?: 'auto' | 'button';
+  // Builder: the area picked (tree or search) but not added yet — a «+» pin.
+  candidateId?: number | null;
 }
 
 const GHOST_ID_OFFSET = 1_000_000_000; // keeps ghost pin ids apart from station ids
 
-export default function RoutePreviewMap({ points, geoUnits, name, height = 280, roadMode = 'button' }: Props) {
+const CANDIDATE_ID_OFFSET = 2_000_000_000;
+
+export default function RoutePreviewMap({ points, geoUnits, name, height = 280, roadMode = 'button', candidateId = null }: Props) {
   const [selected, setSelected] = useState<number | null>(null);
   const [road, setRoad] = useState<{ key: string; route: RoadRoute } | null>(null);
   const [roadLoading, setRoadLoading] = useState(false);
@@ -69,6 +73,18 @@ export default function RoutePreviewMap({ points, geoUnits, name, height = 280, 
         label: String(s.order),
       })),
     ];
+    const candidate = candidateId != null && !stationIds.has(candidateId) ? byId.get(candidateId) : undefined;
+    if (candidate?.center) {
+      pins.push({
+        id: CANDIDATE_ID_OFFSET + candidate.id,
+        lat: candidate.center.lat,
+        lng: candidate.center.lng,
+        count: 0,
+        title: `${candidate.name} — لم تُضَف بعد`,
+        accent: false,
+        variant: 'candidate',
+      });
+    }
     const placed = stations.filter(s => s.center);
     const straight = placed.map(s => [s.center!.lat, s.center!.lng] as [number, number]);
     return {
@@ -81,9 +97,10 @@ export default function RoutePreviewMap({ points, geoUnits, name, height = 280, 
       missing: stations.filter(s => !s.center),
       uncoveredCount: uncovered.length,
       uncoveredPlaced: uncovered.filter(u => u.center).length,
-      fitKey: ordered.map(p => p.geoUnitId).sort((a, b) => a - b).join(','),
+      fitKey: `${ordered.map(p => p.geoUnitId).sort((a, b) => a - b).join(',')}|${candidate?.center ? candidate.id : ''}`,
+      candidate: candidate ?? null,
     };
-  }, [points, geoUnits, name]);
+  }, [points, geoUnits, name, candidateId]);
 
   const canRoad = hasGoogleMapsKey() && view.straight.length >= 2;
   const currentRoad = road?.key === view.roadKey ? road.route : null;
@@ -117,16 +134,18 @@ export default function RoutePreviewMap({ points, geoUnits, name, height = 280, 
 
   const selectedLabel = selected == null
     ? null
+    : selected >= CANDIDATE_ID_OFFSET
+      ? `${name(selected - CANDIDATE_ID_OFFSET)} — مختارة، لم تُضَف للمسار بعد`
     : selected >= GHOST_ID_OFFSET
       ? `${name(selected - GHOST_ID_OFFSET)} — حي غير مضاف للمسار، لا تُسحب مهامه بهذا المسار`
       : `${view.stations.find(s => s.id === selected)?.order}. ${name(selected)}`;
 
-  if (points.length === 0) {
-    return <p className="text-xs text-slate-400">أضف محطات لتظهر على الخريطة.</p>;
-  }
-
   return (
     <div className="space-y-2 text-xs">
+      {points.length === 0 && <p className="text-slate-400">أضف محطات لتظهر على الخريطة بترتيبها.</p>}
+      {view.candidate && !view.candidate.center && (
+        <p className="text-amber-700">«{view.candidate.name}» بلا مركز على الخريطة — لا يظهر لها دبوس.</p>
+      )}
       <div className="rounded-xl border border-slate-200 overflow-hidden" style={{ height }}>
         <ZoneMapCanvas
           pins={view.pins}

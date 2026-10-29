@@ -11,7 +11,7 @@ export interface MapPin {
   // 'count' (default): sized by `count`. 'station': fixed size, shows `label`
   // (the station's order on a route). 'ghost': small and faint — an area left
   // off the route (a حي under a station ناحية that is not a station itself).
-  variant?: 'count' | 'station' | 'ghost';
+  variant?: 'count' | 'station' | 'ghost' | 'candidate'; // candidate = picked, not yet added
   label?: string;
 }
 
@@ -48,6 +48,9 @@ export function pinHtml(pin: MapPin, selected: boolean): string {
   const ring = selected ? '#f59e0b' : '#ffffff';
   if (pin.variant === 'ghost') {
     return `<div style="width:14px;height:14px;margin-left:-7px;margin-top:-7px;border-radius:50%;background:#94a3b8;opacity:.75;border:2px dashed ${selected ? '#f59e0b' : '#475569'};cursor:pointer"></div>`;
+  }
+  if (pin.variant === 'candidate') {
+    return `<div style="width:30px;height:30px;margin-left:-15px;margin-top:-15px;border-radius:50%;background:#16a34a;border:3px dashed #ffffff;color:#fff;display:flex;align-items:center;justify-content:center;font:700 16px sans-serif;box-shadow:0 0 0 4px rgba(22,163,74,.3),0 2px 6px rgba(0,0,0,.35);cursor:pointer">+</div>`;
   }
   if (pin.variant === 'station') {
     return `<div style="width:28px;height:28px;margin-left:-14px;margin-top:-14px;border-radius:50%;background:#ea580c;border:3px solid ${ring};color:#fff;display:flex;align-items:center;justify-content:center;font:700 12px sans-serif;box-shadow:0 2px 6px rgba(0,0,0,.35);cursor:pointer">${pin.label ?? ''}</div>`;
