@@ -1,10 +1,14 @@
 import { Router } from 'express';
+import { promisify } from 'node:util';
+import { gzip } from 'node:zlib';
+import { toZoneMapWire } from '@golden-crm/shared';
 import { requirePermission } from '../middleware/permission.js';
 import { getZoneMapStudy, setAreaCenter, ZoneMapValidationError } from '../services/zoneMapStudy.js';
 
 const router = Router();
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const gzipAsync = promisify(gzip);
 
 function handleError(err: any, res: import('express').Response) {
   if (err instanceof ZoneMapValidationError) {
@@ -21,7 +25,15 @@ router.get('/', requirePermission('planning.zone_study.view'), async (req, res) 
     const branchId = req.authContext?.actingBranchId ?? null;
     if (!date) return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
     if (branchId == null) return res.status(400).json({ error: 'A branch context is required' });
-    return res.json(await getZoneMapStudy({ branchId, date }));
+    // Tens of thousands of tasks on a big branch: compact tuples (shared wire
+    // format), gzipped here since the API has no compression middleware.
+    const body = JSON.stringify(toZoneMapWire(await getZoneMapStudy({ branchId, date })));
+    res.type('application/json');
+    if (/\bgzip\b/.test(String(req.headers['accept-encoding'] ?? '')) && body.length > 2048) {
+      res.set({ 'Content-Encoding': 'gzip', Vary: 'Accept-Encoding' });
+      return res.send(await gzipAsync(body));
+    }
+    return res.send(body);
   } catch (err) {
     return handleError(err, res);
   }

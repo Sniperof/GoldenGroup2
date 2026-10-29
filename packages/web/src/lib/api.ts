@@ -7,7 +7,9 @@ import type {
   ZoneStudyMode,
   ZoneStudyResponse,
   ZoneMapResponse,
+  ZoneMapWireResponse,
 } from '@golden-crm/shared';
+import { fromZoneMapWire } from '@golden-crm/shared';
 import { shouldAttachBranchContextHeader } from './branchContext';
 import { authFetch } from './authFetch';
 import { DEVICE_BLOCK_MESSAGE_KEY, deviceClassHeader, readDeviceBlock } from './deviceClass';
@@ -1928,8 +1930,8 @@ export const api = {
     },
   },
   zoneMap: {
-    get: (date: string) =>
-      request<ZoneMapResponse>(`/planning/zone-map?${new URLSearchParams({ date }).toString()}`),
+    get: async (date: string): Promise<ZoneMapResponse> =>
+      fromZoneMapWire(await request<ZoneMapWireResponse>(`/planning/zone-map?${new URLSearchParams({ date }).toString()}`)),
     setCenter: (geoUnitId: number, center: { lat: number; lng: number } | null) =>
       request<{ geoUnitId: number; center: { lat: number; lng: number } | null }>(
         `/planning/zone-map/areas/${geoUnitId}/center`,

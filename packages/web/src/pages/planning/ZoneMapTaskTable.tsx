@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { ZoneMapColumnKey } from '@golden-crm/shared';
 import { getOpenTaskDetailPath } from '../../lib/taskRoutes';
@@ -31,7 +32,14 @@ interface Props {
 
 const COLS = 9;
 
+// A branch can have tens of thousands of open tasks: each group renders its
+// first PAGE rows and grows by PAGE on request. Group headers sum the whole group.
+const PAGE = 100;
+
 export default function ZoneMapTaskTable({ rows, selectedStation, noArea, onSelectStation, ownerName }: Props) {
+  const [limits, setLimits] = useState<Partial<Record<ZoneMapColumnKey, number>>>({});
+  // New filters → start every group from its first page again.
+  useEffect(() => { setLimits({}); }, [rows]);
   const groups: { column: ZoneMapColumnKey; rows: TaskListRow[] }[] = [];
   rows.forEach(r => {
     const last = groups.at(-1);
@@ -59,6 +67,8 @@ export default function ZoneMapTaskTable({ rows, selectedStation, noArea, onSele
           const tone = TONE[g.column] ?? DEFAULT_TONE;
           const late = g.rows.filter(r => r.daysLate > 0).length;
           const amount = g.rows.reduce((s, r) => s + (r.task.expectedAmount ?? 0), 0);
+          const limit = limits[g.column] ?? PAGE;
+          const hidden = g.rows.length - limit;
           return (
             <tbody key={g.column}>
               <tr>
@@ -71,7 +81,7 @@ export default function ZoneMapTaskTable({ rows, selectedStation, noArea, onSele
                   </div>
                 </td>
               </tr>
-              {g.rows.map(({ task: t, station, stationId, routeNames, daysLate }) => {
+              {g.rows.slice(0, limit).map(({ task: t, station, stationId, routeNames, daysLate }) => {
                 const path = getOpenTaskDetailPath(t.taskType, t.taskId);
                 const owner = t.ownerHrUserIds.map(id => ownerName.get(id)).filter(Boolean).join('، ');
                 const selected = (stationId ?? noArea) === selectedStation;
@@ -127,6 +137,19 @@ export default function ZoneMapTaskTable({ rows, selectedStation, noArea, onSele
                   </tr>
                 );
               })}
+              {hidden > 0 && (
+                <tr className="border-b border-slate-100">
+                  <td colSpan={COLS} className="px-3 py-2 text-center">
+                    <button
+                      type="button"
+                      onClick={() => setLimits(prev => ({ ...prev, [g.column]: limit + PAGE }))}
+                      className="text-xs font-bold text-sky-700 hover:underline"
+                    >
+                      عرض {Math.min(PAGE, hidden)} أخرى — يُعرض {limit} من {g.rows.length}
+                    </button>
+                  </td>
+                </tr>
+              )}
             </tbody>
           );
         })}
