@@ -14,7 +14,7 @@ import PageHeader from '../components/ui/PageHeader';
 import { usePermissions } from '../hooks/usePermissions';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import BranchScopeIndicator from '../components/BranchScopeIndicator';
-import MapPicker from '../components/MapPicker';
+import GeoCenterPicker from '../components/GeoCenterPicker';
 
 // نواحي and أحياء carry a map center (the zone map study draws one pin per area).
 const hasCenter = (level: number) => level >= 3;
@@ -76,6 +76,17 @@ export default function GeoSettings() {
     const getParentName = (parentId: number | null) => geoUnits.find(u => u.id === parentId)?.name || '--';
 
     const governorates = byLevel(1);
+    // Names from `id` up to the governorate — the map focuses on the area by them.
+    const ancestorNames = useCallback((id: number | null): string[] => {
+        const names: string[] = [];
+        let cur = id == null ? undefined : geoUnits.find(u => u.id === id);
+        while (cur) {
+            names.push(cur.name);
+            const parentId = cur.parentId;
+            cur = parentId == null ? undefined : geoUnits.find(u => u.id === parentId);
+        }
+        return names;
+    }, [geoUnits]);
     const regions = useMemo(() => modalGov ? geoUnits.filter(u => u.level === 2 && u.parentId === Number(modalGov)) : [], [geoUnits, modalGov]);
     const subDistricts = useMemo(() => modalRegion ? geoUnits.filter(u => u.level === 3 && u.parentId === Number(modalRegion)) : [], [geoUnits, modalRegion]);
 
@@ -373,7 +384,7 @@ export default function GeoSettings() {
             <Modal
                 isOpen={!!editUnit && canManageGeo}
                 onClose={() => setEditUnit(null)}
-                size={editUnit && hasCenter(editUnit.level) ? 'xl' : 'sm'}
+                size={editUnit && hasCenter(editUnit.level) ? '5xl' : 'sm'}
                 title={editUnit ? `تعديل ${levelNames[editUnit.level]}` : ''}
                 footer={
                     <div className="w-full flex gap-3">
@@ -386,7 +397,8 @@ export default function GeoSettings() {
                     </div>
                 }
             >
-                            <div className="p-5 space-y-4">
+                            <div className={`p-5 ${editUnit && hasCenter(editUnit.level) ? 'grid gap-5 md:grid-cols-[260px_minmax(0,1fr)]' : ''}`}>
+                            <div className="space-y-4">
                                 <div>
                                     <label className="block text-sm font-medium text-slate-700 mb-1.5">الاسم الجديد <span className="text-red-500">*</span></label>
                                     <input
@@ -398,14 +410,15 @@ export default function GeoSettings() {
                                         autoFocus
                                     />
                                 </div>
-                                {editUnit && hasCenter(editUnit.level) && (
-                                    <CenterField value={editCenter} onChange={setEditCenter} />
-                                )}
                                 {editError && (
                                     <div className="flex items-center gap-2 text-red-600 text-sm bg-red-50 border border-red-100 rounded-lg px-3 py-2">
                                         <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                                         {editError}
                                     </div>
+                                )}
+                            </div>
+                                {editUnit && hasCenter(editUnit.level) && (
+                                    <CenterField value={editCenter} onChange={setEditCenter} focusTerms={[editName, ...ancestorNames(editUnit.parentId)]} />
                                 )}
                             </div>
             </Modal>
@@ -414,7 +427,7 @@ export default function GeoSettings() {
             <Modal
                 isOpen={isModalOpen && canManageGeo}
                 onClose={() => setIsModalOpen(false)}
-                size={hasCenter(activeTab) ? 'xl' : 'md'}
+                size={hasCenter(activeTab) ? '5xl' : 'md'}
                 title={`إضافة ${levelNames[activeTab]}`}
                 footer={
                     <div className="w-full flex gap-3">
@@ -429,7 +442,8 @@ export default function GeoSettings() {
                 }
             >
                             {/* Modal Body */}
-                            <div className="p-5 space-y-4">
+                            <div className={`p-5 ${hasCenter(activeTab) ? 'grid gap-5 md:grid-cols-[260px_minmax(0,1fr)]' : ''}`}>
+                            <div className="space-y-4">
                                 {/* Cascading Dropdowns */}
                                 {activeTab >= 2 && (
                                     <div>
@@ -488,9 +502,6 @@ export default function GeoSettings() {
                                         autoFocus
                                     />
                                 </div>
-                                {hasCenter(activeTab) && (
-                                    <CenterField value={modalCenter} onChange={setModalCenter} />
-                                )}
                                 {addError && (
                                     <div className="flex items-center gap-2 text-red-600 text-sm bg-red-50 border border-red-100 rounded-lg px-3 py-2">
                                         <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
@@ -498,33 +509,32 @@ export default function GeoSettings() {
                                     </div>
                                 )}
                             </div>
+                                {hasCenter(activeTab) && (
+                                    <CenterField
+                                        value={modalCenter}
+                                        onChange={setModalCenter}
+                                        focusTerms={[modalName, ...ancestorNames(Number(activeTab >= 4 ? modalSubDistrict : modalRegion) || null)]}
+                                    />
+                                )}
+                            </div>
             </Modal>
         </div>
     );
 }
 
-// Map center of a ناحية / حي: click the map (or use GPS / type coordinates in
-// MapPicker). The zone map study draws the area's pin on this point.
-function CenterField({ value, onChange }: { value: Center; onChange: (c: Center) => void }) {
+// Map center of a ناحية / حي on a Google map with search. With no center yet
+// the map focuses on the likely area (the name and its parents). The zone map
+// study and the route preview draw the area's pin on this point.
+function CenterField({ value, onChange, focusTerms }: { value: Center; onChange: (c: Center) => void; focusTerms: string[] }) {
     return (
         <div>
-            <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-sm font-medium text-slate-700">مركز المنطقة على الخريطة</label>
-                {value && (
-                    <button type="button" onClick={() => onChange(null)} className="text-xs font-bold text-slate-500 hover:text-red-600">
-                        إزالة المركز
-                    </button>
-                )}
-            </div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">مركز المنطقة على الخريطة</label>
             <p className="text-xs text-slate-400 mb-2">
                 {value
-                    ? `محدد: ${value.lat.toFixed(5)}، ${value.lng.toFixed(5)}`
-                    : 'غير محدد — انقر على الخريطة لتحديده. يظهر دبوس المنطقة في دراسة النطاقات على هذه النقطة.'}
+                    ? 'انقر في مكان آخر أو اسحب الدبوس لتعديله.'
+                    : 'غير محدد — ابحث أو انقر على الخريطة لتحديده. يظهر دبوس المنطقة في دراسة النطاقات وخطوط السير على هذه النقطة.'}
             </p>
-            <MapPicker
-                position={value ? [value.lat, value.lng] : null}
-                onLocationSelect={(lat, lng) => onChange({ lat, lng })}
-            />
+            <GeoCenterPicker value={value} onChange={onChange} focusTerms={focusTerms} height={440} />
         </div>
     );
 }
