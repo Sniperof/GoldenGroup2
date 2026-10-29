@@ -189,7 +189,7 @@ export default function TeamScheduler() {
                 actions={
                     <button
                         type="button"
-                        onClick={() => navigate('/planning/zone-study')}
+                        onClick={() => navigate('/planning/zone-map')}
                         className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-2 text-xs font-bold text-white hover:bg-sky-500"
                     >
                         <LayoutGrid className="w-3.5 h-3.5" /> دراسة النطاقات <ArrowLeft className="w-3.5 h-3.5" />

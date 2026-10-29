@@ -18,7 +18,7 @@ import {
   RefreshCw, Headset, Settings, UserPlus, Menu, X as CloseIcon, ChevronRight,
   BadgeCheck, GraduationCap, Mic2, LogOut, Building2, SlidersHorizontal,
   ShieldCheck, Shield, Monitor, Settings2, GalleryHorizontal, BellRing, Bell,
-  Wrench, Gift, LayoutGrid, UserCheck, CalendarCheck, Layers, HardDrive,
+  Wrench, Gift, UserCheck, CalendarCheck, Layers, HardDrive,
   Unplug, PackageMinus, Undo2, ArrowLeftRight, Beaker, Package, ClipboardCheck, Link2, BarChart3, FilePlus2, FileText,
 } from '../components/ui/icons';
 
@@ -197,7 +197,7 @@ export default function MainLayout() {
         { path: '/planning/overview', label: 'ملخص الخطة', icon: Eye, dividerLabel: 'التخطيط والجدولة' },
         { path: '/planning/zone-map', label: 'دراسة النطاقات (الخريطة)', icon: Layers, dividerLabel: 'التخطيط والجدولة' },
         { path: '/planning/schedule', label: 'جدولة الفرق', icon: UsersRound, dividerLabel: 'التخطيط والجدولة' },
-        { path: '/planning/zone-study', label: 'دراسة النطاقات', icon: LayoutGrid, dividerLabel: 'التخطيط والجدولة' },
+        // The old zone study (/planning/zone-study) is hidden for now; its route stays.
         { path: '/planning/assign', label: 'تعيين المسارات', icon: MapPinned, dividerLabel: 'التخطيط والجدولة' },
       ] : []),
       ...(canSeeFieldVisits ? [{ path: '/field-visits', label: 'الزيارات الميدانية', icon: MapPinned, dividerLabel: 'التنفيذ الميداني' }] : []),
