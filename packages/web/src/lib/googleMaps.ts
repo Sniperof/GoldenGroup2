@@ -1,6 +1,7 @@
 // Google Maps JavaScript API loader — one script tag per page, shared by every
 // map. The key comes from VITE_GOOGLE_MAPS_API_KEY (repo-root .env, see
-// vite.config envDir). No key → callers fall back to their Leaflet renderer.
+// vite.config envDir). Every map draws on Google; only with no key, a rejected
+// key or a script that will not load do callers fall back to Leaflet.
 //
 // The project carries no @types/google.maps, so the API surface is typed
 // loosely here; callers use the few members they need.
@@ -12,19 +13,26 @@ export type GoogleMapsApi = any;
 export const GOOGLE_MAPS_API_KEY: string = (import.meta.env?.VITE_GOOGLE_MAPS_API_KEY ?? '').trim();
 
 let loading: Promise<GoogleMapsApi> | null = null;
-let authFailed = false;
-const authFailureListeners = new Set<() => void>();
+let failure: string | null = null;
+const failureListeners = new Set<(reason: string) => void>();
 
 export function hasGoogleMapsKey(): boolean {
-  return GOOGLE_MAPS_API_KEY.length > 0 && !authFailed;
+  return GOOGLE_MAPS_API_KEY.length > 0 && failure == null;
 }
 
-// Google calls window.gm_authFailure when it rejects the key (bad key, API not
-// enabled, referrer not allowed, billing off). The map is already on screen,
-// greyed out — listeners switch to the fallback renderer.
-export function onGoogleMapsAuthFailure(listener: () => void): () => void {
-  authFailureListeners.add(listener);
-  return () => { authFailureListeners.delete(listener); };
+// Google is unusable for the rest of the page: it rejected the key (Google
+// calls window.gm_authFailure — bad key, API not enabled, referrer not allowed,
+// billing off; the map is already on screen, greyed out) or the script failed
+// to load. Listeners switch to the fallback renderer.
+function markUnavailable(reason: string) {
+  if (failure != null) return;
+  failure = reason;
+  failureListeners.forEach(fn => fn(reason));
+}
+
+export function onGoogleMapsUnavailable(listener: (reason: string) => void): () => void {
+  failureListeners.add(listener);
+  return () => { failureListeners.delete(listener); };
 }
 
 export function loadGoogleMaps(): Promise<GoogleMapsApi> {
@@ -34,10 +42,7 @@ export function loadGoogleMaps(): Promise<GoogleMapsApi> {
   loading = new Promise((resolve, reject) => {
     const callbackName = '__goldenGoogleMapsReady';
     w[callbackName] = () => resolve(w.google.maps);
-    w.gm_authFailure = () => {
-      authFailed = true;
-      authFailureListeners.forEach(fn => fn());
-    };
+    w.gm_authFailure = () => markUnavailable('رفضت Google مفتاح الخرائط');
     const params = new URLSearchParams({
       key: GOOGLE_MAPS_API_KEY,
       v: 'weekly',
@@ -50,7 +55,7 @@ export function loadGoogleMaps(): Promise<GoogleMapsApi> {
     script.src = `https://maps.googleapis.com/maps/api/js?${params.toString()}`;
     script.async = true;
     script.onerror = () => {
-      loading = null;
+      markUnavailable('تعذّر تحميل خرائط Google');
       reject(new Error('تعذّر تحميل خرائط Google'));
     };
     document.head.appendChild(script);

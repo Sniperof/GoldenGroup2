@@ -5,6 +5,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import type * as Leaflet from 'leaflet';
 import { Navigation, X } from './ui/icons';
 import IconButton from './ui/IconButton';
+import { hasGoogleMapsKey, loadGoogleMaps, onGoogleMapsUnavailable, type GoogleMapsApi } from '../lib/googleMaps';
 
 interface MapPickerProps {
     position: [number, number] | null;
@@ -22,20 +23,125 @@ const PIN_HTML = '<div style="width:26px;height:26px;border-radius:50% 50% 50% 0
 const hasPosition = (p: [number, number] | null): p is [number, number] =>
     !!p && !(p[0] === 0 && p[1] === 0);
 
+// The picker's map, whichever engine draws it.
+interface PinMap {
+    setPin(p: [number, number] | null): void;
+    // Pan to the pin only when it is off screen.
+    reveal(p: [number, number]): void;
+    focus(p: [number, number]): void;
+    destroy(): void;
+}
+
+type Pick = (lat: number, lng: number) => void;
+
+async function createGoogleMap(container: HTMLDivElement, initial: [number, number] | null, onPick: Pick): Promise<PinMap> {
+    const g: GoogleMapsApi = await loadGoogleMaps();
+    const toLatLng = (p: [number, number]) => ({ lat: p[0], lng: p[1] });
+    const map = new g.Map(container, {
+        center: toLatLng(initial ?? SYRIA_CENTER),
+        zoom: initial ? PIN_ZOOM : SYRIA_ZOOM,
+        mapTypeControl: true,
+        streetViewControl: false,
+        fullscreenControl: true,
+        clickableIcons: false,
+        gestureHandling: 'greedy',
+        draggableCursor: 'crosshair',
+    });
+    map.addListener('click', (e: GoogleMapsApi) => onPick(e.latLng.lat(), e.latLng.lng()));
+    let marker: GoogleMapsApi = null;
+    return {
+        setPin(p) {
+            if (!p) {
+                marker?.setMap(null);
+                marker = null;
+            } else if (marker) {
+                marker.setPosition(toLatLng(p));
+            } else {
+                marker = new g.Marker({ map, position: toLatLng(p), draggable: true });
+                marker.addListener('dragend', (e: GoogleMapsApi) => onPick(e.latLng.lat(), e.latLng.lng()));
+            }
+        },
+        reveal(p) {
+            if (!map.getBounds()?.contains(toLatLng(p))) {
+                map.setCenter(toLatLng(p));
+                map.setZoom(Math.max(map.getZoom() ?? 0, PIN_ZOOM));
+            }
+        },
+        focus(p) {
+            map.setCenter(toLatLng(p));
+            map.setZoom(PIN_ZOOM);
+        },
+        destroy() {
+            marker?.setMap(null);
+            g.event.clearInstanceListeners(map);
+        },
+    };
+}
+
+async function createLeafletMap(container: HTMLDivElement, initial: [number, number] | null, onPick: Pick): Promise<PinMap> {
+    const [mod] = await Promise.all([import('leaflet'), import('leaflet/dist/leaflet.css')]);
+    const L = ((mod as { default?: typeof Leaflet }).default ?? mod) as typeof Leaflet;
+    const map = L.map(container, {
+        center: initial ?? SYRIA_CENTER,
+        zoom: initial ? PIN_ZOOM : SYRIA_ZOOM,
+        attributionControl: true,
+    });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '© OpenStreetMap',
+    }).addTo(map);
+    map.on('click', (e: Leaflet.LeafletMouseEvent) => onPick(e.latlng.lat, e.latlng.lng));
+    // Modals animate in and tabs mount hidden: recompute the map size whenever
+    // the container's box changes, or Leaflet renders grey tiles.
+    const observer = new ResizeObserver(() => map.invalidateSize());
+    observer.observe(container);
+    let marker: Leaflet.Marker | null = null;
+    return {
+        setPin(p) {
+            if (!p) {
+                marker?.remove();
+                marker = null;
+            } else if (marker) {
+                marker.setLatLng(p);
+            } else {
+                const icon = L.divIcon({ className: '', html: PIN_HTML, iconSize: [26, 26], iconAnchor: [13, 26] });
+                const m = L.marker(p, { icon, draggable: true }).addTo(map);
+                m.on('dragend', () => {
+                    const ll = m.getLatLng();
+                    onPick(ll.lat, ll.lng);
+                });
+                marker = m;
+            }
+        },
+        reveal(p) {
+            if (!map.getBounds().contains(p)) map.setView(p, Math.max(map.getZoom(), PIN_ZOOM));
+        },
+        focus(p) {
+            map.setView(p, PIN_ZOOM);
+        },
+        destroy() {
+            observer.disconnect();
+            map.remove();
+        },
+    };
+}
+
 /**
  * Location picker: click (or drag the pin) on the map to drop a pin, use the
- * device's current GPS position, or type coordinates. Same props as before, so
- * every caller gains pin-dropping without changes.
+ * device's current GPS position, or type coordinates. Draws on Google Maps;
+ * Leaflet only when there is no key, Google rejects it or the script will not
+ * load.
  */
 export default function MapPicker({ position, onLocationSelect }: MapPickerProps) {
     const [manualLat, setManualLat] = useState(hasPosition(position) ? position[0].toFixed(6) : '');
     const [manualLng, setManualLng] = useState(hasPosition(position) ? position[1].toFixed(6) : '');
     const [locating, setLocating] = useState(false);
 
+    const [engine, setEngine] = useState<'google' | 'leaflet'>(() => (hasGoogleMapsKey() ? 'google' : 'leaflet'));
+    useEffect(() => onGoogleMapsUnavailable(() => setEngine('leaflet')), []);
+
     const containerRef = useRef<HTMLDivElement>(null);
-    const leafletRef = useRef<typeof Leaflet | null>(null);
-    const mapRef = useRef<Leaflet.Map | null>(null);
-    const markerRef = useRef<Leaflet.Marker | null>(null);
+    const mapRef = useRef<PinMap | null>(null);
     const [mapReady, setMapReady] = useState(false);
     // Latest callback without re-creating the map on every parent render.
     const onSelectRef = useRef(onLocationSelect);
@@ -47,66 +153,43 @@ export default function MapPicker({ position, onLocationSelect }: MapPickerProps
         onSelectRef.current(lat, lng);
     }, []);
 
-    // Create the map once (after Leaflet has loaded).
+    // Create the map once per engine; a Google failure re-runs this on Leaflet.
     useEffect(() => {
         let cancelled = false;
-        let observer: ResizeObserver | null = null;
-        Promise.all([import('leaflet'), import('leaflet/dist/leaflet.css')]).then(([mod]) => {
-            if (cancelled || !containerRef.current || mapRef.current) return;
-            const L = ((mod as { default?: typeof Leaflet }).default ?? mod) as typeof Leaflet;
-            leafletRef.current = L;
-            const map = L.map(containerRef.current, {
-                center: hasPosition(position) ? position : SYRIA_CENTER,
-                zoom: hasPosition(position) ? PIN_ZOOM : SYRIA_ZOOM,
-                attributionControl: true,
-            });
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                maxZoom: 19,
-                attribution: '© OpenStreetMap',
-            }).addTo(map);
-            map.on('click', (e: Leaflet.LeafletMouseEvent) => select(e.latlng.lat, e.latlng.lng));
+        let created: PinMap | null = null;
+        const container = containerRef.current;
+        if (!container) return;
+        const create = engine === 'google' ? createGoogleMap : createLeafletMap;
+        create(container, hasPosition(position) ? position : null, select).then(map => {
+            created = map;
+            if (cancelled) { map.destroy(); return; }
             mapRef.current = map;
-            // Modals animate in and tabs mount hidden: recompute the map size whenever
-            // the container's box changes, or Leaflet renders grey tiles.
-            observer = new ResizeObserver(() => map.invalidateSize());
-            observer.observe(containerRef.current);
             setMapReady(true);
+        }).catch(() => {
+            if (!cancelled && engine === 'google') setEngine('leaflet');
         });
         return () => {
             cancelled = true;
-            observer?.disconnect();
-            mapRef.current?.remove();
+            created?.destroy();
             mapRef.current = null;
-            markerRef.current = null;
+            setMapReady(false);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [engine]);
 
     // Keep the pin (and the coordinate inputs) in sync with the controlled position.
     useEffect(() => {
         const map = mapRef.current;
-        const L = leafletRef.current;
-        if (!map || !L) return;
+        if (!map) return;
         if (!hasPosition(position)) {
-            markerRef.current?.remove();
-            markerRef.current = null;
+            map.setPin(null);
             return;
         }
         setManualLat(position[0].toFixed(6));
         setManualLng(position[1].toFixed(6));
-        if (markerRef.current) {
-            markerRef.current.setLatLng(position);
-        } else {
-            const icon = L.divIcon({ className: '', html: PIN_HTML, iconSize: [26, 26], iconAnchor: [13, 26] });
-            const marker = L.marker(position, { icon, draggable: true }).addTo(map);
-            marker.on('dragend', () => {
-                const ll = marker.getLatLng();
-                select(ll.lat, ll.lng);
-            });
-            markerRef.current = marker;
-        }
-        if (!map.getBounds().contains(position)) map.setView(position, Math.max(map.getZoom(), PIN_ZOOM));
-    }, [mapReady, position?.[0], position?.[1], select]);
+        map.setPin(position);
+        map.reveal(position);
+    }, [mapReady, position?.[0], position?.[1]]);
 
     const getCurrentLocation = useCallback(() => {
         if (!navigator.geolocation) {
@@ -117,7 +200,7 @@ export default function MapPicker({ position, onLocationSelect }: MapPickerProps
         navigator.geolocation.getCurrentPosition(
             (pos) => {
                 select(pos.coords.latitude, pos.coords.longitude);
-                mapRef.current?.setView([pos.coords.latitude, pos.coords.longitude], PIN_ZOOM);
+                mapRef.current?.focus([pos.coords.latitude, pos.coords.longitude]);
                 setLocating(false);
             },
             () => {
@@ -133,7 +216,7 @@ export default function MapPicker({ position, onLocationSelect }: MapPickerProps
         const lng = parseFloat(manualLng);
         if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
             onLocationSelect(lat, lng);
-            mapRef.current?.setView([lat, lng], PIN_ZOOM);
+            mapRef.current?.focus([lat, lng]);
         }
     };
 
@@ -150,7 +233,9 @@ export default function MapPicker({ position, onLocationSelect }: MapPickerProps
                 {/* Tile seams: Tailwind's preflight caps img size, and fractional display
                     scaling (e.g. Windows 125%) leaves sub-pixel gaps — un-cap the tiles and
                     let neighbours overlap by half a pixel. */}
+                {/* key: a fresh element per engine, so Leaflet never inherits Google's DOM. */}
                 <div
+                    key={engine}
                     ref={containerRef}
                     dir="ltr"
                     className="[&_img]:!max-w-none [&_img]:!max-h-none [&_.leaflet-tile]:!w-[256.5px] [&_.leaflet-tile]:!h-[256.5px]"

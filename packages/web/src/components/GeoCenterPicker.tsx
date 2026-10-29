@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Loader2, Search, X } from './ui/icons';
 import MapPicker from './MapPicker';
-import { hasGoogleMapsKey, loadGoogleMaps, onGoogleMapsAuthFailure, type GoogleMapsApi } from '../lib/googleMaps';
+import { hasGoogleMapsKey, loadGoogleMaps, onGoogleMapsUnavailable, type GoogleMapsApi } from '../lib/googleMaps';
 import { geocodeSearch, type GeocodeResult } from '../lib/googleGeocode';
 
 // Center of a ناحية / حي on a Google map: click the map or drag the pin. The
@@ -9,8 +9,8 @@ import { geocodeSearch, type GeocodeResult } from '../lib/googleGeocode';
 // center yet, the map first focuses on the likely area by itself — the unit's
 // name with its parents (`focusTerms`, most specific first), widening to the
 // parents only when the full name is not found — without setting anything:
-// the user still clicks the exact point. No key or a rejected key → the
-// Leaflet MapPicker.
+// the user still clicks the exact point. No key, a rejected key or a script
+// that will not load → MapPicker, which then draws on Leaflet.
 
 type Center = { lat: number; lng: number } | null;
 
@@ -28,7 +28,7 @@ const AREA_ZOOM = 14;
 
 export default function GeoCenterPicker({ value, onChange, focusTerms, height = 420 }: Props) {
     const [failed, setFailed] = useState(!hasGoogleMapsKey());
-    useEffect(() => onGoogleMapsAuthFailure(() => setFailed(true)), []);
+    useEffect(() => onGoogleMapsUnavailable(() => setFailed(true)), []);
 
     if (failed) {
         return (
@@ -75,7 +75,7 @@ function GooglePicker({ value, onChange, focusTerms, height }: Required<Props>) 
             map.addListener('click', (e: GoogleMapsApi) => onChangeRef.current({ lat: e.latLng.lat(), lng: e.latLng.lng() }));
             mapRef.current = map;
             setReady(true);
-        }).catch(() => { /* the auth-failure listener switches to the fallback */ });
+        }).catch(() => { /* the unavailable listener switches to the fallback */ });
         return () => {
             cancelled = true;
             markerRef.current?.setMap(null);

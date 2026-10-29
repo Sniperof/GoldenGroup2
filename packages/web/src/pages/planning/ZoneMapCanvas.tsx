@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { hasGoogleMapsKey, onGoogleMapsAuthFailure } from '../../lib/googleMaps';
+import { hasGoogleMapsKey, onGoogleMapsUnavailable } from '../../lib/googleMaps';
 import ZoneMapGoogle from './ZoneMapGoogle';
 import ZoneMapLeaflet from './ZoneMapLeaflet';
 import type { ZoneMapProps } from './zoneMapPins';
@@ -13,7 +13,7 @@ export default function ZoneMapCanvas(props: ZoneMapProps) {
   const [googleFailed, setGoogleFailed] = useState<string | null>(null);
   const useGoogle = hasGoogleMapsKey() && googleFailed == null;
 
-  useEffect(() => onGoogleMapsAuthFailure(() => setGoogleFailed('رفضت Google مفتاح الخرائط')), []);
+  useEffect(() => onGoogleMapsUnavailable(setGoogleFailed), []);
 
   return (
     <div className="relative h-full w-full">
