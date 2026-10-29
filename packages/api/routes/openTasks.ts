@@ -150,6 +150,23 @@ const TASK_GROUP_CONFIG: Record<string, { taskTypes: string[]; emptyLabel: strin
     emptyLabel: 'مهام فك الجهاز',
     permission: 'tasks.disconnection.view',
   },
+  // Retrieval / return / transfer each get their own table (2026-10-29); they
+  // share the after-sales view permission they had inside «ما بعد البيع».
+  'device-retrieval': {
+    taskTypes: ['device_retrieval'],
+    emptyLabel: 'مهام سحب الجهاز',
+    permission: 'tasks.after_sales.view',
+  },
+  'device-return': {
+    taskTypes: ['device_return'],
+    emptyLabel: 'مهام إرجاع الجهاز',
+    permission: 'tasks.after_sales.view',
+  },
+  'device-transfer': {
+    taskTypes: ['device_transfer'],
+    emptyLabel: 'مهام نقل الجهاز',
+    permission: 'tasks.after_sales.view',
+  },
 };
 
 async function hasOpenTaskColumn(columnName: string): Promise<boolean> {

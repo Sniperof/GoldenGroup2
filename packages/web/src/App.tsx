@@ -157,6 +157,9 @@ export default function App() {
                             <Route path="/tasks/group/device-installation/:id" element={<PostSaleTaskDetail />} />
                             <Route path="/tasks/group/device-activation/:id" element={<PostSaleTaskDetail />} />
                             <Route path="/tasks/group/device-disconnection/:id" element={<PostSaleTaskDetail />} />
+                            <Route path="/tasks/group/device-retrieval/:id" element={<PostSaleTaskDetail />} />
+                            <Route path="/tasks/group/device-return/:id" element={<PostSaleTaskDetail />} />
+                            <Route path="/tasks/group/device-transfer/:id" element={<PostSaleTaskDetail />} />
                             {/* Unified open_task detail under group URL — V1.0 reuses EmergencyTaskDetail. */}
                             <Route path="/tasks/group/maintenance/:id" element={<EmergencyTaskDetail />} />
                             <Route path="/tasks/group/collection/:id" element={<CollectionTaskDetail />} />

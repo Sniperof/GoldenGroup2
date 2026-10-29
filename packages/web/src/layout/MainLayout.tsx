@@ -19,7 +19,7 @@ import {
   BadgeCheck, GraduationCap, Mic2, LogOut, Building2, SlidersHorizontal,
   ShieldCheck, Shield, Monitor, Settings2, GalleryHorizontal, BellRing, Bell,
   Wrench, Gift, LayoutGrid, UserCheck, CalendarCheck, Layers, HardDrive,
-  Unplug, Beaker, Package, ClipboardCheck, Link2, BarChart3, FilePlus2, FileText,
+  Unplug, PackageMinus, Undo2, ArrowLeftRight, Beaker, Package, ClipboardCheck, Link2, BarChart3, FilePlus2, FileText,
 } from '../components/ui/icons';
 
 type Icon = ComponentType<{ className?: string }>;
@@ -207,6 +207,11 @@ export default function MainLayout() {
       ...(can('tasks.maintenance.view') ? [{ path: '/tasks/group/maintenance', label: 'الصيانة والأعطال', icon: Wrench, dividerLabel: 'التنفيذ الميداني' }] : []),
       ...(HIDDEN_FEATURES_ENABLED.afterSaleServicesTasks && can('tasks.after_sales.view') ? [{ path: '/tasks/group/after-sale-services', label: 'خدمات ما بعد البيع', icon: RefreshCw, dividerLabel: 'التنفيذ الميداني' }] : []),
       ...(can('tasks.disconnection.view') ? [{ path: '/tasks/group/device-disconnection', label: 'فك الأجهزة', icon: Unplug, dividerLabel: 'التنفيذ الميداني' }] : []),
+      ...(can('tasks.after_sales.view') ? [
+        { path: '/tasks/group/device-retrieval', label: 'سحب الأجهزة', icon: PackageMinus, dividerLabel: 'التنفيذ الميداني' },
+        { path: '/tasks/group/device-return', label: 'إرجاع الأجهزة', icon: Undo2, dividerLabel: 'التنفيذ الميداني' },
+        { path: '/tasks/group/device-transfer', label: 'نقل الأجهزة', icon: ArrowLeftRight, dividerLabel: 'التنفيذ الميداني' },
+      ] : []),
       ...(can('tasks.warranty.view') ? [{ path: '/tasks/group/warranty-services', label: 'خدمات الكفالة', icon: ShieldCheck, dividerLabel: 'التنفيذ الميداني' }] : []),
       ...(can('periodic_maintenance.view') ? [{ path: '/service-requests/periodic-maintenance', label: 'طلبات الصيانة الدورية', icon: Wrench, dividerLabel: 'طلبات متخصصة' }] : []),
       ...(can('water_check.view') ? [{ path: '/service-requests/water-check', label: 'طلبات فحص المياه', icon: Beaker, dividerLabel: 'طلبات متخصصة', exact: true }] : []),

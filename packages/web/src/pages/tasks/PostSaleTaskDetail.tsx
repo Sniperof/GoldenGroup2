@@ -13,6 +13,9 @@ const BACK_BY_GROUP: Record<string, { href: string; label: string }> = {
   'device-installation': { href: '/tasks/group/device-installation', label: 'مهام تركيب الجهاز' },
   'device-activation':   { href: '/tasks/group/device-activation',   label: 'مهام تشغيل الجهاز' },
   'device-disconnection': { href: '/tasks/group/device-disconnection', label: 'مهام فك الجهاز' },
+  'device-retrieval':    { href: '/tasks/group/device-retrieval',    label: 'مهام سحب الجهاز' },
+  'device-return':       { href: '/tasks/group/device-return',       label: 'مهام إرجاع الجهاز' },
+  'device-transfer':     { href: '/tasks/group/device-transfer',     label: 'مهام نقل الجهاز' },
   'after-sale-services': { href: '/tasks/group/after-sale-services', label: 'مهام خدمات ما بعد البيع' },
 };
 
