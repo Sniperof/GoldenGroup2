@@ -25,13 +25,16 @@ interface Props {
   roadMode?: 'auto' | 'button';
   // Builder: the area picked (tree or search) but not added yet — a «+» pin.
   candidateId?: number | null;
+  // Map search result (Geocoding): a red pin the map fits to.
+  place?: { label: string; lat: number; lng: number } | null;
 }
 
 const GHOST_ID_OFFSET = 1_000_000_000; // keeps ghost pin ids apart from station ids
 
 const CANDIDATE_ID_OFFSET = 2_000_000_000;
+const PLACE_ID = 3_000_000_000;
 
-export default function RoutePreviewMap({ points, geoUnits, name, height = 280, roadMode = 'button', candidateId = null }: Props) {
+export default function RoutePreviewMap({ points, geoUnits, name, height = 280, roadMode = 'button', candidateId = null, place = null }: Props) {
   const [selected, setSelected] = useState<number | null>(null);
   const [road, setRoad] = useState<{ key: string; route: RoadRoute } | null>(null);
   const [roadLoading, setRoadLoading] = useState(false);
@@ -85,6 +88,9 @@ export default function RoutePreviewMap({ points, geoUnits, name, height = 280, 
         variant: 'candidate',
       });
     }
+    if (place) {
+      pins.push({ id: PLACE_ID, lat: place.lat, lng: place.lng, count: 0, title: place.label, accent: false, variant: 'place' });
+    }
     const placed = stations.filter(s => s.center);
     const straight = placed.map(s => [s.center!.lat, s.center!.lng] as [number, number]);
     return {
@@ -97,10 +103,10 @@ export default function RoutePreviewMap({ points, geoUnits, name, height = 280, 
       missing: stations.filter(s => !s.center),
       uncoveredCount: uncovered.length,
       uncoveredPlaced: uncovered.filter(u => u.center).length,
-      fitKey: `${ordered.map(p => p.geoUnitId).sort((a, b) => a - b).join(',')}|${candidate?.center ? candidate.id : ''}`,
+      fitKey: `${ordered.map(p => p.geoUnitId).sort((a, b) => a - b).join(',')}|${candidate?.center ? candidate.id : ''}|${place ? `${place.lat},${place.lng}` : ''}`,
       candidate: candidate ?? null,
     };
-  }, [points, geoUnits, name, candidateId]);
+  }, [points, geoUnits, name, candidateId, place]);
 
   const canRoad = hasGoogleMapsKey() && view.straight.length >= 2;
   const currentRoad = road?.key === view.roadKey ? road.route : null;
@@ -134,6 +140,8 @@ export default function RoutePreviewMap({ points, geoUnits, name, height = 280, 
 
   const selectedLabel = selected == null
     ? null
+    : selected === PLACE_ID
+      ? place?.label ?? null
     : selected >= CANDIDATE_ID_OFFSET
       ? `${name(selected - CANDIDATE_ID_OFFSET)} — مختارة، لم تُضَف للمسار بعد`
     : selected >= GHOST_ID_OFFSET

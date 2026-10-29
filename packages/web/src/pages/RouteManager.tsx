@@ -7,6 +7,8 @@ import {
 } from '../components/ui/icons';
 import Modal from '../components/ui/Modal';
 import RoutePreviewMap from './planning/RoutePreviewMap';
+import { hasGoogleMapsKey } from '../lib/googleMaps';
+import { geocodeSearch, type GeocodeResult } from '../lib/googleGeocode';
 import { api } from '../lib/api';
 import { levelNames } from '../lib/geoConstants';
 import SmartTable, { type ColumnDef } from '../components/SmartTable';
@@ -145,6 +147,27 @@ export default function RouteManager() {
         }
         return names.join(' · ');
     }, [geoUnits]);
+    // بحث حر على الخريطة (Google Geocoding) عند الطلب فقط: يحرّك الخريطة إلى
+    // مكان ليس منطقة لها مركز. لا يُضاف كمحطة ولا يُخزَّن.
+    const [mapPlace, setMapPlace] = useState<GeocodeResult | null>(null);
+    const [mapResults, setMapResults] = useState<{ query: string; items: GeocodeResult[] } | null>(null);
+    const [mapSearching, setMapSearching] = useState(false);
+    const [mapSearchError, setMapSearchError] = useState<string | null>(null);
+    const searchOnMap = async () => {
+        const q = builderSearch.trim();
+        if (q.length < 2 || !hasGoogleMapsKey()) return;
+        setMapSearching(true);
+        setMapSearchError(null);
+        try {
+            setMapResults({ query: q, items: await geocodeSearch(q) });
+        } catch (err) {
+            setMapSearchError((err as Error)?.message || 'تعذّر البحث');
+        } finally {
+            setMapSearching(false);
+        }
+    };
+    const shownMapResults = mapResults?.query === builderSearch.trim() ? mapResults.items : null;
+
     const pickSearchResult = (u: GeoUnit) => {
         const next: (number | null)[] = [null, null, null, null];
         let cur: GeoUnit | undefined = u;
@@ -541,12 +564,14 @@ export default function RouteManager() {
                                     <input
                                         value={builderSearch}
                                         onChange={e => setBuilderSearch(e.target.value)}
-                                        placeholder="ابحث عن ناحية أو حي…"
+                                        onKeyDown={e => { if (e.key === 'Enter') void searchOnMap(); }}
+                                        placeholder="ابحث عن ناحية أو حي، أو أي مكان على الخريطة…"
                                         className="w-full rounded-lg border border-slate-200 bg-white py-2 pr-9 pl-3 text-sm focus:border-sky-500 focus:ring-1 focus:ring-sky-500 focus:outline-none"
                                     />
                                     {builderSearch.trim().length >= 2 && (
                                         <div className="absolute inset-x-0 top-full z-20 mt-1 max-h-72 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg custom-scroll">
-                                            {searchResults.length === 0 && <p className="px-3 py-2 text-xs text-slate-400">لا نتائج.</p>}
+                                            <p className="px-3 pt-2 pb-1 text-[11px] font-bold text-slate-400">النواحي والأحياء</p>
+                                            {searchResults.length === 0 && <p className="px-3 pb-2 text-xs text-slate-400">لا نتائج.</p>}
                                             {searchResults.map(u => {
                                                 const added = builderPoints.some(p => p.geoUnitId === u.id);
                                                 const colors = levelColors[u.level] || levelColors[4];
@@ -569,15 +594,53 @@ export default function RouteManager() {
                                                     </button>
                                                 );
                                             })}
+                                            {hasGoogleMapsKey() && (
+                                                <div className="border-t border-slate-100">
+                                                    <p className="px-3 pt-2 pb-1 text-[11px] font-bold text-slate-400">على الخريطة</p>
+                                                    {shownMapResults == null ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => void searchOnMap()}
+                                                            disabled={mapSearching}
+                                                            className="flex w-full items-center gap-2 px-3 py-2 text-right text-sm font-bold text-sky-700 hover:bg-sky-50 disabled:opacity-60"
+                                                        >
+                                                            <MapIcon className="w-4 h-4" />
+                                                            {mapSearching ? 'جارٍ البحث…' : `ابحث «${builderSearch.trim()}» على الخريطة`}
+                                                            <span className="mr-auto text-[10px] font-normal text-slate-400">Enter</span>
+                                                        </button>
+                                                    ) : shownMapResults.length === 0 ? (
+                                                        <p className="px-3 pb-2 text-xs text-slate-400">لم يجد Google مكاناً بهذا الاسم في سوريا.</p>
+                                                    ) : shownMapResults.map((r, i) => (
+                                                        <button
+                                                            key={i}
+                                                            type="button"
+                                                            onClick={() => { setMapPlace(r); setBuilderSearch(''); }}
+                                                            className="flex w-full items-center gap-2 px-3 py-2 text-right text-sm text-slate-700 hover:bg-sky-50"
+                                                        >
+                                                            <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-red-600" />
+                                                            <span className="min-w-0 flex-1 truncate">{r.label}</span>
+                                                        </button>
+                                                    ))}
+                                                    {mapSearchError && <p className="px-3 pb-2 text-xs text-rose-600">تعذّر البحث: {mapSearchError}</p>}
+                                                </div>
+                                            )}
                                         </div>
                                     )}
                                 </div>
+                                {mapPlace && (
+                                    <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs text-red-800">
+                                        <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-red-600" />
+                                        <span className="min-w-0 flex-1 truncate">على الخريطة: {mapPlace.label}</span>
+                                        <button type="button" onClick={() => setMapPlace(null)} className="shrink-0 text-red-500 hover:text-red-700"><X className="w-3.5 h-3.5" /></button>
+                                    </div>
+                                )}
                                 <RoutePreviewMap
                                     points={builderPoints}
                                     geoUnits={geoUnits}
                                     name={getUnitName}
                                     height={560}
                                     candidateId={addableUnit?.id ?? null}
+                                    place={mapPlace}
                                 />
                                 {addableUnit && (
                                     <button
