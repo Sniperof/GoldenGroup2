@@ -11,9 +11,12 @@ import {
     Building2,
     History,
     Loader2,
+    UserCheck,
     UserMinus,
     UserPlus,
+    UserX,
     Users,
+    type LucideIcon,
 } from '../../components/ui/icons';
 import Modal from '../../components/ui/Modal';
 import SmartTable, { type ColumnDef } from '../../components/SmartTable';
@@ -58,7 +61,35 @@ const CONTEXT_LABELS: Record<string, string> = {
     status_op_fop: 'تغيير المرحلة',
     client_deleted: 'حذف الزبون',
     backfill: 'ملكية قائمة قبل بدء السجل',
+    // Owner eligibility changes (488): the ownership row stays.
+    'employee_status:active': 'عودة الموظف للعمل',
+    'employee_status:vacation': 'إجازة الموظف',
+    'employee_status:suspended': 'إيقاف الموظف',
+    'employee_status:terminated': 'ترك الموظف العمل',
+    account_activated: 'تفعيل حساب الموظف',
+    account_deactivated: 'تعطيل حساب الموظف',
+    account_role_changed: 'تغيير دور الحساب',
+    account_relinked: 'تغيير ربط الحساب بالموظف',
+    role_permission_changed: 'تغيير صلاحيات الدور',
 };
+
+const EVENT_BADGES: Record<ClientOwnershipLogEntry['eventType'], { label: string; icon: LucideIcon; className: string }> = {
+    owner_added: { label: 'أصبح مالكاً', icon: UserPlus, className: 'bg-emerald-50 text-emerald-700' },
+    owner_removed: { label: 'انتهت ملكيته', icon: UserMinus, className: 'bg-red-50 text-red-600' },
+    owner_inactive: { label: 'توقفت ملكيته', icon: UserX, className: 'bg-amber-50 text-amber-700' },
+    owner_active: { label: 'عادت ملكيته', icon: UserCheck, className: 'bg-emerald-50 text-emerald-700' },
+    branch_owned: { label: 'أصبح ملك الفرع', icon: Building2, className: 'bg-sky-50 text-sky-700' },
+};
+
+function eventBadge(entry: ClientOwnershipLogEntry) {
+    const badge = EVENT_BADGES[entry.eventType] ?? EVENT_BADGES.owner_removed;
+    const Icon = badge.icon;
+    return (
+        <span className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-bold ${badge.className}`}>
+            <Icon className="h-3 w-3" /> {badge.label}
+        </span>
+    );
+}
 
 function formatDateTime(value?: string | null) {
     if (!value) return '—';
@@ -135,12 +166,18 @@ const logColumns: ColumnDef<ClientOwnershipLogEntry>[] = [
     {
         key: 'eventType',
         label: 'الحدث',
-        render: e => e.eventType === 'owner_added'
-            ? <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-bold text-emerald-700"><UserPlus className="h-3 w-3" /> أصبح مالكاً</span>
-            : <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-red-50 px-2 py-0.5 text-xs font-bold text-red-600"><UserMinus className="h-3 w-3" /> انتهت ملكيته</span>,
-        exportValue: e => (e.eventType === 'owner_added' ? 'أصبح مالكاً' : 'انتهت ملكيته'),
+        render: e => eventBadge(e),
+        exportValue: e => (EVENT_BADGES[e.eventType] ?? EVENT_BADGES.owner_removed).label,
     },
-    { key: 'ownerName', label: 'الموظف', render: e => <span className="font-bold text-slate-800">{e.ownerName ?? 'مستخدم محذوف'}</span>, exportValue: e => e.ownerName ?? '' },
+    {
+        key: 'ownerName',
+        label: 'الموظف',
+        // A branch_owned line concerns the client, not one employee.
+        render: e => e.eventType === 'branch_owned'
+            ? <span className="text-sm text-slate-400">—</span>
+            : <span className="font-bold text-slate-800">{e.ownerName ?? 'مستخدم محذوف'}</span>,
+        exportValue: e => (e.eventType === 'branch_owned' ? '' : e.ownerName ?? ''),
+    },
     { key: 'changeContext', label: 'المصدر', render: e => <span className="text-sm text-slate-700">{contextLabel(e)}</span>, exportValue: e => contextLabel(e) },
     {
         key: 'reason',

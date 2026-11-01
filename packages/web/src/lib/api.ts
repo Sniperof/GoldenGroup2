@@ -754,7 +754,8 @@ export interface ClientOwnershipOwner {
 
 export interface ClientOwnershipLogEntry {
   id: number;
-  eventType: 'owner_added' | 'owner_removed';
+  /** owner_inactive / owner_active: the owner stopped / resumed being eligible (row kept); branch_owned: no eligible owner left (migration 488). */
+  eventType: 'owner_added' | 'owner_removed' | 'owner_inactive' | 'owner_active' | 'branch_owned';
   ownerUserId: number | null;
   ownerName: string | null;
   changeContext: string | null;
