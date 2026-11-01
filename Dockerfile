@@ -22,6 +22,9 @@ FROM deps AS builder
 
 COPY . .
 
+ARG VITE_GOOGLE_MAPS_API_KEY
+ENV VITE_GOOGLE_MAPS_API_KEY=$VITE_GOOGLE_MAPS_API_KEY
+
 RUN pnpm --filter @golden-crm/web build
 
 # ──────────────────────────────────────────────────────────────────
