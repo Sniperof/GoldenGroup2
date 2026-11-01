@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { runWithChangeContext } from '../auditContext.js';
 import { authorize, resolveActingBranch } from '../services/authorizationService.js';
 import { requirePermission } from '../middleware/permission.js';
 import { assertRoleWithinActorScope, ROLE_ESCALATION_ERROR } from '../services/roleAssignmentGuard.js';
@@ -611,7 +612,9 @@ router.post('/:id/status', requirePermission('employees.change_status'), async (
       return res.status(400).json({ error: 'سبب تغيير الحالة مطلوب.' });
     }
 
-    const result = await changeEmployeeStatus({
+    // The ownership triggers (488) label the clients' log with the operation,
+    // not with the account step (is_active) that happens to restore eligibility.
+    const result = await runWithChangeContext({ changeContext: `employee_status:${toStatus}` }, () => changeEmployeeStatus({
       employeeId,
       toStatus,
       reasonId,
@@ -621,7 +624,7 @@ router.post('/:id/status', requirePermission('employees.change_status'), async (
       actorUserId: authContext.userId,
       canChangeInBranch: (branchId) =>
         authorize(authContext, { permission: 'employees.change_status', branchId }).allowed,
-    });
+    }));
     res.json({ success: true, ...result });
   } catch (err: any) {
     if (err instanceof EmployeeStatusChangeError) {
