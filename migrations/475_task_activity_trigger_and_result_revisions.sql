@@ -457,6 +457,43 @@ CREATE CONSTRAINT TRIGGER trg_snapshot_visit_task_result
   EXECUTE FUNCTION public.snapshot_visit_task_result();
 
 -- ── 6) Seed: existing results become revision 1 (the original we still have)
+-- Builds the same payload as build_visit_task_result_payload, set-based: one
+-- GROUP BY per detail table instead of one query per table per result (the
+-- per-row call took ~23 min on 472k staging results; this takes ~2.5 min).
+CREATE TEMP TABLE seed_result_details (
+  result_id bigint NOT NULL,
+  tbl text NOT NULL,
+  rows jsonb NOT NULL
+) ON COMMIT DROP;
+
+DO $$
+DECLARE
+  v_table text;
+BEGIN
+  FOR v_table IN
+    SELECT c.relname
+      FROM pg_attribute a
+      JOIN pg_class c ON c.oid = a.attrelid
+     WHERE a.attname = 'visit_task_result_id'
+       AND NOT a.attisdropped
+       AND c.relkind = 'r'
+       AND c.relnamespace = 'public'::regnamespace
+       AND c.relname <> 'visit_task_result_revisions'
+  LOOP
+    EXECUTE format(
+      'INSERT INTO seed_result_details (result_id, tbl, rows)
+       SELECT t.visit_task_result_id, %L, jsonb_agg(to_jsonb(t))
+         FROM public.%I t
+        GROUP BY t.visit_task_result_id',
+      v_table, v_table
+    );
+  END LOOP;
+END;
+$$;
+
+CREATE INDEX ON seed_result_details (result_id);
+ANALYZE seed_result_details;
+
 INSERT INTO public.visit_task_result_revisions (
   visit_task_id, visit_task_result_id, open_task_id, revision_no,
   final_decision, reason_code, payload, recorded_by, recorded_role,
@@ -464,7 +501,15 @@ INSERT INTO public.visit_task_result_revisions (
 )
 SELECT r.visit_task_id, r.id, vt.source_open_task_id, 1,
        r.final_decision, r.reason_code,
-       public.build_visit_task_result_payload(r.id),
+       jsonb_build_object(
+         'result', to_jsonb(r),
+         'details', COALESCE(
+           (SELECT jsonb_object_agg(d.tbl, d.rows)
+              FROM seed_result_details d
+             WHERE d.result_id = r.id),
+           '{}'::jsonb
+         )
+       ),
        r.closed_by, 'backfill', 'backfill', txid_current(),
        COALESCE(r.closed_at, r.created_at, now())
   FROM public.visit_task_results r
