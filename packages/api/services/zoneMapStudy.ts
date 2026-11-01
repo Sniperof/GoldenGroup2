@@ -39,6 +39,8 @@ const TASK_TYPE_COLUMN: Record<string, ZoneMapColumnKey> = {
   device_retrieval: 'retrieval',
   device_disconnection: 'disconnection',
   device_return: 'return',
+  device_checkup: 'checkup',
+  device_transfer: 'transfer',
 };
 
 // Service requests not yet promoted to a task: upcoming work the branch already knows of.

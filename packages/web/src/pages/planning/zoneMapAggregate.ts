@@ -10,8 +10,7 @@ import type {
 // Unit of load is the VISIT: one client at one work location. A client with
 // an emergency and a collection at the same place is one visit; the type
 // columns count clients (or devices, for device-bound tasks) per type, so the
-// type columns do not add up to the visit total — the «shared» count says how
-// many visits carry more than one type.
+// type columns do not add up to the visit total.
 
 export const TASK_COLUMNS: { key: ZoneMapColumnKey; label: string }[] = [
   { key: 'collection', label: 'تحصيل ذمة' },
@@ -27,7 +26,9 @@ export const TASK_COLUMNS: { key: ZoneMapColumnKey; label: string }[] = [
   { key: 'retrieval', label: 'سحب' },
   { key: 'disconnection', label: 'فك' },
   { key: 'return', label: 'إرجاع' },
-  // Any type outside the list (e.g. device_transfer); shown only when present.
+  { key: 'checkup', label: 'تشييك' },
+  { key: 'transfer', label: 'نقل جهاز' },
+  // Any type outside the list (a type added later); shown only when present.
   { key: 'other', label: 'أخرى' },
 ];
 
@@ -60,10 +61,10 @@ export interface AreaRow {
   visits: VisitGroup[];
   requests: ZoneMapRequestItem[];
   visitCount: number;
-  sharedVisitCount: number;
   columnCounts: Partial<Record<ZoneMapColumnKey, number>>;
   demoBranchCount: number;
   demoOwnedCount: number; // clients with a demo owned by any (filtered-in) employee
+  demoSupervisorCount: number; // clients with a demo owned by a (filtered-in) supervisor
   demoByOwner: Record<number, number>;
 }
 
@@ -146,17 +147,32 @@ export class GeoIndex {
 function emptyRow(geoUnitId: number | null, name: string, center: AreaRow['center']): AreaRow {
   return {
     geoUnitId, name, center, visits: [], requests: [],
-    visitCount: 0, sharedVisitCount: 0, columnCounts: {}, demoBranchCount: 0, demoOwnedCount: 0, demoByOwner: {},
+    visitCount: 0, columnCounts: {}, demoBranchCount: 0, demoOwnedCount: 0, demoSupervisorCount: 0, demoByOwner: {},
   };
 }
 
+// Selected owners whose role sits in a team's supervisor slot.
+function selectedSupervisorIds(data: ZoneMapResponse, filters: ZoneMapFilters): Set<number> {
+  return new Set(
+    data.owners
+      .filter(o => (o.slotType ?? '').toUpperCase() === 'SUPERVISOR' && filters.ownerIds.has(o.hrUserId))
+      .map(o => o.hrUserId),
+  );
+}
+
 // Fill counts from the raw tasks/requests gathered into a row.
-function finalizeRow(row: AreaRow, tasks: ZoneMapTaskItem[], requests: ZoneMapRequestItem[]): AreaRow {
+function finalizeRow(
+  row: AreaRow,
+  tasks: ZoneMapTaskItem[],
+  requests: ZoneMapRequestItem[],
+  supervisorIds: Set<number>,
+): AreaRow {
   const visits = new Map<string, VisitGroup>();
   const perColumn = new Map<ZoneMapColumnKey, Set<string>>();
   const demoBranch = new Set<number>();
   const demoOwner = new Map<number, Set<number>>();
   const demoOwned = new Set<number>();
+  const demoSupervisor = new Set<number>();
   tasks.forEach(t => {
     const vKey = `${t.clientId}|${t.geoUnitId ?? 'x'}`;
     if (!visits.has(vKey)) {
@@ -168,6 +184,7 @@ function finalizeRow(row: AreaRow, tasks: ZoneMapTaskItem[], requests: ZoneMapRe
     perColumn.get(t.column)!.add(unitKey);
     if (t.column === 'demo') {
       if (t.ownerHrUserIds.length === 0) demoBranch.add(t.clientId); else demoOwned.add(t.clientId);
+      if (t.ownerHrUserIds.some(id => supervisorIds.has(id))) demoSupervisor.add(t.clientId);
       t.ownerHrUserIds.forEach(id => {
         if (!demoOwner.has(id)) demoOwner.set(id, new Set());
         demoOwner.get(id)!.add(t.clientId);
@@ -180,11 +197,11 @@ function finalizeRow(row: AreaRow, tasks: ZoneMapTaskItem[], requests: ZoneMapRe
   row.visits = [...visits.values()].sort((a, b) => b.tasks.length - a.tasks.length || a.clientName.localeCompare(b.clientName, 'ar'));
   row.requests = requests;
   row.visitCount = visits.size;
-  row.sharedVisitCount = row.visits.filter(v => new Set(v.tasks.map(t => t.column)).size > 1).length;
   perColumn.forEach((set, key) => { row.columnCounts[key] = set.size; });
   reqPerColumn.forEach((n, key) => { row.columnCounts[key] = n; });
   row.demoBranchCount = demoBranch.size;
   row.demoOwnedCount = demoOwned.size;
+  row.demoSupervisorCount = demoSupervisor.size;
   demoOwner.forEach((set, id) => { row.demoByOwner[id] = set.size; });
   return row;
 }
@@ -207,10 +224,12 @@ export function aggregateAreas(
     reqsBy.get(g)!.push(r);
   });
   const keys = new Set<number | null>([...tasksBy.keys(), ...reqsBy.keys()]);
+  const supervisorIds = selectedSupervisorIds(data, filters);
   return [...keys].map(g => finalizeRow(
     emptyRow(g, geo.label(g), g == null ? null : geo.byId.get(g)?.center ?? null),
     tasksBy.get(g) ?? [],
     reqsBy.get(g) ?? [],
+    supervisorIds,
   ));
 }
 
@@ -220,6 +239,7 @@ export function aggregateAreas(
 export function aggregateRoutes(data: ZoneMapResponse, geo: GeoIndex, filters: ZoneMapFilters): RouteRow[] {
   const tasks = data.tasks.filter(t => taskPassesFilters(t, filters) && t.geoUnitId != null);
   const requests = data.requests.filter(r => filters.columns.has(r.column) && r.geoUnitId != null);
+  const supervisorIds = selectedSupervisorIds(data, filters);
   return data.routes.map(route => {
     const stations = route.stationGeoUnitIds.map(sid => {
       const st = tasks.filter(t => t.geoUnitId === sid);
@@ -228,7 +248,7 @@ export function aggregateRoutes(data: ZoneMapResponse, geo: GeoIndex, filters: Z
         geoUnitId: sid,
         name: geo.label(sid),
         center: geo.byId.get(sid)?.center ?? null,
-        row: finalizeRow(emptyRow(sid, geo.label(sid), geo.byId.get(sid)?.center ?? null), st, sr),
+        row: finalizeRow(emptyRow(sid, geo.label(sid), geo.byId.get(sid)?.center ?? null), st, sr, supervisorIds),
       };
     });
     const allTasks = new Map<number, ZoneMapTaskItem>();
@@ -241,7 +261,7 @@ export function aggregateRoutes(data: ZoneMapResponse, geo: GeoIndex, filters: Z
       routeId: route.id,
       name: route.name,
       stations,
-      total: finalizeRow(emptyRow(null, route.name, null), [...allTasks.values()], [...allReqs.values()]),
+      total: finalizeRow(emptyRow(null, route.name, null), [...allTasks.values()], [...allReqs.values()], supervisorIds),
     };
   });
 }

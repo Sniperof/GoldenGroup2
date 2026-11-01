@@ -455,6 +455,8 @@ export type ZoneMapColumnKey =
     | 'retrieval'
     | 'disconnection'
     | 'return'
+    | 'checkup'
+    | 'transfer'
     | 'request_device'
     | 'request_water_check'
     | 'request_periodic'

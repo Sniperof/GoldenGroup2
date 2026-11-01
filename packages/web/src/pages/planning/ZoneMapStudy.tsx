@@ -318,7 +318,9 @@ export default function ZoneMapStudy() {
   );
   const numberCells = (row: AreaRow) => (<>
     <DataTable.Td align="center"><span className="font-bold text-sky-700">{row.visitCount}</span></DataTable.Td>
-    <DataTable.Td align="center" className="text-slate-500">{row.sharedVisitCount}</DataTable.Td>
+    <DataTable.Td align="center">
+      {row.demoSupervisorCount ? <span className="font-bold text-violet-700">{row.demoSupervisorCount}</span> : <span className="text-slate-300">0</span>}
+    </DataTable.Td>
     {visibleColumns.map(c => <DataTable.Td key={c.key} align="center">{countCell(row, c.key)}</DataTable.Td>)}
     {showBranchDemos && <DataTable.Td align="center">{row.demoBranchCount || <span className="text-slate-300">0</span>}</DataTable.Td>}
     {ownerColumns.map(o => (
@@ -334,7 +336,7 @@ export default function ZoneMapStudy() {
   </>);
   const numberHeads = (<>
     {sortableTh('visits', 'الزيارات')}
-    <DataTable.Th align="center" title="زيارات تجمع أكثر من نوع مهمة">مشتركة</DataTable.Th>
+    <DataTable.Th align="center" title="زبائن لديهم عرض جهاز يملكه مشرف واحد على الأقل من المحددين — الزبون المملوك لأكثر من مشرف يُعدّ مرة">عروض المشرفين</DataTable.Th>
     {visibleColumns.map(c => <Fragment key={c.key}>{sortableTh(c.key, c.label)}</Fragment>)}
     {showBranchDemos && <DataTable.Th align="center">عروض الفرع</DataTable.Th>}
     {ownerColumns.map(o => (
@@ -540,7 +542,7 @@ export default function ZoneMapStudy() {
                 <button type="button" onClick={() => setSelectedArea(null)} className="text-slate-400"><X className="w-4 h-4" /></button>
               </div>
               <p className="text-xs text-slate-500 mb-3">
-                {detailRow.visitCount} زيارة · منها {detailRow.sharedVisitCount} مشتركة{detailRow.requests.length ? ` · ${detailRow.requests.length} طلب` : ''}
+                {detailRow.visitCount} زيارة · {detailRow.demoSupervisorCount} عرض للمشرفين{detailRow.requests.length ? ` · ${detailRow.requests.length} طلب` : ''}
               </p>
               {canPlace && detailRow.geoUnitId != null && (
                 <button type="button" onClick={() => setPlacing(detailRow.geoUnitId)} className="mb-3 text-xs font-bold text-sky-600 inline-flex items-center gap-1">
@@ -706,7 +708,7 @@ export default function ZoneMapStudy() {
       </div>
 
       <p className="mt-3 text-xs text-slate-400 leading-relaxed">
-        <span className="font-bold">قراءة الأرقام:</span> الزيارة = زبون في موقع عمل واحد، تُعدّ مرة مهما تعددت مهامه. أعمدة الأنواع تعدّ الزبائن (أو الأجهزة لمهام الجهاز) لكل نوع، لذلك لا يساوي مجموعها عدد الزيارات — عمود «مشتركة» يبيّن الزيارات التي تجمع أكثر من نوع. الطلبات لا تدخل في الزيارات لأنها لم تتحول لمهام بعد. المهام المؤهلة ليوم التخطيط فقط.
+        <span className="font-bold">قراءة الأرقام:</span> الزيارة = زبون في موقع عمل واحد، تُعدّ مرة مهما تعددت مهامه. أعمدة الأنواع تعدّ الزبائن (أو الأجهزة لمهام الجهاز) لكل نوع، لذلك لا يساوي مجموعها عدد الزيارات. عمود «عروض المشرفين» يعدّ الزبائن الذين لديهم عرض جهاز يملكه مشرف من المحددين، ويُعدّ الزبون مرة ولو ملكه أكثر من مشرف. الطلبات لا تدخل في الزيارات لأنها لم تتحول لمهام بعد. المهام المؤهلة ليوم التخطيط فقط.
       </p>
     </div>
   );

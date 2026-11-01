@@ -61,7 +61,6 @@ test('a client with several task types at one place is one visit; types count se
   const h11 = row(aggregateAreas(data, geo, everything), 11);
   // Visits in حي 11: client1 (emergency + collection), client4 (demo).
   assert.equal(h11.visitCount, 2);
-  assert.equal(h11.sharedVisitCount, 1);
   assert.equal(h11.columnCounts.emergency, 1);
   assert.equal(h11.columnCounts.collection, 1);
   // Device-bound type counts devices, not clients.
@@ -69,6 +68,30 @@ test('a client with several task types at one place is one visit; types count se
   assert.equal(h12.visitCount, 1);
   assert.equal(h12.columnCounts.periodic, 2);
   assert.equal(h12.columnCounts.request_water_check, 1);
+});
+
+test('supervisor demos: clients whose demo a selected supervisor owns, each once', () => {
+  const withSupervisors: ZoneMapResponse = {
+    ...data,
+    owners: [...data.owners, { hrUserId: 9, name: 'سامر', roleName: 'مسوق هاتفي', slotType: null }],
+    tasks: [
+      ...data.tasks,
+      // In حي 11: a demo both supervisors own (one client), and one only the telemarketer owns.
+      task({ clientId: 40, column: 'demo', geoUnitId: 11, ownerHrUserIds: [7, 8] }),
+      task({ clientId: 41, column: 'demo', geoUnitId: 11, ownerHrUserIds: [9] }),
+    ],
+  };
+  const all = { ...everything, ownerIds: new Set([7, 8, 9]) };
+  const h11 = row(aggregateAreas(withSupervisors, geo, all), 11);
+  // client4 (رنيم) + client40 (رنيم+عبير, counted once); client41 is not a supervisor's.
+  assert.equal(h11.demoSupervisorCount, 2);
+  assert.equal(h11.demoOwnedCount, 3);
+  // Only selected supervisors count: deselect رنيم → client40 still counts through عبير.
+  const noRaneem = row(aggregateAreas(withSupervisors, geo, { ...all, ownerIds: new Set([8, 9]) }), 11);
+  assert.equal(noRaneem.demoSupervisorCount, 1);
+  // Route totals carry the same count.
+  const mezzeh = aggregateRoutes(withSupervisors, geo, all).find(r => r.routeId === 5)!;
+  assert.equal(mezzeh.total.demoSupervisorCount, 0); // station 10 has only the branch demo
 });
 
 test('rows are the lowest level: أحياء, and a ناحية only when it has no أحياء', () => {
