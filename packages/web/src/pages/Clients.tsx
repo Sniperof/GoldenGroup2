@@ -55,6 +55,7 @@ import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import BranchScopeIndicator from '../components/BranchScopeIndicator';
 import BulkActivateModal from '../components/appAccounts/BulkActivateModal';
 import BulkOwnershipModal from '../components/clients/BulkOwnershipModal';
+import ClientDeleteDialog from '../components/clients/ClientDeleteDialog';
 import { usePermissions } from '../hooks/usePermissions';
 import { useDidUpdateEffect, useScrollRestoration, useSessionState } from '../hooks/useListStatePersistence';
 
@@ -430,19 +431,10 @@ export default function Clients() {
         }
     };
 
-    const deleteClient = async (id: number) => {
+    const [deletingClient, setDeletingClient] = useState<{ id: number; name: string } | null>(null);
+    const deleteClient = (id: number) => {
         const client = clients.find(c => c.id === id);
-        const clientName = client?.name ?? `#${id}`;
-        if (!confirm(`حذف الزبون "${clientName}"؟\n\nملاحظة: لا يمكن الحذف إذا كان للزبون عقود أو سجل زيارات أو مهام مكتملة.`)) return;
-        try {
-            await api.clients.delete(id);
-            await fetchClients();
-        } catch (err: any) {
-            const payload = extractApiPayload(err);
-            const msg = payload?.error || err?.response?.data?.error || err?.message || 'تعذر حذف الزبون';
-            alert(msg);
-            console.error('Failed to delete client:', err);
-        }
+        setDeletingClient({ id, name: client?.name ?? `#${id}` });
     };
 
     const handleSaveClient = async (clientData: Client) => {
@@ -976,7 +968,7 @@ export default function Clients() {
                             <button
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    void deleteClient(c.id);
+                                    deleteClient(c.id);
                                 }}
                                 className="p-1.5 rounded-lg hover:bg-white hover:shadow-sm text-slate-400 hover:text-rose-600 transition-all border border-transparent hover:border-rose-100"
                                 title="حذف الزبون"
@@ -1002,6 +994,11 @@ export default function Clients() {
                 }))}
             />
 
+            <ClientDeleteDialog
+                client={deletingClient}
+                onClose={() => setDeletingClient(null)}
+                onDeleted={fetchClients}
+            />
             <BulkOwnershipModal
                 open={bulkOwnershipOpen}
                 onClose={() => { setBulkOwnershipOpen(false); setBulkOwnershipSelection(null); }}

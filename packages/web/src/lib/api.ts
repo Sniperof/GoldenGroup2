@@ -752,6 +752,21 @@ export interface ClientOwnershipOwner {
   acquiredReason: string | null;
 }
 
+/** One line of the client change timeline (migration 489). Values are readable text. */
+export interface ClientActivityEntry {
+  id: number;
+  eventType: 'created' | 'field_changed' | 'deleted' | 'restored';
+  fieldKey: string | null;
+  oldValue: string | null;
+  newValue: string | null;
+  changeContext: string | null;
+  reason: string | null;
+  role: string | null;
+  source: 'trigger' | 'backfill';
+  createdAt: string;
+  performedByName: string | null;
+}
+
 export interface ClientOwnershipLogEntry {
   id: number;
   /** owner_inactive / owner_active: the owner stopped / resumed being eligible (row kept); branch_owned: no eligible owner left (migration 488). */
@@ -1264,6 +1279,7 @@ export const api = {
       });
     },
     getOwnership: (id: number) => request<ClientOwnershipView>(`/clients/${id}/ownership`),
+    getActivity: (id: number) => request<ClientActivityEntry[]>(`/clients/${id}/activity`),
     applyOwnershipOperation: (id: number, operation: ClientOwnershipOperation) =>
       request<ClientOwnershipView>(`/clients/${id}/ownership/operations`, {
         method: 'POST',

@@ -783,8 +783,10 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
             return;
         }
 
+        // Personal: the snapshot already holds the right name — the stored one
+        // when editing, the current user's when the type was just chosen.
         const resolvedReferrerName = referralType === 'Personal'
-            ? currentUserDisplayName
+            ? (referralNameSnapshot.trim() || currentUserDisplayName)
             : referralType === 'Unknown'
                 // `Unknown` describes how the name arrived, not that the mediator
                 // is nameless. A snapshot inherited from a suggested name stays.
