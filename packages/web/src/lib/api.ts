@@ -752,6 +752,32 @@ export interface ClientOwnershipOwner {
   acquiredReason: string | null;
 }
 
+export type ClientLifecycleCategory = 'entry' | 'tasks' | 'contracts' | 'devices' | 'money' | 'gifts' | 'requests' | 'complaints';
+
+/** One milestone of the client lifecycle timeline (derived on the server from each milestone's own table). */
+export interface ClientLifecycleEvent {
+  key: string;
+  category: ClientLifecycleCategory;
+  kind: string;
+  /** ISO timestamp, or YYYY-MM-DD when dateOnly. */
+  at: string;
+  dateOnly: boolean;
+  /** False for an implausible date (migrated data) or a fallback date. */
+  reliable: boolean;
+  title: string;
+  /** A task outcome: words it with taskDecisionLabel(code, taskType); `title` is then the task's name. */
+  decision?: { code: string; taskType: string };
+  detail: string | null;
+  actor: string | null;
+  link: { type: 'task' | 'visit' | 'contract' | 'device' | 'request' | 'complaint'; id: number; taskType?: string } | null;
+}
+
+export interface ClientLifecycleResponse {
+  events: ClientLifecycleEvent[];
+  /** Categories left out because the user cannot see their tab. */
+  hiddenCategories: ClientLifecycleCategory[];
+}
+
 /** One line of the client change timeline (migration 489). Values are readable text. */
 export interface ClientActivityEntry {
   id: number;
@@ -1280,6 +1306,7 @@ export const api = {
     },
     getOwnership: (id: number) => request<ClientOwnershipView>(`/clients/${id}/ownership`),
     getActivity: (id: number) => request<ClientActivityEntry[]>(`/clients/${id}/activity`),
+    getLifecycle: (id: number) => request<ClientLifecycleResponse>(`/clients/${id}/lifecycle`),
     applyOwnershipOperation: (id: number, operation: ClientOwnershipOperation) =>
       request<ClientOwnershipView>(`/clients/${id}/ownership/operations`, {
         method: 'POST',

@@ -19,11 +19,13 @@ import {
   canListClients,
   canManageClientAssignments,
   canViewClient,
+  canViewClientLifecycle,
   canViewClientRating,
   canUnlockClientCooldown,
   getClientListAccessPlan,
 } from '../policies/clientPolicy.js';
 import { canEditCandidate } from '../policies/candidatePolicy.js';
+import { listClientLifecycle } from '../services/clientLifecycleTimeline.js';
 import {
   buildReferrerFromCandidate,
   stripBrowserReferralInput,
@@ -1893,6 +1895,28 @@ async function loadClientOwnershipView(
     manageBlockedReason: null,
   };
 }
+
+// GET /api/clients/:id/lifecycle — what happened with the client, derived from
+// the tables that hold each milestone. The tab has its own key (491); each
+// category inside still follows its own tab's permission.
+router.get('/:id/lifecycle', requirePermission('clients.lifecycle.view'), async (req, res) => {
+  try {
+    const authContext = getRequiredAuthContext(req);
+    const clientId = toPositiveInt(req.params.id as string);
+    if (clientId == null) return res.status(400).json({ error: 'معرّف الزبون غير صالح' });
+
+    const subject = await loadClientSubject(clientId);
+    if (!subject) return res.status(404).json({ error: 'الزبون غير موجود' });
+
+    const access = canViewClientLifecycle(authContext, subject);
+    if (!access.allowed) return forbidClientAccess(res, access.reason);
+
+    res.json(await listClientLifecycle(authContext, { id: clientId, branchId: subject.branchId }));
+  } catch (err) {
+    console.error('[clients] GET /:id/lifecycle error:', err);
+    res.status(500).json({ error: 'تعذّر تحميل دورة حياة الزبون' });
+  }
+});
 
 // GET /api/clients/:id/activity — the client's change timeline (migration 489)
 router.get('/:id/activity', requirePermission('clients.activity_log.view'), async (req, res) => {
