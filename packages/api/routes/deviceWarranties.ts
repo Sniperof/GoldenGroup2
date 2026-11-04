@@ -6,6 +6,11 @@ import { authorize } from '../services/authorizationService.js';
 import { insertTechnicalState } from '../services/visitTaskResultReflection.js';
 import { notifyWarrantyActivated } from '../services/appNotifications/notify.js';
 import { dispatchPreparedPushes } from '../services/appNotifications/pushDispatcher.js';
+import {
+  recordGoldenWarrantyPaymentMovement,
+  reverseGoldenWarrantyPaymentMovement,
+  syncGoldenWarrantyMovements,
+} from '../services/financialMovements.js';
 
 const router = express.Router();
 router.use(requireAuth);
@@ -340,6 +345,9 @@ router.post('/golden/offer-result', requirePermission('contracts.edit'), async (
       }
     }
 
+    // Sale charge + payments taken at activation → unified ledger.
+    await syncGoldenWarrantyMovements(client, warranty.id, actorId);
+
     await recomputeGoldenWarrantyEndDate(client, deviceId);
     await client.query(`UPDATE open_tasks SET status = 'completed' WHERE id = $1`, [taskId]);
 
@@ -392,7 +400,17 @@ router.get('/:id/payments', requirePermission('clients.device_warranties.view', 
   );
   const paid = rows.reduce((s, r) => s + Number(r.entry_type === 'refund' ? -r.amount_syp : r.amount_syp), 0);
   const remaining = w.total_value != null ? Number(w.total_value) - paid : null;
-  res.json({ payments: rows.map(mapPayment), totalValue: w.total_value, paidSyp: paid, remainingSyp: remaining });
+  const { rows: installments } = await pool.query(
+    `SELECT id, installment_number AS "installmentNumber", due_date AS "dueDate",
+            amount_syp::float AS "amountSyp", paid_amount::float AS "paidAmount",
+            remaining_balance::float AS "remainingBalance", status
+       FROM device_warranty_installments WHERE warranty_id = $1 ORDER BY installment_number`,
+    [req.params.id],
+  );
+  res.json({
+    payments: rows.map((r) => ({ ...mapPayment(r), installmentId: r.installment_id ?? null })),
+    installments, totalValue: w.total_value, paidSyp: paid, remainingSyp: remaining,
+  });
 });
 
 // POST /api/device-warranties/:id/payments
@@ -424,21 +442,45 @@ router.post('/:id/payments', requirePermission('contracts.edit'), async (req, re
   // amount_syp: explicit, else convert via exchange rate, else assume already SYP.
   const amountSyp = b.amountSyp != null ? Number(b.amountSyp)
     : (exchangeRate ? amountValue * exchangeRate : amountValue);
+  // Optional: the payment settles a specific installment of this warranty (migr 484).
+  const installmentId = b.installmentId != null ? Number(b.installmentId) : null;
+  if (installmentId != null) {
+    const { rows: instRows } = await pool.query(
+      `SELECT id FROM device_warranty_installments WHERE id = $1 AND warranty_id = $2`,
+      [installmentId, req.params.id],
+    );
+    if (!instRows[0]) return res.status(400).json({ error: 'القسط لا يخص هذه الكفالة' });
+  }
 
-  const { rows } = await pool.query(
-    `INSERT INTO device_warranty_payments
-       (warranty_id, method, currency, amount_value, exchange_rate, amount_syp,
-        reference_number, barter_name, barter_value_syp, transfer_company_id,
-        received_by_employee_id, notes, entry_type)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
-    [
-      req.params.id, b.method, currency, amountValue, exchangeRate, amountSyp,
-      b.referenceNumber ?? null, b.barterName ?? null, b.barterValueSyp ?? null,
-      b.transferCompanyId ?? null, b.receivedByEmployeeId ?? actorId, b.notes ?? null,
-      b.entryType ?? 'collection',
-    ],
-  );
-  res.status(201).json(mapPayment(rows[0]));
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      `INSERT INTO device_warranty_payments
+         (warranty_id, method, currency, amount_value, exchange_rate, amount_syp,
+          reference_number, barter_name, barter_value_syp, transfer_company_id,
+          received_by_employee_id, notes, entry_type, installment_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
+      [
+        req.params.id, b.method, currency, amountValue, exchangeRate, amountSyp,
+        b.referenceNumber ?? null, b.barterName ?? null, b.barterValueSyp ?? null,
+        b.transferCompanyId ?? null, b.receivedByEmployeeId ?? actorId, b.notes ?? null,
+        b.entryType ?? 'collection', installmentId,
+      ],
+    );
+    await recordGoldenWarrantyPaymentMovement(client, Number(rows[0].id), actorId);
+    if (installmentId != null) {
+      await client.query('SELECT recompute_warranty_installment_balance($1)', [installmentId]);
+    }
+    await client.query('COMMIT');
+    res.status(201).json(mapPayment(rows[0]));
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[device-warranties] add payment error:', err);
+    res.status(500).json({ error: 'فشل تسجيل دفعة الكفالة' });
+  } finally {
+    client.release();
+  }
 });
 
 // DELETE /api/device-warranties/payments/:paymentId
@@ -456,8 +498,27 @@ router.delete('/payments/:paymentId', requirePermission('contracts.edit'), async
   if (!authorize(authContext, { permission: 'contracts.edit', branchId: pRows[0].branchId }).allowed) {
     return res.status(403).json({ error: 'غير مسموح' });
   }
-  await pool.query(`DELETE FROM device_warranty_payments WHERE id = $1`, [req.params.paymentId]);
-  res.json({ ok: true });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    // The ledger is append-only: book the reversal, then drop the payment row.
+    await reverseGoldenWarrantyPaymentMovement(client, Number(req.params.paymentId), (req as any).user?.id ?? null);
+    const { rows: deleted } = await client.query(
+      `DELETE FROM device_warranty_payments WHERE id = $1 RETURNING installment_id`,
+      [req.params.paymentId],
+    );
+    if (deleted[0]?.installment_id != null) {
+      await client.query('SELECT recompute_warranty_installment_balance($1)', [deleted[0].installment_id]);
+    }
+    await client.query('COMMIT');
+    res.json({ ok: true });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[device-warranties] delete payment error:', err);
+    res.status(500).json({ error: 'فشل حذف دفعة الكفالة' });
+  } finally {
+    client.release();
+  }
 });
 
 export default router;

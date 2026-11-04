@@ -18,8 +18,8 @@ import {
   RefreshCw, Headset, Settings, UserPlus, Menu, X as CloseIcon, ChevronRight,
   BadgeCheck, GraduationCap, Mic2, LogOut, Building2, SlidersHorizontal,
   ShieldCheck, Shield, Monitor, Settings2, GalleryHorizontal, BellRing, Bell,
-  Wrench, Gift, LayoutGrid, UserCheck, CalendarCheck, Layers, HardDrive,
-  Unplug, Beaker, Package, ClipboardCheck, Link2, BarChart3, FilePlus2, FileText,
+  Wrench, Gift, UserCheck, CalendarCheck, Layers, HardDrive,
+  Unplug, PackageMinus, Undo2, ArrowLeftRight, Beaker, Package, ClipboardCheck, Link2, BarChart3, FilePlus2, FileText,
 } from '../components/ui/icons';
 
 type Icon = ComponentType<{ className?: string }>;
@@ -195,8 +195,9 @@ export default function MainLayout() {
       ...(can('service_requests.view') ? [{ path: '/service-requests', label: 'طلبات الخدمة', icon: Wrench, exact: true }] : []),
       ...(can('planning.view') ? [
         { path: '/planning/overview', label: 'ملخص الخطة', icon: Eye, dividerLabel: 'التخطيط والجدولة' },
+        { path: '/planning/zone-map', label: 'دراسة النطاقات (الخريطة)', icon: Layers, dividerLabel: 'التخطيط والجدولة' },
         { path: '/planning/schedule', label: 'جدولة الفرق', icon: UsersRound, dividerLabel: 'التخطيط والجدولة' },
-        { path: '/planning/zone-study', label: 'دراسة النطاقات', icon: LayoutGrid, dividerLabel: 'التخطيط والجدولة' },
+        // The old zone study (/planning/zone-study) is hidden for now; its route stays.
         { path: '/planning/assign', label: 'تعيين المسارات', icon: MapPinned, dividerLabel: 'التخطيط والجدولة' },
       ] : []),
       ...(canSeeFieldVisits ? [{ path: '/field-visits', label: 'الزيارات الميدانية', icon: MapPinned, dividerLabel: 'التنفيذ الميداني' }] : []),
@@ -206,6 +207,11 @@ export default function MainLayout() {
       ...(can('tasks.maintenance.view') ? [{ path: '/tasks/group/maintenance', label: 'الصيانة والأعطال', icon: Wrench, dividerLabel: 'التنفيذ الميداني' }] : []),
       ...(HIDDEN_FEATURES_ENABLED.afterSaleServicesTasks && can('tasks.after_sales.view') ? [{ path: '/tasks/group/after-sale-services', label: 'خدمات ما بعد البيع', icon: RefreshCw, dividerLabel: 'التنفيذ الميداني' }] : []),
       ...(can('tasks.disconnection.view') ? [{ path: '/tasks/group/device-disconnection', label: 'فك الأجهزة', icon: Unplug, dividerLabel: 'التنفيذ الميداني' }] : []),
+      ...(can('tasks.after_sales.view') ? [
+        { path: '/tasks/group/device-retrieval', label: 'سحب الأجهزة', icon: PackageMinus, dividerLabel: 'التنفيذ الميداني' },
+        { path: '/tasks/group/device-return', label: 'إرجاع الأجهزة', icon: Undo2, dividerLabel: 'التنفيذ الميداني' },
+        { path: '/tasks/group/device-transfer', label: 'نقل الأجهزة', icon: ArrowLeftRight, dividerLabel: 'التنفيذ الميداني' },
+      ] : []),
       ...(can('tasks.warranty.view') ? [{ path: '/tasks/group/warranty-services', label: 'خدمات الكفالة', icon: ShieldCheck, dividerLabel: 'التنفيذ الميداني' }] : []),
       ...(can('periodic_maintenance.view') ? [{ path: '/service-requests/periodic-maintenance', label: 'طلبات الصيانة الدورية', icon: Wrench, dividerLabel: 'طلبات متخصصة' }] : []),
       ...(can('water_check.view') ? [{ path: '/service-requests/water-check', label: 'طلبات فحص المياه', icon: Beaker, dividerLabel: 'طلبات متخصصة', exact: true }] : []),

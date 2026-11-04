@@ -5,11 +5,15 @@ import { normalizedFilters } from './tabularReportService.js';
 
 const GLOBAL_ACCESS = { scope: 'GLOBAL' as const, grantedScope: 'GLOBAL' as const, branchIds: [], userId: 1 };
 
-test('mediator gifts uses converted candidate as its grain and keeps gifts optional', () => {
+test('mediator gifts uses the credited candidate as its grain and keeps gifts optional', () => {
   const { sql } = buildMediatorGiftsQuery(GLOBAL_ACCESS, {}, { limit: 25 });
 
-  assert.match(sql, /candidate\.qualification_kind='converted'/);
-  assert.match(sql, /converted_client\.candidate_status='OP'/);
+  // Converted names whose client is OP (computed), or linked duplicates that
+  // bought on or after the link day (services/referralCredit.ts).
+  assert.match(sql, /candidate\.qualification_kind IN \('converted','linked'\)/);
+  assert.match(sql, /WHEN candidate\.qualification_kind = 'linked'/);
+  assert.doesNotMatch(sql, /converted_client\.candidate_status='OP'/);
+  assert.match(sql, /AS "qualificationKind"/);
   assert.match(sql, /LEFT JOIN LATERAL \([\s\S]*WITH matched_gifts AS/);
   assert.match(sql, /COALESCE\(gift\.gift_summary,'لم يُنشأ سجل هدية'\)/);
   assert.match(sql, /ORDER BY contract\.closing_date ASC NULLS LAST[\s\S]*LIMIT 1/);

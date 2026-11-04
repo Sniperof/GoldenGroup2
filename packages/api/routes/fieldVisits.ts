@@ -1,5 +1,12 @@
 import { Router } from 'express';
 import pool from '../db.js';
+import { runWithChangeContext } from '../auditContext.js';
+import {
+  getTeamReassignmentOptions,
+  listVisitTeamChanges,
+  reassignVisitTeam,
+  TeamReassignmentError,
+} from '../services/visitTeamReassignment.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
 import { authorize } from '../services/authorizationService.js';
@@ -26,9 +33,27 @@ import {
 import { createInstantVisit, getInstantVisitOptions, BookingError } from '../services/visitBooking.js';
 import { refreshVisitType } from '../services/visitClassification.js';
 import { getOpenTaskLinkageIssue } from '../services/openTaskLinkagePolicy.js';
+import { loadVisitMaintenanceFinance } from '../services/visitMaintenanceFinance.js';
 
 const router = Router();
 router.use(requireAuth);
+
+// Installed devices a visit touches, for the list cards. The device lives on the task:
+// visit_tasks.device_id is only filled for migrated visits, new ones carry it on the
+// source open_task — so read either.
+const VISIT_DEVICES_SELECT = `
+         (SELECT COALESCE(json_agg(json_build_object(
+                   'id', d.id,
+                   'serialNumber', COALESCE(d.serial_number, d.external_device_serial),
+                   'modelName', COALESCE(d.device_model_name, d.external_device_name)
+                 ) ORDER BY d.id), '[]'::json)
+            FROM installed_devices d
+           WHERE d.id IN (
+             SELECT COALESCE(vtd.device_id, otd.device_id)
+               FROM visit_tasks vtd
+               LEFT JOIN open_tasks otd ON otd.id = vtd.source_open_task_id
+              WHERE vtd.field_visit_id = fv.id
+           )) AS "devices"`;
 
 type VisitTaskResultApplier = (
   visitTaskId: number,
@@ -129,7 +154,6 @@ async function resolveVisitSource(visitId: number): Promise<{
 } | null> {
   const { rows: fvRows } = await pool.query(
     `SELECT fv.client_id, fv.branch_id, fv.team_snapshot,
-            c.candidate_status,
             b.name AS branch_name
      FROM field_visits fv
      JOIN clients c ON c.id = fv.client_id
@@ -141,7 +165,6 @@ async function resolveVisitSource(visitId: number): Promise<{
 
   const fv = fvRows[0];
   const teamSnap = fv.team_snapshot as any;
-  const isOpFop = ['OP', 'FOP'].includes(fv.candidate_status ?? '');
 
   // Check personal assignments
   const { rows: assignRows } = await pool.query(
@@ -159,7 +182,8 @@ async function resolveVisitSource(visitId: number): Promise<{
     [fv.client_id],
   );
 
-  if (isOpFop || assignRows.length === 0) {
+  // Personal owners stay through FOP/OP (2026-10-20); none → the branch.
+  if (assignRows.length === 0) {
     return {
       source_type: fv.branch_id ? 'company_branch' : 'company_global',
       source_label: fv.branch_id
@@ -813,6 +837,61 @@ router.post('/:id/cancel', requirePermission('field_visits.edit'), async (req, r
   }
 });
 
+// ── «الفريق الرديف»: replace part or all of a scheduled visit's crew (migration 478) ──
+
+// GET /api/field-visits/:id/reassign-team/options
+router.get('/:id/reassign-team/options', requirePermission('field_visits.reassign_team'), async (req, res) => {
+  try {
+    const authContext = getAuthContext(req);
+    const visitId = toPositiveInteger(req.params.id);
+    if (!visitId) return res.status(400).json({ error: 'معرف الزيارة غير صالح' });
+    const { rows } = await pool.query('SELECT branch_id FROM field_visits WHERE id = $1', [visitId]);
+    if (rows.length === 0) return res.status(404).json({ error: 'الزيارة غير موجودة' });
+    if (!authorize(authContext, { permission: 'field_visits.reassign_team', branchId: rows[0].branch_id }).allowed) {
+      return res.status(403).json({ error: 'ليس لديك صلاحية تغيير فريق زيارات هذا الفرع.' });
+    }
+    return res.json(await getTeamReassignmentOptions(visitId));
+  } catch (err: any) {
+    if (err instanceof TeamReassignmentError) return res.status(err.statusCode).json({ error: err.message });
+    console.error('[field-visits] GET /:id/reassign-team/options error:', err);
+    return res.status(500).json({ error: 'فشل تحميل خيارات تغيير الفريق' });
+  }
+});
+
+// POST /api/field-visits/:id/reassign-team
+// body: { supervisorEmployeeId, technicianEmployeeId, traineeEmployeeId, teamKey?, reasonId, note? }
+// The body is the full crew wanted; roles not being replaced are sent unchanged.
+router.post('/:id/reassign-team', requirePermission('field_visits.reassign_team'), async (req, res) => {
+  try {
+    const authContext = getAuthContext(req);
+    const visitId = toPositiveInteger(req.params.id);
+    if (!visitId) return res.status(400).json({ error: 'معرف الزيارة غير صالح' });
+    const body = req.body ?? {};
+    const reasonId = toPositiveInteger(body.reasonId);
+    if (!reasonId) return res.status(400).json({ error: 'سبب تغيير الفريق مطلوب.' });
+
+    const result = await reassignVisitTeam({
+      visitId,
+      members: {
+        supervisor: toPositiveInteger(body.supervisorEmployeeId),
+        technician: toPositiveInteger(body.technicianEmployeeId),
+        trainee: toPositiveInteger(body.traineeEmployeeId),
+      },
+      teamKey: typeof body.teamKey === 'string' ? body.teamKey : null,
+      reasonId,
+      note: typeof body.note === 'string' ? body.note : null,
+      actorUserId: authContext.userId,
+      canReassignInBranch: (branchId) =>
+        authorize(authContext, { permission: 'field_visits.reassign_team', branchId }).allowed,
+    });
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    if (err instanceof TeamReassignmentError) return res.status(err.statusCode).json({ error: err.message });
+    console.error('[field-visits] POST /:id/reassign-team error:', err);
+    return res.status(500).json({ error: 'فشل تغيير فريق الزيارة' });
+  }
+});
+
 // GET /api/field-visits/:id/geo
 /**
  * @swagger
@@ -1169,6 +1248,7 @@ router.get('/', requirePermission('clients.visits.view', 'field_visits.view'), a
              FILTER (WHERE vt.id IS NOT NULL),
            '[]'::json
          ) AS "tasksSummary",
+         ${VISIT_DEVICES_SELECT},
          (vs.id IS NOT NULL) AS "hasSurvey",
          COALESCE(vs.is_skipped, FALSE) AS "surveySkipped",
          (rs.id IS NOT NULL) AS "hasReferralSheet",
@@ -1302,7 +1382,8 @@ router.get('/my-visits', requirePermission('field_visits.my_visits.view'), async
            json_agg(DISTINCT jsonb_build_object('taskType', vt.task_type, 'taskFamily', vt.task_family, 'status', vt.status))
              FILTER (WHERE vt.id IS NOT NULL),
            '[]'::json
-         ) AS "tasksSummary"
+         ) AS "tasksSummary",
+         ${VISIT_DEVICES_SELECT}
        FROM field_visits fv
        JOIN clients c ON c.id = fv.client_id
        LEFT JOIN geo_units neigh ON neigh.id = CASE
@@ -1753,7 +1834,8 @@ router.get('/:id', requirePermission('field_visits.view', 'field_visits.my_visit
                 ot.contract_snapshot AS "contractSnapshot",
                 idev.installation_address_text AS current_device_address,
                 idev.installation_geo_unit_id AS current_device_geo_unit_id,
-                ct.contract_number, ct.device_model_name
+                ct.contract_number, ct.device_model_name,
+                COALESCE(task_dev.serial_number, task_dev.external_device_serial) AS device_serial_number
          FROM visit_tasks vt
          LEFT JOIN task_type_config ttc ON ttc.task_type = vt.task_type
          LEFT JOIN visit_task_results vtr ON vtr.visit_task_id = vt.id
@@ -1773,6 +1855,7 @@ router.get('/:id', requirePermission('field_visits.view', 'field_visits.my_visit
          LEFT JOIN branches service_branch ON service_branch.id = ot.service_branch_id
          LEFT JOIN clients target_client ON target_client.id = ot.target_client_id
          LEFT JOIN installed_devices idev ON idev.id = ot.device_id
+         LEFT JOIN installed_devices task_dev ON task_dev.id = COALESCE(vt.device_id, ot.device_id)
          LEFT JOIN contracts ct ON ct.id = COALESCE(vt.contract_id, ot.contract_id)
          WHERE vt.field_visit_id = $1
            AND vt.task_type <> ALL($2::text[])
@@ -1904,10 +1987,13 @@ router.get('/:id', requirePermission('field_visits.view', 'field_visits.my_visit
       preOffersByOpenTask.get(key)!.push(offer);
     });
 
+    // Parts and money of each maintenance task in THIS visit (live + migrated paths).
+    const maintenanceFinance = await loadVisitMaintenanceFinance(pool, tasksRes.rows);
     const tasks = tasksRes.rows.map((t: any) => ({
       ...t,
       directSuggestions: suggestByTask.get(String(t.id)) ?? [],
       preOffers: preOffersByOpenTask.get(Number(t.source_open_task_id)) ?? [],
+      maintenanceFinance: maintenanceFinance.get(Number(t.id)) ?? null,
     }));
 
     // ── Resolve team member names (VDP §4) ─────────────────────────────────
@@ -1939,10 +2025,30 @@ router.get('/:id', requirePermission('field_visits.view', 'field_visits.my_visit
         trainee: member(snap.traineeEmployeeId),
       };
     };
+    // History of «الفريق الرديف» changes (migration 478), names resolved like the cards.
+    const teamChangeRows = await listVisitTeamChanges(Number(fv.id));
+    teamChangeRows.forEach((c: any) => { collectIds(c.fromTeam); collectIds(c.toTeam); });
+    const missingIds = [...teamIds].filter((id) => !empNames.has(id));
+    if (missingIds.length > 0) {
+      const { rows: moreRows } = await pool.query(
+        'SELECT id, name FROM employees WHERE id = ANY($1::int[])',
+        [missingIds],
+      );
+      moreRows.forEach((e: any) => empNames.set(Number(e.id), e.name));
+    }
     const team = {
       original: buildTeam(fv.team_snapshot),
       reassigned: buildTeam(fv.reassigned_team_snapshot),
       reassigned_at: fv.reassigned_at,
+      changes: teamChangeRows.map((c: any) => ({
+        id: Number(c.id),
+        from: buildTeam(c.fromTeam),
+        to: buildTeam(c.toTeam),
+        reasonLabel: c.reasonLabel,
+        note: c.note,
+        changedAt: c.changedAt,
+        changedByName: c.changedByName,
+      })),
     };
 
     // ── Standard ClientSnapshot (Level 2) per docs/constitution/components/client-snapshot.md ────
@@ -2450,6 +2556,8 @@ router.post('/:id/tasks', requirePermission('field_visits.edit'), async (req, re
     const { rows: existingRows } = await client.query(
       `SELECT ot.id, ot.client_id, ot.branch_id, ot.task_type AS "taskType", ot.status,
               ot.device_id AS "deviceId", ot.installment_id AS "installmentId",
+              ot.maintenance_installment_id AS "maintenanceInstallmentId",
+              ot.warranty_installment_id AS "warrantyInstallmentId",
               EXISTS (
                 SELECT 1
                   FROM gift_delivery_task_records gift_link
@@ -2607,9 +2715,11 @@ router.get('/:id/pullable-tasks', requirePermission('field_visits.view', 'field_
               ct.contract_number          AS "contractNumber",
               ct.device_model_name        AS "deviceModelName",
               ot.installment_id           AS "installmentId",
-              ci.installment_number       AS "installmentNumber",
-              ci.amount_syp               AS "installmentAmount",
-              ci.remaining_balance        AS "installmentRemaining",
+              ot.maintenance_installment_id AS "maintenanceInstallmentId",
+              ot.warranty_installment_id  AS "warrantyInstallmentId",
+              COALESCE(ci.installment_number, mi.installment_number, wi.installment_number) AS "installmentNumber",
+              COALESCE(ci.amount_syp, mi.amount_syp, wi.amount_syp)                         AS "installmentAmount",
+              COALESCE(ci.remaining_balance, mi.remaining_balance, wi.remaining_balance)    AS "installmentRemaining",
               ot.expected_amount_syp      AS "expectedAmount",
               ot.receivable_source_label  AS "receivableLabel",
               EXISTS (
@@ -2636,6 +2746,8 @@ router.get('/:id/pullable-tasks', requirePermission('field_visits.view', 'field_
          LEFT JOIN task_type_config ttc ON ttc.task_type = ot.task_type
          LEFT JOIN contracts ct ON ct.id = ot.contract_id
          LEFT JOIN contract_installments ci ON ci.id = ot.installment_id
+         LEFT JOIN emergency_installments mi ON mi.id = ot.maintenance_installment_id
+         LEFT JOIN device_warranty_installments wi ON wi.id = ot.warranty_installment_id
          LEFT JOIN installed_devices idev ON idev.id = ot.device_id
         WHERE ot.client_id = $1
           AND ot.branch_id = $2
@@ -3213,7 +3325,24 @@ router.post('/:visitId/tasks/:taskId/result', requirePermission('tasks.results.r
     const body = req.body ?? {};
     const applyResult = VISIT_TASK_RESULT_APPLIERS[taskType as VisitResultTaskType];
     if (applyResult) {
-      const result = await applyResult(taskId, body, authContext.userId);
+      // A second submission is an edit of the recorded result: the previous
+      // version is kept in visit_task_result_revisions (migration 475) and
+      // the task log marks the resulting changes as 'result_edit'.
+      const { rows: existingResult } = await pool.query(
+        `SELECT 1 FROM visit_task_results WHERE visit_task_id = $1 LIMIT 1`,
+        [taskId],
+      );
+      const isEdit = existingResult.length > 0;
+      const editReason = typeof body.edit_reason === 'string' && body.edit_reason.trim()
+        ? body.edit_reason.trim()
+        : null;
+      const result = await runWithChangeContext(
+        {
+          changeContext: isEdit ? 'result_edit' : 'visit_result',
+          changeReason: isEdit ? editReason : null,
+        },
+        () => applyResult(taskId, body, authContext.userId),
+      );
       return res.json({ success: true, ...result });
     }
 

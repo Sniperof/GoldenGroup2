@@ -2,9 +2,13 @@ import { useState, useCallback, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Navigate } from 'react-router-dom';
 import {
-    Plus, Eye, Trash2, X, ArrowUp, ArrowDown,
-    Route as RouteIcon, ChevronRight,
+    Plus, Eye, Trash2, X, ArrowUp, ArrowDown, Search,
+    Route as RouteIcon, ChevronRight, Map as MapIcon,
 } from '../components/ui/icons';
+import Modal from '../components/ui/Modal';
+import RoutePreviewMap from './planning/RoutePreviewMap';
+import { hasGoogleMapsKey } from '../lib/googleMaps';
+import { geocodeSearch, type GeocodeResult } from '../lib/googleGeocode';
 import { api } from '../lib/api';
 import { levelNames } from '../lib/geoConstants';
 import SmartTable, { type ColumnDef } from '../components/SmartTable';
@@ -57,6 +61,8 @@ export default function RouteManager() {
     const [builderName, setBuilderName] = useState('');
     const [builderPoints, setBuilderPoints] = useState<RoutePoint[]>([]);
     const [treeSel, setTreeSel] = useState<(number | null)[]>([null, null, null, null]);
+    // Read-only map preview from the table (routes.view is enough).
+    const [previewRoute, setPreviewRoute] = useState<Route | null>(null);
 
     if (!hasPermission('routes.view')) return <Navigate to="/" replace />;
 
@@ -121,6 +127,59 @@ export default function RouteManager() {
         return null;
     }, [treeSel, getChildren]);
 
+    // بحث في الخريطة: يجد الناحية أو الحي بالاسم ويختاره في الشجرة (المسار كاملاً)
+    // فيظهر على الخريطة بدبوس «+» وزر الإضافة جاهز.
+    const [builderSearch, setBuilderSearch] = useState('');
+    const searchResults = useMemo(() => {
+        const q = builderSearch.trim();
+        if (q.length < 2) return [];
+        return geoUnits
+            .filter(u => u.level >= 3 && u.name.includes(q))
+            .sort((a, b) => Number(!a.name.startsWith(q)) - Number(!b.name.startsWith(q)) || a.level - b.level || a.name.localeCompare(b.name, 'ar'))
+            .slice(0, 12);
+    }, [builderSearch, geoUnits]);
+    const unitPath = useCallback((u: GeoUnit) => {
+        const names: string[] = [];
+        let parent = geoUnits.find(x => x.id === u.parentId);
+        while (parent) {
+            names.push(parent.name);
+            parent = geoUnits.find(x => x.id === parent!.parentId);
+        }
+        return names.join(' · ');
+    }, [geoUnits]);
+    // بحث حر على الخريطة (Google Geocoding) عند الطلب فقط: يحرّك الخريطة إلى
+    // مكان ليس منطقة لها مركز. لا يُضاف كمحطة ولا يُخزَّن.
+    const [mapPlace, setMapPlace] = useState<GeocodeResult | null>(null);
+    const [mapResults, setMapResults] = useState<{ query: string; items: GeocodeResult[] } | null>(null);
+    const [mapSearching, setMapSearching] = useState(false);
+    const [mapSearchError, setMapSearchError] = useState<string | null>(null);
+    const searchOnMap = async () => {
+        const q = builderSearch.trim();
+        if (q.length < 2 || !hasGoogleMapsKey()) return;
+        setMapSearching(true);
+        setMapSearchError(null);
+        try {
+            setMapResults({ query: q, items: await geocodeSearch(q) });
+        } catch (err) {
+            setMapSearchError((err as Error)?.message || 'تعذّر البحث');
+        } finally {
+            setMapSearching(false);
+        }
+    };
+    const shownMapResults = mapResults?.query === builderSearch.trim() ? mapResults.items : null;
+
+    const pickSearchResult = (u: GeoUnit) => {
+        const next: (number | null)[] = [null, null, null, null];
+        let cur: GeoUnit | undefined = u;
+        while (cur) {
+            if (cur.level >= 1 && cur.level <= 4) next[cur.level - 1] = cur.id;
+            const parentId: number | null = cur.parentId;
+            cur = geoUnits.find(x => x.id === parentId);
+        }
+        setTreeSel(next);
+        setBuilderSearch('');
+    };
+
     const handleTreeSelect = (level: number, id: number) => {
         const next = [...treeSel];
         next[level - 1] = id;
@@ -155,7 +214,9 @@ export default function RouteManager() {
             level: addableUnit.level,
             order: builderPoints.length + 1,
         }]);
-        setTreeSel([null, null, null, null]);
+        // نُبقي المستويات الأعلى من المحطة المضافة ونفرّغ مستواها فقط، ليُختار
+        // الحي (أو الناحية) التالي مباشرة. تغيير مستوى أعلى يفرّغ ما تحته كالعادة.
+        setTreeSel(treeSel.map((id, i) => (i < addableUnit.level - 1 ? id : null)));
     };
 
     const removePoint = (idx: number) =>
@@ -299,6 +360,9 @@ export default function RouteManager() {
                 defaultSortDir="asc"
                 actions={(r) => (
                     <div className="flex items-center gap-2">
+                        <button onClick={(e) => { e.stopPropagation(); setPreviewRoute(r); }} title="معاينة على الخريطة" className="p-1.5 rounded-lg hover:bg-orange-50 text-slate-400 hover:text-orange-600 transition-all">
+                            <MapIcon className="w-4 h-4" />
+                        </button>
                         <button onClick={(e) => { e.stopPropagation(); openBuilder(r); }} disabled={!canManageGeo} className="p-1.5 rounded-lg hover:bg-sky-50 text-slate-400 hover:text-sky-600 transition-all disabled:opacity-50">
                             <Eye className="w-4 h-4" />
                         </button>
@@ -308,6 +372,32 @@ export default function RouteManager() {
                     </div>
                 )}
             />
+
+            {/* ── Read-only route preview ── */}
+            <Modal
+                isOpen={!!previewRoute}
+                onClose={() => setPreviewRoute(null)}
+                size="3xl"
+                title={previewRoute ? `معاينة المسار «${previewRoute.name}»` : ''}
+            >
+                {previewRoute && (
+                    <div className="p-4 space-y-3" dir="rtl">
+                        <RoutePreviewMap points={previewRoute.points} geoUnits={geoUnits} name={getUnitName} height={420} roadMode="auto" />
+                        <div className="flex flex-wrap gap-1">
+                            {[...previewRoute.points].sort((a, b) => a.order - b.order).map((p, i) => {
+                                const colors = levelColors[p.level] || levelColors[4];
+                                return (
+                                    <span key={p.geoUnitId} className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs ${colors.bg} ${colors.text} border ${colors.border}`}>
+                                        <span className="font-bold">{i + 1}</span>
+                                        {getUnitName(p.geoUnitId)}
+                                        <span className="opacity-60">{levelNames[p.level]}</span>
+                                    </span>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
+            </Modal>
 
             {/* ── Route Builder Slide-in ── */}
             <AnimatePresence>
@@ -321,7 +411,7 @@ export default function RouteManager() {
                         <motion.div
                             initial={{ x: '-100%' }} animate={{ x: 0 }} exit={{ x: '-100%' }}
                             transition={{ type: 'spring', damping: 25 }}
-                            className="fixed top-0 left-0 h-full w-[480px] bg-white border-r border-slate-200 z-50 flex flex-col shadow-2xl"
+                            className="fixed top-0 left-0 h-full w-[min(1240px,96vw)] bg-white border-r border-slate-200 z-50 flex flex-col shadow-2xl"
                             style={{ direction: 'rtl' }}
                         >
                             {/* Builder header */}
@@ -334,7 +424,9 @@ export default function RouteManager() {
                                 <IconButton icon={X} label="إغلاق" onClick={() => setShowBuilder(false)} />
                             </div>
 
-                            <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scroll">
+                            <div className="flex-1 min-h-0 overflow-y-auto lg:overflow-hidden lg:grid lg:grid-cols-[420px_minmax(0,1fr)]">
+                            {/* Picker + stations */}
+                            <div className="p-4 space-y-4 lg:overflow-y-auto custom-scroll">
                                 {/* Route name */}
                                 <div className="space-y-1">
                                     <label className="text-xs font-semibold text-slate-600">اسم المسار</label>
@@ -463,6 +555,103 @@ export default function RouteManager() {
                                         );
                                     })}
                                 </div>
+                            </div>
+
+                            {/* Map: search an area, see it before adding, follow every add / remove / reorder. */}
+                            <div className="p-4 space-y-3 border-t lg:border-t-0 lg:border-r border-slate-200 bg-slate-50/60 lg:overflow-y-auto custom-scroll">
+                                <div className="relative">
+                                    <Search className="absolute right-3 top-2.5 w-4 h-4 text-slate-400" />
+                                    <input
+                                        value={builderSearch}
+                                        onChange={e => setBuilderSearch(e.target.value)}
+                                        onKeyDown={e => { if (e.key === 'Enter') void searchOnMap(); }}
+                                        placeholder="ابحث عن ناحية أو حي، أو أي مكان على الخريطة…"
+                                        className="w-full rounded-lg border border-slate-200 bg-white py-2 pr-9 pl-3 text-sm focus:border-sky-500 focus:ring-1 focus:ring-sky-500 focus:outline-none"
+                                    />
+                                    {builderSearch.trim().length >= 2 && (
+                                        <div className="absolute inset-x-0 top-full z-20 mt-1 max-h-72 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg custom-scroll">
+                                            <p className="px-3 pt-2 pb-1 text-[11px] font-bold text-slate-400">النواحي والأحياء</p>
+                                            {searchResults.length === 0 && <p className="px-3 pb-2 text-xs text-slate-400">لا نتائج.</p>}
+                                            {searchResults.map(u => {
+                                                const added = builderPoints.some(p => p.geoUnitId === u.id);
+                                                const colors = levelColors[u.level] || levelColors[4];
+                                                return (
+                                                    <button
+                                                        key={u.id}
+                                                        type="button"
+                                                        disabled={added}
+                                                        onClick={() => pickSearchResult(u)}
+                                                        className="flex w-full items-center gap-2 px-3 py-2 text-right hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                                    >
+                                                        <span className="min-w-0 flex-1">
+                                                            <span className="block truncate text-sm font-bold text-slate-800">{u.name}</span>
+                                                            <span className="block truncate text-[11px] text-slate-400">{unitPath(u)}</span>
+                                                        </span>
+                                                        {!u.center && <span className="shrink-0 text-[10px] text-amber-600">بلا مركز</span>}
+                                                        <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] ${colors.bg} ${colors.text}`}>
+                                                            {added ? 'مضافة' : levelNames[u.level]}
+                                                        </span>
+                                                    </button>
+                                                );
+                                            })}
+                                            {hasGoogleMapsKey() && (
+                                                <div className="border-t border-slate-100">
+                                                    <p className="px-3 pt-2 pb-1 text-[11px] font-bold text-slate-400">على الخريطة</p>
+                                                    {shownMapResults == null ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => void searchOnMap()}
+                                                            disabled={mapSearching}
+                                                            className="flex w-full items-center gap-2 px-3 py-2 text-right text-sm font-bold text-sky-700 hover:bg-sky-50 disabled:opacity-60"
+                                                        >
+                                                            <MapIcon className="w-4 h-4" />
+                                                            {mapSearching ? 'جارٍ البحث…' : `ابحث «${builderSearch.trim()}» على الخريطة`}
+                                                            <span className="mr-auto text-[10px] font-normal text-slate-400">Enter</span>
+                                                        </button>
+                                                    ) : shownMapResults.length === 0 ? (
+                                                        <p className="px-3 pb-2 text-xs text-slate-400">لم يجد Google مكاناً بهذا الاسم في سوريا.</p>
+                                                    ) : shownMapResults.map((r, i) => (
+                                                        <button
+                                                            key={i}
+                                                            type="button"
+                                                            onClick={() => { setMapPlace(r); setBuilderSearch(''); }}
+                                                            className="flex w-full items-center gap-2 px-3 py-2 text-right text-sm text-slate-700 hover:bg-sky-50"
+                                                        >
+                                                            <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-red-600" />
+                                                            <span className="min-w-0 flex-1 truncate">{r.label}</span>
+                                                        </button>
+                                                    ))}
+                                                    {mapSearchError && <p className="px-3 pb-2 text-xs text-rose-600">تعذّر البحث: {mapSearchError}</p>}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                                {mapPlace && (
+                                    <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs text-red-800">
+                                        <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-red-600" />
+                                        <span className="min-w-0 flex-1 truncate">على الخريطة: {mapPlace.label}</span>
+                                        <button type="button" onClick={() => setMapPlace(null)} className="shrink-0 text-red-500 hover:text-red-700"><X className="w-3.5 h-3.5" /></button>
+                                    </div>
+                                )}
+                                <RoutePreviewMap
+                                    points={builderPoints}
+                                    geoUnits={geoUnits}
+                                    name={getUnitName}
+                                    height={560}
+                                    candidateId={addableUnit?.id ?? null}
+                                    place={mapPlace}
+                                />
+                                {addableUnit && (
+                                    <button
+                                        type="button"
+                                        onClick={addPoint}
+                                        className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white py-2 rounded-lg text-sm font-bold"
+                                    >
+                                        <Plus className="w-4 h-4" /> إضافة «{getUnitName(addableUnit.id)}» كمحطة {builderPoints.length + 1}
+                                    </button>
+                                )}
+                            </div>
                             </div>
 
                             <div className="p-4 border-t border-slate-200">

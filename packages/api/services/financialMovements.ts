@@ -180,3 +180,252 @@ export async function syncContractMovements(db: Db, contractId: number): Promise
     await recordContractPaymentMovement(db, Number(p.id));
   }
 }
+
+// ─── الكفالة الذهبية (DEC-CT-17) ─────────────────────────────────────────────
+// على نمط العقد: استحقاق البيع = القيمة − مجموع الأقساط (golden_warranty)،
+// استحقاق لكل قسط بتاريخ أجله (golden_warranty_installment)، وحركة لكل دفعة
+// (golden_warranty_payment: collection → payment، refund → refund).
+// source_id = رقم الكفالة دائماً. كفالة العقد بلا مال (جزء من العقد).
+
+async function loadGoldenWarrantyOwner(db: Db, warrantyId: number) {
+  const { rows } = await db.query(
+    `SELECT w.id, w.warranty_type, w.total_value, w.start_date, w.status,
+            d.customer_id, d.branch_id, d.contract_id, d.serial_number
+       FROM device_warranties w
+       JOIN installed_devices d ON d.id = w.device_id
+      WHERE w.id = $1
+      LIMIT 1`,
+    [warrantyId],
+  );
+  const w = rows[0];
+  if (!w || w.warranty_type !== 'golden' || !w.customer_id) return null;
+  return w;
+}
+
+/** يسجّل استحقاقات بيع الكفالة الذهبية وأقساطها ودفعاتها الموجودة (idempotent). */
+export async function syncGoldenWarrantyMovements(db: Db, warrantyId: number, recordedBy?: number | null): Promise<void> {
+  const w = await loadGoldenWarrantyOwner(db, warrantyId);
+  if (!w) return;
+  const label = `الكفالة الذهبية #${w.id}${w.serial_number ? ` (جهاز ${w.serial_number})` : ''}`;
+
+  const { rows: installments } = await db.query(
+    `SELECT id, installment_number, due_date, amount_syp
+       FROM device_warranty_installments
+      WHERE warranty_id = $1 AND amount_syp > 0
+      ORDER BY installment_number`,
+    [warrantyId],
+  );
+  const installmentsTotal = installments.reduce((s: number, i: any) => s + Number(i.amount_syp), 0);
+  const saleAmount = Number(w.total_value ?? 0) - installmentsTotal;
+  await recordMovement(db, {
+    clientId: Number(w.customer_id), occurredAt: w.start_date, kind: 'charge', amountSyp: saleAmount,
+    sourceType: 'golden_warranty', sourceId: Number(w.id), sourceRefId: Number(w.id),
+    contractId: w.contract_id ?? null, description: `استحقاق ${label} عند التفعيل`,
+    occurredBranchId: w.branch_id ?? null, recordedBy: recordedBy ?? null,
+  });
+  for (const i of installments) {
+    await recordMovement(db, {
+      clientId: Number(w.customer_id), occurredAt: i.due_date, kind: 'charge', amountSyp: Number(i.amount_syp),
+      sourceType: 'golden_warranty_installment', sourceId: Number(w.id), sourceRefId: Number(i.id),
+      contractId: w.contract_id ?? null, description: `استحقاق قسط رقم ${i.installment_number} — ${label}`,
+      occurredBranchId: w.branch_id ?? null, recordedBy: recordedBy ?? null,
+    });
+  }
+
+  const { rows: payments } = await db.query(
+    `SELECT id FROM device_warranty_payments WHERE warranty_id = $1 AND amount_syp > 0 ORDER BY id`,
+    [warrantyId],
+  );
+  for (const p of payments) await recordGoldenWarrantyPaymentMovement(db, Number(p.id), recordedBy);
+}
+
+/** حركة دفعة كفالة ذهبية واحدة (collection → payment، refund → refund). */
+export async function recordGoldenWarrantyPaymentMovement(
+  db: Db,
+  paymentId: number,
+  recordedBy?: number | null,
+): Promise<number | null> {
+  const { rows } = await db.query(
+    `SELECT id, warranty_id, amount_syp, amount_value, exchange_rate, currency,
+            reference_number, received_at, entry_type
+       FROM device_warranty_payments WHERE id = $1 LIMIT 1`,
+    [paymentId],
+  );
+  const p = rows[0];
+  if (!p) return null;
+  const w = await loadGoldenWarrantyOwner(db, Number(p.warranty_id));
+  if (!w) return null;
+  const isRefund = p.entry_type === 'refund';
+  return recordMovement(db, {
+    clientId: Number(w.customer_id), occurredAt: p.received_at ?? new Date(),
+    kind: isRefund ? 'refund' : 'payment', amountSyp: Number(p.amount_syp),
+    currency: p.currency ?? 'SYP',
+    amountOriginal: p.amount_value != null ? Number(p.amount_value) : null,
+    exchangeRate: p.exchange_rate != null ? Number(p.exchange_rate) : null,
+    sourceType: 'golden_warranty_payment', sourceId: Number(w.id), sourceRefId: Number(p.id),
+    contractId: w.contract_id ?? null,
+    description: `${isRefund ? 'مبلغ مرتجع' : 'دفعة'} الكفالة الذهبية #${w.id}`,
+    referenceNo: p.reference_number ?? null, occurredBranchId: w.branch_id ?? null,
+    recordedBy: recordedBy ?? null,
+  });
+}
+
+/**
+ * عكس حركة دفعة كفالة قبل حذفها (السجل append-only): حركة بالنوع المعاكس
+ * مربوطة بـ reverses_id. لا شيء إن لم تُسجَّل الدفعة أصلاً.
+ */
+export async function reverseGoldenWarrantyPaymentMovement(
+  db: Db,
+  paymentId: number,
+  recordedBy?: number | null,
+): Promise<number | null> {
+  const { rows } = await db.query(
+    `SELECT * FROM financial_movements
+      WHERE source_type = 'golden_warranty_payment' AND source_ref_id = $1
+        AND kind IN ('payment', 'refund')
+      ORDER BY id LIMIT 1`,
+    [paymentId],
+  );
+  const original = rows[0];
+  if (!original) return null;
+  const { rows: inserted } = await db.query(
+    `INSERT INTO financial_movements (
+       client_id, occurred_at, kind, amount_syp, currency, amount_original, exchange_rate,
+       source_type, source_id, source_ref_id, contract_id, description, reference_no,
+       occurred_branch_id, recorded_by, reverses_id
+     ) VALUES ($1, NOW(), $2, $3, $4, $5, $6, 'golden_warranty_payment', $7, $8, $9, $10, $11, $12, $13, $14)
+     ON CONFLICT (source_type, source_ref_id, kind) WHERE source_ref_id IS NOT NULL DO NOTHING
+     RETURNING id`,
+    [
+      original.client_id, original.kind === 'payment' ? 'refund' : 'payment', original.amount_syp,
+      original.currency, original.amount_original, original.exchange_rate,
+      original.source_id, original.source_ref_id, original.contract_id,
+      `إلغاء ${original.description}`, original.reference_no, original.occurred_branch_id,
+      recordedBy ?? null, original.id,
+    ],
+  );
+  return inserted[0]?.id ?? null;
+}
+
+// ─── اتفاقيات الخدمة (DEC-CT-02، migr 485) ───────────────────────────────────
+// الرسوم = استحقاق واحد عند التفعيل (service_agreement، ref = رقم الاتفاقية)،
+// كل دفعة حركة (service_agreement_payment، ref = رقم الدفعة)، والإلغاء يخصم
+// المتبقي غير المدفوع (discount على نفس مفتاح الاتفاقية). source_id = رقم الاتفاقية.
+
+async function loadServiceAgreementOwner(db: Db, agreementId: number) {
+  const { rows } = await db.query(
+    `SELECT id, customer_id, branch_id, fee_syp, status, agreement_date, activated_at,
+            cancelled_at, agreement_number
+       FROM service_agreements WHERE id = $1 LIMIT 1`,
+    [agreementId],
+  );
+  const a = rows[0];
+  if (!a || !a.customer_id) return null;
+  return a;
+}
+
+const agreementLabel = (a: any) => `اتفاقية الخدمة ${a.agreement_number ?? `#${a.id}`}`;
+
+/** يسجّل استحقاق رسوم الاتفاقية ودفعاتها (idempotent)؛ لا شيء قبل التفعيل. */
+export async function syncServiceAgreementMovements(db: Db, agreementId: number, recordedBy?: number | null): Promise<void> {
+  const a = await loadServiceAgreementOwner(db, agreementId);
+  if (!a || !['active', 'completed', 'cancelled'].includes(a.status)) return;
+  await recordMovement(db, {
+    clientId: Number(a.customer_id), occurredAt: a.activated_at ?? a.agreement_date ?? new Date(),
+    kind: 'charge', amountSyp: Number(a.fee_syp ?? 0),
+    sourceType: 'service_agreement', sourceId: Number(a.id), sourceRefId: Number(a.id),
+    description: `رسوم ${agreementLabel(a)}`, occurredBranchId: a.branch_id ?? null, recordedBy: recordedBy ?? null,
+  });
+  const { rows: payments } = await db.query(
+    `SELECT id FROM service_agreement_payments WHERE agreement_id = $1 AND amount_syp > 0 ORDER BY id`,
+    [agreementId],
+  );
+  for (const p of payments) await recordServiceAgreementPaymentMovement(db, Number(p.id), recordedBy);
+}
+
+/** حركة دفعة اتفاقية واحدة؛ لا شيء ما دامت الاتفاقية غير مفعّلة. */
+export async function recordServiceAgreementPaymentMovement(
+  db: Db,
+  paymentId: number,
+  recordedBy?: number | null,
+): Promise<number | null> {
+  const { rows } = await db.query(
+    `SELECT id, agreement_id, amount_syp, amount_value, exchange_rate, currency,
+            reference_number, received_at, entry_type
+       FROM service_agreement_payments WHERE id = $1 LIMIT 1`,
+    [paymentId],
+  );
+  const p = rows[0];
+  if (!p) return null;
+  const a = await loadServiceAgreementOwner(db, Number(p.agreement_id));
+  if (!a || !['active', 'completed', 'cancelled'].includes(a.status)) return null;
+  const isRefund = p.entry_type === 'refund';
+  return recordMovement(db, {
+    clientId: Number(a.customer_id), occurredAt: p.received_at ?? new Date(),
+    kind: isRefund ? 'refund' : 'payment', amountSyp: Number(p.amount_syp),
+    currency: p.currency ?? 'SYP',
+    amountOriginal: p.amount_value != null ? Number(p.amount_value) : null,
+    exchangeRate: p.exchange_rate != null ? Number(p.exchange_rate) : null,
+    sourceType: 'service_agreement_payment', sourceId: Number(a.id), sourceRefId: Number(p.id),
+    description: `${isRefund ? 'مبلغ مرتجع' : 'دفعة'} ${agreementLabel(a)}`,
+    referenceNo: p.reference_number ?? null, occurredBranchId: a.branch_id ?? null,
+    recordedBy: recordedBy ?? null,
+  });
+}
+
+/** عكس حركة دفعة اتفاقية قبل حذفها (append-only). */
+export async function reverseServiceAgreementPaymentMovement(
+  db: Db,
+  paymentId: number,
+  recordedBy?: number | null,
+): Promise<number | null> {
+  const { rows } = await db.query(
+    `SELECT * FROM financial_movements
+      WHERE source_type = 'service_agreement_payment' AND source_ref_id = $1
+        AND kind IN ('payment', 'refund') AND reverses_id IS NULL
+      ORDER BY id LIMIT 1`,
+    [paymentId],
+  );
+  const original = rows[0];
+  if (!original) return null;
+  const { rows: inserted } = await db.query(
+    `INSERT INTO financial_movements (
+       client_id, occurred_at, kind, amount_syp, currency, amount_original, exchange_rate,
+       source_type, source_id, source_ref_id, contract_id, description, reference_no,
+       occurred_branch_id, recorded_by, reverses_id
+     ) VALUES ($1, NOW(), $2, $3, $4, $5, $6, 'service_agreement_payment', $7, $8, NULL, $9, $10, $11, $12, $13)
+     ON CONFLICT (source_type, source_ref_id, kind) WHERE source_ref_id IS NOT NULL DO NOTHING
+     RETURNING id`,
+    [
+      original.client_id, original.kind === 'payment' ? 'refund' : 'payment', original.amount_syp,
+      original.currency, original.amount_original, original.exchange_rate,
+      original.source_id, original.source_ref_id,
+      `إلغاء ${original.description}`, original.reference_no, original.occurred_branch_id,
+      recordedBy ?? null, original.id,
+    ],
+  );
+  return inserted[0]?.id ?? null;
+}
+
+/** عند إلغاء الاتفاقية: خصم المتبقي غير المدفوع من الرسوم (على نمط إلغاء العقد). */
+export async function recordServiceAgreementCancellation(db: Db, agreementId: number, recordedBy?: number | null): Promise<number | null> {
+  const a = await loadServiceAgreementOwner(db, agreementId);
+  if (!a) return null;
+  const { rows } = await db.query(
+    `SELECT COALESCE(SUM(CASE
+              WHEN source_type = 'service_agreement' AND kind = 'charge' THEN amount_syp
+              WHEN kind IN ('payment', 'discount') THEN -amount_syp
+              WHEN kind = 'refund' THEN amount_syp
+              ELSE 0 END), 0) AS outstanding
+       FROM financial_movements
+      WHERE source_id = $1 AND source_type IN ('service_agreement', 'service_agreement_payment')`,
+    [agreementId],
+  );
+  return recordMovement(db, {
+    clientId: Number(a.customer_id), occurredAt: a.cancelled_at ?? new Date(), kind: 'discount',
+    amountSyp: Number(rows[0]?.outstanding ?? 0),
+    sourceType: 'service_agreement', sourceId: Number(a.id), sourceRefId: Number(a.id),
+    description: `إبطال متبقّي ${agreementLabel(a)} عند الإلغاء`, occurredBranchId: a.branch_id ?? null,
+    recordedBy: recordedBy ?? null,
+  });
+}

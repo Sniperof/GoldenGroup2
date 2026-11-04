@@ -6,7 +6,10 @@ import type {
   TaskTypeConfig,
   ZoneStudyMode,
   ZoneStudyResponse,
+  ZoneMapResponse,
+  ZoneMapWireResponse,
 } from '@golden-crm/shared';
+import { fromZoneMapWire } from '@golden-crm/shared';
 import { shouldAttachBranchContextHeader } from './branchContext';
 import { authFetch } from './authFetch';
 import { DEVICE_BLOCK_MESSAGE_KEY, deviceClassHeader, readDeviceBlock } from './deviceClass';
@@ -734,6 +737,84 @@ export interface PlanningDayCycle {
   closureSummary: PlanningDayCycleSummary;
 }
 
+export interface ClientOwnershipOwner {
+  userId: number;
+  name: string;
+  roleName: string | null;
+  assignedAt: string | null;
+  assignedByName: string | null;
+  eligible: boolean;
+  /** The owner's employee record status; null when the account has no employee. */
+  employeeStatus: 'active' | 'vacation' | 'suspended' | 'terminated' | string | null;
+  accountActive: boolean;
+  /** How the ownership was acquired: the change_context of its latest «owner_added» log row ('backfill' = predates the log). */
+  acquiredContext: string | null;
+  acquiredReason: string | null;
+}
+
+export interface ClientOwnershipLogEntry {
+  id: number;
+  /** owner_inactive / owner_active: the owner stopped / resumed being eligible (row kept); branch_owned: no eligible owner left (migration 488). */
+  eventType: 'owner_added' | 'owner_removed' | 'owner_inactive' | 'owner_active' | 'branch_owned';
+  ownerUserId: number | null;
+  ownerName: string | null;
+  changeContext: string | null;
+  reason: string | null;
+  role: string | null;
+  source: 'trigger' | 'backfill';
+  createdAt: string;
+  performedByName: string | null;
+}
+
+export interface ClientOwnershipView {
+  clientId: number;
+  branchId: number | null;
+  branchName: string | null;
+  stage: 'LEAD' | 'FOP' | 'OP';
+  owners: ClientOwnershipOwner[];
+  log: ClientOwnershipLogEntry[];
+  /** Active reasons of each operation's managed list (empty without the manage permission). */
+  reasonOptions: Record<'add' | 'remove' | 'transfer' | 'release', Array<{ id: number; value: string; label: string }>>;
+  canManage: boolean;
+  manageBlockedReason: string | null;
+}
+
+/** GET /gifts/records/:id/source-status — see services/referralCredit.ts on the API. */
+export interface GiftSourceStatus {
+  applicable: boolean;
+  summary: { names: number; converted: number; linked: number; purchaseCredited: number; linkedBoughtBefore: number };
+  names: Array<{
+    candidateId: number;
+    name: string;
+    state: 'open' | 'rejected' | 'converted' | 'linked';
+    clientId: number | null;
+    clientName: string | null;
+    stage: 'LEAD' | 'FOP' | 'OP' | null;
+    linkedOn: string | null;
+    firstPurchaseOn: string | null;
+    purchaseCredited: boolean;
+  }>;
+  truncated: boolean;
+}
+
+export interface ClientBulkOwnershipResult {
+  matched: number;
+  alreadyOwner: number;
+  toAssign: number;
+  applied: number;
+  /** dryRun only: the active «إضافة مالك» reasons. */
+  reasonOptions?: Array<{ id: number; value: string; label: string }>;
+}
+
+/** A reason from the operation's admin-managed list + an optional note (migration 482). */
+export type ClientOwnershipReason = { reasonId: number; note?: string };
+
+export type ClientOwnershipOperation =
+  | ({ action: 'add'; userIds: number[] } & ClientOwnershipReason)
+  | ({ action: 'remove'; userId: number } & ClientOwnershipReason)
+  | ({ action: 'transfer'; fromUserId: number; toUserId: number } & ClientOwnershipReason)
+  | ({ action: 'release' } & ClientOwnershipReason);
+
 function withEmergencyResultContext(path: string, context: EmergencyResultContext): string {
   const query = new URLSearchParams({
     visitId: String(context.visitId),
@@ -965,6 +1046,9 @@ export const api = {
         request<any>(`/gifts/records/${id}/referral-promise`, { method: 'PATCH', body: JSON.stringify(data) }),
       updateCondition: (id: number | string, data: { conditionStatus: string; conditionNotes?: string }) =>
         request<any>(`/gifts/records/${id}/condition`, { method: 'PATCH', body: JSON.stringify(data) }),
+      /** What the suggested names behind a referral promise became, and which earn the mediator purchase credit. */
+      sourceStatus: (id: number | string) =>
+        request<GiftSourceStatus>(`/gifts/records/${id}/source-status`),
       approve: (id: number | string, data?: { approvedQuantity?: number; approvalNotes?: string }) =>
         request<any>(`/gifts/records/${id}/approve`, { method: 'POST', body: JSON.stringify(data ?? {}) }),
       withdrawApproval: (id: number | string, data: { reason: string }) =>
@@ -989,7 +1073,7 @@ export const api = {
     // Use this to resolve an existing record's address; use `list(branchId)` for form pickers.
     names: () => request<any[]>('/geo-units/names'),
     create: (data: any) => request<any>('/geo-units', { method: 'POST', body: JSON.stringify(data) }),
-    update: (id: number, data: { name: string }) => request<any>(`/geo-units/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    update: (id: number, data: { name: string; center?: { lat: number; lng: number } | null }) => request<any>(`/geo-units/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     updateStatus: (id: number, status: 'active' | 'inactive') => request<any>(`/geo-units/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
     delete: (id: number) => request<any>(`/geo-units/${id}`, { method: 'DELETE' }),
   },
@@ -1113,6 +1197,21 @@ export const api = {
         `/employees/${id}/transfer-branch`,
         { method: 'POST', body: JSON.stringify(data) },
       ),
+    // Status is an explicit operation (migration 479); the edit form no longer writes it.
+    changeStatus: (id: number, data: {
+      status: 'active' | 'vacation' | 'suspended' | 'terminated';
+      reasonId: number;
+      note?: string | null;
+      endOfServiceDate?: string | null;  // required for → terminated
+      newStartDate?: string | null;      // required for terminated → active
+    }) =>
+      request<{ employeeId: number; fromStatus: string; toStatus: string; accountEffect: 'deactivated' | 'reactivated' | null }>(
+        `/employees/${id}/status`,
+        { method: 'POST', body: JSON.stringify(data) },
+      ),
+    statusHistory: (id: number) => request<any[]>(`/employees/${id}/status-history`),
+    // Internal timeline written by database triggers (migration 480).
+    activity: (id: number) => request<any[]>(`/employees/${id}/activity`),
     delete: (id: number) => request<any>(`/employees/${id}`, { method: 'DELETE' }),
   },
   clients: {
@@ -1143,6 +1242,33 @@ export const api = {
     snapshot: (id: number) => request<{ snapshot: any }>(`/clients/${id}/snapshot`),
     listServiceRequests: (id: number) => request<{ items: any[] }>(`/clients/${id}/service-requests`),
     getNetwork: (id: number) => request<any>(`/clients/${id}/network`),
+    /**
+     * Bulk «إضافة مالك» on the records table's filter result (clients of one
+     * branch, any stage). `filters` = the same params as listPaged; the server rebuilds
+     * the result itself. dryRun → counts + the add-reason list only.
+     */
+    /** `body.clientIds` (ticked rows) replaces the filters; `filters.branchId` still sets the branch header. */
+    bulkOwnership: (
+      filters: PagedClientsParams,
+      body: { dryRun: boolean; clientIds?: number[]; userId?: number; reasonId?: number; note?: string; expectedCount?: number },
+    ) => {
+      const { branchId, page: _page, limit: _limit, sortKey: _sortKey, sortDir: _sortDir, ...rest } = filters as any;
+      const cleaned: Record<string, string> = {};
+      Object.entries(rest).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '' && value !== 'all') cleaned[key] = String(value);
+      });
+      return request<ClientBulkOwnershipResult>('/clients/bulk-ownership', {
+        method: 'POST',
+        body: JSON.stringify(body.clientIds ? body : { ...body, filters: cleaned }),
+        ...(branchId != null ? { headers: { 'X-Branch-Id': String(branchId) } } : {}),
+      });
+    },
+    getOwnership: (id: number) => request<ClientOwnershipView>(`/clients/${id}/ownership`),
+    applyOwnershipOperation: (id: number, operation: ClientOwnershipOperation) =>
+      request<ClientOwnershipView>(`/clients/${id}/ownership/operations`, {
+        method: 'POST',
+        body: JSON.stringify(operation),
+      }),
     getRatingHistory: (id: number) => request<any[]>(`/clients/${id}/rating-history`),
     updateRating: (id: number, data: { rating: 'Committed' | 'NotCommitted' | 'Undefined'; notes?: string | null }) =>
       request<any>(`/clients/${id}/rating-history`, { method: 'POST', body: JSON.stringify(data) }),
@@ -1246,6 +1372,12 @@ export const api = {
       request<any>(`/candidates/${id}/link-client`, {
         method: 'POST',
         body: JSON.stringify({ restrictedSameBranchLead: true }),
+      }),
+    /** Blind link to the only matching client, in another branch: no ownership, no client data back. */
+    linkRestrictedOtherBranch: (id: number) =>
+      request<any>(`/candidates/${id}/link-client`, {
+        method: 'POST',
+        body: JSON.stringify({ restrictedOtherBranch: true }),
       }),
     delete: (id: number) => request<any>(`/candidates/${id}`, { method: 'DELETE' }),
   },
@@ -1453,6 +1585,9 @@ export const api = {
     get: (id: number) => request<any>(`/service-agreements/${id}`),
     create: (data: any) => request<any>('/service-agreements', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<any>(`/service-agreements/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    payments: (id: number) => request<any>(`/service-agreements/${id}/payments`),
+    addPayment: (id: number, data: any) => request<any>(`/service-agreements/${id}/payments`, { method: 'POST', body: JSON.stringify(data) }),
+    deletePayment: (paymentId: number) => request<any>(`/service-agreements/payments/${paymentId}`, { method: 'DELETE' }),
   },
   // DEC-CT-09: device possession ledger.
   // Backend route is mounted at /api/devices/:deviceId/possession.
@@ -1795,6 +1930,15 @@ export const api = {
       );
     },
   },
+  zoneMap: {
+    get: async (date: string): Promise<ZoneMapResponse> =>
+      fromZoneMapWire(await request<ZoneMapWireResponse>(`/planning/zone-map?${new URLSearchParams({ date }).toString()}`)),
+    setCenter: (geoUnitId: number, center: { lat: number; lng: number } | null) =>
+      request<{ geoUnitId: number; center: { lat: number; lng: number } | null }>(
+        `/planning/zone-map/areas/${geoUnitId}/center`,
+        { method: 'PUT', body: JSON.stringify(center ?? { lat: null, lng: null }) },
+      ),
+  },
   workScopes: {
     get: (date: string, teamKey: string, branchId?: number) => {
       const qs = branchId ? `?branchId=${branchId}` : '';
@@ -1842,6 +1986,18 @@ export const api = {
       request<any>(`/field-visits/${id}/end`, { method: 'POST', body: JSON.stringify(data ?? {}) }),
     cancel: (id: number, data: { cancellationReasonId: number; notes?: string | null }) =>
       request<any>(`/field-visits/${id}/cancel`, { method: 'POST', body: JSON.stringify(data) }),
+    // «الفريق الرديف» (migration 478)
+    reassignTeamOptions: (id: number) =>
+      request<any>(`/field-visits/${id}/reassign-team/options`),
+    reassignTeam: (id: number, data: {
+      supervisorEmployeeId: number | null;
+      technicianEmployeeId: number | null;
+      traineeEmployeeId: number | null;
+      teamKey?: string | null;
+      reasonId: number;
+      note?: string | null;
+    }) =>
+      request<any>(`/field-visits/${id}/reassign-team`, { method: 'POST', body: JSON.stringify(data) }),
     complete: (id: number) =>
       request<any>(`/field-visits/${id}/complete`, { method: 'POST' }),
     close: (id: number) =>

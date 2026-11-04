@@ -18,6 +18,7 @@ export type NotificationType =
   | 'visit_scheduled'
   | 'visit_cancelled'
   | 'visit_completed'
+  | 'visit_team_changed'
   | 'visit_reminder'
   | 'maintenance_due'
   | 'warranty_expiring'
@@ -72,6 +73,8 @@ export interface NotificationVars {
   visit_scheduled: { date: string | null };
   visit_cancelled: { date: string | null };
   visit_completed: Record<string, never>;
+  /** Same date shape as visit_scheduled. Never carries names, phones or the reason (DEC-017, migration 478 D7). */
+  visit_team_changed: { date: string | null };
   visit_reminder: { timeLabel?: string | null };
   maintenance_due: { deviceLabel?: string | null };
   warranty_expiring: { daysLeft: number };
@@ -222,6 +225,28 @@ export const NOTIFICATION_CATALOG: Catalog = {
     text: (locale) => (locale === 'ar'
       ? { title: 'إنجاز زيارة', message: 'تم إنجاز زيارتك. شكراً لتعاونك معنا' }
       : { title: 'Visit completed', message: 'Your visit is complete. Thank you.' }),
+  },
+
+  visit_team_changed: {
+    destination: 'visit',
+    family: 'reactive',
+    deduped: false,
+    text: (locale, { date }) => {
+      const when = formatVisitDate(date, locale);
+      return locale === 'ar'
+        ? {
+          title: 'تحديث فريق الزيارة',
+          message: when
+            ? `تم تحديث الفريق الذي سيزورك يوم ${when}. يمكنك الاطلاع على الأسماء في تفاصيل الزيارة`
+            : 'تم تحديث الفريق الذي سيزورك. يمكنك الاطلاع على الأسماء في تفاصيل الزيارة',
+        }
+        : {
+          title: 'Visit team updated',
+          message: when
+            ? `The team visiting you on ${when} has been updated. See the visit details for names.`
+            : 'The team visiting you has been updated. See the visit details for names.',
+        };
+    },
   },
 
   visit_reminder: {

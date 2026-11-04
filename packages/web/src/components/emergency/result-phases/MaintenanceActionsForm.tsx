@@ -39,7 +39,37 @@ type SavedPart = {
   executionStatus: 'replaced' | 'delivered_to_customer_stock' | 'not_replaced_customer_refused' | 'not_replaced_unavailable' | 'not_replaced_technician_decision';
   customerRefusalReasonId: number | null;
   customerRefusalReasonText: string;
+  // Visit attempt the part was recorded in (server-set); parts from earlier visits are read-only.
+  visitTaskId?: number | null;
+  visitId?: number | null;
+  visitDate?: string | null;
 };
+
+function savedPartFromServer(p: any): SavedPart {
+  return {
+    id:                  p.id,
+    sparePartId:         p.sparePartId ?? null,
+    partNameSnapshot:    p.partNameSnapshot,
+    partCodeSnapshot:    p.partCodeSnapshot ?? '',
+    maintenanceType:     p.maintenanceType ?? '',
+    unitPrice:           Number(p.unitPrice),
+    quantity:            Number(p.quantity),
+    retrieved:           p.retrieved !== false,
+    placementState:      p.placementState === 'customer_stock' ? 'customer_stock' : 'installed',
+    noRetrievalReasonId: p.noRetrievalReasonId ?? null,
+    noRetrievalReasonText: p.noRetrievalReasonText ?? '',
+    recommendationStatus: p.recommendationStatus === 'optional' ? 'optional' : 'required',
+    customerDecision: ['approved', 'refused', 'not_required'].includes(p.customerDecision) ? p.customerDecision : 'approved',
+    executionStatus: ['replaced', 'delivered_to_customer_stock', 'not_replaced_customer_refused', 'not_replaced_unavailable', 'not_replaced_technician_decision'].includes(p.executionStatus)
+      ? p.executionStatus
+      : (p.placementState === 'customer_stock' ? 'delivered_to_customer_stock' : 'replaced'),
+    customerRefusalReasonId: p.customerRefusalReasonId ?? null,
+    customerRefusalReasonText: p.customerRefusalReasonText ?? '',
+    visitTaskId:         p.visitTaskId ?? null,
+    visitId:             p.visitId ?? null,
+    visitDate:           p.visitDate ?? null,
+  };
+}
 
 type MaintenanceKind = 'emergency' | 'periodic';
 type ActiveWarranty = { type: 'contract' | 'golden'; endDate?: string | null } | null;
@@ -394,9 +424,11 @@ interface Props {
   onBack?: () => void;
   maintenanceKind?: MaintenanceKind;
   activeWarranty?: ActiveWarranty;
+  /** The device warranty could not be read: whether a part is free is unknown. */
+  warrantyUnverified?: boolean;
 }
 
-export default function MaintenanceActionsForm({ taskId, resultContext, initialData, readOnly = false, onSaved, onNext, onBack, maintenanceKind = 'emergency', activeWarranty = null }: Props) {
+export default function MaintenanceActionsForm({ taskId, resultContext, initialData, readOnly = false, onSaved, onNext, onBack, maintenanceKind = 'emergency', activeWarranty = null, warrantyUnverified = false }: Props) {
   const [allParts, setAllParts]         = useState<SparePartRaw[]>([]);
   const [actionTypes, setActionTypes]   = useState<any[]>([]);
   const [actionTypeId, setActionTypeId] = useState(initialData?.actionTypeId ? String(initialData.actionTypeId) : '');
@@ -412,36 +444,27 @@ export default function MaintenanceActionsForm({ taskId, resultContext, initialD
   const noRetrievalReasons              = useSystemListItems('part_no_retrieval_reason');
   const customerRefusalReasons          = useSystemListItems('part_customer_refusal_reason');
 
+  // Each list loads on its own: one refused request (a missing permission) used
+  // to empty the parts catalog silently through a shared Promise.all.
+  const [loadErrors, setLoadErrors] = useState<string[]>([]);
   useEffect(() => {
-    Promise.all([
-      api.spareParts.list({ includeInactive: true }),
-      api.admin.emergencyActionTypes.active(),
-      api.emergencyResult.getParts(taskId),
-    ]).then(([sp, at, existingParts]) => {
-      setAllParts(sp.map((p: any) => ({ ...p, basePrice: Number(p.basePrice) })));
-      setActionTypes(at);
-      setSavedParts(existingParts.map((p: any) => ({
-        id:                  p.id,
-        sparePartId:         p.sparePartId ?? null,
-        partNameSnapshot:    p.partNameSnapshot,
-        partCodeSnapshot:    p.partCodeSnapshot ?? '',
-        maintenanceType:     p.maintenanceType ?? '',
-        unitPrice:           Number(p.unitPrice),
-        quantity:            Number(p.quantity),
-        retrieved:           p.retrieved !== false,
-        placementState:      p.placementState === 'customer_stock' ? 'customer_stock' : 'installed',
-        noRetrievalReasonId: p.noRetrievalReasonId ?? null,
-        noRetrievalReasonText: p.noRetrievalReasonText ?? '',
-        recommendationStatus: p.recommendationStatus === 'optional' ? 'optional' : 'required',
-        customerDecision: ['approved', 'refused', 'not_required'].includes(p.customerDecision) ? p.customerDecision : 'approved',
-        executionStatus: ['replaced', 'delivered_to_customer_stock', 'not_replaced_customer_refused', 'not_replaced_unavailable', 'not_replaced_technician_decision'].includes(p.executionStatus)
-          ? p.executionStatus
-          : (p.placementState === 'customer_stock' ? 'delivered_to_customer_stock' : 'replaced'),
-        customerRefusalReasonId: p.customerRefusalReasonId ?? null,
-        customerRefusalReasonText: p.customerRefusalReasonText ?? '',
-      })));
-    }).catch(console.error);
+    setLoadErrors([]);
+    const fail = (what: string) => (err: any) => {
+      console.error(err);
+      const denied = err?.status === 403 || err?.response?.status === 403;
+      setLoadErrors(prev => [...prev, `${what}: ${denied ? 'لا تملك صلاحية عرضها' : 'تعذّر التحميل'}`]);
+    };
+    api.spareParts.list({ includeInactive: true })
+      .then(sp => setAllParts(sp.map((p: any) => ({ ...p, basePrice: Number(p.basePrice) }))))
+      .catch(fail('قائمة القطع'));
+    api.admin.emergencyActionTypes.active()
+      .then(setActionTypes)
+      .catch(fail('أنواع الإجراءات'));
+    api.emergencyResult.getParts(taskId)
+      .then(existingParts => setSavedParts(existingParts.map(savedPartFromServer)))
+      .catch(fail('القطع المسجلة لهذه المهمة'));
   }, [taskId]);
+  const partsLocked = readOnly || warrantyUnverified;
 
   // ── Persist parts list silently (no wizard reload) ───────────────────────────
   // Parts are saved immediately on add/edit/delete WITHOUT triggering onSaved(),
@@ -451,7 +474,8 @@ export default function MaintenanceActionsForm({ taskId, resultContext, initialD
     if (!resultContext) {
       throw new Error('يجب فتح نتيجة الصيانة من داخل الزيارة المرتبطة');
     }
-    await api.emergencyResult.saveParts(taskId, newParts.map(p => ({
+    const saved = await api.emergencyResult.saveParts(taskId, newParts.map(p => ({
+      id:                   p.id ?? null,
       sparePartId:          p.sparePartId,
       partNameSnapshot:     p.partNameSnapshot,
       partCodeSnapshot:     p.partCodeSnapshot || null,
@@ -469,7 +493,13 @@ export default function MaintenanceActionsForm({ taskId, resultContext, initialD
       customerRefusalReasonText: p.customerRefusalReasonText || null,
     })), resultContext);
     // intentionally NOT calling onSaved() here
+    // The server's list is authoritative: it tags new parts with this visit and keeps
+    // earlier visits' parts unchanged.
+    return saved.map(savedPartFromServer);
   };
+
+  const isLockedPart = (p: SavedPart) =>
+    p.visitTaskId != null && p.visitTaskId !== resultContext?.visitTaskId;
 
   // ── Save draft as new part ──────────────────────────────────────────────────
   const handleSaveDraft = async () => {
@@ -477,8 +507,7 @@ export default function MaintenanceActionsForm({ taskId, resultContext, initialD
     setSaving(true); setError('');
     try {
       const updated = [...savedParts, toSaved(draft)];
-      await persistParts(updated);
-      setSavedParts(updated);
+      setSavedParts(await persistParts(updated));
       setShowAddForm(false);
       setDraft(emptyDraft());
       // Stay on this phase — no navigation
@@ -491,9 +520,8 @@ export default function MaintenanceActionsForm({ taskId, resultContext, initialD
     if (editIndex === null || !draft.partNameSnapshot.trim()) return;
     setSaving(true); setError('');
     try {
-      const updated = savedParts.map((p, i) => i === editIndex ? toSaved(draft) : p);
-      await persistParts(updated);
-      setSavedParts(updated);
+      const updated = savedParts.map((p, i) => i === editIndex ? { ...toSaved(draft), id: p.id } : p);
+      setSavedParts(await persistParts(updated));
       setEditIndex(null);
       setDraft(emptyDraft());
     } catch (err: any) { setError(err.message || 'فشل الحفظ'); }
@@ -505,8 +533,7 @@ export default function MaintenanceActionsForm({ taskId, resultContext, initialD
     setSaving(true); setError('');
     try {
       const updated = savedParts.filter((_, idx) => idx !== i);
-      await persistParts(updated);
-      setSavedParts(updated);
+      setSavedParts(await persistParts(updated));
       if (editIndex === i) { setEditIndex(null); setDraft(emptyDraft()); }
     } catch (err: any) { setError(err.message || 'فشل الحذف'); }
     finally { setSaving(false); }
@@ -585,13 +612,26 @@ export default function MaintenanceActionsForm({ taskId, resultContext, initialD
                 <span className="mr-2 font-normal text-slate-400">({savedParts.length} قطعة)</span>
               )}
             </p>
-            {!readOnly && !showAddForm && editIndex === null && (
+            {!partsLocked && !showAddForm && editIndex === null && (
               <button type="button" onClick={() => { setShowAddForm(true); setDraft(emptyDraft()); }}
                 className="inline-flex items-center gap-1 text-xs font-bold text-rose-600 border border-rose-200 rounded-xl px-3 py-1.5 hover:bg-rose-50 transition-colors">
                 <Plus className="h-3.5 w-3.5" /> إضافة قطعة
               </button>
             )}
           </div>
+
+          {loadErrors.length > 0 && (
+            <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700 space-y-0.5">
+              {loadErrors.map(message => (
+                <p key={message} className="flex items-center gap-1.5"><AlertCircle className="h-3.5 w-3.5 shrink-0" />{message}</p>
+              ))}
+            </div>
+          )}
+          {warrantyUnverified && !readOnly && (
+            <p className="mb-3 text-xs font-bold text-amber-700">
+              إضافة القطع وتعديلها موقوفة: تعذّر التحقق من كفالة الجهاز، وهي التي تحدد إن كانت القطعة مجانية.
+            </p>
+          )}
 
           {/* Saved parts list */}
           {savedParts.length === 0 && !showAddForm ? (
@@ -646,6 +686,11 @@ export default function MaintenanceActionsForm({ taskId, resultContext, initialD
                             لم تُسحب
                           </span>
                         )}
+                        {isLockedPart(p) && (
+                          <span className="text-xs font-bold rounded-full border border-slate-200 bg-slate-100 text-slate-600 px-2 py-0.5">
+                            زيارة سابقة{p.visitId ? ` #${p.visitId}` : ''}{p.visitDate ? ` · ${String(p.visitDate).slice(0, 10)}` : ''} — للقراءة فقط
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
                         <span>{p.quantity} × {p.unitPrice.toLocaleString()} ل.س</span>
@@ -656,10 +701,11 @@ export default function MaintenanceActionsForm({ taskId, resultContext, initialD
                         )}
                       </div>
                     </div>
-                    {!readOnly && (
+                    {!readOnly && !isLockedPart(p) && (
                       <div className="flex items-center gap-1 shrink-0">
-                        <button onClick={() => startEdit(i)} disabled={saving}
-                          className="p-1.5 text-slate-400 hover:text-sky-500 hover:bg-sky-50 rounded-lg transition-colors">
+                        <button onClick={() => startEdit(i)} disabled={saving || warrantyUnverified}
+                          title={warrantyUnverified ? 'التعديل موقوف حتى يُتحقق من كفالة الجهاز' : undefined}
+                          className="p-1.5 text-slate-400 hover:text-sky-500 hover:bg-sky-50 rounded-lg transition-colors disabled:opacity-40">
                           <Edit className="h-3.5 w-3.5" />
                         </button>
                         <button onClick={() => handleDelete(i)} disabled={saving}

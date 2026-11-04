@@ -104,6 +104,7 @@ const EMPLOYEE_DETAIL_COLS = `
   COALESCE(e.foreign_languages, '[]'::jsonb) AS "foreignLanguages",
   e.hire_date AS "hireDate",
   e.start_work_date AS "startWorkDate",
+  e.end_of_service_date AS "endOfServiceDate",
   NULLIF(e.contract_type, '') AS "contractType",
   NULLIF(e.work_type, '') AS "workType",
   COALESCE(NULLIF(e.previous_employment, ''), NULLIF(a.previous_employment, '')) AS "previousEmployment",
@@ -344,7 +345,7 @@ export async function fetchApplicationTrainings(applicationId: number) {
 
 export async function findEmployeeAvatarRecord(employeeId: number | string) {
   const { rows } = await pool.query(
-    `SELECT id, avatar, branch_id AS "branchId"
+    `SELECT id, avatar, status, branch_id AS "branchId"
      FROM employees
      WHERE id = $1`,
     [employeeId]

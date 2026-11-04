@@ -2119,6 +2119,14 @@ export default function ContractForm() {
                                                 <span className={`text-xs rounded-full px-1.5 py-0.5 ${isActive ? 'bg-white/25 text-white' : 'bg-slate-100 text-slate-500'}`}>
                                                     {referrerTypeLabel(referrer.referrerType)}
                                                 </span>
+                                                {referrer.viaDuplicateLink && (
+                                                    <span
+                                                        title="أُضيف هذا الوسيط عند ربط اسم مقترح مكرر بالزبون بعد تسجيله؛ ليس هو من جلب الزبون"
+                                                        className={`text-xs rounded-full px-1.5 py-0.5 ${isActive ? 'bg-white/25 text-white' : 'bg-amber-50 text-amber-700'}`}
+                                                    >
+                                                        من اسم مكرر
+                                                    </span>
+                                                )}
                                             </button>
                                         );
                                     })}

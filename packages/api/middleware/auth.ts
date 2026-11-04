@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import type { AuthUser } from '@golden-crm/shared';
 import { JWT_SECRET } from '../config/env.js';
+import { setAuditActor } from '../auditContext.js';
 import { loadSessionUserFromToken, SessionUserError } from '../services/sessionUserService.js';
 import { DEVICE_CLASS_HEADER, classifyDevice } from '../services/deviceClass.js';
 import {
@@ -86,6 +87,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   }
   if (await enforceDevicePolicy(req, res, user)) return;
   req.user = user;
+  setAuditActor(user.id, user.role);
   return next();
 }
 
@@ -95,6 +97,7 @@ export function requireRole(...roles: string[]) {
     if (!req.user) {
       try {
         req.user = await loadUserFromAuthorizationHeader(req);
+        setAuditActor(req.user.id, req.user.role);
       } catch (err) {
         if (sendSessionUserError(res, err)) return;
         return res.status(401).json({ error: 'غير مصرح: رمز التحقق غير صالح أو منتهي الصلاحية' });

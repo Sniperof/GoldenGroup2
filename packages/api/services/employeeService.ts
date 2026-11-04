@@ -755,6 +755,10 @@ export async function updateEmployeeRecord(employeeId: number | string, body: an
     {
       ...body,
       avatar: body.avatar === undefined ? existing.avatar : body.avatar,
+      // Status is an explicit operation (POST /:id/status, migration 479): it
+      // switches the account on/off and is audited, so the edit form cannot
+      // change it. Any status in the edit body is ignored.
+      status: existing.status,
     },
     branchId,
     { excludeEmployeeId: employeeId },
@@ -876,7 +880,9 @@ export async function saveEmployeeSystemAccount(
  * visibility of it after the move). "In-flight" =
  *   - field_visits the employee is responsible for (team_responsible_user_id),
  *     in a non-terminal status; OR
- *   - open_tasks on customers the employee personally owns, not yet closed.
+ *   - device-demo open_tasks on customers the employee personally owns, not
+ *     yet closed (only demo work is the owner's; every other task belongs to
+ *     the service branch, 2026-10-20).
  * Both restricted to branches other than the target (target-branch work stays
  * visible after the move, so it can't orphan).
  */
@@ -904,6 +910,7 @@ async function assertNoBlockingOpenWork(employeeId: number, toBranchId: number):
     `SELECT COUNT(*)::int AS count
        FROM open_tasks ot
       WHERE ot.branch_id <> $2
+        AND ot.task_type = 'device_demo'
         AND ot.status NOT IN ('completed', 'closed', 'cancelled')
         AND ${personalOwnershipPredicate('ot.client_id', 'ANY($1::int[])')}`,
     [userIds, toBranchId],
@@ -912,7 +919,7 @@ async function assertNoBlockingOpenWork(employeeId: number, toBranchId: number):
 
   if (openVisits > 0 || openTasks > 0) {
     throw createServiceError(409, {
-      error: `لا يمكن نقل الموظف: لديه ${openVisits} زيارة و${openTasks} مهمة مفتوحة خارج الفرع الهدف. أغلقها أو أعد إسنادها أولًا.`,
+      error: `لا يمكن نقل الموظف: لديه ${openVisits} زيارة و${openTasks} مهمة عرض جهاز مفتوحة خارج الفرع الهدف. أغلقها أو أعد إسنادها أولًا.`,
       openVisits,
       openTasks,
     });

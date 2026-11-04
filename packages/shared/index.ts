@@ -9,3 +9,4 @@ export * from './deviceTaskEligibility.js';
 export * from './taskResultPolicy.js';
 export * from './complaints.js';
 export * from './appAccounts.js';
+export * from './zoneMapWire.js';

@@ -3,6 +3,7 @@ import { getClientListAccessPlan } from '../policies/clientPolicy.js';
 import { authorize } from './authorizationService.js';
 import { personalOwnershipPredicate } from './customerOwnership.js';
 import { phoneNormalizationSql } from '../utils/phoneSql.js';
+import { annotateDuplicateLinkReferrers } from './candidateReferrer.js';
 
 interface Queryable {
   query: (text: string, params?: unknown[]) => Promise<{ rows: any[] }>;
@@ -200,6 +201,6 @@ export async function loadContractCustomerContext(
     ...rows[0],
     id: Number(rows[0].id),
     contacts: Array.isArray(rows[0].contacts) ? rows[0].contacts : [],
-    referrers: Array.isArray(rows[0].referrers) ? rows[0].referrers : [],
+    referrers: await annotateDuplicateLinkReferrers(db, Array.isArray(rows[0].referrers) ? rows[0].referrers : [], rows[0].id),
   };
 }

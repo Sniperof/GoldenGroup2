@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import type { PoolClient } from 'pg';
 import pool from '../db.js';
+import { runWithChangeContext } from '../auditContext.js';
 import { requireAuth } from '../middleware/auth.js';
 import { getOrBuildAuthContext, requirePermission } from '../middleware/permission.js';
 import { authorize, resolveActingBranch } from '../services/authorizationService.js';
@@ -35,6 +36,7 @@ import {
 } from '../utils/contactValidation.js';
 import {
   buildClientLifecycleStatusSql,
+  eligiblePersonalOwnerCondition,
   loadClientSubject,
   getEligiblePersonalOwnerIds,
   isEligiblePersonalOwner,
@@ -996,6 +998,173 @@ router.get('/', requirePermission('clients.view_list'), async (req, res) => {
   }
 });
 
+// Optional filters of the clients records table (GET /paged), shared with the
+// bulk ownership operation so both act on exactly the same result set.
+// Pushes bound params onto `params` and conditions onto `conditions`.
+function appendClientListFilterConditions(query: any, params: any[], conditions: string[]): void {
+  // Free search matches the client's OWN identity only (name / id / phones)
+  // plus the client's own detailed address text.
+  // It deliberately does not match the mediator's name or the branch name:
+  // searching "أحمد" must not return every client Ahmad referred — that is
+  // the separate `filterReferrerName` filter below.
+  const search = typeof query.search === 'string' ? query.search.trim() : '';
+  if (search) {
+    params.push(`%${search}%`);
+    const likeRef = `$${params.length}`;
+    const parts = [
+      `c.name ILIKE ${likeRef}`,
+      `c.id::text LIKE ${likeRef}`,
+      `c.detailed_address ILIKE ${likeRef}`,
+    ];
+    const digits = search.replace(/\D/g, '');
+    if (digits) {
+      params.push(`%${digits}%`);
+      const phoneRef = `$${params.length}`;
+      parts.push(`${phoneNormalizationSql('c.mobile')} LIKE ${phoneRef}`);
+      parts.push(
+        `EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(c.contacts, '[]'::jsonb)) AS contact
+           WHERE ${phoneNormalizationSql(`contact->>'number'`)} LIKE ${phoneRef})`,
+      );
+    }
+    conditions.push(`(${parts.join(' OR ')})`);
+  }
+
+  const filterClass = typeof query.filterClass === 'string' ? query.filterClass.toUpperCase() : '';
+  if (['OP', 'FOP', 'LEAD'].includes(filterClass)) {
+    params.push(filterClass);
+    conditions.push(`(${buildClientLifecycleStatusSql('c')}) = $${params.length}`);
+  }
+
+  const filterMediator = typeof query.filterMediator === 'string' ? query.filterMediator.trim() : '';
+  if (filterMediator) {
+    params.push(filterMediator);
+    conditions.push(`c.referrer_type = $${params.length}`);
+  }
+
+  // Primary mediator's name (partial) — the same value the «اسم الوسيط» column shows.
+  const filterReferrerName = typeof query.filterReferrerName === 'string' ? query.filterReferrerName.trim() : '';
+  if (filterReferrerName) {
+    params.push(`%${filterReferrerName}%`);
+    conditions.push(`c.referrer_name ILIKE $${params.length}`);
+  }
+
+  // ── Enriched filter catalog (docs/engineering/api/clients-records-performance-and-filters.md §7) ──
+  // Geo cascade: the frontend sends the subtree of the deepest selected level
+  // (محافظة→منطقة→ناحية→حي) as `geoIds`; a client matches when any of its geo
+  // columns falls inside that subtree ("match everything under the selection").
+  const geoIds = typeof query.geoIds === 'string'
+    ? query.geoIds.split(',').map(s => s.trim()).filter(s => /^\d+$/.test(s))
+    : [];
+  if (geoIds.length > 0) {
+    params.push(geoIds);
+    const ref = `$${params.length}::text[]`;
+    conditions.push(`(c.governorate::text = ANY(${ref}) OR c.district::text = ANY(${ref}) OR c.neighborhood::text = ANY(${ref}))`);
+  }
+
+  // Owner/responsible: `owner=branch` = company/branch-owned clients — mirrors
+  // buildCustomerOwnershipSql's company_* ownerType (no eligible personal
+  // owner, whatever the lifecycle stage). A user id = clients
+  // personally owned by that eligible user. `ownerBranchId` narrows branch
+  // ownership to one branch; it is ANDed with the scope, so it never widens it.
+  const owner = toPositiveInt(query.owner as any);
+  if (query.owner === 'branch') {
+    conditions.push(`NOT ${personalOwnerExistsPredicate('c.id')}`);
+    const ownerBranchId = toPositiveInt(query.ownerBranchId as any);
+    if (ownerBranchId != null) {
+      params.push(ownerBranchId);
+      conditions.push(`c.branch_id = $${params.length}`);
+    }
+  } else if (owner != null) {
+    params.push(owner);
+    conditions.push(personalOwnershipPredicate('c.id', `$${params.length}`));
+  }
+
+  // Commitment rating.
+  const rating = typeof query.rating === 'string' ? query.rating.trim() : '';
+  if (['Committed', 'NotCommitted', 'Undefined'].includes(rating)) {
+    params.push(rating);
+    conditions.push(`COALESCE(c.rating, 'Undefined') = $${params.length}`);
+  }
+
+  // Registration date range.
+  const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+  const createdFrom = typeof query.createdFrom === 'string' && dateRe.test(query.createdFrom) ? query.createdFrom : '';
+  if (createdFrom) {
+    params.push(createdFrom);
+    conditions.push(`c.created_at >= $${params.length}::date`);
+  }
+  const createdTo = typeof query.createdTo === 'string' && dateRe.test(query.createdTo) ? query.createdTo : '';
+  if (createdTo) {
+    params.push(createdTo);
+    conditions.push(`c.created_at < ($${params.length}::date + INTERVAL '1 day')`);
+  }
+
+  // Device serial lookup (cross-entity → installed_devices).
+  const serial = typeof query.serial === 'string' ? query.serial.trim() : '';
+  if (serial) {
+    params.push(`%${serial}%`);
+    conditions.push(`EXISTS (SELECT 1 FROM installed_devices d WHERE d.customer_id = c.id AND d.serial_number ILIKE $${params.length})`);
+  }
+
+  // Has an installed device? (boolean)
+  const hasDevice = query.hasDevice;
+  if (hasDevice === 'yes' || hasDevice === 'no') {
+    const op = hasDevice === 'yes' ? 'EXISTS' : 'NOT EXISTS';
+    conditions.push(`${op} (SELECT 1 FROM installed_devices d WHERE d.customer_id = c.id)`);
+  }
+
+  // Has an active task of a given type (cross-entity → open_tasks). "Active" =
+  // any stage that isn't closed/cancelled/completed (confirmed with user).
+  const taskType = typeof query.taskType === 'string' ? query.taskType.trim() : '';
+  if (taskType) {
+    params.push(taskType);
+    conditions.push(`EXISTS (SELECT 1 FROM open_tasks ot WHERE ot.client_id = c.id AND ot.task_type = $${params.length} AND ot.status NOT IN ('closed', 'cancelled', 'completed'))`);
+  }
+
+  // Route line: clients whose address falls inside the route's covered areas.
+  // The frontend expands the route's points to their geo subtree (like geoIds).
+  const routeGeoIds = typeof query.routeGeoIds === 'string'
+    ? query.routeGeoIds.split(',').map(s => s.trim()).filter(s => /^\d+$/.test(s))
+    : [];
+  if (routeGeoIds.length > 0) {
+    params.push(routeGeoIds);
+    const ref = `$${params.length}::text[]`;
+    conditions.push(`(c.governorate::text = ANY(${ref}) OR c.district::text = ANY(${ref}) OR c.neighborhood::text = ANY(${ref}))`);
+  }
+
+  // Water source (admin list value) and data quality (fixed enum).
+  const waterSource = typeof query.waterSource === 'string' ? query.waterSource.trim() : '';
+  if (waterSource) {
+    params.push(waterSource);
+    conditions.push(`c.water_source = $${params.length}`);
+  }
+  const dataQuality = typeof query.dataQuality === 'string' ? query.dataQuality.trim() : '';
+  if (['correct', 'incorrect', 'needs_edit'].includes(dataQuality)) {
+    params.push(dataQuality);
+    conditions.push(`c.data_quality = $${params.length}`);
+  }
+
+  // Clients referred BY a given client. Covers both storage shapes the row
+  // mapper already reconciles: the legacy flat columns and the `referrers`
+  // JSONB array. Lets the client profile list its referrals without the modal
+  // pulling the whole clients table to filter it in the browser.
+  const referredByClientId = toPositiveInt(query.referredByClientId as any);
+  if (referredByClientId != null) {
+    params.push(referredByClientId);
+    const ref = `$${params.length}`;
+    // Containment (@>) rather than expanding the array per row: it is the form
+    // the GIN index from migration 439 can answer. `referralEntityId` is stored
+    // as a JSON number, so the probe is built with jsonb_build_object to match
+    // the type exactly.
+    conditions.push(`(
+      (c.referral_entity_id = ${ref} AND c.referrer_type = 'Client')
+      OR c.referrers @> jsonb_build_array(
+           jsonb_build_object('referralEntityId', ${ref}::int, 'referrerType', 'Client')
+         )
+    )`);
+  }
+}
+
 /**
  * @swagger
  * /api/clients/paged:
@@ -1081,167 +1250,7 @@ router.get('/paged', requirePermission('clients.view_list'), async (req, res) =>
     const conditions = appendClientScopeConditions(authContext, requestedBranchId, listAccess.scope, params);
     conditions.push('c.is_candidate = FALSE');
 
-    // Free search matches the client's OWN identity only (name / id / phones)
-    // plus the client's own detailed address text.
-    // It deliberately does not match the mediator's name or the branch name:
-    // searching "أحمد" must not return every client Ahmad referred — that is
-    // the separate `filterReferrerName` filter below.
-    const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
-    if (search) {
-      params.push(`%${search}%`);
-      const likeRef = `$${params.length}`;
-      const parts = [
-        `c.name ILIKE ${likeRef}`,
-        `c.id::text LIKE ${likeRef}`,
-        `c.detailed_address ILIKE ${likeRef}`,
-      ];
-      const digits = search.replace(/\D/g, '');
-      if (digits) {
-        params.push(`%${digits}%`);
-        const phoneRef = `$${params.length}`;
-        parts.push(`${phoneNormalizationSql('c.mobile')} LIKE ${phoneRef}`);
-        parts.push(
-          `EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(c.contacts, '[]'::jsonb)) AS contact
-             WHERE ${phoneNormalizationSql(`contact->>'number'`)} LIKE ${phoneRef})`,
-        );
-      }
-      conditions.push(`(${parts.join(' OR ')})`);
-    }
-
-    const filterClass = typeof req.query.filterClass === 'string' ? req.query.filterClass.toUpperCase() : '';
-    if (['OP', 'FOP', 'LEAD'].includes(filterClass)) {
-      params.push(filterClass);
-      conditions.push(`(${buildClientLifecycleStatusSql('c')}) = $${params.length}`);
-    }
-
-    const filterMediator = typeof req.query.filterMediator === 'string' ? req.query.filterMediator.trim() : '';
-    if (filterMediator) {
-      params.push(filterMediator);
-      conditions.push(`c.referrer_type = $${params.length}`);
-    }
-
-    // Primary mediator's name (partial) — the same value the «اسم الوسيط» column shows.
-    const filterReferrerName = typeof req.query.filterReferrerName === 'string' ? req.query.filterReferrerName.trim() : '';
-    if (filterReferrerName) {
-      params.push(`%${filterReferrerName}%`);
-      conditions.push(`c.referrer_name ILIKE $${params.length}`);
-    }
-
-    // ── Enriched filter catalog (docs/engineering/api/clients-records-performance-and-filters.md §7) ──
-    // Geo cascade: the frontend sends the subtree of the deepest selected level
-    // (محافظة→منطقة→ناحية→حي) as `geoIds`; a client matches when any of its geo
-    // columns falls inside that subtree ("match everything under the selection").
-    const geoIds = typeof req.query.geoIds === 'string'
-      ? req.query.geoIds.split(',').map(s => s.trim()).filter(s => /^\d+$/.test(s))
-      : [];
-    if (geoIds.length > 0) {
-      params.push(geoIds);
-      const ref = `$${params.length}::text[]`;
-      conditions.push(`(c.governorate::text = ANY(${ref}) OR c.district::text = ANY(${ref}) OR c.neighborhood::text = ANY(${ref}))`);
-    }
-
-    // Owner/responsible: `owner=branch` = company/branch-owned clients — mirrors
-    // buildCustomerOwnershipSql's company_* ownerType (OP/FOP are reclaimed by the
-    // company; otherwise no eligible personal owner). A user id = clients
-    // personally owned by that eligible user. `ownerBranchId` narrows branch
-    // ownership to one branch; it is ANDed with the scope, so it never widens it.
-    const owner = toPositiveInt(req.query.owner as any);
-    if (req.query.owner === 'branch') {
-      conditions.push(`((${buildClientLifecycleStatusSql('c')}) IN ('OP', 'FOP') OR NOT ${personalOwnerExistsPredicate('c.id')})`);
-      const ownerBranchId = toPositiveInt(req.query.ownerBranchId as any);
-      if (ownerBranchId != null) {
-        params.push(ownerBranchId);
-        conditions.push(`c.branch_id = $${params.length}`);
-      }
-    } else if (owner != null) {
-      params.push(owner);
-      conditions.push(personalOwnershipPredicate('c.id', `$${params.length}`));
-    }
-
-    // Commitment rating.
-    const rating = typeof req.query.rating === 'string' ? req.query.rating.trim() : '';
-    if (['Committed', 'NotCommitted', 'Undefined'].includes(rating)) {
-      params.push(rating);
-      conditions.push(`COALESCE(c.rating, 'Undefined') = $${params.length}`);
-    }
-
-    // Registration date range.
-    const dateRe = /^\d{4}-\d{2}-\d{2}$/;
-    const createdFrom = typeof req.query.createdFrom === 'string' && dateRe.test(req.query.createdFrom) ? req.query.createdFrom : '';
-    if (createdFrom) {
-      params.push(createdFrom);
-      conditions.push(`c.created_at >= $${params.length}::date`);
-    }
-    const createdTo = typeof req.query.createdTo === 'string' && dateRe.test(req.query.createdTo) ? req.query.createdTo : '';
-    if (createdTo) {
-      params.push(createdTo);
-      conditions.push(`c.created_at < ($${params.length}::date + INTERVAL '1 day')`);
-    }
-
-    // Device serial lookup (cross-entity → installed_devices).
-    const serial = typeof req.query.serial === 'string' ? req.query.serial.trim() : '';
-    if (serial) {
-      params.push(`%${serial}%`);
-      conditions.push(`EXISTS (SELECT 1 FROM installed_devices d WHERE d.customer_id = c.id AND d.serial_number ILIKE $${params.length})`);
-    }
-
-    // Has an installed device? (boolean)
-    const hasDevice = req.query.hasDevice;
-    if (hasDevice === 'yes' || hasDevice === 'no') {
-      const op = hasDevice === 'yes' ? 'EXISTS' : 'NOT EXISTS';
-      conditions.push(`${op} (SELECT 1 FROM installed_devices d WHERE d.customer_id = c.id)`);
-    }
-
-    // Has an active task of a given type (cross-entity → open_tasks). "Active" =
-    // any stage that isn't closed/cancelled/completed (confirmed with user).
-    const taskType = typeof req.query.taskType === 'string' ? req.query.taskType.trim() : '';
-    if (taskType) {
-      params.push(taskType);
-      conditions.push(`EXISTS (SELECT 1 FROM open_tasks ot WHERE ot.client_id = c.id AND ot.task_type = $${params.length} AND ot.status NOT IN ('closed', 'cancelled', 'completed'))`);
-    }
-
-    // Route line: clients whose address falls inside the route's covered areas.
-    // The frontend expands the route's points to their geo subtree (like geoIds).
-    const routeGeoIds = typeof req.query.routeGeoIds === 'string'
-      ? req.query.routeGeoIds.split(',').map(s => s.trim()).filter(s => /^\d+$/.test(s))
-      : [];
-    if (routeGeoIds.length > 0) {
-      params.push(routeGeoIds);
-      const ref = `$${params.length}::text[]`;
-      conditions.push(`(c.governorate::text = ANY(${ref}) OR c.district::text = ANY(${ref}) OR c.neighborhood::text = ANY(${ref}))`);
-    }
-
-    // Water source (admin list value) and data quality (fixed enum).
-    const waterSource = typeof req.query.waterSource === 'string' ? req.query.waterSource.trim() : '';
-    if (waterSource) {
-      params.push(waterSource);
-      conditions.push(`c.water_source = $${params.length}`);
-    }
-    const dataQuality = typeof req.query.dataQuality === 'string' ? req.query.dataQuality.trim() : '';
-    if (['correct', 'incorrect', 'needs_edit'].includes(dataQuality)) {
-      params.push(dataQuality);
-      conditions.push(`c.data_quality = $${params.length}`);
-    }
-
-    // Clients referred BY a given client. Covers both storage shapes the row
-    // mapper already reconciles: the legacy flat columns and the `referrers`
-    // JSONB array. Lets the client profile list its referrals without the modal
-    // pulling the whole clients table to filter it in the browser.
-    const referredByClientId = toPositiveInt(req.query.referredByClientId as any);
-    if (referredByClientId != null) {
-      params.push(referredByClientId);
-      const ref = `$${params.length}`;
-      // Containment (@>) rather than expanding the array per row: it is the form
-      // the GIN index from migration 439 can answer. `referralEntityId` is stored
-      // as a JSON number, so the probe is built with jsonb_build_object to match
-      // the type exactly.
-      conditions.push(`(
-        (c.referral_entity_id = ${ref} AND c.referrer_type = 'Client')
-        OR c.referrers @> jsonb_build_array(
-             jsonb_build_object('referralEntityId', ${ref}::int, 'referrerType', 'Client')
-           )
-      )`);
-    }
+    appendClientListFilterConditions(req.query, params, conditions);
 
     const where = ` WHERE ${conditions.join(' AND ')}`;
 
@@ -1469,7 +1478,9 @@ router.get('/:id/account-statement', requirePermission('clients.account_statemen
     const allowedTypes = new Set([
       'contract', 'contract_installment', 'contract_payment',
       'emergency_maintenance', 'periodic_maintenance', 'installation',
-      'golden_warranty', 'opening_balance',
+      'maintenance_installment', 'maintenance_installment_payment',
+      'service_agreement', 'service_agreement_payment',
+      'golden_warranty', 'golden_warranty_installment', 'golden_warranty_payment', 'opening_balance',
     ]);
     const types = typeof req.query.types === 'string'
       ? req.query.types.split(',').map(type => type.trim()).filter(Boolean)
@@ -1521,7 +1532,10 @@ router.get('/:id/account-statement', requirePermission('clients.account_statemen
            COALESCE(SUM(CASE WHEN occurred_at <= NOW()
                              THEN (CASE WHEN kind IN ('charge','refund') THEN amount_syp ELSE -amount_syp END)
                              ELSE 0 END), 0) AS current_balance,
-           COALESCE(SUM(CASE WHEN kind IN ('payment','discount') THEN amount_syp ELSE 0 END), 0) AS total_paid,
+           -- Money actually received only: a discount (a write-off, a cancelled
+           -- remainder, the reversal of a wrong charge) lowers the balance but is
+           -- never a payment.
+           COALESCE(SUM(CASE WHEN kind = 'payment' THEN amount_syp ELSE 0 END), 0) AS total_paid,
            COALESCE(SUM(CASE WHEN kind = 'charge' AND occurred_at > NOW() THEN amount_syp ELSE 0 END), 0) AS upcoming_total,
            GREATEST(COALESCE(SUM(CASE WHEN occurred_at < date_trunc('day', NOW())
                              THEN (CASE WHEN kind IN ('charge','refund') THEN amount_syp ELSE -amount_syp END)
@@ -1752,6 +1766,458 @@ router.get('/:id', requirePermission('clients.view'), async (req, res) => {
   }
 });
 
+// ── Ownership (migration 481) ────────────────────────────────────────────────
+// Ownership is its own operation, not part of the client edit form: every
+// change carries a reason, and the client_ownership_log trigger records it
+// together with the app.* change context set below.
+
+const OWNERSHIP_ACTIONS = ['add', 'remove', 'transfer', 'release'] as const;
+type OwnershipAction = typeof OWNERSHIP_ACTIONS[number];
+
+// Admin-managed reason list per operation («إدارة القوائم», migration 482).
+const OWNERSHIP_REASON_CATEGORIES: Record<OwnershipAction, string> = {
+  add: 'client_ownership_add_reasons',
+  remove: 'client_ownership_remove_reasons',
+  transfer: 'client_ownership_transfer_reasons',
+  release: 'client_ownership_release_reasons',
+};
+
+async function loadClientOwnershipView(
+  clientId: number,
+  authContext: any,
+  db: { query: (text: string, params?: any[]) => Promise<any> } = pool,
+) {
+  const { rows: clientRows } = await db.query(
+    `SELECT c.id, c.branch_id AS "branchId", b.name AS "branchName",
+            (${buildClientLifecycleStatusSql('c')}) AS stage
+       FROM clients c
+       LEFT JOIN branches b ON b.id = c.branch_id
+      WHERE c.id = $1`,
+    [clientId],
+  );
+  const client = clientRows[0];
+  if (!client) return null;
+
+  const [{ rows: ownerRows }, { rows: logRows }] = await Promise.all([
+    db.query(
+      // Each current owner with how the ownership was acquired: the latest
+      // «owner_added» log row for that owner (source + reason + actor).
+      `SELECT ca.hr_user_id AS "userId", u.name, r.display_name AS "roleName",
+              ca.assigned_at AS "assignedAt",
+              COALESCE(acq.performed_by_name, ab.name) AS "assignedByName",
+              e.status AS "employeeStatus", u.is_active AS "accountActive",
+              acq.change_context AS "acquiredContext", acq.reason AS "acquiredReason",
+              acq.source AS "acquiredSource"
+         FROM client_assignments ca
+         JOIN hr_users u ON u.id = ca.hr_user_id
+         LEFT JOIN roles r ON r.id = u.role_id
+         LEFT JOIN employees e ON e.id = u.employee_id
+         LEFT JOIN hr_users ab ON ab.id = ca.assigned_by
+         LEFT JOIN LATERAL (
+           SELECT l.change_context, l.reason, l.source, pb.name AS performed_by_name
+             FROM client_ownership_log l
+             LEFT JOIN hr_users pb ON pb.id = l.performed_by
+            WHERE l.client_id = ca.client_id
+              AND l.owner_user_id = ca.hr_user_id
+              AND l.event_type = 'owner_added'
+            ORDER BY l.created_at DESC, l.id DESC
+            LIMIT 1
+         ) acq ON TRUE
+        WHERE ca.client_id = $1
+        ORDER BY ca.assigned_at, ca.id`,
+      [clientId],
+    ),
+    db.query(
+      `SELECT l.id, l.event_type AS "eventType", l.owner_user_id AS "ownerUserId",
+              l.owner_name AS "ownerName", l.change_context AS "changeContext",
+              l.reason, l.role, l.source, l.created_at AS "createdAt",
+              pb.name AS "performedByName"
+         FROM client_ownership_log l
+         LEFT JOIN hr_users pb ON pb.id = l.performed_by
+        WHERE l.client_id = $1
+        ORDER BY l.created_at DESC, l.id DESC`,
+      [clientId],
+    ),
+  ]);
+
+  const eligibleIds = new Set(
+    await getEligiblePersonalOwnerIds(ownerRows.map((row: any) => Number(row.userId))),
+  );
+  const branchId = client.branchId == null ? null : Number(client.branchId);
+  // Manual operations apply at every stage (LEAD / FOP / OP, 2026-10-20).
+  const manageAccess = canManageClientAssignments(authContext, branchId);
+
+  // The active reasons of each operation's list, served here so a manager
+  // does not also need the system-lists lookup permission.
+  const reasonOptions: Record<OwnershipAction, Array<{ id: number; value: string; label: string }>> = {
+    add: [], remove: [], transfer: [], release: [],
+  };
+  if (manageAccess.allowed) {
+    const { rows: reasonRows } = await db.query(
+      `SELECT id, category, value, COALESCE(NULLIF(metadata->>'label', ''), value) AS label
+         FROM system_lists
+        WHERE category = ANY($1::text[]) AND is_active = TRUE
+        ORDER BY display_order, id`,
+      [Object.values(OWNERSHIP_REASON_CATEGORIES)],
+    );
+    for (const action of OWNERSHIP_ACTIONS) {
+      reasonOptions[action] = reasonRows
+        .filter((row: any) => row.category === OWNERSHIP_REASON_CATEGORIES[action])
+        .map((row: any) => ({ id: Number(row.id), value: row.value, label: row.label }));
+    }
+  }
+
+  return {
+    clientId: Number(client.id),
+    branchId,
+    branchName: client.branchName ?? null,
+    stage: client.stage as 'LEAD' | 'FOP' | 'OP',
+    owners: ownerRows.map((row: any) => ({
+      userId: Number(row.userId),
+      name: row.name,
+      roleName: row.roleName ?? null,
+      assignedAt: row.assignedAt,
+      assignedByName: row.assignedByName ?? null,
+      eligible: eligibleIds.has(Number(row.userId)),
+      employeeStatus: row.employeeStatus ?? null,
+      accountActive: row.accountActive !== false,
+      // No log row → the assignment predates the log (migration 481 backfill gap).
+      acquiredContext: row.acquiredSource === 'backfill' ? 'backfill' : (row.acquiredContext ?? null),
+      acquiredReason: row.acquiredReason ?? null,
+    })),
+    log: logRows.map((row: any) => ({ ...row, id: Number(row.id) })),
+    reasonOptions,
+    canManage: manageAccess.allowed,
+    manageBlockedReason: null,
+  };
+}
+
+router.get('/:id/ownership', requirePermission('clients.ownership.view'), async (req, res) => {
+  try {
+    const authContext = getRequiredAuthContext(req);
+    const clientId = toPositiveInt(req.params.id as string);
+    if (clientId == null) return res.status(400).json({ error: 'معرّف الزبون غير صالح' });
+
+    const subject = await loadClientSubject(clientId);
+    if (!subject) return res.status(404).json({ error: 'الزبون غير موجود' });
+
+    const access = authorize(authContext, {
+      permission: 'clients.ownership.view',
+      branchId: subject.branchId,
+    });
+    if (!access.allowed) return forbidClientAccess(res, access.reason);
+
+    const view = await loadClientOwnershipView(clientId, authContext);
+    if (!view) return res.status(404).json({ error: 'الزبون غير موجود' });
+    res.json(view);
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+router.post('/:id/ownership/operations', requirePermission('clients.assignment.manage'), async (req, res) => {
+  const authContext = getRequiredAuthContext(req);
+  const clientId = toPositiveInt(req.params.id as string);
+  if (clientId == null) return res.status(400).json({ error: 'معرّف الزبون غير صالح' });
+
+  const action = req.body?.action as OwnershipAction;
+  if (!OWNERSHIP_ACTIONS.includes(action)) {
+    return res.status(400).json({ error: 'نوع عملية الملكية غير معروف' });
+  }
+  const reasonId = toPositiveInt(req.body?.reasonId);
+  if (reasonId == null) {
+    return res.status(400).json({ error: 'سبب العملية مطلوب', code: 'OWNERSHIP_REASON_REQUIRED' });
+  }
+  const note = typeof req.body?.note === 'string' ? req.body.note.trim() : '';
+
+  const db = await pool.connect();
+  let transactionStarted = false;
+  try {
+    const { rows: reasonRows } = await db.query(
+      `SELECT value, COALESCE(NULLIF(metadata->>'label', ''), value) AS label
+         FROM system_lists
+        WHERE id = $1 AND category = $2 AND is_active = TRUE`,
+      [reasonId, OWNERSHIP_REASON_CATEGORIES[action]],
+    );
+    const reasonRow = reasonRows[0];
+    if (!reasonRow) {
+      return res.status(400).json({ error: 'سبب العملية غير صالح أو غير فعّال', code: 'OWNERSHIP_REASON_REQUIRED' });
+    }
+    if (reasonRow.value === 'other' && note.length === 0) {
+      return res.status(400).json({ error: 'اكتب ملاحظة توضح السبب عند اختيار «أخرى»', code: 'OWNERSHIP_NOTE_REQUIRED' });
+    }
+    const reason = note ? `${reasonRow.label} — ${note}` : reasonRow.label;
+
+    await db.query('BEGIN');
+    transactionStarted = true;
+
+    const { rows: lockedRows } = await db.query(
+      `SELECT c.branch_id AS "branchId", c.deleted_at AS "deletedAt"
+         FROM clients c
+        WHERE c.id = $1
+        FOR UPDATE OF c`,
+      [clientId],
+    );
+    const locked = lockedRows[0];
+    if (!locked || locked.deletedAt) {
+      throw Object.assign(new Error('الزبون غير موجود'), { status: 404 });
+    }
+    const branchId = locked.branchId == null ? null : Number(locked.branchId);
+    const access = canManageClientAssignments(authContext, branchId);
+    if (!access.allowed) {
+      await db.query('ROLLBACK');
+      transactionStarted = false;
+      return forbidClientAccess(res, access.reason);
+    }
+    if (branchId == null) {
+      throw Object.assign(new Error('الزبون غير مرتبط بفرع'), { status: 409 });
+    }
+
+    const { rows: ownerRows } = await db.query(
+      'SELECT hr_user_id FROM client_assignments WHERE client_id = $1',
+      [clientId],
+    );
+    const currentOwners = new Set<number>(ownerRows.map((row: any) => Number(row.hr_user_id)));
+
+    // Transaction-local context for the ownership-log trigger (migration 481).
+    await db.query(
+      `SELECT set_config('app.change_context', $1, true),
+              set_config('app.change_reason', $2, true),
+              set_config('app.ownership_reason_id', $3, true)`,
+      [`manual_${action}`, reason, String(reasonId)],
+    );
+
+    const resolveNewOwners = async (rawIds: unknown): Promise<number[]> => {
+      const resolved = await resolveAssignmentUserIds(rawIds, branchId, db);
+      if ('error' in resolved) {
+        throw Object.assign(new Error(resolved.error), { status: 400 });
+      }
+      return resolved;
+    };
+
+    if (action === 'add') {
+      const ids = await resolveNewOwners(req.body?.userIds);
+      const newIds = ids.filter(id => !currentOwners.has(id));
+      if (newIds.length === 0) {
+        throw Object.assign(new Error('اختر موظفاً واحداً على الأقل غير مالك حالياً'), { status: 400 });
+      }
+      await insertClientAssignments(clientId, newIds, authContext.userId, db);
+    } else if (action === 'remove') {
+      const userId = toPositiveInt(req.body?.userId);
+      if (userId == null || !currentOwners.has(userId)) {
+        throw Object.assign(new Error('الموظف المحدد ليس مالكاً لهذا الزبون'), { status: 400 });
+      }
+      await db.query(
+        'DELETE FROM client_assignments WHERE client_id = $1 AND hr_user_id = $2',
+        [clientId, userId],
+      );
+    } else if (action === 'transfer') {
+      const fromUserId = toPositiveInt(req.body?.fromUserId);
+      if (fromUserId == null || !currentOwners.has(fromUserId)) {
+        throw Object.assign(new Error('الموظف المنقول منه ليس مالكاً لهذا الزبون'), { status: 400 });
+      }
+      const [toUserId] = await resolveNewOwners([req.body?.toUserId]);
+      if (toUserId == null) {
+        throw Object.assign(new Error('اختر الموظف المنقول إليه'), { status: 400 });
+      }
+      if (currentOwners.has(toUserId)) {
+        throw Object.assign(new Error('الموظف المنقول إليه مالك حالياً'), { status: 400 });
+      }
+      await db.query(
+        'DELETE FROM client_assignments WHERE client_id = $1 AND hr_user_id = $2',
+        [clientId, fromUserId],
+      );
+      await insertClientAssignments(clientId, [toUserId], authContext.userId, db);
+    } else {
+      if (currentOwners.size === 0) {
+        throw Object.assign(new Error('الزبون ملك الفرع أصلاً'), { status: 400 });
+      }
+      await db.query('DELETE FROM client_assignments WHERE client_id = $1', [clientId]);
+    }
+
+    await db.query('COMMIT');
+    transactionStarted = false;
+
+    const view = await loadClientOwnershipView(clientId, authContext);
+    res.json(view);
+  } catch (err: any) {
+    if (transactionStarted) {
+      await db.query('ROLLBACK').catch(() => undefined);
+    }
+    res.status(err.status || 500).json({ error: err.message, code: err.code });
+  } finally {
+    db.release();
+  }
+});
+
+// Bulk «إضافة مالك» on the clients table's current filter result, or on the
+// rows ticked in the table (`clientIds`). For a filter the server rebuilds the
+// result from the same filters as GET /paged; ticked ids go through the same
+// scope checks. Either way it acts on clients of ONE branch, at any stage. Clients already
+// owned by the chosen employee are skipped; other owners stay (co-ownership).
+// `dryRun: true` returns the counts only; the apply call must send the
+// `expectedCount` it was shown, so a result that changed meanwhile is refused.
+const BULK_OWNERSHIP_MAX_SELECTED = 500;
+
+router.post('/bulk-ownership', requirePermission('clients.assignment.manage'), async (req, res) => {
+  const authContext = getRequiredAuthContext(req);
+  const filters = req.body?.filters && typeof req.body.filters === 'object' ? req.body.filters : {};
+  const userId = toPositiveInt(req.body?.userId);
+  const dryRun = req.body?.dryRun === true;
+  // Ticked rows replace the filters when sent (one table page at most).
+  const rawClientIds = Array.isArray(req.body?.clientIds) ? req.body.clientIds : null;
+  const clientIds = rawClientIds == null ? null
+    : Array.from(new Set(rawClientIds.map((id: unknown) => toPositiveInt(id as any)).filter((id: number | null): id is number => id != null)));
+  if (clientIds != null && (clientIds.length === 0 || clientIds.length !== rawClientIds.length || clientIds.length > BULK_OWNERSHIP_MAX_SELECTED)) {
+    return res.status(400).json({
+      error: `حدّد بين 1 و${BULK_OWNERSHIP_MAX_SELECTED} زبون`,
+      code: 'BULK_OWNERSHIP_INVALID_SELECTION',
+    });
+  }
+
+  const headerBranchId = resolveClientListBranchFilter(req);
+  let branchId = headerBranchId
+    ?? (authContext.allowedBranchIds.length === 1 ? Number(authContext.allowedBranchIds[0]) : null);
+  // Ticked rows carry their own branch (a GLOBAL viewer may be on «all
+  // branches»); they must all belong to one.
+  if (branchId == null && clientIds != null) {
+    const { rows: branchRows } = await pool.query(
+      `SELECT DISTINCT branch_id FROM clients WHERE id = ANY($1::int[]) AND branch_id IS NOT NULL`,
+      [clientIds],
+    );
+    if (branchRows.length > 1) {
+      return res.status(400).json({ error: 'الزبائن المحددون من أكثر من فرع؛ حدّد زبائن فرع واحد', code: 'BULK_OWNERSHIP_MIXED_BRANCHES' });
+    }
+    if (branchRows.length === 1) branchId = Number(branchRows[0].branch_id);
+  }
+  if (branchId == null) {
+    return res.status(400).json({ error: 'حدّد فرعاً واحداً قبل الإسناد الجماعي', code: 'BULK_OWNERSHIP_BRANCH_REQUIRED' });
+  }
+  const access = canManageClientAssignments(authContext, branchId);
+  if (!access.allowed) return forbidClientAccess(res, access.reason);
+  const listAccess = getClientListAccessPlan(authContext);
+  if (listAccess.scope === 'NONE') return forbidClientAccess(res, 'MISSING_PERMISSION');
+  // A preview may run before the employee is picked (counts without the
+  // «already owner» split); applying always needs one.
+  if (userId == null && !dryRun) {
+    return res.status(400).json({ error: 'اختر الموظف', code: 'BULK_OWNERSHIP_USER_REQUIRED' });
+  }
+
+  const db = await pool.connect();
+  let transactionStarted = false;
+  try {
+    if (userId != null) {
+      const resolvedUser = await resolveAssignmentUserIds([userId], branchId, db);
+      if ('error' in resolvedUser) {
+        return res.status(400).json({ error: resolvedUser.error });
+      }
+    }
+
+    // Same scope + filters as the records table, narrowed to the branch.
+    const params: any[] = [];
+    const conditions = appendClientScopeConditions(authContext, branchId, listAccess.scope, params);
+    conditions.push('c.is_candidate = FALSE', 'c.deleted_at IS NULL');
+    const conditionsBeforeFilters = conditions.length;
+    if (clientIds != null) {
+      params.push(clientIds);
+      conditions.push(`c.id = ANY($${params.length}::int[])`);
+    } else {
+      appendClientListFilterConditions(filters, params, conditions);
+    }
+    // Never the whole branch by accident: at least one table filter applies.
+    if (conditions.length === conditionsBeforeFilters) {
+      return res.status(400).json({
+        error: 'طبّق فلتراً واحداً على الأقل (منطقة، خط سير، …) قبل الإسناد الجماعي',
+        code: 'BULK_OWNERSHIP_FILTER_REQUIRED',
+      });
+    }
+    params.push(branchId);
+    conditions.push(`c.branch_id = $${params.length}`);
+    const matchedWhere = `WHERE ${conditions.join(' AND ')}`;
+    params.push(userId);
+    const userRef = `$${params.length}`;
+    const alreadyOwnerSql = `EXISTS (SELECT 1 FROM client_assignments ca WHERE ca.client_id = c.id AND ca.hr_user_id = ${userRef})`;
+
+    const { rows: countRows } = await db.query(
+      `SELECT COUNT(*)::int AS matched,
+              COUNT(*) FILTER (WHERE ${alreadyOwnerSql})::int AS "alreadyOwner",
+              COUNT(*) FILTER (WHERE NOT ${alreadyOwnerSql})::int AS "toAssign"
+         FROM clients c
+         LEFT JOIN branches b ON b.id = c.branch_id
+         ${matchedWhere}`,
+      params,
+    );
+    const counts = countRows[0];
+    if (dryRun) {
+      const { rows: reasonOptions } = await db.query(
+        `SELECT id, value, COALESCE(NULLIF(metadata->>'label', ''), value) AS label
+           FROM system_lists
+          WHERE category = $1 AND is_active = TRUE
+          ORDER BY display_order, id`,
+        [OWNERSHIP_REASON_CATEGORIES.add],
+      );
+      return res.json({ ...counts, applied: 0, reasonOptions });
+    }
+
+    const reasonId = toPositiveInt(req.body?.reasonId);
+    const note = typeof req.body?.note === 'string' ? req.body.note.trim() : '';
+    const { rows: reasonRows } = reasonId == null ? { rows: [] as any[] } : await db.query(
+      `SELECT value, COALESCE(NULLIF(metadata->>'label', ''), value) AS label
+         FROM system_lists
+        WHERE id = $1 AND category = $2 AND is_active = TRUE`,
+      [reasonId, OWNERSHIP_REASON_CATEGORIES.add],
+    );
+    const reasonRow = reasonRows[0];
+    if (!reasonRow) {
+      return res.status(400).json({ error: 'سبب العملية مطلوب', code: 'OWNERSHIP_REASON_REQUIRED' });
+    }
+    if (reasonRow.value === 'other' && note.length === 0) {
+      return res.status(400).json({ error: 'اكتب ملاحظة توضح السبب عند اختيار «أخرى»', code: 'OWNERSHIP_NOTE_REQUIRED' });
+    }
+    if (Number(req.body?.expectedCount) !== counts.toAssign) {
+      return res.status(409).json({
+        error: 'تغيّرت نتيجة الفلتر منذ المعاينة؛ أعد المعاينة قبل التنفيذ',
+        code: 'BULK_OWNERSHIP_STALE',
+        ...counts,
+      });
+    }
+    if (counts.toAssign === 0) {
+      return res.status(400).json({ error: 'لا يوجد زبائن لإسنادهم ضمن النتيجة', code: 'BULK_OWNERSHIP_EMPTY' });
+    }
+
+    await db.query('BEGIN');
+    transactionStarted = true;
+    await db.query(
+      `SELECT set_config('app.change_context', 'bulk_add', true),
+              set_config('app.change_reason', $1, true),
+              set_config('app.ownership_reason_id', $2, true)`,
+      [note ? `${reasonRow.label} — ${note}` : reasonRow.label, String(reasonId)],
+    );
+    params.push(authContext.userId);
+    const actorRef = `$${params.length}`;
+    const { rowCount } = await db.query(
+      `INSERT INTO client_assignments (client_id, hr_user_id, assigned_by)
+       SELECT c.id, ${userRef}, ${actorRef}
+         FROM clients c
+         LEFT JOIN branches b ON b.id = c.branch_id
+         ${matchedWhere}
+          AND NOT ${alreadyOwnerSql}
+       ON CONFLICT (client_id, hr_user_id) DO NOTHING`,
+      params,
+    );
+    await db.query('COMMIT');
+    transactionStarted = false;
+    res.json({ ...counts, applied: rowCount ?? 0 });
+  } catch (err: any) {
+    if (transactionStarted) {
+      await db.query('ROLLBACK').catch(() => undefined);
+    }
+    res.status(err.status || 500).json({ error: err.message, code: err.code });
+  } finally {
+    db.release();
+  }
+});
+
 /**
  * @swagger
  * /api/clients/{id}/network:
@@ -1811,7 +2277,9 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
         c.referral_date as referral_date,
         c.referral_sheet_id as referral_sheet_id,
         c.referral_address_text as address,
-        c.referrers as referrers_json
+        c.referrers as referrers_json,
+        (SELECT name FROM hr_users WHERE id = c.created_by) AS creator_name,
+        c.created_at AS client_created_at
       FROM clients c
       WHERE c.id = $1`,
       [clientId],
@@ -1826,6 +2294,13 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
       candidateName: string | null;
       type: string;
       referralDate: string | null;
+      referralSheetId: number | null;
+      /** Added by linking a duplicate suggested name to this existing client (not the acquisition). */
+      viaDuplicateLink: boolean;
+      /** Who made this a mediator of the client: whoever linked or converted the
+       *  name (candidates.qualified_by, migration 486), else the client's creator. */
+      recordedByName: string | null;
+      recordedAt: string | null;
       address: string | null;
       mobile: string | null;
     }> = [];
@@ -1875,6 +2350,9 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
            referral_date AS "referralDate",
            referral_sheet_id AS "referralSheetId",
            address_text AS "addressText",
+           qualification_kind AS "qualificationKind",
+           (SELECT name FROM hr_users WHERE id = candidates.qualified_by) AS "qualifiedByName",
+           qualified_at AS "qualifiedAt",
            COALESCE(
              NULLIF(TRIM(CONCAT_WS(' ', first_name, last_name)), ''),
              NULLIF(nickname, ''),
@@ -1908,7 +2386,10 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
         const referralSheetId = Number(ref.referralSheetId ?? incomingRow.referral_sheet_id);
         const normalizedSheetId = Number.isInteger(referralSheetId) && referralSheetId > 0 ? referralSheetId : null;
 
+        // A name already stamped on another entry (sourceCandidateId) is that
+        // entry's; an unstamped entry never claims it a second time.
         return linkedCandidateRows.find((row: any) => {
+          if (sourceCandidateIds.includes(Number(row.id))) return false;
           const rowEntityId = Number(row.referralEntityId);
           const normalizedRowEntityId = Number.isInteger(rowEntityId) && rowEntityId > 0 ? rowEntityId : null;
           const entityMatches = normalizedEntityId == null || normalizedRowEntityId === normalizedEntityId;
@@ -1951,6 +2432,10 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
           : sourceCandidateId;
         const referralDate = ref.referralDate
           ?? (ref.__legacy ? incomingRow.referral_date : null);
+        const rawSheetId = Number(
+          ref.referralSheetId ?? linkedCandidate?.referralSheetId ?? (ref.__legacy ? incomingRow.referral_sheet_id : null),
+        );
+        const referralSheetId = Number.isInteger(rawSheetId) && rawSheetId > 0 ? rawSheetId : null;
         const address = linkedCandidate?.addressText
           ?? ref.address
           ?? ref.referralAddressText
@@ -1979,6 +2464,12 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
             : null,
           type: ref.type ?? ref.referrerType ?? 'unknown',
           referralDate: toDateKey(referralDate),
+          referralSheetId,
+          viaDuplicateLink: linkedCandidate?.qualificationKind === 'linked',
+          // A name behind the mediator → whoever qualified it (unknown for links
+          // before migration 486); no name → the mediator was recorded with the client.
+          recordedByName: linkedCandidate ? (linkedCandidate.qualifiedByName ?? null) : (incomingRow.creator_name ?? null),
+          recordedAt: toDateKey(linkedCandidate ? linkedCandidate.qualifiedAt : incomingRow.client_created_at),
           address,
           mobile,
         });
@@ -1986,8 +2477,33 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
     }
 
     // Outgoing (who this client referred)
+    // Wrapped so each referred name also carries its lifecycle stage (clients,
+    // computed like everywhere else — the stored candidate_status is unreliable)
+    // and who holds it: the client's eligible owners, or the candidate's
+    // responsible user. Neither → the branch.
+    //
+    // A referred client reached this list either as the mediator's ORIGINAL
+    // referral (a name converted into a new client, or a client registered with
+    // this mediator) or by LINKING a duplicate name to a client that already
+    // existed (qualification_kind = 'linked'). A linked client
+    // earns no acquisition credit, and purchase credit only for a contract made
+    // on or after the link day (the date stamped on the linked referrer entry;
+    // the name's creation day as a fallback).
+    const viaLinkSql = `(n.is_client AND n.link_kind = 'linked')`;
     const { rows: outgoingRows } = await pool.query(
-      `SELECT DISTINCT
+      `SELECT n.*,
+        CASE WHEN n.is_client THEN (${buildClientLifecycleStatusSql('oc')}) END AS stage,
+        holder.names AS holder_names,
+        ${viaLinkSql} AS via_link,
+        lk.linked_on,
+        (lk.linked_on IS NOT NULL AND EXISTS (
+          SELECT 1 FROM contracts buy
+           WHERE buy.customer_id = n.id
+             AND buy.status NOT IN ('draft', 'discarded')
+             AND COALESCE(buy.closing_date, buy.created_at)::date >= lk.linked_on
+        )) AS bought_after_link
+      FROM (
+      SELECT DISTINCT
         sheet_id,
         referral_date,
         referral_address_text,
@@ -1996,22 +2512,56 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
         mobile,
         address,
         is_client,
-        status
+        status,
+        link_kind
       FROM (
+        -- Names on this mediator's sheets. A converted or linked name is shown
+        -- as the client it became (followed through converted_to_lead_id; the
+        -- old sheet-wide client join paired every name with every client of
+        -- the sheet and hid the names behind them).
         SELECT
           rs.id as sheet_id,
           rs.referral_date,
           rs.referral_address_text,
           COALESCE(cli.id, can.id) as id,
-          COALESCE(cli.name, NULLIF(TRIM(CONCAT_WS(' ', can.first_name, can.last_name)), '')) as name,
+          COALESCE(
+            cli.name,
+            NULLIF(TRIM(CONCAT_WS(' ', can.first_name, can.last_name)), ''),
+            NULLIF(can.nickname, ''),
+            CONCAT('#', can.id)
+          ) as name,
           COALESCE(cli.mobile, can.mobile) as mobile,
           COALESCE(cli.detailed_address, can.address_text) as address,
           CASE WHEN cli.id IS NOT NULL THEN true ELSE false END as is_client,
-          COALESCE(cli.candidate_status, can.status) as status
+          COALESCE(cli.candidate_status, can.status) as status,
+          can.qualification_kind as link_kind
         FROM referral_sheets rs
-        LEFT JOIN candidates can ON can.referral_sheet_id = rs.id
-        LEFT JOIN clients cli ON cli.referral_sheet_id = rs.id
+        JOIN candidates can ON can.referral_sheet_id = rs.id
+        LEFT JOIN clients cli ON cli.id = can.converted_to_lead_id AND cli.deleted_at IS NULL
         WHERE rs.referral_entity_id = $1 AND rs.referral_type = 'Client'
+
+        UNION ALL
+
+        -- Clients registered on this mediator's sheets without a name behind them.
+        SELECT
+          rs.id as sheet_id,
+          rs.referral_date,
+          rs.referral_address_text,
+          cli.id,
+          cli.name,
+          cli.mobile,
+          cli.detailed_address as address,
+          true as is_client,
+          cli.candidate_status as status,
+          NULL::text as link_kind
+        FROM referral_sheets rs
+        JOIN clients cli ON cli.referral_sheet_id = rs.id AND cli.deleted_at IS NULL
+        WHERE rs.referral_entity_id = $1 AND rs.referral_type = 'Client'
+          AND NOT EXISTS (
+            SELECT 1 FROM candidates sheet_can
+             WHERE sheet_can.converted_to_lead_id = cli.id
+               AND sheet_can.referral_sheet_id = rs.id
+          )
 
         UNION ALL
 
@@ -2029,7 +2579,8 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
           COALESCE(cli.mobile, can.mobile) as mobile,
           COALESCE(cli.detailed_address, can.address_text) as address,
           CASE WHEN cli.id IS NOT NULL THEN true ELSE false END as is_client,
-          COALESCE(cli.candidate_status, can.status) as status
+          COALESCE(cli.candidate_status, can.status) as status,
+          can.qualification_kind as link_kind
         FROM candidates can
         LEFT JOIN clients cli ON cli.id = can.converted_to_lead_id
         WHERE can.referral_entity_id = $1
@@ -2047,7 +2598,8 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
           cli.mobile,
           cli.detailed_address as address,
           true as is_client,
-          cli.candidate_status as status
+          cli.candidate_status as status,
+          NULL::text as link_kind
         FROM clients cli
         WHERE cli.referral_entity_id = $1
           AND cli.referrer_type = 'Client'
@@ -2061,8 +2613,43 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
           )
       ) outgoing_network
       WHERE id IS NOT NULL
-      ORDER BY referral_date DESC NULLS LAST, id DESC`,
-      [clientId],
+      ) n
+      LEFT JOIN clients oc ON n.is_client AND oc.id = n.id
+      LEFT JOIN LATERAL (
+        SELECT COALESCE(
+          (SELECT MIN(LEFT(e->>'referralDate', 10)::date)
+             FROM jsonb_array_elements(
+                    CASE WHEN jsonb_typeof(oc.referrers) = 'array' THEN oc.referrers ELSE '[]'::jsonb END
+                  ) e
+            WHERE COALESCE(e->>'referralEntityId', e->>'id') = $2
+              AND e->>'sourceCandidateId' IS NOT NULL
+              AND e->>'referralDate' ~ '^\\d{4}-\\d{2}-\\d{2}'),
+          (SELECT MIN(link_can.created_at)::date
+             FROM candidates link_can
+            WHERE link_can.converted_to_lead_id = n.id
+              AND link_can.referral_entity_id = $1
+              AND link_can.qualification_kind = 'linked')
+        ) AS linked_on
+      ) lk ON ${viaLinkSql}
+      LEFT JOIN LATERAL (
+        SELECT string_agg(h.name, ' + ' ORDER BY h.ord) AS names
+          FROM (
+            SELECT u.name, ca.assigned_at AS ord
+              FROM client_assignments ca
+              JOIN hr_users u ON u.id = ca.hr_user_id
+              LEFT JOIN roles r ON r.id = u.role_id
+              LEFT JOIN employees e ON e.id = u.employee_id
+             WHERE n.is_client AND ca.client_id = n.id
+               AND ${eligiblePersonalOwnerCondition('u', 'r', 'e')}
+            UNION ALL
+            SELECT u.name, cas.assigned_at AS ord
+              FROM candidate_assignments cas
+              JOIN hr_users u ON u.id = cas.hr_user_id
+             WHERE NOT n.is_client AND cas.candidate_id = n.id
+          ) h
+      ) holder ON TRUE
+      ORDER BY n.referral_date DESC NULLS LAST, n.id DESC`,
+      [clientId, String(clientId)],
     );
 
     const outgoing = outgoingRows.map((r: any) => ({
@@ -2071,10 +2658,19 @@ router.get('/:id/network', requirePermission('clients.network.view'), async (req
       mobile: r.mobile ?? null,
       address: r.address ?? null,
       status: r.status ?? 'Unknown',
+      /** LEAD / FOP / OP for clients; null for candidates (see `status`). */
+      stage: r.stage ?? null,
       referralDate: r.referral_date
         ? new Date(r.referral_date).toISOString().split('T')[0]
         : null,
+      referralSheetId: r.sheet_id == null ? null : Number(r.sheet_id),
       isClient: r.is_client,
+      holderNames: r.holder_names ?? null,
+      /** The client existed before this mediator suggested it (a linked duplicate). */
+      viaDuplicateLink: r.via_link === true,
+      linkedOn: r.linked_on ? new Date(r.linked_on).toISOString().split('T')[0] : null,
+      /** Linked duplicates only: a contract was made on or after the link day. */
+      boughtAfterLink: r.bought_after_link === true,
     }));
 
     res.json({ incoming, outgoing });
@@ -2358,6 +2954,9 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
       ],
     );
 
+    await db.query(`SELECT set_config('app.change_context', $1, true)`, [
+      hasSourceCandidate ? 'candidate_converted' : 'client_created',
+    ]);
     await insertClientAssignments(inserted.id, resolvedAssignees, authContext.userId, db);
     await db.query(
       `INSERT INTO client_rating_history (client_id, old_rating, new_rating, notes, changed_by, changed_at)
@@ -2400,7 +2999,9 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
                 qualification_kind = 'converted',
                 duplicate_flag = $3,
                 duplicate_type = $4,
-                duplicate_reference_id = $5
+                duplicate_reference_id = $5,
+                qualified_by = $6,
+                qualified_at = NOW()
           WHERE id = $1
         RETURNING referral_sheet_id AS "referralSheetId"`,
         [
@@ -2409,6 +3010,7 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
           convertedDuplicate.duplicateFlag,
           convertedDuplicate.duplicateType,
           convertedDuplicate.duplicateReferenceId,
+          authContext.userId,
         ],
       );
       // Qualifying a name changes its sheet's quality/conversion percentages.
@@ -2576,27 +3178,13 @@ router.put('/:id', requirePermission('clients.edit', 'clients.contacts.edit'), a
       });
     }
 
-    // Resolve assignment changes only if the caller explicitly provided a new list
-    let newAssigneeIds: number[] | null = null;
-    const assignmentBranchId = existing?.branch_id == null ? null : Number(existing.branch_id);
-    const assignmentAccess = canManageClientAssignments(
-      authContext,
-      Number.isInteger(assignmentBranchId) ? assignmentBranchId : null,
-    );
-    const canManageAssignments = assignmentAccess.allowed;
-    if (Array.isArray(req.body?.assignmentUserIds) && !canManageAssignments) {
-      return forbidClientAccess(res, assignmentAccess.reason);
-    }
-    if (canManageAssignments && Array.isArray(req.body?.assignmentUserIds)) {
-      const resolved = await resolveAssignmentUserIds(
-        req.body.assignmentUserIds,
-        assignmentBranchId!,
-        db,
-      );
-      if ('error' in resolved) {
-        return res.status(400).json({ error: resolved.error });
-      }
-      newAssigneeIds = resolved;
+    // Ownership is no longer part of the edit form (migration 481): it changes
+    // only through POST /:id/ownership/operations, with a reason and a log.
+    if (req.body?.assignmentUserIds !== undefined) {
+      return res.status(400).json({
+        error: 'تغيير ملكية الزبون يتم من تبويب «الملكية» وليس من نموذج التعديل',
+        code: 'OWNERSHIP_OPERATION_REQUIRED',
+      });
     }
 
     const transitioningToOpFop =
@@ -2622,18 +3210,6 @@ router.put('/:id', requirePermission('clients.edit', 'clients.contacts.edit'), a
         code: 'CLIENT_CHANGED_DURING_UPDATE',
       });
     }
-    if (newAssigneeIds !== null) {
-      const lockedAssignees = await resolveAssignmentUserIds(
-        newAssigneeIds,
-        Number(lockedSubject.branchId),
-        db,
-      );
-      if ('error' in lockedAssignees) {
-        throw Object.assign(new Error(lockedAssignees.error), { status: 400 });
-      }
-      newAssigneeIds = lockedAssignees;
-    }
-
     await db.query(
       `UPDATE clients SET
         first_name=$1, father_name=$2, last_name=$3, nickname=$4,
@@ -2660,18 +3236,15 @@ router.put('/:id', requirePermission('clients.edit', 'clients.contacts.edit'), a
       ],
     );
 
-    // If transitioning to OP/FOP: drop personal assignments + cancel marketing tasks
+    // If transitioning to OP/FOP: cancel open marketing tasks. Personal owners
+    // stay (2026-10-20): ownership no longer moves to the branch at FOP/OP.
     if (transitioningToOpFop) {
-      await db.query('DELETE FROM client_assignments WHERE client_id = $1', [clientId]);
       await db.query(
         `UPDATE open_tasks SET status = 'cancelled', updated_at = NOW()
          WHERE client_id = $1 AND task_family = 'marketing'
            AND status NOT IN ('completed', 'cancelled')`,
         [clientId],
       );
-    } else if (newAssigneeIds !== null) {
-      await db.query('DELETE FROM client_assignments WHERE client_id = $1', [clientId]);
-      await insertClientAssignments(Number(clientId), newAssigneeIds, authContext.userId, db);
     }
 
     // Audit log: record meaningful field changes
@@ -2791,7 +3364,9 @@ router.delete('/:id', requirePermission('clients.delete'), async (req, res) => {
        WHERE client_id = $1 AND status NOT IN ('completed', 'cancelled')`,
       [clientId],
     );
-    await pool.query('DELETE FROM client_assignments WHERE client_id = $1', [clientId]);
+    await runWithChangeContext({ changeContext: 'client_deleted' }, () =>
+      pool.query('DELETE FROM client_assignments WHERE client_id = $1', [clientId]),
+    );
     await pool.query('DELETE FROM contact_targets WHERE target_type = $1 AND target_id = $2', ['client', clientId]);
     // Plan 2026-06-10 Phase 2.5 — the UPDATE on telemarketing_appointments
     // that used to live here was dead code (column `status` does not exist

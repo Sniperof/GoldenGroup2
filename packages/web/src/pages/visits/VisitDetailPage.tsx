@@ -15,10 +15,12 @@ import VisitSurveyModal from '../../components/fieldVisits/VisitSurveyModal';
 import ReferralSheetModal from '../../components/fieldVisits/ReferralSheetModal';
 import PullTaskModal from '../../components/fieldVisits/PullTaskModal';
 import VisitReasonModal from '../../components/fieldVisits/VisitReasonModal';
+import ReassignTeamModal from '../../components/fieldVisits/ReassignTeamModal';
 import VisitTaskResultModalHost, {
     hasVisitTaskResultModal,
 } from '../../components/fieldVisits/VisitTaskResultModalHost';
 import ClientSnapshot from '../../components/ClientSnapshot';
+import MaintenanceFinanceBlock from '../../components/fieldVisits/MaintenanceFinanceBlock';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { taskDecisionLabel } from '../../lib/taskDecisionLabels';
 
@@ -240,11 +242,13 @@ export default function VisitDetailPage() {
     const [reopening, setReopening] = useState(false);
     const [gpsReasonAction, setGpsReasonAction] = useState<'start' | 'end' | null>(null);
     const [cancelOpen, setCancelOpen] = useState(false);
+    const [reassignOpen, setReassignOpen] = useState(false);
     const hasPermission = useAuthStore((s) => s.hasPermission);
     const canCreateComplaint = hasPermission('complaints.create_internal')
         && hasPermission('clients.view_list')
         && (hasPermission('clients.visits.view') || hasPermission('field_visits.view'));
     const canReopen = hasPermission('field_visits.reopen_closed');
+    const canRecordResults = hasPermission('tasks.results.record');
 
     const visitId = Number(id);
 
@@ -372,10 +376,18 @@ export default function VisitDetailPage() {
         && tasks.every((t: any) => t.result_id != null && t.final_decision != null);
     const canCloseVisit = canExecute && visit.status === 'completed' && allTasksHaveFinalDecision;
 
-    // VDP §4: reassigned team becomes primary; original becomes backup
+    // VDP §4 (term fixed 2026-10-11): after a change, the replacement crew —
+    // «الفريق الرديف» — is the one responsible; the original is kept for reference.
     const reassigned = team.reassigned;
-    const primaryTeam = reassigned ?? team.original;
-    const backupTeam = reassigned ? team.original : null;
+    const currentTeam = reassigned ?? team.original;
+    const replacedTeam = reassigned ? team.original : null;
+    const teamChanges: any[] = Array.isArray(team.changes) ? team.changes : [];
+    const canReassignTeam = hasPermission('field_visits.reassign_team') && visit.status === 'scheduled';
+    const teamMembersLabel = (t: any) => [
+        t?.supervisor?.name ? `مشرف: ${t.supervisor.name}` : null,
+        t?.technician?.name ? `فني: ${t.technician.name}` : null,
+        t?.trainee?.name ? `متدرّب: ${t.trainee.name}` : null,
+    ].filter(Boolean).join(' · ') || '—';
 
     const answeredByLabel = visit.answered_by
         ? (ANSWERED_BY_LABELS[visit.answered_by] ?? visit.answered_by)
@@ -596,23 +608,44 @@ export default function VisitDetailPage() {
 
                 {/* ── ٤) الفريق المسؤول ── */}
                 <Section icon={Users} title="الفريق المسؤول عن الزيارة" accent="text-indigo-600"
-                    action={visit.status === 'scheduled' ? (
+                    action={canReassignTeam ? (
                         <button
-                            onClick={() => alert('ميزة تغيير الفريق قيد التطوير ضمن مسار منفصل.')}
+                            onClick={() => setReassignOpen(true)}
                             className="flex items-center gap-1 text-xs font-bold text-indigo-600 hover:text-indigo-500">
                             <RefreshCw className="w-3.5 h-3.5" /> تغيير الفريق
                         </button>
                     ) : undefined}>
                     <div className="space-y-3">
-                        <TeamCard data={primaryTeam} label={backupTeam ? 'الفريق الرئيسي (بعد التغيير)' : 'الفريق المكلّف'} />
-                        {backupTeam && (
+                        <TeamCard data={currentTeam} label={replacedTeam ? 'الفريق الرديف (المسؤول حالياً)' : 'الفريق المكلّف'} />
+                        {replacedTeam && (
                             <div>
-                                <TeamCard data={backupTeam} label="الفريق الرديف (الأصلي)" muted />
+                                <TeamCard data={replacedTeam} label="الفريق الأصلي (المُستبدَل)" muted />
                                 {team.reassigned_at && (
                                     <p className="text-xs text-slate-400 mt-1.5 flex items-center gap-1">
                                         <Repeat className="w-3 h-3" /> تاريخ التغيير: {formatDate(team.reassigned_at)} {formatTime(team.reassigned_at)}
                                     </p>
                                 )}
+                            </div>
+                        )}
+                        {teamChanges.length > 0 && (
+                            <div className="rounded-xl border border-slate-200 p-3">
+                                <p className="text-xs font-bold text-slate-500 mb-2">سجل تغيير الفريق</p>
+                                <div className="space-y-2">
+                                    {teamChanges.map((c: any) => (
+                                        <div key={c.id} className="text-xs text-slate-600 border-t border-slate-100 pt-2 first:border-t-0 first:pt-0">
+                                            <p className="text-slate-400">
+                                                {formatDate(c.changedAt)} {formatTime(c.changedAt)}
+                                                {c.changedByName ? ` · ${c.changedByName}` : ''}
+                                            </p>
+                                            <p>
+                                                <span className="line-through text-slate-400">{teamMembersLabel(c.from)}</span>
+                                                {' ← '}
+                                                <span className="font-semibold text-slate-700">{teamMembersLabel(c.to)}</span>
+                                            </p>
+                                            <p className="text-slate-500">السبب: {c.reasonLabel ?? '—'}{c.note ? ` — ${c.note}` : ''}</p>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
                         )}
                     </div>
@@ -668,9 +701,12 @@ export default function VisitDetailPage() {
                             // `in_progress` (during the field work) and remain editable
                             // after it transitions to `ended`. The visit auto-completes
                             // once the last task result + the survey are in place.
-                            const canRecord = (visit.status === 'in_progress' || visit.status === 'ended') && !hasResult;
+                            // The server records a result only with tasks.results.record: without
+                            // it the wizard opened and every save failed (2026-11-04).
+                            const recordable = (visit.status === 'in_progress' || visit.status === 'ended') && !hasResult;
+                            const canRecord = recordable && canRecordResults;
                             const canOpenResultModal = hasVisitTaskResultModal(task.task_type);
-                            const canEditResult = visit.status === 'completed' && hasResult && canOpenResultModal;
+                            const canEditResult = canRecordResults && visit.status === 'completed' && hasResult && canOpenResultModal;
                             const decisionMeta = getFinalDecisionMeta(task.final_decision, task.task_type);
                             const outcomeMeta = getDerivedOutcomeMeta(task);
                             return (
@@ -685,6 +721,9 @@ export default function VisitDetailPage() {
                                                 {task.task_family === 'marketing' ? 'تسويق' : 'خدمة'}
                                                 {task.contract_number && (
                                                     <span className="text-slate-400"> · عقد {task.contract_number}{task.device_model_name ? ` — ${task.device_model_name}` : ''}</span>
+                                                )}
+                                                {task.device_serial_number && (
+                                                    <span className="text-blue-600 font-bold"> · جهاز {task.device_serial_number}</span>
                                                 )}
                                             </p>
                                         </div>
@@ -728,6 +767,9 @@ export default function VisitDetailPage() {
                                         </div>
                                     )}
 
+                                    {/* القطع والمبالغ لمهام الصيانة بهذه الزيارة */}
+                                    {task.maintenanceFinance && <MaintenanceFinanceBlock finance={task.maintenanceFinance} />}
+
                                     {/* الإجراء حسب حالة الزيارة */}
                                     <div className="mt-3 flex items-center gap-2 flex-wrap">
                                         {visit.status === 'scheduled' && <span className="text-xs text-slate-400">عرض فقط — لم تبدأ الزيارة</span>}
@@ -737,6 +779,9 @@ export default function VisitDetailPage() {
                                                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-500 transition-colors">
                                                 <ClipboardCheck className="w-3.5 h-3.5" /> تسجيل النتيجة
                                             </button>
+                                        )}
+                                        {recordable && !canRecordResults && (
+                                            <span className="text-xs text-slate-400">لا تملك صلاحية تسجيل النتيجة</span>
                                         )}
                                         {canRecord && !canOpenResultModal && (
                                             <span className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded inline-flex items-center gap-1">
@@ -845,8 +890,8 @@ export default function VisitDetailPage() {
                 <VisitTaskResultModalHost
                     visit={visit}
                     task={resultTask}
-                    primaryTeam={primaryTeam}
-                    backupTeam={backupTeam}
+                    primaryTeam={currentTeam}
+                    backupTeam={replacedTeam}
                     onClose={() => setResultTask(null)}
                     onSaved={() => { setResultTask(null); load(); }}
                 />
@@ -891,6 +936,15 @@ export default function VisitDetailPage() {
                     } catch (err: any) {
                         alert(err?.message ?? 'فشل إلغاء الزيارة');
                     } finally { setActionLoading(null); }
+                }}
+            />
+            <ReassignTeamModal
+                open={reassignOpen}
+                visitId={visitId}
+                onClose={() => setReassignOpen(false)}
+                onDone={async () => {
+                    setReassignOpen(false);
+                    await load();
                 }}
             />
         </div>

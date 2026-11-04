@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Loader2, Monitor, Filter, Wrench, DollarSign, RefreshCw, Gift, ShieldCheck, UserCheck, Unplug } from '../../components/ui/icons';
+import { Loader2, Monitor, Filter, Wrench, DollarSign, RefreshCw, Gift, ShieldCheck, UserCheck, Unplug, PackageMinus, Undo2, ArrowLeftRight } from '../../components/ui/icons';
 import { api } from '../../lib/api';
 import { useBranchListScope } from '../../hooks/useBranchListScope';
 import ClientCardPopup from '../../components/ClientCardPopup';
@@ -40,6 +40,9 @@ type GroupKey =
   | 'device-installation'
   | 'device-activation'
   | 'device-disconnection'
+  | 'device-retrieval'
+  | 'device-return'
+  | 'device-transfer'
   | 'my-customers';
 
 type GroupConfig = {
@@ -142,6 +145,33 @@ const GROUP_CONFIG: Record<GroupKey, GroupConfig> = {
     accentBg: 'bg-slate-600',
     accentRing: 'shadow-slate-500/20',
     detailHref: '/tasks/group/device-disconnection',
+  },
+  'device-retrieval': {
+    label: 'مهام سحب الجهاز',
+    subtitle: 'سحب الجهاز من موقع الزبون إلى الفرع',
+    taskTypes: ['device_retrieval'],
+    Icon: PackageMinus,
+    accentBg: 'bg-orange-500',
+    accentRing: 'shadow-orange-500/20',
+    detailHref: '/tasks/group/device-retrieval',
+  },
+  'device-return': {
+    label: 'مهام إرجاع الجهاز',
+    subtitle: 'إرجاع الجهاز إلى الزبون بعد الصيانة',
+    taskTypes: ['device_return'],
+    Icon: Undo2,
+    accentBg: 'bg-teal-600',
+    accentRing: 'shadow-teal-500/20',
+    detailHref: '/tasks/group/device-return',
+  },
+  'device-transfer': {
+    label: 'مهام نقل الجهاز',
+    subtitle: 'نقل الجهاز إلى عنوان أو زبون آخر',
+    taskTypes: ['device_transfer'],
+    Icon: ArrowLeftRight,
+    accentBg: 'bg-cyan-600',
+    accentRing: 'shadow-cyan-500/20',
+    detailHref: '/tasks/group/device-transfer',
   },
   // ASSIGNED-scope aggregate (§7, مُسنَد): every task of customers the user
   // personally owns, regardless of type. Served by /open-tasks/my-customers;

@@ -17,9 +17,17 @@ test('service device report keeps one installed device as its row grain', () => 
 
 test('last completed visit is device-linked and isolates parts and payments to that device', () => {
   const query = buildServiceDevicesQuery(globalAccess, {}, { limit: 50 });
-  assert.match(query.sql, /task\.device_id = device\.id AND task\.status IN \('completed', 'closed'\)/);
-  assert.match(query.sql, /task\.field_visit_id = last_completed_visit\.id AND task\.device_id = device\.id/);
+  // Device-linked through the visit task (migrated) or its source open task (live,
+  // where visit_tasks.device_id is never filled).
+  const deviceMatch = String.raw`\(task\.device_id = device\.id OR task\.source_open_task_id IN \(\s*SELECT device_task\.id FROM open_tasks device_task WHERE device_task\.device_id = device\.id\)\)`;
+  assert.match(query.sql, new RegExp(`${deviceMatch} AND task\\.status IN \\('completed', 'closed'\\)`));
+  assert.match(query.sql, new RegExp(`task\\.field_visit_id = last_completed_visit\\.id AND ${deviceMatch}`));
   assert.match(query.sql, /movement\.kind = 'payment'/);
+  // Golden-warranty payments are keyed by the warranty sold by the visit's offer task.
+  assert.match(query.sql, /movement\.source_type = 'golden_warranty_payment'[\s\S]*warranty\.source_task_id = task_source\.source_open_task_id/);
+  // Replaced parts come from both paths: migrated results and live maintenance results.
+  assert.match(query.sql, /JOIN visit_task_emergency_parts_used migrated ON migrated\.visit_task_result_id = result\.id/);
+  assert.match(query.sql, /live\.visit_task_id = task\.id AND live\.execution_status = 'replaced'/);
   assert.match(query.sql, /task\.source_open_task_id/);
   assert.match(query.sql, /STRING_AGG\(part\.part_name_snapshot \|\| ' × ' \|\| part\.quantity::text/);
 });

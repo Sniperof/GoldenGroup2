@@ -54,6 +54,7 @@ import { useAuthStore } from '../hooks/useAuthStore';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import BranchScopeIndicator from '../components/BranchScopeIndicator';
 import BulkActivateModal from '../components/appAccounts/BulkActivateModal';
+import BulkOwnershipModal from '../components/clients/BulkOwnershipModal';
 import { usePermissions } from '../hooks/usePermissions';
 import { useDidUpdateEffect, useScrollRestoration, useSessionState } from '../hooks/useListStatePersistence';
 
@@ -150,6 +151,11 @@ export default function Clients() {
     } | null>(null);
     const { hasPermission } = usePermissions();
     const canBulkActivate = hasPermission('app_accounts.bulk_activate');
+    // Bulk ownership acts on ONE branch: GLOBAL viewers pick it in the page filter.
+    const canBulkOwnership = hasPermission('clients.assignment.manage');
+    const [bulkOwnershipOpen, setBulkOwnershipOpen] = useState(false);
+    // Ticked rows for «إسناد ملكية المحددين»; null = the filter result.
+    const [bulkOwnershipSelection, setBulkOwnershipSelection] = useState<{ ids: number[]; branchId: number | null } | null>(null);
     const canDeleteClients = hasPermission('clients.delete');
     const [activeCandidateForSearch, setActiveCandidateForSearch] = useState<any>(null);
     const [verifiedPhone, setVerifiedPhone] = useState('');
@@ -167,6 +173,11 @@ export default function Clients() {
     // Enriched catalog (§7) — all live in one unified, collapsible panel.
     const [filtersOpen, setFiltersOpen] = useSessionState(`${listKey}:filtersOpen`, false);
     const [filterOwner, setFilterOwner] = useSessionState(`${listKey}:filterOwner`, 'all');
+    // ASSIGNED viewers only ever see records personally assigned to them: no
+    // owner filter applies (branch ownership or another person always yields an
+    // empty list) and the owner list would reveal colleagues' names. A value
+    // remembered from another session/scope is ignored too.
+    const effectiveOwner = canSeeAssignments ? filterOwner : 'all';
     const [filterRating, setFilterRating] = useSessionState(`${listKey}:filterRating`, 'all');
     // Geo cascade (branch-scoped): محافظة → منطقة → ناحية → حي, each optional.
     const [filterGov, setFilterGov] = useSessionState(`${listKey}:filterGov`, 'all');
@@ -273,8 +284,8 @@ export default function Clients() {
             filterReferrerName: debouncedReferrerName,
             geoIds: geoIdsCsv,
             routeGeoIds: routeGeoIdsCsv,
-            owner: filterOwner.startsWith('branch') ? 'branch' : filterOwner,
-            ownerBranchId: filterOwner.startsWith('branch:') ? Number(filterOwner.slice(7)) : undefined,
+            owner: effectiveOwner.startsWith('branch') ? 'branch' : effectiveOwner,
+            ownerBranchId: effectiveOwner.startsWith('branch:') ? Number(effectiveOwner.slice(7)) : undefined,
             rating: filterRating,
             waterSource: filterWaterSource, dataQuality: filterDataQuality,
             hasDevice: filterHasDevice, taskType: filterTaskType,
@@ -282,7 +293,7 @@ export default function Clients() {
             createdFrom: dateFrom, createdTo: dateTo,
         };
     }, [isGlobalClients, branchContextId, debouncedSearch, filterClass, filterMediator, debouncedReferrerName, geoIdsCsv, routeGeoIdsCsv,
-        filterOwner, filterRating, filterWaterSource, filterDataQuality, filterHasDevice, filterTaskType, debouncedSerial, dateFrom, dateTo]);
+        effectiveOwner, filterRating, filterWaterSource, filterDataQuality, filterHasDevice, filterTaskType, debouncedSerial, dateFrom, dateTo]);
 
     const fetchClients = useCallback(async () => {
         const useSort = sortDir != null;
@@ -334,11 +345,12 @@ export default function Clients() {
     // Owner options — eligible personal owners, scoped to the branch filter.
     useEffect(() => {
         if (!filtersOpen) return;
+        if (!canSeeAssignments) return;
         const branchParam = isGlobalClients ? branchContextId : null;
         api.admin.hrUsers.nameListAssignable(branchParam)
             .then(rows => setOwnerOptions((rows as any[]).map(u => ({ id: u.id, name: u.name }))))
             .catch(() => setOwnerOptions([]));
-    }, [filtersOpen, isGlobalClients, branchContextId]);
+    }, [filtersOpen, canSeeAssignments, isGlobalClients, branchContextId]);
 
     // Task-type options for the "has task of type" filter.
     useEffect(() => {
@@ -440,7 +452,7 @@ export default function Clients() {
                 const wasOpFop = ['OP', 'FOP'].includes(editingClient.candidateStatus ?? '');
                 const nowOpFop = ['OP', 'FOP'].includes(clientData.candidateStatus ?? '');
                 if (!wasOpFop && nowOpFop) {
-                    const ok = confirm('تغيير الحالة إلى OP/FOP سيحذف جميع التعيينات الشخصية ويلغي المهام التسويقية. تأكيد؟');
+                    const ok = confirm('تغيير الحالة إلى OP/FOP سيلغي المهام التسويقية المفتوحة، ويبقى المالكون كما هم. تأكيد؟');
                     if (!ok) return;
                 }
                 await api.clients.update(clientData.id, clientData);
@@ -547,7 +559,7 @@ export default function Clients() {
     if (filterMediator !== 'all') filterChips.push({ key: 'mediator', label: 'نوع الوسيط', value: MEDIATOR_LABELS[filterMediator] ?? filterMediator, onRemove: () => setFilterMediator('all') });
     if (filterReferrerName) filterChips.push({ key: 'referrerName', label: 'اسم الوسيط', value: filterReferrerName, onRemove: () => setFilterReferrerName('') });
     if (deepestGeo) filterChips.push({ key: 'geo', label: 'المنطقة', value: geoName(deepestGeo), onRemove: resetGeo });
-    if (filterOwner !== 'all') filterChips.push({ key: 'owner', label: 'المسؤول', value: branchOwnershipOptions.find(o => o.value === filterOwner)?.label ?? ownerOptions.find(o => String(o.id) === filterOwner)?.name ?? filterOwner, onRemove: () => setFilterOwner('all') });
+    if (effectiveOwner !== 'all') filterChips.push({ key: 'owner', label: 'المسؤول', value: branchOwnershipOptions.find(o => o.value === filterOwner)?.label ?? ownerOptions.find(o => String(o.id) === filterOwner)?.name ?? filterOwner, onRemove: () => setFilterOwner('all') });
     if (filterRating !== 'all') filterChips.push({ key: 'rating', label: 'الالتزام', value: RATING_LABELS[filterRating] ?? filterRating, onRemove: () => setFilterRating('all') });
     if (filterHasDevice !== 'all') filterChips.push({ key: 'device', label: 'لديه جهاز', value: YESNO_LABELS[filterHasDevice], onRemove: () => setFilterHasDevice('all') });
     if (filterTaskType !== 'all') filterChips.push({ key: 'taskType', label: 'نوع المهمة', value: taskTypeOptions.find(t => t.value === filterTaskType)?.label ?? filterTaskType, onRemove: () => setFilterTaskType('all') });
@@ -790,6 +802,20 @@ export default function Clients() {
                             تفعيل نتائج الفلاتر ({total})
                         </button>
                     )}
+
+                    {canBulkOwnership && total > 0 && !mustPickBranch && (
+                        <button
+                            onClick={() => { setBulkOwnershipSelection(null); setBulkOwnershipOpen(true); }}
+                            disabled={filterChips.length === 0 && !debouncedSearch}
+                            title={filterChips.length === 0 && !debouncedSearch
+                                ? 'طبّق فلتراً واحداً على الأقل (منطقة، خط سير، …) قبل الإسناد الجماعي'
+                                : 'إضافة موظف مالكاً للزبائن المطابقين للفلاتر الحالية'}
+                            className="text-xs font-bold text-sky-600 hover:text-sky-700 border border-sky-200 hover:border-sky-300 rounded-lg px-2.5 py-1 inline-flex items-center gap-1 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            <UserPlus className="w-3.5 h-3.5" />
+                            إسناد ملكية النتائج
+                        </button>
+                    )}
                 </div>
 
                 {/* Applied-filter chips — always-visible "what's applied", each removable */}
@@ -812,10 +838,12 @@ export default function Clients() {
                             <Select className="w-full" value={filterRating} onChange={setFilterRating} ariaLabel="الالتزام"
                                 options={[{ value: 'all', label: 'كل التقييمات' }, { value: 'Committed', label: 'ملتزم' }, { value: 'NotCommitted', label: 'غير ملتزم' }, { value: 'Undefined', label: 'غير محدد' }]} />
                         </FilterField>
-                        <FilterField label="المسؤول">
-                            <Select className="w-full" value={filterOwner} onChange={setFilterOwner} ariaLabel="المسؤول"
-                                options={[{ value: 'all', label: 'كل المسؤولين' }, ...branchOwnershipOptions, ...ownerOptions.map(o => ({ value: String(o.id), label: o.name }))]} />
-                        </FilterField>
+                        {canSeeAssignments && (
+                            <FilterField label="المسؤول">
+                                <Select className="w-full" value={filterOwner} onChange={setFilterOwner} ariaLabel="المسؤول"
+                                    options={[{ value: 'all', label: 'كل المسؤولين' }, ...branchOwnershipOptions, ...ownerOptions.map(o => ({ value: String(o.id), label: o.name }))]} />
+                            </FilterField>
+                        )}
                         <FilterField label="نوع الوسيط">
                             <Select className="w-full" value={filterMediator} onChange={setFilterMediator} ariaLabel="نوع الوسيط"
                                 options={[{ value: 'all', label: 'كل أنواع الوسيط' }, { value: 'Personal', label: 'شخصي' }, { value: 'Employee', label: 'موظف' }, { value: 'Client', label: 'زبون حالي' }]} />
@@ -914,15 +942,30 @@ export default function Clients() {
                     onSortChange: (key, dir) => { setSortKey(key); setSortDir(dir); setPage(1); },
                 }}
                 onRowClick={(c) => navigate(`/clients/${c.id}`)}
-                bulkActions={canBulkActivate ? [
-                    {
+                bulkActions={canBulkActivate || canBulkOwnership ? [
+                    ...(canBulkActivate ? [{
                         label: 'تفعيل حسابات المحددين',
                         icon: CheckCircle2,
-                        onClick: (items) => setBulkActivationTarget({
+                        onClick: (items: Client[]) => setBulkActivationTarget({
                             scope: 'selected',
                             clients: items,
                         }),
-                    },
+                    }] : []),
+                    ...(canBulkOwnership ? [{
+                        label: 'إسناد ملكية المحددين',
+                        icon: UserPlus,
+                        onClick: (items: Client[]) => {
+                            const branchIds = Array.from(new Set(items
+                                .map(item => Number((item as any).branchId) || null)
+                                .filter((id): id is number => id != null)));
+                            if (branchIds.length > 1) {
+                                alert('الزبائن المحددون من أكثر من فرع؛ حدّد زبائن فرع واحد');
+                                return;
+                            }
+                            setBulkOwnershipSelection({ ids: items.map(item => Number(item.id)), branchId: branchIds[0] ?? null });
+                            setBulkOwnershipOpen(true);
+                        },
+                    }] : []),
                 ] : undefined}
                 actions={(c) => (
                     <div className="flex items-center gap-1">
@@ -957,6 +1000,18 @@ export default function Clients() {
                     name: client.name || [client.firstName, client.fatherName, client.lastName].filter(Boolean).join(' ') || `#${client.id}`,
                     mobile: client.mobile ?? null,
                 }))}
+            />
+
+            <BulkOwnershipModal
+                open={bulkOwnershipOpen}
+                onClose={() => { setBulkOwnershipOpen(false); setBulkOwnershipSelection(null); }}
+                filters={bulkOwnershipSelection
+                    ? { branchId: isGlobalClients ? (branchContextId ?? bulkOwnershipSelection.branchId) : null } as any
+                    : buildListParams() ?? {}}
+                clientIds={bulkOwnershipSelection?.ids ?? null}
+                branchId={bulkOwnershipSelection?.branchId
+                    ?? (isGlobalClients ? branchContextId : (Number(authUser?.branchId) || null))}
+                onApplied={() => { void fetchClients(); }}
             />
 
             <ClientModal

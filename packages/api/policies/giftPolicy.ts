@@ -9,8 +9,9 @@ export interface GiftSubject {
   beneficiaryEmployeeId?: number | null;
   /** The gift's contract was created, owned (sale owner) or closed by the
    *  current user — see giftContractLinkSql. A promise made in "my" contract
-   *  is "mine" under ASSIGNED; OP promotion wipes client_assignments, so the
-   *  beneficiary link alone lost it the moment the contract was approved. */
+   *  is "mine" under ASSIGNED even when the user is not the beneficiary's
+   *  owner (owners stay through OP since 2026-10-20, but the contract's
+   *  creator / sale owner / closer often is not one of them). */
   contractLinkedToCurrentUser?: boolean;
 }
 

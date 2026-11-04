@@ -288,9 +288,29 @@ async function loadTeamSnapshot(
   return { teamSnapshot: null, responsibleEmployeeId: null };
 }
 
+/** Field crew of a team snapshot (telemarketers do not travel to the visit). */
+export function teamSnapshotMemberIds(snapshot: Record<string, any> | null | undefined): number[] {
+  if (!snapshot) return [];
+  return ['supervisorEmployeeId', 'technicianEmployeeId', 'traineeEmployeeId']
+    .map((key) => snapshot[key])
+    .filter((id): id is number => Number.isInteger(id) && id > 0);
+}
+
+/**
+ * The slot is taken when another live visit at the same branch/date/time
+ * either holds the same team key, or has any of the same PEOPLE in its
+ * effective crew (migration 478 D6: after a «الفريق الرديف» change the key no
+ * longer says who is actually busy).
+ */
 export async function assertTeamSlotAvailable(
   db: PoolClient,
-  params: { branchId: number; scheduledDate: string; scheduledTime: string; teamKey: string },
+  params: {
+    branchId: number;
+    scheduledDate: string;
+    scheduledTime: string;
+    teamKey: string;
+    memberEmployeeIds?: number[];
+  },
 ): Promise<void> {
   const { rows } = await db.query<{ id: number }>(
     `SELECT fv.id
@@ -298,11 +318,17 @@ export async function assertTeamSlotAvailable(
        LEFT JOIN contact_targets ct ON ct.latest_visit_id = fv.id
       WHERE fv.branch_id = $1
         AND fv.scheduled_date = $2
-        AND COALESCE(fv.team_snapshot->>'teamKey', ct.team_key) = $3
+        AND (
+          COALESCE(fv.reassigned_team_snapshot->>'teamKey', fv.team_snapshot->>'teamKey', ct.team_key) = $3
+          OR public.field_visit_member_ids(
+               fv.team_snapshot, fv.reassigned_supervisor_id,
+               fv.reassigned_technician_id, fv.reassigned_trainee_id
+             ) && $5::int[]
+        )
         AND substring(COALESCE(fv.scheduled_time, '') from 1 for 5) = substring($4 from 1 for 5)
         AND ${FIELD_VISIT_SLOT_OCCUPIED_SQL}
       LIMIT 1`,
-    [params.branchId, params.scheduledDate, params.teamKey, params.scheduledTime],
+    [params.branchId, params.scheduledDate, params.teamKey, params.scheduledTime, params.memberEmployeeIds ?? []],
   );
 
   if (rows.length > 0) {
@@ -351,6 +377,7 @@ export async function bookVisit(input: BookVisitInput): Promise<BookVisitResult>
       scheduledDate: input.scheduledDate,
       scheduledTime: input.scheduledTime,
       teamKey: input.teamKey,
+      memberEmployeeIds: teamSnapshotMemberIds(teamInfo.teamSnapshot),
     });
 
     // 4. Create the field_visit
@@ -688,6 +715,7 @@ export async function createInstantVisit(input: CreateInstantVisitInput): Promis
       scheduledDate: today,
       scheduledTime: timeSlot,
       teamKey,
+      memberEmployeeIds: teamSnapshotMemberIds(teamInfo.teamSnapshot),
     });
 
     const customerSnapshot = {

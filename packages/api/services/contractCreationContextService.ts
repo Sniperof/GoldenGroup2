@@ -3,6 +3,7 @@ import {
   canCreateContractFromVisit,
   getEffectiveVisitSupervisorEmployeeId,
 } from '../policies/contractCreationPolicy.js';
+import { annotateDuplicateLinkReferrers } from './candidateReferrer.js';
 
 interface Queryable {
   query: (text: string, params?: unknown[]) => Promise<{ rows: any[] }>;
@@ -199,7 +200,7 @@ export async function loadContractCreationContext(
       nationalIdIssuedBy: visit.client_national_id_issued_by ?? null,
       nationalIdIssueDate: visit.client_national_id_issue_date ?? null,
       nationalIdBox: visit.client_national_id_box ?? null,
-      referrers: Array.isArray(visit.client_referrers) ? visit.client_referrers : [],
+      referrers: await annotateDuplicateLinkReferrers(db, Array.isArray(visit.client_referrers) ? visit.client_referrers : [], visit.client_id),
     },
     deviceDemoTask: {
       visitTaskId: Number(task.visit_task_id),

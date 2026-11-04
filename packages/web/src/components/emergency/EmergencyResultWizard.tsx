@@ -54,6 +54,9 @@ export default function EmergencyResultWizard({ taskId, visitId = null, visitTas
   const [loading, setLoading]     = useState(true);
   const [activePhase, setActive]  = useState<PhaseKey>('preState');
   const [activeWarranty, setActiveWarranty] = useState<{ type: WarrantyKind; endDate?: string | null } | null>(null);
+  // The warranty decides whether a part is free. When it cannot be read, the
+  // device is NOT assumed to be out of warranty: parts pricing waits.
+  const [warrantyUnverified, setWarrantyUnverified] = useState(false);
   const resultContext: EmergencyResultContext | null = visitId && visitTaskId
     ? { visitId, visitTaskId }
     : null;
@@ -75,10 +78,15 @@ export default function EmergencyResultWizard({ taskId, visitId = null, visitTas
             .then((ws: any[]) => {
               const active = Array.isArray(ws) ? ws.find(w => w.status === 'active') : null;
               setActiveWarranty(active ? { type: active.warrantyType, endDate: active.endDate } : null);
+              setWarrantyUnverified(false);
             })
-            .catch(() => setActiveWarranty(null));
+            .catch(() => {
+              setActiveWarranty(null);
+              setWarrantyUnverified(true);
+            });
         } else {
           setActiveWarranty(null);
+          setWarrantyUnverified(false);
         }
       })
       .catch(() => setResult(null))
@@ -110,6 +118,12 @@ export default function EmergencyResultWizard({ taskId, visitId = null, visitTas
             {activeWarranty?.endDate ? ` · حتى ${activeWarranty.endDate}` : ''}
           </span>
           <span className="text-xs font-normal">{warrantyCoverageText}</span>
+        </div>
+      )}
+
+      {warrantyUnverified && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-bold text-amber-800">
+          تعذّر التحقق من كفالة الجهاز، فلا يمكن تحديد إن كانت القطع مشمولة بها. إضافة القطع وتسعيرها موقوفة حتى تُحل المشكلة؛ راجع صلاحية «عرض كفالات الأجهزة» أو أعد تحميل الصفحة.
         </div>
       )}
 
@@ -177,6 +191,7 @@ export default function EmergencyResultWizard({ taskId, visitId = null, visitTas
             initialData={phases.actions}
             maintenanceKind={maintenanceKind}
             activeWarranty={activeWarranty}
+            warrantyUnverified={warrantyUnverified}
             readOnly={readOnly}
             onSaved={() => load()}
             onNext={() => setActive('postState')}
@@ -213,6 +228,7 @@ export default function EmergencyResultWizard({ taskId, visitId = null, visitTas
           sourceServiceRequestId={problemServiceRequestId}
           derivedOutcome={result?.derivedOutcome ?? null}
           periodicAttachmentCandidate={result?.periodicAttachmentCandidate ?? null}
+          serviceAgreementCoverage={result?.taskMeta?.serviceAgreementCoverage ?? null}
           installedDeviceId={result?.taskMeta?.installedDeviceId ?? null}
           directWorkshopRetrieval={result?.directWorkshopRetrieval ?? null}
         />

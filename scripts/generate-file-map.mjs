@@ -37,7 +37,7 @@ const UI_PATHS = {
   service_requests: ['/service-requests', '/service-requests/water-check', '/service-requests/device-requests', '/service-requests/periodic-maintenance', '/service-requests/golden-warranty', '/service-requests/:id'],
   planning: ['/planning/overview', '/planning/schedule', '/planning/zone-study', '/planning/assign'],
   field_visits: ['/field-visits', '/field-visits/:id', '/my-visits'],
-  post_sale_tasks: ['/tasks/group/device-delivery', '/tasks/group/device-installation', '/tasks/group/device-activation', '/tasks/group/device-disconnection'],
+  post_sale_tasks: ['/tasks/group/device-delivery', '/tasks/group/device-installation', '/tasks/group/device-activation', '/tasks/group/device-disconnection', '/tasks/group/device-retrieval', '/tasks/group/device-return', '/tasks/group/device-transfer'],
   maintenance: ['/tasks/group/maintenance'],
   warranty: ['/tasks/group/warranty-services'],
   tasks_core: ['/tasks/group/my-customers', '/tasks/open', '/tasks/group/:group'],

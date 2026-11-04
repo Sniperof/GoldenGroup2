@@ -54,6 +54,7 @@ import schedulesRouter from './routes/schedules.js';
 import routeAssignmentsRouter from './routes/routeAssignments.js';
 import planningRouter from './routes/planning.js';
 import zoneStudyRouter from './routes/zoneStudy.js';
+import zoneMapStudyRouter from './routes/zoneMapStudy.js';
 import contactTargetsRouter from './routes/contactTargets.js';
 import telemarketingRouter from './routes/telemarketing.js';
 import vacanciesRouter from './routes/vacancies.js';
@@ -104,6 +105,7 @@ import systemSettingsRouter from './routes/systemSettings.js';
 import giftsRouter from './routes/gifts.js';
 import reportsRouter from './routes/reports.js';
 import dashboardLayoutRouter from './routes/dashboardLayout.js';
+import { auditContextMiddleware } from './auditContext.js';
 
 const app = express();
 // Restrict origins when CORS_ORIGINS is set in the environment.
@@ -120,6 +122,8 @@ if (NODE_ENV === 'production' && TRUST_PROXY === false) {
   );
 }
 app.use(express.json({ limit: '10mb' }));
+// Request-scoped actor for the DB-owned task activity log (migration 475).
+app.use(auditContextMiddleware);
 
 // ── Public mobile surface: coarse per-IP limits ─────────────────────────────
 // Applied here, before the routers, so no future /api/app route can be added
@@ -250,6 +254,7 @@ app.use('/api/complaints', complaintsRouter);
 app.use('/api/schedules', ...branchOnly, schedulesRouter);
 app.use('/api/route-assignments', ...branchOnly, routeAssignmentsRouter);
 app.use('/api/planning/zone-study', ...branchOnly, zoneStudyRouter);
+app.use('/api/planning/zone-map', ...branchOnly, zoneMapStudyRouter);
 app.use('/api/planning', ...branchOnly, planningRouter);
 app.use('/api/contact-targets', ...branchOnly, contactTargetsRouter);
 app.use('/api/telemarketing', ...branchOnly, telemarketingRouter);

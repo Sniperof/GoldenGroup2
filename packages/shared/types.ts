@@ -6,6 +6,8 @@ export interface GeoUnit {
     level: number;
     parentId: number | null;
     status?: 'active' | 'inactive';
+    // Map center of the area (migr 487) — set on the geo settings form or the zone map.
+    center?: { lat: number; lng: number } | null;
 }
 
 export interface RoutePoint {
@@ -244,6 +246,8 @@ export interface Employee {
     foreignLanguages?: string[];
     hireDate?: string | null;
     startWorkDate?: string | null;
+    /** Effective end of the current employment period (set on → terminated, cleared on rehire). */
+    endOfServiceDate?: string | null;
     contractType?: string | null;
     workType?: string | null;
     previousEmployment?: string | null;
@@ -351,6 +355,10 @@ export interface ClientReferrer {
     referralDate: string;
     referralReason: string;
     referralSheetId?: number | null;
+    /** The suggested name this entry came from (set by conversion and linking). */
+    sourceCandidateId?: number | null;
+    /** Added by linking a duplicate name to an existing client, not the mediator who brought it (sale form, 2026-10-20). */
+    viaDuplicateLink?: boolean;
 }
 
 export interface ClientAssignment {
@@ -372,8 +380,7 @@ export type CompanyOwnershipScope = 'branch' | 'global';
 export type EffectiveOwnershipReason =
     | 'personal_assignment_active'
     | 'company_default_unassigned'
-    | 'company_default_non_owner_assignments_ignored'
-    | 'company_reclaimed_op_fop';
+    | 'company_default_non_owner_assignments_ignored';
 
 export interface PersonalOwnershipAssignment {
     userId: number;
@@ -429,6 +436,97 @@ export interface ZoneStudyResponse {
     refreshedAt: string | null;
     isFrozen: boolean;
     snapshot: ZoneStudySnapshotData | null;
+}
+
+// ── Zone map study (pre-scheduling picture) ──────────────────────────────────
+// Customer's study columns. Task-backed columns count clients or devices;
+// request_* columns count pending service requests (not yet tasks).
+export type ZoneMapColumnKey =
+    | 'collection'
+    | 'emergency'
+    | 'periodic'
+    | 'demo'
+    | 'gift'
+    | 'golden_warranty'
+    | 'warranty_card'
+    | 'delivery'
+    | 'installation'
+    | 'activation'
+    | 'retrieval'
+    | 'disconnection'
+    | 'return'
+    | 'checkup'
+    | 'transfer'
+    | 'request_device'
+    | 'request_water_check'
+    | 'request_periodic'
+    | 'other';
+
+export interface ZoneMapArea {
+    geoUnitId: number;
+    name: string;
+    level: number;
+    parentId: number | null;
+    // Has child units in the geo tree (the whole tree, not just `areas`). The
+    // study counts on leaves only: work on a unit with children is an
+    // incomplete address and lands in the no-area row.
+    hasChildren: boolean;
+    inBranchCoverage: boolean;
+    center: { lat: number; lng: number } | null;
+}
+
+export interface ZoneMapRoute {
+    id: number;
+    name: string;
+    stationGeoUnitIds: number[]; // in route order
+}
+
+export interface ZoneMapOwner {
+    hrUserId: number;
+    name: string;
+    roleName: string | null;
+    slotType: string | null;
+}
+
+export interface ZoneMapTaskItem {
+    taskId: number;
+    taskType: string;
+    taskLabel: string;
+    column: ZoneMapColumnKey;
+    clientId: number;
+    clientName: string;
+    deviceId: number | null;
+    deviceLabel: string | null;
+    countsBy: 'client' | 'device';
+    geoUnitId: number | null;     // work location: device's installation unit or client's area
+    ownerHrUserIds: number[];     // device_demo only; empty = branch-owned
+    overdue: boolean;
+    status: string;               // open | needs_follow_up
+    dueDate: string | null;       // YYYY-MM-DD
+    followUpDate: string | null;  // expected_date: the agreed next contact
+    attemptCount: number;
+    expectedAmount: number | null; // collection tasks (SYP)
+}
+
+export interface ZoneMapRequestItem {
+    requestId: number;
+    requestType: string;
+    column: ZoneMapColumnKey;
+    refNumber: string | null;
+    clientId: number | null;
+    clientName: string | null;
+    geoUnitId: number | null;
+}
+
+export interface ZoneMapResponse {
+    date: string;
+    branchId: number;
+    coveredGeoUnitIds: number[];
+    areas: ZoneMapArea[];
+    routes: ZoneMapRoute[];
+    owners: ZoneMapOwner[];
+    tasks: ZoneMapTaskItem[];
+    requests: ZoneMapRequestItem[];
 }
 
 export interface Client {

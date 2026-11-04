@@ -106,10 +106,14 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
         !isEditMode &&
         (authUser?.isSuperAdmin === true || createClientScope === 'GLOBAL');
     const canChooseBranch = canSelectOperationalBranch && !hasFixedBranchContext;
+    // The first owner is picked at creation only; afterwards ownership changes
+    // through the «الملكية» tab of the client profile (migration 481).
     const canChooseAssignedOwner =
-        authUser?.isSuperAdmin === true ||
-        assignmentManageScope === 'GLOBAL' ||
-        assignmentManageScope === 'BRANCH';
+        !isEditMode && (
+            authUser?.isSuperAdmin === true ||
+            assignmentManageScope === 'GLOBAL' ||
+            assignmentManageScope === 'BRANCH'
+        );
 
     // Names this client referred. Fetched for this client only — the modal used to
     // read them out of a globally-loaded candidate array, so they simply vanished
@@ -963,6 +967,9 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
                                                     </div>
                                                     <p className="text-xs text-slate-400">
                                                         لا يمكن تغيير الفرع من نموذج التعديل؛ النقل بين الفروع يتطلب عملية نقل مخصصة.
+                                                    </p>
+                                                    <p className="text-xs text-slate-400">
+                                                        ملكية الزبون تُدار من تبويب «الملكية» في صفحة الزبون.
                                                     </p>
                                                 </div>
                                             )}

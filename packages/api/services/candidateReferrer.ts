@@ -125,3 +125,74 @@ export function stripBrowserReferralInput<T extends Record<string, any>>(payload
   delete stripped.referrers;
   return stripped as T;
 }
+
+type ReferrerQueryable = { query: (text: string, params?: any[]) => Promise<{ rows: any[] }> };
+
+/**
+ * Marks each referrer entry that was added by LINKING a duplicate suggested
+ * name to an already existing client (`viaDuplicateLink: true`), as opposed to
+ * the mediator whose name created the client. The sale form shows the mark so
+ * the seller knows who brought the client before picking the sale's mediator
+ * (2026-10-20).
+ *
+ * An entry stamped with `sourceCandidateId` is matched on it. Older entries
+ * carry no stamp; with `clientId` they are matched against the names linked to
+ * that client by mediator id, type, name snapshot and sheet — the same rule
+ * the client network tab uses (GET /clients/:id/network), so both agree.
+ */
+export async function annotateDuplicateLinkReferrers<T extends Record<string, any>>(
+  db: ReferrerQueryable,
+  referrers: T[],
+  clientId?: number | string | null,
+): Promise<Array<T & { viaDuplicateLink: boolean }>> {
+  const stampedIds = Array.from(new Set(
+    referrers
+      .map(ref => Number(ref?.sourceCandidateId))
+      .filter(id => Number.isInteger(id) && id > 0),
+  ));
+  const numericClientId = Number(clientId);
+  const hasClient = Number.isInteger(numericClientId) && numericClientId > 0;
+  if (stampedIds.length === 0 && !hasClient) return referrers.map(ref => ({ ...ref, viaDuplicateLink: false }));
+
+  const { rows } = await db.query(
+    `SELECT id,
+            converted_to_lead_id AS "clientId",
+            referral_entity_id AS "entityId",
+            referral_type AS "type",
+            referral_name_snapshot AS "nameSnapshot",
+            referral_sheet_id AS "sheetId"
+       FROM candidates
+      WHERE qualification_kind = 'linked'
+        AND (id = ANY($1::int[]) OR ($2::int IS NOT NULL AND converted_to_lead_id = $2::int))`,
+    [stampedIds, hasClient ? numericClientId : null],
+  );
+  const linkedIds = new Set(rows.map((row: any) => Number(row.id)));
+  // A name already stamped on an entry belongs to that entry; an unstamped
+  // entry (the original mediator, say) never claims it a second time.
+  const clientLinked = hasClient
+    ? rows.filter((row: any) => Number(row.clientId) === numericClientId && !stampedIds.includes(Number(row.id)))
+    : [];
+  const norm = (value: unknown) => String(value ?? '').trim().toLowerCase();
+  const positive = (value: unknown) => {
+    const n = Number(value);
+    return Number.isInteger(n) && n > 0 ? n : null;
+  };
+
+  return referrers.map(ref => {
+    const stamped = positive(ref?.sourceCandidateId);
+    if (stamped != null) return { ...ref, viaDuplicateLink: linkedIds.has(stamped) };
+    const refEntity = positive(ref?.referralEntityId ?? ref?.id);
+    const refType = norm(ref?.referrerType ?? ref?.type);
+    const refName = norm(ref?.referrerName ?? ref?.name ?? ref?.referralName);
+    const refSheet = positive(ref?.referralSheetId);
+    const matched = clientLinked.some((row: any) => {
+      const rowEntity = positive(row.entityId);
+      const rowSheet = positive(row.sheetId);
+      return (refEntity == null || rowEntity === refEntity)
+        && (!refType || norm(row.type) === refType)
+        && (!refName || norm(row.nameSnapshot) === refName)
+        && (refSheet == null || rowSheet === refSheet);
+    });
+    return { ...ref, viaDuplicateLink: matched };
+  });
+}

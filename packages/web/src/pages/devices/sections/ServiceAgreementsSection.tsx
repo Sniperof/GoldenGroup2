@@ -10,6 +10,7 @@ import ServiceAgreementForm, {
   serviceAgreementPayloadFromDraft,
   type ServiceAgreementDraft,
 } from '../../../components/devices/ServiceAgreementForm';
+import ServiceAgreementPaymentsModal from '../../../components/devices/ServiceAgreementPaymentsModal';
 
 type Props = {
   device: any;
@@ -39,6 +40,7 @@ export function ServiceAgreementsSection({ device, onChanged }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [draft, setDraft] = useState<ServiceAgreementDraft>(() => emptyServiceAgreementDraft());
+  const [paymentsFor, setPaymentsFor] = useState<any | null>(null);
 
   const fetchAgreements = useCallback(async () => {
     if (!isExternal || !device?.id) return;
@@ -114,6 +116,28 @@ export function ServiceAgreementsSection({ device, onChanged }: Props) {
     { key: 'visitsCount', label: 'الزيارات', render: (agreement) => <span className="text-sm text-slate-700">{agreement.visitsCount ?? '—'}</span> },
     { key: 'startDate', label: 'البداية', render: (agreement) => <span className="text-sm text-slate-700">{fmt(agreement.startDate)}</span> },
     { key: 'endDate', label: 'النهاية', render: (agreement) => <span className="text-sm text-slate-700">{fmt(agreement.endDate)}</span> },
+    {
+      key: 'feeSyp',
+      label: 'الرسوم',
+      render: (agreement) => (
+        <span className="text-sm font-bold text-slate-700">
+          {Number(agreement.feeSyp) > 0 ? `${Number(agreement.feeSyp).toLocaleString('ar-SY', { numberingSystem: 'latn' })} ل.س` : '—'}
+        </span>
+      ),
+    },
+    {
+      key: 'payments',
+      label: '',
+      render: (agreement) => Number(agreement.feeSyp) > 0 ? (
+        <button
+          type="button"
+          onClick={() => setPaymentsFor(agreement)}
+          className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-bold text-sky-700 hover:bg-sky-50"
+        >
+          الدفعات
+        </button>
+      ) : null,
+    },
   ];
 
   return (
@@ -183,6 +207,13 @@ export function ServiceAgreementsSection({ device, onChanged }: Props) {
             <ServiceAgreementForm value={draft} onChange={setDraft} disabled={saving} />
           </div>
         </Modal>
+      )}
+      {paymentsFor && (
+        <ServiceAgreementPaymentsModal
+          agreement={paymentsFor}
+          canEdit={canEdit}
+          onClose={() => { setPaymentsFor(null); onChanged?.(); }}
+        />
       )}
     </section>
   );

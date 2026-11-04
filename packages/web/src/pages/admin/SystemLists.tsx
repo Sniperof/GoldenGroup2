@@ -94,6 +94,15 @@ const CATEGORIES: CategoryMeta[] = [
     ],
   },
   {
+    id: 'employee_status_change_reasons',
+    label: 'أسباب تغيير حالة الموظف',
+    description: 'سبب إلزامي عند تغيير حالة الموظف (إجازة، إيقاف، إنهاء خدمة، أو إعادته نشطاً). الإيقاف وإنهاء الخدمة يوقفان حساب النظام فوراً.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'نافذة تغيير الحالة', route: 'الموظفون ← تفاصيل الموظف ← تغيير الحالة', icon: <Users className="w-3 h-3" /> },
+    ],
+  },
+  {
     id: 'marital_status',
     label: 'الحالة الاجتماعية',
     description: 'خيارات الحالة الاجتماعية للمتقدم (أعزب، متزوج...). تُستخدم في ملف المتقدم للتوثيق الرسمي.',
@@ -322,6 +331,15 @@ const CATEGORIES: CategoryMeta[] = [
     impact: 'medium',
     usedIn: [
       { label: 'مودال استطلاع الزيارة — تَخطّي', route: 'الزيارات ← تفاصيل الزيارة ← تَخطّي الاستطلاع', icon: <Ban className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'visit_team_change_reasons',
+    label: 'أسباب تغيير فريق الزيارة',
+    description: 'سبب إلزامي عند استبدال عضو أو أكثر من فريق زيارة مجدولة (الفريق الرديف). يُحفظ في سجل تغييرات الفريق ويظهر في سجل المهام المرتبطة.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'نافذة تغيير الفريق', route: 'الزيارات ← تفاصيل الزيارة ← تغيير الفريق', icon: <Users className="w-3 h-3" /> },
     ],
   },
   {
@@ -593,6 +611,42 @@ const CATEGORIES: CategoryMeta[] = [
     impact: 'medium',
     usedIn: [
       { label: 'نَموذج إنشاء/تَعديل عَقد', route: 'العقود ← نَموذج العَقد', icon: <Receipt className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'client_ownership_add_reasons',
+    label: 'أسباب إضافة مالك للزبون',
+    description: 'سبب إلزامي عند إضافة موظف مالكاً للزبون من تبويب «الملكية». يُحفَظ مع العملية في سجل الملكية. اختيار «أخرى» يتطلب ملاحظة.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'عمليات الملكية', route: 'الزبائن ← صفحة الزبون ← الملكية ← إضافة مالك', icon: <Users className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'client_ownership_remove_reasons',
+    label: 'أسباب إزالة مالك من الزبون',
+    description: 'سبب إلزامي عند إنهاء ملكية موظف للزبون. يُحفَظ في سجل الملكية. اختيار «أخرى» يتطلب ملاحظة.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'عمليات الملكية', route: 'الزبائن ← صفحة الزبون ← الملكية ← إزالة', icon: <Users className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'client_ownership_transfer_reasons',
+    label: 'أسباب نقل الملكية بين الموظفين',
+    description: 'سبب إلزامي عند نقل ملكية الزبون من موظف إلى آخر. يُحفَظ في سجل الملكية. اختيار «أخرى» يتطلب ملاحظة.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'عمليات الملكية', route: 'الزبائن ← صفحة الزبون ← الملكية ← نقل', icon: <Users className="w-3 h-3" /> },
+    ],
+  },
+  {
+    id: 'client_ownership_release_reasons',
+    label: 'أسباب إرجاع الزبون لملكية الفرع',
+    description: 'سبب إلزامي عند إنهاء كل الملكيات الشخصية وإرجاع الزبون للفرع. يُحفَظ في سجل الملكية. اختيار «أخرى» يتطلب ملاحظة.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'عمليات الملكية', route: 'الزبائن ← صفحة الزبون ← الملكية ← إرجاع للفرع', icon: <Users className="w-3 h-3" /> },
     ],
   },
   {
@@ -1080,6 +1134,7 @@ const LIST_GROUPS: ListGroup[] = [
   { id: 'service_requests', label: 'قوائم الطلبات' },
   { id: 'emergency',     label: 'الصيانة الطارئة' },
   { id: 'periodic',      label: 'الصيانة الدورية' },
+  { id: 'client_ownership', label: 'ملكية الزبائن' },
   { id: 'contracts',     label: 'العقود والبيع' },
   { id: 'device_demo',   label: 'عرض جهاز' },
   { id: 'device_delivery',       label: 'تسليم الجهاز' },
@@ -1101,6 +1156,7 @@ const LIST_GROUPS: ListGroup[] = [
 const CATEGORY_GROUP: Record<string, string> = {
   occupation: 'hr', job_title: 'hr', certificate: 'hr', work_type: 'hr',
   nationality: 'hr', marital_status: 'hr', gender: 'hr', driving_license: 'hr',
+  employee_status_change_reasons: 'hr',
   application_source: 'hr', department_type: 'hr', military_service: 'hr',
   contract_type: 'hr', foreign_language: 'hr',
 
@@ -1110,6 +1166,7 @@ const CATEGORY_GROUP: Record<string, string> = {
 
   area_evaluation_options: 'visits', survey_skip_reasons: 'visits',
   location_missing_reasons: 'visits', visit_cancellation_reasons: 'visits',
+  visit_team_change_reasons: 'visits',
   visit_not_completed_reasons: 'visits', visit_task_reasons: 'visits',
   customer_followup_reasons: 'visits',
 
@@ -1141,6 +1198,11 @@ const CATEGORY_GROUP: Record<string, string> = {
   periodic_maintenance_reschedule_reasons: 'periodic',
   periodic_partially_performed_reason: 'periodic',
   periodic_not_performed_reason: 'periodic',
+
+  client_ownership_add_reasons: 'client_ownership',
+  client_ownership_remove_reasons: 'client_ownership',
+  client_ownership_transfer_reasons: 'client_ownership',
+  client_ownership_release_reasons: 'client_ownership',
 
   contract_sale_source: 'contracts', discount_reason: 'contracts',
   transfer_company: 'contracts', contract_cancellation_reasons: 'contracts',

@@ -29,8 +29,17 @@ import { evaluateMembraneEfficiency, membraneEfficiencyIssueMessage } from '@gol
 import pool from '../db.js';
 import { getGoldenWarrantyDeliveryResultIssue } from './openTaskLinkagePolicy.js';
 import { checkAndCompleteVisit } from './visitCompletion.js';
-import { recordContractPaymentMovement, recordMovement } from './financialMovements.js';
-import { createInstallmentCollectionTask } from './installmentCollectionTasks.js';
+import {
+  recordContractPaymentMovement,
+  recordGoldenWarrantyPaymentMovement,
+  recordMovement,
+  syncGoldenWarrantyMovements,
+} from './financialMovements.js';
+import {
+  createInstallmentCollectionTask,
+  createInstallmentCollectionTasksForWarranty,
+  type InstallmentKind,
+} from './installmentCollectionTasks.js';
 import { findUnavailableDeviceModelsForNewCommercialUse } from './catalogActiveStateService.js';
 import { assertCanRecordSuccessfulDeviceTaskResult } from './deviceTaskEligibilityGuard.js';
 import { isInstallationGeoLevel, INSTALLATION_GEO_LEVEL_ERROR } from '../lib/installationGeoLevel.js';
@@ -2305,6 +2314,13 @@ export async function applyGoldenWarrantyOfferResult(
                p.notes ?? null, p.entryType ?? 'collection'],
             );
           }
+        }
+
+        // Sale + installment charges and the payments taken at activation → unified ledger.
+        await syncGoldenWarrantyMovements(db, warrantyId, performedByUserId);
+        // Each installment is a receivable collected through the usual collection queue.
+        if (installments.length > 0) {
+          await createInstallmentCollectionTasksForWarranty(db, warrantyId, performedByUserId);
         }
 
         await db.query(
@@ -4829,6 +4845,104 @@ export async function applyDeviceTransferResult(
   }
 }
 
+// ─── Receivable installments other than contracts (migr 484) ─────────────────
+// Maintenance plan installments pay into emergency_payment_entries (ledger:
+// maintenance_installment_payment); golden-warranty installments pay into
+// device_warranty_payments (ledger: golden_warranty_payment). Contracts keep their path.
+
+type ReceivablePaymentEntry = {
+  method: ContractCollectionPaymentMethod;
+  currency: 'SYP' | 'USD';
+  amountValue: number;
+  exchangeRate: number | null;
+  amountSyp: number;
+  reference: string | null;
+  barterName: string | null;
+};
+
+async function readReceivableInstallmentRemaining(
+  db: PoolClient,
+  kind: InstallmentKind,
+  installmentId: number,
+  lock: boolean,
+): Promise<number | null> {
+  const table = kind === 'contract' ? 'contract_installments'
+    : kind === 'maintenance' ? 'emergency_installments'
+    : 'device_warranty_installments';
+  const { rows } = await db.query(
+    `SELECT remaining_balance FROM ${table} WHERE id = $1 LIMIT 1${lock ? ' FOR UPDATE' : ''}`,
+    [installmentId],
+  );
+  return rows[0] ? Number(rows[0].remaining_balance) : null;
+}
+
+async function writeReceivableInstallmentPayments(
+  db: PoolClient,
+  m: {
+    kind: Exclude<InstallmentKind, 'contract'>;
+    installmentId: number;
+    entries: ReceivablePaymentEntry[];
+    receivedByEmployeeId: number;
+    notes: string | null;
+    performedByUserId: number;
+    clientId: number;
+    branchId: number | null;
+    contractId: number | null;
+  },
+): Promise<void> {
+  if (m.kind === 'maintenance') {
+    const { rows } = await db.query(
+      `SELECT i.costs_id, i.installment_number, i.open_task_id, ot.task_type
+         FROM emergency_installments i JOIN open_tasks ot ON ot.id = i.open_task_id
+        WHERE i.id = $1 LIMIT 1`,
+      [m.installmentId],
+    );
+    const inst = rows[0];
+    if (!inst) throw new ResultValidationError('قسط الصيانة غير موجود');
+    const serviceLabel = inst.task_type === 'periodic_maintenance' ? 'صيانة دورية' : 'صيانة طارئة';
+    for (const [i, e] of m.entries.entries()) {
+      const { rows: pr } = await db.query(
+        `INSERT INTO emergency_payment_entries
+           (costs_id, method, amount_value, currency, exchange_rate, amount_syp,
+            barter_description, sort_order, installment_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+        [inst.costs_id, e.method, e.amountValue, e.currency.toLowerCase(), e.exchangeRate,
+         e.amountSyp, e.barterName, i, m.installmentId],
+      );
+      await recordMovement(db, {
+        clientId: m.clientId, occurredAt: new Date(), kind: 'payment', amountSyp: e.amountSyp,
+        currency: e.currency, amountOriginal: e.amountValue, exchangeRate: e.exchangeRate,
+        sourceType: 'maintenance_installment_payment', sourceId: Number(inst.open_task_id),
+        sourceRefId: Number(pr[0].id), contractId: m.contractId,
+        description: `تحصيل قسط رقم ${inst.installment_number} — ${serviceLabel} (مهمة #${inst.open_task_id})`,
+        referenceNo: e.reference, occurredBranchId: m.branchId, recordedBy: m.performedByUserId,
+      });
+    }
+    await db.query('SELECT recompute_maintenance_installment_balance($1)', [m.installmentId]);
+    return;
+  }
+
+  const { rows } = await db.query(
+    `SELECT warranty_id FROM device_warranty_installments WHERE id = $1 LIMIT 1`,
+    [m.installmentId],
+  );
+  if (!rows[0]) throw new ResultValidationError('قسط الكفالة غير موجود');
+  for (const e of m.entries) {
+    const { rows: pr } = await db.query(
+      `INSERT INTO device_warranty_payments
+         (warranty_id, method, currency, amount_value, exchange_rate, amount_syp,
+          reference_number, barter_name, barter_value_syp, received_by_employee_id,
+          notes, entry_type, installment_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'collection',$12) RETURNING id`,
+      [rows[0].warranty_id, e.method, e.currency, e.amountValue, e.exchangeRate, e.amountSyp,
+       e.reference, e.barterName, e.method === 'barter' ? e.amountSyp : null,
+       m.receivedByEmployeeId, m.notes, m.installmentId],
+    );
+    await recordGoldenWarrantyPaymentMovement(db, Number(pr[0].id), m.performedByUserId);
+  }
+  await db.query('SELECT recompute_warranty_installment_balance($1)', [m.installmentId]);
+}
+
 export async function applyInstallmentCollectionResult(
   visitTaskId: number,
   body: InstallmentCollectionResultBody,
@@ -4845,6 +4959,7 @@ export async function applyInstallmentCollectionResult(
       `SELECT vt.id, vt.field_visit_id, vt.source_open_task_id, vt.task_type, vt.status,
               fv.status AS visit_status,
               ot.id AS open_task_id, ot.installment_id, ot.contract_id, ot.branch_id,
+              ot.client_id, ot.maintenance_installment_id, ot.warranty_installment_id,
               ot.status AS open_task_status,
               ot.receivable_source_type, ot.receivable_source_id, ot.receivable_source_label,
               i.remaining_balance, i.amount_syp, i.contract_id AS installment_contract_id
@@ -4863,8 +4978,22 @@ export async function applyInstallmentCollectionResult(
     if (vt.task_type !== 'installment_collection') {
       throw new ResultValidationError(`نوع المهمة "${vt.task_type}" - هذا المسار خاص بتسديد الذمم فقط`);
     }
-    if (!isPositiveInteger(vt.installment_id)) {
+    // The task points at exactly one installment: a contract's, a maintenance plan's or
+    // a golden warranty's (migr 484). Each kind keeps its own payments and balance.
+    const installmentKind: InstallmentKind | null = isPositiveInteger(vt.installment_id) ? 'contract'
+      : isPositiveInteger(vt.maintenance_installment_id) ? 'maintenance'
+      : isPositiveInteger(vt.warranty_installment_id) ? 'warranty'
+      : null;
+    if (!installmentKind) {
       throw new ResultValidationError('مهمة تسديد الذمة يجب أن ترتبط بقسط');
+    }
+    const targetInstallmentId = Number(
+      installmentKind === 'contract' ? vt.installment_id
+        : installmentKind === 'maintenance' ? vt.maintenance_installment_id
+        : vt.warranty_installment_id,
+    );
+    if (installmentKind !== 'contract') {
+      vt.remaining_balance = await readReceivableInstallmentRemaining(db, installmentKind, targetInstallmentId, true);
     }
     if (!['in_progress', 'ended', 'completed'].includes(vt.visit_status)) {
       throw new ResultValidationError(`لا يمكن تسجيل النتيجة - الزيارة في حالة "${vt.visit_status}"`);
@@ -4991,7 +5120,33 @@ export async function applyInstallmentCollectionResult(
       ? Number(body.received_by_employee_id)
       : performedByUserId;
     let paymentEntryId: number | null = null;
-    if (paidAmount != null) {
+    if (paidAmount != null && installmentKind !== 'contract') {
+      const entries: ReceivablePaymentEntry[] = usingParts
+        ? normalizedParts.map((p) => {
+            const partSyp = collectionPartSyp(p);
+            const isBarter = p.paymentCategory === 'barter';
+            return {
+              method: p.method,
+              currency: isBarter ? 'SYP' : (p.currency === 'usd' ? 'USD' : 'SYP'),
+              amountValue: Number(p.amountValue),
+              exchangeRate: !isBarter && p.currency === 'usd' ? Number(p.exchangeRate) : null,
+              amountSyp: partSyp,
+              reference: p.paymentCategory === 'transfer'
+                ? optionalText(p.referenceNumber) ?? optionalText(body.payment_reference)
+                : optionalText(body.payment_reference),
+              barterName: isBarter ? optionalText(p.barterDescription) : null,
+            };
+          })
+        : [{
+            method: singlePaymentMethod!, currency: 'SYP', amountValue: paidAmount, exchangeRate: null,
+            amountSyp: paidAmount, reference: optionalText(body.payment_reference), barterName: null,
+          }];
+      await writeReceivableInstallmentPayments(db, {
+        kind: installmentKind, installmentId: targetInstallmentId, entries,
+        receivedByEmployeeId, notes, performedByUserId,
+        clientId: Number(vt.client_id), branchId: vt.branch_id ?? null, contractId: vt.contract_id ?? null,
+      });
+    } else if (paidAmount != null) {
       if (usingParts) {
         // صف دفعة لكل جزء (يد/حوالة/مقايضة، بالليرة أو الدولار)، الكل مرتبط بالقسط.
         for (const p of normalizedParts) {
@@ -5050,14 +5205,9 @@ export async function applyInstallmentCollectionResult(
       }
     }
 
-    const { rows: afterRows } = await db.query(
-      `SELECT remaining_balance
-         FROM contract_installments
-        WHERE id = $1
-        LIMIT 1`,
-      [Number(vt.installment_id)],
+    const remainingAfter = Number(
+      (await readReceivableInstallmentRemaining(db, installmentKind, targetInstallmentId, false)) ?? amountBefore,
     );
-    const remainingAfter = Number(afterRows[0]?.remaining_balance ?? amountBefore);
 
     const openTaskNewStatus = decision === 'refused_to_pay' ? 'cancelled' : 'completed';
     await db.query(
@@ -5108,7 +5258,8 @@ export async function applyInstallmentCollectionResult(
     let createdFollowupTaskId: number | null = null;
     if (decision === 'paid_partial' && remainingAfter > 0) {
       const followup = await createInstallmentCollectionTask(db, {
-        installmentId: Number(vt.installment_id),
+        installmentId: targetInstallmentId,
+        installmentKind,
         dueDate: nextExpectedDate,
         priority: nextPriority,
         reason: 'remaining_installment_balance',
@@ -5124,7 +5275,8 @@ export async function applyInstallmentCollectionResult(
     }
     if (decision === 'rescheduled') {
       const followup = await createInstallmentCollectionTask(db, {
-        installmentId: Number(vt.installment_id),
+        installmentId: targetInstallmentId,
+        installmentKind,
         dueDate: nextExpectedDate,
         priority: nextPriority,
         reason: 'rescheduled_collection',
@@ -5141,7 +5293,7 @@ export async function applyInstallmentCollectionResult(
 
     const { rows: sideRows } = await db.query(
       `INSERT INTO visit_task_installment_collection_results (
-         visit_task_result_id, installment_id,
+         visit_task_result_id, installment_id, maintenance_installment_id, warranty_installment_id,
          receivable_source_type, receivable_source_id,
          amount_before_syp, paid_amount_syp, remaining_after_syp,
          payment_entry_id, payment_method, payment_reference, received_by_employee_id,
@@ -5149,10 +5301,12 @@ export async function applyInstallmentCollectionResult(
          next_expected_date, next_priority, notes, created_followup_task_id,
          created_at, updated_at
        ) VALUES (
-         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::date,$16,$17,$18,NOW(),NOW()
+         $1,$2,$19,$20,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::date,$16,$17,$18,NOW(),NOW()
        )
        ON CONFLICT (visit_task_result_id) DO UPDATE SET
          installment_id = EXCLUDED.installment_id,
+         maintenance_installment_id = EXCLUDED.maintenance_installment_id,
+         warranty_installment_id = EXCLUDED.warranty_installment_id,
          receivable_source_type = EXCLUDED.receivable_source_type,
          receivable_source_id = EXCLUDED.receivable_source_id,
          amount_before_syp = EXCLUDED.amount_before_syp,
@@ -5173,7 +5327,7 @@ export async function applyInstallmentCollectionResult(
        RETURNING id`,
       [
         visitTaskResultId,
-        Number(vt.installment_id),
+        installmentKind === 'contract' ? targetInstallmentId : null,
         vt.receivable_source_type ?? null,
         vt.receivable_source_id != null ? Number(vt.receivable_source_id) : null,
         amountBefore,
@@ -5192,6 +5346,8 @@ export async function applyInstallmentCollectionResult(
         nextPriority,
         notes,
         createdFollowupTaskId,
+        installmentKind === 'maintenance' ? targetInstallmentId : null,
+        installmentKind === 'warranty' ? targetInstallmentId : null,
       ],
     );
 

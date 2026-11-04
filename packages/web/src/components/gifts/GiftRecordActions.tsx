@@ -6,6 +6,7 @@ import DateField from '../ui/DateField';
 import Select, { type SelectOption } from '../ui/Select';
 import { api } from '../../lib/api';
 import { usePermissions } from '../../hooks/usePermissions';
+import GiftSourceStatusPanel from './GiftSourceStatusPanel';
 import {
   giftConditionStatusLabels,
   type GiftConditionStatus,
@@ -289,6 +290,9 @@ export default function GiftRecordActions({
 
           {action === 'condition' && (
             <>
+              {(record.sources ?? []).some(source => source.sourceType === 'candidate' || source.sourceType === 'name_list') && (
+                <GiftSourceStatusPanel recordId={record.id} />
+              )}
               <label className="block text-xs font-bold text-slate-500">
                 حالة تحقق الشرط
                 <select
