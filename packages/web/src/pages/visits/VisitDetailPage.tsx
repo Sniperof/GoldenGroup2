@@ -248,6 +248,7 @@ export default function VisitDetailPage() {
         && hasPermission('clients.view_list')
         && (hasPermission('clients.visits.view') || hasPermission('field_visits.view'));
     const canReopen = hasPermission('field_visits.reopen_closed');
+    const canRecordResults = hasPermission('tasks.results.record');
 
     const visitId = Number(id);
 
@@ -700,9 +701,12 @@ export default function VisitDetailPage() {
                             // `in_progress` (during the field work) and remain editable
                             // after it transitions to `ended`. The visit auto-completes
                             // once the last task result + the survey are in place.
-                            const canRecord = (visit.status === 'in_progress' || visit.status === 'ended') && !hasResult;
+                            // The server records a result only with tasks.results.record: without
+                            // it the wizard opened and every save failed (2026-11-04).
+                            const recordable = (visit.status === 'in_progress' || visit.status === 'ended') && !hasResult;
+                            const canRecord = recordable && canRecordResults;
                             const canOpenResultModal = hasVisitTaskResultModal(task.task_type);
-                            const canEditResult = visit.status === 'completed' && hasResult && canOpenResultModal;
+                            const canEditResult = canRecordResults && visit.status === 'completed' && hasResult && canOpenResultModal;
                             const decisionMeta = getFinalDecisionMeta(task.final_decision, task.task_type);
                             const outcomeMeta = getDerivedOutcomeMeta(task);
                             return (
@@ -775,6 +779,9 @@ export default function VisitDetailPage() {
                                                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-500 transition-colors">
                                                 <ClipboardCheck className="w-3.5 h-3.5" /> تسجيل النتيجة
                                             </button>
+                                        )}
+                                        {recordable && !canRecordResults && (
+                                            <span className="text-xs text-slate-400">لا تملك صلاحية تسجيل النتيجة</span>
                                         )}
                                         {canRecord && !canOpenResultModal && (
                                             <span className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded inline-flex items-center gap-1">

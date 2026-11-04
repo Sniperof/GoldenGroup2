@@ -2,6 +2,7 @@ import { Router } from 'express';
 import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
+import { authorize } from '../services/authorizationService.js';
 import { getPlanningWorkScope } from '../services/planningMarketingTargets.js';
 import { syncAssignedTasks } from '../services/assignedTasks.js';
 
@@ -97,7 +98,7 @@ function getAuthContext(req: any) {
  *       500:
  *         description: Internal Server Error
  */
-router.post('/', requirePermission('marketing_visits.view'), async (req, res) => {
+router.post('/', requirePermission('planning.manage'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
     const branchId = authContext.isSuperAdmin
@@ -105,6 +106,9 @@ router.post('/', requirePermission('marketing_visits.view'), async (req, res) =>
       : authContext.actingBranchId;
 
     if (!branchId) return res.status(400).json({ error: 'يجب تحديد الفرع' });
+    if (!authorize(authContext as any, { permission: 'planning.manage', branchId }).allowed) {
+      return res.status(403).json({ error: 'غير مسموح بتعديل نطاق عمل هذا الفرع' });
+    }
 
     const { date, teamKey, zoneIds, scopeType } = req.body ?? {};
     if (!date || !teamKey) return res.status(400).json({ error: 'date و teamKey مطلوبان' });
@@ -250,7 +254,26 @@ router.get('/:date/:teamKey', requirePermission('marketing_visits.view'), async 
  *       500:
  *         description: Internal Server Error
  */
-router.put('/:id/activate', requirePermission('marketing_visits.update_result'), async (req, res) => {
+// Planning writes (2026-11-04): they were gated by marketing_visits.view /
+// update_result — keys every technician and supervisor holds — and activate /
+// generate-tasks never checked the scope's branch. Now planning.manage on the
+// scope's own branch.
+async function requireScopeInPlanningBranch(req: any, res: any, next: any) {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'معرف النطاق غير صالح' });
+  try {
+    const { rows } = await pool.query('SELECT branch_id FROM work_scopes WHERE id = $1', [id]);
+    if (rows.length === 0) return res.status(404).json({ error: 'النطاق غير موجود' });
+    const access = authorize(getAuthContext(req) as any, { permission: 'planning.manage', branchId: rows[0].branch_id });
+    if (!access.allowed) return res.status(403).json({ error: 'غير مسموح بتعديل نطاق عمل هذا الفرع' });
+    return next();
+  } catch (err) {
+    console.error('[work-scopes] branch guard error:', err);
+    return res.status(500).json({ error: 'تعذر التحقق من فرع النطاق' });
+  }
+}
+
+router.put('/:id/activate', requirePermission('planning.manage'), requireScopeInPlanningBranch, async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'معرف النطاق غير صالح' });
@@ -301,7 +324,7 @@ router.put('/:id/activate', requirePermission('marketing_visits.update_result'),
  *       500:
  *         description: Internal Server Error
  */
-router.post('/:id/generate-tasks', requirePermission('marketing_visits.update_result'), async (req, res) => {
+router.post('/:id/generate-tasks', requirePermission('planning.manage'), requireScopeInPlanningBranch, async (req, res) => {
   try {
     const authContext = getAuthContext(req);
     const scopeId = Number(req.params.id);

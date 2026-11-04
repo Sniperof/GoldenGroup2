@@ -93,7 +93,7 @@ function rejectAssignedManagementGrant(
   return { allowed: false, reason: 'ASSIGNMENT_FORBIDDEN', grant };
 }
 
-function getVisitTeamEmployeeIds(visit: FieldVisitAccessSubject): number[] {
+export function getVisitTeamEmployeeIds(visit: FieldVisitAccessSubject): number[] {
   const ids = [
     toPositiveInteger(visit.reassigned_supervisor_id)
       ?? readTeamEmployeeId(visit.team_snapshot, 'supervisorEmployeeId'),

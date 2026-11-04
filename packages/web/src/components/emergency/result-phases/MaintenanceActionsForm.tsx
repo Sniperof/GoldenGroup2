@@ -424,9 +424,11 @@ interface Props {
   onBack?: () => void;
   maintenanceKind?: MaintenanceKind;
   activeWarranty?: ActiveWarranty;
+  /** The device warranty could not be read: whether a part is free is unknown. */
+  warrantyUnverified?: boolean;
 }
 
-export default function MaintenanceActionsForm({ taskId, resultContext, initialData, readOnly = false, onSaved, onNext, onBack, maintenanceKind = 'emergency', activeWarranty = null }: Props) {
+export default function MaintenanceActionsForm({ taskId, resultContext, initialData, readOnly = false, onSaved, onNext, onBack, maintenanceKind = 'emergency', activeWarranty = null, warrantyUnverified = false }: Props) {
   const [allParts, setAllParts]         = useState<SparePartRaw[]>([]);
   const [actionTypes, setActionTypes]   = useState<any[]>([]);
   const [actionTypeId, setActionTypeId] = useState(initialData?.actionTypeId ? String(initialData.actionTypeId) : '');
@@ -442,17 +444,27 @@ export default function MaintenanceActionsForm({ taskId, resultContext, initialD
   const noRetrievalReasons              = useSystemListItems('part_no_retrieval_reason');
   const customerRefusalReasons          = useSystemListItems('part_customer_refusal_reason');
 
+  // Each list loads on its own: one refused request (a missing permission) used
+  // to empty the parts catalog silently through a shared Promise.all.
+  const [loadErrors, setLoadErrors] = useState<string[]>([]);
   useEffect(() => {
-    Promise.all([
-      api.spareParts.list({ includeInactive: true }),
-      api.admin.emergencyActionTypes.active(),
-      api.emergencyResult.getParts(taskId),
-    ]).then(([sp, at, existingParts]) => {
-      setAllParts(sp.map((p: any) => ({ ...p, basePrice: Number(p.basePrice) })));
-      setActionTypes(at);
-      setSavedParts(existingParts.map(savedPartFromServer));
-    }).catch(console.error);
+    setLoadErrors([]);
+    const fail = (what: string) => (err: any) => {
+      console.error(err);
+      const denied = err?.status === 403 || err?.response?.status === 403;
+      setLoadErrors(prev => [...prev, `${what}: ${denied ? 'لا تملك صلاحية عرضها' : 'تعذّر التحميل'}`]);
+    };
+    api.spareParts.list({ includeInactive: true })
+      .then(sp => setAllParts(sp.map((p: any) => ({ ...p, basePrice: Number(p.basePrice) }))))
+      .catch(fail('قائمة القطع'));
+    api.admin.emergencyActionTypes.active()
+      .then(setActionTypes)
+      .catch(fail('أنواع الإجراءات'));
+    api.emergencyResult.getParts(taskId)
+      .then(existingParts => setSavedParts(existingParts.map(savedPartFromServer)))
+      .catch(fail('القطع المسجلة لهذه المهمة'));
   }, [taskId]);
+  const partsLocked = readOnly || warrantyUnverified;
 
   // ── Persist parts list silently (no wizard reload) ───────────────────────────
   // Parts are saved immediately on add/edit/delete WITHOUT triggering onSaved(),
@@ -600,13 +612,26 @@ export default function MaintenanceActionsForm({ taskId, resultContext, initialD
                 <span className="mr-2 font-normal text-slate-400">({savedParts.length} قطعة)</span>
               )}
             </p>
-            {!readOnly && !showAddForm && editIndex === null && (
+            {!partsLocked && !showAddForm && editIndex === null && (
               <button type="button" onClick={() => { setShowAddForm(true); setDraft(emptyDraft()); }}
                 className="inline-flex items-center gap-1 text-xs font-bold text-rose-600 border border-rose-200 rounded-xl px-3 py-1.5 hover:bg-rose-50 transition-colors">
                 <Plus className="h-3.5 w-3.5" /> إضافة قطعة
               </button>
             )}
           </div>
+
+          {loadErrors.length > 0 && (
+            <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700 space-y-0.5">
+              {loadErrors.map(message => (
+                <p key={message} className="flex items-center gap-1.5"><AlertCircle className="h-3.5 w-3.5 shrink-0" />{message}</p>
+              ))}
+            </div>
+          )}
+          {warrantyUnverified && !readOnly && (
+            <p className="mb-3 text-xs font-bold text-amber-700">
+              إضافة القطع وتعديلها موقوفة: تعذّر التحقق من كفالة الجهاز، وهي التي تحدد إن كانت القطعة مجانية.
+            </p>
+          )}
 
           {/* Saved parts list */}
           {savedParts.length === 0 && !showAddForm ? (
@@ -678,8 +703,9 @@ export default function MaintenanceActionsForm({ taskId, resultContext, initialD
                     </div>
                     {!readOnly && !isLockedPart(p) && (
                       <div className="flex items-center gap-1 shrink-0">
-                        <button onClick={() => startEdit(i)} disabled={saving}
-                          className="p-1.5 text-slate-400 hover:text-sky-500 hover:bg-sky-50 rounded-lg transition-colors">
+                        <button onClick={() => startEdit(i)} disabled={saving || warrantyUnverified}
+                          title={warrantyUnverified ? 'التعديل موقوف حتى يُتحقق من كفالة الجهاز' : undefined}
+                          className="p-1.5 text-slate-400 hover:text-sky-500 hover:bg-sky-50 rounded-lg transition-colors disabled:opacity-40">
                           <Edit className="h-3.5 w-3.5" />
                         </button>
                         <button onClick={() => handleDelete(i)} disabled={saving}

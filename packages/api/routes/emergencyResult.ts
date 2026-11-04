@@ -14,7 +14,12 @@ import type { PoolClient } from 'pg';
 import { evaluateMembraneEfficiency, membraneEfficiencyIssueMessage } from '@golden-crm/shared';
 import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
-import { requirePermission } from '../middleware/permission.js';
+import { getOrBuildAuthContext, requirePermission } from '../middleware/permission.js';
+import {
+  canReadMaintenanceResult,
+  MAINTENANCE_RESULT_READ_KEYS,
+  type MaintenanceResultSubject,
+} from '../policies/maintenanceResultPolicy.js';
 // Phase 6b — service_request_problems integration (hybrid path)
 import {
   addProblem,
@@ -308,6 +313,74 @@ async function requireVisitResultContext(req: any, res: any, next: any) {
   }
 }
 
+// ── Read guards (2026-11-04) ─────────────────────────────────────────────────
+// The reads opened on the key alone: any holder read any task's result and
+// payment amounts by id. They now check the record's branch, and an ASSIGNED
+// grant reads only a task on a visit whose team includes the actor.
+
+const VISIT_TEAM_COLUMNS = `fv.branch_id, fv.team_snapshot, fv.reassigned_supervisor_id,
+       fv.reassigned_technician_id, fv.reassigned_trainee_id`;
+
+async function actorEmployeeId(userId: number): Promise<number | null> {
+  const { rows } = await pool.query(
+    'SELECT employee_id AS "employeeId" FROM hr_users WHERE id = $1 AND is_active = TRUE',
+    [userId],
+  );
+  const id = Number(rows[0]?.employeeId);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+async function guardMaintenanceRead(req: any, res: any, next: any, subject: MaintenanceResultSubject | null) {
+  if (!subject) return res.status(404).json({ error: 'السجل غير موجود' });
+  const authContext = await getOrBuildAuthContext(req);
+  const access = canReadMaintenanceResult(authContext, subject, await actorEmployeeId(authContext.userId));
+  if (!access.allowed) {
+    return res.status(403).json({ error: 'غير مسموح بعرض نتيجة هذه المهمة ضمن نطاق صلاحيتك', code: access.reason });
+  }
+  return next();
+}
+
+async function requireMaintenanceTaskRead(req: any, res: any, next: any) {
+  const taskId = Number(req.params.taskId);
+  if (!Number.isInteger(taskId) || taskId <= 0) return res.status(400).json({ error: 'معرف المهمة غير صالح' });
+  try {
+    const { rows: [task] } = await pool.query('SELECT branch_id FROM open_tasks WHERE id = $1', [taskId]);
+    if (!task) return guardMaintenanceRead(req, res, next, null);
+    const { rows: visits } = await pool.query(
+      `SELECT ${VISIT_TEAM_COLUMNS}
+         FROM visit_tasks vt JOIN field_visits fv ON fv.id = vt.field_visit_id
+        WHERE vt.source_open_task_id = $1`,
+      [taskId],
+    );
+    return guardMaintenanceRead(req, res, next, { branchId: task.branch_id, visits });
+  } catch (err) {
+    console.error('[emergency-result] read guard error:', err);
+    return res.status(500).json({ error: 'تعذر التحقق من صلاحية العرض' });
+  }
+}
+
+async function requireMaintenanceContractRead(req: any, res: any, next: any) {
+  const contractId = Number(req.params.contractId);
+  if (!Number.isInteger(contractId) || contractId <= 0) return res.status(400).json({ error: 'معرف العقد غير صالح' });
+  try {
+    const { rows: [contract] } = await pool.query(
+      'SELECT COALESCE(service_branch_id, branch_id) AS branch_id FROM contracts WHERE id = $1',
+      [contractId],
+    );
+    if (!contract) return guardMaintenanceRead(req, res, next, null);
+    const { rows: visits } = await pool.query(
+      `SELECT ${VISIT_TEAM_COLUMNS}
+         FROM visit_tasks vt JOIN field_visits fv ON fv.id = vt.field_visit_id
+        WHERE vt.contract_id = $1`,
+      [contractId],
+    );
+    return guardMaintenanceRead(req, res, next, { branchId: contract.branch_id, visits });
+  } catch (err) {
+    console.error('[emergency-result] read guard error:', err);
+    return res.status(500).json({ error: 'تعذر التحقق من صلاحية العرض' });
+  }
+}
+
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 export const TECH_STATE_FIELDS = `
@@ -542,7 +615,7 @@ async function getTaskMeta(taskId: number) {
  *       500:
  *         description: Server error
  */
-router.get('/:taskId', requirePermission('marketing_visits.view'), async (req, res) => {
+router.get('/:taskId', requirePermission(...MAINTENANCE_RESULT_READ_KEYS), requireMaintenanceTaskRead, async (req, res) => {
   try {
     const taskId = Number(req.params.taskId);
     const meta = await getTaskMeta(taskId);
@@ -1738,7 +1811,7 @@ router.put('/:taskId/parts', requirePermission('marketing_visits.update_result')
  *       500:
  *         description: Server error
  */
-router.get('/:taskId/parts', requirePermission('marketing_visits.view'), async (req, res) => {
+router.get('/:taskId/parts', requirePermission(...MAINTENANCE_RESULT_READ_KEYS), requireMaintenanceTaskRead, async (req, res) => {
   try {
     res.json(await listTaskParts(pool, Number(req.params.taskId)));
   } catch (err: any) {
@@ -1782,7 +1855,7 @@ router.get('/:taskId/parts', requirePermission('marketing_visits.view'), async (
  *       500:
  *         description: Server error
  */
-router.get('/device/:contractId/history', requirePermission('marketing_visits.view'), async (req, res) => {
+router.get('/device/:contractId/history', requirePermission(...MAINTENANCE_RESULT_READ_KEYS), requireMaintenanceContractRead, async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT ${TECH_STATE_FIELDS},
@@ -1837,7 +1910,7 @@ router.get('/device/:contractId/history', requirePermission('marketing_visits.vi
  *       500:
  *         description: Server error
  */
-router.get('/:taskId/payment-entries', requirePermission('marketing_visits.view'), async (req, res) => {
+router.get('/:taskId/payment-entries', requirePermission(...MAINTENANCE_RESULT_READ_KEYS), requireMaintenanceTaskRead, async (req, res) => {
   try {
     const taskId = Number(req.params.taskId);
     const meta = await getTaskMeta(taskId);
@@ -2000,7 +2073,7 @@ router.put('/:taskId/payment-entries', requirePermission('marketing_visits.updat
  *       500:
  *         description: Server error
  */
-router.get('/:taskId/installments', requirePermission('marketing_visits.view'), async (req, res) => {
+router.get('/:taskId/installments', requirePermission(...MAINTENANCE_RESULT_READ_KEYS), requireMaintenanceTaskRead, async (req, res) => {
   try {
     const taskId = Number(req.params.taskId);
     const meta = await getTaskMeta(taskId);
