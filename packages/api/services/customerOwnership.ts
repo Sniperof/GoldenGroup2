@@ -56,6 +56,16 @@ export function buildClientLifecycleStatusSql(clientAlias: string): string {
            AND (lifecycle_ot.status = 'closed' OR lifecycle_vt.status = 'closed')
            AND lifecycle_vtr.final_decision = 'offer_presented'
       )
+      -- Same rule, reached through the client's own visits: migrated demo
+      -- visits carry no open task (2026-11-09: 213k demo visit tasks, 50
+      -- linked), so the path above missed ~50k clients whose offer was
+      -- presented. client_offer_presented holds that fact per client
+      -- (migration 492, kept by triggers + a daily reconcile); reading it by
+      -- key keeps every client query as fast as before.
+      OR EXISTS (
+        SELECT 1 FROM client_offer_presented lifecycle_cop
+         WHERE lifecycle_cop.client_id = ${clientAlias}.id
+      )
         THEN 'FOP'
       ELSE 'LEAD'
     END

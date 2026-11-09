@@ -367,6 +367,10 @@ export async function start() {
       void import('./services/reporting/tabularReportCleanupJob.js').then((mod) =>
         mod.startTabularReportCleanupJob(),
       );
+      // Migration 492: keep the FOP evidence table true after bulk copies.
+      void import('./services/clientOfferPresentedJob.js').then((mod) =>
+        mod.startClientOfferPresentedJob(),
+      );
       resolve();
     });
   });
