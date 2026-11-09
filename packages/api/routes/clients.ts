@@ -19,11 +19,13 @@ import {
   canListClients,
   canManageClientAssignments,
   canViewClient,
+  canViewClientLifecycle,
   canViewClientRating,
   canUnlockClientCooldown,
   getClientListAccessPlan,
 } from '../policies/clientPolicy.js';
 import { canEditCandidate } from '../policies/candidatePolicy.js';
+import { listClientLifecycle } from '../services/clientLifecycleTimeline.js';
 import {
   buildReferrerFromCandidate,
   stripBrowserReferralInput,
@@ -501,6 +503,7 @@ async function findDuplicateClientByPhone(
       FROM clients c
       LEFT JOIN branches b ON b.id = c.branch_id
       WHERE c.is_candidate = FALSE
+        AND c.deleted_at IS NULL
         AND ($2::int IS NULL OR c.id <> $2)
         AND (
           ${phoneNormalizationSql('c.mobile')} = $1
@@ -656,7 +659,8 @@ function appendClientScopeConditions(
   scope: string,
   params: any[],
 ): string[] {
-  const conditions: string[] = [];
+  // A deleted client (soft delete) is out of every list, count and picker.
+  const conditions: string[] = ['c.deleted_at IS NULL'];
 
   if (requestedBranchId != null) {
     params.push([requestedBranchId]);
@@ -1892,6 +1896,62 @@ async function loadClientOwnershipView(
   };
 }
 
+// GET /api/clients/:id/lifecycle — what happened with the client, derived from
+// the tables that hold each milestone. The tab has its own key (491); each
+// category inside still follows its own tab's permission.
+router.get('/:id/lifecycle', requirePermission('clients.lifecycle.view'), async (req, res) => {
+  try {
+    const authContext = getRequiredAuthContext(req);
+    const clientId = toPositiveInt(req.params.id as string);
+    if (clientId == null) return res.status(400).json({ error: 'معرّف الزبون غير صالح' });
+
+    const subject = await loadClientSubject(clientId);
+    if (!subject) return res.status(404).json({ error: 'الزبون غير موجود' });
+
+    const access = canViewClientLifecycle(authContext, subject);
+    if (!access.allowed) return forbidClientAccess(res, access.reason);
+
+    res.json(await listClientLifecycle(authContext, { id: clientId, branchId: subject.branchId }));
+  } catch (err) {
+    console.error('[clients] GET /:id/lifecycle error:', err);
+    res.status(500).json({ error: 'تعذّر تحميل دورة حياة الزبون' });
+  }
+});
+
+// GET /api/clients/:id/activity — the client's change timeline (migration 489)
+router.get('/:id/activity', requirePermission('clients.activity_log.view'), async (req, res) => {
+  try {
+    const authContext = getRequiredAuthContext(req);
+    const clientId = toPositiveInt(req.params.id as string);
+    if (clientId == null) return res.status(400).json({ error: 'معرّف الزبون غير صالح' });
+
+    const subject = await loadClientSubject(clientId);
+    if (!subject) return res.status(404).json({ error: 'الزبون غير موجود' });
+
+    const access = authorize(authContext, {
+      permission: 'clients.activity_log.view',
+      branchId: subject.branchId,
+    });
+    if (!access.allowed) return forbidClientAccess(res, access.reason);
+
+    const { rows } = await pool.query(
+      `SELECT l.id, l.event_type AS "eventType", l.field_key AS "fieldKey",
+              l.old_value AS "oldValue", l.new_value AS "newValue",
+              l.change_context AS "changeContext", l.reason, l.role, l.source,
+              l.created_at AS "createdAt", pb.name AS "performedByName"
+         FROM client_activity_log l
+         LEFT JOIN hr_users pb ON pb.id = l.performed_by
+        WHERE l.client_id = $1
+        ORDER BY l.created_at DESC, l.id DESC`,
+      [clientId],
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('[clients] GET /:id/activity error:', err);
+    res.status(500).json({ error: 'تعذّر تحميل سجل التغييرات' });
+  }
+});
+
 router.get('/:id/ownership', requirePermission('clients.ownership.view'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
@@ -2916,6 +2976,11 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
       }
     }
 
+    // Labels the creation in the client activity log (489) and the ownership
+    // log (481) — set before the INSERT so the «created» line carries it.
+    await db.query(`SELECT set_config('app.change_context', $1, true)`, [
+      hasSourceCandidate ? 'candidate_converted' : 'client_created',
+    ]);
     const { rows: [inserted] } = await db.query(
       `INSERT INTO clients (
         first_name, father_name, last_name, nickname,
@@ -2954,9 +3019,6 @@ router.post('/', requirePermission('clients.create'), async (req, res) => {
       ],
     );
 
-    await db.query(`SELECT set_config('app.change_context', $1, true)`, [
-      hasSourceCandidate ? 'candidate_converted' : 'client_created',
-    ]);
     await insertClientAssignments(inserted.id, resolvedAssignees, authContext.userId, db);
     await db.query(
       `INSERT INTO client_rating_history (client_id, old_rating, new_rating, notes, changed_by, changed_at)
@@ -3113,7 +3175,9 @@ router.put('/:id', requirePermission('clients.edit', 'clients.contacts.edit'), a
       }
 
       const contacts = normalizeContactsForWrite(req.body?.contacts);
-      await pool.query('UPDATE clients SET contacts = $1 WHERE id = $2', [toJson(contacts, []), clientId]);
+      await runWithChangeContext({ changeContext: 'client_contacts_edit' }, () =>
+        pool.query('UPDATE clients SET contacts = $1 WHERE id = $2', [toJson(contacts, []), clientId]),
+      );
       const { rows } = await pool.query(`${CLIENT_SELECT} WHERE c.id = $1`, [clientId]);
       return res.json(mapClientRow(rows[0]));
     }
@@ -3125,14 +3189,20 @@ router.put('/:id', requirePermission('clients.edit', 'clients.contacts.edit'), a
 
     // Load existing client for comparison / audit
     const { rows: existingRows } = await pool.query(
-      'SELECT branch_id, candidate_status, is_active, occupation FROM clients WHERE id = $1',
+      'SELECT branch_id, candidate_status, is_active, occupation, referrer_type, referrer_name FROM clients WHERE id = $1',
       [clientId],
     );
     const existing = existingRows[0];
 
+    // A «شخصي» mediator is the user who brought the client in. Editing the
+    // client keeps that name; only switching the type to Personal in this edit
+    // attributes it to the editor.
+    const personalReferrerName = existing?.referrer_type === 'Personal'
+      ? (existing.referrer_name ?? '')
+      : (req.user?.name || '');
     const c = reconcileClientReferrers(enforcePersonalReferrer(
       normalizeClientPayload(req.body ?? {}),
-      { id: authContext.userId, name: req.user?.name || '' },
+      { id: authContext.userId, name: personalReferrerName },
     ));
     c.occupation = await resolveReferenceValueForWrite(pool, 'occupation', c.occupation, {
       currentValue: existing?.occupation ?? null,
@@ -3195,6 +3265,8 @@ router.put('/:id', requirePermission('clients.edit', 'clients.contacts.edit'), a
 
     await db.query('BEGIN');
     transactionStarted = true;
+    // Labels this edit in the client activity log (489).
+    await db.query(`SELECT set_config('app.change_context', 'client_edit', true)`);
 
     const lockedSubject = await loadClientSubject(clientId!, db, true);
     if (!lockedSubject) {
@@ -3316,73 +3388,101 @@ router.put('/:id', requirePermission('clients.edit', 'clients.contacts.edit'), a
  *       500:
  *         description: Server error
  */
+// Data that makes a client real: deleting it would leave that data attached to
+// a deleted record (a working app login, devices, money, people it referred…).
+// Checked together so the user sees every reason at once.
+const CLIENT_DELETE_BLOCKERS: Array<{ key: string; label: string; sql: string }> = [
+  { key: 'contracts', label: 'لديه عقود', sql: 'EXISTS (SELECT 1 FROM contracts x WHERE x.customer_id = c.id)' },
+  { key: 'visits', label: 'لديه سجل زيارات ميدانية', sql: 'EXISTS (SELECT 1 FROM field_visits x WHERE x.client_id = c.id)' },
+  { key: 'completed_tasks', label: 'لديه مهام مكتملة', sql: `EXISTS (SELECT 1 FROM open_tasks x WHERE x.client_id = c.id AND x.status = 'completed')` },
+  { key: 'devices', label: 'لديه أجهزة مسجلة', sql: 'EXISTS (SELECT 1 FROM installed_devices x WHERE x.customer_id = c.id)' },
+  { key: 'service_agreements', label: 'لديه اتفاقيات خدمة', sql: 'EXISTS (SELECT 1 FROM service_agreements x WHERE x.customer_id = c.id)' },
+  { key: 'money', label: 'لديه حركات مالية', sql: 'EXISTS (SELECT 1 FROM financial_movements x WHERE x.client_id = c.id)' },
+  { key: 'gifts', label: 'لديه هدايا', sql: 'EXISTS (SELECT 1 FROM gift_records x WHERE x.customer_id = c.id OR x.beneficiary_client_id = c.id)' },
+  { key: 'service_requests', label: 'لديه طلبات خدمة', sql: 'EXISTS (SELECT 1 FROM service_requests x WHERE c.id IN (x.requester_client_id, x.beneficiary_client_id, x.referrer_client_id))' },
+  { key: 'complaints', label: 'لديه شكاوى', sql: 'EXISTS (SELECT 1 FROM complaints x WHERE x.requester_client_id = c.id)' },
+  { key: 'app_account', label: 'لديه حساب فعّال على تطبيق الزبائن', sql: `EXISTS (SELECT 1 FROM app_accounts x WHERE x.linked_client_record_id = c.id AND x.deleted_at IS NULL AND x.status <> 'deleted')` },
+  {
+    key: 'mediator',
+    label: 'هو وسيط لزبائن آخرين',
+    sql: `(EXISTS (SELECT 1 FROM clients o WHERE o.referral_entity_id = c.id AND o.referrer_type = 'Client' AND o.deleted_at IS NULL)
+          OR EXISTS (SELECT 1 FROM client_referral_attributions x WHERE x.referrer_client_id = c.id))`,
+  },
+  { key: 'transfer_target', label: 'هو وجهة نقل جهاز في مهمة مفتوحة', sql: `EXISTS (SELECT 1 FROM open_tasks x WHERE x.target_client_id = c.id AND x.status NOT IN ('completed', 'cancelled'))` },
+];
+
 router.delete('/:id', requirePermission('clients.delete'), async (req, res) => {
+  const authContext = getRequiredAuthContext(req);
+  const clientId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   try {
-    const authContext = getRequiredAuthContext(req);
-    const clientId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const subject = await loadClientSubject(clientId!);
-    if (!subject) {
-      return res.status(404).json({ message: 'الزبون غير موجود' });
-    }
+    // One transaction: the guards, the cascade and the soft delete succeed or
+    // fail together. The change context labels the task and ownership logs.
+    const result = await runWithChangeContext({ changeContext: 'client_deleted' }, async () => {
+      const db = await pool.connect();
+      try {
+        await db.query('BEGIN');
+        const subject = await loadClientSubject(clientId!, db, true);
+        if (!subject) {
+          await db.query('ROLLBACK');
+          return { status: 404, body: { error: 'الزبون غير موجود' } };
+        }
+        const access = canDeleteClient(authContext, subject);
+        if (!access.allowed) {
+          await db.query('ROLLBACK');
+          return { forbidReason: access.reason ?? 'FORBIDDEN' };
+        }
 
-    const access = canDeleteClient(authContext, subject);
-    if (!access.allowed) {
-      return forbidClientAccess(res, access.reason);
-    }
+        const { rows: [check] } = await db.query(
+          `SELECT c.deleted_at IS NOT NULL AS "alreadyDeleted",
+                  ${CLIENT_DELETE_BLOCKERS.map(b => `${b.sql} AS "${b.key}"`).join(',\n                  ')}
+             FROM clients c
+            WHERE c.id = $1`,
+          [clientId],
+        );
+        if (check.alreadyDeleted) {
+          await db.query('ROLLBACK');
+          return { status: 404, body: { error: 'الزبون محذوف مسبقاً' } };
+        }
+        const blockers = CLIENT_DELETE_BLOCKERS.filter(b => check[b.key] === true);
+        if (blockers.length > 0) {
+          await db.query('ROLLBACK');
+          return {
+            status: 400,
+            body: {
+              error: `لا يمكن حذف الزبون لأنه: ${blockers.map(b => b.label).join('، ')}`,
+              code: 'CLIENT_DELETE_BLOCKED',
+              blockers: blockers.map(b => ({ key: b.key, label: b.label })),
+            },
+          };
+        }
 
-    // Guard: block if client has contracts
-    const { rows: contractRows } = await pool.query(
-      'SELECT 1 FROM contracts WHERE customer_id = $1 LIMIT 1',
-      [clientId],
-    );
-    if (contractRows.length > 0) {
-      return res.status(400).json({ error: 'لا يمكن حذف الزبون: لديه عقود مسجلة في النظام' });
-    }
-
-    // Guard: block if client has field visit history
-    const { rows: visitRows } = await pool.query(
-      'SELECT 1 FROM field_visits WHERE client_id = $1 LIMIT 1',
-      [clientId],
-    );
-    if (visitRows.length > 0) {
-      return res.status(400).json({ error: 'لا يمكن حذف الزبون: لديه سجل زيارات ميدانية' });
-    }
-
-    // Guard: block if client has any completed task results
-    const { rows: taskResultRows } = await pool.query(
-      `SELECT 1 FROM open_tasks ot
-       WHERE ot.client_id = $1 AND ot.status = 'completed' LIMIT 1`,
-      [clientId],
-    );
-    if (taskResultRows.length > 0) {
-      return res.status(400).json({ error: 'لا يمكن حذف الزبون: لديه مهام مكتملة في السجل' });
-    }
-
-    // Soft delete: cascade cancel open tasks, clean up assignments and appointments
-    await pool.query(
-      `UPDATE open_tasks SET status = 'cancelled', updated_at = NOW()
-       WHERE client_id = $1 AND status NOT IN ('completed', 'cancelled')`,
-      [clientId],
-    );
-    await runWithChangeContext({ changeContext: 'client_deleted' }, () =>
-      pool.query('DELETE FROM client_assignments WHERE client_id = $1', [clientId]),
-    );
-    await pool.query('DELETE FROM contact_targets WHERE target_type = $1 AND target_id = $2', ['client', clientId]);
-    // Plan 2026-06-10 Phase 2.5 — the UPDATE on telemarketing_appointments
-    // that used to live here was dead code (column `status` does not exist
-    // on that table; the query would error silently on production). Removed
-    // as part of the telemarketing_appointments retirement. The legacy table
-    // is being frozen in Phase 4, so no cascade is needed here anyway.
-    await pool.query(
-      `UPDATE clients
-       SET deleted_at = NOW(), deleted_by = $1, is_active = FALSE
-       WHERE id = $2`,
-      [authContext.userId, clientId],
-    );
-
-    res.json({ success: true });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+        await db.query(
+          `UPDATE open_tasks SET status = 'cancelled', updated_at = NOW()
+           WHERE client_id = $1 AND status NOT IN ('completed', 'cancelled')`,
+          [clientId],
+        );
+        await db.query('DELETE FROM client_assignments WHERE client_id = $1', [clientId]);
+        await db.query('DELETE FROM contact_targets WHERE target_type = $1 AND target_id = $2', ['client', clientId]);
+        await db.query(
+          `UPDATE clients
+           SET deleted_at = NOW(), deleted_by = $1, is_active = FALSE
+           WHERE id = $2`,
+          [authContext.userId, clientId],
+        );
+        await db.query('COMMIT');
+        return { status: 200, body: { success: true } };
+      } catch (err) {
+        await db.query('ROLLBACK').catch(() => undefined);
+        throw err;
+      } finally {
+        db.release();
+      }
+    });
+    if ('forbidReason' in result) return forbidClientAccess(res, result.forbidReason);
+    res.status(result.status).json(result.body);
+  } catch (err) {
+    console.error('[clients] DELETE /:id error:', err);
+    res.status(500).json({ error: 'تعذر حذف الزبون' });
   }
 });
 

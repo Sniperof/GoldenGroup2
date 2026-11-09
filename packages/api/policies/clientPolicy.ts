@@ -105,6 +105,14 @@ export function canUnlockClientCooldown(
   return authorizeClientPermission(context, 'clients.cooldown_unlock', client);
 }
 
+// «دورة الحياة» tab (migration 491); scope-aware like clients.view.
+export function canViewClientLifecycle(
+  context: AuthContext,
+  client: ClientPolicySubject,
+): AuthorizationResult {
+  return authorizeClientPermission(context, 'clients.lifecycle.view', client);
+}
+
 export function canViewClientRating(
   context: AuthContext,
   client: ClientPolicySubject,
