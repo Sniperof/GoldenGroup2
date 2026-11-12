@@ -101,7 +101,7 @@ export async function searchContractCustomers(
   const limit = Math.min(30, Math.max(1, requestedLimit));
   const params: unknown[] = [];
   const conditions = appendLookupScope(authContext, branchId, params);
-  conditions.push('c.is_candidate = FALSE');
+  conditions.push('c.is_candidate = FALSE', 'c.deleted_at IS NULL');
 
   params.push(`%${query}%`);
   const textRef = `$${params.length}`;
@@ -171,7 +171,7 @@ export async function loadContractCustomerContext(
   const conditions = appendLookupScope(authContext, branchId, params, true);
   params.push(customerId);
   conditions.push(`c.id = $${params.length}`);
-  conditions.push('c.is_candidate = FALSE');
+  conditions.push('c.is_candidate = FALSE', 'c.deleted_at IS NULL');
 
   const { rows } = await db.query(
     `SELECT c.id,

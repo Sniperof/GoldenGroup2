@@ -6,7 +6,7 @@ import {
     History, ArrowLeft, ChevronLeft,
     Plus, Briefcase, Activity, LayoutDashboard, Contact2, Navigation, Users, MessageCircle, ShieldCheck,
     X, Loader2, PhoneCall, Zap, FileText, CheckCircle2, Wrench, Check, Truck, Calendar, Layers, AlertCircle,
-    Cpu, Package, Sparkles, Gift, Clock, DollarSign, Star, ClipboardList
+    Cpu, Package, Sparkles, Gift, Clock, DollarSign, Star, ClipboardList, Route
 } from '../components/ui/icons';
 import { DevicesTab } from './clientProfile/DevicesTab'; // plan §1 — replaces legacy ContractsTab
 import { PurchaseHistoryTab } from './clientProfile/PurchaseHistoryTab';
@@ -40,6 +40,8 @@ import ClientAppAccountCard from '../components/appAccounts/ClientAppAccountCard
 import ServiceRequestsTab from './clientProfile/ServiceRequestsTab';
 import OwnershipTab from './clientProfile/OwnershipTab';
 import NetworkTab from './clientProfile/NetworkTab';
+import ActivityTab from './clientProfile/ActivityTab';
+import LifecycleTab from './clientProfile/LifecycleTab';
 import { buildMapsEmbedUrl, buildMapsUrl } from '../utils/addressUtils';
 
 type ClientProfileTabId =
@@ -56,7 +58,9 @@ type ClientProfileTabId =
     | 'gifts'
     | 'service_requests'
     | 'rating'
-    | 'account_statement';
+    | 'account_statement'
+    | 'activity'
+    | 'lifecycle';
 
 const referrerTypesAr: Record<string, string> = {
     'Personal': 'شخصي',
@@ -598,6 +602,8 @@ export default function ClientProfile() {
     const canViewPreOffers = hasAnyPermission('clients.pre_offers.view', 'contracts.view_list');
     const canViewNetwork = hasPermission('clients.network.view');
     const canViewOwnership = hasPermission('clients.ownership.view');
+    const canViewActivity = hasPermission('clients.activity_log.view');
+    const canViewLifecycle = hasPermission('clients.lifecycle.view');
     const canViewAccountStatement = hasPermission('clients.account_statement.view');
     const canViewRating = hasPermission('clients.rating.view');
     const canViewServiceRequests = hasAnyPermission(
@@ -695,6 +701,9 @@ export default function ClientProfile() {
         ...(canViewNetwork ? [{ id: 'network' as const, label: 'الشبكة', icon: Share2 }] : []),
         ...(canViewOwnership ? [{ id: 'ownership' as const, label: 'الملكية', icon: Users }] : []),
         ...(canViewAccountStatement ? [{ id: 'account_statement' as const, label: 'كشف الحساب', icon: FileText }] : []),
+        ...(canViewActivity ? [{ id: 'activity' as const, label: 'سجل التغييرات', icon: History }] : []),
+        // Own key (491); each category inside still follows its own tab's permission.
+        ...(canViewLifecycle ? [{ id: 'lifecycle' as const, label: 'دورة الحياة', icon: Route }] : []),
     ];
     const safeActiveTab: ClientProfileTabId = tabs.some(tab => tab.id === activeTab) ? activeTab : (tabs[0]?.id ?? 'contacts');
 
@@ -738,6 +747,8 @@ export default function ClientProfile() {
                                         { id: 'network', label: 'الشبكة', icon: Share2 },
                                         { id: 'ownership', label: 'الملكية', icon: Users },
                                         { id: 'account_statement', label: 'كشف الحساب', icon: FileText },
+                                        { id: 'lifecycle', label: 'دورة الحياة', icon: Route },
+                                        { id: 'activity', label: 'سجل التغييرات', icon: History },
                                     ].filter((tab) => tabs.some(allowedTab => allowedTab.id === tab.id))}
                                     activeId={safeActiveTab}
                                     onChange={(id) => setActiveTab(id as any)}
@@ -794,6 +805,8 @@ export default function ClientProfile() {
                                 )}
                                 {safeActiveTab === 'network' && <NetworkTab client={client} />}
                                 {safeActiveTab === 'ownership' && <OwnershipTab client={client} />}
+                                {safeActiveTab === 'activity' && <ActivityTab clientId={client.id} />}
+                                {safeActiveTab === 'lifecycle' && <LifecycleTab clientId={client.id} />}
                                 {safeActiveTab === 'account_statement' && <AccountStatementTab client={client} />}
                             </motion.div>
                         </AnimatePresence>

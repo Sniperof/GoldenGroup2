@@ -83,6 +83,7 @@ export async function detectCandidateDuplicate(
     `SELECT c.id
        FROM clients c
       WHERE c.is_candidate = FALSE
+        AND c.deleted_at IS NULL
         AND ($2::int IS NULL OR c.id <> $2)
         AND ${PHONE_MATCH_CONDITION('c')}
       ORDER BY c.id ASC
