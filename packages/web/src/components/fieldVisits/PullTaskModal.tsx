@@ -1,3 +1,4 @@
+import { alertDialog } from '../../lib/dialogs';
 import { useEffect, useState, useCallback } from 'react';
 import {
   Loader2, ListPlus, AlertTriangle, FileText, Smartphone,
@@ -79,7 +80,7 @@ export default function PullTaskModal({
       await api.fieldVisits.addTask(visitId, { taskType: t.taskType, openTaskId: t.openTaskId });
       onPulled();
     } catch (err: any) {
-      alert(err?.message ?? 'فشل سحب المهمة');
+      void alertDialog(err?.message ?? 'فشل سحب المهمة');
     } finally {
       setPullingId(null);
     }
@@ -124,7 +125,8 @@ export default function PullTaskModal({
             {tasks.map((t) => {
               const st = STATUS_META[t.status] ?? { label: t.status, cls: 'bg-slate-100 text-slate-500' };
               const pr = t.priority ? PRIORITY_META[t.priority] : null;
-              const amount = fmtAmount(t.installmentRemaining ?? t.installmentAmount ?? t.expectedAmount);
+              // قسط مربوط بالدولار: المستحق اليوم بدل الرصيد الأصلي.
+              const amount = fmtAmount(t.usdDue?.dueTodaySyp ?? t.installmentRemaining ?? t.installmentAmount ?? t.expectedAmount);
               return (
                 <div key={t.openTaskId} className="rounded-xl border border-gray-200 p-4">
                   <div className="flex items-start justify-between gap-3">

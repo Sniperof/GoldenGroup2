@@ -1,3 +1,4 @@
+import { alertDialog } from '../../lib/dialogs';
 import { useState, useMemo, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -126,7 +127,7 @@ export default function TeamTasksDetail() {
 
     const handleReassign = (taskId: number) => {
         // Mock: just show feedback
-        alert(`سيتم نقل المهمة #${taskId} إلى فريق آخر`);
+        void alertDialog(`سيتم نقل المهمة #${taskId} إلى فريق آخر`);
     };
 
     const filterTabs: { key: FilterTab; label: string; count: number; icon: any }[] = [

@@ -1,3 +1,4 @@
+import { alertDialog } from '../lib/dialogs';
 import { isValidElement, useState, useMemo, useCallback, useEffect, type ReactNode } from 'react';
 import { motion } from 'framer-motion';
 import { Search, Download, Loader2, RotateCcw, ChevronUp, ChevronDown, ChevronsUpDown } from './ui/icons';
@@ -319,7 +320,7 @@ export default function SmartTable<T>({
             downloadCsv(csv, exportFileName ?? title);
         } catch (error) {
             console.error('Failed to export table:', error);
-            window.alert('تعذر توليد التقرير كاملاً. يرجى إعادة المحاولة.');
+            void alertDialog('تعذر توليد التقرير كاملاً. يرجى إعادة المحاولة.');
         } finally {
             setIsExporting(false);
         }

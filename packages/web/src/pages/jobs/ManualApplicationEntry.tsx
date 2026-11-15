@@ -1,3 +1,4 @@
+import { alertDialog } from '../../lib/dialogs';
 import { useState, useEffect } from 'react';
 import type { JobVacancy, GeoUnit, ReferralType, ReferralOriginChannel, Client } from '../../lib/types';
 import { useNavigate } from 'react-router-dom';
@@ -782,7 +783,7 @@ export default function ManualApplicationEntry() {
           </div>
           <div className="md:col-span-1 lg:col-span-2">
             <Field label="السيرة الذاتية" hint="اختياري">
-              <input type="file" id="cv-upload" accept=".pdf,.doc,.docx" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) { if (f.size > 4 * 1024 * 1024) alert('حد أقصى 4MB'); else setA('cvFile', f); } }} />
+              <input type="file" id="cv-upload" accept=".pdf,.doc,.docx" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) { if (f.size > 4 * 1024 * 1024) void alertDialog('حد أقصى 4MB'); else setA('cvFile', f); } }} />
               <label htmlFor="cv-upload" className={`mt-1 flex flex-col items-center justify-center gap-2 p-6 rounded-xl border-2 border-dashed cursor-pointer transition-all ${applicant.cvFile ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200 bg-white hover:border-sky-300 hover:bg-sky-50'}`}>
                 {applicant.cvFile
                   ? <><File className="w-8 h-8 text-emerald-500" /><span className="text-xs font-bold text-emerald-700 truncate max-w-full">{applicant.cvFile.name}</span></>

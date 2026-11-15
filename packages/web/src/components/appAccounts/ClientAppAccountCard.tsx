@@ -2,6 +2,7 @@
 // ClientAppAccountCard — app-account status + actions on a client's detail page
 // DEC-013 §2.5.10 — direct create / suspend / reactivate from the client record
 // ============================================================
+import { alertDialog, confirmDialog, promptDialog } from '../../lib/dialogs';
 import { useCallback, useEffect, useState } from 'react';
 import { Smartphone, Loader2, UserCheck, PauseCircle, PlayCircle } from 'lucide-react';
 import { api } from '../../lib/api';
@@ -50,9 +51,9 @@ export default function ClientAppAccountCard({ clientId }: { clientId: number })
     try {
       await fn();
       await load();
-      alert(okMsg);
+      void alertDialog(okMsg);
     } catch (e: any) {
-      alert(e?.message ?? 'فشل تنفيذ الإجراء');
+      void alertDialog(e?.message ?? 'فشل تنفيذ الإجراء');
     } finally {
       setBusy(false);
     }
@@ -93,8 +94,8 @@ export default function ClientAppAccountCard({ clientId }: { clientId: number })
             {account.status === 'active' && canSuspend && (
               <button
                 disabled={busy}
-                onClick={() => {
-                  const reason = prompt('سبب إيقاف الحساب:');
+                onClick={async () => {
+                  const reason = await promptDialog({ message: 'سبب إيقاف الحساب:', required: false });
                   if (reason && reason.trim()) act(() => api.appAccounts.suspend(account.id, reason.trim()), 'تم إيقاف الحساب');
                 }}
                 className="text-xs bg-amber-500 hover:bg-amber-600 disabled:opacity-40 text-white px-3 py-1.5 rounded flex items-center gap-1"
@@ -119,8 +120,8 @@ export default function ClientAppAccountCard({ clientId }: { clientId: number })
           {canCreate && (
             <button
               disabled={busy}
-              onClick={() => {
-                if (confirm('إنشاء وتفعيل حساب تطبيق مباشر لهذا الزبون باستخدام رقمه الرئيسي؟')) {
+              onClick={async () => {
+                if (await confirmDialog('إنشاء وتفعيل حساب تطبيق مباشر لهذا الزبون باستخدام رقمه الرئيسي؟')) {
                   act(() => api.appAccounts.createDirect(clientId), 'تم إنشاء الحساب وتفعيله');
                 }
               }}

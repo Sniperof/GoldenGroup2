@@ -22,6 +22,16 @@ interface Props {
   grandTotal?: number;   // for comparison display
   label?: string;
   capturePaymentInstrument?: boolean;
+  /**
+   * USD-linked installments (migr 493): USD cash counts at this rate (the
+   * central rate of the day). The collector cannot type a rate.
+   */
+  fixedUsdRate?: number | null;
+  /**
+   * USD cash may only use the central rate: with no central rate the USD amount
+   * counts as 0 and a message replaces the typed-rate field (no fallback).
+   */
+  requireCentralRate?: boolean;
 }
 
 let keyCounter = 0;
@@ -29,10 +39,16 @@ export function newEntry(): PaymentEntry {
   return { _key: String(++keyCounter), method: '', paymentInstrument: '', amountValue: '', currency: 'syp', exchangeRate: '', transferCompanyId: '', referenceNumber: '', barterDescription: '' };
 }
 
-function entrySyp(e: PaymentEntry): number {
+function entrySyp(e: PaymentEntry, fixedUsdRate?: number | null): number {
   const v = Number(e.amountValue) || 0;
   if (e.method === 'barter') return v;
-  return e.currency === 'usd' ? v * (Number(e.exchangeRate) || 0) : v;
+  if (e.currency !== 'usd') return v;
+  return v * (fixedUsdRate && fixedUsdRate > 0 ? fixedUsdRate : (Number(e.exchangeRate) || 0));
+}
+
+function entrySypLocked(e: PaymentEntry, fixedUsdRate: number | null, requireCentralRate: boolean): number {
+  if (requireCentralRate && e.method !== 'barter' && e.currency === 'usd' && !(fixedUsdRate && fixedUsdRate > 0)) return 0;
+  return entrySyp(e, fixedUsdRate);
 }
 
 const METHOD_META = [
@@ -49,7 +65,7 @@ const TRANSFER_INSTRUMENTS = [
   { value: 'bank_transfer', label: 'حوالة بنكية' },
 ] as const;
 
-export default function PaymentEntriesList({ entries, onChange, disabled, grandTotal, label, capturePaymentInstrument = false }: Props) {
+export default function PaymentEntriesList({ entries, onChange, disabled, grandTotal, label, capturePaymentInstrument = false, fixedUsdRate = null, requireCentralRate = false }: Props) {
   const transferCompanies = useSystemListItems('transfer_company');
 
   const update = (key: string, patch: Partial<PaymentEntry>) =>
@@ -59,7 +75,7 @@ export default function PaymentEntriesList({ entries, onChange, disabled, grandT
 
   const add = () => onChange([...entries, newEntry()]);
 
-  const totalSyp = entries.reduce((s, e) => s + entrySyp(e), 0);
+  const totalSyp = entries.reduce((s, e) => s + entrySypLocked(e, fixedUsdRate, requireCentralRate), 0);
   const gap       = grandTotal != null ? totalSyp - grandTotal : null;
 
   return (
@@ -67,7 +83,7 @@ export default function PaymentEntriesList({ entries, onChange, disabled, grandT
       {label && <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">{label}</p>}
 
       {entries.map((e, idx) => {
-        const syp = entrySyp(e);
+        const syp = entrySypLocked(e, fixedUsdRate, requireCentralRate);
         return (
           <div key={e._key} className="rounded-2xl border border-slate-200 bg-slate-50/40 p-3 space-y-2.5">
             <div className="flex items-center justify-between">
@@ -201,9 +217,19 @@ export default function PaymentEntriesList({ entries, onChange, disabled, grandT
                   <div className="grid grid-cols-2 gap-2 items-end">
                     <div className="space-y-1">
                       <label className="block text-xs font-bold text-slate-500">سعر الصرف</label>
-                      <Input type="number" min={0} value={e.exchangeRate}
-                        onChange={ev => update(e._key, { exchangeRate: ev.target.value })}
-                        placeholder="ل.س / $" disabled={disabled} dir="ltr" />
+                      {fixedUsdRate && fixedUsdRate > 0 ? (
+                        <div className="rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 text-xs font-black text-slate-600" dir="ltr">
+                          {fixedUsdRate.toLocaleString('en-US')} <span className="font-bold text-slate-400">(سعر اليوم المركزي)</span>
+                        </div>
+                      ) : requireCentralRate ? (
+                        <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700">
+                          لا يوجد سعر صرف مركزي معتمد — لا يمكن قبول الدولار
+                        </div>
+                      ) : (
+                        <Input type="number" min={0} value={e.exchangeRate}
+                          onChange={ev => update(e._key, { exchangeRate: ev.target.value })}
+                          placeholder="ل.س / $" disabled={disabled} dir="ltr" />
+                      )}
                     </div>
                     <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-center">
                       <div className="text-xs text-blue-500 font-bold">يعادل</div>

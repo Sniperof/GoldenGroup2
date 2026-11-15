@@ -1,5 +1,6 @@
 // Device operational status + lifecycle dates.
 
+import { alertDialog } from '../../../lib/dialogs';
 import { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, History, Loader2, MapPin, PauseCircle, RotateCcw, Truck, Unplug, Wrench, Zap } from '../../../components/ui/icons';
 import { DeviceStatusBadge } from '../../../components/devices/DeviceStatusBadge';
@@ -329,7 +330,7 @@ export function OperationalStatusSection({ device, tasks, canManageDeliverySuspe
       onTaskCreated?.();
     } catch (err: any) {
       console.error('[OperationalStatusSection] schedule failed:', err);
-      alert('فشل إنشاء المهمة: ' + (err?.message || err));
+      void alertDialog('فشل إنشاء المهمة: ' + (err?.message || err));
     } finally {
       setBusy(false);
     }

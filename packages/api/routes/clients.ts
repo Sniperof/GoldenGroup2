@@ -1446,6 +1446,36 @@ router.post('/smart-match', async (req, res) => {
  *       500:
  *         description: Server error
  */
+// Statement description for a contract payment line (migr 493/494). Lines with
+// no recorded rate (historical) keep their description exactly as stored.
+function fxNum(n: unknown, digits = 0): string {
+  return Number(n).toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+}
+export function withPaymentFxReference(row: any): string {
+  const stored = row.description ?? '';
+  if (row.kind !== 'payment') return stored;
+  // An installment paid before its due date: say so, since its charge only
+  // appears on the due date and the running balance dips until then.
+  const base = row.advance_due_date
+    ? `${stored} — دفعة مقدّمة لقسط يستحق في ${row.advance_due_date}`
+    : stored;
+  if (row.fx_day_rate != null && row.fx_usd_settled != null) {
+    // USD-linked installment: the amount column is the original SYP credited;
+    // the description explains what was paid and at which rate.
+    return `${base} — سُدِّد ${fxNum(row.fx_usd_settled, 2)} $ بسعر صرف يوم الدفع ${fxNum(row.fx_day_rate)} ل.س/$، المبلغ المقبوض ${fxNum(row.fx_collected_syp)} ل.س`;
+  }
+  if (row.fx_ref_rate != null && row.fx_ref_usd != null) {
+    return `${base} — ما يعادل ${fxNum(row.fx_ref_usd, 2)} $ بسعر صرف ${fxNum(row.fx_ref_rate)} ل.س/$`;
+  }
+  // D6: aggregated maintenance spot-cash line (one per visit).
+  if (row.spot_ref_rate != null && Number(row.spot_ref_rate) > 0 && Number(row.credit_amount) > 0) {
+    const usd = Number(row.credit_amount) / Number(row.spot_ref_rate);
+    const cash = Number(row.spot_usd_cash) > 0 ? `، منها ${fxNum(row.spot_usd_cash, 2)} $ نقداً` : '';
+    return `${base} — ما يعادل ${fxNum(usd, 2)} $ بسعر صرف ${fxNum(row.spot_ref_rate)} ل.س/$${cash}`;
+  }
+  return base;
+}
+
 router.get('/:id/account-statement', requirePermission('clients.account_statement.view'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
@@ -1500,35 +1530,114 @@ router.get('/:id/account-statement', requirePermission('clients.account_statemen
     const params: Array<string | string[]> = [clientId!];
     if (from) {
       params.push(from);
-      displayFilters.push(`occurred_at >= $${params.length}::date`);
+      displayFilters.push(`o.occurred_at >= $${params.length}::date`);
     }
     if (to) {
       params.push(to);
-      displayFilters.push(`occurred_at < ($${params.length}::date + INTERVAL '1 day')`);
+      displayFilters.push(`o.occurred_at < ($${params.length}::date + INTERVAL '1 day')`);
     }
     if (types.length > 0) {
       params.push(types);
-      displayFilters.push(`source_type = ANY($${params.length}::varchar[])`);
+      displayFilters.push(`o.source_type = ANY($${params.length}::varchar[])`);
     }
     const displayWhere = displayFilters.length ? `WHERE ${displayFilters.join(' AND ')}` : '';
+
+    // view=total («حسب إجمالي الدين»): every debt is ONE debit line for its
+    // full amount on the day it was booked (contract, golden warranty, service
+    // agreement, maintenance task) instead of one line per installment on its
+    // due date. Payments, refunds and discounts are unchanged. Display only —
+    // nothing is written.
+    const totalView = req.query.view === 'total';
+    const movementSource = totalView
+      ? `(
+          WITH src AS (
+            SELECT fm.*,
+                   CASE
+                     WHEN fm.kind <> 'charge' THEN NULL
+                     WHEN fm.source_type IN ('contract', 'contract_installment') THEN 'contract:' || fm.contract_id
+                     WHEN fm.source_type IN ('golden_warranty', 'golden_warranty_installment') THEN 'gw:' || fm.source_id
+                     WHEN fm.source_type = 'service_agreement' THEN 'sa:' || fm.source_id
+                     WHEN fm.source_type IN ('periodic_maintenance', 'emergency_maintenance', 'maintenance_installment') THEN 'mt:' || fm.source_id
+                   END AS debt_key
+              FROM financial_movements fm
+             WHERE fm.client_id = $1
+          )
+          SELECT MIN(src.id) AS id,
+                 LEAST(MIN(src.occurred_at), MIN(src.created_at)) AS occurred_at,
+                 'charge'::varchar AS kind,
+                 CASE split_part(src.debt_key, ':', 1)
+                   WHEN 'contract' THEN 'contract' WHEN 'gw' THEN 'golden_warranty'
+                   WHEN 'sa' THEN 'service_agreement' ELSE MIN(src.source_type) END::varchar AS source_type,
+                 MIN(src.source_id) AS source_id, NULL::int AS source_ref_id, MIN(src.contract_id) AS contract_id,
+                 CASE split_part(src.debt_key, ':', 1)
+                   WHEN 'contract' THEN 'إجمالي دين العقد ' || COALESCE((SELECT c.contract_number FROM contracts c WHERE c.id = MIN(src.contract_id)), MIN(src.contract_id)::text)
+                   WHEN 'gw' THEN 'إجمالي دين الكفالة الذهبية #' || MIN(src.source_id)
+                   WHEN 'sa' THEN 'إجمالي اتفاقية الخدمة #' || MIN(src.source_id)
+                   ELSE 'إجمالي تكلفة الصيانة — مهمة #' || MIN(src.source_id)
+                 END AS description,
+                 NULL::varchar AS reference_no,
+                 SUM(src.amount_syp) AS amount_syp
+            FROM src WHERE src.debt_key IS NOT NULL
+           GROUP BY src.debt_key
+          UNION ALL
+          SELECT src.id, src.occurred_at, src.kind, src.source_type, src.source_id, src.source_ref_id, src.contract_id,
+                 src.description, src.reference_no, src.amount_syp
+            FROM src WHERE src.debt_key IS NULL
+        ) fm_view`
+      : 'financial_movements';
 
     const [entriesResult, summaryResult] = await Promise.all([
       pool.query(
         `WITH ordered AS (
            SELECT
-             id, occurred_at, kind, source_type, source_id, contract_id,
+             id, occurred_at, kind, source_type, source_id, source_ref_id, contract_id,
              description, reference_no,
              CASE WHEN kind IN ('charge','refund')    THEN amount_syp ELSE 0 END AS debit_amount,
              CASE WHEN kind IN ('payment','discount') THEN amount_syp ELSE 0 END AS credit_amount,
              SUM(CASE WHEN kind IN ('charge','refund') THEN amount_syp ELSE -amount_syp END)
                OVER (ORDER BY occurred_at, id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS running_balance,
              (kind = 'charge' AND occurred_at > NOW()) AS is_upcoming
-           FROM financial_movements
-           WHERE client_id = $1
+           FROM ${movementSource}
+           ${totalView ? '' : 'WHERE client_id = $1'}
          )
-         SELECT * FROM ordered
+         -- migr 493/494: the payment's reference rate / USD value live on the
+         -- contract payment entry itself (the movement is append-only and keeps
+         -- its own semantics) — joined here for the statement description.
+         SELECT o.*,
+                COALESCE(pe.ref_rate, mpe.ref_rate) AS fx_ref_rate,
+                COALESCE(pe.ref_usd, mpe.ref_usd) AS fx_ref_usd,
+                COALESCE(pe.day_rate, mpe.day_rate) AS fx_day_rate,
+                COALESCE(pe.usd_settled, mpe.usd_settled) AS fx_usd_settled,
+                COALESCE(pe.collected_syp, mpe.collected_syp) AS fx_collected_syp,
+                -- Paid before the installment falls due: its charge is booked on
+                -- the due date, so the running balance dips until then.
+                CASE WHEN COALESCE(ci.due_date, ei.due_date)::date
+                          > (o.occurred_at AT TIME ZONE 'Asia/Damascus')::date
+                     THEN to_char(COALESCE(ci.due_date, ei.due_date)::date, 'DD/MM/YYYY')
+                END AS advance_due_date,
+                -- D6: maintenance spot cash is one aggregated payment line per
+                -- visit; its upfront entries carry the reference rate (migr 495).
+                spot.rate AS spot_ref_rate, spot.usd_cash AS spot_usd_cash
+           FROM ordered o
+           LEFT JOIN contract_payment_entries pe
+             ON o.source_type = 'contract_payment' AND pe.id = o.source_ref_id
+           LEFT JOIN contract_installments ci ON ci.id = pe.installment_id
+           -- migr 495: maintenance installment payments carry the same reference.
+           LEFT JOIN emergency_payment_entries mpe
+             ON o.source_type = 'maintenance_installment_payment' AND mpe.id = o.source_ref_id
+           LEFT JOIN emergency_installments ei ON ei.id = mpe.installment_id
+           LEFT JOIN LATERAL (
+             SELECT MAX(e.ref_rate) AS rate,
+                    SUM(CASE WHEN lower(e.currency) = 'usd' AND e.method <> 'barter' THEN e.amount_value ELSE 0 END) AS usd_cash
+               FROM emergency_payment_entries e
+               JOIN emergency_result_costs c ON c.id = e.costs_id
+              WHERE c.open_task_id = o.source_id
+                AND e.installment_id IS NULL
+                AND e.entry_type = 'collection'
+                AND e.ref_rate IS NOT NULL
+           ) spot ON o.source_type IN ('periodic_maintenance', 'emergency_maintenance') AND o.kind = 'payment'
          ${displayWhere}
-         ORDER BY occurred_at ASC, id ASC`,
+         ORDER BY o.occurred_at ASC, o.id ASC`,
         params,
       ),
       pool.query(
@@ -1543,7 +1652,9 @@ router.get('/:id/account-statement', requirePermission('clients.account_statemen
            COALESCE(SUM(CASE WHEN kind = 'charge' AND occurred_at > NOW() THEN amount_syp ELSE 0 END), 0) AS upcoming_total,
            GREATEST(COALESCE(SUM(CASE WHEN occurred_at < date_trunc('day', NOW())
                              THEN (CASE WHEN kind IN ('charge','refund') THEN amount_syp ELSE -amount_syp END)
-                             ELSE 0 END), 0), 0) AS overdue_amount
+                             ELSE 0 END), 0), 0) AS overdue_amount,
+           -- Everything still owed, future installments included («حسب إجمالي الدين»).
+           COALESCE(SUM(CASE WHEN kind IN ('charge','refund') THEN amount_syp ELSE -amount_syp END), 0) AS outstanding_total
          FROM financial_movements
          WHERE client_id = $1`,
         [clientId],
@@ -1557,7 +1668,9 @@ router.get('/:id/account-statement', requirePermission('clients.account_statemen
         current_balance: Number(summary.current_balance),
         upcoming_total: Number(summary.upcoming_total),
         overdue_amount: Number(summary.overdue_amount),
+        outstanding_total: Number(summary.outstanding_total),
       },
+      view: totalView ? 'total' : 'due',
       entries: entriesResult.rows.map(row => ({
         id: row.id,
         entry_date: row.occurred_at,
@@ -1566,8 +1679,17 @@ router.get('/:id/account-statement', requirePermission('clients.account_statemen
         source_type: row.source_type,
         source_id: row.source_id,
         contract_id: row.contract_id,
-        description: row.description,
+        // The «دفعة مقدّمة» note is meaningless when the whole debt is booked upfront.
+        description: withPaymentFxReference(totalView ? { ...row, advance_due_date: null } : row),
         reference_no: row.reference_no,
+        // Structured copy of the reference shown in the description (null when none recorded).
+        usd_amount: row.fx_day_rate != null
+          ? Number(row.fx_usd_settled)
+          : row.fx_ref_usd != null ? Number(row.fx_ref_usd) : null,
+        exchange_rate: row.fx_day_rate != null
+          ? Number(row.fx_day_rate)
+          : row.fx_ref_rate != null ? Number(row.fx_ref_rate) : null,
+        collected_syp: row.fx_collected_syp != null ? Number(row.fx_collected_syp) : null,
         debit_amount: Number(row.debit_amount),
         credit_amount: Number(row.credit_amount),
         running_balance: Number(row.running_balance),

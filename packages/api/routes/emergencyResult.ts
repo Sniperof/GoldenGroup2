@@ -44,6 +44,7 @@ import {
   recordEmergencyDirectWorkshopRetrieval,
 } from '../services/emergencyDirectWorkshopRetrieval.js';
 import { ResultValidationError } from '../services/visitTaskResultReflection.js';
+import { FxRateMissingError, attachUsdDues, getRateOn, snapshotMaintenanceUsdRate } from '../services/fxRates.js';
 
 const router = Router();
 
@@ -1994,11 +1995,20 @@ router.put('/:taskId/payment-entries', requirePermission('marketing_visits.updat
 
       let totalSyp = 0;
       const saved: any[] = [];
+      // USD cash is priced at the central rate of the day; a typed rate is ignored
+      // (owner decision with migr 495). No central rate -> a USD entry is refused.
+      const central = entries.some((e: any) => e?.currency === 'usd' && e?.method !== 'barter')
+        ? await getRateOn(db, null)
+        : null;
       for (let i = 0; i < entries.length; i++) {
         const e = entries[i];
         const amtVal = Number(e.amountValue) || 0;
-        const rate   = Number(e.exchangeRate) || 1;
-        const amtSyp = e.currency === 'usd' ? amtVal * rate : amtVal;
+        const isUsd  = e.currency === 'usd' && e.method !== 'barter';
+        if (isUsd && !central) {
+          throw new FxRateMissingError('لا يوجد سعر صرف مركزي معتمد اليوم — لا يمكن تسجيل دفعة بالدولار. الدفعات بالليرة غير متأثرة.');
+        }
+        const rate   = isUsd ? central!.rate : (Number(e.exchangeRate) || 1);
+        const amtSyp = isUsd ? Math.round(amtVal * rate) : (e.currency === 'usd' ? amtVal * rate : amtVal);
         totalSyp += amtSyp;
         const { rows } = await db.query(
           `INSERT INTO emergency_payment_entries
@@ -2025,7 +2035,10 @@ router.put('/:taskId/payment-entries', requirePermission('marketing_visits.updat
       res.json({ entries: saved, totalSyp });
     } catch (err) { await db.query('ROLLBACK'); throw err; }
     finally { db.release(); }
-  } catch (err: any) { res.status(500).json({ error: err.message }); }
+  } catch (err: any) {
+    if (err instanceof FxRateMissingError) return res.status(err.status).json({ error: err.message, code: err.code });
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ── GET /:taskId/installments ─────────────────────────────────────────────────
@@ -2082,21 +2095,26 @@ router.get('/:taskId/installments', requirePermission(...MAINTENANCE_RESULT_READ
     const { rows: costsRow } = await pool.query(
       `SELECT has_first_payment AS "hasFirstPayment",
               installments_count AS "installmentsCount",
-              installments_confirmed AS "installmentsConfirmed"
+              installments_confirmed AS "installmentsConfirmed",
+              usd_rate_snapshot::float AS "usdRateSnapshot"
          FROM emergency_result_costs WHERE id = $1`, [meta.costsId],
     );
     const { rows } = await pool.query(
       `SELECT id, installment_number AS "installmentNumber",
               due_date AS "dueDate", amount_syp AS "amountSyp",
               status, confirmed,
-              paid_amount AS "paidAmount", remaining_balance AS "remainingBalance"
+              paid_amount AS "paidAmount", remaining_balance AS "remainingBalance",
+              amount_usd::float AS "amountUsd"
          FROM emergency_installments
         WHERE costs_id = $1
         ORDER BY installment_number`,
       [meta.costsId],
     );
+    // USD link (migr 495): today's due for linked installments.
+    const withUsd = await attachUsdDues(pool, rows, 'id', 'maintenance');
     res.json({
-      installments: rows.map(r => ({ ...r, amountSyp: mapNum(r.amountSyp) })),
+      usdRateSnapshot: costsRow[0]?.usdRateSnapshot ?? null,
+      installments: withUsd.map(r => ({ ...r, amountSyp: mapNum(r.amountSyp) })),
       confirmed:       costsRow[0]?.installmentsConfirmed ?? false,
       hasFirstPayment: costsRow[0]?.hasFirstPayment ?? false,
       installmentsCount: costsRow[0]?.installmentsCount ?? null,
@@ -2276,6 +2294,9 @@ router.post('/:taskId/installments/confirm', requirePermission('marketing_visits
         `UPDATE emergency_result_costs SET installments_confirmed = TRUE WHERE id = $1`,
         [meta.costsId],
       );
+      // USD link (migr 495): the deferred installments are fixed in USD at the
+      // central rate of today (server-side). No rate in effect -> refused.
+      await snapshotMaintenanceUsdRate(db, Number(meta.costsId), instRows.map((r: any) => Number(r.id)));
       const recordedBy = (req.authContext as any)?.userId ?? null;
       await recordMaintenanceInstallmentCharges(db, { taskId, taskType: meta.taskType, installmentIds: instRows.map((r: any) => Number(r.id)), recordedBy });
       // Upfront part = cumulative cost − every installment charge (booked just above).
@@ -2292,7 +2313,10 @@ router.post('/:taskId/installments/confirm', requirePermission('marketing_visits
       res.json({ confirmed: true, installmentsConfirmed: instRows.length, collectionTaskIds: collection.created });
     } catch (err) { await db.query('ROLLBACK'); throw err; }
     finally { db.release(); }
-  } catch (err: any) { res.status(500).json({ error: err.message }); }
+  } catch (err: any) {
+    if (err instanceof FxRateMissingError) return res.status(err.status).json({ error: err.message, code: err.code });
+    res.status(500).json({ error: err.message });
+  }
 });
 
 export default router;

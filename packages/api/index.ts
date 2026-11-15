@@ -102,6 +102,8 @@ import deviceWarrantiesRouter from './routes/deviceWarranties.js';
 import devicePossessionRouter from './routes/devicePossession.js';
 import devicePartsRouter from './routes/deviceParts.js';
 import systemSettingsRouter from './routes/systemSettings.js';
+import { exchangeRatesRouter, fxDifferencesRouter } from './routes/exchangeRates.js';
+import uncoveredReceivablesRouter from './routes/uncoveredReceivables.js';
 import giftsRouter from './routes/gifts.js';
 import reportsRouter from './routes/reports.js';
 import dashboardLayoutRouter from './routes/dashboardLayout.js';
@@ -232,6 +234,11 @@ app.use('/api/admin/account-requests', adminAccountRequestsRouter);
 // Admin direct + bulk app-account activation. DEC-013 §2.5.10.
 app.use('/api/admin', adminAppAccountsRouter);
 app.use('/api/system-settings', requireAuth, systemSettingsRouter);
+// USD-linked installments (migr 493): central exchange rate + FX differences ledger.
+app.use('/api/exchange-rates', requireAuth, exchangeRatesRouter);
+app.use('/api/fx-differences', requireAuth, fxDifferencesRouter);
+// «ذمم بلا مهمة تحصيل»: receivable installments with no active collection task.
+app.use('/api/receivables', requireAuth, uncoveredReceivablesRouter);
 app.use('/api/geo-units', geoUnitsRouter);
 app.use('/api/branches', branchesRouter);
 app.use('/api/employees', employeesRouter);

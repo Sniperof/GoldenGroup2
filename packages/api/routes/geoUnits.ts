@@ -9,6 +9,7 @@ import {
   resolveGeoScopeForBranch,
   type GeoScope,
 } from '../services/geoScopeService.js';
+import { resolveBranchForServiceGeoUnit } from '../services/serviceRequests/branchResolutionService.js';
 
 const router = Router();
 
@@ -170,6 +171,17 @@ router.get('/reference', requirePermission('geo.view', 'geo_units.lookup'), asyn
 router.get('/names', requirePermission('geo.view', 'geo_units.lookup'), async (_req, res) => {
   const geoUnits = await listAllGeoUnits();
   res.json(geoUnits.map(u => ({ id: u.id, name: u.name, parentId: u.parentId, level: u.level })));
+});
+
+// Active branches whose coverage includes this geo unit (explicit coverage, or the
+// branch location as fallback). Feeds the contract form's «فرع الخدمة» field.
+router.get('/:id/covering-branches', requirePermission('geo.view', 'geo_units.lookup'), async (req, res) => {
+  const geoUnitId = Number(req.params.id);
+  if (!Number.isInteger(geoUnitId) || geoUnitId <= 0) {
+    return res.status(400).json({ error: 'معرّف الموقع غير صالح' });
+  }
+  const result = await resolveBranchForServiceGeoUnit(geoUnitId);
+  res.json(result.candidates);
 });
 
 /**

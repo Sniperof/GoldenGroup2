@@ -1,4 +1,5 @@
 import type { Pool, PoolClient } from 'pg';
+import { getInstallmentUsdDues } from './fxRates.js';
 
 /**
  * Parts and money of each maintenance task (periodic / emergency) inside a visit, for
@@ -45,6 +46,11 @@ export interface MaintenanceFinance {
   paymentType: string | null;
   installments: Array<{
     installmentNumber: number; dueDate: string; amount: number; paid: number; remaining: number; status: string;
+    /** Fixed USD of a USD-linked installment (migr 495); null = legacy. */
+    amountUsd?: number | null;
+    /** USD-linked: remaining USD and today's due (remaining USD × today's rate, rounded). */
+    remainingUsd?: number | null;
+    dueTodaySyp?: number | null;
   }>;
 }
 
@@ -133,8 +139,8 @@ export async function loadVisitMaintenanceFinance(
       [openTaskIds],
     ),
     openTaskIds.length === 0 ? { rows: [] } : db.query(
-      `SELECT i.costs_id, i.installment_number, i.due_date::text AS due_date, i.amount_syp,
-              i.paid_amount, i.remaining_balance, i.status, i.created_at
+      `SELECT i.id, i.costs_id, i.installment_number, i.due_date::text AS due_date, i.amount_syp,
+              i.paid_amount, i.remaining_balance, i.status, i.created_at, i.amount_usd
          FROM emergency_installments i
          JOIN open_tasks ot ON ot.em_costs_id = i.costs_id
         WHERE ot.id = ANY($1::int[]) AND i.confirmed = TRUE
@@ -143,6 +149,12 @@ export async function loadVisitMaintenanceFinance(
     ),
   ]);
 
+  // USD-linked maintenance installments: today's due.
+  const instUsd = await getInstallmentUsdDues(
+    db as any,
+    installments.rows.map((r: any) => Number(r.id)),
+    'maintenance',
+  );
   for (const t of maint) {
     const vtId = Number(t.id);
     const openTaskId = Number(t.source_open_task_id) || null;
@@ -216,6 +228,9 @@ export async function loadVisitMaintenanceFinance(
       installments: tInst.map((i: any) => ({
         installmentNumber: Number(i.installment_number), dueDate: i.due_date, amount: num(i.amount_syp),
         paid: num(i.paid_amount), remaining: num(i.remaining_balance), status: i.status,
+        amountUsd: i.amount_usd != null ? Number(i.amount_usd) : null,
+        remainingUsd: instUsd.get(Number(i.id))?.remainingUsd ?? null,
+        dueTodaySyp: instUsd.get(Number(i.id))?.dueTodaySyp ?? null,
       })),
     });
   }

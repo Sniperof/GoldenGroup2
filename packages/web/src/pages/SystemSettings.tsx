@@ -76,6 +76,10 @@ export default function SystemSettings() {
     const [savedVisitJobInterval, setSavedVisitJobInterval] = useState('15');
     const [visitJobSaving, setVisitJobSaving] = useState(false);
     const [visitJobMsg, setVisitJobMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+    const [fxRoundingUnit, setFxRoundingUnit] = useState('1000');
+    const [savedFxRoundingUnit, setSavedFxRoundingUnit] = useState('1000');
+    const [fxRoundingSaving, setFxRoundingSaving] = useState(false);
+    const [fxRoundingMsg, setFxRoundingMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
     const [webLoginSlots, setWebLoginSlots] = useState<TeamSlot[]>([]);
     const [savedWebLoginSlots, setSavedWebLoginSlots] = useState<TeamSlot[]>([]);
     const [webLoginSaving, setWebLoginSaving] = useState(false);
@@ -106,6 +110,9 @@ export default function SystemSettings() {
                 const visitInterval = res.settings.find((s) => s.key === 'visit_escalation_job_interval_minutes')?.value ?? '15';
                 setVisitJobInterval(visitInterval);
                 setSavedVisitJobInterval(visitInterval);
+                const fxUnit = res.settings.find((s) => s.key === 'fx_collection_rounding_unit')?.value ?? '1000';
+                setFxRoundingUnit(fxUnit);
+                setSavedFxRoundingUnit(fxUnit);
                 const allowedWebSlots = parseTeamSlots(
                     res.settings.find((s) => s.key === 'web_login_allowed_team_slots')?.value ?? '',
                 );
@@ -197,6 +204,21 @@ export default function SystemSettings() {
             setVisitJobMsg({ type: 'err', text: err?.message ?? 'فشل حفظ فترة الفحص.' });
         } finally {
             setVisitJobSaving(false);
+        }
+    };
+
+    const saveFxRoundingUnit = async () => {
+        setFxRoundingSaving(true);
+        setFxRoundingMsg(null);
+        try {
+            const res = await api.systemSettings.update('fx_collection_rounding_unit', Number(fxRoundingUnit));
+            setFxRoundingUnit(res.value);
+            setSavedFxRoundingUnit(res.value);
+            setFxRoundingMsg({ type: 'ok', text: 'تم الحفظ. يُطبَّق على التحصيلات خلال دقيقة.' });
+        } catch (err: any) {
+            setFxRoundingMsg({ type: 'err', text: err?.message ?? 'فشل الحفظ.' });
+        } finally {
+            setFxRoundingSaving(false);
         }
     };
 
@@ -412,6 +434,42 @@ export default function SystemSettings() {
                         {visitJobMsg && (
                             <p className={`text-xs font-bold mt-3 ${visitJobMsg.type === 'ok' ? 'text-emerald-600' : 'text-red-600'}`}>
                                 {visitJobMsg.text}
+                            </p>
+                        )}
+                    </div>
+                </motion.div>
+
+                {/* USD-linked installments (migr 493): rounding of the SYP due at collection */}
+                <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm"
+                >
+                    <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex items-center gap-3">
+                        <Clock className="w-5 h-5 text-blue-600" />
+                        <h2 className="text-lg font-bold text-slate-800">تقريب تحصيل الأقساط المربوطة بالدولار</h2>
+                    </div>
+                    <div className="p-6">
+                        <p className="text-xs text-slate-500 leading-relaxed mb-5">
+                            المستحق اليوم = المتبقي بالدولار × سعر صرف يوم الدفع، مقرّباً لأقرب مضاعف لهذه القيمة بالليرة. القيمة صفر تعني التقريب لأقرب ليرة. سعر الصرف نفسه يُدار من صفحة «سعر الصرف».
+                        </p>
+                        <div className="flex items-end gap-3 flex-wrap">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-600 mb-1.5">وحدة التقريب (ل.س)</label>
+                                <input type="number" min={0} value={fxRoundingUnit}
+                                    onChange={(e) => setFxRoundingUnit(e.target.value)}
+                                    disabled={!canManageSettings || fxRoundingSaving}
+                                    className="w-32 px-3 py-2 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-200 disabled:bg-slate-50 disabled:text-slate-400" />
+                            </div>
+                            <Button variant="secondary" icon={Save} onClick={saveFxRoundingUnit}
+                                loading={fxRoundingSaving}
+                                disabled={!canManageSettings || fxRoundingUnit === '' || fxRoundingUnit === savedFxRoundingUnit}>
+                                حفظ
+                            </Button>
+                        </div>
+                        {fxRoundingMsg && (
+                            <p className={`text-xs font-bold mt-3 ${fxRoundingMsg.type === 'ok' ? 'text-emerald-600' : 'text-red-600'}`}>
+                                {fxRoundingMsg.text}
                             </p>
                         )}
                     </div>

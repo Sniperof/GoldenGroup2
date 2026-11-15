@@ -1,3 +1,4 @@
+import { alertDialog, confirmDialog } from '../lib/dialogs';
 import { useCallback, useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { api } from '../lib/api';
@@ -162,7 +163,7 @@ export default function Departments() {
       }
       closeModal();
     } catch (err: any) {
-      alert(err.message || 'حدث خطأ أثناء الحفظ');
+      void alertDialog(err.message || 'حدث خطأ أثناء الحفظ');
     } finally {
       setSaving(false);
     }
@@ -171,12 +172,12 @@ export default function Departments() {
   // ── Delete ────────────────────────────────────────────────────────────────────
   const handleDelete = async (dept: Department) => {
     if (!canManageDepartments) return;
-    if (!confirm(`هل أنت متأكد من حذف قسم "${dept.name}"؟\nسيتم إلغاء ارتباط الموظفين بهذا القسم.`)) return;
+    if (!await confirmDialog({ message: `هل أنت متأكد من حذف قسم "${dept.name}"؟\nسيتم إلغاء ارتباط الموظفين بهذا القسم.`, tone: 'danger' })) return;
     try {
       await api.departments.delete(dept.id);
       setDepartments(ds => ds.filter(d => d.id !== dept.id));
     } catch (err: any) {
-      alert(err.message || 'حدث خطأ أثناء الحذف');
+      void alertDialog(err.message || 'حدث خطأ أثناء الحذف');
     }
   };
 

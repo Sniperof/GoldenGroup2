@@ -1,3 +1,4 @@
+import { confirmDialog } from '../lib/dialogs';
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Navigate } from 'react-router-dom';
@@ -109,7 +110,7 @@ export default function GeoSettings() {
             setDeleteError(`لا يمكن حذف هذا المستوى — يوجد ${childCount} ${childCount === 1 ? 'وحدة تابعة' : 'وحدات تابعة'} له. احذف الأبناء أولاً.`);
             return;
         }
-        if (!confirm('سيتم حذف هذا العنصر نهائياً. متابعة؟')) return;
+        if (!await confirmDialog({ message: 'سيتم حذف هذا العنصر نهائياً. متابعة؟', tone: 'danger' })) return;
         try {
             await api.geoUnits.delete(id);
             await fetchGeoUnits();
@@ -192,7 +193,7 @@ export default function GeoSettings() {
     };
 
     const resetData = async () => {
-        if (!confirm('سيتم إعادة تحميل البيانات من الخادم. متابعة؟')) return;
+        if (!await confirmDialog('سيتم إعادة تحميل البيانات من الخادم. متابعة؟')) return;
         await fetchGeoUnits();
     };
 

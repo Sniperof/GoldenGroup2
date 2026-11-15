@@ -1,3 +1,4 @@
+import { alertDialog } from '../../lib/dialogs';
 import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -267,7 +268,7 @@ export default function QualificationModal({
                 const full = await api.clients.get(clientId);
                 setPendingLinkClient(full);
             } catch {
-                alert('تعذر تحميل بيانات الزبون — حاول مرة أخرى.');
+                void alertDialog('تعذر تحميل بيانات الزبون — حاول مرة أخرى.');
             }
         }
     };

@@ -5,6 +5,7 @@ import { requirePermission, resolveTargetBranchId, getOrBuildAuthContext } from 
 import { authorize, resolveListAccessScope } from '../services/authorizationService.js';
 import { authorizeContract, contractSaleOwnerSql } from '../policies/contractPolicy.js';
 import { assertGeoUnitInScope } from '../services/geoScopeService.js';
+import { resolveBranchForServiceGeoUnit } from '../services/serviceRequests/branchResolutionService.js';
 import { assertDeviceModelInScope } from '../services/deviceScopeService.js';
 import { promoteClientToLifecycleStatus } from '../services/clientLifecycleService.js';
 import { annotateDuplicateLinkReferrers } from '../services/candidateReferrer.js';
@@ -42,11 +43,46 @@ import {
 } from '../services/periodicMaintenanceTasks.js';
 import { checkContractWarranty } from '../lib/contractWarrantyPolicy.js';
 import {
+  FxRateMissingError,
+  attachUsdDues,
+  ScheduleUnconfirmError,
+  confirmContractScheduleUsd,
+  getContractFxInfo,
+  snapshotContractUsdRate,
+  unconfirmContractSchedule,
+  fxReferenceDeleteMessage,
+} from '../services/fxRates.js';
+import {
   isInstallationGeoLevel,
   readInstallationGeoUnitId,
   INSTALLATION_GEO_LEVEL_ERROR,
   INSTALLATION_GEO_LEVEL_ERROR_CODE,
 } from '../lib/installationGeoLevel.js';
+
+// «فرع الخدمة»: either the contract's own branch, or an active branch covering the
+// installation location. Returns the branch to store, or an Arabic error.
+async function resolveContractServiceBranch(
+  requested: unknown,
+  contractBranchId: number,
+  installationGeoUnitId: number | null,
+): Promise<{ ok: boolean; branchId: number; error: string }> {
+  if (requested === undefined || requested === null || requested === '') {
+    return { ok: true, branchId: contractBranchId, error: '' };
+  }
+  const wanted = Number(requested);
+  if (!Number.isInteger(wanted) || wanted <= 0) {
+    return { ok: false, branchId: contractBranchId, error: 'فرع الخدمة غير صالح' };
+  }
+  if (wanted === Number(contractBranchId)) return { ok: true, branchId: wanted, error: '' };
+  if (!installationGeoUnitId) {
+    return { ok: false, branchId: contractBranchId, error: 'لا يمكن اختيار فرع خدمة مختلف قبل تحديد موقع التركيب' };
+  }
+  const { candidates } = await resolveBranchForServiceGeoUnit(installationGeoUnitId);
+  if (!candidates.some(b => Number(b.branchId) === wanted)) {
+    return { ok: false, branchId: contractBranchId, error: 'فرع الخدمة المختار لا يغطي موقع تركيب الجهاز' };
+  }
+  return { ok: true, branchId: wanted, error: '' };
+}
 
 const router = Router();
 router.use(requireAuth);
@@ -370,7 +406,8 @@ async function fetchProjectedDuesByContractIds(dbClient: any, contractIds: numbe
       ORDER BY i.contract_id, i.installment_number`,
     [contractIds],
   );
-  return rows.map(mapDue);
+  // USD-linked installments carry today's due (usdDue); legacy → null.
+  return attachUsdDues(dbClient, rows.map(mapDue), 'id');
 }
 
 /**
@@ -953,7 +990,8 @@ router.get('/:id', requirePermission('contracts.view_list'), async (req, res) =>
       `SELECT id, installment_number AS "installmentNumber", due_date AS "dueDate",
               amount_syp AS "amountSyp", status, paid_amount AS "paidAmount",
               remaining_balance AS "remainingBalance", confirmed,
-              collection_owner_id AS "collectionOwnerId"
+              collection_owner_id AS "collectionOwnerId",
+              amount_usd::float AS "amountUsd"
        FROM contract_installments WHERE contract_id = $1 ORDER BY installment_number`,
       [contract.id],
     ),
@@ -961,6 +999,9 @@ router.get('/:id', requirePermission('contracts.view_list'), async (req, res) =>
       ? pool.query(`SELECT id, label, percentage FROM device_discounts WHERE id = $1`, [contract.discountId])
       : Promise.resolve({ rows: [] as any[] }),
   ]);
+  // USD link (migr 493): today's due for USD-linked installments + contract rate info.
+  const installmentsWithUsd = await attachUsdDues(pool, installmentsResult.rows, 'id');
+  const fx = await getContractFxInfo(pool, Number(contract.id));
   const dues = installmentsResult.rows
     .filter((inst: any) => Number(inst.remainingBalance) > 0)
     .map((inst: any) => mapDue({
@@ -980,11 +1021,14 @@ router.get('/:id', requirePermission('contracts.view_list'), async (req, res) =>
       escalated: false,
     }));
 
+  // USD-linked installments: the open-dues projection shows today's due.
+  const usdByInstallment = new Map(installmentsWithUsd.map((i: any) => [Number(i.id), i.usdDue]));
+  const duesWithUsd = dues.map((d: any) => ({ ...d, usdDue: usdByInstallment.get(Number(d.id)) ?? null }));
   res.json({
     ...contract,
     installationGeoPath,
     ownershipDisplay,
-    dues,
+    dues: duesWithUsd,
     tasks,
     client: client ? {
       ...client,
@@ -993,7 +1037,11 @@ router.get('/:id', requirePermission('contracts.view_list'), async (req, res) =>
     } : null,
     lineItems: lineItemResult.rows,
     paymentEntries: paymentEntriesResult.rows,
-    installments: installmentsResult.rows,
+    installments: installmentsWithUsd.map((inst) => ({
+      ...inst,
+      remainingUsd: inst.usdDue?.remainingUsd ?? null,
+    })),
+    fx,
     discount: discountResult.rows[0] ?? null,
   });
 });
@@ -1061,8 +1109,39 @@ router.get('/:id', requirePermission('contracts.view_list'), async (req, res) =>
  *       500:
  *         description: Server error
  */
+// D1 (owner decision): contract signing / down payments are taken in SYP only.
+// USD cash stays possible on installment collections and on maintenance.
+class ContractUsdEntryError extends Error {
+  status = 400;
+  code = 'contract_payment_syp_only';
+  constructor() {
+    super('دفعات العقد (الدفعة الأولى / دفعة التوقيع) تُقبض بالليرة السورية فقط — لا يُقبل الدولار.');
+    this.name = 'ContractUsdEntryError';
+  }
+}
+function assertContractEntriesSypOnly(entries: any[]): void {
+  for (const e of entries ?? []) {
+    if (String(e?.currency ?? 'SYP').toUpperCase() !== 'SYP') throw new ContractUsdEntryError();
+  }
+}
+/** Content identity of a contract payment entry (draft re-save keeps unchanged rows). */
+function paymentEntryContentKey(e: {
+  method: any; currency: any; amountValue: any; amountSyp: any; referenceNumber: any; barterName: any;
+  barterValueSyp: any; notes: any; entryType: any; installmentId: any;
+}): string {
+  const n = (v: any) => (v == null || v === '' ? '' : String(Number(v)));
+  const t = (v: any) => (v == null ? '' : String(v).trim());
+  return [t(e.method), t(e.currency).toUpperCase() || 'SYP', n(e.amountValue), n(e.amountSyp), t(e.referenceNumber),
+    t(e.barterName), n(e.barterValueSyp), t(e.notes), t(e.entryType) || 'collection', n(e.installmentId)].join('|');
+}
+
 router.post('/', requirePermission('contracts.create'), async (req, res) => {
   let c = { ...req.body };
+  if (Array.isArray(c.paymentEntries)) {
+    try { assertContractEntriesSypOnly(c.paymentEntries); } catch (err: any) {
+      return res.status(err.status).json({ error: err.message, code: err.code });
+    }
+  }
   const rawSourceVisitId = c.sourceVisitId ?? c.source_visit_id ?? null;
   if (rawSourceVisitId !== null && rawSourceVisitId !== '') {
     const sourceVisitId = Number(rawSourceVisitId);
@@ -1166,6 +1245,15 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
         code: geoCheck.reason,
       });
     }
+  }
+
+  const serviceBranchCheck = await resolveContractServiceBranch(
+    c.serviceBranchId,
+    targetBranchId,
+    installationGeoUnitForCheck ? Number(installationGeoUnitForCheck) : null,
+  );
+  if (!serviceBranchCheck.ok) {
+    return res.status(400).json({ error: serviceBranchCheck.error, code: 'invalid_service_branch' });
   }
 
   // Installation address must be a sub-district (ناحية) or a neighbourhood
@@ -1297,7 +1385,7 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
        derivedStatus, targetBranchId,
        // Service branch defaults to the sale branch (= client = entering employee
        // branch) until cross-branch service is wired up. Seeds the device branch.
-       c.serviceBranchId ?? targetBranchId,
+       serviceBranchCheck.branchId,
        tradeinDetails.saleType,
        c.discountId || null, c.saleSource || null,
        c.closingEmployeeId || null, c.invoiceNotes || null,
@@ -1355,6 +1443,8 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
     }
 
     if (Array.isArray(c.paymentEntries) && c.paymentEntries.length > 0) {
+      // D1: contract signing / down payments are SYP only (checked before BEGIN too).
+      assertContractEntriesSypOnly(c.paymentEntries);
       for (const entry of c.paymentEntries) {
         await client.query(
           `INSERT INTO contract_payment_entries
@@ -1382,6 +1472,10 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
           [contract.id, inst.installmentNumber, inst.dueDate, inst.amountSyp || 0, inst.confirmed === true],
         );
       }
+      // USD link (migr 493): a schedule saved already confirmed is a confirmation.
+      if (c.installments.some((inst: any) => inst?.confirmed === true)) {
+        await snapshotContractUsdRate(client, Number(contract.id));
+      }
     }
 
     // وعود الهدايا تُحفظ كمسودة على العقد، وتُحوَّل إلى gift_records عند الاعتماد.
@@ -1405,6 +1499,9 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
     res.json({ ...mapContract(contract), dues: duesResult });
   } catch (err) {
     await client.query('ROLLBACK');
+    if (err instanceof FxRateMissingError || err instanceof ContractUsdEntryError) {
+      return res.status(err.status).json({ error: err.message, code: err.code });
+    }
     const conflict = deviceSerialConflictPayload(err);
     if (conflict) return res.status(409).json(conflict);
     const sourceConflict = contractSourceUniquenessConflictPayload(err);
@@ -1477,6 +1574,7 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
             c.source_task_offer_id AS "sourceTaskOfferId",
             c.sale_reference_number AS "saleReferenceNumber",
             c.sale_owner_id AS "saleOwnerId",
+            c.service_branch_id AS "serviceBranchId",
             COALESCE(d.installation_geo_unit_id, NULLIF(c.draft_device_payload->>'installationGeoUnitId', '')::int) AS "installationGeoUnitId"
        FROM contracts c
        LEFT JOIN installed_devices d ON d.contract_id = c.id
@@ -1567,6 +1665,26 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
     }
   }
 
+  // «فرع الخدمة» (draft only — approved contracts returned 409 above). An explicit
+  // value must be valid; when none is sent the stored one is kept, falling back to
+  // the contract branch if the (possibly changed) location is no longer covered by it.
+  const effectiveInstallGeo = installationGeoUnitForCheck
+    ? Number(installationGeoUnitForCheck)
+    : (existing[0].installationGeoUnitId ? Number(existing[0].installationGeoUnitId) : null);
+  const serviceBranchExplicit = c.serviceBranchId !== undefined && c.serviceBranchId !== null && c.serviceBranchId !== '';
+  let serviceBranchCheck = await resolveContractServiceBranch(
+    serviceBranchExplicit ? c.serviceBranchId : existing[0].serviceBranchId,
+    existing[0].branch_id,
+    effectiveInstallGeo,
+  );
+  if (!serviceBranchCheck.ok) {
+    if (serviceBranchExplicit) {
+      return res.status(400).json({ error: serviceBranchCheck.error, code: 'invalid_service_branch' });
+    }
+    serviceBranchCheck = { ok: true, branchId: Number(existing[0].branch_id), error: '' };
+  }
+  const serviceBranchIdToStore = serviceBranchCheck.branchId;
+
   // Neighborhood-level requirement (الحي / level 4). Enforced only when the
   // installation address actually changes, so legacy contracts with a coarser
   // saved address are not blocked on an unrelated edit.
@@ -1636,7 +1754,8 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
         sale_reference_number=$30, no_closing_reason_id=$31, sale_subtype=$32,
         sale_owner_id = CASE WHEN $33::boolean THEN sale_owner_id ELSE $34 END,
         contract_referrers=$35, draft_device_payload=$36,
-        sale_type=$37, old_contract_number=$38, old_device_condition=$39
+        sale_type=$37, old_contract_number=$38, old_device_condition=$39,
+        service_branch_id=$41
         -- offer_team_snapshot is deliberately NOT updated here: DEC-CT-13 freezes it at creation.
       WHERE id=$40`,
       [c.contractNumber, c.customerId, c.customerName, c.contractDate,
@@ -1665,7 +1784,8 @@ router.put('/:id', requirePermission('contracts.edit'), async (req, res) => {
        tradeinDetails.saleType,
        tradeinDetails.oldContractNumber,
        tradeinDetails.oldDeviceCondition,
-       req.params.id]
+       req.params.id,
+       serviceBranchIdToStore]
     );
 
     // وسم التجربة لزوم: التعديل قد يبدّل النوع الفرعي وهو ما زال مسودة.
@@ -1798,8 +1918,39 @@ router.post('/:id/payment-entries', requirePermission('contracts.edit'), async (
         status: contract.status,
       });
     }
-    await pgClient.query('DELETE FROM contract_payment_entries WHERE contract_id = $1', [contractId]);
+    // D1: contract signing / down payments are SYP only.
+    assertContractEntriesSypOnly(entries);
+    // D1: a draft re-save must not reset an unchanged entry (its received_at
+    // and its reference rate). Existing rows whose content matches an incoming
+    // entry are kept as they are; only the rest are deleted / inserted.
+    const { rows: existingEntries } = await pgClient.query(
+      `SELECT id, method, currency, amount_value, amount_syp, reference_number, barter_name,
+              barter_value_syp, notes, entry_type, installment_id
+         FROM contract_payment_entries WHERE contract_id = $1 ORDER BY id`,
+      [contractId],
+    );
+    const keptIds = new Set<number>();
+    const toInsert: any[] = [];
     for (const entry of entries) {
+      const key = paymentEntryContentKey({
+        method: entry.method, currency: entry.currency || 'SYP', amountValue: entry.amountValue || 0,
+        amountSyp: entry.amountSyp || 0, referenceNumber: entry.referenceNumber, barterName: entry.barterName,
+        barterValueSyp: entry.barterValueSyp, notes: entry.notes, entryType: entry.entryType || 'collection',
+        installmentId: entry.installmentId,
+      });
+      const match = existingEntries.find((r: any) => !keptIds.has(Number(r.id)) && paymentEntryContentKey({
+        method: r.method, currency: r.currency, amountValue: r.amount_value, amountSyp: r.amount_syp,
+        referenceNumber: r.reference_number, barterName: r.barter_name, barterValueSyp: r.barter_value_syp,
+        notes: r.notes, entryType: r.entry_type, installmentId: r.installment_id,
+      }) === key);
+      if (match) keptIds.add(Number(match.id));
+      else toInsert.push(entry);
+    }
+    await pgClient.query(
+      'DELETE FROM contract_payment_entries WHERE contract_id = $1 AND NOT (id = ANY($2::int[]))',
+      [contractId, [...keptIds]],
+    );
+    for (const entry of toInsert) {
       await pgClient.query(
         `INSERT INTO contract_payment_entries
           (contract_id, method, currency, amount_value, exchange_rate, amount_syp,
@@ -1816,9 +1967,12 @@ router.post('/:id/payment-entries', requirePermission('contracts.edit'), async (
       );
     }
     await pgClient.query('COMMIT');
-    res.json({ success: true });
+    res.json({ success: true, kept: keptIds.size, inserted: toInsert.length });
   } catch (err) {
     await pgClient.query('ROLLBACK');
+    if (err instanceof FxRateMissingError || err instanceof ContractUsdEntryError) {
+      return res.status(err.status).json({ error: err.message, code: err.code });
+    }
     throw err;
   } finally {
     pgClient.release();
@@ -1920,6 +2074,7 @@ router.post('/:id/installments', requirePermission('contracts.edit'), async (req
     );
     const lockedNumbers = new Set(confirmedRows.map((r: any) => Number(r.installment_number)));
     await pgClient.query('DELETE FROM contract_installments WHERE contract_id = $1 AND confirmed = FALSE', [contractId]);
+    let insertedConfirmed = false;
     for (const inst of installments) {
       if (lockedNumbers.has(Number(inst.installmentNumber))) continue;
       await pgClient.query(
@@ -1928,11 +2083,26 @@ router.post('/:id/installments', requirePermission('contracts.edit'), async (req
          VALUES ($1,$2,$3,$4,$4,$5)`,
         [contractId, inst.installmentNumber, inst.dueDate, inst.amountSyp || 0, inst.confirmed === true],
       );
+      if (inst.confirmed === true) insertedConfirmed = true;
+    }
+    // USD link (migr 493, D2): confirming rows here is a confirmation. An
+    // existing snapshot is reused, never retaken. With no confirmed row left
+    // the snapshot is dropped; it is taken again at the next confirmation.
+    if (insertedConfirmed) {
+      await confirmContractScheduleUsd(pgClient, contractId, 1);
+    } else if (lockedNumbers.size === 0) {
+      await pgClient.query(
+        'UPDATE contracts SET usd_rate_snapshot = NULL, usd_rate_snapshot_at = NULL WHERE id = $1 AND usd_rate_snapshot IS NOT NULL',
+        [contractId],
+      );
     }
     await pgClient.query('COMMIT');
     res.json({ success: true });
   } catch (err) {
     await pgClient.query('ROLLBACK');
+    if (err instanceof FxRateMissingError) {
+      return res.status(err.status).json({ error: err.message, code: err.code });
+    }
     throw err;
   } finally {
     pgClient.release();
@@ -2000,14 +2170,63 @@ router.post('/:id/installments/confirm', requirePermission('contracts.edit'), as
         status: contract.status,
       });
     }
-    await pgClient.query(
-      'UPDATE contract_installments SET confirmed = TRUE WHERE contract_id = $1',
+    const newly = await pgClient.query(
+      'UPDATE contract_installments SET confirmed = TRUE WHERE contract_id = $1 AND confirmed = FALSE',
       [contractId],
     );
+    // USD link (migr 493, D2/D4): a fresh confirmation snapshots today's rate and
+    // fixes amount_usd server-side (no rate → refused). Confirming an already
+    // confirmed schedule is a no-op — never a silent re-snapshot, and a draft
+    // confirmed before the USD link stays legacy until unconfirmed + reconfirmed.
+    const usdRateSnapshot = await confirmContractScheduleUsd(pgClient, contractId, newly.rowCount ?? 0);
     await pgClient.query('COMMIT');
-    res.json({ success: true });
+    res.json({ success: true, usdRateSnapshot });
   } catch (err) {
     await pgClient.query('ROLLBACK');
+    if (err instanceof FxRateMissingError) {
+      return res.status(err.status).json({ error: err.message, code: err.code });
+    }
+    throw err;
+  } finally {
+    pgClient.release();
+  }
+});
+
+// POST /api/contracts/:id/installments/unconfirm — «إلغاء تأكيد الجدول» (D2).
+// Draft only, contracts.edit. Unlocks the schedule for editing: every row back
+// to unconfirmed, amount_usd and the contract snapshot cleared. Refused when an
+// installment already carries a payment. The next confirmation takes today's rate.
+router.post('/:id/installments/unconfirm', requirePermission('contracts.edit'), async (req, res) => {
+  const contractId = Number(req.params.id);
+  const pgClient = await pool.connect();
+  try {
+    await pgClient.query('BEGIN');
+    const contract = await loadDraftContractForEdit(pgClient, contractId, true);
+    if (!contract) {
+      await pgClient.query('ROLLBACK');
+      return res.status(404).json({ error: 'العقد غير موجود' });
+    }
+    const editAccess = await authorizeContract(req.authContext!, 'contracts.edit', contract);
+    if (!editAccess.allowed) {
+      await pgClient.query('ROLLBACK');
+      return res.status(403).json({ error: 'غير مسموح' });
+    }
+    if (contract.status !== 'draft') {
+      await pgClient.query('ROLLBACK');
+      return res.status(409).json({
+        error: 'لا يمكن إلغاء تأكيد جدول أقساط عقد بعد اعتماده',
+        code: 'contract_not_editable_after_approval',
+        status: contract.status,
+      });
+    }
+    const unconfirmed = await unconfirmContractSchedule(pgClient, contractId);
+    await pgClient.query('COMMIT');
+    res.json({ success: true, unconfirmed });
+  } catch (err) {
+    await pgClient.query('ROLLBACK');
+    if (err instanceof ScheduleUnconfirmError) {
+      return res.status(err.status).json({ error: err.message, code: err.code });
+    }
     throw err;
   } finally {
     pgClient.release();
@@ -2060,7 +2279,14 @@ router.delete('/:id', requirePermission('contracts.delete'), async (req, res) =>
   if (!existing[0]) return res.status(404).json({ message: 'العقد غير موجود' });
   const access = authorize(authContext, { permission: 'contracts.delete', branchId: existing[0].branch_id });
   if (!access.allowed) return res.status(403).json({ message: 'غير مسموح' });
-  await pool.query('DELETE FROM contracts WHERE id = $1', [req.params.id]);
+  try {
+    await pool.query('DELETE FROM contracts WHERE id = $1', [req.params.id]);
+  } catch (err: any) {
+    // D7: rows referenced by the FX ledger / reversal links are RESTRICTed (migr 496).
+    const msg = fxReferenceDeleteMessage(err, 'contract');
+    if (msg) return res.status(409).json({ error: msg, message: msg, code: 'fx_reference_restrict' });
+    throw err;
+  }
   res.json({ success: true });
 });
 
@@ -2477,6 +2703,11 @@ router.post('/:id/approve', async (req, res) => {
       });
     }
 
+    // USD link (migr 493): no recomputation at approval, and (D4) no snapshot
+    // either — a draft confirmed before the USD link stays legacy. A changed rate
+    // since confirmation is only a warning (UI before approving + response).
+    const fxAtApproval = await getContractFxInfo(pgClient, contractId);
+
     // Plan §4 — Approve is the freeze point for sale_owner_id. The approver may
     // pass a final saleOwnerId in the body; that requires contracts.assign_sale_owner.
     // Otherwise we keep whatever was last saved on the draft.
@@ -2569,9 +2800,21 @@ router.post('/:id/approve', async (req, res) => {
     }
 
     await pgClient.query('COMMIT');
-    res.json({ success: true, contractId, status: 'active', closingEmployeeId: closerId });
+    res.json({
+      success: true,
+      contractId,
+      status: 'active',
+      closingEmployeeId: closerId,
+      fxWarning: fxAtApproval.snapshotRate != null && fxAtApproval.currentRate != null
+        && fxAtApproval.snapshotRate !== fxAtApproval.currentRate
+        ? fxAtApproval
+        : null,
+    });
   } catch (err: any) {
     await pgClient.query('ROLLBACK');
+    if (err instanceof FxRateMissingError) {
+      return res.status(err.status).json({ error: err.message, code: err.code });
+    }
     const conflict = deviceSerialConflictPayload(err);
     if (conflict) return res.status(409).json(conflict);
     console.error('[contracts] approve failed:', err);
@@ -2752,6 +2995,14 @@ router.post('/:id/settle', async (req, res) => {
           [contractId, Number(inst?.installmentNumber) || index + 1, inst.dueDate, amount],
         );
       }
+      // USD link (migr 493): a trial settled into installments counts as a new
+      // schedule confirmed today → snapshot the settle-day rate.
+      await snapshotContractUsdRate(pgClient, contractId);
+    } else {
+      await pgClient.query(
+        'UPDATE contracts SET usd_rate_snapshot = NULL, usd_rate_snapshot_at = NULL WHERE id = $1',
+        [contractId],
+      );
     }
 
     // 4) البوابة نفسها التي تحرس الاعتماد: العقد المُسوّى يجب أن يستوفي ما
@@ -2823,6 +3074,9 @@ router.post('/:id/settle', async (req, res) => {
     });
   } catch (err: any) {
     await pgClient.query('ROLLBACK');
+    if (err instanceof FxRateMissingError) {
+      return res.status(err.status).json({ error: err.message, code: err.code });
+    }
     console.error('[contracts] settle failed:', err);
     res.status(500).json({ error: 'فشل تثبيت البيعة', detail: err?.message });
   } finally {

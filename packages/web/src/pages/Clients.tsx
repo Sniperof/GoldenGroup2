@@ -1,3 +1,4 @@
+import { alertDialog, confirmDialog } from '../lib/dialogs';
 import { useState, useCallback, useMemo, useEffect, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Users, Trash2, UserPlus, CheckCircle2, AlertCircle, Clock, Search, Lightbulb, Pencil, Loader2, Building2, SlidersHorizontal, ChevronDown, X, XCircle } from '../components/ui/icons';
@@ -420,7 +421,7 @@ export default function Clients() {
     );
 
     const convertToLead = async (id: number) => {
-        if (!confirm('هل أنت متأكد من تحويل هذا المرشح إلى عميل محتمل؟')) return;
+        if (!await confirmDialog('هل أنت متأكد من تحويل هذا المرشح إلى عميل محتمل؟')) return;
         const client = clients.find(c => c.id === id);
         if (!client) return;
         try {
@@ -444,7 +445,7 @@ export default function Clients() {
                 const wasOpFop = ['OP', 'FOP'].includes(editingClient.candidateStatus ?? '');
                 const nowOpFop = ['OP', 'FOP'].includes(clientData.candidateStatus ?? '');
                 if (!wasOpFop && nowOpFop) {
-                    const ok = confirm('تغيير الحالة إلى OP/FOP سيلغي المهام التسويقية المفتوحة، ويبقى المالكون كما هم. تأكيد؟');
+                    const ok = await confirmDialog('تغيير الحالة إلى OP/FOP سيلغي المهام التسويقية المفتوحة، ويبقى المالكون كما هم. تأكيد؟');
                     if (!ok) return;
                 }
                 await api.clients.update(clientData.id, clientData);
@@ -463,18 +464,18 @@ export default function Clients() {
         } catch (err) {
             const payload = extractApiPayload(err);
             if (payload?.status === 'MATCH_RESTRICTED') {
-                alert(payload.message || 'الرقم موجود مسبقاً في النظام ولا يمكنك عرض تفاصيله.');
+                void alertDialog(payload.message || 'الرقم موجود مسبقاً في النظام ولا يمكنك عرض تفاصيله.');
                 return;
             }
 
             if (payload?.status === 'MATCH_VISIBLE') {
-                alert(`الرقم موجود مسبقاً للزبون: ${payload.client?.name || `#${payload.client?.id}`}`);
+                void alertDialog(`الرقم موجود مسبقاً للزبون: ${payload.client?.name || `#${payload.client?.id}`}`);
                 return;
             }
 
             const serverMsg = (err as any)?.response?.data?.error || (err as any)?.message;
             console.error('Failed to save client:', err);
-            alert(serverMsg || 'تعذر حفظ الزبون حالياً.');
+            void alertDialog(serverMsg || 'تعذر حفظ الزبون حالياً.');
         }
     };
 
@@ -951,7 +952,7 @@ export default function Clients() {
                                 .map(item => Number((item as any).branchId) || null)
                                 .filter((id): id is number => id != null)));
                             if (branchIds.length > 1) {
-                                alert('الزبائن المحددون من أكثر من فرع؛ حدّد زبائن فرع واحد');
+                                void alertDialog('الزبائن المحددون من أكثر من فرع؛ حدّد زبائن فرع واحد');
                                 return;
                             }
                             setBulkOwnershipSelection({ ids: items.map(item => Number(item.id)), branchId: branchIds[0] ?? null });

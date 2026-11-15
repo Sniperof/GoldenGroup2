@@ -7,6 +7,7 @@ import DateField from '../../ui/DateField';
 import { useSystemListItems } from '../../../hooks/useSystemListItems';
 import PaymentEntriesList, { type PaymentEntry, newEntry } from '../PaymentEntriesList';
 import InstallmentsSchedule, { type Installment } from '../InstallmentsSchedule';
+import { useCurrentUsdRate } from '../../../hooks/useCurrentUsdRate';
 import Select from '../../ui/Select';
 import Card from '../../ui/Card';
 import Badge from '../../ui/Badge';
@@ -166,6 +167,10 @@ export default function CostsForm({
   // ── Installments ──────────────────────────────────────────────────────────
   const [installments, setInstallments]         = useState<Installment[]>([]);
   const [installmentsConfirmed, setInstallmentsConfirmed] = useState(false);
+  // USD link (migr 495): central rate of the day — USD cash is priced at it and
+  // the deferred schedule is fixed in USD when confirmed.
+  const { rate: usdRate } = useCurrentUsdRate();
+  const [usdRateSnapshot, setUsdRateSnapshot] = useState<number | null>(null);
 
   // ── Employee ───────────────────────────────────────────────────────────────
   const [closingEmployeeId, setClosingEmployeeId] = useState(initialData?.closingEmployeeId ? String(initialData.closingEmployeeId) : '');
@@ -203,7 +208,8 @@ export default function CostsForm({
       api.emergencyResult.getInstallments(taskId)
         .then(data => {
           if (data.installments?.length) {
-            setInstallments(data.installments.map((i: any) => ({ ...i, amountSyp: String(i.amountSyp) })));
+            setInstallments(data.installments.map((i: any) => ({ ...i, amountSyp: String(i.amountSyp), amountUsdFixed: i.amountUsd ?? null })));
+            setUsdRateSnapshot((data as any).usdRateSnapshot ?? null);
             setInstallmentsConfirmed(data.confirmed);
             setHasFirstPayment(data.hasFirstPayment);
           }
@@ -251,7 +257,8 @@ export default function CostsForm({
   const entrySyp = (e: PaymentEntry) => {
     const v = Number(e.amountValue) || 0;
     if (e.method === 'barter') return v;
-    return e.currency === 'usd' ? v * (Number(e.exchangeRate) || 0) : v;
+    // USD cash counts at the central rate of the day (the server re-applies it).
+    return e.currency === 'usd' ? Math.round(v * (usdRate || 0)) : v;
   };
   const totalFirstPaymentSyp = paymentType === 'installment' && hasFirstPayment
     ? paymentEntries.reduce((s, e) => s + entrySyp(e), 0)
@@ -337,6 +344,15 @@ export default function CostsForm({
     await api.emergencyResult.confirmInstallments(taskId, resultContext);
     setInstallmentsConfirmed(true);
     setInstallments(rows);
+    // Re-read so the USD amounts fixed by the server (migr 495) are shown.
+    api.emergencyResult.getInstallments(taskId)
+      .then((data: any) => {
+        if (Array.isArray(data?.installments)) {
+          setInstallments(data.installments.map((i: any) => ({ ...i, amountSyp: String(i.amountSyp), amountUsdFixed: i.amountUsd ?? null })));
+        }
+        setUsdRateSnapshot(data?.usdRateSnapshot ?? null);
+      })
+      .catch(() => {});
     setSaved(true);
     onSaved();
   };
@@ -632,6 +648,8 @@ export default function CostsForm({
                 onChange={setPaymentEntries}
                 disabled={readOnly}
                 grandTotal={grandTotal}
+                fixedUsdRate={usdRate}
+                requireCentralRate
                 label="الدفعات الجزئية"
               />
             )}
@@ -663,6 +681,8 @@ export default function CostsForm({
                     onChange={setPaymentEntries}
                     disabled={readOnly}
                     grandTotal={grandTotal}
+                    fixedUsdRate={usdRate}
+                requireCentralRate
                     label="الدفعة الأولى (الجزء المقدّم)"
                   />
                 )}
@@ -681,6 +701,8 @@ export default function CostsForm({
                     installableAmount={installableAmount}
                     initialInstallments={installments.length ? installments : undefined}
                     confirmed={installmentsConfirmed}
+                    usdRate={usdRate}
+                    usdRateSnapshot={usdRateSnapshot}
                     onSave={handleSaveInstallments}
                     onConfirm={handleConfirmInstallments}
                     disabled={readOnly}

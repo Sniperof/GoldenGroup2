@@ -298,6 +298,26 @@ export default function TaskContractTab({ task }: TaskContractTabProps) {
                 value={formatMoney(contract.financials.downPayment, contract.financials.currency)}
               />
               <InfoLine label="عدد الأقساط" value={contract.financials.installmentsCount || '—'} />
+              {contract.financials.usdRateSnapshot != null && (
+                <InfoLine
+                  label="سعر صرف العقد ($)"
+                  value={`${Number(contract.financials.usdRateSnapshot).toLocaleString('ar-SY')} ل.س`}
+                />
+              )}
+              {(task as any).usdDue && (
+                <>
+                  <InfoLine
+                    label="المتبقي من القسط بالدولار"
+                    value={`$${Number((task as any).usdDue.remainingUsd).toLocaleString('en-US', { maximumFractionDigits: 2 })}`}
+                  />
+                  <InfoLine
+                    label="المستحق اليوم"
+                    value={(task as any).usdDue.dueTodaySyp != null
+                      ? `${Number((task as any).usdDue.dueTodaySyp).toLocaleString('ar-SY')} ل.س`
+                      : 'لا يوجد سعر صرف اليوم'}
+                  />
+                </>
+              )}
             </div>
           )}
         </Card>

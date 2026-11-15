@@ -19,7 +19,8 @@ const RECEIVABLE_INSTALLMENTS_SQL = `
                  i.confirmed, i.created_at, i.collection_owner_id,
                  c.customer_id, COALESCE(c.service_branch_id, c.branch_id) AS branch_id,
                  NULL::int AS device_id, NULL::int AS source_id, NULL::int AS costs_id,
-                 c.final_price AS source_total
+                 c.final_price AS source_total,
+                 i.amount_usd, i.remaining_balance AS live_remaining
             FROM contract_installments i
             JOIN contracts c ON c.id = i.contract_id
           UNION ALL
@@ -27,7 +28,8 @@ const RECEIVABLE_INSTALLMENTS_SQL = `
                  mi.confirmed, mi.created_at, NULL,
                  ot.client_id, ot.branch_id,
                  ot.device_id, ot.id, mi.costs_id,
-                 costs.total_cost
+                 costs.total_cost,
+                 mi.amount_usd, mi.remaining_balance
             FROM emergency_installments mi
             JOIN open_tasks ot ON ot.id = mi.open_task_id
             LEFT JOIN emergency_result_costs costs ON costs.id = mi.costs_id
@@ -36,7 +38,8 @@ const RECEIVABLE_INSTALLMENTS_SQL = `
                  wi.confirmed, wi.created_at, NULL,
                  d.customer_id, d.branch_id,
                  d.id, w.id, NULL,
-                 w.total_value
+                 w.total_value,
+                 NULL::numeric, wi.remaining_balance
             FROM device_warranty_installments wi
             JOIN device_warranties w ON w.id = wi.warranty_id AND w.warranty_type = 'golden'
             JOIN installed_devices d ON d.id = w.device_id`;
@@ -308,6 +311,18 @@ export function buildServiceDuesQuery(
              COALESCE(installment.source_total, 0)::numeric AS "contractFinalValue",
              ${PAYMENT_TYPE_LABEL_SQL} AS "agreedPaymentType",
              installment.amount_syp::numeric AS "installmentDueAmount",
+             -- USD link (migr 493/495): the fixed USD and today's due on the live
+             -- remaining USD (proportional to the live remaining SYP), at today's
+             -- central rate rounded to the collection unit. NULL for legacy rows.
+             installment.amount_usd::numeric AS "installmentAmountUsd",
+             CASE WHEN installment.amount_usd IS NOT NULL AND fx_today.rate IS NOT NULL
+                       AND installment.amount_syp > 0 AND installment.live_remaining > 0
+                  THEN CASE WHEN fx_today.unit > 0
+                            THEN GREATEST(ROUND(installment.amount_usd * installment.live_remaining / installment.amount_syp
+                                                * fx_today.rate / fx_today.unit) * fx_today.unit, fx_today.unit)
+                            ELSE ROUND(installment.amount_usd * installment.live_remaining / installment.amount_syp * fx_today.rate)
+                       END
+             END::numeric AS "installmentDueTodaySyp",
              COALESCE(contract_money_before_due.collected_total, 0)::numeric AS "contractCollectedTotal",
              GREATEST(COALESCE(installment.source_total, 0) + COALESCE(contract_money_before_due.refund_total, 0)
                - COALESCE(contract_money_before_due.collected_total, 0) - COALESCE(contract_money_before_due.discount_total, 0), 0)::numeric AS "contractRemainingBalance",
@@ -333,6 +348,13 @@ export function buildServiceDuesQuery(
         LEFT JOIN clients client ON client.id = installment.customer_id
         LEFT JOIN branches branch ON branch.id = ${BRANCH_SQL}
         LEFT JOIN hr_users collection_owner ON collection_owner.id = installment.collection_owner_id
+        LEFT JOIN LATERAL (
+          SELECT (SELECT r.rate FROM exchange_rates r
+                   WHERE r.effective_from <= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Damascus')::date
+                   ORDER BY r.effective_from DESC, r.id DESC LIMIT 1) AS rate,
+                 COALESCE((SELECT NULLIF(BTRIM(s.value), '')::numeric FROM system_settings s
+                            WHERE s.key = 'fx_collection_rounding_unit'), 1000) AS unit
+        ) fx_today ON installment.amount_usd IS NOT NULL
         LEFT JOIN employees seller ON seller.id = contract.sale_owner_id
         LEFT JOIN hr_users closer ON closer.id = contract.closing_employee_id
         LEFT JOIN LATERAL (

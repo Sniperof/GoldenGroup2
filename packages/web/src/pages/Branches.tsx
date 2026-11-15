@@ -1,3 +1,4 @@
+import { alertDialog, confirmDialog } from '../lib/dialogs';
 import { useEffect, useState, useMemo } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useBranchStore } from '../hooks/useBranchStore';
@@ -182,14 +183,14 @@ export default function Branches() {
     const locationGeoId = getDeepestId(locationSelection);
     const coveredGeoIds = coveredSelections.map(getDeepestId).filter(Boolean) as number[];
     if (!locationSelection.subId && !locationSelection.neighborhoodId) {
-      alert('يجب اختيار ناحية أو حي على الأقل في العنوان.');
+      void alertDialog('يجب اختيار ناحية أو حي على الأقل في العنوان.');
       return;
     }
     // Validate contacts have values
     const validContacts = contacts.filter(c => c.value.trim());
 
     if ((latitude === '') !== (longitude === '')) {
-      alert('يجب إدخال خط العرض وخط الطول معاً.');
+      void alertDialog('يجب إدخال خط العرض وخط الطول معاً.');
       return;
     }
     const basePayload = {
@@ -214,7 +215,7 @@ export default function Branches() {
       }
       setIsModalOpen(false);
     } catch (err: any) {
-      alert('حدث خطأ أثناء حفظ الفرع: ' + (err.message || 'خطأ غير معروف'));
+      void alertDialog('حدث خطأ أثناء حفظ الفرع: ' + (err.message || 'خطأ غير معروف'));
     }
   };
 
@@ -228,7 +229,7 @@ export default function Branches() {
   const addImages = async (files: FileList | null) => {
     if (!files?.length) return;
     if (images.length + files.length > 20) {
-      alert('لا يمكن إضافة أكثر من 20 صورة للفرع.');
+      void alertDialog('لا يمكن إضافة أكثر من 20 صورة للفرع.');
       return;
     }
     setUploadingImages(true);
@@ -254,9 +255,9 @@ export default function Branches() {
 
   const handleDelete = async (id: number) => {
     if (!canManageBranchStructure) return;
-    if (!confirm('هل أنت متأكد من حذف هذا الفرع؟')) return;
+    if (!await confirmDialog({ message: 'هل أنت متأكد من حذف هذا الفرع؟', tone: 'danger' })) return;
     try { await deleteBranch(id); }
-    catch { alert('لا يمكن حذف الفرع لاحتمال وجود سجلات مرتبطة به'); }
+    catch { void alertDialog('لا يمكن حذف الفرع لاحتمال وجود سجلات مرتبطة به'); }
   };
 
   const addCoveredRange = () => setCoveredSelections([...coveredSelections, { govId: '', regionId: '', subId: '', neighborhoodId: '' }]);

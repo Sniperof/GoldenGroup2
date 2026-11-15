@@ -7,6 +7,7 @@
 // This section surfaces (1) for installation actions (we keep the toggle UX
 // from the legacy ContractsTab), and uses (2) for a separate "تاريخ القطع" sub-list.
 
+import { alertDialog } from '../../../lib/dialogs';
 import { useState } from 'react';
 import { Loader2 } from '../../../components/ui/icons';
 import { PartCard } from '../../../components/devices/PartCard';
@@ -35,7 +36,7 @@ export function InstalledPartsSection({ contract, deviceParts, onChanged }: Prop
       onChanged?.();
     } catch (err) {
       console.error('[InstalledPartsSection] toggle failed:', err);
-      alert('فشل تحديث حالة التركيب.');
+      void alertDialog('فشل تحديث حالة التركيب.');
     } finally {
       setUpdatingId(null);
     }

@@ -1,3 +1,4 @@
+import { alertDialog, confirmDialog } from '../lib/dialogs';
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Navigate } from 'react-router-dom';
@@ -233,7 +234,7 @@ export default function RouteManager() {
     const saveRoute = async () => {
         if (!canManageGeo) return;
         if (!builderName.trim() || builderPoints.length === 0) {
-            alert('أدخل اسم المسار وأضف محطة واحدة على الأقل');
+            void alertDialog('أدخل اسم المسار وأضف محطة واحدة على الأقل');
             return;
         }
         try {
@@ -251,7 +252,7 @@ export default function RouteManager() {
 
     const deleteRoute = async (id: number) => {
         if (!canManageGeo) return;
-        if (!confirm('حذف هذا المسار؟')) return;
+        if (!await confirmDialog({ message: 'حذف هذا المسار؟', tone: 'danger' })) return;
         try { await api.routes.delete(id); await fetchData(); }
         catch (e) { console.error('Failed to delete route', e); }
     };

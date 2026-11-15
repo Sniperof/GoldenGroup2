@@ -1,3 +1,4 @@
+import { confirmDialog } from '../../lib/dialogs';
 import { useEffect, useMemo, useState } from 'react';
 import { Gift, Info, Plus, Save, X } from '../../components/ui/icons';
 import Modal from '../../components/ui/Modal';
@@ -242,7 +243,7 @@ export default function ContractGiftsPanel({ contract }: { contract: any }) {
       } catch (error: any) {
         if (error?.payload?.code !== 'similar_gift_promises') throw error;
         const similarCount = Number(error.payload?.similarCount) || 0;
-        const proceed = window.confirm(
+        const proceed = await confirmDialog(
           `تنبيه: يوجد ${similarCount} وعد/وعود غير منتهية مشابهة لهذا المستفيد. هل تريد إنشاء وعد جديد مستقل؟`,
         );
         if (!proceed) throw new Error('تم إيقاف الحفظ بعد تنبيه الوعود المشابهة');

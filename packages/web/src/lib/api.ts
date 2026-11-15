@@ -1,3 +1,4 @@
+import { confirmDialog } from './dialogs';
 import type {
   ClientReferrer,
   MarketingVisitCancelRequest,
@@ -24,8 +25,14 @@ export interface AccountStatementEntry {
   source_type: string;
   source_id: number | null;
   contract_id: number | null;
+  /** Server-built البيان; contract payments carry their USD value + rate (migr 493/494). */
   description: string;
   reference_no: string | null;
+  /** Payment reference (migr 494): USD equivalent / rate; null for historical lines. */
+  usd_amount?: number | null;
+  exchange_rate?: number | null;
+  /** USD-linked collection: SYP actually received (the amount column is the credited original SYP). */
+  collected_syp?: number | null;
   debit_amount: number;
   credit_amount: number;
   running_balance: number;
@@ -37,6 +44,7 @@ export interface AccountStatementResponse {
     current_balance: number;     // المستحق الآن (حتى اليوم)
     total_paid: number;
     upcoming_total: number;      // الاستحقاقات القادمة
+    outstanding_total?: number;  // كل المتبقي على الزبون (يشمل الأقساط القادمة)
     overdue_amount: number;
   };
   entries: AccountStatementEntry[];
@@ -856,6 +864,65 @@ export type ClientOwnershipOperation =
   | ({ action: 'transfer'; fromUserId: number; toUserId: number } & ClientOwnershipReason)
   | ({ action: 'release' } & ClientOwnershipReason);
 
+// ── «ذمم بلا مهمة تحصيل» (GET /receivables/uncovered) ─────────────────────
+export type UncoveredReceivableKind = 'contract' | 'maintenance' | 'warranty';
+export type UncoveredReceivableReason = 'never_created' | 'task_cancelled' | 'task_completed_with_balance';
+
+export interface UncoveredReceivablesParams {
+  /** Narrows a GLOBAL viewer to one branch; omit to let the server scope. */
+  branchId?: number | null;
+  kind?: UncoveredReceivableKind | '';
+  reason?: UncoveredReceivableReason | '';
+  overdueOnly?: boolean;
+  dueFrom?: string;
+  dueTo?: string;
+  search?: string;
+  clientId?: number | null;
+}
+
+export interface UncoveredReceivableRow {
+  kind: UncoveredReceivableKind;
+  installmentId: number;
+  installmentNumber: number;
+  dueDate: string;
+  overdueDays: number;
+  amountSyp: number;
+  remainingSyp: number;
+  clientId: number;
+  clientName: string | null;
+  clientMobile: string | null;
+  branchId: number | null;
+  branchName: string | null;
+  sourceType: 'contract' | 'maintenance_task' | 'golden_warranty';
+  sourceId: number;
+  sourceLabel: string;
+  contractId: number | null;
+  contractNumber: string | null;
+  deviceId: number | null;
+  reason: UncoveredReceivableReason;
+  lastTaskId: number | null;
+  lastTaskStatus: string | null;
+  lastTaskAt: string | null;
+  usdDue: { remainingUsd: number; dueTodaySyp: number | null; dayRate: number | null } | null;
+}
+
+export interface UncoveredReceivablesBucket { count: number; amountSyp: number; overdueCount: number; overdueAmountSyp: number }
+export interface UncoveredReceivablesSummary {
+  total: UncoveredReceivablesBucket;
+  byReason: Record<UncoveredReceivableReason, UncoveredReceivablesBucket>;
+  byKind: Record<UncoveredReceivableKind, UncoveredReceivablesBucket>;
+}
+
+function uncoveredReceivablesQuery(params: UncoveredReceivablesParams): string {
+  const q = new URLSearchParams();
+  Object.entries(params as Record<string, unknown>).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '' || value === false) return;
+    q.set(key, String(value));
+  });
+  const qs = q.toString();
+  return qs ? `?${qs}` : '';
+}
+
 function withEmergencyResultContext(path: string, context: EmergencyResultContext): string {
   const query = new URLSearchParams({
     visitId: String(context.visitId),
@@ -1073,7 +1140,7 @@ export const api = {
         } catch (error: any) {
           if (error?.payload?.code !== 'similar_gift_promises') throw error;
           const count = Number(error.payload?.similarCount) || 0;
-          const proceed = window.confirm(
+          const proceed = await confirmDialog(
             `تنبيه: يوجد ${count} وعد/وعود غير منتهية مشابهة لهذا المستفيد. لا يمنع ذلك إنشاء وعد جديد مستقل. هل تريد المتابعة؟`,
           );
           if (!proceed) throw new Error('تم إيقاف الحفظ بعد تنبيه الوعود المشابهة');
@@ -1110,6 +1177,7 @@ export const api = {
       branchId != null ? { headers: { 'X-Branch-Id': String(branchId) } } : undefined,
     ),
     listReference: () => request<any[]>('/geo-units/reference'),
+    coveringBranches: (id: number) => request<{ branchId: number; branchName: string }[]>(`/geo-units/${id}/covering-branches`),
     // Global name map for DISPLAY (address labels) — all units, no branch scope.
     // Use this to resolve an existing record's address; use `list(branchId)` for form pickers.
     names: () => request<any[]>('/geo-units/names'),
@@ -1317,9 +1385,10 @@ export const api = {
       request<any>(`/clients/${id}/rating-history`, { method: 'POST', body: JSON.stringify(data) }),
     getAccountStatement: (
       id: number,
-      params?: { from?: string; to?: string; types?: string },
+      params?: { from?: string; to?: string; types?: string; view?: 'due' | 'total' },
     ) => {
       const query = new URLSearchParams();
+      if (params?.view === 'total') query.set('view', 'total');
       if (params?.from) query.set('from', params.from);
       if (params?.to) query.set('to', params.to);
       if (params?.types) query.set('types', params.types);
@@ -1395,7 +1464,7 @@ export const api = {
       } catch (error: any) {
         if (error?.payload?.code !== 'similar_gift_promises' || !data?.giftPromise) throw error;
         const count = Number(error.payload?.similarCount) || 0;
-        const proceed = window.confirm(
+        const proceed = await confirmDialog(
           `تنبيه: يوجد ${count} وعد/وعود غير منتهية مشابهة لهذا الوسيط. هل تريد حفظ الاسم ووعد جديد مستقل؟`,
         );
         if (!proceed) throw new Error('تم إيقاف الحفظ بعد تنبيه الوعود المشابهة');
@@ -1436,7 +1505,7 @@ export const api = {
       } catch (error: any) {
         if (error?.payload?.code !== 'similar_gift_promises' || !data?.giftPromise) throw error;
         const count = Number(error.payload?.similarCount) || 0;
-        const proceed = window.confirm(
+        const proceed = await confirmDialog(
           `تنبيه: يوجد ${count} وعد/وعود غير منتهية مشابهة لهذا الوسيط. هل تريد حفظ اللائحة ووعد جديد مستقل؟`,
         );
         if (!proceed) throw new Error('تم إيقاف الحفظ بعد تنبيه الوعود المشابهة');
@@ -1506,6 +1575,9 @@ export const api = {
       request<any>(`/contracts/${contractId}/installments`, { method: 'POST', body: JSON.stringify({ installments }) }),
     confirmInstallments: (contractId: number) =>
       request<any>(`/contracts/${contractId}/installments/confirm`, { method: 'POST' }),
+    /** D2: «إلغاء تأكيد الجدول» — draft only; clears the USD snapshot. */
+    unconfirmInstallments: (contractId: number) =>
+      request<any>(`/contracts/${contractId}/installments/unconfirm`, { method: 'POST' }),
     // تثبيت بيعة عقد التجربة: نداء واحد ذرّي يثبّت المالية ويقلب النوع الفرعي
     // ويجمّد ملحق تثبيت البيعة. يحل محل تسلسل PUT + دفعات + أقساط + تأكيد،
     // الذي كان يترك العقد نصف محوَّل عند فشل أي خطوة.
@@ -1714,6 +1786,9 @@ export const api = {
     listByDevice: (deviceId: number) => request<any[]>(`/open-tasks/device/${deviceId}`),
     collectableInstallments: (clientId: number) => request<any[]>(`/open-tasks/client/${clientId}/collectable-installments`),
     get: (id: number) => request<any>(`/open-tasks/${id}`),
+    /** D3: «عكس التحصيل» of the latest paid result (permission collections.reverse). */
+    reverseCollection: (id: number, reason: string) =>
+      request<any>(`/open-tasks/${id}/reverse-collection`, { method: 'POST', body: JSON.stringify({ reason }) }),
     update: (id: number, data: any) => request<any>(`/open-tasks/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     cancel: (id: number, reasonId: number) =>
       request<{ task: any; cancellationReason: { id: number; category: string; value: string; label: string } }>(
@@ -2075,6 +2150,7 @@ export const api = {
       installmentAmount: number | string | null; installmentRemaining: number | string | null;
       expectedAmount: number | string | null; receivableLabel: string | null;
       taskAddress: string | null; taskGeoUnitId: number | null;
+      usdDue?: { dueTodaySyp: number | null; remainingUsd: number; dayRate: number | null } | null;
     }>>(`/field-visits/${id}/pullable-tasks`),
     /** DEC-010 D-PB8: undo a pull (pulled + pending only). */
     removePulledTask: (id: number, visitTaskId: number) =>
@@ -2108,6 +2184,9 @@ export const api = {
       `/field-visits/instant`,
       { method: 'POST', body: JSON.stringify(data) },
     ),
+    /** D5: USD-linked due + rate of the visit's collection day (re-read before submit). */
+    taskUsdDue: (visitId: number, taskId: number) =>
+      request<{ collectionDay: string; rate: number | null; usdDue: any | null }>(`/field-visits/${visitId}/tasks/${taskId}/usd-due`),
     recordTaskResult: (visitId: number, taskId: number, data: any) =>
       request<any>(`/field-visits/${visitId}/tasks/${taskId}/result`, {
         method: 'POST',
@@ -2389,6 +2468,68 @@ export const api = {
       `/system-settings/${encodeURIComponent(key)}`,
       { method: 'PUT', body: JSON.stringify({ value }) },
     ),
+  },
+  // USD-linked installments (migr 493): central exchange rate (SYP per 1 USD).
+  exchangeRates: {
+    list: () => request<{
+      current: { id: number; rate: number; effectiveFrom: string } | null;
+      today: string;
+      roundingUnit: number;
+      history: Array<{ id: number; rate: number; effectiveFrom: string; note: string | null; createdAt: string; createdByName: string | null }>;
+    }>('/exchange-rates'),
+    current: () => request<{
+      current: { id: number; rate: number; effectiveFrom: string } | null;
+      roundingUnit: number;
+    }>('/exchange-rates/current'),
+    create: (data: { rate: number; effectiveFrom: string; note?: string | null }) =>
+      request<{ id: number; rate: number; effectiveFrom: string }>('/exchange-rates', {
+        method: 'POST', body: JSON.stringify(data),
+      }),
+  },
+  fxDifferences: {
+    list: (params: { branchId?: number | null; from?: string; to?: string }) => {
+      const q = new URLSearchParams();
+      if (params.branchId) q.set('branchId', String(params.branchId));
+      if (params.from) q.set('from', params.from);
+      if (params.to) q.set('to', params.to);
+      const qs = q.toString();
+      return request<{
+        rows: Array<{
+          id: number; branchId: number; branchName: string | null; sourceKind: string;
+          contractId: number | null; contractNumber: string | null; customerName: string | null;
+          installmentId: number | null; installmentNumber: number | null; paymentEntryId: number | null;
+          maintenanceInstallmentId?: number | null; openTaskId?: number | null;
+          contractRate: number; dayRate: number; usdSettled: number;
+          collectedSyp: number; settledSyp: number; differenceSyp: number;
+          occurredAt: string; recordedByName: string | null;
+        }>;
+        branches: Array<{ branchId: number; branchName: string | null; count: number; collectedSyp: number; settledSyp: number; balanceSyp: number }>;
+        balanceSyp: number;
+        truncated: boolean;
+      }>(`/fx-differences${qs ? `?${qs}` : ''}`);
+    },
+  },
+  // «ذمم بلا مهمة تحصيل» — installments with balance and no active collection task.
+  uncoveredReceivables: {
+    list: (params: UncoveredReceivablesParams & { page?: number; pageSize?: number; sortDir?: 'asc' | 'desc' }) =>
+      request<{
+        rows: UncoveredReceivableRow[];
+        total: number;
+        page: number;
+        pageSize: number;
+        summary: UncoveredReceivablesSummary;
+      }>(`/receivables/uncovered${uncoveredReceivablesQuery(params)}`),
+    summary: (params: UncoveredReceivablesParams) =>
+      request<UncoveredReceivablesSummary>(`/receivables/uncovered/summary${uncoveredReceivablesQuery(params)}`),
+    createTasks: (items: Array<{ kind: UncoveredReceivableKind; installmentId: number }>) =>
+      request<{
+        created: number;
+        skipped: number;
+        results: Array<{
+          kind: UncoveredReceivableKind; installmentId: number; status: 'created' | 'skipped';
+          taskId?: number; code?: string; message?: string; existingTaskId?: number | null;
+        }>;
+      }>('/receivables/uncovered/tasks', { method: 'POST', body: JSON.stringify({ items }) }),
   },
   departments: {
     // branchId narrows a GLOBAL viewer to one branch (sent as X-Branch-Id, the

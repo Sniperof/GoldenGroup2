@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, FileSearch, ReceiptText } from '../../components/ui/icons';
-import { useNavigate } from 'react-router-dom';
+import { AlertCircle, AlertTriangle, FileSearch, ReceiptText } from '../../components/ui/icons';
+import { Link, useNavigate } from 'react-router-dom';
 import DateField from '../../components/ui/DateField';
 
 import { api, type AccountStatementEntry, type AccountStatementResponse } from '../../lib/api';
@@ -69,9 +69,24 @@ export function AccountStatementTab({ client }: Props) {
   const [from, setFrom] = useState(() => toInputDate(shiftMonths(today, -6)));
   const [to, setTo] = useState(() => toInputDate(shiftMonths(today, 6)));
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
+  // «حسب الاستحقاق» = each installment on its due date (default);
+  // «حسب إجمالي الدين» = each debt once, for its full amount, when it was booked.
+  const [viewMode, setViewMode] = useState<'due' | 'total'>('due');
   const [data, setData] = useState<AccountStatementResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // «ذمم بلا مهمة تحصيل» for this client — one small call; silently hidden when
+  // the viewer lacks tasks.collection.view or the call fails.
+  const [uncovered, setUncovered] = useState<{ count: number; amountSyp: number } | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    setUncovered(null);
+    api.uncoveredReceivables.summary({ clientId: client.id })
+      .then(s => { if (active) setUncovered({ count: s.total.count, amountSyp: s.total.amountSyp }); })
+      .catch(() => { /* no permission / not available → no indicator */ });
+    return () => { active = false; };
+  }, [client.id]);
 
   useEffect(() => {
     let active = true;
@@ -79,7 +94,7 @@ export function AccountStatementTab({ client }: Props) {
 
     setLoading(true);
     setError(null);
-    api.clients.getAccountStatement(client.id, { from, to, types: selectedTypes })
+    api.clients.getAccountStatement(client.id, { from, to, types: selectedTypes, view: viewMode })
       .then(result => {
         if (active) setData(result);
       })
@@ -97,7 +112,7 @@ export function AccountStatementTab({ client }: Props) {
     return () => {
       active = false;
     };
-  }, [client.id, from, to, typeFilter]);
+  }, [client.id, from, to, typeFilter, viewMode]);
 
   const openSource = (entry: AccountStatementEntry) => {
     if (entry.contract_id) {
@@ -130,7 +145,31 @@ export function AccountStatementTab({ client }: Props) {
 
   return (
     <div className="space-y-5" dir="rtl">
+      {uncovered && uncovered.count > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-800">
+          <AlertTriangle className="h-5 w-5 shrink-0 text-amber-600" />
+          <span>
+            على الزبون {uncovered.count} {uncovered.count === 1 ? 'قسط مستحق' : 'أقساط مستحقة'} بلا مهمة تحصيل (المجموع {formatMoney(uncovered.amountSyp)})
+          </span>
+          <Link to={`/receivables/uncovered?clientId=${client.id}`} className="text-sky-700 underline-offset-2 hover:underline">
+            عرض في «ذمم بلا مهمة تحصيل»
+          </Link>
+        </div>
+      )}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        {viewMode === 'total' ? (
+        <div className="rounded-2xl border border-red-100 bg-white p-5 shadow-sm">
+          <p className="text-sm font-bold text-slate-500">إجمالي المتبقي على الزبون</p>
+          <p className={`mt-2 text-2xl font-black ${
+            (summary.outstanding_total ?? 0) > 0 ? 'text-red-600' : 'text-emerald-600'
+          }`}>
+            {formatMoney(summary.outstanding_total ?? 0)}
+          </p>
+          <p className="mt-2 text-xs font-bold text-slate-400">
+            منه مستحق الآن: {formatMoney(summary.current_balance)}
+          </p>
+        </div>
+        ) : (
         <div className="rounded-2xl border border-red-100 bg-white p-5 shadow-sm">
           <p className="text-sm font-bold text-slate-500">المستحق الآن</p>
           <p className={`mt-2 text-2xl font-black ${
@@ -144,6 +183,7 @@ export function AccountStatementTab({ client }: Props) {
             </p>
           )}
         </div>
+        )}
         <div className="rounded-2xl border border-emerald-100 bg-white p-5 shadow-sm">
           <p className="text-sm font-bold text-slate-500">إجمالي المدفوع</p>
           <p className="mt-2 text-2xl font-black text-emerald-600">{formatMoney(summary.total_paid)}</p>
@@ -152,6 +192,27 @@ export function AccountStatementTab({ client }: Props) {
           <p className="text-sm font-bold text-slate-500">الاستحقاقات القادمة</p>
           <p className="mt-2 text-2xl font-black text-amber-600">{formatMoney(summary.upcoming_total)}</p>
         </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-bold text-slate-500">طريقة العرض:</span>
+        {([
+          { id: 'due', label: 'حسب الاستحقاق' },
+          { id: 'total', label: 'حسب إجمالي الدين' },
+        ] as const).map(mode => (
+          <button
+            key={mode.id}
+            type="button"
+            onClick={() => setViewMode(mode.id)}
+            className={`rounded-xl px-4 py-2 text-sm font-bold transition-colors ${
+              viewMode === mode.id
+                ? 'bg-slate-800 text-white'
+                : 'border border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            {mode.label}
+          </button>
+        ))}
       </div>
 
       <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:flex-row lg:items-end lg:justify-between">

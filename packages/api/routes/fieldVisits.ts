@@ -34,6 +34,7 @@ import { createInstantVisit, getInstantVisitOptions, BookingError } from '../ser
 import { refreshVisitType } from '../services/visitClassification.js';
 import { getOpenTaskLinkageIssue } from '../services/openTaskLinkagePolicy.js';
 import { loadVisitMaintenanceFinance } from '../services/visitMaintenanceFinance.js';
+import { attachReceivableUsdDues, getRateOn, getVisitCollectionDay } from '../services/fxRates.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -1822,6 +1823,7 @@ router.get('/:id', requirePermission('field_visits.view', 'field_visits.my_visit
                 ${hasDeliveryAddressColumn ? 'ot.delivery_address' : 'idev.installation_address_text'} AS delivery_address,
                 ot.device_id, ot.service_branch_id, ot.retrieval_purpose,
                 ot.installment_id AS "installmentId",
+                ot.maintenance_installment_id AS "maintenanceInstallmentId",
                 ot.expected_amount_syp::float AS "expectedAmountSyp",
                 ot.receivable_source_type AS "receivableSourceType",
                 ot.receivable_source_id AS "receivableSourceId",
@@ -1989,7 +1991,12 @@ router.get('/:id', requirePermission('field_visits.view', 'field_visits.my_visit
 
     // Parts and money of each maintenance task in THIS visit (live + migrated paths).
     const maintenanceFinance = await loadVisitMaintenanceFinance(pool, tasksRes.rows);
-    const tasks = tasksRes.rows.map((t: any) => ({
+    // USD-linked installments (migr 493): the frozen expected_amount_syp is not
+    // the amount due — attach today's computed due (usdDue) instead.
+    // D5: the due is priced at the visit's collection day (its execution date).
+    const visitCollectionDay = await getVisitCollectionDay(pool, Number(fv.id));
+    const tasksWithUsd = await attachReceivableUsdDues(pool, tasksRes.rows, 'installmentId', 'maintenanceInstallmentId', visitCollectionDay);
+    const tasks = tasksWithUsd.map((t: any) => ({
       ...t,
       directSuggestions: suggestByTask.get(String(t.id)) ?? [],
       preOffers: preOffersByOpenTask.get(Number(t.source_open_task_id)) ?? [],
@@ -2758,7 +2765,8 @@ router.get('/:id/pullable-tasks', requirePermission('field_visits.view', 'field_
     const pullableRows = rows
       .filter((row: any) => getOpenTaskLinkageIssue(row) == null)
       .map(({ hasGiftDeliveryLink: _giftLink, hasGoldenWarrantyLink: _warrantyLink, ...row }: any) => row);
-    return res.json(pullableRows);
+    // USD-linked contract installments carry today's due (migr 493).
+    return res.json(await attachReceivableUsdDues(pool, pullableRows));
   } catch (err: any) {
     console.error('[field-visits] GET /:id/pullable-tasks error:', err);
     res.status(500).json({ error: err?.message ?? 'فشل جلب المهام القابلة للسحب' });
@@ -3299,6 +3307,37 @@ router.post('/:id/reopen', requirePermission('field_visits.reopen_closed'), asyn
 // exhaustive shared registry. Each reflection service writes visit_task_results
 // plus its side tables, reflects onto open_tasks, and invokes the visit
 // completion guard in one transaction.
+// GET /api/field-visits/:visitId/tasks/:taskId/usd-due — D5: the collection
+// modal re-reads the USD-linked due (priced at the visit day) right before it
+// submits, so a changed rate shows the new amount instead of a rejection.
+router.get('/:visitId/tasks/:taskId/usd-due', requirePermission('tasks.results.record'), async (req, res) => {
+  try {
+    const authContext = getAuthContext(req);
+    const visitId = Number(req.params.visitId);
+    const taskId = Number(req.params.taskId);
+    const { rows } = await pool.query(
+      `SELECT vt.id, fv.branch_id, ot.installment_id AS "installmentId",
+              ot.maintenance_installment_id AS "maintenanceInstallmentId"
+         FROM visit_tasks vt
+         JOIN field_visits fv ON fv.id = vt.field_visit_id
+         LEFT JOIN open_tasks ot ON ot.id = vt.source_open_task_id
+        WHERE vt.id = $1 AND vt.field_visit_id = $2 LIMIT 1`,
+      [taskId, visitId],
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'المهمة غير موجودة ضمن هذه الزيارة' });
+    if (!authorize(authContext, { permission: 'tasks.results.record', branchId: rows[0].branch_id }).allowed) {
+      return res.status(403).json({ error: 'ليس لديك صلاحية' });
+    }
+    const collectionDay = await getVisitCollectionDay(pool, visitId);
+    const [withDue] = await attachReceivableUsdDues(pool, [rows[0]], 'installmentId', 'maintenanceInstallmentId', collectionDay);
+    const dayRate = await getRateOn(pool, collectionDay);
+    return res.json({ collectionDay, rate: dayRate?.rate ?? null, usdDue: withDue.usdDue });
+  } catch (err: any) {
+    console.error('[field-visits] GET usd-due error:', err);
+    return res.status(500).json({ error: err?.message ?? 'فشل حساب المستحق' });
+  }
+});
+
 router.post('/:visitId/tasks/:taskId/result', requirePermission('tasks.results.record'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);

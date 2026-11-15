@@ -3,7 +3,7 @@ import { persistOpenTaskSnapshots } from '../routes/openTasks.js';
 
 type Queryable = Pick<PoolClient, 'query'>;
 
-const ACTIVE_COLLECTION_TASK_STATUSES = [
+export const ACTIVE_COLLECTION_TASK_STATUSES = [
   'open',
   'needs_follow_up',
   'assigned',

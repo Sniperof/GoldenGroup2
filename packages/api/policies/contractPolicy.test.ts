@@ -55,6 +55,6 @@ test('contract routes use the shared policy (no branch-only regression)', () => 
   assert.doesNotMatch(route, /no ASSIGNED tier/);
   assert.match(route, /scope === 'ASSIGNED'\) \{\s*conditions\.push\(contractSaleOwnerSql\('c'/);
   assert.match(route, /authorizeContract\(authContext, 'contracts\.view_list', rows\[0\]\)/);
-  assert.equal((route.match(/authorizeContract\(req\.authContext!, 'contracts\.edit', contract\)/g) || []).length, 3);
+  assert.equal((route.match(/authorizeContract\(req\.authContext!, 'contracts\.edit', contract\)/g) || []).length, 4); // + installments/unconfirm (D2)
   assert.doesNotMatch(route, /authorize\(authContext, \{ permission: 'contracts\.(view_list|edit)'/);
 });
