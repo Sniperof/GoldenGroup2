@@ -1,3 +1,4 @@
+import { confirmDialog } from '../lib/dialogs';
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
@@ -212,7 +213,7 @@ export default function DeviceDetail() {
 
     const handleDeleteDiscount = async (discountId: number) => {
         if (!canManageDiscounts) return;
-        if (!window.confirm('هل أنت متأكد من حذف هذه الحملة؟')) return;
+        if (!await confirmDialog({ message: 'هل أنت متأكد من حذف هذه الحملة؟', tone: 'danger' })) return;
         await api.deviceModels.deleteDiscount(device.id, discountId);
         refetchDiscounts();
     };

@@ -1,3 +1,4 @@
+import { alertDialog } from '../../lib/dialogs';
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useVacancyStore } from '../../hooks/useVacancyStore';
@@ -256,7 +257,7 @@ export default function Vacancies() {
 
   const handleStatusChange = async (id: number, status: 'Open' | 'Closed' | 'Archived') => {
     try { await updateVacancyStatus(id, status); fetchVacancies(); }
-    catch (err: any) { alert(err.message); }
+    catch (err: any) { void alertDialog(err.message); }
   };
 
   const isFieldLocked = (field: 'full' | 'partial') => {

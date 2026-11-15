@@ -1,3 +1,4 @@
+import { alertDialog } from '../lib/dialogs';
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, User, Phone, MapPin, Share2, Save, Plus, Trash2, MessageCircle, MapPinned, CheckCircle, AlertCircle, ClipboardList, Lock, ChevronDown } from './ui/icons';
@@ -731,17 +732,17 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
             ? resolveEmployeeMediatorReference(employeeIdInput, employeeFound)
             : null;
         if (canChooseBranch && effectiveBranchId == null) {
-            alert('يجب تحديد الفرع قبل حفظ العميل');
+            void alertDialog('يجب تحديد الفرع قبل حفظ العميل');
             return;
         }
 
         if (!firstName.trim()) {
-            alert('الاسم الأول إلزامي');
+            void alertDialog('الاسم الأول إلزامي');
             return;
         }
 
         if (!lastName.trim()) {
-            alert('الكنية (العائلة) إلزامية');
+            void alertDialog('الكنية (العائلة) إلزامية');
             return;
         }
 
@@ -749,12 +750,12 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
         const primaryNumber = primaryContact?.number || contacts[0]?.number || '';
 
         if (!primaryNumber) {
-            alert('يرجى ملء رقم هاتف رئيسي واحد على الأقل');
+            void alertDialog('يرجى ملء رقم هاتف رئيسي واحد على الأقل');
             return;
         }
 
         if (primaryDup) {
-            alert(primaryDup.restricted
+            void alertDialog(primaryDup.restricted
                 ? `الرقم الأساسي (${primaryNumber}) مسجَّل مسبقاً لدى زبون خارج نطاق صلاحيتك. يجب اختيار رقم أساسي فريد.`
                 : `الرقم الأساسي (${primaryNumber}) مكرر عند الزبون: ${primaryDup.name} (كرقم ${primaryDup.contactPrimary ? 'أساسي' : 'ثانوي'}). يجب اختيار رقم أساسي فريد.`);
             return;
@@ -762,24 +763,24 @@ export default function ClientModal({ isOpen, onClose, onSave, initialData, geoU
 
         const invalidContact = contacts.find(contact => getContactValidationMessage(contact));
         if (invalidContact) {
-            alert(getContactValidationMessage(invalidContact)!);
+            void alertDialog(getContactValidationMessage(invalidContact)!);
             return;
         }
 
         // Geo validation: skip when fromCandidate (geo is locked from candidate data)
         if ((!fromCandidate || candidateGeoNeedsUpgrade) && !(geoSelection.subId || geoSelection.neighborhoodId)) {
-            alert('يجب اختيار ناحية على الأقل في العنوان — لا يمكن الاكتفاء بمحافظة أو منطقة');
+            void alertDialog('يجب اختيار ناحية على الأقل في العنوان — لا يمكن الاكتفاء بمحافظة أو منطقة');
             return;
         }
 
         // Referral validation: skip when fromCandidate (all referral data locked from candidate)
         if (!fromCandidate && referralType === 'Employee' && !employeeReference) {
-            alert('يجب تحديد الموظف الوسيط');
+            void alertDialog('يجب تحديد الموظف الوسيط');
             return;
         }
 
         if (!fromCandidate && referralType === 'Client' && !selectedClientId) {
-            alert('يجب تحديد الزبون الوسيط');
+            void alertDialog('يجب تحديد الزبون الوسيط');
             return;
         }
 

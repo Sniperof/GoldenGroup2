@@ -1,3 +1,4 @@
+import { confirmDialog } from '../../lib/dialogs';
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { toast } from 'sonner';
 import {
@@ -261,16 +262,16 @@ export default function RouteAssigner() {
         return () => window.removeEventListener('beforeunload', onBeforeUnload);
     }, [isDirty]);
 
-    const onDateChange = (newDate: string) => {
+    const onDateChange = async (newDate: string) => {
         if (newDate === date) return;
-        if (isDirty && !window.confirm(UNSAVED_CONFIRM)) return;
+        if (isDirty && !await confirmDialog(UNSAVED_CONFIRM)) return;
         setDate(newDate);
         setSelectedTeam('');
         loadTeamScope('', newDate);
     };
-    const onTeamChange = (val: string) => {
+    const onTeamChange = async (val: string) => {
         if (val === selectedTeam) return;
-        if (isDirty && !window.confirm(UNSAVED_CONFIRM)) return;
+        if (isDirty && !await confirmDialog(UNSAVED_CONFIRM)) return;
         setSelectedTeam(val);
         loadTeamScope(val, date);
     };
@@ -361,8 +362,8 @@ export default function RouteAssigner() {
         if (target != null) moveStation(zoneId, target);
     };
     const backToSegmentOrder = () => setCustomOrder(null);
-    const onFreeOrderToggle = (on: boolean) => {
-        if (!on && isCustomOrder && !window.confirm('سيُعاد ترتيب المحطات حسب المقاطع ويُلغى الترتيب المخصّص. متابعة؟')) return;
+    const onFreeOrderToggle = async (on: boolean) => {
+        if (!on && isCustomOrder && !await confirmDialog('سيُعاد ترتيب المحطات حسب المقاطع ويُلغى الترتيب المخصّص. متابعة؟')) return;
         setFreeOrderMode(on);
         if (!on) setCustomOrder(null);
     };

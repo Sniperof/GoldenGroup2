@@ -18,7 +18,10 @@ export type MaintenanceFinance = {
   attempt: { charge: number; paid: number; paymentMethod: string | null };
   cumulative: { totalCost: number; totalPaid: number; remaining: number; attempts: number } | null;
   paymentType: string | null;
-  installments: Array<{ installmentNumber: number; dueDate: string; amount: number; paid: number; remaining: number; status: string }>;
+  installments: Array<{
+    installmentNumber: number; dueDate: string; amount: number; paid: number; remaining: number; status: string;
+    amountUsd?: number | null; remainingUsd?: number | null; dueTodaySyp?: number | null;
+  }>;
 };
 
 const EXECUTION_LABELS: Record<string, { label: string; cls: string }> = {
@@ -111,6 +114,11 @@ export default function MaintenanceFinanceBlock({ finance }: { finance: Maintena
                 <span className="font-bold text-slate-700">قسط {i.installmentNumber} · {String(i.dueDate).slice(0, 10)}</span>
                 <span className="text-slate-500">
                   {money(i.amount)} · مدفوع {money(i.paid)} · <span className="font-bold">{INSTALLMENT_STATUS[i.status] ?? i.status}</span>
+                  {i.amountUsd != null && i.remaining > 0 && (
+                    <span className="mr-1 font-bold text-blue-700">
+                      · مستحق اليوم {i.dueTodaySyp != null ? money(i.dueTodaySyp) : '—'} ({'$' + Number(i.remainingUsd ?? 0).toFixed(2)})
+                    </span>
+                  )}
                 </span>
               </div>
             ))}

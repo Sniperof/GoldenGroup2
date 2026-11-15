@@ -13,19 +13,34 @@ function num(value: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+// القسط المربوط بالدولار (migr 493): المستحق اليوم يحسبه الخادم.
+interface UsdDue {
+  amountUsd: number;
+  remainingUsd: number;
+  contractRate: number;
+  dayRate: number | null;
+  rawDueSyp: number | null;
+  dueTodaySyp: number | null;
+  roundingUnit: number;
+  differenceSyp: number | null;
+  remainingBalanceSyp: number;
+}
+
 // قيمة جزء الدفع بالليرة (مطابقة للباك-إند): مقايضة = القيمة، دولار = القيمة × الصرف.
-function partSyp(e: PaymentEntry): number {
+// للقسط المربوط بالدولار يُعتمد سعر اليوم المركزي لا السعر المكتوب.
+function partSyp(e: PaymentEntry, fixedUsdRate?: number | null): number {
   const v = Number(e.amountValue) || 0;
   if (e.method === 'barter') return v;
-  return e.currency === 'usd' ? v * (Number(e.exchangeRate) || 0) : v;
+  if (e.currency !== 'usd') return v;
+  return v * (fixedUsdRate && fixedUsdRate > 0 ? fixedUsdRate : (Number(e.exchangeRate) || 0));
 }
 
 // لا يُقبل الجزء إلا مكتملاً.
-function partComplete(e: PaymentEntry): boolean {
+function partComplete(e: PaymentEntry, fixedUsdRate?: number | null): boolean {
   if (!e.method) return false;
   if (!(Number(e.amountValue) > 0)) return false;
   if (e.method === 'transfer' && !e.paymentInstrument) return false;
-  if (e.method !== 'barter' && e.currency === 'usd' && !(Number(e.exchangeRate) > 0)) return false;
+  if (e.method !== 'barter' && e.currency === 'usd' && !fixedUsdRate && !(Number(e.exchangeRate) > 0)) return false;
   if (e.method === 'barter' && !e.barterDescription.trim()) return false;
   return true;
 }
@@ -47,8 +62,27 @@ export default function InstallmentCollectionResultModal({ visitId, taskId, task
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  // المطلوب = الذمة (الرصيد المتبقي على القسط).
+  // D5: the due and the USD rate are those of the visit's collection day (its
+  // execution date), read from the server — refreshed right before submit.
+  const [serverDue, setServerDue] = useState<{ rate: number | null; usdDue: UsdDue | null; collectionDay: string } | null>(null);
+  useEffect(() => {
+    if (!visitId || !taskId) return;
+    api.fieldVisits.taskUsdDue(visitId, taskId).then(setServerDue).catch(() => setServerDue(null));
+  }, [visitId, taskId]);
+  const usdDue: UsdDue | null = serverDue ? serverDue.usdDue : (task?.usdDue ?? null);
+  const usdLinked = usdDue != null;
+  const usdRateMissing = usdLinked && !(usdDue!.dayRate && usdDue!.dayRate > 0);
+  // USD cash is priced at the central rate of the collection day (golden-warranty
+  // receivables keep the typed rate — out of scope).
+  const centralRate = serverDue?.rate ?? null;
+  const isWarranty = (task?.receivableSourceType ?? task?.receivable_source_type) === 'golden_warranty';
+  const fixedUsdRate = usdLinked ? usdDue!.dayRate : (isWarranty ? null : centralRate);
+  const usdLocked = !isWarranty;
+
+  // المطلوب = الذمة (الرصيد المتبقي على القسط). للقسط المربوط بالدولار:
+  // المتبقي بالدولار × سعر اليوم مقرّباً — لا القيمة المجمّدة على المهمة.
   const expectedAmount = useMemo(() => {
+    if (usdDue) return usdDue.dueTodaySyp;
     return num(
       task?.expectedAmountSyp
       ?? task?.expected_amount_syp
@@ -56,13 +90,22 @@ export default function InstallmentCollectionResultModal({ visitId, taskId, task
       ?? task?.remainingBalance
       ?? task?.remaining_balance,
     );
-  }, [task]);
+  }, [task, usdDue]);
 
   const isPayment = mode === 'paid_full' || mode === 'paid_partial';
-  const totalPaid = useMemo(() => entries.reduce((s, e) => s + partSyp(e), 0), [entries]);
+  const totalPaid = useMemo(() => entries.reduce((s, e) => s + partSyp(e, fixedUsdRate), 0), [entries, fixedUsdRate]);
   const due = expectedAmount ?? 0;
   const surplus = Math.max(totalPaid - due, 0);   // الباقي للزبون (الدفع الكامل)
   const shortfall = Math.max(due - totalPaid, 0); // المتبقي على الذمة (الدفع الجزئي)
+  // الدفع الكامل بالدولار وحده يُقبل بين القيمة الدقيقة والقيمة المقرّبة.
+  const fullLower = usdDue && usdDue.rawDueSyp != null && usdDue.dueTodaySyp != null
+    ? Math.min(usdDue.rawDueSyp, usdDue.dueTodaySyp) : expectedAmount;
+  const fullUpper = usdDue && usdDue.rawDueSyp != null && usdDue.dueTodaySyp != null
+    ? Math.max(usdDue.rawDueSyp, usdDue.dueTodaySyp) : null;
+  // D8: a partial payment leaving less than half a rounding unit closes the installment.
+  const dustCloses = !!(usdDue && usdDue.dayRate && usdDue.roundingUnit > 0 && usdDue.rawDueSyp != null
+    && mode === 'paid_partial' && totalPaid > 0 && totalPaid < (fullLower ?? 0)
+    && (usdDue.rawDueSyp - totalPaid) < usdDue.roundingUnit / 2);
 
   useEffect(() => {
     api.systemLists.getItemsByCode('collection_partial_payment_reasons').then((r: any) => setPartialReasons(Array.isArray(r) ? r : [])).catch(() => setPartialReasons([]));
@@ -92,17 +135,42 @@ export default function InstallmentCollectionResultModal({ visitId, taskId, task
       closing_notes: notes.trim() || null,
     };
 
+    if (isPayment && usdLinked) {
+      // D5: re-read the due right before submitting; a changed due is shown, not rejected.
+      try {
+        const fresh = await api.fieldVisits.taskUsdDue(visitId, taskId);
+        const before = usdDue?.dueTodaySyp ?? null;
+        setServerDue(fresh);
+        if (fresh.usdDue && before != null && fresh.usdDue.dueTodaySyp !== before) {
+          setError(`تغيّر المستحق إلى ${money(Number(fresh.usdDue.dueTodaySyp))} ل.س (سعر صرف يوم الزيارة) — راجع المبلغ ثم أعد التسجيل.`);
+          return;
+        }
+      } catch { /* the server re-validates anyway */ }
+    }
+
     if (isPayment) {
-      if (entries.length === 0 || !entries.every(partComplete)) {
+      if (usdRateMissing) {
+        setError('لا يوجد سعر صرف معتمد اليوم — لا يمكن تحصيل قسط مربوط بالدولار');
+        return;
+      }
+      if (usdLocked && !fixedUsdRate && entries.some(e => e.method !== 'barter' && e.currency === 'usd')) {
+        setError('لا يوجد سعر صرف مركزي معتمد اليوم — لا يمكن قبول دفعة بالدولار');
+        return;
+      }
+      if (entries.length === 0 || !entries.every(e => partComplete(e, fixedUsdRate))) {
         setError('أكمل بيانات كل جزء دفع قبل القبول');
         return;
       }
       if (totalPaid <= 0) { setError('قيمة الدفعة مطلوبة'); return; }
-      if (mode === 'paid_full' && expectedAmount != null && totalPaid + 0.5 < expectedAmount) {
+      if (mode === 'paid_full' && fullLower != null && totalPaid + 0.5 < fullLower) {
         setError('الدفع الكامل يجب أن يغطي كامل المطلوب');
         return;
       }
-      if (mode === 'paid_partial' && expectedAmount != null && totalPaid >= expectedAmount) {
+      if (usdLinked && mode === 'paid_full' && fullUpper != null && totalPaid - 0.5 > fullUpper) {
+        setError('المبلغ أكبر من المستحق اليوم — يُعاد الفرق للزبون ولا يُسجَّل');
+        return;
+      }
+      if (mode === 'paid_partial' && fullLower != null && totalPaid + (usdLinked ? 0.5 : 0) >= fullLower) {
         setError('الدفع الجزئي يجب أن يكون أقل من المطلوب');
         return;
       }
@@ -111,7 +179,8 @@ export default function InstallmentCollectionResultModal({ visitId, taskId, task
         method: e.paymentInstrument,
         amountValue: Number(e.amountValue),
         currency: e.currency,
-        exchangeRate: e.exchangeRate ? Number(e.exchangeRate) : null,
+        // القسط المربوط بالدولار: الخادم يعتمد سعر اليوم ويتجاهل أي سعر مُرسَل.
+        exchangeRate: usdLocked ? null : (e.exchangeRate ? Number(e.exchangeRate) : null),
         referenceNumber: e.referenceNumber.trim() || null,
         barterDescription: e.barterDescription || null,
       }));
@@ -171,9 +240,28 @@ export default function InstallmentCollectionResultModal({ visitId, taskId, task
 
           {/* الذمة واضحة */}
           <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50 px-4 py-3 flex items-center justify-between">
-            <span className="text-sm font-bold text-emerald-700">المطلوب (رصيد الذمة)</span>
+            <span className="text-sm font-bold text-emerald-700">{usdLinked ? 'المستحق اليوم (مربوط بالدولار)' : 'المطلوب (رصيد الذمة)'}</span>
             <span className="text-lg font-black text-emerald-900">{expectedAmount != null ? money(expectedAmount) : '—'} ل.س</span>
           </div>
+
+          {usdDue && (
+            <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm space-y-1">
+              {usdRateMissing && (
+                <div className="font-bold text-rose-700">لا يوجد سعر صرف معتمد اليوم — لا يمكن تسجيل دفعة حتى تُدخل الإدارة السعر.</div>
+              )}
+              <div className="flex justify-between"><span className="text-blue-700 font-bold">المتبقي بالدولار</span><span className="font-black text-blue-900" dir="ltr">${usdDue.remainingUsd.toLocaleString('en-US', { maximumFractionDigits: 2 })}</span></div>
+              <div className="flex justify-between"><span className="text-blue-700 font-bold">سعر صرف اليوم</span><span className="font-black text-blue-900">{usdDue.dayRate ? money(usdDue.dayRate) : '—'} ل.س</span></div>
+              <div className="flex justify-between"><span className="text-blue-700 font-bold">سعر العقد</span><span className="font-black text-blue-900">{money(usdDue.contractRate)} ل.س</span></div>
+              <div className="flex justify-between"><span className="text-blue-700 font-bold">المتبقي بالليرة الأصلية</span><span className="font-black text-blue-900">{money(usdDue.remainingBalanceSyp)} ل.س</span></div>
+              {usdDue.differenceSyp != null && (
+                <div className="flex justify-between border-t border-blue-200 pt-1">
+                  <span className="text-blue-700 font-bold">الفرق عن القيمة الأصلية</span>
+                  <span className="font-black text-blue-900" dir="ltr">{usdDue.differenceSyp > 0 ? '+' : ''}{money(usdDue.differenceSyp)} ل.س</span>
+                </div>
+              )}
+              <div className="text-xs text-blue-600">المقرّب لأقرب {money(usdDue.roundingUnit)} ل.س. الدفع بالدولار يُخصم بقيمته الاسمية بسعر اليوم.</div>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {chooser.map(({ key, label, Icon, cls }) => (
@@ -192,6 +280,8 @@ export default function InstallmentCollectionResultModal({ visitId, taskId, task
                 onChange={setEntries}
                 grandTotal={expectedAmount ?? undefined}
                 capturePaymentInstrument
+                fixedUsdRate={fixedUsdRate}
+                requireCentralRate={usdLocked}
                 label="دفعات الزبون (يد / حوالة / مقايضة — ل.س أو $)"
               />
 
@@ -202,7 +292,12 @@ export default function InstallmentCollectionResultModal({ visitId, taskId, task
                   <span className="text-lg font-black text-amber-800">{money(surplus)} ل.س</span>
                 </div>
               )}
-              {mode === 'paid_partial' && (
+              {dustCloses && (
+                <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800">
+                  المتبقي بعد هذه الدفعة أقل من نصف وحدة التقريب — سيُغلق القسط بالكامل ويُسجَّل الفرق في حساب فروقات سعر الصرف.
+                </div>
+              )}
+              {mode === 'paid_partial' && !dustCloses && (
                 <div className="rounded-xl border-2 border-sky-200 bg-sky-50 px-4 py-3 flex items-center justify-between">
                   <span className="text-sm font-bold text-sky-700">المتبقي على الذمة (مهمة تسديد جديدة)</span>
                   <span className="text-lg font-black text-sky-800">{money(shortfall)} ل.س</span>

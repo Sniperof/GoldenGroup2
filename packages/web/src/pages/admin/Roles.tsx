@@ -1,3 +1,4 @@
+import { confirmDialog } from '../../lib/dialogs';
 import { useEffect, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { useRoleStore } from '../../hooks/useRoleStore';
@@ -801,7 +802,7 @@ function RolesTab() {
   }
 
   async function handleDelete(id: number) {
-    if (!confirm('هل أنت متأكد من حذف هذا الدور؟')) return;
+    if (!await confirmDialog({ message: 'هل أنت متأكد من حذف هذا الدور؟', tone: 'danger' })) return;
     setDeleting(id);
     try { await deleteRole(id); } finally { setDeleting(null); }
   }

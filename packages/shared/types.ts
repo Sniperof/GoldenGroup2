@@ -1155,6 +1155,10 @@ export interface ContractInstallment {
     confirmed: boolean;
     /** DEC-CT-12 — per-installment collection owner. */
     collectionOwnerId?: number | null;
+    /** USD link (migr 493): fixed USD amount computed at schedule confirmation. Null = legacy SYP-only. */
+    amountUsd?: number | null;
+    /** USD still owed (amountUsd − Σ usd settled). Present only when amountUsd is set. */
+    remainingUsd?: number | null;
 }
 
 export interface Contract {

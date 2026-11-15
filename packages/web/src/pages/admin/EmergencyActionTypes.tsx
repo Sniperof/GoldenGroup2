@@ -1,3 +1,4 @@
+import { confirmDialog } from '../../lib/dialogs';
 import { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { AlertTriangle, CheckCircle2, Edit, Loader2, Plus, Save, Trash2, X, Zap } from '../../components/ui/icons';
@@ -84,7 +85,7 @@ export default function EmergencyActionTypes() {
   };
 
   const handleDelete = async (item: ActionType) => {
-    if (!window.confirm(`حذف "${item.arabicLabel}"؟`)) return;
+    if (!await confirmDialog({ message: `حذف "${item.arabicLabel}"؟`, tone: 'danger' })) return;
     setSavingId(item.id);
     try {
       await api.admin.emergencyActionTypes.delete(item.id);

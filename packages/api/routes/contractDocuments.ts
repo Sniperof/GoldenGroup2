@@ -23,6 +23,7 @@ import {
   SETTLEMENT_AMENDMENT_TEMPLATE_KEY,
 } from '../services/contractRenderer.js';
 import type { PoolClient } from 'pg';
+import { getRoundingUnit } from '../services/fxRates.js';
 import { canFreezeContractDocument, canViewContractDocument } from '../policies/contractDocumentPolicy.js';
 
 const router = Router();
@@ -91,6 +92,7 @@ async function loadContractForRender(db: PoolClient | typeof pool, contractId: n
             c.discount_id AS "discountId",
             c.applied_device_discount_id AS "appliedDeviceDiscountId",
             c.branch_id AS "branchId",
+            c.usd_rate_snapshot AS "usdRateSnapshot",
             c.sale_owner_id AS "saleOwnerId",
             c.offer_team_snapshot AS "offerTeamSnapshot",
             c.contract_referrers AS "contractReferrers",
@@ -164,7 +166,8 @@ async function loadContractForRender(db: PoolClient | typeof pool, contractId: n
       `SELECT id, installment_number AS "installmentNumber", due_date AS "dueDate",
               amount_syp AS "amountSyp", status, paid_amount AS "paidAmount",
               remaining_balance AS "remainingBalance", confirmed,
-              collection_owner_id AS "collectionOwnerId"
+              collection_owner_id AS "collectionOwnerId",
+              amount_usd AS "amountUsd"
          FROM contract_installments
         WHERE contract_id = $1
         ORDER BY installment_number`,
@@ -193,6 +196,8 @@ async function loadContractForRender(db: PoolClient | typeof pool, contractId: n
       contractReferrers: parseJsonArray(contract.contractReferrers),
       installationGeoPath,
       remainingBalance,
+      // D9: printed USD sentence states the collection rounding unit.
+      fxRoundingUnit: contract.usdRateSnapshot != null ? await getRoundingUnit() : null,
     },
     client,
     lineItems: lineItemsResult.rows,

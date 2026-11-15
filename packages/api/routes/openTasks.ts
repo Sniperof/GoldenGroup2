@@ -12,6 +12,7 @@ import {
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission, getOrBuildAuthContext } from '../middleware/permission.js';
 import { authorize, resolveListAccessScope } from '../services/authorizationService.js';
+import { CollectionReversalError, loadReversalTarget, reverseInstallmentCollection } from '../services/collectionReversal.js';
 import { canViewOpenTask, canEditOpenTask, getOpenTaskListAccessPlan } from '../policies/openTaskPolicy.js';
 import { canViewClient } from '../policies/clientPolicy.js';
 import { supervisorAlertAccessPlan } from '../policies/supervisorAlertPolicy.js';
@@ -44,6 +45,7 @@ import {
 } from '../services/goldenWarrantyCardDelivery.js';
 import { lockPlanningDayMutation } from '../services/planningTaskCuration.js';
 import { isInstallationGeoLevel, INSTALLATION_GEO_LEVEL_ERROR } from '../lib/installationGeoLevel.js';
+import { attachReceivableUsdDues, attachUsdDues } from '../services/fxRates.js';
 import {
   INSTALLMENT_FK_COLUMN,
   loadCollectableInstallment,
@@ -219,6 +221,10 @@ const GIFT_DELIVERY_INFO_LATERAL = `
 const OPEN_TASK_SELECT = `
   SELECT
     ot.*, 
+    COALESCE(
+      (SELECT ci.installment_number FROM contract_installments ci WHERE ci.id = ot.installment_id),
+      (SELECT mi.installment_number FROM emergency_installments mi WHERE mi.id = ot.maintenance_installment_id)
+    ) AS "installmentNumber",
     ot.client_snapshot AS "clientSnapshot",
     ot.contract_snapshot AS "contractSnapshot",
     ot.device_snapshot AS "deviceSnapshot",
@@ -394,6 +400,13 @@ function mapOpenTaskRow(row: any) {
     contractId: row.contract_id ?? null,
     deviceId: row.device_id ?? null,
     installmentId: row.installment_id ?? null, // DEC-CT-07
+    maintenanceInstallmentId: row.maintenance_installment_id ?? null, // migr 484/495
+    // Receivable (collection) tasks: what the debt is and which installment.
+    receivableSourceType: row.receivable_source_type ?? null,
+    receivableSourceId: row.receivable_source_id ?? null,
+    receivableSourceLabel: row.receivable_source_label ?? null,
+    expectedAmountSyp: row.expected_amount_syp != null ? Number(row.expected_amount_syp) : null,
+    installmentNumber: row.installmentNumber ?? null,
     branchName: row.branchName ?? null,
     displayBranchName: row.branchName ?? row.clientBranchName ?? row.taskBranchName ?? null,
     displayCreatedByName: row.createdByName ?? row.createdBy?.name ?? row.createdBy?.username ?? null,
@@ -713,6 +726,7 @@ export async function buildContractSnapshotForTask(db: Queryable, contractId?: n
        COALESCE(NULLIF(c.device_model_name, ''), dm.name_ar, dm.name) AS device_model_name,
        c.maintenance_plan,
        c.payment_type, c.base_price, c.final_price, c.down_payment, c.installments_count,
+       c.usd_rate_snapshot,
        d.id AS installed_device_id, d.serial_number, d.warranty_months, d.warranty_visits,
        d.installation_geo_unit_id, d.installation_address_text,
        d.installation_lat, d.installation_lng,
@@ -797,6 +811,8 @@ export async function buildContractSnapshotForTask(db: Queryable, contractId?: n
       installmentsCount: cr.installments_count || 0,
       currency: 'SYP',
       noFinancialObligations: isFree,
+      // USD link (migr 493): SYP per 1 USD snapshotted at schedule confirmation.
+      usdRateSnapshot: cr.usd_rate_snapshot != null ? Number(cr.usd_rate_snapshot) : null,
     },
 
     policy: {
@@ -2319,7 +2335,11 @@ router.get('/client/:clientId/collectable-installments', requirePermission('open
       params,
     );
 
-    const all = [...rows, ...maintenanceRows, ...warrantyRows].sort((a: any, b: any) =>
+    // USD-linked contract installments carry today's due (migr 493). Only the
+    // contract rows: maintenance/warranty installment ids are another id space.
+    const contractRows = await attachUsdDues(pool, rows, 'installmentId');
+    const maintenanceRowsUsd = await attachUsdDues(pool, maintenanceRows, 'installmentId', 'maintenance');
+    const all = [...contractRows, ...maintenanceRowsUsd, ...warrantyRows].sort((a: any, b: any) =>
       new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()
       || Number(a.installmentNumber) - Number(b.installmentNumber));
     return res.json(all);
@@ -3278,6 +3298,40 @@ router.get('/attempt-alerts', requirePermission('tasks.supervisor_alerts.view'),
   }
 });
 
+// POST /api/open-tasks/:id/reverse-collection — «عكس التحصيل» (D3, migr 496).
+// Body: { reason } (mandatory). Permission collections.reverse on the task's
+// branch. Reverses the latest paid result of an installment-collection task by
+// appending opposite rows (refund entries, ledger refunds, FX rows) — nothing
+// is edited or deleted — and makes the task collectable again.
+router.post('/:id/reverse-collection', requirePermission('collections.reverse'), async (req, res) => {
+  const authContext = getAuthContext(req);
+  const openTaskId = Number(req.params.id);
+  if (!Number.isInteger(openTaskId) || openTaskId <= 0) {
+    return res.status(400).json({ error: 'معرف المهمة غير صالح' });
+  }
+  const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+  if (!reason) return res.status(400).json({ error: 'سبب عكس التحصيل مطلوب' });
+  const pgClient = await pool.connect();
+  try {
+    await pgClient.query('BEGIN');
+    const target = await loadReversalTarget(pgClient, openTaskId);
+    if (target && !authorize(authContext, { permission: 'collections.reverse', branchId: target.branch_id }).allowed) {
+      await pgClient.query('ROLLBACK');
+      return res.status(403).json({ error: 'ليست لديك صلاحية عكس التحصيل لهذا الفرع' });
+    }
+    const result = await reverseInstallmentCollection(pgClient, openTaskId, reason, authContext.userId);
+    await pgClient.query('COMMIT');
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    await pgClient.query('ROLLBACK');
+    if (err instanceof CollectionReversalError) return res.status(err.status).json({ error: err.message });
+    console.error('[open-tasks] reverse-collection error:', err);
+    return res.status(500).json({ error: err?.message ?? 'فشل عكس التحصيل' });
+  } finally {
+    pgClient.release();
+  }
+});
+
 router.get('/:id', requirePermission('open_tasks.view'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
@@ -3435,6 +3489,23 @@ router.get('/:id', requirePermission('open_tasks.view'), async (req, res) => {
     // dedicated "تفاصيل العرض" tab regardless.
     if ((taskData as any).lastAttempt?.finalDecision === 'offer_presented') {
       (taskData as any).offers = preOfferRows;
+    }
+
+    // USD-linked contract installment (migr 493): expected_amount_syp is frozen
+    // at task creation — attach today's computed due.
+    const [withUsd] = await attachReceivableUsdDues(pool, [taskData as any]);
+    (taskData as any).usdDue = withUsd.usdDue;
+    // D3: state of the latest collection result for «عكس التحصيل».
+    if ((taskData as any).taskType === 'installment_collection' || (taskData as any).task_type === 'installment_collection') {
+      const target = await loadReversalTarget(pool as any, id);
+      (taskData as any).collectionReversal = target
+        ? {
+            visitTaskResultId: Number(target.visit_task_result_id),
+            paidAmountSyp: target.paid_amount_syp != null ? Number(target.paid_amount_syp) : null,
+            reversedAt: target.reversed_at ?? null,
+            reversible: target.paid_amount_syp != null && !target.reversed_at && !target.warranty_installment_id,
+          }
+        : null;
     }
 
     res.json(taskData);

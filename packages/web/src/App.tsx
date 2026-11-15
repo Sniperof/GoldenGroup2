@@ -43,6 +43,9 @@ import TaskEvaluationLab from './pages/tasks/TaskEvaluationLab';
 import { HIDDEN_FEATURES_ENABLED } from './lib/hiddenFeatures';
 import OpenTasks from './pages/OpenTasks';
 import SystemSettings from './pages/SystemSettings';
+import ExchangeRates from './pages/admin/ExchangeRates';
+import FxDifferences from './pages/finance/FxDifferences';
+import UncoveredReceivables from './pages/tasks/UncoveredReceivables';
 import Branches from './pages/Branches';
 import Departments from './pages/Departments';
 import Vacancies from './pages/jobs/Vacancies';
@@ -205,6 +208,9 @@ export default function App() {
 
                         <Route path="/telemarketer" element={<RequireBranchContext><TelemarketerWorkspace /></RequireBranchContext>} />
                         <Route path="/settings" element={<SystemSettings />} />
+                        <Route path="/admin/exchange-rates" element={<ExchangeRates />} />
+                        <Route path="/fx-differences" element={<FxDifferences />} />
+                        <Route path="/receivables/uncovered" element={<UncoveredReceivables />} />
                         <Route path="/system-lists" element={<SystemLists />} />
                         <Route path="/branches" element={<Branches />} />
                         <Route path="/departments" element={<Departments />} />

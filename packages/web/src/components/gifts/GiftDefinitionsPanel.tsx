@@ -1,3 +1,4 @@
+import { confirmDialog } from '../../lib/dialogs';
 import { useEffect, useState } from 'react';
 import { CheckCircle2, Edit2, Gift, Plus, Save, Settings2, Trash2, X } from '../ui/icons';
 import Card, { CardHeader, CardTitle } from '../ui/Card';
@@ -219,10 +220,10 @@ export default function GiftDefinitionsPanel() {
   async function removeOrDeactivateDefinition(definition: GiftDefinition) {
     if (mustDeactivateInsteadOfDelete(definition)) {
       if (!definition.isActive) return;
-      const confirmed = window.confirm('لا يمكن حذف هذا التعريف لأنه عقد هدية أو لديه سجلات وعد/استحقاق. هل تريد إلغاء تفعيله؟');
+      const confirmed = await confirmDialog('لا يمكن حذف هذا التعريف لأنه عقد هدية أو لديه سجلات وعد/استحقاق. هل تريد إلغاء تفعيله؟');
       if (!confirmed) return;
     } else {
-      const confirmed = window.confirm('حذف هذا التعريف نهائياً من النظام؟');
+      const confirmed = await confirmDialog({ message: 'حذف هذا التعريف نهائياً من النظام؟', tone: 'danger' });
       if (!confirmed) return;
     }
 

@@ -1,6 +1,8 @@
+import { alertDialog, confirmDialog, promptDialog } from '../../lib/dialogs';
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../lib/api';
+import { usdFromSyp, sypFromUsd } from '@golden-crm/shared';
 import { DeviceStatusBadge as SharedDeviceStatusBadge } from '../../components/devices/DeviceStatusBadge';
 import Select from '../../components/ui/Select';
 import DateField from '../../components/ui/DateField';
@@ -224,7 +226,7 @@ export default function ContractDetail() {
   // جدول أقساط قابل للتحرير سطراً سطراً، كنموذج العقد القطعي: التوليد يقترح
   // توزيعاً شهرياً متساوياً، ثم يعدّل المستخدم التواريخ والمبالغ كما اتُّفق.
   const [settleInstallments, setSettleInstallments] = useState<
-    Array<{ installmentNumber: number; dueDate: string; amountSyp: string }>
+    Array<{ installmentNumber: number; dueDate: string; amountSyp: string; amountUsd?: string }>
   >([]);
   // العقد غير قابل للتعديل بعد اعتماده، فالبيانات القانونية التي يشترطها
   // البيع بالتقسيط تُستكمل هنا وإلا تعذّر تثبيت البيعة نهائياً.
@@ -395,11 +397,11 @@ export default function ContractDetail() {
       return;
     }
     if (!approvalCloserId) {
-      const ok = window.confirm(
+      const ok = await confirmDialog(
         'لا يوجد موظف تسكير محدد على العقد. سيتم تسجيل المستخدم الحالي كموظف تسكير. متابعة؟',
       );
       if (!ok) return;
-    } else if (!window.confirm('تأكيد الموافقة على العقد؟ سيتم إنشاء الجهاز ومهمة التوصيل.')) {
+    } else if (!await confirmDialog('تأكيد الموافقة على العقد؟ سيتم إنشاء الجهاز ومهمة التوصيل.')) {
       return;
     }
     setApprovalLoading('approve');
@@ -420,8 +422,8 @@ export default function ContractDetail() {
 
   const handleReject = async () => {
     if (!data) return;
-    const reason = window.prompt('سبب الرفض (اختياري):', '') ?? '';
-    if (!window.confirm('تأكيد رفض العقد؟ لن يُحتسب بعد ذلك.')) return;
+    const reason = (await promptDialog({ message: 'سبب الرفض (اختياري):', defaultValue: '' })) ?? '';
+    if (!await confirmDialog({ message: 'تأكيد رفض العقد؟ لن يُحتسب بعد ذلك.', tone: 'danger' })) return;
     setApprovalLoading('reject');
     try {
       await api.contracts.reject(Number(id), { reason: reason.trim() || undefined });
@@ -447,7 +449,7 @@ export default function ContractDetail() {
     const remaining = activateFinalPrice - activateDownPayment;
     const count = activateInstallmentsCount;
     if (remaining <= 0 || count <= 0) {
-      alert('أدخل السعر النهائي والدفعة الأولى أولاً.');
+      void alertDialog('أدخل السعر النهائي والدفعة الأولى أولاً.');
       return;
     }
     const base = Math.floor(remaining / count);
@@ -477,25 +479,25 @@ export default function ContractDetail() {
 
   const handleActivatePayment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (activateFinalPrice <= 0) { alert('الرجاء إدخال السعر النهائي'); return; }
+    if (activateFinalPrice <= 0) { void alertDialog('الرجاء إدخال السعر النهائي'); return; }
     if (activatePaymentType === 'installment' && activateDownPayment >= activateFinalPrice) {
-      alert('الدفعة الأولى يجب أن تكون أقل من السعر النهائي'); return;
+      void alertDialog('الدفعة الأولى يجب أن تكون أقل من السعر النهائي'); return;
     }
     if (activatePaymentType === 'installment') {
       if (settleInstallments.length === 0) {
-        alert('ولّد جدول الأقساط أولاً ثم اضبط تواريخه ومبالغه.');
+        void alertDialog('ولّد جدول الأقساط أولاً ثم اضبط تواريخه ومبالغه.');
         return;
       }
       if (settleInstallments.some(i => !i.dueDate)) {
-        alert('أدخل تاريخ استحقاق لكل قسط.');
+        void alertDialog('أدخل تاريخ استحقاق لكل قسط.');
         return;
       }
       if (Math.abs(settleInstallmentsTotal + activateDownPayment - activateFinalPrice) > 1) {
-        alert(`مجموع الأقساط والدفعة الأولى (${settleInstallmentsTotal + activateDownPayment}) لا يساوي السعر النهائي (${activateFinalPrice}).`);
+        void alertDialog(`مجموع الأقساط والدفعة الأولى (${settleInstallmentsTotal + activateDownPayment}) لا يساوي السعر النهائي (${activateFinalPrice}).`);
         return;
       }
       if (settleLegalMissing.length > 0) {
-        alert('البيانات القانونية غير مكتملة:\n' + settleLegalMissing.join('\n'));
+        void alertDialog('البيانات القانونية غير مكتملة:\n' + settleLegalMissing.join('\n'));
         return;
       }
     }
@@ -523,7 +525,7 @@ export default function ContractDetail() {
       setShowActivateModal(false);
     } catch (err: any) {
       const issues = err?.issues ?? err?.data?.issues;
-      alert('فشل تثبيت البيعة: ' + (Array.isArray(issues) && issues.length > 0
+      void alertDialog('فشل تثبيت البيعة: ' + (Array.isArray(issues) && issues.length > 0
         ? issues.join('\n')
         : (err.message || err)));
     } finally {
@@ -534,7 +536,7 @@ export default function ContractDetail() {
   // إنهاء التجربة بلا شراء: إنشاء مهمة سحب الجهاز. العقد لا يُلغى الآن — بل
   // عند نجاح السحب فعلياً، فلا يُغلق عقد وجهاز الشركة ما زال عند الزبون.
   const handleTrialRetrieval = async () => {
-    if (!window.confirm('سيتم إنشاء مهمة سحب لجهاز التجربة. يُلغى العقد تلقائياً عند نجاح السحب. متابعة؟')) return;
+    if (!await confirmDialog('سيتم إنشاء مهمة سحب لجهاز التجربة. يُلغى العقد تلقائياً عند نجاح السحب. متابعة؟')) return;
     setActionLoading(true);
     try {
       const contractId = Number(id);
@@ -542,7 +544,7 @@ export default function ContractDetail() {
       const refreshed = await api.contracts.get(contractId);
       setData(refreshed);
     } catch (err: any) {
-      alert('فشل إنشاء مهمة سحب الجهاز: ' + (err.message || err));
+      void alertDialog('فشل إنشاء مهمة سحب الجهاز: ' + (err.message || err));
     } finally {
       setActionLoading(false);
     }
@@ -580,6 +582,18 @@ export default function ContractDetail() {
   const dues           = data.dues           ?? [];
   const paymentEntries = data.paymentEntries ?? [];
   const installments   = data.installments   ?? [];
+  // USD link (migr 493): schedule confirmed under a contract rate.
+  const usdLinkedSchedule = installments.some((i: any) => i.amountUsd != null);
+  // D2: a draft whose confirmed schedule no longer adds up (price / discount changed).
+  const scheduleMismatch = (() => {
+    if (data.status !== 'draft' || data.paymentType !== 'installment') return null;
+    if (!installments.some((i: any) => i.confirmed)) return null;
+    const down = paymentEntries
+      .filter((p: any) => p.installmentId == null && p.entryType !== 'refund')
+      .reduce((s: number, p: any) => s + Number(p.amountSyp || 0), 0);
+    const sum = down + installments.reduce((s: number, i: any) => s + Number(i.amountSyp || 0), 0);
+    return Math.abs(sum - (Number(data.finalPrice) || 0)) > 1 ? { sum } : null;
+  })();
   const lineItems      = data.lineItems      ?? [];
 
   const isMaintenance = data.contractType === 'maintenance_contract';
@@ -1202,14 +1216,29 @@ export default function ContractDetail() {
           <Card className="!p-0 overflow-hidden">
             <div className="px-5 py-4 border-b border-slate-100">
               <span className="text-base font-bold text-slate-800">📆 جدول الأقساط ({installments.length})</span>
+              {data.fx?.snapshotRate != null && (
+                <div className="mt-1 text-xs text-blue-700">
+                  مربوط بالدولار — سعر العقد: <b>{fmtMoney(Number(data.fx.snapshotRate))}</b> ل.س / $
+                  {data.fx.currentRate != null && <> · سعر اليوم: <b>{fmtMoney(Number(data.fx.currentRate))}</b></>}
+                  <span className="text-slate-400"> · تُحصَّل الأقساط بالليرة بسعر صرف يوم الدفع</span>
+                </div>
+              )}
+              {scheduleMismatch && (
+                <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800">
+                  الدفعة الأولى + الأقساط ({fmtMoney(scheduleMismatch.sum)}) لا تساوي سعر العقد ({fmtMoney(grandTotal)}) — الجدول مؤكَّد:
+                  افتح العقد للتعديل، اضغط «إلغاء تأكيد الجدول»، عدّل الأقساط ثم أكّده من جديد.
+                </div>
+              )}
             </div>
             {installments.length === 0 ? (
               <div className="px-5 py-8 text-center text-sm text-slate-400">لا توجد أقساط مسجلة</div>
             ) : (
               <>
                 <div className="grid gap-x-3 px-5 py-2.5 bg-slate-50 border-b border-slate-100 text-xs font-bold text-slate-400"
-                  style={{ gridTemplateColumns: '2rem 1fr 1fr 1fr 1fr 5rem' }}>
-                  <span>#</span><span>تاريخ الاستحقاق</span><span>المبلغ</span><span>المدفوع</span><span>المتبقي</span><span>الحالة</span>
+                  style={{ gridTemplateColumns: usdLinkedSchedule ? '2rem 1fr 1fr 1fr 1fr 1fr 1fr 5rem' : '2rem 1fr 1fr 1fr 1fr 5rem' }}>
+                  <span>#</span><span>تاريخ الاستحقاق</span><span>المبلغ</span><span>المدفوع</span><span>المتبقي</span>
+                  {usdLinkedSchedule && <><span>بالدولار</span><span>المستحق اليوم</span></>}
+                  <span>الحالة</span>
                 </div>
                 {installments.map((inst: any, i: number) => {
                   const isOverdue = inst.status === 'pending' && inst.dueDate && new Date(inst.dueDate) < new Date();
@@ -1223,12 +1252,27 @@ export default function ContractDetail() {
                   return (
                     <div key={inst.id ?? i}
                       className={`grid gap-x-3 px-5 py-3 border-b border-slate-50 hover:bg-slate-50/60 text-sm items-center ${isOverdue ? 'bg-red-50/30' : ''}`}
-                      style={{ gridTemplateColumns: '2rem 1fr 1fr 1fr 1fr 5rem' }}>
+                      style={{ gridTemplateColumns: usdLinkedSchedule ? '2rem 1fr 1fr 1fr 1fr 1fr 1fr 5rem' : '2rem 1fr 1fr 1fr 1fr 5rem' }}>
                       <span className="font-mono text-xs text-slate-400">{inst.installmentNumber}</span>
                       <span className="font-mono text-slate-600">{fmtDate(inst.dueDate)}</span>
                       <span className="font-mono font-bold text-slate-800">{fmtMoney(Number(inst.amountSyp))}</span>
                       <span className="font-mono text-emerald-700">{fmtMoney(Number(inst.paidAmount))}</span>
                       <span className="font-mono text-amber-700">{fmtMoney(Number(inst.remainingBalance))}</span>
+                      {usdLinkedSchedule && (
+                        <>
+                          <span className="font-mono text-blue-700" dir="ltr">
+                            {inst.amountUsd != null ? '$' + Number(inst.amountUsd).toFixed(2) : '—'}
+                            {inst.remainingUsd != null && Number(inst.remainingBalance) > 0 && Number(inst.remainingUsd) < Number(inst.amountUsd) && (
+                              <span className="block text-xs text-slate-400">متبقٍ {'$' + Number(inst.remainingUsd).toFixed(2)}</span>
+                            )}
+                          </span>
+                          <span className="font-mono text-blue-800">
+                            {inst.usdDue && Number(inst.remainingBalance) > 0
+                              ? (inst.usdDue.dueTodaySyp != null ? fmtMoney(Number(inst.usdDue.dueTodaySyp)) : 'لا سعر')
+                              : '—'}
+                          </span>
+                        </>
+                      )}
                       <span><Chip cls={sm.cls}>{sm.label}</Chip></span>
                     </div>
                   );
@@ -1268,7 +1312,15 @@ export default function ContractDetail() {
                   <span className="font-mono text-xs text-slate-400">{i + 1}</span>
                   <span className="font-mono text-slate-600">{fmtDate(due.adjustedDate ?? due.scheduledDate)}</span>
                   <span className="font-mono font-bold text-slate-800">{fmtMoney(Number(due.originalAmount))}</span>
-                  <span className="font-mono text-amber-700">{fmtMoney(Number(due.remainingBalance))}</span>
+                  {/* USD-linked: today's due (remaining USD × today's rate, rounded) instead of the frozen SYP. */}
+                  <span className="font-mono text-amber-700">
+                    {due.usdDue?.dueTodaySyp != null ? fmtMoney(Number(due.usdDue.dueTodaySyp)) : fmtMoney(Number(due.remainingBalance))}
+                    {due.usdDue && (
+                      <span className="block text-xs text-blue-700" dir="ltr">
+                        {'$' + Number(due.usdDue.remainingUsd).toFixed(2)}{due.usdDue.dueTodaySyp == null ? ' · لا سعر اليوم' : ' · مستحق اليوم'}
+                      </span>
+                    )}
+                  </span>
                   <span><Chip cls={ds.cls}>{ds.label}</Chip></span>
                 </div>
               );
@@ -1277,7 +1329,7 @@ export default function ContractDetail() {
               style={{ gridTemplateColumns: '2rem 1fr 1fr 1fr 5rem' }}>
               <span></span><span>إجمالي الرصيد المفتوح</span><span></span>
               <span className="font-mono text-amber-700">
-                {fmtMoney(dues.reduce((s: number, d: any) => s + Number(d.remainingBalance), 0))}
+                {fmtMoney(dues.reduce((s: number, d: any) => s + Number(d.usdDue?.dueTodaySyp ?? d.remainingBalance), 0))}
               </span>
               <span></span>
             </div>
@@ -1370,6 +1422,24 @@ export default function ContractDetail() {
         }
       >
             <div className="p-6 space-y-4">
+              {/* USD link (migr 493): no recomputation at approval — warn only. */}
+              {data.fx?.snapshotRate != null && data.fx?.currentRate != null
+                && Number(data.fx.snapshotRate) !== Number(data.fx.currentRate) && (
+                <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-xs text-amber-800 space-y-1">
+                  <div className="font-bold">تنبيه: تغيّر سعر الصرف منذ تأكيد جدول الأقساط</div>
+                  <div>
+                    سعر العقد: <b>{fmtMoney(Number(data.fx.snapshotRate))}</b> ل.س / $ · سعر اليوم: <b>{fmtMoney(Number(data.fx.currentRate))}</b> ل.س / $
+                    {data.fx.changePct != null && <> · التغيّر: <b dir="ltr">{data.fx.changePct > 0 ? '+' : ''}{data.fx.changePct}%</b></>}
+                  </div>
+                  <div>الأقساط تبقى على سعر العقد. يمكنك الاعتماد كما هو، أو إعادة العقد لتعديل الجدول وتأكيده من جديد.</div>
+                </div>
+              )}
+              {data.paymentType === 'installment' && data.fx?.snapshotRate == null && installments.some((i: any) => i.confirmed) && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-700">
+                  جدول الأقساط أُكّد قبل ربط الأقساط بالدولار — سيُعتمد العقد بالليرة فقط (غير مربوط بالدولار).
+                  لربطه بالدولار: افتح العقد للتعديل، ألغِ تأكيد الجدول ثم أكّده من جديد.
+                </div>
+              )}
               <div>
                 <label className="text-xs font-bold text-slate-500 mb-1 block">موظف التسكير</label>
                 <Select<string>
@@ -1516,12 +1586,19 @@ export default function ContractDetail() {
                         <span className="text-xs font-bold text-slate-700">جدول الأقساط</span>
                         <span className="text-xs text-slate-400">{settleInstallments.length} قسط</span>
                       </div>
+                      {/* USD link (migr 493): settling into installments snapshots today's rate. */}
+                      <div className={'px-3 py-1.5 text-[11px] border-b ' + (data.fx?.currentRate != null ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-rose-50 text-rose-700 border-rose-100')}>
+                        {data.fx?.currentRate != null
+                          ? <>يُثبَّت سعر صرف اليوم ({fmtMoney(Number(data.fx.currentRate))} ل.س / $) على العقد، ويُحسب لكل قسط مبلغه بالدولار.</>
+                          : <>لا يوجد سعر صرف معتمد اليوم — سيُرفض التثبيت بالتقسيط حتى تُدخل الإدارة السعر.</>}
+                      </div>
                       <table className="w-full text-sm">
                         <thead className="bg-slate-50 text-[11px] font-bold text-slate-500">
                           <tr>
                             <th className="px-2 py-1.5 text-right">#</th>
                             <th className="px-2 py-1.5 text-right">تاريخ الاستحقاق</th>
                             <th className="px-2 py-1.5 text-right">المبلغ ل.س</th>
+                            <th className="px-2 py-1.5 text-right">$</th>
                             <th className="px-2 py-1.5" />
                           </tr>
                         </thead>
@@ -1538,8 +1615,23 @@ export default function ContractDetail() {
                               </td>
                               <td className="px-2 py-1.5">
                                 <input type="number" min={0} value={inst.amountSyp} dir="ltr"
-                                  onChange={e => setSettleInstallments(prev => prev.map((d, i) => i === idx ? { ...d, amountSyp: e.target.value } : d))}
+                                  onChange={e => setSettleInstallments(prev => prev.map((d, i) => i === idx ? { ...d, amountSyp: e.target.value, amountUsd: undefined } : d))}
                                   className="w-24 text-xs border border-slate-200 rounded px-2 py-1 font-mono focus:outline-none focus:border-sky-400" />
+                              </td>
+                              <td className="px-2 py-1.5 text-xs font-mono text-blue-700" dir="ltr">
+                                {/* Dual entry: USD typed → SYP = USD × today's central rate (server re-snapshots). */}
+                                {data.fx?.currentRate ? (
+                                  <input type="number" min={0} step="0.01" dir="ltr"
+                                    value={inst.amountUsd ?? String(usdFromSyp(Number(inst.amountSyp) || 0, Number(data.fx.currentRate)))}
+                                    onChange={e => {
+                                      const v = e.target.value;
+                                      const rate = Number(data.fx.currentRate);
+                                      setSettleInstallments(prev => prev.map((d, i) => i === idx
+                                        ? { ...d, amountUsd: v, amountSyp: v !== '' ? String(sypFromUsd(Number(v) || 0, rate)) : d.amountSyp }
+                                        : d));
+                                    }}
+                                    className="w-20 text-xs border border-blue-200 rounded px-2 py-1 font-mono focus:outline-none focus:border-blue-400" />
+                                ) : '—'}
                               </td>
                               <td className="px-2 py-1.5">
                                 <button type="button" aria-label="حذف القسط"
@@ -1555,6 +1647,7 @@ export default function ContractDetail() {
                             <td className="px-2 py-1.5 font-mono text-slate-800">
                               {settleInstallmentsTotal + activateDownPayment}
                             </td>
+                            <td />
                             <td />
                           </tr>
                         </tfoot>

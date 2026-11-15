@@ -1,3 +1,4 @@
+import { alertDialog } from '../lib/dialogs';
 import { useCallback, useState } from 'react';
 import { api } from '../lib/api';
 
@@ -11,7 +12,7 @@ export function useContractPrintable(contractId: number | null | undefined) {
 
     const previewWindow = window.open('', '_blank');
     if (!previewWindow) {
-      alert('تعذر فتح نافذة جديدة. تأكد من السماح بالنوافذ المنبثقة.');
+      void alertDialog('تعذر فتح نافذة جديدة. تأكد من السماح بالنوافذ المنبثقة.');
       return;
     }
 
@@ -32,7 +33,7 @@ export function useContractPrintable(contractId: number | null | undefined) {
     } catch (err: any) {
       if (url) URL.revokeObjectURL(url);
       previewWindow.close();
-      alert(err?.message ?? 'تعذر تحميل النسخة القانونية');
+      void alertDialog(err?.message ?? 'تعذر تحميل النسخة القانونية');
     } finally {
       setLoadingDocument(null);
     }

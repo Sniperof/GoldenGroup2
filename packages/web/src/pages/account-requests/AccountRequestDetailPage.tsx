@@ -8,6 +8,7 @@
 // Contract §3: request-info / resume-review are fully dropped (migration 383
 // returned any parked rows to in_review).
 // ============================================================
+import { confirmDialog, promptDialog } from '../../lib/dialogs';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -239,12 +240,13 @@ export default function AccountRequestDetailPage() {
                   size="sm"
                   variant="secondary"
                   disabled={busy}
-                  onClick={() =>
+                  onClick={async () => {
+                    const reason = await promptDialog({ message: 'سبب فكّ التصعيد (اختياري):' });
                     act(
-                      () => api.accountRequests.resolveEscalation(rid, prompt('سبب فكّ التصعيد (اختياري):') ?? null),
+                      () => api.accountRequests.resolveEscalation(rid, reason ?? null),
                       'تم فكّ التصعيد — عادت الإجراءات',
-                    )
-                  }
+                    );
+                  }}
                 >
                   فكّ التصعيد
                 </Button>
@@ -324,8 +326,8 @@ export default function AccountRequestDetailPage() {
               size="sm"
               variant="danger"
               disabled={busy}
-              onClick={() => {
-                const reason = prompt('سبب التصعيد؟');
+              onClick={async () => {
+                const reason = await promptDialog({ message: 'سبب التصعيد؟' });
                 if (reason) act(() => api.accountRequests.escalate(rid, reason), 'تم التصعيد');
               }}
             >
@@ -449,8 +451,8 @@ export default function AccountRequestDetailPage() {
                 size="sm"
                 variant="danger"
                 disabled={busy}
-                onClick={() => {
-                  if (confirm('تأكيد رفض الطلب؟')) {
+                onClick={async () => {
+                  if (await confirmDialog({ message: 'تأكيد رفض الطلب؟', tone: 'danger' })) {
                     act(() => api.accountRequests.reject(rid, rejectReason), 'تم رفض الطلب');
                   }
                 }}
@@ -467,8 +469,8 @@ export default function AccountRequestDetailPage() {
                 size="sm"
                 variant="secondary"
                 disabled={busy}
-                onClick={() => {
-                  const reason = prompt('سبب إعادة الفتح؟');
+                onClick={async () => {
+                  const reason = await promptDialog({ message: 'سبب إعادة الفتح؟' });
                   if (reason) act(() => api.accountRequests.reopen(rid, reason), 'أُعيد فتح الطلب');
                 }}
               >
@@ -492,7 +494,10 @@ export default function AccountRequestDetailPage() {
                   size="sm"
                   variant="secondary"
                   disabled={busy}
-                  onClick={() => act(() => api.accountRequests.archive(rid, prompt('سبب الأرشفة (اختياري):') ?? null), 'تمت الأرشفة')}
+                  onClick={async () => {
+                    const reason = await promptDialog({ message: 'سبب الأرشفة (اختياري):' });
+                    act(() => api.accountRequests.archive(rid, reason ?? null), 'تمت الأرشفة');
+                  }}
                 >
                   أرشفة
                 </Button>

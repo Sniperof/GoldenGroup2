@@ -1,3 +1,4 @@
+import { alertDialog, confirmDialog, promptDialog } from '../../lib/dialogs';
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
@@ -296,7 +297,7 @@ export default function VisitDetailPage() {
             await api.fieldVisits.start(visitId, gps);
             await load();
         } catch (err: any) {
-            alert(err?.message ?? 'فشل في تسجيل بداية الزيارة');
+            void alertDialog(err?.message ?? 'فشل في تسجيل بداية الزيارة');
         } finally { setActionLoading(null); }
     };
 
@@ -311,30 +312,30 @@ export default function VisitDetailPage() {
             await api.fieldVisits.end(visitId, gps);
             await load();
         } catch (err: any) {
-            alert(err?.message ?? 'فشل في تسجيل نهاية الزيارة');
+            void alertDialog(err?.message ?? 'فشل في تسجيل نهاية الزيارة');
         } finally { setActionLoading(null); }
     };
 
     const handleClose = async () => {
-        if (!confirm('تأكيد إقفال الزيارة وكل مهامها؟ بعد الإقفال ستحتاج صلاحية فتح الزيارة للتعديل.')) return;
+        if (!await confirmDialog('تأكيد إقفال الزيارة وكل مهامها؟ بعد الإقفال ستحتاج صلاحية فتح الزيارة للتعديل.')) return;
         setActionLoading('close');
         try {
             await api.fieldVisits.close(visitId);
             await load();
         } catch (err: any) {
-            alert(err?.message ?? 'فشل في إقفال الزيارة');
+            void alertDialog(err?.message ?? 'فشل في إقفال الزيارة');
         } finally { setActionLoading(null); }
     };
 
     // DEC-010 D-PB8: undo a pulled task (pulled + still pending only).
     const handleRemovePulled = async (visitTaskId: number) => {
-        if (!confirm('إلغاء سحب هذه المهمة؟ ستعود لقائمة انتظار الزبون.')) return;
+        if (!await confirmDialog({ message: 'إلغاء سحب هذه المهمة؟ ستعود لقائمة انتظار الزبون.', tone: 'danger' })) return;
         setRemovingTaskId(visitTaskId);
         try {
             await api.fieldVisits.removePulledTask(visitId, visitTaskId);
             await load();
         } catch (err: any) {
-            alert(err?.message ?? 'فشل إلغاء سحب المهمة');
+            void alertDialog(err?.message ?? 'فشل إلغاء سحب المهمة');
         } finally { setRemovingTaskId(null); }
     };
 
@@ -529,11 +530,11 @@ export default function VisitDetailPage() {
                     {visit.status === 'closed' && canReopen && (
                         <button
                             onClick={async () => {
-                                const reason = window.prompt('سبب فتح الزيارة المُقفلة:');
+                                const reason = await promptDialog({ message: 'سبب فتح الزيارة المُقفلة:' });
                                 if (!reason || !reason.trim()) return;
                                 setReopening(true);
                                 try { await api.fieldVisits.reopen(visit.id, reason.trim()); await load(); }
-                                catch (e: any) { alert(e?.message ?? 'فشل الفتح'); }
+                                catch (e: any) { void alertDialog(e?.message ?? 'فشل الفتح'); }
                                 finally { setReopening(false); }
                             }}
                             disabled={reopening}
@@ -914,7 +915,7 @@ export default function VisitDetailPage() {
                         setGpsReasonAction(null);
                         await load();
                     } catch (err: any) {
-                        alert(err?.message ?? 'فشل حفظ سبب غياب GPS');
+                        void alertDialog(err?.message ?? 'فشل حفظ سبب غياب GPS');
                     } finally { setActionLoading(null); }
                 }}
             />
@@ -934,7 +935,7 @@ export default function VisitDetailPage() {
                         setCancelOpen(false);
                         await load();
                     } catch (err: any) {
-                        alert(err?.message ?? 'فشل إلغاء الزيارة');
+                        void alertDialog(err?.message ?? 'فشل إلغاء الزيارة');
                     } finally { setActionLoading(null); }
                 }}
             />

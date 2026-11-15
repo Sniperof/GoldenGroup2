@@ -4,6 +4,7 @@ import { MotionConfig } from 'framer-motion';
 import { Toaster } from 'sonner';
 import './index.css';
 import App from './App';
+import DialogHost from './components/ui/DialogHost';
 
 createRoot(document.getElementById('root')!).render(
     <StrictMode>
@@ -13,6 +14,7 @@ createRoot(document.getElementById('root')!).render(
             <App />
             {/* Single app-wide toast host. Plain (no richColors) so the brand
                 toast styling in index.css ([data-sonner-toast]) applies. */}
+            <DialogHost />
             <Toaster position="top-center" dir="rtl" closeButton />
         </MotionConfig>
     </StrictMode>,

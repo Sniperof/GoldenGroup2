@@ -92,7 +92,7 @@ export interface RenderContractInput {
   lineItems?: any[];
   paymentEntries?: any[];
   discount?: any | null;
-  installments?: Array<{ installmentNumber: number; dueDate: string; amountSyp: number; remainingBalance?: number; status?: string }>;
+  installments?: Array<{ installmentNumber: number; dueDate: string; amountSyp: number; remainingBalance?: number; status?: string; amountUsd?: number | string | null }>;
   draftWatermark?: boolean;
   /**
    * Render a specific template instead of the one derived from saleSubtype.
@@ -206,6 +206,16 @@ function buildInstallmentsSummaryText(installments: any[] = []): string {
     .join('\n');
 }
 
+// USD link (migr 493) — wording approved by the owner (D9). The rounding unit
+// (fx_collection_rounding_unit) is passed in by the loader as fxRoundingUnit.
+function buildUsdLinkText(contract: any): string {
+  const rate = Number(contract?.usdRateSnapshot);
+  if (!(rate > 0)) return '';
+  const unit = Number(contract?.fxRoundingUnit);
+  const rounding = unit > 0 ? `، ويُقرَّب المبلغ المستحق لأقرب ${formatMoney(unit)} ل.س` : '';
+  return `قيمة كل قسط محددة بالدولار الأمريكي كما في جدول الاستحقاقات، على أساس سعر صرف قدره ${formatMoney(rate)} ل.س للدولار الواحد، وتُسدَّد الأقساط بالليرة السورية بما يعادل المتبقي منها بالدولار وفق سعر الصرف المعتمد لدى الشركة يوم الدفع${rounding}.`;
+}
+
 function buildPaymentClauseText(contract: any, installments: any[] = []): string {
   const downPayment = Number(contract?.downPayment || 0);
   const remainingBalance = Number(contract?.remainingBalance || 0);
@@ -305,6 +315,8 @@ function buildSaleDefinitiveVars(input: RenderContractInput, installmentsRows: s
     remaining_balance_words: formatMoney(remainingBalance),
     installments_summary_text: buildInstallmentsSummaryText(installments),
     installments_table: installmentsRows,
+    usd_rate_snapshot: Number(contract?.usdRateSnapshot) > 0 ? formatMoney(contract.usdRateSnapshot) : '',
+    usd_link_text: buildUsdLinkText(contract),
     late_penalty_text: 'تطبق وفق السياسة المعتمدة والنص القانوني النهائي المعتمد لدى الشركة.',
     late_penalty_amount: '',
     jurisdiction_text: 'تعتبر المحاكم المختصة المحددة في الصيغة القانونية المعتمدة هي المرجع في أي نزاع ناشئ عن هذا العقد.',
@@ -339,13 +351,19 @@ export function renderContract(input: RenderContractInput): RenderContractResult
   }
   let html = fs.readFileSync(file, 'utf8');
 
+  // USD link (migr 493): an extra USD cell only when the contract carries a
+  // rate snapshot — legacy contracts render byte-identical to before.
+  const usdLinked = Number(contract?.usdRateSnapshot) > 0 && installments.some((i) => i.amountUsd != null);
   const installmentsRows = installments
-    .map((i) => `<tr><td>${i.installmentNumber}</td><td>${escapeHtml(String(i.dueDate))}</td><td>${escapeHtml(String(i.amountSyp))} ل.س</td></tr>`)
+    .map((i) => `<tr><td>${i.installmentNumber}</td><td>${escapeHtml(String(i.dueDate))}</td><td>${escapeHtml(String(i.amountSyp))} ل.س</td>${
+      usdLinked ? `<td dir="ltr">${i.amountUsd != null ? escapeHtml(Number(i.amountUsd).toFixed(2)) : ''} $</td>` : ''
+    }</tr>`)
     .join('');
 
   const sections = {
     draftWatermark,
     installmentsSection: installments.length > 0,
+    usdLinkedSection: usdLinked && installments.length > 0,
     periodicVisitsSection: Number(contract.warrantyVisits) > 0,
     discountSection: Math.max(Number(contract.basePrice || 0) - Number(contract.finalPrice || 0), 0) > 0,
   };

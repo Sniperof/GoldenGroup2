@@ -1,3 +1,4 @@
+import { alertDialog, confirmDialog } from '../../lib/dialogs';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -14,8 +15,10 @@ import { api } from '../../lib/api';
 import type { VisitContractCreationContext } from '../../lib/api';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { useBranchContextStore } from '../../hooks/useBranchContextStore';
+import { useCurrentUsdRate } from '../../hooks/useCurrentUsdRate';
+import { usdFromSyp, sypFromUsd } from '@golden-crm/shared';
 import MapPicker from '../../components/MapPicker';
-import GeoSmartSearch, { buildPath as buildGeoPath, pathToSelection as geoPathToSelection, isInstallationGeoSelected } from '../../components/GeoSmartSearch';
+import GeoSmartSearch, { buildPath as buildGeoPath, pathToSelection as geoPathToSelection, isInstallationGeoSelected, deepestGeoId } from '../../components/GeoSmartSearch';
 import type { GeoSelection } from '../../components/GeoSmartSearch';
 import type { GeoUnit } from '../../lib/types';
 import type { ClientReferrer } from '@golden-crm/shared';
@@ -78,6 +81,10 @@ interface InstallmentDraft {
     installmentNumber: number;
     dueDate: string;
     amountSyp: string;
+    /** USD typed by the user (migr 493). Empty = derived from SYP at today's rate. */
+    amountUsd?: string;
+    /** amount_usd fixed by the server at confirmation (persisted schedules). */
+    serverAmountUsd?: number | null;
 }
 
 interface LineItem {
@@ -401,6 +408,11 @@ export default function ContractForm() {
                         setLoadError('لا يمكن تعديل عقد بعد اعتماده.');
                         return;
                     }
+                    setLoadedSellerBranchId(c.branchId != null ? Number(c.branchId) : null);
+                    setServiceBranchId(
+                        c.serviceBranchId != null && c.branchId != null && Number(c.serviceBranchId) !== Number(c.branchId)
+                            ? String(c.serviceBranchId) : '',
+                    );
                     setSaleSubtype(c.saleSubtype || 'definitive');
                     setSaleType(c.saleType || 'direct');
                     setOldContractNumber(c.oldContractNumber || '');
@@ -557,9 +569,11 @@ export default function ContractForm() {
                             installmentNumber: inst.installmentNumber,
                             dueDate: inst.dueDate?.slice(0, 10) || '',
                             amountSyp: String(inst.amountSyp || 0),
+                            serverAmountUsd: inst.amountUsd ?? null,
                         })));
                         setInstallmentsConfirmed(restoredConfirmed);
                         setPersistedInstallmentsConfirmed(restoredConfirmed);
+                        setContractUsdRate(c.fx?.snapshotRate ?? null);
                         setInstallmentCount(String(c.installments.length));
                     }
                 }
@@ -659,6 +673,13 @@ export default function ContractForm() {
     const [serialNumber, setSerialNumber] = useState('');
     // Geo — single smart search
     const [geoSelection, setGeoSelection] = useState<GeoSelection>({ govId: '', regionId: '', subId: '', neighborhoodId: '' });
+    // «فرع الخدمة» — defaults to the contract (seller) branch; locked until an
+    // installation location is chosen, then limited to branches covering it.
+    // '' = seller branch.
+    const [serviceBranchId, setServiceBranchId] = useState('');
+    const [loadedSellerBranchId, setLoadedSellerBranchId] = useState<number | null>(null);
+    const [coveringBranches, setCoveringBranches] = useState<{ branchId: number; branchName: string }[]>([]);
+    const [branchNames, setBranchNames] = useState<Record<number, string>>({});
     const [detailedAddress, setDetailedAddress] = useState('');
     const [mapPosition, setMapPosition] = useState<[number, number] | null>(null);
     const [showMapPicker, setShowMapPicker] = useState(false);
@@ -673,6 +694,32 @@ export default function ContractForm() {
     const [installmentsConfirmed, setInstallmentsConfirmed] = useState(false);
     const [persistedInstallmentsConfirmed, setPersistedInstallmentsConfirmed] = useState(false);
     const [installmentCount, setInstallmentCount] = useState('6');
+    // USD link (migr 493): today's central rate for the dual SYP/USD schedule entry.
+    const { rate: usdRate, effectiveFrom: usdRateFrom, loading: usdRateLoading } = useCurrentUsdRate();
+    // Contract rate snapshotted at the last server-side confirmation (null = not linked / legacy).
+    const [contractUsdRate, setContractUsdRate] = useState<number | null>(null);
+    const [unconfirming, setUnconfirming] = useState(false);
+    // D2: «إلغاء تأكيد الجدول». A schedule confirmed only in this form is unlocked
+    // locally; a persisted one is unconfirmed on the server (draft only, refused
+    // when an installment has payments) — the next save + confirm takes today's rate.
+    const handleUnconfirmSchedule = async () => {
+        if (!await confirmDialog('إلغاء تأكيد جدول الأقساط؟ سيُفتح الجدول للتعديل ويُلغى سعر الصرف المثبَّت، ويُثبَّت سعر اليوم عند التأكيد من جديد.')) return;
+        if (persistedInstallmentsConfirmed && isEdit && editId) {
+            setUnconfirming(true);
+            try {
+                await api.contracts.unconfirmInstallments(Number(editId));
+            } catch (err: any) {
+                toast.error('تعذر إلغاء تأكيد الجدول', { description: err?.message });
+                setUnconfirming(false);
+                return;
+            }
+            setUnconfirming(false);
+        }
+        setInstallmentsConfirmed(false);
+        setPersistedInstallmentsConfirmed(false);
+        setContractUsdRate(null);
+        setInstallmentDrafts(prev => prev.map(d => ({ ...d, serverAmountUsd: null, amountUsd: undefined })));
+    };
     const [closingEmployeeId, setClosingEmployeeId] = useState<number | ''>('');
     const [invoiceNotes, setInvoiceNotes] = useState('');
 
@@ -1135,7 +1182,8 @@ export default function ContractForm() {
     const entrySyp = (e: PaymentEntryDraft): number => {
         if (isBarter(e.method)) return Number(e.barterValueSyp) || 0;
         const val = Number(e.amountValue) || 0;
-        if (e.currency === 'USD') return val * (Number(e.exchangeRate) || 0);
+        // USD cash counts at the central rate of the day (owner decision, migr 495) — never a typed rate.
+        if (e.currency === 'USD') return Math.round(val * (usdRate || 0));
         return val;
     };
     const newPaymentEntry = (): PaymentEntryDraft => ({
@@ -1160,8 +1208,8 @@ export default function ContractForm() {
             if (!e.barterName.trim()) errors.push('اسم المقايضة مطلوب');
             if (!(Number(e.barterValueSyp) > 0)) errors.push('قيمة المقايضة مطلوبة');
         }
-        if (e.currency === 'USD' && e.paymentCategory !== 'barter' && !(Number(e.exchangeRate) > 0)) {
-            errors.push('سعر الصرف مطلوب');
+        if (e.currency === 'USD' && e.paymentCategory !== 'barter') {
+            errors.push('دفعات العقد تُقبض بالليرة السورية فقط');
         }
         return errors;
     };
@@ -1244,14 +1292,14 @@ export default function ContractForm() {
                     responsibleBranchId: contextBranchId,
                 });
                 if (similar.count > 0) {
-                    const proceed = window.confirm(
+                    const proceed = await confirmDialog(
                         `تنبيه: يوجد ${similar.count} وعد/وعود غير منتهية مشابهة لهذا المستفيد. لا يمنع ذلك إنشاء وعد جديد. هل تريد المتابعة؟`,
                     );
                     if (!proceed) return;
                     similarPromiseWarningAcknowledged = true;
                 }
             } catch (error: any) {
-                window.alert(error?.message ?? 'تعذر فحص الوعود المشابهة قبل الحفظ');
+                void alertDialog(error?.message ?? 'تعذر فحص الوعود المشابهة قبل الحفظ');
                 return;
             }
         }
@@ -1289,6 +1337,47 @@ export default function ContractForm() {
     // proposed closer but does not activate the contract; full activation
     // validation runs in the explicit approval flow.
     const isDraftMode = true;
+
+    const sellerBranchId: number | null = isEdit
+        ? loadedSellerBranchId
+        : (visitCreationContext?.branchId ?? contextBranchId ?? currentUser?.branchId ?? null);
+    const installationLeafGeoId = deepestGeoId(geoSelection);
+
+    useEffect(() => {
+        api.branches.list()
+            .then(rows => setBranchNames(Object.fromEntries((rows || []).map((b: any) => [Number(b.id), String(b.name)]))))
+            .catch(() => { /* names fall back to the covering list */ });
+    }, []);
+
+    useEffect(() => {
+        if (!installationLeafGeoId) {
+            setCoveringBranches([]);
+            setServiceBranchId('');
+            return;
+        }
+        let cancelled = false;
+        api.geoUnits.coveringBranches(Number(installationLeafGeoId))
+            .then(rows => {
+                if (cancelled) return;
+                const list = Array.isArray(rows) ? rows : [];
+                setCoveringBranches(list);
+                // Location changed and the chosen service branch no longer covers it.
+                setServiceBranchId(prev => (prev && !list.some(b => String(b.branchId) === prev) ? '' : prev));
+            })
+            .catch(() => { if (!cancelled) setCoveringBranches([]); });
+        return () => { cancelled = true; };
+    }, [installationLeafGeoId]);
+
+    const serviceBranchOptions = useMemo(() => {
+        const map = new Map<number, string>();
+        if (sellerBranchId != null) map.set(sellerBranchId, branchNames[sellerBranchId] || `فرع #${sellerBranchId}`);
+        coveringBranches.forEach(b => map.set(Number(b.branchId), b.branchName));
+        return Array.from(map, ([id, name]) => ({ id, name }));
+    }, [sellerBranchId, coveringBranches, branchNames]);
+    const serviceBranchLocked = !installationLeafGeoId || serviceBranchOptions.length <= 1;
+    const effectiveServiceBranchId = (!serviceBranchLocked && serviceBranchId)
+        ? Number(serviceBranchId)
+        : sellerBranchId;
 
     // Plan 2026-06-10 §3 — legal info constraint is governed by payment type:
     //   • cash (active)    → documentary only, all 9 optional
@@ -1365,6 +1454,10 @@ export default function ContractForm() {
 
         // National ID format applies always when entered (even in draft).
         if (!nidIsValid) issues.push('الرقم الوطني يجب أن يكون 11 رقم بالضبط');
+        // D1: contract signing / down payments are SYP only.
+        if (paymentEntries.some(e => e.currency === 'USD' && e.paymentCategory !== 'barter')) {
+            issues.push('دفعات العقد تُقبض بالليرة السورية فقط — حوّل الدفعات بالدولار إلى الليرة');
+        }
 
         // Plan 2026-06-10 (revised) — Financials are required even for drafts.
         // Without complete financial info the draft cannot be approved later
@@ -1388,6 +1481,10 @@ export default function ContractForm() {
             }
             if (paymentType === 'installment') {
                 if (!installmentsConfirmed) issues.push('عقد تقسيط — أكّد جدول الأقساط');
+                // USD link (migr 493): a new confirmation needs a rate in effect today.
+                if (installmentsConfirmed && !persistedInstallmentsConfirmed && !usdRateLoading && !usdRate) {
+                    issues.push('لا يوجد سعر صرف معتمد اليوم — لا يمكن تأكيد جدول الأقساط');
+                }
                 if (hasDownPayment) {
                     if (paymentEntries.length === 0) {
                         issues.push('عقد تقسيط — أدخل دفعة المقدم');
@@ -1429,6 +1526,7 @@ export default function ContractForm() {
         sourceTaskId, paymentType, paymentEntries, confirmedEntries,
         totalPaidSyp, grandTotal, hasDownPayment, installmentsConfirmed,
         totalInstallmentSyp, saleType, oldContractNumber,
+        persistedInstallmentsConfirmed, usdRate, usdRateLoading,
     ]);
     const isValid = validationIssues.length === 0;
 
@@ -1477,6 +1575,7 @@ export default function ContractForm() {
                 downPayment: 0,
                 installmentsCount: finalInstallmentsCount,
                 geoSelection,
+                serviceBranchId: effectiveServiceBranchId,
                 detailedAddress,
                 mapPosition,
                 fatherName: fatherNameOverride || selectedCustomer?.fatherName,
@@ -1520,7 +1619,8 @@ export default function ContractForm() {
                         method: e.method,
                         currency: e.currency,
                         amountValue: Number(e.amountValue) || 0,
-                        exchangeRate: e.currency === 'USD' ? Number(e.exchangeRate) || null : null,
+                        // Informational only — the server re-applies the central rate.
+                        exchangeRate: e.currency === 'USD' ? usdRate : null,
                         amountSyp: entrySyp(e),
                         referenceNumber: e.paymentCategory === 'transfer' ? e.referenceNumber || null : null,
                         barterName: isBarter(e.method) ? e.barterName || null : null,
@@ -1601,7 +1701,7 @@ export default function ContractForm() {
         contractDate, saleType, oldContractNumber, oldDeviceCondition, saleSource, sourceTaskId, selectedDiscountId,
         paymentType, grandTotal, basePrice, installmentDrafts, installmentsConfirmed,
         persistedInstallmentsConfirmed, paymentEntries, closingEmployeeId,
-        invoiceNotes, lineItems, geoSelection, detailedAddress, mapPosition, fatherNameOverride,
+        invoiceNotes, lineItems, geoSelection, effectiveServiceBranchId, detailedAddress, mapPosition, fatherNameOverride,
         nationalIdOverride, saleSubtype, selectedReferrerIds, sourceOpenTaskId, sourceTaskOfferId, saleReferenceNumber, giftPromises,
         selectedOfferVisitId, selectedOfferTaskId, noClosingReasonId, saleOwnerId, navigate, visitCreationContext,
         warrantyMonths, warrantyVisits, deliveryDate, installationDate,
@@ -2714,6 +2814,25 @@ export default function ContractForm() {
                         placeholder="ابحث: المنصور، الكرادة، حي العدل..."
                     />
 
+                    {/* Service branch */}
+                    <Field
+                        label="فرع الخدمة"
+                        hint={serviceBranchLocked
+                            ? (installationLeafGeoId ? 'فرع العقد هو الفرع الوحيد الذي يغطي موقع التركيب' : 'يُفتح الاختيار بعد تحديد موقع التركيب')
+                            : 'اختر الفرع الذي سيخدم الجهاز بعد التركيب'}
+                    >
+                        <select
+                            value={serviceBranchLocked ? '' : (serviceBranchId || String(sellerBranchId ?? ''))}
+                            onChange={e => setServiceBranchId(Number(e.target.value) === sellerBranchId ? '' : e.target.value)}
+                            disabled={serviceBranchLocked}
+                            className={`${inputClass} ${serviceBranchLocked ? 'bg-slate-50 text-slate-500 cursor-not-allowed' : ''}`}
+                        >
+                            {serviceBranchLocked
+                                ? <option value="">{serviceBranchOptions[0]?.name ?? 'فرع العقد'}</option>
+                                : serviceBranchOptions.map(b => <option key={b.id} value={String(b.id)}>{b.name}</option>)}
+                        </select>
+                    </Field>
+
                     {/* Detailed Address */}
                     <Field label="أقرب نقطة دالة / تفاصيل العنوان">
                         <textarea value={detailedAddress} onChange={e => setDetailedAddress(e.target.value)}
@@ -2854,8 +2973,8 @@ export default function ContractForm() {
                                                     {entry.paymentCategory !== 'barter' && entry.amountValue && (
                                                         <span className="text-xs text-slate-500 font-mono mr-2">
                                                             {String(Number(entry.amountValue))} {entry.currency === 'USD' ? '$' : 'ل.س'}
-                                                            {entry.currency === 'USD' && entry.exchangeRate && (
-                                                                <span className="text-slate-400"> = {String(Math.round(Number(entry.amountValue) * Number(entry.exchangeRate)))} ل.س</span>
+                                                            {entry.currency === 'USD' && (
+                                                                <span className="text-slate-400"> = {String(entrySyp(entry))} ل.س</span>
                                                             )}
                                                         </span>
                                                     )}
@@ -2906,14 +3025,18 @@ export default function ContractForm() {
                                                             placeholder={entry.currency === 'USD' ? 'المبلغ USD' : 'المبلغ ل.س'}
                                                             className="flex-1 text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-sky-400 font-mono" dir="ltr" />
                                                     )}
+                                                    {/* D1: contract signing / down payments are SYP only. An old draft
+                                                        entry in USD can only be switched back to SYP. */}
                                                     {!isBarter(entry.method) && (
-                                                        <Select<'SYP' | 'USD'>
-                                                            value={entry.currency}
-                                                            onChange={(v) => updateEntry(idx, { currency: v, exchangeRate: v === 'SYP' ? '' : entry.exchangeRate })}
-                                                            ariaLabel="العملة"
-                                                            className="w-20"
-                                                            options={[{ value: 'SYP', label: 'ل.س' }, { value: 'USD', label: 'USD' }]}
-                                                        />
+                                                        entry.currency === 'USD' ? (
+                                                            <button type="button"
+                                                                onClick={() => updateEntry(idx, { currency: 'SYP', exchangeRate: '' })}
+                                                                className="w-28 text-xs font-bold rounded-lg border border-rose-300 bg-rose-50 text-rose-700 px-2 py-2">
+                                                                USD — حوّل لليرة
+                                                            </button>
+                                                        ) : (
+                                                            <span className="w-14 text-center text-xs font-bold text-slate-500 border border-slate-200 rounded-lg px-2 py-2 bg-slate-50">ل.س</span>
+                                                        )
                                                     )}
                                                     <button type="button" onClick={() => deleteEntry(idx)}
                                                         className="p-1.5 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors">
@@ -2921,21 +3044,8 @@ export default function ContractForm() {
                                                     </button>
                                                 </div>
 
-                                                {/* Exchange rate row (USD only) */}
                                                 {entry.currency === 'USD' && entry.paymentCategory !== 'barter' && (
-                                                    <div className="flex gap-2 items-center">
-                                                        <input
-                                                            type="number" min={0} step="0.01"
-                                                            value={entry.exchangeRate}
-                                                            onChange={e => updateEntry(idx, { exchangeRate: e.target.value })}
-                                                            placeholder="سعر الصرف (ل.س لكل $)"
-                                                            className="flex-1 text-sm border border-orange-200 rounded-lg px-3 py-2 focus:outline-none focus:border-orange-400 bg-orange-50/30 font-mono"
-                                                            dir="ltr"
-                                                        />
-                                                        <span className="text-xs text-slate-500 shrink-0">
-                                                            = {String(Math.round(Number(entry.amountValue) * Number(entry.exchangeRate || 0)))} ل.س
-                                                        </span>
-                                                    </div>
+                                                    <p className="text-xs font-bold text-rose-600">دفعات العقد تُقبض بالليرة السورية فقط — حوّل هذه الدفعة إلى الليرة.</p>
                                                 )}
 
                                                 {/* Row 2: conditional sub-fields */}
@@ -3059,6 +3169,14 @@ export default function ContractForm() {
                                     </p>
                                 )}
 
+                                {/* USD link (migr 493): the schedule is fixed in USD at confirmation. */}
+                                <div className={`rounded-xl border px-4 py-2.5 text-xs ${usdRate ? 'border-blue-200 bg-blue-50 text-blue-800' : 'border-rose-200 bg-rose-50 text-rose-700'}`}>
+                                    {usdRateLoading ? 'جارِ تحميل سعر الصرف…'
+                                        : usdRate
+                                            ? <>سعر الصرف المركزي اليوم: <b>{formatPrice(usdRate)} / $</b>{usdRateFrom ? <> (ساري منذ {usdRateFrom})</> : null}. يمكن إدخال كل قسط بالليرة أو بالدولار، ويُثبَّت سعر العقد والمبلغ بالدولار لحظة التأكيد.</>
+                                            : <>لا يوجد سعر صرف معتمد اليوم — لا يمكن تأكيد جدول الأقساط حتى تُدخل الإدارة السعر.</>}
+                                </div>
+
                                 {installmentDrafts.length > 0 && (
                                     <div className="rounded-xl border border-slate-200 overflow-hidden">
                                         <div className="bg-slate-50 px-4 py-2.5 flex items-center justify-between border-b border-slate-100">
@@ -3074,6 +3192,7 @@ export default function ContractForm() {
                                                     <th className="px-3 py-2 text-right">#</th>
                                                     <th className="px-3 py-2 text-right">تاريخ الاستحقاق</th>
                                                     <th className="px-3 py-2 text-right">المبلغ ل.س</th>
+                                                    <th className="px-3 py-2 text-right">بالدولار $</th>
                                                     {!installmentsConfirmed && <th className="px-3 py-2" />}
                                                 </tr>
                                             </thead>
@@ -3093,8 +3212,26 @@ export default function ContractForm() {
                                                             {installmentsConfirmed
                                                                 ? <span className="text-sm font-mono font-bold text-slate-800">{formatPrice(Number(inst.amountSyp))}</span>
                                                                 : <input type="number" min={0} value={inst.amountSyp}
-                                                                    onChange={e => setInstallmentDrafts(prev => prev.map((d, i) => i === idx ? { ...d, amountSyp: e.target.value } : d))}
+                                                                    onChange={e => setInstallmentDrafts(prev => prev.map((d, i) => i === idx ? { ...d, amountSyp: e.target.value, amountUsd: undefined } : d))}
                                                                     className="w-28 text-sm border border-slate-200 rounded px-2 py-1 focus:outline-none focus:border-sky-400 font-mono" dir="ltr" />
+                                                            }
+                                                        </td>
+                                                        <td className="px-3 py-2">
+                                                            {installmentsConfirmed
+                                                                ? <span className="text-sm font-mono text-blue-700" dir="ltr">
+                                                                    {inst.serverAmountUsd != null
+                                                                        ? inst.serverAmountUsd.toFixed(2)
+                                                                        : usdRate ? usdFromSyp(Number(inst.amountSyp) || 0, usdRate).toFixed(2) : '—'}
+                                                                  </span>
+                                                                : <input type="number" min={0} step="0.01" disabled={!usdRate}
+                                                                    value={inst.amountUsd ?? (usdRate && inst.amountSyp !== '' ? String(usdFromSyp(Number(inst.amountSyp) || 0, usdRate)) : '')}
+                                                                    onChange={e => {
+                                                                        const v = e.target.value;
+                                                                        setInstallmentDrafts(prev => prev.map((d, i) => i === idx
+                                                                            ? { ...d, amountUsd: v, amountSyp: usdRate && v !== '' ? String(sypFromUsd(Number(v) || 0, usdRate)) : d.amountSyp }
+                                                                            : d));
+                                                                    }}
+                                                                    className="w-24 text-sm border border-blue-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400 font-mono disabled:bg-slate-50" dir="ltr" />
                                                             }
                                                         </td>
                                                         {!installmentsConfirmed && (
@@ -3112,6 +3249,11 @@ export default function ContractForm() {
                                                 <tr>
                                                     <td colSpan={2} className="px-3 py-2 text-slate-500">المجموع</td>
                                                     <td className="px-3 py-2 font-mono text-slate-800">{formatPrice(totalInstallmentSyp)}</td>
+                                                    <td className="px-3 py-2 font-mono text-blue-700" dir="ltr">
+                                                        {installmentDrafts.every(d => d.serverAmountUsd != null) && installmentsConfirmed
+                                                            ? installmentDrafts.reduce((sum, d) => sum + (d.serverAmountUsd ?? 0), 0).toFixed(2)
+                                                            : usdRate ? installmentDrafts.reduce((sum, d) => sum + usdFromSyp(Number(d.amountSyp) || 0, usdRate), 0).toFixed(2) : '—'}
+                                                    </td>
                                                     {!installmentsConfirmed && <td />}
                                                 </tr>
                                             </tfoot>
@@ -3119,6 +3261,8 @@ export default function ContractForm() {
                                         {!installmentsConfirmed && (
                                             <div className="px-4 py-3 bg-slate-50 border-t border-slate-200">
                                                 <button type="button"
+                                                    disabled={!usdRate}
+                                                    title={!usdRate ? 'لا يوجد سعر صرف معتمد اليوم' : undefined}
                                                     onClick={() => setInstallmentsConfirmed(true)}
                                                     className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 text-xs font-bold hover:bg-emerald-100 transition-colors">
                                                     <CheckCircle2 className="w-3.5 h-3.5" /> تأكيد الأقساط
@@ -3129,6 +3273,15 @@ export default function ContractForm() {
                                             <div className="px-4 py-3 bg-emerald-50 border-t border-emerald-200 flex items-center justify-center gap-1.5">
                                                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                                                 <span className="text-xs font-bold text-emerald-700">موثق ✓</span>
+                                                {contractUsdRate != null && persistedInstallmentsConfirmed && (
+                                                    <span className="text-xs font-bold text-blue-700 mr-2">سعر العقد: {contractUsdRate.toLocaleString('ar-SY')} ل.س / $</span>
+                                                )}
+                                                {!isOfferLocked && (
+                                                    <button type="button" onClick={handleUnconfirmSchedule} disabled={unconfirming}
+                                                        className="mr-3 text-xs font-bold text-rose-600 hover:text-rose-800 underline disabled:opacity-50">
+                                                        {unconfirming ? 'جارٍ…' : 'إلغاء تأكيد الجدول'}
+                                                    </button>
+                                                )}
                                             </div>
                                         )}
                                     </div>
@@ -3139,6 +3292,7 @@ export default function ContractForm() {
                                     <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-xs text-red-700">
                                         <AlertTriangle className="w-4 h-4 shrink-0" />
                                         مجموع الأقساط ({String(totalInstallmentSyp + (hasDownPayment ? totalPaidSyp : 0))}) لا يساوي الإجمالي ({String(grandTotal)})
+                                        {installmentsConfirmed && ' — الجدول مؤكَّد: ألغِ تأكيد الجدول لتعديله ثم أكّده من جديد.'}
                                     </div>
                                 )}
                             </div>

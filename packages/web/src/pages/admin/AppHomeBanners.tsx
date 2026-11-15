@@ -1,3 +1,4 @@
+import { confirmDialog } from '../../lib/dialogs';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import {
@@ -184,7 +185,7 @@ export default function AppHomeBanners() {
   };
 
   const handleDelete = async (banner: AppHomeBanner) => {
-    if (!window.confirm(`حذف البانر "${banner.titleAr || banner.imageUrl}"؟`)) return;
+    if (!await confirmDialog({ message: `حذف البانر "${banner.titleAr || banner.imageUrl}"؟`, tone: 'danger' })) return;
     setBusyId(banner.id);
     try {
       await api.admin.appHomeBanners.delete(banner.id);

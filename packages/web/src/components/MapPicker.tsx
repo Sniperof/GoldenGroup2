@@ -1,3 +1,4 @@
+import { alertDialog } from '../lib/dialogs';
 import { useState, useCallback, useEffect, useRef } from 'react';
 // Leaflet touches `window` as soon as it loads, so it (and its CSS) is imported
 // lazily inside the browser effect — importing this module stays safe under
@@ -193,7 +194,7 @@ export default function MapPicker({ position, onLocationSelect }: MapPickerProps
 
     const getCurrentLocation = useCallback(() => {
         if (!navigator.geolocation) {
-            alert('المتصفح لا يدعم تحديد الموقع');
+            void alertDialog('المتصفح لا يدعم تحديد الموقع');
             return;
         }
         setLocating(true);
@@ -204,7 +205,7 @@ export default function MapPicker({ position, onLocationSelect }: MapPickerProps
                 setLocating(false);
             },
             () => {
-                alert('تعذّر تحديد الموقع. تأكد من صلاحيات الموقع.');
+                void alertDialog('تعذّر تحديد الموقع. تأكد من صلاحيات الموقع.');
                 setLocating(false);
             },
             { enableHighAccuracy: true, timeout: 10000 }

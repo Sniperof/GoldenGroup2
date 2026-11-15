@@ -14,6 +14,7 @@ import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
 import { authorize } from '../services/authorizationService.js';
+import { attachUsdDues } from '../services/fxRates.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -65,7 +66,8 @@ router.get('/', requirePermission('contracts.view_list'), async (req, res) => {
        ORDER BY i.contract_id, i.installment_number`,
     params,
   );
-  res.json(rows.map(mapInstallmentAsDue));
+  // USD-linked installments carry today's due (usdDue); legacy → null.
+  res.json(await attachUsdDues(pool, rows.map(mapInstallmentAsDue), 'id'));
 });
 
 // PUT /api/dues/:id — now only edits collection ownership.

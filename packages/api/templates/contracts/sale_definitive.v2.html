@@ -306,13 +306,14 @@
           <tr>
             <th>#</th>
             <th>تاريخ الاستحقاق</th>
-            <th>المبلغ</th>
+            <th>المبلغ</th>{{#usdLinkedSection}}<th>بالدولار</th>{{/usdLinkedSection}}
           </tr>
         </thead>
         <tbody>
           {{installmentsRows}}
         </tbody>
-      </table>
+      </table>{{#usdLinkedSection}}
+      <div class="label" style="margin-top:8px">{{usd_link_text}}</div>{{/usdLinkedSection}}
     </div>
     {{/installmentsSection}}
   </div>

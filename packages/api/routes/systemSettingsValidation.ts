@@ -17,6 +17,7 @@ export const EDITABLE_KEYS = [
   'agent_license_daily_per_identity',
   'name_nomination_max_names_per_request',
   'name_nomination_daily_per_unverified_ip',
+  'fx_collection_rounding_unit',
 ] as const;
 
 export type EditableKey = typeof EDITABLE_KEYS[number];
@@ -41,6 +42,7 @@ const SETTING_TYPES: Record<EditableKey, EditableSettingType> = {
   agent_license_daily_per_identity: 'integer',
   name_nomination_max_names_per_request: 'integer',
   name_nomination_daily_per_unverified_ip: 'integer',
+  fx_collection_rounding_unit: 'integer',
 };
 
 const ALLOWED_PERIODIC_STATUSES = new Set(['open', 'assigned', 'in_scheduling', 'scheduled', 'waiting_execution']);

@@ -1,3 +1,4 @@
+import { confirmDialog } from '../../lib/dialogs';
 import { useCallback, useEffect, useState } from 'react';
 import { Loader2, Plus, Trash2 } from 'lucide-react';
 
@@ -53,7 +54,7 @@ export default function ServiceAgreementPaymentsModal({ agreement, canEdit, onCl
   }
 
   async function removePayment(paymentId: number) {
-    if (!confirm('حذف الدفعة؟ تُسجّل حركة عكسية في كشف حساب الزبون.')) return;
+    if (!await confirmDialog({ message: 'حذف الدفعة؟ تُسجّل حركة عكسية في كشف حساب الزبون.', tone: 'danger' })) return;
     setBusy(true); setError('');
     try { await api.serviceAgreements.deletePayment(paymentId); await load(); }
     catch (err: any) { setError(err?.message || 'تعذر حذف الدفعة'); }

@@ -1,4 +1,5 @@
 import pool from '../db.js';
+import { attachReceivableUsdDues } from './fxRates.js';
 import type {
   ZoneMapArea,
   ZoneMapColumnKey,
@@ -64,6 +65,8 @@ async function loadTasks(branchId: number, date: string): Promise<ZoneMapTaskIte
         ot.expected_date::text AS "expectedDate",
         COALESCE(ot.attempt_count, 0) AS "attemptCount",
         ot.expected_amount_syp AS "expectedAmount",
+        ot.installment_id    AS "installmentId",
+        ot.maintenance_installment_id AS "maintenanceInstallmentId",
         c.id                 AS "clientId",
         c.name               AS "clientName",
         inst.id              AS "deviceId",
@@ -109,8 +112,11 @@ async function loadTasks(branchId: number, date: string): Promise<ZoneMapTaskIte
     `,
     [branchId, date],
   );
+  // USD-linked installments: the amount is the due on the planning date
+  // (remaining USD × that day's rate, rounded), not the frozen original SYP.
+  const withUsd = await attachReceivableUsdDues(pool, rows, 'installmentId', 'maintenanceInstallmentId', date);
 
-  return rows.map((r: any) => {
+  return withUsd.map((r: any) => {
     const dueRef: string | null = r.status === 'needs_follow_up' ? r.expectedDate : (r.dueDate ?? r.expectedDate);
     return {
       taskId: Number(r.taskId),
@@ -129,7 +135,9 @@ async function loadTasks(branchId: number, date: string): Promise<ZoneMapTaskIte
       dueDate: r.dueDate ?? null,
       followUpDate: r.expectedDate ?? null,
       attemptCount: Number(r.attemptCount ?? 0),
-      expectedAmount: r.expectedAmount == null ? null : Number(r.expectedAmount),
+      expectedAmount: r.usdDue?.dueTodaySyp != null
+        ? Number(r.usdDue.dueTodaySyp)
+        : r.expectedAmount == null ? null : Number(r.expectedAmount),
     };
   });
 }

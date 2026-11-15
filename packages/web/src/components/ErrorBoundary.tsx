@@ -1,3 +1,4 @@
+import { confirmDialog } from '../lib/dialogs';
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { AlertOctagon, RefreshCw, Trash2 } from './ui/icons';
 import Button from './ui/Button';
@@ -25,8 +26,8 @@ export class ErrorBoundary extends Component<Props, State> {
         console.error('Uncaught error:', error, errorInfo);
     }
 
-    private handleReset = () => {
-        if (confirm('هل أنت متأكد من إعادة التحميل؟')) {
+    private handleReset = async () => {
+        if (await confirmDialog('هل أنت متأكد من إعادة التحميل؟')) {
             window.location.href = '/';
         }
     };

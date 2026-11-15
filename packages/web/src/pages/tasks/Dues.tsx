@@ -38,7 +38,8 @@ export default function Dues() {
         },
         {
             key: 'remainingBalance', label: 'المتبقي', sortable: true,
-            render: (d) => <span className="text-sm font-bold text-slate-900">{formatMoney(d.remainingBalance)}</span>
+            // USD-linked installment: today's due (remaining USD × today's rate) instead of the frozen SYP.
+            render: (d) => <span className="text-sm font-bold text-slate-900">{formatMoney((d as any).usdDue?.dueTodaySyp ?? d.remainingBalance)}{(d as any).usdDue ? <span className="block text-xs font-normal text-blue-700" dir="ltr">{'$' + Number((d as any).usdDue.remainingUsd).toFixed(2)}</span> : null}</span>
         },
         {
             key: 'adjustedDate', label: 'تاريخ الاستحقاق', sortable: true,

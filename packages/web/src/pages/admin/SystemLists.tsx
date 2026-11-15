@@ -1,3 +1,4 @@
+import { alertDialog, confirmDialog } from '../../lib/dialogs';
 import { useEffect, useState, useMemo } from 'react';
 import { useSystemListsStore } from '../../hooks/useSystemLists';
 import { useRoleStore } from '../../hooks/useRoleStore';
@@ -1373,7 +1374,7 @@ export default function SystemLists() {
       if (isCertificate) {
         const level = Number(formLevel);
         if (!Number.isInteger(level) || level < 1) {
-          alert('المستوى العلمي مطلوب ويجب أن يكون رقماً صحيحاً من 1 فأكثر');
+          void alertDialog('المستوى العلمي مطلوب ويجب أن يكون رقماً صحيحاً من 1 فأكثر');
           return;
         }
       }
@@ -1408,20 +1409,20 @@ export default function SystemLists() {
         });
       }
       setIsItemModalOpen(false);
-    } catch (err: any) { alert(err.message || 'حدث خطأ أثناء الحفظ'); }
+    } catch (err: any) { void alertDialog(err.message || 'حدث خطأ أثناء الحفظ'); }
   };
 
   const toggleActive = async (item: SystemList) => {
     if (!canManageSystemLists) return;
     try { await updateList(item.id, { isActive: !item.isActive }); }
-    catch (err: any) { alert(err.message || 'حدث خطأ'); }
+    catch (err: any) { void alertDialog(err.message || 'حدث خطأ'); }
   };
 
   const handleDelete = async (id: number) => {
     if (!canManageSystemLists) return;
-    if (!window.confirm('هل أنت متأكد؟ يُفضّل التعطيل بدلاً من الحذف لحماية السجلات.')) return;
+    if (!await confirmDialog({ message: 'هل أنت متأكد؟ يُفضّل التعطيل بدلاً من الحذف لحماية السجلات.', tone: 'danger' })) return;
     try { await deleteList(id); }
-    catch (err: any) { alert(err.message || 'حدث خطأ أثناء الحذف'); }
+    catch (err: any) { void alertDialog(err.message || 'حدث خطأ أثناء الحذف'); }
   };
 
   const handleAddNewCategory = (e: React.FormEvent) => {

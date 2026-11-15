@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import Button from '../ui/Button';
 import DateField from '../ui/DateField';
 import Input from '../ui/Input';
+import { usdFromSyp, sypFromUsd } from '@golden-crm/shared';
 
 export interface Installment {
   installmentNumber: number;
@@ -11,6 +12,10 @@ export interface Installment {
   confirmed?: boolean;     // set once the plan is confirmed (a collectable receivable)
   remainingBalance?: number | string | null;
   status?: string;
+  /** USD typed by the user (USD link, migr 495). Empty = derived from SYP at today's rate. */
+  amountUsd?: string;
+  /** amount_usd fixed by the server at confirmation (null = legacy / not linked). */
+  amountUsdFixed?: number | null;
 }
 
 interface Props {
@@ -20,6 +25,10 @@ interface Props {
   onSave: (installments: Installment[], count: number) => Promise<void>;
   onConfirm: (rows: Installment[]) => Promise<void>;
   disabled?: boolean;
+  /** Central USD rate of the day (migr 495): dual SYP/USD entry; null = no rate → cannot confirm. */
+  usdRate?: number | null;
+  /** Contract-rate snapshot of an already confirmed schedule (display). */
+  usdRateSnapshot?: number | null;
 }
 
 const inp = "w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-400/20 bg-white";
@@ -43,6 +52,7 @@ function generate(count: number, total: number, startDate: string): Installment[
 
 export default function InstallmentsSchedule({
   installableAmount, initialInstallments, confirmed, onSave, onConfirm, disabled,
+  usdRate = null, usdRateSnapshot = null,
 }: Props) {
   const [count, setCount]               = useState(String(initialInstallments?.length || 3));
   const [rows, setRows]                 = useState<Installment[]>(initialInstallments ?? []);
@@ -66,9 +76,19 @@ export default function InstallmentsSchedule({
   }, []);
 
   const updateRow = (idx: number, field: 'dueDate' | 'amountSyp', val: string) => {
-    setRows(prev => prev.map((r, i) => i === idx ? { ...r, [field]: val } : r));
+    setRows(prev => prev.map((r, i) => i === idx
+      ? { ...r, [field]: val, ...(field === 'amountSyp' ? { amountUsd: undefined } : {}) }
+      : r));
     setError('');
   };
+  // USD typed → SYP = USD × today's central rate.
+  const updateUsd = (idx: number, val: string) => {
+    setRows(prev => prev.map((r, i) => i === idx
+      ? { ...r, amountUsd: val, amountSyp: usdRate && val !== '' ? String(sypFromUsd(Number(val) || 0, usdRate)) : r.amountSyp }
+      : r));
+    setError('');
+  };
+  const usdOf = (r: Installment) => usdRate ? usdFromSyp(Number(r.amountSyp) || 0, usdRate) : null;
 
   const totalEntered = rows.reduce((s, r) => s + (Number(r.amountSyp) || 0), 0);
   const diff         = totalEntered - installableAmount;
@@ -83,6 +103,7 @@ export default function InstallmentsSchedule({
 
   const handleConfirm = async () => {
     if (!balanced) { setError('يجب تعديل القيم حتى يتوازن المجموع أولاً'); return; }
+    if (!usdRate) { setError('لا يوجد سعر صرف معتمد اليوم — لا يمكن اعتماد جدول الأقساط'); return; }
     setConfirming(true); setError('');
     try { await onConfirm(rows); }
     catch (e: any) { setError(e.message); }
@@ -96,8 +117,11 @@ export default function InstallmentsSchedule({
           <CheckCircle2 className="h-4 w-4" />
           جدول الأقساط مُعتمد — تم إنشاء الاستحقاقات
         </div>
+        {usdRateSnapshot != null && (
+          <div className="mb-2 text-xs text-blue-700">مربوط بالدولار — سعر الجدول: {usdRateSnapshot.toLocaleString('ar-SY')} ل.س / $ · يُحصَّل القسط بالليرة بسعر يوم الدفع</div>
+        )}
         <div className="space-y-1.5">
-          {rows.map(r => (
+          {(initialInstallments?.length ? initialInstallments : rows).map(r => (
             <div key={r.installmentNumber}
               className="flex items-center justify-between rounded-xl border border-emerald-100 bg-white px-3 py-2 text-xs">
               <div className="flex items-center gap-2">
@@ -106,6 +130,7 @@ export default function InstallmentsSchedule({
               </div>
               <div className="flex items-center gap-2">
                 <span className="font-black text-slate-800">{Number(r.amountSyp).toLocaleString('ar-SY')} ل.س</span>
+                {r.amountUsdFixed != null && <span className="font-bold text-blue-700" dir="ltr">${Number(r.amountUsdFixed).toFixed(2)}</span>}
                 {r.confirmed && <span className="text-xs font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5">ذمة معتمدة{r.remainingBalance != null && Number(r.remainingBalance) < Number(r.amountSyp) ? ` · متبقٍ ${Number(r.remainingBalance).toLocaleString('ar-SY')}` : ''}</span>}
               </div>
             </div>
@@ -135,6 +160,13 @@ export default function InstallmentsSchedule({
         </div>
       )}
 
+      {/* USD link (migr 495): the schedule is fixed in USD when confirmed. */}
+      <div className={`rounded-xl border px-3 py-2 text-xs ${usdRate ? 'border-blue-200 bg-blue-50 text-blue-800' : 'border-rose-200 bg-rose-50 text-rose-700'}`}>
+        {usdRate
+          ? <>سعر الصرف المركزي اليوم: <b>{usdRate.toLocaleString('ar-SY')} ل.س / $</b> — يمكن إدخال القسط بالليرة أو بالدولار، ويُثبَّت المبلغ بالدولار عند الاعتماد.</>
+          : <>لا يوجد سعر صرف معتمد اليوم — لا يمكن اعتماد جدول الأقساط حتى تُدخل الإدارة السعر.</>}
+      </div>
+
       {/* جدول الأقساط */}
       {rows.length > 0 && (
         <div className="rounded-2xl border border-slate-200 overflow-hidden">
@@ -144,6 +176,7 @@ export default function InstallmentsSchedule({
                 <th className="px-3 py-2 text-right font-bold text-slate-500 w-8">#</th>
                 <th className="px-3 py-2 text-right font-bold text-slate-500">تاريخ الاستحقاق</th>
                 <th className="px-3 py-2 text-right font-bold text-slate-500">المبلغ (ل.س)</th>
+                <th className="px-3 py-2 text-right font-bold text-slate-500">بالدولار ($)</th>
               </tr>
             </thead>
             <tbody>
@@ -162,6 +195,14 @@ export default function InstallmentsSchedule({
                       disabled={disabled}
                       inputSize="sm"
                       className="text-left font-bold" dir="ltr" />
+                  </td>
+                  <td className="px-2 py-1.5">
+                    <Input type="number" min={0} step="0.01"
+                      value={r.amountUsd ?? (usdOf(r) != null && r.amountSyp !== '' ? String(usdOf(r)) : '')}
+                      onChange={e => updateUsd(idx, e.target.value)}
+                      disabled={disabled || !usdRate}
+                      inputSize="sm"
+                      className="text-left font-bold text-blue-700" dir="ltr" />
                   </td>
                 </tr>
               ))}
@@ -204,7 +245,7 @@ export default function InstallmentsSchedule({
             size="sm"
             icon={CheckCircle2}
             onClick={handleConfirm}
-            disabled={!balanced}
+            disabled={!balanced || !usdRate}
             loading={confirming}
             className="flex-1"
           >

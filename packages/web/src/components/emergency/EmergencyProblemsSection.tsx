@@ -16,6 +16,7 @@
 // Saves are immediate per-action (matches ProblemsList.tsx UX in the
 // detail page). The wizard's own Save (action meta) stays unchanged.
 // ============================================================
+import { confirmDialog } from '../../lib/dialogs';
 import { useEffect, useState } from 'react';
 import { Plus, Wrench, CheckCircle2, Clock, XCircle, AlertCircle } from '../ui/icons';
 import { api } from '../../lib/api';
@@ -206,7 +207,7 @@ export default function EmergencyProblemsSection({
   }
 
   async function changeStatus(pid: number, toStatus: string) {
-    if (!confirm(`نَقل العطل إلى "${STATUS_LABELS[toStatus]}"؟`)) return;
+    if (!await confirmDialog(`نَقل العطل إلى "${STATUS_LABELS[toStatus]}"؟`)) return;
     setBusy(true);
     try {
       await api.serviceRequests.setProblemStatus(serviceRequestId, pid, { toStatus });

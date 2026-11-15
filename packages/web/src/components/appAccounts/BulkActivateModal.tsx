@@ -2,6 +2,7 @@
 // BulkActivateModal — reviewed bulk app-account activation for
 // either explicitly selected clients or the current filtered set.
 // ============================================================
+import { alertDialog } from '../../lib/dialogs';
 import { useMemo, useState } from 'react';
 import { X, Loader2, Users, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { api } from '../../lib/api';
@@ -54,7 +55,7 @@ export default function BulkActivateModal({
       });
       setReport(res);
     } catch (error) {
-      alert(apiErrorMessage(error));
+      void alertDialog(apiErrorMessage(error));
     } finally {
       setBusy(false);
     }

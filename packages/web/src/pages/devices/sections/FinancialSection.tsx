@@ -48,6 +48,8 @@ export function FinancialSection({ contract, customerId }: Props) {
   const totalPaid = installments.reduce((s, i) => s + Number(i.paidAmount || 0), 0);
   const totalRemaining = installments.reduce((s, i) => s + Number(i.remainingBalance || 0), 0);
 
+  const hasUsd = installments.some((i) => i.amountUsd != null);
+
   // Columns mirror the original raw tables 1:1 (design-only migration to <SmartTable>).
   const installmentColumns: ColumnDef<any>[] = [
     { key: 'installmentNumber', label: '#', render: i => <span className="font-mono text-sm text-slate-500">{i.installmentNumber}</span> },
@@ -55,6 +57,21 @@ export function FinancialSection({ contract, customerId }: Props) {
     { key: 'amountSyp', label: 'المبلغ', render: i => <span className="text-sm text-slate-700">{money(i.amountSyp)} ل.س</span> },
     { key: 'paidAmount', label: 'المسدّد', render: i => <span className="text-sm text-emerald-700">{money(i.paidAmount)} ل.س</span> },
     { key: 'remainingBalance', label: 'المتبقي', render: i => <span className="text-sm text-rose-700">{money(i.remainingBalance)} ل.س</span> },
+    // USD link (migr 493): fixed USD per installment + today's due on the remaining USD.
+    ...(hasUsd ? [
+      {
+        key: 'amountUsd', label: 'بالدولار',
+        render: (i: any) => i.amountUsd != null
+          ? <span className="text-sm text-blue-700" dir="ltr">${Number(i.amountUsd).toLocaleString('en-US', { maximumFractionDigits: 2 })}</span>
+          : <span className="text-sm text-slate-300">—</span>,
+      },
+      {
+        key: 'usdDue', label: 'المستحق اليوم',
+        render: (i: any) => i.usdDue && Number(i.remainingBalance) > 0
+          ? <span className="text-sm font-bold text-blue-800">{i.usdDue.dueTodaySyp != null ? `${money(i.usdDue.dueTodaySyp)} ل.س` : 'لا سعر صرف'}</span>
+          : <span className="text-sm text-slate-300">—</span>,
+      },
+    ] as ColumnDef<any>[] : []),
     {
       key: 'status', label: 'الحالة',
       render: i => {
