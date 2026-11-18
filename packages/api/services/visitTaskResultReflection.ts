@@ -3192,16 +3192,11 @@ export async function activateDeviceAndBootstrapPeriodicMaintenance(
     [input.installedDeviceId],
   );
 
-  if (input.contractId != null) {
-    // NOTE: contracts has no updated_at column (only created_at).
-    await db.query(
-      `UPDATE contracts
-          SET status = 'active'
-        WHERE id = $1
-          AND status NOT IN ('cancelled', 'discarded')`,
-      [input.contractId],
-    );
-  }
+  // The contract status is NOT touched here. Device activation is a device
+  // lifecycle event (01d §5: a device transition never changes the contract
+  // by itself). The contract became `active` at /approve, and only the
+  // financial recompute moves it to `completed`; writing `active` here used
+  // to reopen cash contracts that had already completed at approval.
 
   // Keep first-task creation in the activation transaction. The device trigger
   // has already stamped activated_at, which anchors the first periodic due date.

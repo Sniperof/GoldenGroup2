@@ -13,6 +13,31 @@ import ContractGiftsPanel from './ContractGiftsPanel';
 import { getOpenTaskDetailPath } from '../../lib/taskRoutes';
 import { ArrowRight, FileText } from 'lucide-react';
 import { useContractPrintable } from '../../hooks/useContractPrintable';
+import {
+  computeContractFinance,
+  installmentDisplayStatus,
+  installmentDueToday,
+  type InstallmentDisplayStatus,
+} from './contractDetailFinance';
+
+const INSTALLMENT_STATUS_UI: Record<InstallmentDisplayStatus, { cls: string; label: string }> = {
+  pending: { cls: 'bg-amber-100 text-amber-700',     label: 'معلق' },
+  partial: { cls: 'bg-blue-100 text-blue-700',       label: 'جزئي' },
+  paid:    { cls: 'bg-emerald-100 text-emerald-700', label: 'مدفوع' },
+  overdue: { cls: 'bg-red-100 text-red-700',         label: 'متأخر' },
+  voided:  { cls: 'bg-slate-100 text-slate-500',     label: 'مُبطل' },
+  planned: { cls: 'bg-indigo-50 text-indigo-600',    label: 'مقترح' },
+};
+
+const PAYMENT_COLS = '2rem 7.5rem 6rem 1fr 1fr 1fr 6rem 5rem';
+
+const WARRANTY_TYPE_LABELS: Record<string, string> = { contract: 'كفالة العقد', golden: 'كفالة ذهبية' };
+const WARRANTY_STATUS_UI: Record<string, { cls: string; label: string }> = {
+  pending:   { cls: 'bg-amber-100 text-amber-700',     label: 'بانتظار التشغيل' },
+  active:    { cls: 'bg-emerald-100 text-emerald-700', label: 'سارية' },
+  expired:   { cls: 'bg-slate-100 text-slate-500',     label: 'منتهية' },
+  cancelled: { cls: 'bg-red-100 text-red-600',         label: 'ملغاة' },
+};
 
 // ── Lookup maps ───────────────────────────────────────────────────────────────
 
@@ -181,7 +206,9 @@ function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { cls: string; label: string }> = {
     draft:     { cls: 'bg-amber-100 text-amber-700',    label: 'مسودة' },
     active:    { cls: 'bg-emerald-100 text-emerald-700', label: 'نشط' },
-    completed: { cls: 'bg-blue-100 text-blue-700',      label: 'مكتمل' },
+    // «مكتمل» وحدها توحي بانتهاء كل شيء، بينما هي إغلاق مالي فقط والجهاز
+    // قد يكون ما زال بانتظار التوصيل (DEC-CT-01).
+    completed: { cls: 'bg-blue-100 text-blue-700',      label: 'مكتمل مالياً' },
     cancelled: { cls: 'bg-red-100 text-red-700',        label: 'ملغى' },
     discarded: { cls: 'bg-slate-200 text-slate-700',    label: 'مؤرشف / مرفوض' },
   };
@@ -579,11 +606,11 @@ export default function ContractDetail() {
   const activeTasksCount = tasks.filter((t: any) => !isTaskDone(t.status)).length;
   const sortedTasks    = [...tasks].sort((a: any, b: any) => Number(isTaskDone(a.status)) - Number(isTaskDone(b.status)));
   const visibleTasks   = showAllTasks ? sortedTasks : sortedTasks.slice(0, TASKS_PREVIEW);
-  const dues           = data.dues           ?? [];
   const paymentEntries = data.paymentEntries ?? [];
   const installments   = data.installments   ?? [];
   // USD link (migr 493): schedule confirmed under a contract rate.
   const usdLinkedSchedule = installments.some((i: any) => i.amountUsd != null);
+  const scheduleCols = usdLinkedSchedule ? '2rem 1fr 1fr 1fr 1fr 1fr 1fr 5rem' : '2rem 1fr 1fr 1fr 1fr 5rem';
   // D2: a draft whose confirmed schedule no longer adds up (price / discount changed).
   const scheduleMismatch = (() => {
     if (data.status !== 'draft' || data.paymentType !== 'installment') return null;
@@ -603,8 +630,29 @@ export default function ContractDetail() {
     ['registered', 'pending_delivery', 'delivery_suspended'].includes(String(data.deviceStatus ?? ''));
 
   const grandTotal = Number(data.finalPrice) || 0;
-  const totalPaid  = paymentEntries.reduce((s: number, e: any) => s + Number(e.amountSyp), 0);
-  const remaining  = Math.max(0, grandTotal - totalPaid);
+  const finance = computeContractFinance({
+    status: data.status,
+    paymentType: data.paymentType,
+    basePrice: data.basePrice,
+    finalPrice: data.finalPrice,
+    downPayment: data.downPayment,
+    installmentsCount: data.installmentsCount,
+    discountAmount: data.discount?.amount ?? null,
+    paymentEntries,
+    installments,
+  });
+  const totalPaid  = finance.netPaid;
+  const remaining  = finance.remaining.amount;
+  const warranties: any[] = Array.isArray(data.warranties) ? data.warranties : [];
+  const installmentTotals = installments.reduce(
+    (acc: { amount: number; paid: number; remaining: number; dueToday: number }, inst: any) => ({
+      amount: acc.amount + Number(inst.amountSyp || 0),
+      paid: acc.paid + Number(inst.paidAmount || 0),
+      remaining: acc.remaining + Math.max(0, Number(inst.remainingBalance || 0)),
+      dueToday: acc.dueToday + installmentDueToday(inst),
+    }),
+    { amount: 0, paid: 0, remaining: 0, dueToday: 0 },
+  );
 
   const installationGeoPath: string[] = data.installationGeoPath ?? [];
   const mapsUrl = data.installationLat && data.installationLng
@@ -822,11 +870,32 @@ export default function ContractDetail() {
             <LabelVal label="تاريخ العقد" value={fmtDate(data.contractDate)} mono />
             <LabelVal label="تاريخ الإنشاء" value={fmtDateTime(data.createdAt)} mono />
             {data.createdByName && <LabelVal label="👤 منشئ العقد" value={data.createdByName} />}
-            <LabelVal label="🏷️ صاحب البيعة" value={data.saleOwnerName || data.createdByName || '—'} />
+            {/* لا سقوط إلى منشئ العقد: الإدخال ليس نسبة بيعة (DEC-CT-11). */}
+            <LabelVal
+              label="🏷️ صاحب البيعة"
+              value={data.saleOwnerName || 'غير محدد'}
+              valueCls={data.saleOwnerName ? '' : 'italic text-slate-400'}
+            />
           </div>
         </Card>
 
-        <ContractGiftsPanel contract={data} />
+        {/* ══ سجل الإلغاء ═════════════════════════════════════════════════════ */}
+        {data.status === 'cancelled' && (
+          <div className="bg-red-50 border border-red-200 rounded-2xl p-5">
+            <p className="text-sm font-bold text-red-900">⛔ العقد ملغى</p>
+            <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+              <LabelVal label="سبب الإلغاء" value={data.cancellation?.reasonLabel || 'غير محدد'} />
+              <LabelVal label="تاريخ الإلغاء" value={fmtDateTime(data.cancellation?.cancelledAt)} mono />
+              <LabelVal label="أُلغي بواسطة" value={data.cancellation?.cancelledByName || '—'} />
+            </div>
+            {finance.remaining.kind === 'voided' && finance.remaining.amount > 0 && (
+              <p className="mt-3 text-xs text-red-800 leading-relaxed">
+                أُبطل المتبقي ({fmtMoney(finance.remaining.amount)}) عند الإلغاء، فلم يعد ذمة على الزبون.
+                الأقساط أدناه معروضة للتاريخ فقط.
+              </p>
+            )}
+          </div>
+        )}
 
         {/* ══ Groups 2+3: هوية المشتري + الجهاز ════════════════════════════ */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -989,6 +1058,52 @@ export default function ContractDetail() {
                   </div>
                 )}
               </div>
+
+              {/* ── الكفالات (DEC-CT-16): كفالة العقد ثم الذهبيات بالتسلسل ── */}
+              {!isDraftDevicePlan && (
+                <>
+                  <div className="h-px bg-slate-100"></div>
+                  <div>
+                    <span className="text-xs text-slate-400 block mb-2">🛡️ الكفالات</span>
+                    {warranties.length === 0 ? (
+                      data.contractWarrantyEndDate ? (
+                        <div className="flex items-center justify-between gap-2 text-sm text-slate-700">
+                          <span>كفالة العقد حتى <span className="font-mono">{fmtDate(data.contractWarrantyEndDate)}</span></span>
+                          {data.status === 'cancelled' && <Chip cls={WARRANTY_STATUS_UI.cancelled.cls}>ملغاة بإلغاء العقد</Chip>}
+                        </div>
+                      ) : data.warrantyMonths ? (
+                        <div className="text-sm text-slate-700">
+                          كفالة العقد {data.warrantyMonths} شهر
+                          <span className="text-xs text-slate-400 mr-1">— تبدأ عند تشغيل الجهاز</span>
+                        </div>
+                      ) : (
+                        <div className="text-sm text-slate-400 italic">لا توجد كفالة مسجلة</div>
+                      )
+                    ) : (
+                      <div className="space-y-2">
+                        {warranties.map((w: any) => {
+                          const st = WARRANTY_STATUS_UI[w.status] ?? { cls: 'bg-slate-100 text-slate-500', label: w.status };
+                          return (
+                            <div key={w.id} className="flex items-center justify-between gap-2 text-sm">
+                              <div className="min-w-0">
+                                <span className={`font-bold ${w.warrantyType === 'golden' ? 'text-amber-700' : 'text-sky-700'}`}>
+                                  {WARRANTY_TYPE_LABELS[w.warrantyType] ?? w.warrantyType}
+                                </span>
+                                <span className="text-slate-500 font-mono text-xs mr-2">
+                                  {w.startDate || w.endDate
+                                    ? `${fmtDate(w.startDate)} ← ${fmtDate(w.endDate)}`
+                                    : w.months ? `${w.months} شهر (تبدأ عند التشغيل)` : ''}
+                                </span>
+                              </div>
+                              <Chip cls={st.cls}>{st.label}</Chip>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           </Card>
         </div>
@@ -1031,6 +1146,12 @@ export default function ContractDetail() {
                   <span className="font-mono text-red-600">-{fmtMoney(data.discount.amount)}</span>
                 </div>
               )}
+              {finance.extras > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-500">رسوم وإضافات (من بنود العقد)</span>
+                  <span className="font-mono text-slate-700">+{fmtMoney(finance.extras)}</span>
+                </div>
+              )}
               <div className="h-px bg-slate-200 my-2"></div>
               <div className="flex justify-between">
                 <span className="text-slate-800 font-bold">السعر النهائي</span>
@@ -1042,28 +1163,42 @@ export default function ContractDetail() {
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
               <LabelVal label="طريقة الدفع" value={PAYMENT_LABELS[data.paymentType] ?? data.paymentType ?? '—'} />
-              {data.downPayment > 0 && <LabelVal label="الدفعة الأولى" value={fmtMoney(data.downPayment)} mono />}
-              {data.paymentType === 'installment' && data.installmentsCount > 0 && (
-                <LabelVal label="الأقساط"
-                  value={`${data.installmentsCount} × ${fmtMoney(
-                    installments.length > 0
-                      ? Number(installments[0].amountSyp)
-                      : Math.round((grandTotal - (data.downPayment || 0)) / data.installmentsCount)
-                  )}`}
-                  mono />
+              {finance.downPaymentShown != null && (
+                <LabelVal label="الدفعة الأولى" value={fmtMoney(finance.downPaymentShown)} mono />
+              )}
+              {finance.installmentsSummary && (
+                <LabelVal label="الأقساط" value={finance.installmentsSummary} mono />
               )}
             </div>
 
             <Divider />
 
-            <div className="flex justify-between items-center text-sm">
-              <div className="flex gap-6">
-                <LabelVal label="المدفوع" value={fmtMoney(totalPaid)} valueCls="text-emerald-700 font-bold" mono />
-                <LabelVal label="المتبقي" value={fmtMoney(remaining)}
-                  valueCls={remaining > 0 ? 'text-amber-700 font-bold' : 'text-emerald-700 font-bold'} mono />
+            <div className="flex justify-between items-center text-sm flex-wrap gap-3">
+              <div className="flex gap-6 flex-wrap">
+                <LabelVal label="المدفوع (صافي)" value={fmtMoney(totalPaid)} valueCls="text-emerald-700 font-bold" mono />
+                {finance.remaining.kind === 'voided' ? (
+                  <LabelVal label="المتبقي" value={`0 ل.س — أُبطل ${fmtMoney(remaining)}`} valueCls="text-slate-500 font-bold" mono />
+                ) : (
+                  <LabelVal
+                    label={finance.remaining.kind === 'planned' ? 'المتبقي (مخطط — غير مستحق قبل الاعتماد)' : 'المتبقي'}
+                    value={fmtMoney(remaining)}
+                    valueCls={remaining > 0 ? 'text-amber-700 font-bold' : 'text-emerald-700 font-bold'}
+                    mono
+                  />
+                )}
               </div>
               {data.receiptNumber && <LabelVal label="رقم الإيصال" value={data.receiptNumber} mono />}
             </div>
+            {usdLinkedSchedule && finance.remaining.kind === 'live' && remaining > 0 && (
+              <p className="mt-2 text-xs text-blue-700">المتبقي محسوب بسعر صرف اليوم للأقساط المرتبطة بالدولار.</p>
+            )}
+            {finance.mismatch && (
+              <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800 leading-relaxed">
+                {finance.mismatch.kind === 'schedule'
+                  ? `الأرقام المسجّلة لا تتطابق: الدفعة الأولى + الأقساط = ${fmtMoney(finance.mismatch.recorded)} بينما السعر النهائي ${fmtMoney(grandTotal)}. راجع كشف حساب الزبون قبل الاعتماد على المتبقي.`
+                  : 'العقد مكتمل مالياً لكن الأرقام المسجّلة ما زالت تُظهر رصيداً — غالباً بيانات مهاجرة غير متطابقة. راجع كشف حساب الزبون.'}
+              </div>
+            )}
           </Card>
         )}
 
@@ -1112,7 +1247,11 @@ export default function ContractDetail() {
               {data.sourceOpenTaskId && (
                 <div className="flex items-center gap-2 text-sm">
                   <span className="text-slate-400">📋 المهمة المفتوحة:</span>
-                  <button onClick={() => navigate('/tasks/open')}
+                  <button
+                    onClick={() => navigate(
+                      (data.sourceOpenTaskType && getOpenTaskDetailPath(data.sourceOpenTaskType, data.sourceOpenTaskId))
+                        || '/tasks/open',
+                    )}
                     className="text-sky-600 font-mono hover:underline">#{data.sourceOpenTaskId}</button>
                 </div>
               )}
@@ -1181,47 +1320,73 @@ export default function ContractDetail() {
             <div className="px-5 py-8 text-center text-sm text-slate-400">لا توجد دفعات مسجلة</div>
           ) : (
             <>
+              <div className="overflow-x-auto">
+              <div className="min-w-[760px]">
               <div className="grid gap-x-3 px-5 py-2.5 bg-slate-50 border-b border-slate-100 text-xs font-bold text-slate-400"
-                style={{ gridTemplateColumns: '2rem 1fr 4rem 1fr 1fr 5rem' }}>
-                <span>#</span><span>الطريقة</span><span>العملة</span><span>المبلغ</span><span>المكافئ ل.س</span><span>مرجع</span>
+                style={{ gridTemplateColumns: PAYMENT_COLS }}>
+                <span>#</span><span>التاريخ</span><span>النوع</span><span>الطريقة</span><span>المبلغ</span><span>المكافئ ل.س</span><span>المستلم</span><span>مرجع</span>
               </div>
-              {paymentEntries.map((e: any, i: number) => (
-                <div key={e.id ?? i}
-                  className="grid gap-x-3 px-5 py-3 border-b border-slate-50 hover:bg-slate-50/60 text-sm items-center"
-                  style={{ gridTemplateColumns: '2rem 1fr 4rem 1fr 1fr 5rem' }}>
-                  <span className="font-mono text-xs text-slate-400">{i + 1}</span>
-                  <span className="text-slate-700">{METHOD_LABELS[e.method] ?? e.method}</span>
-                  <span className="text-slate-500">{e.currency}</span>
-                  <span className="font-mono text-slate-700">
-                    {e.method === 'barter'
-                      ? <span className="text-purple-600 text-xs">{e.barterName}</span>
-                      : `${Number(e.amountValue).toLocaleString('en-US')} ${e.currency === 'USD' ? '$' : 'ل.س'}`}
-                  </span>
-                  <span className="font-mono font-bold text-slate-800">{fmtMoney(Number(e.amountSyp))}</span>
-                  <span className="font-mono text-slate-400 text-xs">{e.referenceNumber ?? '—'}</span>
-                </div>
-              ))}
+              {paymentEntries.map((e: any, i: number) => {
+                const isRefund = e.entryType === 'refund';
+                const kind = isRefund
+                  ? (e.reversesEntryId ? 'عكس تحصيل' : 'مرتجع')
+                  : e.installmentId != null
+                    ? `سداد قسط${e.installmentNumber ? ` #${e.installmentNumber}` : ''}`
+                    : 'دفعة توقيع';
+                return (
+                  <div key={e.id ?? i}
+                    className={`grid gap-x-3 px-5 py-3 border-b border-slate-50 hover:bg-slate-50/60 text-sm items-center ${isRefund ? 'bg-red-50/40' : ''}`}
+                    style={{ gridTemplateColumns: PAYMENT_COLS }}>
+                    <span className="font-mono text-xs text-slate-400">{i + 1}</span>
+                    <span className="font-mono text-xs text-slate-600">{fmtDateTime(e.receivedAt)}</span>
+                    <span className={`text-xs font-bold ${isRefund ? 'text-red-600' : 'text-slate-600'}`}>{kind}</span>
+                    <span className="text-slate-700">{METHOD_LABELS[e.method] ?? e.method}</span>
+                    <span className="font-mono text-slate-700">
+                      {e.method === 'barter'
+                        ? <span className="text-purple-600 text-xs">{e.barterName}</span>
+                        : `${Number(e.amountValue).toLocaleString('en-US')} ${e.currency === 'USD' ? '$' : 'ل.س'}`}
+                    </span>
+                    <span className={`font-mono font-bold ${isRefund ? 'text-red-600' : 'text-slate-800'}`}>
+                      {isRefund ? '−' : ''}{fmtMoney(Number(e.amountSyp))}
+                    </span>
+                    <span className="text-xs text-slate-500 truncate">{e.receivedByName ?? '—'}</span>
+                    <span className="font-mono text-slate-400 text-xs truncate">{e.referenceNumber ?? '—'}</span>
+                  </div>
+                );
+              })}
               <div className="grid gap-x-3 px-5 py-3 bg-slate-50 text-xs font-bold text-slate-500"
-                style={{ gridTemplateColumns: '2rem 1fr 4rem 1fr 1fr 5rem' }}>
-                <span></span><span>المجموع</span><span></span><span></span>
+                style={{ gridTemplateColumns: PAYMENT_COLS }}>
+                <span></span><span>الصافي</span><span></span><span></span><span></span>
                 <span className="font-mono text-emerald-700">{fmtMoney(totalPaid)}</span>
-                <span></span>
+                <span></span><span></span>
+              </div>
+              </div>
               </div>
             </>
           )}
         </Card>
 
-        {/* ══ Group 9: جدول الأقساط ═══════════════════════════════════════════ */}
+        {/* ══ Group 9: جدول الأقساط ═══════════════════════════════════════════
+            جدول واحد يحمل الاستحقاق والمدفوع والمتبقي والمستحق اليوم. القسم
+            المنفصل «الأقساط المفتوحة» كان تكراراً لصفوفه بتسميات الذمم القديمة. */}
         {data.paymentType === 'installment' && (
           <Card className="!p-0 overflow-hidden">
             <div className="px-5 py-4 border-b border-slate-100">
-              <span className="text-base font-bold text-slate-800">📆 جدول الأقساط ({installments.length})</span>
+              <span className="text-base font-bold text-slate-800">
+                📆 {data.status === 'draft' ? 'جدول الأقساط المقترح' : 'جدول الأقساط'} ({installments.length})
+              </span>
               {data.fx?.snapshotRate != null && (
                 <div className="mt-1 text-xs text-blue-700">
-                  مربوط بالدولار — سعر العقد: <b>{fmtMoney(Number(data.fx.snapshotRate))}</b> ل.س / $
-                  {data.fx.currentRate != null && <> · سعر اليوم: <b>{fmtMoney(Number(data.fx.currentRate))}</b></>}
+                  مربوط بالدولار — سعر العقد: <b>{fmtMoney(Number(data.fx.snapshotRate))} / $</b>
+                  {data.fx.currentRate != null && <> · سعر اليوم: <b>{fmtMoney(Number(data.fx.currentRate))} / $</b></>}
                   <span className="text-slate-400"> · تُحصَّل الأقساط بالليرة بسعر صرف يوم الدفع</span>
                 </div>
+              )}
+              {data.status === 'draft' && (
+                <div className="mt-1 text-xs text-indigo-700">الجدول مقترح ضمن المسودة ولا يصبح ذمة قبل اعتماد العقد.</div>
+              )}
+              {data.status === 'cancelled' && installmentTotals.remaining > 0 && (
+                <div className="mt-1 text-xs text-slate-500">أرصدة الأقساط غير المسددة أُبطلت عند إلغاء العقد.</div>
               )}
               {scheduleMismatch && (
                 <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800">
@@ -1233,106 +1398,69 @@ export default function ContractDetail() {
             {installments.length === 0 ? (
               <div className="px-5 py-8 text-center text-sm text-slate-400">لا توجد أقساط مسجلة</div>
             ) : (
-              <>
-                <div className="grid gap-x-3 px-5 py-2.5 bg-slate-50 border-b border-slate-100 text-xs font-bold text-slate-400"
-                  style={{ gridTemplateColumns: usdLinkedSchedule ? '2rem 1fr 1fr 1fr 1fr 1fr 1fr 5rem' : '2rem 1fr 1fr 1fr 1fr 5rem' }}>
-                  <span>#</span><span>تاريخ الاستحقاق</span><span>المبلغ</span><span>المدفوع</span><span>المتبقي</span>
-                  {usdLinkedSchedule && <><span>بالدولار</span><span>المستحق اليوم</span></>}
-                  <span>الحالة</span>
-                </div>
-                {installments.map((inst: any, i: number) => {
-                  const isOverdue = inst.status === 'pending' && inst.dueDate && new Date(inst.dueDate) < new Date();
-                  const statusMap: Record<string, { cls: string; label: string }> = {
-                    pending: { cls: 'bg-amber-100 text-amber-700',    label: 'معلق' },
-                    paid:    { cls: 'bg-emerald-100 text-emerald-700', label: 'مدفوع' },
-                    partial: { cls: 'bg-blue-100 text-blue-700',      label: 'جزئي' },
-                    overdue: { cls: 'bg-red-100 text-red-700',        label: 'متأخر' },
-                  };
-                  const sm = statusMap[isOverdue ? 'overdue' : inst.status] ?? statusMap.pending;
-                  return (
-                    <div key={inst.id ?? i}
-                      className={`grid gap-x-3 px-5 py-3 border-b border-slate-50 hover:bg-slate-50/60 text-sm items-center ${isOverdue ? 'bg-red-50/30' : ''}`}
-                      style={{ gridTemplateColumns: usdLinkedSchedule ? '2rem 1fr 1fr 1fr 1fr 1fr 1fr 5rem' : '2rem 1fr 1fr 1fr 1fr 5rem' }}>
-                      <span className="font-mono text-xs text-slate-400">{inst.installmentNumber}</span>
-                      <span className="font-mono text-slate-600">{fmtDate(inst.dueDate)}</span>
-                      <span className="font-mono font-bold text-slate-800">{fmtMoney(Number(inst.amountSyp))}</span>
-                      <span className="font-mono text-emerald-700">{fmtMoney(Number(inst.paidAmount))}</span>
-                      <span className="font-mono text-amber-700">{fmtMoney(Number(inst.remainingBalance))}</span>
-                      {usdLinkedSchedule && (
-                        <>
-                          <span className="font-mono text-blue-700" dir="ltr">
-                            {inst.amountUsd != null ? '$' + Number(inst.amountUsd).toFixed(2) : '—'}
-                            {inst.remainingUsd != null && Number(inst.remainingBalance) > 0 && Number(inst.remainingUsd) < Number(inst.amountUsd) && (
-                              <span className="block text-xs text-slate-400">متبقٍ {'$' + Number(inst.remainingUsd).toFixed(2)}</span>
-                            )}
-                          </span>
-                          <span className="font-mono text-blue-800">
-                            {inst.usdDue && Number(inst.remainingBalance) > 0
-                              ? (inst.usdDue.dueTodaySyp != null ? fmtMoney(Number(inst.usdDue.dueTodaySyp)) : 'لا سعر')
-                              : '—'}
-                          </span>
-                        </>
-                      )}
-                      <span><Chip cls={sm.cls}>{sm.label}</Chip></span>
-                    </div>
-                  );
-                })}
-              </>
-            )}
-          </Card>
-        )}
-
-        {/* ══ Group 10: الأقساط المفتوحة (projection of installment balances) ══ */}
-        {dues.length > 0 && (
-          <Card className="!p-0 overflow-hidden">
-            <div className="px-5 py-4 border-b border-slate-100">
-              <div className="flex flex-col gap-1">
-                <span className="text-base font-bold text-slate-800">💰 الأقساط المفتوحة ({dues.length})</span>
-                <span className="text-xs text-slate-500">
-                  هذا القسم مشتق تلقائياً من الأقساط التي لا يزال عليها رصيد متبقٍ.
-                </span>
-              </div>
-            </div>
-            <div className="grid gap-x-3 px-5 py-2.5 bg-slate-50 border-b border-slate-100 text-xs font-bold text-slate-400"
-              style={{ gridTemplateColumns: '2rem 1fr 1fr 1fr 5rem' }}>
-              <span>#</span><span>تاريخ الاستحقاق</span><span>المبلغ الأصلي</span><span>المتبقي</span><span>الحالة</span>
-            </div>
-            {dues.map((due: any, i: number) => {
-              const dueStatus: Record<string, { cls: string; label: string }> = {
-                Pending: { cls: 'bg-amber-100 text-amber-700',    label: 'معلق' },
-                Partial: { cls: 'bg-blue-100 text-blue-700',      label: 'جزئي' },
-                Paid:    { cls: 'bg-emerald-100 text-emerald-700', label: 'مدفوع' },
-                Overdue: { cls: 'bg-red-100 text-red-700',        label: 'متأخر' },
-              };
-              const ds = dueStatus[due.status] ?? { cls: 'bg-slate-100 text-slate-500', label: due.status };
-              return (
-                <div key={due.id ?? i}
-                  className="grid gap-x-3 px-5 py-3 border-b border-slate-50 hover:bg-slate-50/60 text-sm items-center"
-                  style={{ gridTemplateColumns: '2rem 1fr 1fr 1fr 5rem' }}>
-                  <span className="font-mono text-xs text-slate-400">{i + 1}</span>
-                  <span className="font-mono text-slate-600">{fmtDate(due.adjustedDate ?? due.scheduledDate)}</span>
-                  <span className="font-mono font-bold text-slate-800">{fmtMoney(Number(due.originalAmount))}</span>
-                  {/* USD-linked: today's due (remaining USD × today's rate, rounded) instead of the frozen SYP. */}
-                  <span className="font-mono text-amber-700">
-                    {due.usdDue?.dueTodaySyp != null ? fmtMoney(Number(due.usdDue.dueTodaySyp)) : fmtMoney(Number(due.remainingBalance))}
-                    {due.usdDue && (
-                      <span className="block text-xs text-blue-700" dir="ltr">
-                        {'$' + Number(due.usdDue.remainingUsd).toFixed(2)}{due.usdDue.dueTodaySyp == null ? ' · لا سعر اليوم' : ' · مستحق اليوم'}
-                      </span>
+              <div className="overflow-x-auto">
+                <div className={usdLinkedSchedule ? 'min-w-[820px]' : 'min-w-[620px]'}>
+                  <div className="grid gap-x-3 px-5 py-2.5 bg-slate-50 border-b border-slate-100 text-xs font-bold text-slate-400"
+                    style={{ gridTemplateColumns: scheduleCols }}>
+                    <span>#</span><span>تاريخ الاستحقاق</span><span>المبلغ</span><span>المدفوع</span><span>المتبقي</span>
+                    {usdLinkedSchedule && <><span>بالدولار</span><span>المستحق اليوم</span></>}
+                    <span>الحالة</span>
+                  </div>
+                  {installments.map((inst: any, i: number) => {
+                    const displayStatus = installmentDisplayStatus(inst, data.status);
+                    const sm = INSTALLMENT_STATUS_UI[displayStatus];
+                    const voided = displayStatus === 'voided';
+                    return (
+                      <div key={inst.id ?? i}
+                        className={`grid gap-x-3 px-5 py-3 border-b border-slate-50 hover:bg-slate-50/60 text-sm items-center ${displayStatus === 'overdue' ? 'bg-red-50/30' : ''}`}
+                        style={{ gridTemplateColumns: scheduleCols }}>
+                        <span className="font-mono text-xs text-slate-400">{inst.installmentNumber}</span>
+                        <span className="font-mono text-slate-600">{fmtDate(inst.dueDate)}</span>
+                        <span className="font-mono font-bold text-slate-800">{fmtMoney(Number(inst.amountSyp))}</span>
+                        <span className="font-mono text-emerald-700">{fmtMoney(Number(inst.paidAmount))}</span>
+                        <span className={`font-mono ${voided ? 'text-slate-400 line-through' : 'text-amber-700'}`}>
+                          {fmtMoney(Number(inst.remainingBalance))}
+                        </span>
+                        {usdLinkedSchedule && (
+                          <>
+                            <span className="font-mono text-blue-700" dir="ltr">
+                              {inst.amountUsd != null ? '$' + Number(inst.amountUsd).toFixed(2) : '—'}
+                              {inst.remainingUsd != null && Number(inst.remainingBalance) > 0 && Number(inst.remainingUsd) < Number(inst.amountUsd) && (
+                                <span className="block text-xs text-slate-400">متبقٍ {'$' + Number(inst.remainingUsd).toFixed(2)}</span>
+                              )}
+                            </span>
+                            <span className="font-mono text-blue-800">
+                              {inst.usdDue && Number(inst.remainingBalance) > 0 && !voided
+                                ? (inst.usdDue.dueTodaySyp != null ? fmtMoney(Number(inst.usdDue.dueTodaySyp)) : 'لا سعر')
+                                : '—'}
+                            </span>
+                          </>
+                        )}
+                        <span><Chip cls={sm.cls}>{sm.label}</Chip></span>
+                      </div>
+                    );
+                  })}
+                  <div className="grid gap-x-3 px-5 py-3 bg-slate-50 text-xs font-bold text-slate-500"
+                    style={{ gridTemplateColumns: scheduleCols }}>
+                    <span></span><span>المجموع</span>
+                    <span className="font-mono text-slate-800">{fmtMoney(installmentTotals.amount)}</span>
+                    <span className="font-mono text-emerald-700">{fmtMoney(installmentTotals.paid)}</span>
+                    <span className={`font-mono ${data.status === 'cancelled' ? 'text-slate-400 line-through' : 'text-amber-700'}`}>
+                      {fmtMoney(installmentTotals.remaining)}
+                    </span>
+                    {usdLinkedSchedule && (
+                      <>
+                        <span></span>
+                        <span className="font-mono text-blue-800">
+                          {data.status === 'cancelled' ? '—' : fmtMoney(installmentTotals.dueToday)}
+                        </span>
+                      </>
                     )}
-                  </span>
-                  <span><Chip cls={ds.cls}>{ds.label}</Chip></span>
+                    <span></span>
+                  </div>
                 </div>
-              );
-            })}
-            <div className="grid gap-x-3 px-5 py-3 bg-slate-50 text-xs font-bold text-slate-500"
-              style={{ gridTemplateColumns: '2rem 1fr 1fr 1fr 5rem' }}>
-              <span></span><span>إجمالي الرصيد المفتوح</span><span></span>
-              <span className="font-mono text-amber-700">
-                {fmtMoney(dues.reduce((s: number, d: any) => s + Number(d.usdDue?.dueTodaySyp ?? d.remainingBalance), 0))}
-              </span>
-              <span></span>
-            </div>
+              </div>
+            )}
           </Card>
         )}
 
@@ -1391,6 +1519,10 @@ export default function ContractDetail() {
             </button>
           )}
         </Card>
+
+        {/* الهدايا بعد المال والمهام: لوحة ثانوية كانت تحتل المرتبة الثانية
+            بمساحة كبيرة حتى وهي فارغة، فتدفع بيانات الصفقة إلى الأسفل. */}
+        <ContractGiftsPanel contract={data} />
 
         {/* ══ Group 12: ملاحظات الفاتورة ══════════════════════════════════════ */}
         {data.invoiceNotes && (

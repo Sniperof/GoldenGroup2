@@ -110,7 +110,7 @@ test('service-request periodic creation inherits an unexecuted cancelled due dat
   assert.equal(insertedDueDate, '2026-02-01');
 });
 
-test('successful activation updates device and contract before bootstrapping periodic maintenance', async () => {
+test('successful activation updates the device only (never the contract status) before bootstrapping periodic maintenance', async () => {
   const statements: string[] = [];
   const db = {
     async query(sql: string) {
@@ -136,9 +136,9 @@ test('successful activation updates device and contract before bootstrapping per
       assert.equal(receivedDb, db);
       assert.equal(installedDeviceId, 38);
       assert.equal(createdByUserId, 12);
-      assert.equal(statements.length, 2);
+      assert.equal(statements.length, 1);
       assert.match(statements[0], /UPDATE installed_devices/);
-      assert.match(statements[1], /UPDATE contracts/);
+      assert.ok(!statements.some((sql) => /UPDATE contracts/.test(sql)));
       return generated;
     },
   );

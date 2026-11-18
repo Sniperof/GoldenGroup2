@@ -124,6 +124,101 @@ export async function lockUsdEntryToCentralRate<T extends { currency?: any; meth
   return { ...entry, exchangeRate: rate, amountSyp: Math.round(usd * rate) };
 }
 
+// ── Contract signing (down payment) in USD ──────────────────────────────────
+//
+// Owner decision 2026-11-17 (replaces D1 "signing payments are SYP only"):
+// the down payment may be received in USD, converted at the CONTRACT's rate —
+// the same rate the contract is saved with, so one contract carries one rate:
+//   contract already has usd_rate_snapshot → that rate;
+//   otherwise                              → today's central rate (the rate the
+//                                            schedule will be snapshotted at
+//                                            when it is confirmed on save).
+// When the snapshot is (re)taken on a draft, existing USD signing entries are
+// re-priced to it (repriceDraftUsdSigningEntries), so the two never diverge.
+
+/** The rate a USD signing entry of this contract is converted at. */
+export async function resolveContractSigningRate(db: Db, contractId: number | null): Promise<number> {
+  if (contractId != null) {
+    const { rows } = await db.query('SELECT usd_rate_snapshot FROM contracts WHERE id = $1', [contractId]);
+    const snap = rows[0]?.usd_rate_snapshot;
+    if (snap != null && Number(snap) > 0) return Number(snap);
+  }
+  const today = await getRateOn(db, null);
+  if (!today?.rate) {
+    throw new FxRateMissingError('لا يوجد سعر صرف معتمد اليوم — لا يمكن تسجيل دفعة أولى بالدولار. الدفعات بالليرة غير متأثرة.');
+  }
+  return Number(today.rate);
+}
+
+/**
+ * Prices a signing entry server-side: USD cash → exchangeRate = contract rate,
+ * amountSyp = USD × rate (whole SYP), refRate/refUsd pinned to the same rate
+ * (the BEFORE INSERT reference trigger would otherwise stamp the day's central
+ * rate). SYP and barter entries pass through with no reference override.
+ * The client's typed rate / SYP equivalent is never trusted.
+ */
+export function priceContractSigningEntry<T extends { currency?: any; method?: any; amountValue?: any; exchangeRate?: any; amountSyp?: any }>(
+  entry: T,
+  contractRate: number | null,
+): T & { refRate: number | null; refUsd: number | null } {
+  if (!isUsdCashEntry(entry.currency, entry.method)) {
+    return { ...entry, refRate: null, refUsd: null };
+  }
+  if (!contractRate) throw new FxRateMissingError();
+  const usd = Math.round((Number(entry.amountValue) || 0) * 100) / 100;
+  return {
+    ...entry,
+    currency: 'USD',
+    amountValue: usd,
+    exchangeRate: contractRate,
+    amountSyp: Math.round(usd * contractRate),
+    refRate: contractRate,
+    refUsd: usd,
+  };
+}
+
+/**
+ * Re-prices a DRAFT contract's USD signing entries to `rate` (no-op for any
+ * other status: an approved contract's received money is history).
+ */
+export async function repriceDraftUsdSigningEntries(db: Db, contractId: number, rate: number): Promise<number> {
+  const res = await db.query(
+    `UPDATE contract_payment_entries p
+        SET exchange_rate = $2,
+            amount_syp    = ROUND(p.amount_value * $2::numeric),
+            ref_rate      = $2,
+            ref_usd       = ROUND(p.amount_value, 2)
+       FROM contracts c
+      WHERE c.id = p.contract_id
+        AND p.contract_id = $1
+        AND c.status = 'draft'
+        AND p.installment_id IS NULL
+        AND p.entry_type = 'collection'
+        AND upper(p.currency) = 'USD'
+        AND p.method <> 'barter'
+        AND p.exchange_rate IS DISTINCT FROM $2`,
+    [contractId, rate],
+  );
+  // SYP signing entries keep their SYP; only their USD reference follows the
+  // contract rate, so the statement shows the down payment and the signing
+  // charge at the same rate.
+  await db.query(
+    `UPDATE contract_payment_entries p
+        SET ref_rate = $2,
+            ref_usd  = ROUND(p.amount_syp / $2::numeric, 2)
+       FROM contracts c
+      WHERE c.id = p.contract_id
+        AND p.contract_id = $1
+        AND c.status = 'draft'
+        AND p.installment_id IS NULL
+        AND p.entry_type = 'collection'
+        AND upper(COALESCE(p.currency, 'SYP')) = 'SYP'
+        AND p.ref_rate IS DISTINCT FROM $2`,
+    [contractId, rate],
+  );
+  return res.rowCount ?? 0;
+}
+
 // ── Contract snapshot ───────────────────────────────────────────────────────
 
 /**
@@ -150,6 +245,8 @@ export async function snapshotContractUsdRate(db: Db, contractId: number): Promi
       WHERE contract_id = $1 AND confirmed = TRUE`,
     [contractId, rate.rate],
   );
+  // One contract, one rate: a USD down payment follows the snapshot.
+  await repriceDraftUsdSigningEntries(db, contractId, Number(rate.rate));
   return rate.rate;
 }
 

@@ -1966,7 +1966,9 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
       const inst = await loadCollectableInstallment(pgClient, requestedInstallmentKind, installmentId);
       if (!inst) {
         await pgClient.query('ROLLBACK');
-        return res.status(400).json({ error: 'القسط المحدد غير موجود' });
+        return res.status(400).json({
+          error: 'القسط المحدد غير موجود أو غير قابل للتحصيل (جدول غير مؤكد أو عقد غير فعّال)',
+        });
       }
       if (Number(inst.customerId) !== clientId) {
         await pgClient.query('ROLLBACK');
@@ -2262,6 +2264,9 @@ router.get('/client/:clientId/collectable-installments', requirePermission('open
        ) last_result ON TRUE
        WHERE c.customer_id = $1
          AND i.remaining_balance > 0
+         -- same collectability rule as loadCollectableInstallment
+         AND i.confirmed = TRUE
+         AND c.status = 'active'
          ${branchPredicate}
          AND NOT EXISTS (
            SELECT 1
@@ -3860,7 +3865,6 @@ async function updateContractDeviceStatusOnTaskCompletion(db: Queryable, taskId:
   const taskType = tasks[0].task_type;
 
   let newDeviceStatus: string | null = null;
-  let newContractStatus: string | null = null;
 
   if (taskType === 'device_delivery') {
     newDeviceStatus = 'delivered';
@@ -3868,7 +3872,6 @@ async function updateContractDeviceStatusOnTaskCompletion(db: Queryable, taskId:
     newDeviceStatus = 'installed';
   } else if (taskType === 'device_activation') {
     newDeviceStatus = 'active';
-    newContractStatus = 'active';
   }
 
   // Phase 6: device_status lives on installed_devices, not contracts.
@@ -3876,16 +3879,23 @@ async function updateContractDeviceStatusOnTaskCompletion(db: Queryable, taskId:
   // DEC-CT-04: the UPDATE of status='active' triggers DB-side cascade
   // (installed_devices.activated_at stamping + device_warranties snapshot)
   // installed by migration 203 — no app-side warranty bookkeeping is needed.
-  let resolvedDeviceId: number | null = deviceId ?? null;
+  //
+  // Contract-state integrity: the contract status is never written here
+  // (activation belongs to /approve, completion to the financial recompute),
+  // and a device that already left the contract lifecycle (`contract_cancelled`
+  // after a cancel, or `retrieved`) is never moved back by a late task.
+  const TERMINAL_DEVICE_GUARD = `AND status NOT IN ('contract_cancelled', 'retrieved')`;
+  let resolvedDeviceId: number | null = null;
   if (newDeviceStatus && deviceId) {
-    await db.query(
-      'UPDATE installed_devices SET status = $1 WHERE id = $2',
+    const r = await db.query(
+      `UPDATE installed_devices SET status = $1 WHERE id = $2 ${TERMINAL_DEVICE_GUARD} RETURNING id`,
       [newDeviceStatus, deviceId]
     );
+    resolvedDeviceId = r.rows[0]?.id ?? null;
   } else if (newDeviceStatus && contractId) {
     // fallback via contract_id for tasks that predate Phase 3 backfill
     const r = await db.query(
-      'UPDATE installed_devices SET status = $1 WHERE contract_id = $2 RETURNING id',
+      `UPDATE installed_devices SET status = $1 WHERE contract_id = $2 ${TERMINAL_DEVICE_GUARD} RETURNING id`,
       [newDeviceStatus, contractId]
     );
     resolvedDeviceId = r.rows[0]?.id ?? null;
@@ -3916,13 +3926,6 @@ async function updateContractDeviceStatusOnTaskCompletion(db: Queryable, taskId:
         [resolvedDeviceId, customerId]
       );
     }
-  }
-
-  if (newContractStatus) {
-    await db.query(
-      'UPDATE contracts SET status = $1 WHERE id = $2',
-      [newContractStatus, contractId]
-    );
   }
 }
 

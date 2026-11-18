@@ -510,7 +510,8 @@ export default function ContractForm() {
                     // Plan §2.3 — warranty months/visits. The device-change effect
                     // (zeroing logic below) is now opt-out on initial load so this
                     // value survives.
-                    if (c.warrantyMonths) setWarrantyMonths(Number(c.warrantyMonths) || 0);
+                    // null = not chosen yet; 0 = «بدون كفالة» chosen explicitly.
+                    setWarrantyMonths(c.warrantyMonths == null ? null : Number(c.warrantyMonths) || 0);
                     if (c.warrantyVisits) setWarrantyVisits(Number(c.warrantyVisits) || 0);
 
                     // Plan §4 — sale owner (the deal originator).
@@ -659,7 +660,9 @@ export default function ContractForm() {
     const [contractDate, setContractDate] = useState(new Date().toISOString().slice(0, 10));
     const [deliveryDate, setDeliveryDate] = useState('');
     const [installationDate, setInstallationDate] = useState('');
-    const [warrantyMonths, setWarrantyMonths] = useState(0);
+    // Owner 2026-11-18: the warranty is an explicit choice — no default.
+    // null = not chosen yet, 0 = «بدون كفالة», > 0 = a period of the device model.
+    const [warrantyMonths, setWarrantyMonths] = useState<number | null>(null);
     const [warrantyVisits, setWarrantyVisits] = useState(0);
     // Trade-in context
     const [oldContractNumber, setOldContractNumber] = useState('');
@@ -808,7 +811,7 @@ export default function ContractForm() {
             return;
         }
         if (prevDeviceModelIdRef.current !== deviceModelId) {
-            setWarrantyMonths(0);
+            setWarrantyMonths(null);
             setWarrantyVisits(0);
             prevDeviceModelIdRef.current = deviceModelId;
         }
@@ -1179,11 +1182,22 @@ export default function ContractForm() {
         };
         return labels[m] ?? m;
     };
+    // Owner decision 2026-11-17: a USD down payment converts at the CONTRACT's
+    // rate — the snapshot once the schedule is confirmed, else today's central
+    // rate (which the confirmation then snapshots). Never a typed rate; the
+    // server prices it again and the form only mirrors that.
+    const signingUsdRate: number | null = contractUsdRate ?? usdRate ?? null;
+    const entryUsdRate = (e: PaymentEntryDraft): number => {
+        const saved = Number(e.exchangeRate);
+        // A saved entry keeps the rate it was saved at (the server re-prices it
+        // to the snapshot when the schedule is confirmed).
+        if (contractUsdRate == null && saved > 0) return saved;
+        return signingUsdRate || 0;
+    };
     const entrySyp = (e: PaymentEntryDraft): number => {
         if (isBarter(e.method)) return Number(e.barterValueSyp) || 0;
         const val = Number(e.amountValue) || 0;
-        // USD cash counts at the central rate of the day (owner decision, migr 495) — never a typed rate.
-        if (e.currency === 'USD') return Math.round(val * (usdRate || 0));
+        if (e.currency === 'USD') return Math.round(val * entryUsdRate(e));
         return val;
     };
     const newPaymentEntry = (): PaymentEntryDraft => ({
@@ -1208,8 +1222,8 @@ export default function ContractForm() {
             if (!e.barterName.trim()) errors.push('اسم المقايضة مطلوب');
             if (!(Number(e.barterValueSyp) > 0)) errors.push('قيمة المقايضة مطلوبة');
         }
-        if (e.currency === 'USD' && e.paymentCategory !== 'barter') {
-            errors.push('دفعات العقد تُقبض بالليرة السورية فقط');
+        if (e.currency === 'USD' && e.paymentCategory !== 'barter' && !(entryUsdRate(e) > 0)) {
+            errors.push('لا يوجد سعر صرف معتمد اليوم — لا يمكن إدخال الدفعة بالدولار');
         }
         return errors;
     };
@@ -1242,7 +1256,8 @@ export default function ContractForm() {
     };
 
     const grandTotal = useMemo(() => lineItems.reduce((s, i) => s + i.quantity * i.unitPrice, 0), [lineItems]);
-    const totalPaidSyp = useMemo(() => paymentEntries.reduce((s, e) => s + entrySyp(e), 0), [paymentEntries]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- entrySyp reads only the rates listed
+    const totalPaidSyp = useMemo(() => paymentEntries.reduce((s, e) => s + entrySyp(e), 0), [paymentEntries, contractUsdRate, usdRate]);
     const totalInstallmentSyp = useMemo(() => installmentDrafts.reduce((s, i) => s + (Number(i.amountSyp) || 0), 0), [installmentDrafts]);
     const remainingAfterPayments = grandTotal - totalPaidSyp;
     const hasConfirmedPayments = useMemo(() => confirmedEntries.size > 0, [confirmedEntries]);
@@ -1448,15 +1463,17 @@ export default function ContractForm() {
         }
         // كفالة محفوظة خارج كتالوج الموديل (عقود أُنشئت قبل ربط الكفالة بالجهاز):
         // لا تُمحى بصمت، بل يُطلب اختيار بند معرّف قبل الحفظ.
-        if (warrantyMonths > 0 && !deviceWarrantyPeriods.some(p => p.months === warrantyMonths)) {
+        if (warrantyMonths === null) {
+            issues.push('اختر مدة كفالة العقد من كفالات الجهاز، أو «بدون كفالة» صراحةً');
+        } else if (warrantyMonths > 0 && !deviceWarrantyPeriods.some(p => p.months === warrantyMonths)) {
             issues.push('مدة الكفالة المحفوظة غير معرّفة على هذا الموديل — اختر مدة من كفالات الجهاز أو «بدون كفالة»');
         }
 
         // National ID format applies always when entered (even in draft).
         if (!nidIsValid) issues.push('الرقم الوطني يجب أن يكون 11 رقم بالضبط');
-        // D1: contract signing / down payments are SYP only.
-        if (paymentEntries.some(e => e.currency === 'USD' && e.paymentCategory !== 'barter')) {
-            issues.push('دفعات العقد تُقبض بالليرة السورية فقط — حوّل الدفعات بالدولار إلى الليرة');
+        // A USD down payment needs a rate to convert at (contract or today's).
+        if (paymentEntries.some(e => e.currency === 'USD' && e.paymentCategory !== 'barter' && !(entryUsdRate(e) > 0))) {
+            issues.push('لا يوجد سعر صرف معتمد اليوم — لا يمكن حفظ دفعة أولى بالدولار');
         }
 
         // Plan 2026-06-10 (revised) — Financials are required even for drafts.
@@ -1557,8 +1574,8 @@ export default function ContractForm() {
                 contractDate,
                 deliveryDate: deliveryDate || null,
                 installationDate: installationDate || null,
-                warrantyMonths: warrantyMonths > 0 ? warrantyMonths : 0,
-                warrantyVisits: (warrantyMonths > 0 && warrantyVisits > 0) ? warrantyVisits : null,
+                warrantyMonths: warrantyMonths === null ? null : Math.max(0, warrantyMonths),
+                warrantyVisits: ((warrantyMonths ?? 0) > 0 && warrantyVisits > 0) ? warrantyVisits : null,
                 saleType,
                 oldContractNumber: saleType === 'tradein' ? oldContractNumber.trim() : null,
                 oldDeviceCondition: saleType === 'tradein' ? oldDeviceCondition : null,
@@ -1619,8 +1636,8 @@ export default function ContractForm() {
                         method: e.method,
                         currency: e.currency,
                         amountValue: Number(e.amountValue) || 0,
-                        // Informational only — the server re-applies the central rate.
-                        exchangeRate: e.currency === 'USD' ? usdRate : null,
+                        // Informational only — the server re-prices at the contract's rate.
+                        exchangeRate: e.currency === 'USD' ? entryUsdRate(e) || null : null,
                         amountSyp: entrySyp(e),
                         referenceNumber: e.paymentCategory === 'transfer' ? e.referenceNumber || null : null,
                         barterName: isBarter(e.method) ? e.barterName || null : null,
@@ -1749,7 +1766,7 @@ export default function ContractForm() {
         setSelectedOfferVisitId(null);
         setSelectedOfferTaskId(null);
         setSaleOwnerId('');
-        setWarrantyMonths(0);
+        setWarrantyMonths(null);
         setWarrantyVisits(0);
     };
 
@@ -2772,9 +2789,12 @@ export default function ContractForm() {
                                     كفالات الموديل حصراً. القائمة الثابتة السابقة (6/12/24/36)
                                     كانت تسمح بمنح كفالة لا يعرفها الكتالوج، ولأنها لا تحمل
                                     عدد زيارات كانت تُخزَّن بصفر فيسقط أثرها على الصيانة. */}
+                                {/* لا اختيار افتراضي (قرار 2026-11-18): -1 = «لم تُختر بعد»، و«بدون كفالة»
+                                    خيار صريح متاح دائماً حتى للموديل الذي لا كفالات له. */}
                                 <Select<number>
-                                    value={warrantyMonths}
+                                    value={warrantyMonths ?? -1}
                                     onChange={(months) => {
+                                        if (months === -1) { setWarrantyMonths(null); setWarrantyVisits(0); return; }
                                         const period = deviceWarrantyPeriods.find(p => p.months === months);
                                         // المدة والزيارات تُؤخذان معاً من نفس البند، فلا تُفبرك إحداهما.
                                         setWarrantyMonths(period ? period.months : 0);
@@ -2782,8 +2802,8 @@ export default function ContractForm() {
                                     }}
                                     ariaLabel="مدة الكفالة"
                                     className="w-full"
-                                    disabled={deviceWarrantyPeriods.length === 0}
                                     options={[
+                                        { value: -1, label: '— اختر مدة الكفالة —' },
                                         { value: 0, label: 'بدون كفالة' },
                                         ...deviceWarrantyPeriods.map(p => ({ value: p.months, label: p.label })),
                                     ]}
@@ -2795,7 +2815,7 @@ export default function ContractForm() {
                                     تُعرَّف من «إدارة الأجهزة ← الموديل ← فترات الكفالة».
                                 </p>
                             )}
-                            {warrantyMonths > 0 && (
+                            {(warrantyMonths ?? 0) > 0 && (
                                 <p className="text-xs text-slate-400 mt-1 pr-1">
                                     {warrantyVisits > 0 ? `${warrantyVisits} زيارة ضمن مدة الكفالة` : 'تطبق الكفالة عند تشغيل الجهاز ودخوله الخدمة الفعلية.'}
                                 </p>
@@ -3025,18 +3045,20 @@ export default function ContractForm() {
                                                             placeholder={entry.currency === 'USD' ? 'المبلغ USD' : 'المبلغ ل.س'}
                                                             className="flex-1 text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-sky-400 font-mono" dir="ltr" />
                                                     )}
-                                                    {/* D1: contract signing / down payments are SYP only. An old draft
-                                                        entry in USD can only be switched back to SYP. */}
+                                                    {/* عملة الدفعة: ليرة أو دولار. الدولار يُحوَّل بسعر صرف العقد. */}
                                                     {!isBarter(entry.method) && (
-                                                        entry.currency === 'USD' ? (
-                                                            <button type="button"
-                                                                onClick={() => updateEntry(idx, { currency: 'SYP', exchangeRate: '' })}
-                                                                className="w-28 text-xs font-bold rounded-lg border border-rose-300 bg-rose-50 text-rose-700 px-2 py-2">
-                                                                USD — حوّل لليرة
-                                                            </button>
-                                                        ) : (
-                                                            <span className="w-14 text-center text-xs font-bold text-slate-500 border border-slate-200 rounded-lg px-2 py-2 bg-slate-50">ل.س</span>
-                                                        )
+                                                        <div className="flex shrink-0 rounded-lg border border-slate-200 overflow-hidden text-xs font-bold" role="group" aria-label="عملة الدفعة">
+                                                            {(['SYP', 'USD'] as const).map(cur => (
+                                                                <button key={cur} type="button"
+                                                                    aria-pressed={entry.currency === cur}
+                                                                    disabled={cur === 'USD' && !signingUsdRate}
+                                                                    title={cur === 'USD' && !signingUsdRate ? 'لا يوجد سعر صرف معتمد اليوم' : undefined}
+                                                                    onClick={() => updateEntry(idx, { currency: cur, exchangeRate: '' })}
+                                                                    className={`px-2.5 py-2 transition-colors disabled:opacity-40 ${entry.currency === cur ? (cur === 'USD' ? 'bg-blue-600 text-white' : 'bg-slate-700 text-white') : 'bg-white text-slate-500 hover:bg-slate-50'}`}>
+                                                                    {cur === 'USD' ? '$' : 'ل.س'}
+                                                                </button>
+                                                            ))}
+                                                        </div>
                                                     )}
                                                     <button type="button" onClick={() => deleteEntry(idx)}
                                                         className="p-1.5 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors">
@@ -3045,7 +3067,15 @@ export default function ContractForm() {
                                                 </div>
 
                                                 {entry.currency === 'USD' && entry.paymentCategory !== 'barter' && (
-                                                    <p className="text-xs font-bold text-rose-600">دفعات العقد تُقبض بالليرة السورية فقط — حوّل هذه الدفعة إلى الليرة.</p>
+                                                    entryUsdRate(entry) > 0 ? (
+                                                        <p className="text-xs text-blue-700">
+                                                            بسعر صرف العقد <b className="font-mono">{entryUsdRate(entry).toLocaleString('en-US')} ل.س / $</b>
+                                                            {Number(entry.amountValue) > 0 && <> = <b className="font-mono">{entrySyp(entry).toLocaleString('en-US')} ل.س</b></>}
+                                                            {contractUsdRate == null && <span className="text-slate-400"> · يُثبَّت سعراً للعقد عند تأكيد جدول الأقساط</span>}
+                                                        </p>
+                                                    ) : (
+                                                        <p className="text-xs font-bold text-rose-600">لا يوجد سعر صرف معتمد اليوم — لا يمكن إدخال الدفعة بالدولار.</p>
+                                                    )
                                                 )}
 
                                                 {/* Row 2: conditional sub-fields */}

@@ -33,7 +33,8 @@ export interface WarrantyCheckResult {
   ok: boolean;
   error?: string;
   /** القيم المعتمدة بعد التحقق — تُكتب كما هي فلا ينفصل العدد عن المدة. */
-  warrantyMonths: number;
+  /** null = not chosen yet; 0 = «بدون كفالة» chosen explicitly; > 0 = a catalogue period. */
+  warrantyMonths: number | null;
   warrantyVisits: number;
 }
 
@@ -46,6 +47,11 @@ export function checkContractWarranty(
   devicePeriodsRaw: unknown,
   deviceModelName?: string | null,
 ): WarrantyCheckResult {
+  // 2026-11-18 (owner): the warranty is an EXPLICIT choice. null/'' = not
+  // chosen yet (kept null, blocks approval); 0 = «بدون كفالة» chosen on purpose.
+  if (requestedMonths === null || requestedMonths === undefined || requestedMonths === '') {
+    return { ok: true, warrantyMonths: null, warrantyVisits: 0 };
+  }
   const months = Number(requestedMonths) || 0;
   if (months <= 0) return { ok: true, warrantyMonths: 0, warrantyVisits: 0 };
 
