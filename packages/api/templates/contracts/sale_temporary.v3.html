@@ -15,7 +15,6 @@
       max-width: 860px;
       line-height: 1.85;
       font-size: 13.5px;
-      counter-reset: article;
     }
     b, strong { font-weight: 700; }
 
@@ -81,8 +80,6 @@
     }
     .article-title { break-after: avoid; page-break-after: avoid; }
     .article-title { font-weight: 800; color: #0f4c5c; margin-bottom: 4px; }
-    .article-title::before { counter-increment: article; content: "المادة /" counter(article) "/"; }
-    .article-title:not(:empty)::before { content: "المادة /" counter(article) "/ - "; }
     .preline { white-space: pre-line; }
     .label { color: #5b6b70; font-size: 0.85rem; }
     .value { font-weight: 600; }
@@ -225,7 +222,6 @@
   </div>
 
   <div class="article">
-    <div class="article-title"></div>
     <div>تعتبر مقدمة هذا العقد جزءاً لا يتجزأ منه، وتعد متممة ومفسرة لجميع أحكامه وبنوده.</div>
   </div>
 
@@ -263,13 +259,6 @@
 ولا تشمل الكفالة أي عطل أو ضرر ناتج عن سوء الاستخدام أو التخريب أو استعمال قطع من غير شركة غولدن غروب، ولا القطع الاستهلاكية بطبيعتها.</div>
   </div>
 
-  {{#periodicVisitsSection}}
-  <div class="article">
-    <div class="article-title">الزيارات الدورية</div>
-    <div class="preline">تكون الزيارات الدورية {{periodic_interval_text}} من تاريخ التشغيل (عدد الزيارات: {{periodic_visits_total}})، وهي مجانية من ناحية أجور الزيارة والخدمة شرط الالتزام بمواعيد الصيانة الدورية، ولا تتضمن القطع الاستهلاكية بطبيعتها.</div>
-  </div>
-  {{/periodicVisitsSection}}
-
   <div class="article">
     <div class="article-title">الأثر المالي عند التثبيت أو التسوية</div>
     <div class="preline">لا يعد هذا العقد عقد بيع نهائي، ولا يرتب بذاته أي ثمن أو ذمة على الفريق الثاني إلا عند تثبيت البيعة بملحق موقّع يحدد السعر وطريقة السداد.
@@ -278,7 +267,7 @@
 
   {{#giftsSection}}
   <div class="article">
-    <div class="article-title">وعود الهدايا</div>
+    <div class="article-title">الهدايا</div>
     <div class="preline">يلتزم الفريق الأول بالهدايا التالية وفق شروطها:
 {{gifts_text}}</div>
   </div>

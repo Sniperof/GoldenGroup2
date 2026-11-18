@@ -15,7 +15,6 @@
       max-width: 860px;
       line-height: 1.85;
       font-size: 13.5px;
-      counter-reset: article;
     }
     b, strong { font-weight: 700; }
 
@@ -81,8 +80,6 @@
     }
     .article-title { break-after: avoid; page-break-after: avoid; }
     .article-title { font-weight: 800; color: #0f4c5c; margin-bottom: 4px; }
-    .article-title::before { counter-increment: article; content: "المادة /" counter(article) "/"; }
-    .article-title:not(:empty)::before { content: "المادة /" counter(article) "/ - "; }
     .preline { white-space: pre-line; }
     .label { color: #5b6b70; font-size: 0.85rem; }
     .value { font-weight: 600; }
@@ -225,13 +222,12 @@
   </div>
 
   <div class="article">
-    <div class="article-title"></div>
     <div>تعتبر مقدمة هذا العقد جزءاً لا يتجزأ منه، وتعد متممة ومفسرة لجميع أحكامه وبنوده.</div>
   </div>
 
   <div class="article">
     <div class="article-title">موضوع البيع</div>
-    <div>باع الفريق الأول إلى الفريق الثاني الجهاز المبين أدناه، بالسعر الوارد في هذه المادة.</div>
+    <div>باع الفريق الأول إلى الفريق الثاني الجهاز المبين أدناه، بالسعر الوارد في هذا البند.</div>
 
     <div class="installments">
       <div class="label" style="margin-top:10px">أولاً — الجهاز موضوع البيع:</div>
@@ -251,7 +247,7 @@
       <div class="label" style="margin-top:12px">ثانياً — السعر:</div>
       <table class="summary">
         <thead>
-          <tr><th>البند</th><th>بالليرة السورية</th>{{#usdPriceSection}}<th>بالدولار</th>{{/usdPriceSection}}</tr>
+          <tr><th>البند</th><th>بالليرة السورية</th></tr>
         </thead>
         <tbody>
           {{priceRows}}
@@ -288,20 +284,8 @@
   </div>
 
   <div class="article">
-    <div class="article-title">قطع الغيار والخدمة</div>
-    <div>يلتزم الفريق الأول بتأمين جميع قطع الغيار اللازمة للمنتج والخدمة المتعلقة به، وفق السياسة المعتمدة لدى الشركة وضمن حدود ما يشمله هذا العقد والكفالة الممنوحة بموجبه.</div>
-  </div>
-
-  {{#periodicVisitsSection}}
-  <div class="article">
-    <div class="article-title">الزيارات الدورية</div>
-    <div class="preline">تشمل كفالة المنتج زيارات دورية {{periodic_interval_text}} من تاريخ التشغيل (عدد الزيارات خلال مدة الكفالة: {{periodic_visits_total}})، وهي مجانية من ناحية أجور الزيارة والخدمة شرط التزام الفريق الثاني بمواعيد الصيانة الدورية، ولا تتضمن القطع الاستهلاكية بطبيعتها.</div>
-  </div>
-  {{/periodicVisitsSection}}
-
-  <div class="article">
     <div class="article-title">السداد</div>
-    <div>اتفق الفريقان على أن طريقة السداد في هذا العقد هي: <b>{{payment_type_label}}</b>{{#usdPriceSection}}، وتُحسب المعادلات بالدولار بسعر صرف {{usd_rate_text}} ل.س للدولار{{/usdPriceSection}}.</div>
+    <div>اتفق الفريقان على أن طريقة السداد في هذا العقد هي: <b>{{payment_type_label}}</b>{{#usdLinkedSection}}، وتُحدَّد الأقساط بالدولار الأمريكي بسعر صرف {{usd_rate_text}} ل.س للدولار{{/usdLinkedSection}}.</div>
 
     <div class="installments">
       <div class="label" style="margin-top:12px">أولاً — ملخص قيمة العقد وسدادها:</div>
@@ -309,7 +293,7 @@
         <thead>
           <tr>
             <th>البند</th>
-            <th>بالليرة السورية</th>{{#usdPriceSection}}<th>بالدولار</th>{{/usdPriceSection}}
+            <th>بالليرة السورية</th>
           </tr>
         </thead>
         <tbody>
@@ -327,7 +311,7 @@
             <th>#</th>
             <th>طريقة الدفع</th>
             <th>المبلغ المدفوع</th>
-            <th>ما يعادله بالليرة</th>{{#usdPriceSection}}<th>ما يعادله بالدولار</th>{{/usdPriceSection}}
+            <th>ما يعادله بالليرة</th>
           </tr>
         </thead>
         <tbody>
@@ -345,11 +329,11 @@
           <tr>
             <th>#</th>
             <th>تاريخ القسط</th>
-            <th>المبلغ</th>{{#usdLinkedSection}}<th>بالدولار (أو ما يعادلها)</th>{{/usdLinkedSection}}
+            <th>{{#usdLinkedSection}}المبلغ بالدولار{{/usdLinkedSection}}{{#sypInstallmentsSection}}المبلغ{{/sypInstallmentsSection}}</th>
           </tr>
         </thead>
         <tbody>
-          {{installmentsRows}}
+          {{installmentsRowsV3}}
         </tbody>
       </table>{{#usdLinkedSection}}
       <div class="label" style="margin-top:8px">{{usd_link_text}}</div>{{/usdLinkedSection}}
@@ -364,7 +348,7 @@
 
   {{#giftsSection}}
   <div class="article">
-    <div class="article-title">وعود الهدايا</div>
+    <div class="article-title">الهدايا</div>
     <div class="preline">يلتزم الفريق الأول بالهدايا التالية وفق شروطها:
 {{gifts_text}}</div>
   </div>

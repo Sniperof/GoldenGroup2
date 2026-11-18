@@ -22,6 +22,8 @@ export interface StatementFxRow {
   fx_contract_rate?: unknown;
   fx_installment_usd?: unknown;
   fx_date_rate?: unknown;
+  /** «حسب إجمالي الدين» view: the one line carrying the whole contract value. */
+  is_debt_total?: boolean | null;
 }
 
 export function contractLineFxReference(row: StatementFxRow): { usd: number; rate: number; label: string } | null {
@@ -38,5 +40,9 @@ export function contractLineFxReference(row: StatementFxRow): { usd: number; rat
     return { usd, rate, label: `قيمة القسط ${fxNum(usd, 2)} $ ${rateLabel} ${fxNum(rate)} ل.س/$` };
   }
   const usd = Math.round((amount / rate) * 100) / 100;
+  if (row.is_debt_total && row.kind === 'charge' && row.source_type === 'contract') {
+    // Owner 2026-11-18: the contract-total line states what the contract costs in USD.
+    return { usd, rate, label: `قيمة العقد بالدولار: ${fxNum(usd, 2)} $ (${rateLabel} ${fxNum(rate)} ل.س/$)` };
+  }
   return { usd, rate, label: `ما يعادل ${fxNum(usd, 2)} $ ${rateLabel} ${fxNum(rate)} ل.س/$` };
 }

@@ -397,25 +397,24 @@ function signingEntries(paymentEntries: any[]): any[] {
 
 export function buildPaymentSummaryRowsHtml(input: RenderContractInput): string {
   const { contract, paymentEntries = [], installments = [] } = input;
-  const rate = contractUsdRate(contract);
   const finalPrice = Number(contract?.finalPrice || 0);
-  const down = buildDownPayment(paymentEntries, rate);
+  const down = buildDownPayment(paymentEntries, contractUsdRate(contract));
   const installmentsTotal = installments.reduce((s: number, i: any) => s + Number(i?.amountSyp || 0), 0);
   const remaining = installments.length ? installmentsTotal : Math.max(0, finalPrice - down.amount);
-  const usdLinked = installments.some((i: any) => i?.amountUsd != null);
-  const remainingUsd = usdLinked && rate
-    ? `${installments.reduce((s: number, i: any) => s + Number(i?.amountUsd || 0), 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`
-    : usdCell(remaining, rate);
-  const row = (label: string, syp: number, usd: string, strong = false) => {
+  const usdLinked = installments.some((i: any) => i?.amountUsd != null) && Number(contract?.usdRateSnapshot) > 0;
+  // Owner 2026-11-18: value, fees, down payment and the remainder are stated in
+  // SYP only; the remainder is what the USD installments below are built on.
+  const row = (label: string, syp: number, strong = false) => {
     const cls = strong ? ' class="strong"' : '';
-    return `<tr${cls}><td>${escapeHtml(label)}</td><td>${escapeHtml(formatMoney(syp))} ل.س<div class="words">فقط ${escapeHtml(sypInWords(syp))}</div></td>${
-      rate ? `<td dir="ltr">${escapeHtml(usd)}</td>` : ''
-    }</tr>`;
+    return `<tr${cls}><td>${escapeHtml(label)}</td><td>${escapeHtml(formatMoney(syp))} ل.س<div class="words">فقط ${escapeHtml(sypInWords(syp))}</div></td></tr>`;
   };
+  const remainingLabel = !installments.length
+    ? 'المبلغ الباقي'
+    : usdLinked ? 'المبلغ الباقي (تُبنى عليه الأقساط بالدولار أدناه)' : 'المبلغ الباقي (يُسدَّد بالأقساط أدناه)';
   return [
-    row('قيمة العقد الإجمالية', finalPrice, usdCell(finalPrice, rate), true),
-    row('الدفعة الأولى (المقبوضة عند التوقيع)', down.amount, usdCell(down.amount, rate)),
-    row(installments.length ? 'المبلغ الباقي (يُسدَّد بالأقساط أدناه)' : 'المبلغ الباقي', remaining, remainingUsd, true),
+    row('قيمة العقد الإجمالية', finalPrice, true),
+    row('الدفعة الأولى (المقبوضة عند التوقيع)', down.amount),
+    row(remainingLabel, remaining, true),
   ].join('');
 }
 
@@ -426,7 +425,6 @@ export function buildPaymentSummaryRowsHtml(input: RenderContractInput): string 
  */
 export function buildPriceRowsHtml(input: RenderContractInput): string {
   const { contract, lineItems = [], discount } = input;
-  const rate = contractUsdRate(contract);
   const basePrice = Number(contract?.basePrice || 0);
   const deviceLines = lineItems.filter((i: any) => i?.itemType === 'device');
   const deviceTotal = deviceLines.reduce((s: number, i: any) => s + Number(i?.totalPrice || 0), 0);
@@ -435,9 +433,7 @@ export function buildPriceRowsHtml(input: RenderContractInput): string {
   const listPrice = devicePrice + discountAmount;
   const row = (label: string, syp: number, opts: { strong?: boolean; minus?: boolean } = {}) => {
     const sign = opts.minus ? '− ' : '';
-    return `<tr${opts.strong ? ' class="strong"' : ''}><td>${escapeHtml(label)}</td><td>${sign}${escapeHtml(formatMoney(syp))} ل.س<div class="words">فقط ${escapeHtml(sypInWords(syp))}</div></td>${
-      rate ? `<td dir="ltr">${sign}${escapeHtml(usdCell(syp, rate))}</td>` : ''
-    }</tr>`;
+    return `<tr${opts.strong ? ' class="strong"' : ''}><td>${escapeHtml(label)}</td><td>${sign}${escapeHtml(formatMoney(syp))} ل.س<div class="words">فقط ${escapeHtml(sypInWords(syp))}</div></td></tr>`;
   };
   const rows = [row('سعر المنتج بتاريخ هذا العقد', listPrice)];
   if (discountAmount > 0) {
@@ -455,8 +451,7 @@ export function buildPriceRowsHtml(input: RenderContractInput): string {
 }
 
 export function buildDownPaymentRowsHtml(input: RenderContractInput): string {
-  const { contract, paymentEntries = [] } = input;
-  const rate = contractUsdRate(contract);
+  const { paymentEntries = [] } = input;
   const rows = signingEntries(paymentEntries).map((e: any, idx: number) => {
     const method = PAYMENT_METHOD_TEXT[String(e?.method)] ?? String(e?.method ?? '');
     const isUsd = String(e?.currency ?? '').toUpperCase() === 'USD' && e?.method !== 'barter';
@@ -465,11 +460,8 @@ export function buildDownPaymentRowsHtml(input: RenderContractInput): string {
     if (e?.method === 'barter') paid = `${e?.barterName ?? 'مقايضة'}`;
     else if (isUsd) paid = `${Number(e?.amountValue || 0).toLocaleString('en-US')} $ (بسعر ${formatMoney(e?.exchangeRate)} ل.س)`;
     else paid = `${formatMoney(syp)} ل.س`;
-    const usd = isUsd ? `${Number(e?.amountValue || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $` : usdCell(syp, rate);
     const ref = e?.referenceNumber ? ` — رقم ${e.referenceNumber}` : '';
-    return `<tr><td>${idx + 1}</td><td>${escapeHtml(method + ref)}</td><td>${escapeHtml(paid)}</td><td>${escapeHtml(formatMoney(syp))} ل.س</td>${
-      rate ? `<td dir="ltr">${escapeHtml(usd)}</td>` : ''
-    }</tr>`;
+    return `<tr><td>${idx + 1}</td><td>${escapeHtml(method + ref)}</td><td>${escapeHtml(paid)}</td><td>${escapeHtml(formatMoney(syp))} ل.س</td></tr>`;
   });
   return rows.join('');
 }
@@ -717,10 +709,22 @@ export function renderContract(input: RenderContractInput): RenderContractResult
     }</tr>`)
     .join('');
 
+  // v3 schedule (owner 2026-11-18): a USD-linked installment is stated in USD
+  // only; a legacy SYP schedule keeps its SYP amount.
+  const installmentsRowsV3 = installments
+    .map((i) => {
+      const amount = usdLinked && i.amountUsd != null
+        ? `<td dir="ltr">${escapeHtml(Number(i.amountUsd).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))} $</td>`
+        : `<td>${escapeHtml(formatMoney(i.amountSyp))} ل.س</td>`;
+      return `<tr><td>${i.installmentNumber}</td><td>${escapeHtml(formatDate(i.dueDate))}</td>${amount}</tr>`;
+    })
+    .join('');
+
   const sections = {
     draftWatermark,
     installmentsSection: installments.length > 0,
     usdLinkedSection: usdLinked && installments.length > 0,
+    sypInstallmentsSection: !usdLinked && installments.length > 0,
     periodicVisitsSection: Number(contract.warrantyVisits) > 0,
     discountSection: Math.max(Number(contract.basePrice || 0) - Number(contract.finalPrice || 0), 0) > 0,
     // v3 sections — each clause prints only when it has content.
@@ -748,6 +752,7 @@ export function renderContract(input: RenderContractInput): RenderContractResult
   // variable pass so applyVars never escapes their markup.
   const rawFragments: Record<string, string> = {
     installmentsRows,
+    installmentsRowsV3,
     paymentSummaryRows: buildPaymentSummaryRowsHtml(input),
     priceRows: buildPriceRowsHtml(input),
     downPaymentRows: buildDownPaymentRowsHtml(input),

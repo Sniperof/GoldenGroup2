@@ -18,6 +18,13 @@ test('signing charge converts at the contract rate', () => {
   assert.equal(ref?.label, 'ما يعادل 800.00 $ بسعر العقد 15,000 ل.س/$');
 });
 
+test('the contract-total line (total view) states the contract value in USD', () => {
+  const ref = contractLineFxReference({
+    kind: 'charge', source_type: 'contract', debit_amount: 20_021_300, fx_contract_rate: 15_000, is_debt_total: true,
+  });
+  assert.equal(ref?.label, 'قيمة العقد بالدولار: 1,334.75 $ (بسعر العقد 15,000 ل.س/$)');
+});
+
 test('a contract without a snapshot uses the rate on the line date', () => {
   const ref = contractLineFxReference({
     kind: 'charge', source_type: 'contract', debit_amount: 150_000, fx_date_rate: 14_000,

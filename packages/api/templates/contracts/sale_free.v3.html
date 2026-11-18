@@ -15,7 +15,6 @@
       max-width: 860px;
       line-height: 1.85;
       font-size: 13.5px;
-      counter-reset: article;
     }
     b, strong { font-weight: 700; }
 
@@ -81,8 +80,6 @@
     }
     .article-title { break-after: avoid; page-break-after: avoid; }
     .article-title { font-weight: 800; color: #0f4c5c; margin-bottom: 4px; }
-    .article-title::before { counter-increment: article; content: "المادة /" counter(article) "/"; }
-    .article-title:not(:empty)::before { content: "المادة /" counter(article) "/ - "; }
     .preline { white-space: pre-line; }
     .label { color: #5b6b70; font-size: 0.85rem; }
     .value { font-weight: 600; }
@@ -225,7 +222,6 @@
   </div>
 
   <div class="article">
-    <div class="article-title"></div>
     <div>تعتبر مقدمة هذا العقد جزءاً لا يتجزأ منه، وتعد متممة ومفسرة لجميع أحكامه وبنوده.</div>
   </div>
 
@@ -238,7 +234,7 @@
 عنوان التركيب: {{installation_address_line}}
 العنوان التفصيلي للتركيب: {{installation_detail_text}}
 
-وتثبت هذه المادة أن الجهاز وما يتبعه قد سُلّم إلى الفريق الثاني دون ترتيب أي ثمن بيع أو رصيد مستحق عليه.</div>
+ويثبت هذا البند أن الجهاز وما يتبعه قد سُلّم إلى الفريق الثاني دون ترتيب أي ثمن بيع أو رصيد مستحق عليه.</div>
     {{#accessoriesSection}}
     <div class="preline" style="margin-top:8px">قطع إضافية وملحقات مشمولة:
 {{accessories_text}}</div>
@@ -268,18 +264,6 @@
     {{/noWarrantySection}}
   </div>
 
-  <div class="article">
-    <div class="article-title">قطع الغيار والخدمة</div>
-    <div>يلتزم الفريق الأول بتأمين جميع قطع الغيار اللازمة للمنتج والخدمة المتعلقة به، وفق السياسة المعتمدة لدى الشركة وضمن حدود الكفالة الممنوحة بموجب هذا العقد.</div>
-  </div>
-
-  {{#periodicVisitsSection}}
-  <div class="article">
-    <div class="article-title">الزيارات الدورية</div>
-    <div class="preline">تشمل كفالة المنتج زيارات دورية {{periodic_interval_text}} من تاريخ التشغيل (عدد الزيارات خلال مدة الكفالة: {{periodic_visits_total}})، وهي مجانية من ناحية أجور الزيارة والخدمة شرط الالتزام بمواعيد الصيانة الدورية، ولا تتضمن القطع الاستهلاكية بطبيعتها.</div>
-  </div>
-  {{/periodicVisitsSection}}
-
   {{#serviceFeesSection}}
   <div class="article">
     <div class="article-title">رسوم الخدمة</div>
@@ -289,7 +273,7 @@
 
   {{#giftsSection}}
   <div class="article">
-    <div class="article-title">وعود الهدايا</div>
+    <div class="article-title">الهدايا</div>
     <div class="preline">يلتزم الفريق الأول بالهدايا التالية وفق شروطها:
 {{gifts_text}}</div>
   </div>

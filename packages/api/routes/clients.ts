@@ -1585,12 +1585,14 @@ router.get('/:id/account-statement', requirePermission('clients.account_statemen
                    ELSE 'إجمالي تكلفة الصيانة — مهمة #' || MIN(src.source_id)
                  END AS description,
                  NULL::varchar AS reference_no,
-                 SUM(src.amount_syp) AS amount_syp
+                 SUM(src.amount_syp) AS amount_syp,
+                 TRUE AS is_debt_total
             FROM src WHERE src.debt_key IS NOT NULL
            GROUP BY src.debt_key
           UNION ALL
           SELECT src.id, src.occurred_at, src.kind, src.source_type, src.source_id, src.source_ref_id, src.contract_id,
-                 src.description, src.reference_no, src.amount_syp
+                 src.description, src.reference_no, src.amount_syp,
+                 FALSE AS is_debt_total
             FROM src WHERE src.debt_key IS NULL
         ) fm_view`
       : 'financial_movements';
@@ -1601,6 +1603,7 @@ router.get('/:id/account-statement', requirePermission('clients.account_statemen
            SELECT
              id, occurred_at, kind, source_type, source_id, source_ref_id, contract_id,
              description, reference_no,
+             ${totalView ? 'is_debt_total' : 'FALSE AS is_debt_total'},
              CASE WHEN kind IN ('charge','refund')    THEN amount_syp ELSE 0 END AS debit_amount,
              CASE WHEN kind IN ('payment','discount') THEN amount_syp ELSE 0 END AS credit_amount,
              SUM(CASE WHEN kind IN ('charge','refund') THEN amount_syp ELSE -amount_syp END)
