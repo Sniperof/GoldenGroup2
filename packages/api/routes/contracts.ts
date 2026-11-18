@@ -51,6 +51,9 @@ import {
   snapshotContractUsdRate,
   unconfirmContractSchedule,
   fxReferenceDeleteMessage,
+  isUsdCashEntry,
+  priceContractSigningEntry,
+  resolveContractSigningRate,
 } from '../services/fxRates.js';
 import {
   isInstallationGeoLevel,
@@ -978,12 +981,19 @@ router.get('/:id', requirePermission('contracts.view_list'), async (req, res) =>
       [contract.id],
     ),
     pool.query(
-      `SELECT id, method, currency, amount_value AS "amountValue", exchange_rate AS "exchangeRate",
-              amount_syp AS "amountSyp", reference_number AS "referenceNumber",
-              barter_name AS "barterName", barter_value_syp AS "barterValueSyp",
-              received_by_employee_id AS "receivedByEmployeeId", received_at AS "receivedAt", notes,
-              entry_type AS "entryType", installment_id AS "installmentId"
-       FROM contract_payment_entries WHERE contract_id = $1 ORDER BY id`,
+      `SELECT p.id, p.method, p.currency, p.amount_value AS "amountValue", p.exchange_rate AS "exchangeRate",
+              p.amount_syp AS "amountSyp", p.reference_number AS "referenceNumber",
+              p.barter_name AS "barterName", p.barter_value_syp AS "barterValueSyp",
+              p.received_by_employee_id AS "receivedByEmployeeId", p.received_at AS "receivedAt", p.notes,
+              p.entry_type AS "entryType", p.installment_id AS "installmentId",
+              p.reverses_entry_id AS "reversesEntryId",
+              u.name AS "receivedByName",
+              i.installment_number AS "installmentNumber"
+         FROM contract_payment_entries p
+         LEFT JOIN hr_users u ON u.id = p.received_by_employee_id
+         LEFT JOIN contract_installments i ON i.id = p.installment_id
+        WHERE p.contract_id = $1
+        ORDER BY p.received_at, p.id`,
       [contract.id],
     ),
     pool.query(
@@ -1024,8 +1034,43 @@ router.get('/:id', requirePermission('contracts.view_list'), async (req, res) =>
   // USD-linked installments: the open-dues projection shows today's due.
   const usdByInstallment = new Map(installmentsWithUsd.map((i: any) => [Number(i.id), i.usdDue]));
   const duesWithUsd = dues.map((d: any) => ({ ...d, usdDue: usdByInstallment.get(Number(d.id)) ?? null }));
+
+  // Detail-only context (kept out of contractSelect so list queries stay lean):
+  // cancellation record, the device's warranties, and the source task's type.
+  const [cancellationResult, warrantiesResult, sourceTaskResult] = await Promise.all([
+    pool.query(
+      `SELECT c.cancellation_reason AS "reasonCode",
+              COALESCE(NULLIF(TRIM(sl.metadata->>'label'), ''), NULLIF(TRIM(c.cancellation_reason), '')) AS "reasonLabel",
+              c.cancelled_at AS "cancelledAt",
+              u.name AS "cancelledByName"
+         FROM contracts c
+         LEFT JOIN system_lists sl
+           ON sl.category = 'contract_cancellation_reasons' AND sl.value = c.cancellation_reason
+         LEFT JOIN hr_users u ON u.id = c.cancelled_by
+        WHERE c.id = $1 AND c.status = 'cancelled'`,
+      [contract.id],
+    ),
+    pool.query(
+      `SELECT w.id, w.warranty_type AS "warrantyType", w.status,
+              w.start_date AS "startDate", w.end_date AS "endDate", w.months,
+              w.activated_at AS "activatedAt", w.cancellation_reason AS "cancellationReason",
+              w.cancelled_at AS "cancelledAt"
+         FROM device_warranties w
+         JOIN installed_devices d ON d.id = w.device_id
+        WHERE d.contract_id = $1
+        ORDER BY (w.warranty_type = 'contract') DESC, w.start_date NULLS LAST, w.id`,
+      [contract.id],
+    ),
+    contract.sourceOpenTaskId
+      ? pool.query(`SELECT task_type AS "taskType" FROM open_tasks WHERE id = $1`, [contract.sourceOpenTaskId])
+      : Promise.resolve({ rows: [] as any[] }),
+  ]);
+
   res.json({
     ...contract,
+    cancellation: cancellationResult.rows[0] ?? null,
+    warranties: warrantiesResult.rows,
+    sourceOpenTaskType: sourceTaskResult.rows[0]?.taskType ?? null,
     installationGeoPath,
     ownershipDisplay,
     dues: duesWithUsd,
@@ -1109,20 +1154,35 @@ router.get('/:id', requirePermission('contracts.view_list'), async (req, res) =>
  *       500:
  *         description: Server error
  */
-// D1 (owner decision): contract signing / down payments are taken in SYP only.
-// USD cash stays possible on installment collections and on maintenance.
-class ContractUsdEntryError extends Error {
-  status = 400;
-  code = 'contract_payment_syp_only';
-  constructor() {
-    super('دفعات العقد (الدفعة الأولى / دفعة التوقيع) تُقبض بالليرة السورية فقط — لا يُقبل الدولار.');
-    this.name = 'ContractUsdEntryError';
-  }
+// Owner decision 2026-11-17 (replaces D1 "signing payments SYP only"): a
+// contract's down payment may be received in USD, converted at the contract's
+// own rate (fxRates.resolveContractSigningRate). The server prices every USD
+// entry itself; the client's typed rate and SYP equivalent are never trusted.
+async function priceContractSigningEntries(db: any, contractId: number | null, entries: any[]): Promise<any[]> {
+  const list = Array.isArray(entries) ? entries : [];
+  const needsRate = list.some((e) => isUsdCashEntry(e?.currency, e?.method));
+  const rate = needsRate ? await resolveContractSigningRate(db, contractId) : null;
+  return list.map((e) => priceContractSigningEntry(e, rate));
 }
-function assertContractEntriesSypOnly(entries: any[]): void {
-  for (const e of entries ?? []) {
-    if (String(e?.currency ?? 'SYP').toUpperCase() !== 'SYP') throw new ContractUsdEntryError();
-  }
+
+async function insertContractSigningEntry(db: any, contractId: number, entry: any): Promise<void> {
+  await db.query(
+    `INSERT INTO contract_payment_entries
+      (contract_id, method, currency, amount_value, exchange_rate, amount_syp,
+       reference_number, barter_name, barter_value_syp, received_by_employee_id, notes,
+       entry_type, installment_id, ref_rate, ref_usd)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+    [contractId, entry.method, entry.currency || 'SYP', entry.amountValue || 0,
+     entry.exchangeRate || null, entry.amountSyp || 0,
+     entry.referenceNumber || null, entry.barterName || null,
+     entry.barterValueSyp || null, entry.receivedByEmployeeId || null,
+     entry.notes || null,
+     entry.entryType || 'collection',
+     entry.installmentId || null,
+     // null → the reference trigger (migr 494) stamps the day's central rate.
+     entry.refRate ?? null,
+     entry.refUsd ?? null],
+  );
 }
 /** Content identity of a contract payment entry (draft re-save keeps unchanged rows). */
 function paymentEntryContentKey(e: {
@@ -1131,17 +1191,15 @@ function paymentEntryContentKey(e: {
 }): string {
   const n = (v: any) => (v == null || v === '' ? '' : String(Number(v)));
   const t = (v: any) => (v == null ? '' : String(v).trim());
-  return [t(e.method), t(e.currency).toUpperCase() || 'SYP', n(e.amountValue), n(e.amountSyp), t(e.referenceNumber),
+  // A USD down payment is identified by its USD amount: re-saving an unchanged
+  // draft keeps the row and the rate it was saved at (its SYP is server-derived).
+  const syp = isUsdCashEntry(e.currency, e.method) ? '' : n(e.amountSyp);
+  return [t(e.method), t(e.currency).toUpperCase() || 'SYP', n(e.amountValue), syp, t(e.referenceNumber),
     t(e.barterName), n(e.barterValueSyp), t(e.notes), t(e.entryType) || 'collection', n(e.installmentId)].join('|');
 }
 
 router.post('/', requirePermission('contracts.create'), async (req, res) => {
   let c = { ...req.body };
-  if (Array.isArray(c.paymentEntries)) {
-    try { assertContractEntriesSypOnly(c.paymentEntries); } catch (err: any) {
-      return res.status(err.status).json({ error: err.message, code: err.code });
-    }
-  }
   const rawSourceVisitId = c.sourceVisitId ?? c.source_visit_id ?? null;
   if (rawSourceVisitId !== null && rawSourceVisitId !== '') {
     const sourceVisitId = Number(rawSourceVisitId);
@@ -1443,23 +1501,12 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
     }
 
     if (Array.isArray(c.paymentEntries) && c.paymentEntries.length > 0) {
-      // D1: contract signing / down payments are SYP only (checked before BEGIN too).
-      assertContractEntriesSypOnly(c.paymentEntries);
-      for (const entry of c.paymentEntries) {
-        await client.query(
-          `INSERT INTO contract_payment_entries
-            (contract_id, method, currency, amount_value, exchange_rate, amount_syp,
-             reference_number, barter_name, barter_value_syp, received_by_employee_id, notes,
-             entry_type, installment_id)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-          [contract.id, entry.method, entry.currency || 'SYP', entry.amountValue || 0,
-           entry.exchangeRate || null, entry.amountSyp || 0,
-           entry.referenceNumber || null, entry.barterName || null,
-           entry.barterValueSyp || null, entry.receivedByEmployeeId || null,
-           entry.notes || null,
-           entry.entryType || 'collection',
-           entry.installmentId || null],
-        );
+      // USD down payment → the contract's rate (a new contract has no snapshot
+      // yet, so today's rate; the confirmation below snapshots that same rate
+      // and re-prices these entries if it ever differs).
+      const priced = await priceContractSigningEntries(client, null, c.paymentEntries);
+      for (const entry of priced) {
+        await insertContractSigningEntry(client, Number(contract.id), entry);
       }
     }
 
@@ -1499,7 +1546,7 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
     res.json({ ...mapContract(contract), dues: duesResult });
   } catch (err) {
     await client.query('ROLLBACK');
-    if (err instanceof FxRateMissingError || err instanceof ContractUsdEntryError) {
+    if (err instanceof FxRateMissingError) {
       return res.status(err.status).json({ error: err.message, code: err.code });
     }
     const conflict = deviceSerialConflictPayload(err);
@@ -1918,8 +1965,9 @@ router.post('/:id/payment-entries', requirePermission('contracts.edit'), async (
         status: contract.status,
       });
     }
-    // D1: contract signing / down payments are SYP only.
-    assertContractEntriesSypOnly(entries);
+    // USD down payment → priced server-side at the contract's rate (snapshot
+    // if the schedule is already confirmed, otherwise today's rate).
+    const pricedEntries = await priceContractSigningEntries(pgClient, contractId, entries);
     // D1: a draft re-save must not reset an unchanged entry (its received_at
     // and its reference rate). Existing rows whose content matches an incoming
     // entry are kept as they are; only the rest are deleted / inserted.
@@ -1931,7 +1979,7 @@ router.post('/:id/payment-entries', requirePermission('contracts.edit'), async (
     );
     const keptIds = new Set<number>();
     const toInsert: any[] = [];
-    for (const entry of entries) {
+    for (const entry of pricedEntries) {
       const key = paymentEntryContentKey({
         method: entry.method, currency: entry.currency || 'SYP', amountValue: entry.amountValue || 0,
         amountSyp: entry.amountSyp || 0, referenceNumber: entry.referenceNumber, barterName: entry.barterName,
@@ -1951,26 +1999,13 @@ router.post('/:id/payment-entries', requirePermission('contracts.edit'), async (
       [contractId, [...keptIds]],
     );
     for (const entry of toInsert) {
-      await pgClient.query(
-        `INSERT INTO contract_payment_entries
-          (contract_id, method, currency, amount_value, exchange_rate, amount_syp,
-           reference_number, barter_name, barter_value_syp, received_by_employee_id, notes,
-           entry_type, installment_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-        [contractId, entry.method, entry.currency || 'SYP', entry.amountValue || 0,
-         entry.exchangeRate || null, entry.amountSyp || 0,
-         entry.referenceNumber || null, entry.barterName || null,
-         entry.barterValueSyp || null, entry.receivedByEmployeeId || null,
-         entry.notes || null,
-         entry.entryType || 'collection',
-         entry.installmentId || null],
-      );
+      await insertContractSigningEntry(pgClient, contractId, entry);
     }
     await pgClient.query('COMMIT');
     res.json({ success: true, kept: keptIds.size, inserted: toInsert.length });
   } catch (err) {
     await pgClient.query('ROLLBACK');
-    if (err instanceof FxRateMissingError || err instanceof ContractUsdEntryError) {
+    if (err instanceof FxRateMissingError) {
       return res.status(err.status).json({ error: err.message, code: err.code });
     }
     throw err;
@@ -2469,7 +2504,9 @@ function toNullableNumber(value: unknown): number | null {
 }
 
 function buildDraftDevicePayload(c: any) {
-  const warrantyMonths = Number(c.warrantyMonths) || 0;
+  // null = warranty not chosen yet (blocks approval); 0 = «بدون كفالة» chosen.
+  const warrantyChosen = c.warrantyMonths !== null && c.warrantyMonths !== undefined && c.warrantyMonths !== '';
+  const warrantyMonths = warrantyChosen ? Math.max(0, Number(c.warrantyMonths) || 0) : null;
   const warrantyVisits = Number(c.warrantyVisits) > 0 ? Number(c.warrantyVisits) : null;
   // أعمق وحدة مختارة: اختيار ناحية يملأ `subId` ويترك `neighborhoodId` فارغاً،
   // فقراءة الخانة الرابعة وحدها كانت ستُسقط عنوان التركيب بصمت.
@@ -2488,8 +2525,8 @@ function buildDraftDevicePayload(c: any) {
     installationAddressText: c.detailedAddress?.trim?.() || c.installationAddressText || null,
     installationLat: toNullableNumber(c.mapPosition?.[0] ?? c.installationLat),
     installationLng: toNullableNumber(c.mapPosition?.[1] ?? c.installationLng),
-    warrantyMonths: warrantyMonths > 0 ? warrantyMonths : null,
-    warrantyVisits,
+    warrantyMonths,
+    warrantyVisits: warrantyMonths ? warrantyVisits : null,
   };
 }
 
@@ -2530,7 +2567,8 @@ async function applyDevicePayloadToInstalledDevice(dbClient: any, contractId: nu
       payload.installationAddressText || null,
       payload.installationLat ?? null,
       payload.installationLng ?? null,
-      payload.warrantyMonths || null,
+      // 0 is kept: «بدون كفالة» chosen explicitly (null = legacy / unknown).
+      payload.warrantyMonths ?? null,
       payload.warrantyVisits || null,
       null,
       contractId,
@@ -2559,6 +2597,9 @@ async function collectApprovalIssues(
             c.buyer_national_id_issue_date, c.buyer_national_id_box,
             COALESCE(d.installation_geo_unit_id,
                      NULLIF(c.draft_device_payload->>'installationGeoUnitId', '')::int) AS geo_unit_id,
+            -- Warranty must be an explicit choice (a period or «بدون كفالة» = 0).
+            (d.id IS NULL AND c.draft_device_payload IS NOT NULL
+               AND NULLIF(c.draft_device_payload->>'warrantyMonths', '') IS NULL) AS warranty_not_chosen,
             (SELECT cu.father_name FROM clients cu WHERE cu.id = c.customer_id) AS father_name,
             (SELECT cu.national_id  FROM clients cu WHERE cu.id = c.customer_id) AS national_id
        FROM contracts c
@@ -2570,6 +2611,7 @@ async function collectApprovalIssues(
   if (!c) return ['العقد غير موجود'];
 
   if (!c.geo_unit_id) issues.push('عنوان التركيب مطلوب (الناحية أو الحي)');
+  if (c.warranty_not_chosen) issues.push('مدة كفالة العقد غير محددة — اختر مدة من كفالات الجهاز أو «بدون كفالة» صراحةً');
 
   const finalPrice = Number(c.final_price) || 0;
   const subtypeWaives = c.sale_subtype === 'temporary' || c.sale_subtype === 'free';
@@ -3273,14 +3315,17 @@ router.post('/:id/cancel', async (req, res) => {
         RETURNING id`,
       [contractId, reason],
     );
-    // 2ب) مهمة تسليم الجهاز المفتوحة تُلغى أيضاً — لا يُسلَّم جهاز على عقد
-    //     ملغى. هذا هو مخرج التجربة قبل التسليم، وهو صحيح لأي عقد يُلغى.
+    // 2ب) مهام مسار الجهاز المفتوحة (توصيل/تركيب/تشغيل) تُلغى أيضاً — لا
+    //     يُسلَّم ولا يُركَّب ولا يُشغَّل جهاز على عقد ملغى. بقاء مهمة تركيب أو
+    //     تشغيل مفتوحة كان يسمح لاحقاً بإعادة الجهاز إلى مسار الصيانة.
     const { rows: cancelledDelivery } = await pgClient.query(
       `UPDATE open_tasks
           SET status = 'cancelled',
               cancellation_reason = COALESCE(NULLIF($2, ''), cancellation_reason, 'إلغاء العقد'),
               updated_at = NOW()
-        WHERE task_type = 'device_delivery' AND contract_id = $1
+        WHERE task_type IN ('device_delivery', 'device_installation', 'device_activation')
+          AND (contract_id = $1
+               OR device_id IN (SELECT id FROM installed_devices WHERE contract_id = $1))
           AND status NOT IN ('completed', 'closed', 'cancelled')
         RETURNING id`,
       [contractId, reason],
@@ -3356,6 +3401,7 @@ router.post('/:id/cancel', async (req, res) => {
     res.json({
       success: true, contractId, status: 'cancelled',
       cancelledCollectionTasks: cancelledTaskIds.length - cancelledDelivery.length,
+      // توصيل + تركيب + تشغيل (الاسم محفوظ للتوافق مع المستهلكين).
       cancelledDeliveryTasks: cancelledDelivery.length,
       cancelledPeriodicTasks, affectedDevices: contractDevices.length,
     });

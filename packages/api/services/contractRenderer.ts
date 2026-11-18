@@ -27,16 +27,24 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+import { sypInWords } from './arabicNumberWords.js';
+
 const TEMPLATES_DIR = path.resolve(__dirname, '..', 'templates', 'contracts');
 
 function templatePath(key: string, version: string): string {
   return path.join(TEMPLATES_DIR, `${key}.${version}.html`);
 }
 
+// v3 (2026-11-18): the customer's contract wording merged into the full legal
+// articles — sale type, branch address/phones, WhatsApp number, serial, USD
+// equivalents, discount reason, accessories without price, service fees, down
+// payment method/currency, late penalty, gift promises, undertakings, notes,
+// branch-governorate courts and the PDF/app clause. Frozen copies keep the
+// version they were rendered with (contract_documents.template_version).
 export const ACTIVE_TEMPLATE_VERSION: Record<string, string> = {
-  sale_definitive: 'v2',
-  sale_temporary: 'v1',
-  sale_free: 'v1',
+  sale_definitive: 'v3',
+  sale_temporary: 'v3',
+  sale_free: 'v3',
   // ملحق تثبيت البيعة: يُجمَّد عند تسوية عقد التجربة. الأصل (عقد الحيازة
   // المؤقتة) يبقى بلا مساس؛ الملحق وحده يحمل البنود المالية المتفق عليها.
   sale_settlement_amendment: 'v1',
@@ -72,10 +80,19 @@ function applyVars(input: string, vars: Vars): string {
 }
 
 function applySections(input: string, sections: Record<string, boolean>): string {
-  return input.replace(
-    /{{#([a-zA-Z][a-zA-Z0-9_]*)}}([\s\S]*?){{\/\1}}/g,
-    (_m, name, body) => (sections[name] ? body : ''),
-  );
+  // Repeat until stable: a kept outer section returns its body untouched, so
+  // nested sections (e.g. usdLinkedSection inside installmentsSection) need
+  // another pass — a single pass printed them literally.
+  let out = input;
+  for (let i = 0; i < 5; i++) {
+    const next = out.replace(
+      /{{#([a-zA-Z][a-zA-Z0-9_]*)}}([\s\S]*?){{\/\1}}/g,
+      (_m, name, body) => (sections[name] ? body : ''),
+    );
+    if (next === out) break;
+    out = next;
+  }
+  return out;
 }
 
 function escapeHtml(s: string): string {
@@ -93,6 +110,8 @@ export interface RenderContractInput {
   paymentEntries?: any[];
   discount?: any | null;
   installments?: Array<{ installmentNumber: number; dueDate: string; amountSyp: number; remainingBalance?: number; status?: string; amountUsd?: number | string | null }>;
+  /** Gift promises of the contract (v3 «وعود الهدايا»). */
+  gifts?: Array<{ giftName?: string | null; quantity?: number | string | null; conditionLabel?: string | null; beneficiaryType?: string | null; beneficiaryName?: string | null }>;
   draftWatermark?: boolean;
   /**
    * Render a specific template instead of the one derived from saleSubtype.
@@ -231,6 +250,244 @@ function buildPaymentClauseText(contract: any, installments: any[] = []): string
   return `طريقة السداد المعتمدة: ${paymentTypeLabel(contract?.paymentType)}.`;
 }
 
+// ── v3 helpers (customer wording, 2026-11-18) ───────────────────────────────
+
+/** Late penalty per day of delay, in SYP — owner decision: fixed in the contract. */
+export const LATE_PENALTY_PER_DAY_SYP = 1000;
+
+const SALE_TYPE_LABELS: Record<string, string> = { direct: 'بيع مباشر', tradein: 'استبدال', retention: 'احتفاظ' };
+
+function saleTypeText(contract: any): string {
+  const type = SALE_TYPE_LABELS[String(contract?.saleType ?? '')] ?? String(contract?.saleType ?? '');
+  const rawSource = String(contract?.saleSource ?? '').trim();
+  const source = rawSource === 'device_demo_task' ? 'مهمة عرض جهاز' : rawSource;
+  return source ? `${type} — المصدر: ${source}` : type;
+}
+
+function contractKindLabel(subtype: unknown): string {
+  if (subtype === 'temporary') return 'مؤقت';
+  if (subtype === 'free') return 'هدية';
+  return 'قطعي';
+}
+
+function contactNumber(entry: any): string {
+  return [entry?.areaCode, entry?.number].filter(Boolean).join(' ').trim();
+}
+
+/** Primary mobile (WhatsApp flag) + the other numbers, from clients.contacts. */
+function buildCustomerPhones(client: any): { primary: string; whatsapp: string; others: string } {
+  const contacts = (Array.isArray(client?.contacts) ? client.contacts : [])
+    .filter((c: any) => contactNumber(c) && c?.status !== 'invalid');
+  const primary = contacts.find((c: any) => c?.isPrimary) ?? contacts.find((c: any) => c?.type === 'mobile') ?? null;
+  const primaryNumber = primary ? contactNumber(primary) : String(client?.mobile ?? '');
+  const others = contacts
+    .filter((c: any) => c !== primary && contactNumber(c) !== primaryNumber)
+    .map((c: any) => `${contactNumber(c)} (${c?.label?.trim() || contactTypeLabel(c?.type)})`);
+  return {
+    primary: primaryNumber,
+    whatsapp: primary?.hasWhatsApp ? ' (يدعم واتساب)' : '',
+    others: others.length ? others.join(' — ') : 'لا يوجد',
+  };
+}
+
+const BRANCH_CONTACT_LABELS: Record<string, string> = {
+  mobile: 'موبايل', phone: 'هاتف', email: 'بريد إلكتروني', website: 'الموقع',
+};
+const BRANCH_CONTACT_ORDER = ['mobile', 'phone', 'email', 'website'];
+
+/**
+ * The branch's own contact means (Branches page → contact_info:
+ * [{ type, value, label, department }]). A customer contract shows the
+ * customer-service contacts; when the branch has none tagged so, all of them.
+ */
+function buildBranchPhones(contract: any): string {
+  const all = (Array.isArray(contract?.branchContacts) ? contract.branchContacts : [])
+    .filter((e: any) => String(e?.value ?? '').trim() || contactNumber(e));
+  const service = all.filter((e: any) => e?.department === 'customer_service');
+  const picked = (service.length ? service : all)
+    .slice()
+    .sort((a: any, b: any) => BRANCH_CONTACT_ORDER.indexOf(a?.type) - BRANCH_CONTACT_ORDER.indexOf(b?.type));
+  return picked
+    .map((e: any) => {
+      const label = String(e?.label ?? '').trim() || BRANCH_CONTACT_LABELS[String(e?.type)] || 'تواصل';
+      return `${label}: ${String(e?.value ?? '').trim() || contactNumber(e)}`;
+    })
+    .join(' — ');
+}
+
+/**
+ * Detailed installation address. When none was entered and the installation
+ * place is the customer's own registered area, the customer's detailed
+ * address is used (and said so); otherwise the gap is printed explicitly.
+ */
+function installationDetailText(contract: any, client: any): string {
+  const own = String(contract?.installationAddressText ?? '').trim();
+  if (own) return own;
+  const installGeo = Number(contract?.installationGeoUnitId) || null;
+  const clientGeo = Number(client?.neighborhood) || Number(client?.district) || null;
+  const clientDetail = String(client?.detailedAddress ?? '').trim();
+  if (installGeo && clientGeo && installGeo === clientGeo && clientDetail) {
+    return `${clientDetail} (عنوان الزبون المسجل)`;
+  }
+  return 'لم يُدخَل';
+}
+
+/** Branch address: governorate → area → sub-area → neighbourhood (location) + detailed address. */
+function buildBranchAddress(contract: any): string {
+  const geo = Array.isArray(contract?.branchGeoPath) ? contract.branchGeoPath : [];
+  const parts = [...geo, String(contract?.branchAddress ?? '').trim()].filter(Boolean);
+  return parts.length ? parts.join(' — ') : '—';
+}
+
+/** Rate for the USD equivalents: the contract snapshot, else the rate on the contract date. */
+function contractUsdRate(contract: any): number | null {
+  const snap = Number(contract?.usdRateSnapshot);
+  if (snap > 0) return snap;
+  const day = Number(contract?.contractDateRate);
+  return day > 0 ? day : null;
+}
+
+function usdText(amountSyp: number, rate: number | null): string {
+  if (!rate || !(amountSyp > 0)) return '';
+  return `ما يعادل ${(amountSyp / rate).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} دولار أمريكي بسعر صرف ${formatMoney(rate)} ل.س للدولار`;
+}
+
+const PAYMENT_METHOD_TEXT: Record<string, string> = {
+  cash: 'نقداً', usd_cash: 'نقداً', sham_cash: 'حوالة شام كاش', syriatel_cash: 'حوالة سيرياتيل كاش',
+  mtn_cash: 'حوالة MTN كاش', alharam: 'حوالة الهرم', bank_transfer: 'حوالة بنكية', barter: 'مقايضة',
+};
+
+/** Signing (down) payment: net SYP received at signing + how it was paid. */
+function buildDownPayment(paymentEntries: any[], rate: number | null) {
+  const signing = paymentEntries.filter((e: any) => e?.installmentId == null);
+  const net = signing.reduce((s: number, e: any) => s + (e?.entryType === 'refund' ? -1 : 1) * Number(e?.amountSyp || 0), 0);
+  const lines = signing
+    .filter((e: any) => e?.entryType !== 'refund')
+    .map((e: any) => {
+      const method = PAYMENT_METHOD_TEXT[String(e?.method)] ?? String(e?.method ?? '');
+      if (e?.method === 'barter') return `${method}: ${e?.barterName ?? ''} بقيمة ${formatMoney(e?.barterValueSyp ?? e?.amountSyp)} ل.س`;
+      if (String(e?.currency ?? '').toUpperCase() === 'USD') {
+        return `${method} بالدولار: ${Number(e?.amountValue || 0).toLocaleString('en-US')} دولار بسعر صرف ${formatMoney(e?.exchangeRate)} ل.س = ${formatMoney(e?.amountSyp)} ل.س`;
+      }
+      return `${method} بالليرة السورية: ${formatMoney(e?.amountSyp)} ل.س`;
+    });
+  const paidInSyp = signing.some((e: any) => String(e?.currency ?? 'SYP').toUpperCase() !== 'USD' && e?.method !== 'barter');
+  return {
+    amount: Math.max(0, net),
+    methodText: lines.length ? lines.map((l) => `- ${l}`).join('\n') : '- لا توجد دفعة أولى',
+    // «بما يعادل (دولار) في حال الدفع كان بالليرة السورية»
+    usdText: paidInSyp ? usdText(Math.max(0, net), rate) : '',
+  };
+}
+
+// ── v3 payment article: summary table + down-payment detail table ──────────
+// Owner request 2026-11-18: first the contract value (SYP + USD), then the
+// down payment as the customer actually paid it, then what remains; and the
+// down payment broken down one row per payment, clearly.
+
+function usdCell(amountSyp: number, rate: number | null): string {
+  if (!rate) return '';
+  return `${(amountSyp / rate).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;
+}
+
+/** Signing (down-payment) entries actually received (refunds excluded). */
+function signingEntries(paymentEntries: any[]): any[] {
+  return paymentEntries.filter((e: any) => e?.installmentId == null && e?.entryType !== 'refund');
+}
+
+export function buildPaymentSummaryRowsHtml(input: RenderContractInput): string {
+  const { contract, paymentEntries = [], installments = [] } = input;
+  const finalPrice = Number(contract?.finalPrice || 0);
+  const down = buildDownPayment(paymentEntries, contractUsdRate(contract));
+  const installmentsTotal = installments.reduce((s: number, i: any) => s + Number(i?.amountSyp || 0), 0);
+  const remaining = installments.length ? installmentsTotal : Math.max(0, finalPrice - down.amount);
+  const usdLinked = installments.some((i: any) => i?.amountUsd != null) && Number(contract?.usdRateSnapshot) > 0;
+  // Owner 2026-11-18: value, fees, down payment and the remainder are stated in
+  // SYP only; the remainder is what the USD installments below are built on.
+  const row = (label: string, syp: number, strong = false) => {
+    const cls = strong ? ' class="strong"' : '';
+    return `<tr${cls}><td>${escapeHtml(label)}</td><td>${escapeHtml(formatMoney(syp))} ل.س<div class="words">فقط ${escapeHtml(sypInWords(syp))}</div></td></tr>`;
+  };
+  const remainingLabel = !installments.length
+    ? 'المبلغ الباقي'
+    : usdLinked ? 'المبلغ الباقي (تُبنى عليه الأقساط بالدولار أدناه)' : 'المبلغ الباقي (يُسدَّد بالأقساط أدناه)';
+  return [
+    row('قيمة العقد الإجمالية', finalPrice, true),
+    row('الدفعة الأولى (المقبوضة عند التوقيع)', down.amount),
+    row(remainingLabel, remaining, true),
+  ].join('');
+}
+
+/**
+ * «موضوع البيع» price table — money only, one row per amount (device price,
+ * discount, price after discount, each service fee, total). The device's
+ * identity lives in its own table so no row carries an empty money cell.
+ */
+export function buildPriceRowsHtml(input: RenderContractInput): string {
+  const { contract, lineItems = [], discount } = input;
+  const basePrice = Number(contract?.basePrice || 0);
+  const deviceLines = lineItems.filter((i: any) => i?.itemType === 'device');
+  const deviceTotal = deviceLines.reduce((s: number, i: any) => s + Number(i?.totalPrice || 0), 0);
+  const devicePrice = deviceLines.length ? deviceTotal : basePrice;
+  const discountAmount = deviceLines.length ? Math.max(0, basePrice - deviceTotal) : 0;
+  const listPrice = devicePrice + discountAmount;
+  const row = (label: string, syp: number, opts: { strong?: boolean; minus?: boolean } = {}) => {
+    const sign = opts.minus ? '− ' : '';
+    return `<tr${opts.strong ? ' class="strong"' : ''}><td>${escapeHtml(label)}</td><td>${sign}${escapeHtml(formatMoney(syp))} ل.س<div class="words">فقط ${escapeHtml(sypInWords(syp))}</div></td></tr>`;
+  };
+  const rows = [row('سعر المنتج بتاريخ هذا العقد', listPrice)];
+  if (discountAmount > 0) {
+    rows.push(row(`حسم — السبب: ${discount?.label || 'حسم معتمد على الجهاز'}`, discountAmount, { minus: true }));
+    rows.push(row('سعر المنتج بعد الحسم', devicePrice));
+  }
+  for (const fee of lineItems.filter((i: any) => i?.itemType === 'service_fee')) {
+    const desc = String(fee?.description ?? '').trim();
+    // The description often already says «رسوم خدمة» — don't print it twice.
+    const label = !desc ? 'رسوم خدمة' : desc.includes('رسوم') ? desc : `رسوم خدمة — ${desc}`;
+    rows.push(row(label, Number(fee?.totalPrice || 0)));
+  }
+  rows.push(row('القيمة الإجمالية النهائية للعقد', Number(contract?.finalPrice || 0), { strong: true }));
+  return rows.join('');
+}
+
+export function buildDownPaymentRowsHtml(input: RenderContractInput): string {
+  const { paymentEntries = [] } = input;
+  const rows = signingEntries(paymentEntries).map((e: any, idx: number) => {
+    const method = PAYMENT_METHOD_TEXT[String(e?.method)] ?? String(e?.method ?? '');
+    const isUsd = String(e?.currency ?? '').toUpperCase() === 'USD' && e?.method !== 'barter';
+    const syp = Number(e?.amountSyp || 0);
+    let paid: string;
+    if (e?.method === 'barter') paid = `${e?.barterName ?? 'مقايضة'}`;
+    else if (isUsd) paid = `${Number(e?.amountValue || 0).toLocaleString('en-US')} $ (بسعر ${formatMoney(e?.exchangeRate)} ل.س)`;
+    else paid = `${formatMoney(syp)} ل.س`;
+    const ref = e?.referenceNumber ? ` — رقم ${e.referenceNumber}` : '';
+    return `<tr><td>${idx + 1}</td><td>${escapeHtml(method + ref)}</td><td>${escapeHtml(paid)}</td><td>${escapeHtml(formatMoney(syp))} ل.س</td></tr>`;
+  });
+  return rows.join('');
+}
+
+/** «لمدة …» / «كل …»: شهر، شهرين، 3–10 أشهر، 11+ شهراً. */
+function monthsPhrase(n: number): string {
+  if (n === 1) return 'شهر';
+  if (n === 2) return 'شهرين';
+  if (!Number.isInteger(n) || (n >= 3 && n <= 10)) return `${n} أشهر`;
+  return `${n} شهراً`;
+}
+
+function buildGiftsText(gifts: RenderContractInput['gifts'] = []): string {
+  return (gifts ?? [])
+    .filter((g) => g && (g.giftName || g.conditionLabel))
+    .map((g) => {
+      const qty = Number(g?.quantity) > 1 ? ` × ${Number(g?.quantity)}` : '';
+      const who = g?.beneficiaryType && g.beneficiaryType !== 'contract_customer'
+        ? ` (لصالح الوسيط${g?.beneficiaryName ? `: ${g.beneficiaryName}` : ''})`
+        : '';
+      const condition = g?.conditionLabel ? ` — الشرط: ${g.conditionLabel}` : '';
+      return `- ${g?.giftName || 'هدية'}${qty}${who}${condition}`;
+    })
+    .join('\n');
+}
+
 function buildDraftNoticeText(contract: any, draftWatermark: boolean): string {
   if (draftWatermark || contract?.status === 'draft' || contract?.status === 'discarded') {
     return 'تنبيه: هذه النسخة مسودة غير معتمدة، ولا تمثل عقداً نافذاً من جهة الشركة ما لم يعتمدها موظف الإغلاق المختص.';
@@ -333,6 +590,98 @@ function buildSaleDefinitiveVars(input: RenderContractInput, installmentsRows: s
     installation_area: installationGeoPath[1] ?? '',
     installation_sub_area: installationGeoPath[2] ?? '',
     installation_neighborhood: installationGeoPath[3] ?? '',
+    ...buildV3Vars(input),
+  };
+}
+
+function buildV3Vars(input: RenderContractInput): Vars {
+  const { contract, client, lineItems = [], paymentEntries = [], installments = [], gifts = [], discount } = input;
+  const rate = contractUsdRate(contract);
+  const phones = buildCustomerPhones(client);
+  const finalPrice = Number(contract?.finalPrice || 0);
+  const basePrice = Number(contract?.basePrice || 0);
+
+  // base_price = the device's catalogue price; the device line carries the
+  // discounted price; other lines are accessories / service fees.
+  const deviceLines = lineItems.filter((i: any) => i?.itemType === 'device');
+  const deviceLineTotal = deviceLines.reduce((s: number, i: any) => s + Number(i?.totalPrice || 0), 0);
+  const devicePrice = deviceLines.length ? deviceLineTotal : basePrice;
+  const discountAmount = deviceLines.length ? Math.max(0, basePrice - deviceLineTotal) : 0;
+  const accessories = lineItems.filter((i: any) => i?.itemType === 'accessory');
+  const fees = lineItems.filter((i: any) => i?.itemType === 'service_fee');
+
+  const down = buildDownPayment(paymentEntries, rate);
+  const installmentsTotal = installments.reduce((s: number, i: any) => s + Number(i?.amountSyp || 0), 0);
+  const remainingAtSigning = installments.length ? installmentsTotal : Math.max(0, finalPrice - down.amount);
+  const usdLinked = installments.some((i: any) => i?.amountUsd != null);
+  const remainingUsd = usdLinked
+    ? installments.reduce((s: number, i: any) => s + Number(i?.amountUsd || 0), 0)
+    : null;
+
+  const months = Number(contract?.warrantyMonths) || 0;
+  const visits = Number(contract?.warrantyVisits) || 0;
+  const intervalMonths = months && visits ? Math.round((months / visits) * 10) / 10 : 0;
+  const governorate = (Array.isArray(contract?.branchGeoPath) && contract.branchGeoPath[0]) || contract?.branchName || '';
+  const branchPhones = buildBranchPhones(contract);
+  const notes = String(contract?.invoiceNotes ?? '').trim();
+
+  return {
+    contract_kind_label: contractKindLabel(contract?.saleSubtype),
+    sale_type_text: saleTypeText(contract),
+    branch_address_text: buildBranchAddress(contract),
+    company_branch_name: contract?.branchName ? `شركة غولدن غروب — فرع ${contract.branchName}` : 'شركة غولدن غروب',
+    branch_phones_text: branchPhones || '—',
+    customer_primary_mobile: phones.primary || '—',
+    customer_whatsapp_note: phones.whatsapp,
+    customer_other_numbers: phones.others,
+    device_serial_number: contract?.serialNumber || '—',
+    device_price_number: formatMoney(devicePrice + discountAmount),
+    device_price_words: sypInWords(devicePrice + discountAmount),
+    device_price_usd_text: usdText(devicePrice + discountAmount, rate),
+    discount_reason: discount?.label || 'حسم معتمد على الجهاز',
+    discount_amount_number: formatMoney(discountAmount),
+    discount_amount_words: sypInWords(discountAmount),
+    device_after_discount_number: formatMoney(devicePrice),
+    device_after_discount_words: sypInWords(devicePrice),
+    accessories_text: accessories
+      .map((i: any) => `- ${i?.description || 'ملحق'}${Number(i?.quantity) > 1 ? ` (الكمية: ${Number(i.quantity)})` : ''}`)
+      .join('\n'),
+    service_fees_text: fees
+      .map((i: any) => `- ${i?.description || 'رسوم خدمة'}: ${formatMoney(i?.totalPrice)} ل.س`)
+      .join('\n'),
+    total_price_number: formatMoney(finalPrice),
+    total_price_words: sypInWords(finalPrice),
+    total_price_usd_text: usdText(finalPrice, rate),
+    down_payment_amount_number: formatMoney(down.amount),
+    down_payment_amount_words: sypInWords(down.amount),
+    down_payment_method_text: down.methodText,
+    down_payment_usd_text: down.usdText,
+    remaining_at_signing_number: formatMoney(remainingAtSigning),
+    remaining_at_signing_words: sypInWords(remainingAtSigning),
+    remaining_at_signing_usd_text: remainingUsd != null
+      ? `${remainingUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} دولار أمريكي (مجموع الأقساط بالدولار)`
+      : usdText(remainingAtSigning, rate),
+    warranty_months_text: months ? monthsPhrase(months) : 'حسب تعريف الجهاز',
+    installation_address_line: (Array.isArray(contract?.installationGeoPath) ? contract.installationGeoPath : [])
+      .filter(Boolean).join(' — ') || '—',
+    installation_detail_text: installationDetailText(contract, client),
+    periodic_interval_text: intervalMonths ? `كل ${monthsPhrase(intervalMonths)}` : '',
+    periodic_visits_total: visits ? String(visits) : '',
+    usd_rate_text: rate ? formatMoney(rate) : '',
+    // USD cells of the «موضوع البيع» table.
+    device_price_usd: usdCell(devicePrice + discountAmount, rate),
+    discount_amount_usd: discountAmount > 0 ? `− ${usdCell(discountAmount, rate)}` : '',
+    device_after_discount_usd: usdCell(devicePrice, rate),
+    total_price_usd: usdCell(finalPrice, rate),
+    customer_address_line: [
+      ...(Array.isArray(client?.geoPath) ? client.geoPath : []),
+    ].filter(Boolean).join(' — ') || '—',
+    late_penalty_per_day: `${formatMoney(LATE_PENALTY_PER_DAY_SYP)} ل.س`,
+    late_penalty_per_day_words: sypInWords(LATE_PENALTY_PER_DAY_SYP),
+    gifts_text: buildGiftsText(gifts),
+    invoice_notes_text: notes || 'لا يوجد',
+    courts_governorate: governorate,
+    app_contact_text: 'يمكنك التواصل بشكل مباشر مع الإدارة العامة أو الفرع عن طريق تطبيق غولدن غروب.',
   };
 }
 
@@ -355,26 +704,63 @@ export function renderContract(input: RenderContractInput): RenderContractResult
   // rate snapshot — legacy contracts render byte-identical to before.
   const usdLinked = Number(contract?.usdRateSnapshot) > 0 && installments.some((i) => i.amountUsd != null);
   const installmentsRows = installments
-    .map((i) => `<tr><td>${i.installmentNumber}</td><td>${escapeHtml(String(i.dueDate))}</td><td>${escapeHtml(String(i.amountSyp))} ل.س</td>${
+    .map((i) => `<tr><td>${i.installmentNumber}</td><td>${escapeHtml(formatDate(i.dueDate))}</td><td>${escapeHtml(formatMoney(i.amountSyp))} ل.س</td>${
       usdLinked ? `<td dir="ltr">${i.amountUsd != null ? escapeHtml(Number(i.amountUsd).toFixed(2)) : ''} $</td>` : ''
     }</tr>`)
+    .join('');
+
+  // v3 schedule (owner 2026-11-18): a USD-linked installment is stated in USD
+  // only; a legacy SYP schedule keeps its SYP amount.
+  const installmentsRowsV3 = installments
+    .map((i) => {
+      const amount = usdLinked && i.amountUsd != null
+        ? `<td dir="ltr">${escapeHtml(Number(i.amountUsd).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))} $</td>`
+        : `<td>${escapeHtml(formatMoney(i.amountSyp))} ل.س</td>`;
+      return `<tr><td>${i.installmentNumber}</td><td>${escapeHtml(formatDate(i.dueDate))}</td>${amount}</tr>`;
+    })
     .join('');
 
   const sections = {
     draftWatermark,
     installmentsSection: installments.length > 0,
     usdLinkedSection: usdLinked && installments.length > 0,
+    sypInstallmentsSection: !usdLinked && installments.length > 0,
     periodicVisitsSection: Number(contract.warrantyVisits) > 0,
     discountSection: Math.max(Number(contract.basePrice || 0) - Number(contract.finalPrice || 0), 0) > 0,
+    // v3 sections — each clause prints only when it has content.
+    v3DiscountSection: (() => {
+      const lines = (input.lineItems ?? []).filter((i: any) => i?.itemType === 'device');
+      if (!lines.length) return false;
+      const deviceTotal = lines.reduce((s: number, i: any) => s + Number(i?.totalPrice || 0), 0);
+      return Number(contract.basePrice || 0) - deviceTotal > 0;
+    })(),
+    accessoriesSection: (input.lineItems ?? []).some((i: any) => i?.itemType === 'accessory'),
+    serviceFeesSection: (input.lineItems ?? []).some((i: any) => i?.itemType === 'service_fee'),
+    giftsSection: buildGiftsText(input.gifts).length > 0,
+    usdPriceSection: contractUsdRate(contract) != null,
+    downPaymentDetailSection: signingEntries(input.paymentEntries ?? []).length > 0,
+    // «بدون كفالة» chosen explicitly (0) vs a period / legacy unknown (null).
+    noWarrantySection: contract.warrantyMonths !== null && contract.warrantyMonths !== undefined && Number(contract.warrantyMonths) === 0,
+    warrantySection: !(contract.warrantyMonths !== null && contract.warrantyMonths !== undefined && Number(contract.warrantyMonths) === 0),
+    branchPhonesSection: buildBranchPhones(contract).length > 0,
   };
   html = applySections(html, sections);
 
   const vars = buildSaleDefinitiveVars(input, installmentsRows);
 
-  const rowsToken = '\x00INSTALLMENT_ROWS_PLACEHOLDER\x00';
-  html = html.replace('{{installmentsRows}}', rowsToken);
+  // Pre-built (already escaped) HTML fragments are swapped in after the
+  // variable pass so applyVars never escapes their markup.
+  const rawFragments: Record<string, string> = {
+    installmentsRows,
+    installmentsRowsV3,
+    paymentSummaryRows: buildPaymentSummaryRowsHtml(input),
+    priceRows: buildPriceRowsHtml(input),
+    downPaymentRows: buildDownPaymentRowsHtml(input),
+  };
+  const tokenFor = (name: string) => `\x00RAW_${name}\x00`;
+  for (const name of Object.keys(rawFragments)) html = html.split(`{{${name}}}`).join(tokenFor(name));
   html = applyVars(html, vars);
-  html = html.replace(rowsToken, installmentsRows);
+  for (const [name, fragment] of Object.entries(rawFragments)) html = html.split(tokenFor(name)).join(fragment);
 
   const contentHash = crypto.createHash('sha256').update(html, 'utf8').digest('hex');
 

@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <title>{{contract_title}} — {{contract_number}}</title>
+  <style>
+    @page { size: A4; margin: 14mm 12mm; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Tajawal", "Segoe UI", Tahoma, Arial, sans-serif;
+      color: #1a1a1a;
+      background: #fff;
+      margin: 0 auto;
+      padding: 28px 32px;
+      max-width: 860px;
+      line-height: 1.85;
+      font-size: 13.5px;
+    }
+    b, strong { font-weight: 700; }
+
+    /* ── رأس العقد ── */
+    .doc-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      border-bottom: 3px solid #0f4c5c;
+      padding-bottom: 12px;
+      margin-bottom: 14px;
+    }
+    .brand { font-size: 1.15rem; font-weight: 800; color: #0f4c5c; }
+    .brand small { display: block; font-size: 0.78rem; font-weight: 500; color: #5b6b70; }
+    .doc-title { font-size: 1.55rem; font-weight: 800; margin: 0; text-align: center; flex: 1; }
+    .doc-ref { text-align: left; font-size: 0.82rem; color: #444; white-space: nowrap; }
+    .doc-ref b { font-family: "Consolas", monospace; font-size: 0.92rem; color: #111; }
+
+    .meta {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      border: 1px solid #cfd8da;
+      border-radius: 8px;
+      overflow: hidden;
+      margin-bottom: 18px;
+    }
+    .meta > div { padding: 8px 12px; border-left: 1px solid #cfd8da; }
+    .meta > div:last-child { border-left: none; }
+    .meta .k { display: block; font-size: 0.75rem; color: #5b6b70; }
+    .meta .v { font-weight: 700; }
+
+    /* ── الطرفان ── */
+    .party {
+      border: 1px solid #cfd8da;
+      border-radius: 8px;
+      margin-bottom: 14px;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .party-head {
+      background: #eef4f5;
+      color: #0f4c5c;
+      font-weight: 800;
+      padding: 6px 14px;
+      border-bottom: 1px solid #cfd8da;
+      border-radius: 8px 8px 0 0;
+    }
+    table.kv { width: 100%; border-collapse: collapse; }
+    table.kv td { padding: 5px 14px; vertical-align: top; border-bottom: 1px dashed #e3e9ea; }
+    table.kv tr:last-child td { border-bottom: none; }
+    table.kv td.k { width: 17%; color: #5b6b70; font-size: 0.85rem; white-space: nowrap; }
+    table.kv td.v { width: 33%; font-weight: 600; }
+    .draft-notice { margin: 8px 14px 10px; color: #9a3412; font-weight: 700; }
+
+    /* ── المقدمة والمواد ── */
+    .section { margin: 18px 0 12px; }
+    .section-title { font-weight: 800; color: #0f4c5c; margin-bottom: 4px; }
+    .article {
+      margin: 0 0 14px;
+      padding: 2px 12px 2px 0;
+      border-right: 3px solid #d7e3e5;
+    }
+    .article-title { break-after: avoid; page-break-after: avoid; }
+    .article-title { font-weight: 800; color: #0f4c5c; margin-bottom: 4px; }
+    .preline { white-space: pre-line; }
+    .label { color: #5b6b70; font-size: 0.85rem; }
+    .value { font-weight: 600; }
+
+    /* ── الجداول ── */
+    .installments { margin-top: 10px; break-inside: avoid; page-break-inside: avoid; }
+    .installments table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+    .installments th, .installments td {
+      border: 1px solid #cfd8da;
+      padding: 6px 8px;
+      text-align: center;
+      font-size: 0.9rem;
+    }
+    .installments th { background: #eef4f5; color: #0f4c5c; font-weight: 700; }
+    .installments table.summary td:first-child { text-align: right; font-weight: 600; }
+    .installments tr.strong td { font-weight: 800; background: #f7fafa; }
+    .installments .words { font-size: 0.78rem; color: #5b6b70; font-weight: 400; }
+
+    /* ── التواقيع والتذييل ── */
+    .signatures {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 28px;
+      margin-top: 36px;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .signature { border: 1px solid #cfd8da; border-radius: 8px; padding: 10px 14px 14px; min-height: 130px; }
+    .signature .who { font-weight: 800; color: #0f4c5c; margin-bottom: 4px; }
+    .signature .line { margin-top: 34px; border-top: 1px solid #333; padding-top: 4px; font-size: 0.8rem; color: #5b6b70; text-align: center; }
+    .doc-footer {
+      margin-top: 26px;
+      padding-top: 10px;
+      border-top: 1px solid #cfd8da;
+      font-size: 0.8rem;
+      color: #5b6b70;
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 6px 18px;
+    }
+
+    .watermark-draft {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 7rem;
+      color: rgba(200, 30, 30, 0.10);
+      transform: rotate(-30deg);
+      font-weight: 800;
+      z-index: 10;
+    }
+
+    @media print {
+      body { padding: 0; max-width: none; }
+      .party, .installments, .signatures { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  {{#draftWatermark}}<div class="watermark-draft">مسودة غير معتمدة</div>{{/draftWatermark}}
+
+  <div class="doc-header">
+    <div class="brand">شركة غولدن غروب<small>Golden Group</small></div>
+    <h1 class="doc-title">{{contract_title}}</h1>
+    <div class="doc-ref">رقم العقد<br /><b>{{contract_number}}</b></div>
+  </div>
+
+  <div class="meta">
+    <div><span class="k">تاريخ العقد</span><span class="v">{{contract_date}}</span></div>
+    <div><span class="k">نوع العقد</span><span class="v">{{contract_kind_label}}</span></div>
+    <div><span class="k">نوع البيع</span><span class="v">{{sale_type_text}}</span></div>
+    <div><span class="k">الفرع</span><span class="v">{{branch_name}}</span></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">موقع فيما بين:</div>
+  </div>
+
+  <div class="party">
+    <div class="party-head">الفريق الأول</div>
+    <table class="kv">
+      <tr>
+        <td class="k">الاسم</td><td class="v" colspan="3">{{company_branch_name}}</td>
+      </tr>
+      <tr>
+        <td class="k">العنوان</td><td class="v" colspan="3">{{branch_address_text}}</td>
+      </tr>
+      <tr>
+        <td class="k">يمثله في هذا العقد</td><td class="v">{{company_representative_name}}</td>
+        <td class="k">الصفة</td><td class="v">{{company_representative_title}}</td>
+      </tr>
+      {{#branchPhonesSection}}<tr>
+        <td class="k">وسائل التواصل</td><td class="v" colspan="3">{{branch_phones_text}}</td>
+      </tr>{{/branchPhonesSection}}
+    </table>
+    {{#draftWatermark}}<div class="draft-notice">{{draft_notice_text}}</div>{{/draftWatermark}}
+  </div>
+
+  <div class="party">
+    <div class="party-head">الفريق الثاني</div>
+    <table class="kv">
+      <tr>
+        <td class="k">الاسم الثلاثي</td><td class="v">{{customer_full_name}}</td>
+        <td class="k">اسم الأم</td><td class="v">{{customer_mother_name}}</td>
+      </tr>
+      <tr>
+        <td class="k">تاريخ الولادة</td><td class="v">{{customer_birth_date}}</td>
+        <td class="k">رقم الهوية</td><td class="v">{{customer_national_id_number}}</td>
+      </tr>
+      <tr>
+        <td class="k">القيد</td><td class="v">{{customer_registry_record}}</td>
+        <td class="k">الخانة</td><td class="v">{{customer_id_box}}</td>
+      </tr>
+      <tr>
+        <td class="k">صادرة عن</td><td class="v">{{customer_id_issued_by}}</td>
+        <td class="k">تاريخ المنح</td><td class="v">{{customer_id_issue_date}}</td>
+      </tr>
+      <tr>
+        <td class="k">الموبايل الأساسي</td><td class="v"><span dir="ltr">{{customer_primary_mobile}}</span>{{customer_whatsapp_note}}</td>
+        <td class="k">أرقام أخرى</td><td class="v">{{customer_other_numbers}}</td>
+      </tr>
+      <tr>
+        <td class="k">العنوان</td><td class="v" colspan="3">{{customer_address_line}}</td>
+      </tr>
+      <tr>
+        <td class="k">العنوان التفصيلي</td><td class="v" colspan="3">{{customer_detailed_address}}</td>
+      </tr>
+    </table>
+  </div>
+
+  <div class="section">
+    <div class="section-title">المقدمة</div>
+    <div>
+      لما كان الفريق الأول يقوم ببيع وتسويق أجهزة فلترة المياه وما يلزمها من مستلزمات وملحقات وخدمات التوصيل والتركيب، وقد رغب الفريق الثاني بشراء الجهاز المبين في هذا العقد، فقد انعقدت إرادة الفريقين وهما بكامل الأهلية القانونية والشرعية على ما يلي:
+    </div>
+  </div>
+
+  <div class="article">
+    <div>تعتبر مقدمة هذا العقد جزءاً لا يتجزأ منه، وتعد متممة ومفسرة لجميع أحكامه وبنوده.</div>
+  </div>
+
+  <div class="article">
+    <div class="article-title">موضوع البيع</div>
+    <div>باع الفريق الأول إلى الفريق الثاني الجهاز المبين أدناه، بالسعر الوارد في هذا البند.</div>
+
+    <div class="installments">
+      <div class="label" style="margin-top:10px">أولاً — الجهاز موضوع البيع:</div>
+      <table class="summary">
+        <tbody>
+          <tr><td>نوع المنتج</td><td>{{device_name}}</td></tr>
+          <tr><td>رقم المنتج</td><td dir="ltr">{{device_serial_number}}</td></tr>
+          <tr><td>العدد</td><td>{{device_quantity}}</td></tr>
+          {{#accessoriesSection}}<tr><td>قطع إضافية وملحقات مشمولة</td><td class="preline" style="text-align:right">{{accessories_text}}</td></tr>{{/accessoriesSection}}
+          <tr><td>عنوان التركيب</td><td style="text-align:right">{{installation_address_line}}</td></tr>
+          <tr><td>العنوان التفصيلي للتركيب</td><td style="text-align:right">{{installation_detail_text}}</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="installments">
+      <div class="label" style="margin-top:12px">ثانياً — السعر:</div>
+      <table class="summary">
+        <thead>
+          <tr><th>البند</th><th>بالليرة السورية</th></tr>
+        </thead>
+        <tbody>
+          {{priceRows}}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="article">
+    <div class="article-title">القبول</div>
+    <div>أقر الفريق الثاني بأنه اطلع على الجهاز موضوع هذا العقد وعلى شروط هذا البيع، وقبل بشرائه وفقاً للأوصاف والقيمة والأحكام الواردة في هذا العقد، والتزم بتنفيذ ما يترتب عليه من التزامات، وعلى الأخص سداد المبالغ المستحقة وفقاً لما هو مبين فيه.</div>
+  </div>
+
+  <div class="article">
+    <div class="article-title">ما يشمله السعر</div>
+    <div class="preline">يشمل السعر المتفق عليه الجهاز وبنوده المذكورة أعلاه، كما يشمل:
+- التوصيل: {{includes_delivery_once}}
+- التركيب لمرة واحدة: {{includes_installation_once}}</div>
+  </div>
+
+  <div class="article">
+{{#warrantySection}}
+    <div class="article-title">كفالة المنتج</div>
+    <div class="preline">يكفل الفريق الأول الجهاز موضوع هذا العقد لمدة {{warranty_months_text}}، ويبدأ سريان هذه الكفالة اعتباراً من تاريخ تشغيل الجهاز ووضعه في الخدمة الفعلية.
+
+ولا تشمل الكفالة:
+أ - أي عطل أو ضرر ناتج عن سوء الاستخدام أو الإهمال أو التخريب أو الحريق أو السرقة أو ما في حكمها.
+ب - الأعطال الناتجة عن استعمال قطع من غير شركة غولدن غروب.
+ج - القطع الاستهلاكية بطبيعتها، مثل الخراطيش وما يماثلها.</div>
+    {{/warrantySection}}{{#noWarrantySection}}
+    <div class="article-title">كفالة المنتج</div>
+    <div>لا يتضمن هذا العقد كفالة على الجهاز، وفق ما اتفق عليه الفريقان عند التعاقد.</div>
+    {{/noWarrantySection}}
+  </div>
+
+  <div class="article">
+    <div class="article-title">السداد</div>
+    <div>اتفق الفريقان على أن طريقة السداد في هذا العقد هي: <b>{{payment_type_label}}</b>{{#usdLinkedSection}}، وتُحدَّد الأقساط بالدولار الأمريكي بسعر صرف {{usd_rate_text}} ل.س للدولار{{/usdLinkedSection}}.</div>
+
+    <div class="installments">
+      <div class="label" style="margin-top:12px">أولاً — ملخص قيمة العقد وسدادها:</div>
+      <table class="summary">
+        <thead>
+          <tr>
+            <th>البند</th>
+            <th>بالليرة السورية</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{paymentSummaryRows}}
+        </tbody>
+      </table>
+    </div>
+
+    {{#downPaymentDetailSection}}
+    <div class="installments">
+      <div class="label" style="margin-top:12px">ثانياً — تفصيل الدفعة الأولى كما سددها الفريق الثاني:</div>
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>طريقة الدفع</th>
+            <th>المبلغ المدفوع</th>
+            <th>ما يعادله بالليرة</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{downPaymentRows}}
+        </tbody>
+      </table>
+    </div>
+    {{/downPaymentDetailSection}}
+
+    {{#installmentsSection}}
+    <div class="installments">
+      <div class="label" style="margin-top:12px">ثالثاً — جدول الأقساط (يوزَّع عليه المبلغ الباقي):</div>
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>تاريخ القسط</th>
+            <th>{{#usdLinkedSection}}المبلغ بالدولار{{/usdLinkedSection}}{{#sypInstallmentsSection}}المبلغ{{/sypInstallmentsSection}}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{installmentsRowsV3}}
+        </tbody>
+      </table>{{#usdLinkedSection}}
+      <div class="label" style="margin-top:8px">{{usd_link_text}}</div>{{/usdLinkedSection}}
+    </div>
+    {{/installmentsSection}}
+  </div>
+
+  <div class="article">
+    <div class="article-title">التأخير في السداد</div>
+    <div>يلتزم الفريق الثاني بتسديد قيمة المنتج وفق المذكور أعلاه، ويُغرَّم بقيمة {{late_penalty_per_day}} ({{late_penalty_per_day_words}}) عن كل يوم تأخير، تضاف إلى المبلغ المستحق تلقائياً دون الحاجة إلى إنذار أو إخطار.</div>
+  </div>
+
+  {{#giftsSection}}
+  <div class="article">
+    <div class="article-title">الهدايا</div>
+    <div class="preline">يلتزم الفريق الأول بالهدايا التالية وفق شروطها:
+{{gifts_text}}</div>
+  </div>
+  {{/giftsSection}}
+
+  <div class="article">
+    <div class="article-title">الوعود</div>
+    <div>لا يحق للفريق الثاني المطالبة بأي وعد مادي أو غير مادي غير مذكور ضمن هذا العقد.</div>
+  </div>
+
+  <div class="article">
+    <div class="article-title">تعهدات الفريق الثاني</div>
+    <div class="preline">يتعهد الفريق الثاني بما يلي:
+1- إعلام الفريق الأول بأي تعديل يطرأ على عنوانه أو أرقام تواصله، لضمان القدرة على تقديم الخدمات اللازمة.
+2- عدم مساس الجهاز من قبل أي شخص لا يتبع لشركة غولدن غروب، حفاظاً على أدائه الأمثل.</div>
+  </div>
+
+  <div class="article">
+    <div class="article-title">ملاحظات إضافية متفق عليها من الفريقين</div>
+    <div class="preline">{{invoice_notes_text}}</div>
+  </div>
+
+  <div class="article">
+    <div class="article-title">الاختصاص القضائي</div>
+    <div>تعتبر محاكم محافظة {{courts_governorate}} هي المختصة بالفصل في أي خلاف يتعلق بهذا العقد.</div>
+  </div>
+
+  <div class="article">
+    <div class="article-title">النسخ والأثر الكتابي</div>
+    <div class="preline">يُرسَل هذا العقد بصيغة ملف PDF إلى تطبيق الزبون أو إلى رقم الواتساب الخاص بالفريق الثاني بعد الاتفاق على جميع البنود.
+{{no_manual_edit_text}}</div>
+  </div>
+
+  <div class="signatures">
+    <div class="signature">
+      <div class="who">الفريق الأول — ممثل شركة غولدن غروب</div>
+      <div>{{company_signature_name}}</div>
+      <div class="label">الصفة: {{company_signature_title}}</div>
+      <div class="line">التوقيع</div>
+    </div>
+    <div class="signature">
+      <div class="who">الفريق الثاني</div>
+      <div>{{customer_signature_name}}</div>
+      <div class="label">&nbsp;</div>
+      <div class="line">التوقيع</div>
+    </div>
+  </div>
+
+  <div class="doc-footer">
+    <span>اعتماد العقد (التسكير): <b>{{contract_approval_name}}</b></span>
+    <span>تاريخ الطباعة / التوليد: {{print_date}}</span>
+    <span style="flex-basis:100%">{{app_contact_text}}</span>
+  </div>
+</body>
+</html>

@@ -72,7 +72,7 @@ async function loadGeoPath(db: PoolClient | typeof pool, geoUnitId: number | nul
 }
 
 // Fetch the contract bundle needed by the renderer (header + installments).
-async function loadContractForRender(db: PoolClient | typeof pool, contractId: number) {
+export async function loadContractForRender(db: PoolClient | typeof pool, contractId: number) {
   const c = await db.query(
     `SELECT c.id, c.contract_number AS "contractNumber", c.contract_date AS "contractDate",
             c.customer_id AS "customerId",
@@ -97,14 +97,19 @@ async function loadContractForRender(db: PoolClient | typeof pool, contractId: n
             c.offer_team_snapshot AS "offerTeamSnapshot",
             c.contract_referrers AS "contractReferrers",
             c.no_closing_reason_id AS "noClosingReasonId",
-            d.device_model_name AS "deviceModelName", d.serial_number AS "serialNumber",
-            d.status AS "deviceStatus", d.delivery_date AS "deliveryDate",
-            d.installation_date AS "installationDate",
-            d.installation_geo_unit_id AS "installationGeoUnitId",
-            d.installation_address_text AS "installationAddressText",
+            -- A draft has no installed_devices row yet: its planned device lives in
+            -- draft_device_payload (same fallback as contracts.ts contractSelect),
+            -- so a draft preview still prints the device, address and warranty.
+            COALESCE(d.device_model_name, c.device_model_name) AS "deviceModelName",
+            COALESCE(d.serial_number, c.draft_device_payload->>'serialNumber') AS "serialNumber",
+            COALESCE(d.status, c.draft_device_payload->>'deviceStatus') AS "deviceStatus",
+            COALESCE(d.delivery_date, NULLIF(c.draft_device_payload->>'deliveryDate', '')::date) AS "deliveryDate",
+            COALESCE(d.installation_date, NULLIF(c.draft_device_payload->>'installationDate', '')::date) AS "installationDate",
+            COALESCE(d.installation_geo_unit_id, NULLIF(c.draft_device_payload->>'installationGeoUnitId', '')::int) AS "installationGeoUnitId",
+            COALESCE(d.installation_address_text, c.draft_device_payload->>'installationAddressText') AS "installationAddressText",
             d.contract_warranty_end_date AS "contractWarrantyEndDate",
-            d.warranty_months AS "warrantyMonths",
-            d.warranty_visits AS "warrantyVisits",
+            COALESCE(d.warranty_months, NULLIF(c.draft_device_payload->>'warrantyMonths', '')::int) AS "warrantyMonths",
+            COALESCE(d.warranty_visits, NULLIF(c.draft_device_payload->>'warrantyVisits', '')::int) AS "warrantyVisits",
             (SELECT name FROM hr_users WHERE id = c.closing_employee_id LIMIT 1) AS "closingEmployeeName",
             (SELECT COALESCE(r.display_name, e.job_title, hu.role)
                FROM hr_users hu
@@ -112,7 +117,17 @@ async function loadContractForRender(db: PoolClient | typeof pool, contractId: n
                LEFT JOIN employees e ON e.id = hu.employee_id
               WHERE hu.id = c.closing_employee_id
               LIMIT 1) AS "closingEmployeeTitle",
-            (SELECT name FROM branches WHERE id = c.branch_id LIMIT 1) AS "branchName"
+            (SELECT name FROM branches WHERE id = c.branch_id LIMIT 1) AS "branchName",
+            -- v3: the first party's branch address / phones and the court's governorate.
+            (SELECT detailed_address FROM branches WHERE id = c.branch_id LIMIT 1) AS "branchAddress",
+            (SELECT contact_info FROM branches WHERE id = c.branch_id LIMIT 1) AS "branchContacts",
+            (SELECT location_geo_id FROM branches WHERE id = c.branch_id LIMIT 1) AS "branchGeoId",
+            c.draft_gift_promises AS "draftGiftPromises",
+            -- v3: a cash contract has no rate snapshot; its USD price uses the
+            -- central rate in effect on the contract date.
+            (SELECT r.rate FROM exchange_rates r
+              WHERE r.effective_from <= COALESCE(NULLIF(TRIM(c.contract_date), '')::date, c.created_at::date)
+              ORDER BY r.effective_from DESC, r.id DESC LIMIT 1) AS "contractDateRate"
        FROM contracts c
        LEFT JOIN installed_devices d ON d.contract_id = c.id
       WHERE c.id = $1`,
@@ -139,9 +154,22 @@ async function loadContractForRender(db: PoolClient | typeof pool, contractId: n
     )
     : { rows: [] as any[] };
 
-  const [installationGeoPath, clientGeoPath, lineItemsResult, paymentEntriesResult, installmentsResult, discountResult] = await Promise.all([
+  const [installationGeoPath, clientGeoPath, branchGeoPath, giftsResult, lineItemsResult, paymentEntriesResult, installmentsResult, discountResult] = await Promise.all([
     loadGeoPath(db, contract.installationGeoUnitId),
-    loadGeoPath(db, clientResult.rows[0]?.neighborhood),
+    loadGeoPath(db, clientResult.rows[0]?.neighborhood ?? clientResult.rows[0]?.district),
+    loadGeoPath(db, contract.branchGeoId),
+    db.query(
+      `SELECT COALESCE(gd.name, '') AS "giftName",
+              COALESCE(gr.promised_quantity, gr.approved_quantity, 1) AS "quantity",
+              gr.condition_label AS "conditionLabel",
+              gr.beneficiary_type AS "beneficiaryType",
+              gr.beneficiary_name_snapshot AS "beneficiaryName"
+         FROM gift_records gr
+         LEFT JOIN gift_definitions gd ON gd.id = gr.gift_definition_id
+        WHERE gr.contract_id = $1 AND gr.status <> 'cancelled'
+        ORDER BY gr.id`,
+      [contractId],
+    ),
     db.query(
       `SELECT id, item_type AS "itemType", spare_part_id AS "sparePartId",
               description, quantity, unit_price AS "unitPrice", total_price AS "totalPrice",
@@ -186,6 +214,16 @@ async function loadContractForRender(db: PoolClient | typeof pool, contractId: n
     }
     : null;
 
+  // A draft keeps its gift promises as JSON (giftDefinitionId, quantity,
+  // conditionLabel, beneficiaryKind) until approval turns them into gift_records.
+  const draftPromises = parseJsonArray(contract.draftGiftPromises);
+  const draftDefinitionIds = draftPromises.map((p: any) => Number(p?.giftDefinitionId)).filter((n: number) => n > 0);
+  const draftGiftNames = new Map<number, string>();
+  if (giftsResult.rows.length === 0 && draftDefinitionIds.length > 0) {
+    const { rows } = await db.query('SELECT id, name FROM gift_definitions WHERE id = ANY($1::int[])', [draftDefinitionIds]);
+    rows.forEach((r: any) => draftGiftNames.set(Number(r.id), String(r.name)));
+  }
+
   const installments = installmentsResult.rows;
   const remainingBalance = installments.reduce((sum: number, inst: any) => sum + Number(inst.remainingBalance || 0), 0);
 
@@ -195,6 +233,8 @@ async function loadContractForRender(db: PoolClient | typeof pool, contractId: n
       offerTeamSnapshot: contract.offerTeamSnapshot ?? null,
       contractReferrers: parseJsonArray(contract.contractReferrers),
       installationGeoPath,
+      branchGeoPath,
+      branchContacts: parseJsonArray(contract.branchContacts),
       remainingBalance,
       // D9: printed USD sentence states the collection rounding unit.
       fxRoundingUnit: contract.usdRateSnapshot != null ? await getRoundingUnit() : null,
@@ -204,6 +244,16 @@ async function loadContractForRender(db: PoolClient | typeof pool, contractId: n
     paymentEntries: paymentEntriesResult.rows,
     installments,
     discount: discountResult.rows[0] ?? null,
+    // Approved contracts carry gift_records; a draft still holds its promises as JSON.
+    gifts: giftsResult.rows.length > 0
+      ? giftsResult.rows
+      : draftPromises.map((p: any) => ({
+        giftName: draftGiftNames.get(Number(p?.giftDefinitionId)) ?? '',
+        quantity: p?.quantity ?? 1,
+        conditionLabel: p?.conditionLabel ?? null,
+        beneficiaryType: p?.beneficiaryKind ?? 'contract_customer',
+        beneficiaryName: null,
+      })),
   };
 }
 
@@ -246,6 +296,7 @@ export async function freezeContractDocument(
     paymentEntries: bundle.paymentEntries,
     discount:     bundle.discount,
     installments: bundle.installments,
+    gifts:          bundle.gifts,
     draftWatermark: false, // by definition we only freeze active/completed/cancelled
   });
 
@@ -306,6 +357,7 @@ export async function freezeContractSettlementAmendment(
     paymentEntries: bundle.paymentEntries,
     discount:       bundle.discount,
     installments:   bundle.installments,
+    gifts:          bundle.gifts,
     draftWatermark: false,
     templateKey:    SETTLEMENT_AMENDMENT_TEMPLATE_KEY,
   });
@@ -376,6 +428,7 @@ router.get(
           paymentEntries: bundle.paymentEntries,
           discount:     bundle.discount,
           installments: bundle.installments,
+          gifts:          bundle.gifts,
           draftWatermark: true,
         });
         res.set('Content-Type', 'text/html; charset=utf-8');

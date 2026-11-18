@@ -136,6 +136,12 @@ export async function loadCollectableInstallment(
        FROM contract_installments i
        JOIN contracts c ON c.id = i.contract_id
       WHERE i.id = $1
+        -- Collectable = a confirmed schedule on a live contract. A cancelled
+        -- contract keeps its installment rows (the ledger offsets them with
+        -- discount movements), and a draft's schedule is not yet a debt, so
+        -- neither may open a collection task.
+        AND i.confirmed = TRUE
+        AND c.status = 'active'
       LIMIT 1`,
     [installmentId],
   );

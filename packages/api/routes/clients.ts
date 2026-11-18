@@ -55,6 +55,7 @@ import {
   detectCandidateDuplicate,
 } from '../services/candidateDuplicateDetection.js';
 import { resolveReferenceValueForWrite } from '../services/referenceValueService.js';
+import { contractLineFxReference } from '../services/statementFx.js';
 import {
   applyClientDoNotContactState,
   lockClientContactControlMutations,
@@ -1476,6 +1477,14 @@ export function withPaymentFxReference(row: any): string {
   return base;
 }
 
+/** Statement description: payments → withPaymentFxReference; contract lines → USD (services/statementFx). */
+export function withStatementFxReference(row: any): string {
+  if (row.kind === 'payment') return withPaymentFxReference(row);
+  const ref = contractLineFxReference(row);
+  const stored = row.description ?? '';
+  return ref ? `${stored} — ${ref.label}` : stored;
+}
+
 router.get('/:id/account-statement', requirePermission('clients.account_statement.view'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
@@ -1576,12 +1585,14 @@ router.get('/:id/account-statement', requirePermission('clients.account_statemen
                    ELSE 'إجمالي تكلفة الصيانة — مهمة #' || MIN(src.source_id)
                  END AS description,
                  NULL::varchar AS reference_no,
-                 SUM(src.amount_syp) AS amount_syp
+                 SUM(src.amount_syp) AS amount_syp,
+                 TRUE AS is_debt_total
             FROM src WHERE src.debt_key IS NOT NULL
            GROUP BY src.debt_key
           UNION ALL
           SELECT src.id, src.occurred_at, src.kind, src.source_type, src.source_id, src.source_ref_id, src.contract_id,
-                 src.description, src.reference_no, src.amount_syp
+                 src.description, src.reference_no, src.amount_syp,
+                 FALSE AS is_debt_total
             FROM src WHERE src.debt_key IS NULL
         ) fm_view`
       : 'financial_movements';
@@ -1592,6 +1603,7 @@ router.get('/:id/account-statement', requirePermission('clients.account_statemen
            SELECT
              id, occurred_at, kind, source_type, source_id, source_ref_id, contract_id,
              description, reference_no,
+             ${totalView ? 'is_debt_total' : 'FALSE AS is_debt_total'},
              CASE WHEN kind IN ('charge','refund')    THEN amount_syp ELSE 0 END AS debit_amount,
              CASE WHEN kind IN ('payment','discount') THEN amount_syp ELSE 0 END AS credit_amount,
              SUM(CASE WHEN kind IN ('charge','refund') THEN amount_syp ELSE -amount_syp END)
@@ -1617,8 +1629,24 @@ router.get('/:id/account-statement', requirePermission('clients.account_statemen
                 END AS advance_due_date,
                 -- D6: maintenance spot cash is one aggregated payment line per
                 -- visit; its upfront entries carry the reference rate (migr 495).
-                spot.rate AS spot_ref_rate, spot.usd_cash AS spot_usd_cash
+                spot.rate AS spot_ref_rate, spot.usd_cash AS spot_usd_cash,
+                -- Contract lines (charges / write-offs) in USD: contract rate,
+                -- the installment's fixed USD, else the rate on the line's date.
+                cx.usd_rate_snapshot AS fx_contract_rate,
+                cix.amount_usd AS fx_installment_usd,
+                dr.rate AS fx_date_rate
            FROM ordered o
+           LEFT JOIN contracts cx
+             ON o.kind <> 'payment' AND o.source_type IN ('contract', 'contract_installment') AND cx.id = o.contract_id
+           LEFT JOIN contract_installments cix
+             ON o.kind = 'charge' AND o.source_type = 'contract_installment' AND cix.id = o.source_ref_id
+           LEFT JOIN LATERAL (
+             SELECT r.rate
+               FROM exchange_rates r
+              WHERE r.effective_from <= (LEAST(o.occurred_at, NOW()) AT TIME ZONE 'Asia/Damascus')::date
+              ORDER BY r.effective_from DESC, r.id DESC
+              LIMIT 1
+           ) dr ON cx.id IS NOT NULL AND cx.usd_rate_snapshot IS NULL
            LEFT JOIN contract_payment_entries pe
              ON o.source_type = 'contract_payment' AND pe.id = o.source_ref_id
            LEFT JOIN contract_installments ci ON ci.id = pe.installment_id
@@ -1671,7 +1699,9 @@ router.get('/:id/account-statement', requirePermission('clients.account_statemen
         outstanding_total: Number(summary.outstanding_total),
       },
       view: totalView ? 'total' : 'due',
-      entries: entriesResult.rows.map(row => ({
+      entries: entriesResult.rows.map(row => {
+        const contractFx = contractLineFxReference(row);
+        return {
         id: row.id,
         entry_date: row.occurred_at,
         entry_type: row.source_type,
@@ -1680,21 +1710,24 @@ router.get('/:id/account-statement', requirePermission('clients.account_statemen
         source_id: row.source_id,
         contract_id: row.contract_id,
         // The «دفعة مقدّمة» note is meaningless when the whole debt is booked upfront.
-        description: withPaymentFxReference(totalView ? { ...row, advance_due_date: null } : row),
+        description: withStatementFxReference(totalView ? { ...row, advance_due_date: null } : row),
         reference_no: row.reference_no,
         // Structured copy of the reference shown in the description (null when none recorded).
-        usd_amount: row.fx_day_rate != null
-          ? Number(row.fx_usd_settled)
-          : row.fx_ref_usd != null ? Number(row.fx_ref_usd) : null,
-        exchange_rate: row.fx_day_rate != null
-          ? Number(row.fx_day_rate)
-          : row.fx_ref_rate != null ? Number(row.fx_ref_rate) : null,
+        usd_amount: contractFx ? contractFx.usd
+          : row.fx_day_rate != null
+            ? Number(row.fx_usd_settled)
+            : row.fx_ref_usd != null ? Number(row.fx_ref_usd) : null,
+        exchange_rate: contractFx ? contractFx.rate
+          : row.fx_day_rate != null
+            ? Number(row.fx_day_rate)
+            : row.fx_ref_rate != null ? Number(row.fx_ref_rate) : null,
         collected_syp: row.fx_collected_syp != null ? Number(row.fx_collected_syp) : null,
         debit_amount: Number(row.debit_amount),
         credit_amount: Number(row.credit_amount),
         running_balance: Number(row.running_balance),
         is_upcoming: row.is_upcoming === true,
-      })),
+        };
+      }),
     });
   } catch (err: any) {
     res.status(err.status || 500).json({ error: err.message });

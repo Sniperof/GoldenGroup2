@@ -46,7 +46,9 @@ function mapInstallmentAsDue(row: any) {
 // GET /api/dues — projection of unsettled installments.
 router.get('/', requirePermission('contracts.view_list'), async (req, res) => {
   const authContext = req.authContext!;
-  const conditions: string[] = ['i.remaining_balance > 0'];
+  // Only live debts: a cancelled contract's installments keep their balance
+  // (offset in financial_movements), and a draft schedule is not a debt yet.
+  const conditions: string[] = ['i.remaining_balance > 0', 'i.confirmed = TRUE', "c.status = 'active'"];
   const params: any[] = [];
 
   if (!authContext.isSuperAdmin) {
