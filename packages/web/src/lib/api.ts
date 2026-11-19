@@ -2480,6 +2480,8 @@ export const api = {
     current: () => request<{
       current: { id: number; rate: number; effectiveFrom: string } | null;
       roundingUnit: number;
+      /** Global switch (migr 497): new schedules fixed in USD at confirmation. */
+      usdLinkEnabled?: boolean;
     }>('/exchange-rates/current'),
     create: (data: { rate: number; effectiveFrom: string; note?: string | null }) =>
       request<{ id: number; rate: number; effectiveFrom: string }>('/exchange-rates', {

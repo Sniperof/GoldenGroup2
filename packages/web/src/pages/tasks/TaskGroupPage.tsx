@@ -21,6 +21,7 @@ import {
 import { getExpectedDateStatus, getDueDateStatus } from '../../lib/taskDateStatus';
 import { getGeoUnits, type GeoUnit } from '../../lib/geoUnitsCache';
 import BranchScopeIndicator from '../../components/BranchScopeIndicator';
+import InstallmentCurrencyBadge from '../../components/contracts/InstallmentCurrencyBadge';
 
 // ============================================================
 // TaskGroupPage — Unified tasks list for all 6 display_groups.
@@ -567,6 +568,11 @@ export default function TaskGroupPage() {
         </span>
       ),
     },
+    // «مهام تسديد الذمم»: which currency the collected installment was fixed in (migr 493/497).
+    ...(group === 'collection' ? [{
+      key: 'installmentCurrency', label: 'عملة القسط',
+      render: (row: any) => <InstallmentCurrencyBadge currency={row.installmentCurrency} compact />,
+    } as ColumnDef<any>] : []),
     { key: 'branch', label: 'الفرع', render: (row) => <span className="text-slate-600">{getBranchLabel(row)}</span> },
     {
       key: 'name', label: 'اسم الزبون الكامل',

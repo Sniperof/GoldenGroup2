@@ -169,7 +169,7 @@ export default function CostsForm({
   const [installmentsConfirmed, setInstallmentsConfirmed] = useState(false);
   // USD link (migr 495): central rate of the day — USD cash is priced at it and
   // the deferred schedule is fixed in USD when confirmed.
-  const { rate: usdRate } = useCurrentUsdRate();
+  const { rate: usdRate, usdLinkEnabled } = useCurrentUsdRate();
   const [usdRateSnapshot, setUsdRateSnapshot] = useState<number | null>(null);
 
   // ── Employee ───────────────────────────────────────────────────────────────
@@ -703,6 +703,7 @@ export default function CostsForm({
                     confirmed={installmentsConfirmed}
                     usdRate={usdRate}
                     usdRateSnapshot={usdRateSnapshot}
+                    usdLinkEnabled={usdLinkEnabled}
                     onSave={handleSaveInstallments}
                     onConfirm={handleConfirmInstallments}
                     disabled={readOnly}

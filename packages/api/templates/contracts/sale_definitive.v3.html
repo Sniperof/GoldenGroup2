@@ -285,7 +285,7 @@
 
   <div class="article">
     <div class="article-title">السداد</div>
-    <div>اتفق الفريقان على أن طريقة السداد في هذا العقد هي: <b>{{payment_type_label}}</b>{{#usdLinkedSection}}، وتُحدَّد الأقساط بالدولار الأمريكي بسعر صرف {{usd_rate_text}} ل.س للدولار{{/usdLinkedSection}}.</div>
+    <div>اتفق الفريقان على أن طريقة السداد في هذا العقد هي: <b>{{payment_type_label}}</b>{{#usdLinkedSection}}، وتُحدَّد الأقساط بالدولار الأمريكي بسعر صرف {{usd_rate_text}} ل.س للدولار{{/usdLinkedSection}}{{#sypInstallmentsSection}}، وتُحدَّد الأقساط بالليرة السورية{{/sypInstallmentsSection}}.</div>
 
     <div class="installments">
       <div class="label" style="margin-top:12px">أولاً — ملخص قيمة العقد وسدادها:</div>
@@ -329,14 +329,15 @@
           <tr>
             <th>#</th>
             <th>تاريخ القسط</th>
-            <th>{{#usdLinkedSection}}المبلغ بالدولار{{/usdLinkedSection}}{{#sypInstallmentsSection}}المبلغ{{/sypInstallmentsSection}}</th>
+            <th>{{#usdLinkedSection}}المبلغ بالدولار{{/usdLinkedSection}}{{#sypInstallmentsSection}}المبلغ بالليرة السورية{{/sypInstallmentsSection}}</th>
           </tr>
         </thead>
         <tbody>
           {{installmentsRowsV3}}
         </tbody>
       </table>{{#usdLinkedSection}}
-      <div class="label" style="margin-top:8px">{{usd_link_text}}</div>{{/usdLinkedSection}}
+      <div class="label" style="margin-top:8px">{{usd_link_text}}</div>{{/usdLinkedSection}}{{#sypInstallmentsSection}}
+      <div class="label" style="margin-top:8px">قيمة كل قسط محددة بالليرة السورية كما في جدول الاستحقاقات، وتُسدَّد بمبلغها المحدد دون أي ربط بسعر صرف الدولار.</div>{{/sypInstallmentsSection}}
     </div>
     {{/installmentsSection}}
   </div>

@@ -410,7 +410,7 @@ export function buildPaymentSummaryRowsHtml(input: RenderContractInput): string 
   };
   const remainingLabel = !installments.length
     ? 'المبلغ الباقي'
-    : usdLinked ? 'المبلغ الباقي (تُبنى عليه الأقساط بالدولار أدناه)' : 'المبلغ الباقي (يُسدَّد بالأقساط أدناه)';
+    : usdLinked ? 'المبلغ الباقي (تُبنى عليه الأقساط بالدولار أدناه)' : 'المبلغ الباقي (تُبنى عليه الأقساط بالليرة السورية أدناه)';
   return [
     row('قيمة العقد الإجمالية', finalPrice, true),
     row('الدفعة الأولى (المقبوضة عند التوقيع)', down.amount),

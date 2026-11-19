@@ -2698,6 +2698,17 @@ function buildTaskRowsSelectFrom(hasDeliveryAddressColumn: boolean): string {
         idev.installation_geo_unit_id AS "currentDeviceGeoUnitId",
         ot.reason,
         ot.task_family AS "taskFamily",
+        -- Installment currency (migr 493/497): a collection task follows the mode
+        -- its installment was fixed in at schedule confirmation — USD or SYP.
+        CASE
+          WHEN ot.installment_id IS NOT NULL THEN (
+            SELECT CASE WHEN ci.amount_usd IS NOT NULL THEN 'USD' ELSE 'SYP' END
+              FROM contract_installments ci WHERE ci.id = ot.installment_id)
+          WHEN ot.maintenance_installment_id IS NOT NULL THEN (
+            SELECT CASE WHEN mi.amount_usd IS NOT NULL THEN 'USD' ELSE 'SYP' END
+              FROM emergency_installments mi WHERE mi.id = ot.maintenance_installment_id)
+          WHEN ot.task_type = 'installment_collection' THEN 'SYP'
+        END AS "installmentCurrency",
         ot.created_at AS "createdAt",
         ot.updated_at AS "updatedAt",
         completed_activity.completed_at AS "completedAt",

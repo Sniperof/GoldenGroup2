@@ -698,7 +698,7 @@ export default function ContractForm() {
     const [persistedInstallmentsConfirmed, setPersistedInstallmentsConfirmed] = useState(false);
     const [installmentCount, setInstallmentCount] = useState('6');
     // USD link (migr 493): today's central rate for the dual SYP/USD schedule entry.
-    const { rate: usdRate, effectiveFrom: usdRateFrom, loading: usdRateLoading } = useCurrentUsdRate();
+    const { rate: usdRate, effectiveFrom: usdRateFrom, loading: usdRateLoading, usdLinkEnabled } = useCurrentUsdRate();
     // Contract rate snapshotted at the last server-side confirmation (null = not linked / legacy).
     const [contractUsdRate, setContractUsdRate] = useState<number | null>(null);
     const [unconfirming, setUnconfirming] = useState(false);
@@ -1187,6 +1187,9 @@ export default function ContractForm() {
     // rate (which the confirmation then snapshots). Never a typed rate; the
     // server prices it again and the form only mirrors that.
     const signingUsdRate: number | null = contractUsdRate ?? usdRate ?? null;
+    // USD column in the schedule: a schedule already fixed in USD keeps it; a new
+    // one shows it only while the global link is on (migr 497).
+    const scheduleShowsUsd = usdLinkEnabled || installmentDrafts.some((d) => d.serverAmountUsd != null);
     const entryUsdRate = (e: PaymentEntryDraft): number => {
         const saved = Number(e.exchangeRate);
         // A saved entry keeps the rate it was saved at (the server re-prices it
@@ -1499,7 +1502,8 @@ export default function ContractForm() {
             if (paymentType === 'installment') {
                 if (!installmentsConfirmed) issues.push('عقد تقسيط — أكّد جدول الأقساط');
                 // USD link (migr 493): a new confirmation needs a rate in effect today.
-                if (installmentsConfirmed && !persistedInstallmentsConfirmed && !usdRateLoading && !usdRate) {
+                // Global switch off (migr 497): the new schedule stays SYP, no rate needed.
+                if (usdLinkEnabled && installmentsConfirmed && !persistedInstallmentsConfirmed && !usdRateLoading && !usdRate) {
                     issues.push('لا يوجد سعر صرف معتمد اليوم — لا يمكن تأكيد جدول الأقساط');
                 }
                 if (hasDownPayment) {
@@ -1543,7 +1547,7 @@ export default function ContractForm() {
         sourceTaskId, paymentType, paymentEntries, confirmedEntries,
         totalPaidSyp, grandTotal, hasDownPayment, installmentsConfirmed,
         totalInstallmentSyp, saleType, oldContractNumber,
-        persistedInstallmentsConfirmed, usdRate, usdRateLoading,
+        persistedInstallmentsConfirmed, usdRate, usdRateLoading, usdLinkEnabled,
     ]);
     const isValid = validationIssues.length === 0;
 
@@ -3199,13 +3203,18 @@ export default function ContractForm() {
                                     </p>
                                 )}
 
-                                {/* USD link (migr 493): the schedule is fixed in USD at confirmation. */}
-                                <div className={`rounded-xl border px-4 py-2.5 text-xs ${usdRate ? 'border-blue-200 bg-blue-50 text-blue-800' : 'border-rose-200 bg-rose-50 text-rose-700'}`}>
+                                {/* USD link (migr 493): the schedule is fixed in USD at confirmation —
+                                    unless management switched the link off (migr 497). */}
+                                {!scheduleShowsUsd ? (
+                                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs text-slate-700">
+                                        ربط الأقساط بالدولار موقوف حالياً من الإدارة — جدول الأقساط يُثبَّت بالليرة السورية فقط.
+                                    </div>
+                                ) : <div className={`rounded-xl border px-4 py-2.5 text-xs ${usdRate ? 'border-blue-200 bg-blue-50 text-blue-800' : 'border-rose-200 bg-rose-50 text-rose-700'}`}>
                                     {usdRateLoading ? 'جارِ تحميل سعر الصرف…'
                                         : usdRate
                                             ? <>سعر الصرف المركزي اليوم: <b>{formatPrice(usdRate)} / $</b>{usdRateFrom ? <> (ساري منذ {usdRateFrom})</> : null}. يمكن إدخال كل قسط بالليرة أو بالدولار، ويُثبَّت سعر العقد والمبلغ بالدولار لحظة التأكيد.</>
                                             : <>لا يوجد سعر صرف معتمد اليوم — لا يمكن تأكيد جدول الأقساط حتى تُدخل الإدارة السعر.</>}
-                                </div>
+                                </div>}
 
                                 {installmentDrafts.length > 0 && (
                                     <div className="rounded-xl border border-slate-200 overflow-hidden">
@@ -3222,7 +3231,7 @@ export default function ContractForm() {
                                                     <th className="px-3 py-2 text-right">#</th>
                                                     <th className="px-3 py-2 text-right">تاريخ الاستحقاق</th>
                                                     <th className="px-3 py-2 text-right">المبلغ ل.س</th>
-                                                    <th className="px-3 py-2 text-right">بالدولار $</th>
+                                                    {scheduleShowsUsd && <th className="px-3 py-2 text-right">بالدولار $</th>}
                                                     {!installmentsConfirmed && <th className="px-3 py-2" />}
                                                 </tr>
                                             </thead>
@@ -3246,7 +3255,7 @@ export default function ContractForm() {
                                                                     className="w-28 text-sm border border-slate-200 rounded px-2 py-1 focus:outline-none focus:border-sky-400 font-mono" dir="ltr" />
                                                             }
                                                         </td>
-                                                        <td className="px-3 py-2">
+                                                        {scheduleShowsUsd && <td className="px-3 py-2">
                                                             {installmentsConfirmed
                                                                 ? <span className="text-sm font-mono text-blue-700" dir="ltr">
                                                                     {inst.serverAmountUsd != null
@@ -3263,7 +3272,7 @@ export default function ContractForm() {
                                                                     }}
                                                                     className="w-24 text-sm border border-blue-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400 font-mono disabled:bg-slate-50" dir="ltr" />
                                                             }
-                                                        </td>
+                                                        </td>}
                                                         {!installmentsConfirmed && (
                                                             <td className="px-3 py-2">
                                                                 <button type="button" onClick={() => setInstallmentDrafts(prev => prev.filter((_, i) => i !== idx).map((d, i) => ({ ...d, installmentNumber: i + 1 })))}
@@ -3279,11 +3288,11 @@ export default function ContractForm() {
                                                 <tr>
                                                     <td colSpan={2} className="px-3 py-2 text-slate-500">المجموع</td>
                                                     <td className="px-3 py-2 font-mono text-slate-800">{formatPrice(totalInstallmentSyp)}</td>
-                                                    <td className="px-3 py-2 font-mono text-blue-700" dir="ltr">
+                                                    {scheduleShowsUsd && <td className="px-3 py-2 font-mono text-blue-700" dir="ltr">
                                                         {installmentDrafts.every(d => d.serverAmountUsd != null) && installmentsConfirmed
                                                             ? installmentDrafts.reduce((sum, d) => sum + (d.serverAmountUsd ?? 0), 0).toFixed(2)
                                                             : usdRate ? installmentDrafts.reduce((sum, d) => sum + usdFromSyp(Number(d.amountSyp) || 0, usdRate), 0).toFixed(2) : '—'}
-                                                    </td>
+                                                    </td>}
                                                     {!installmentsConfirmed && <td />}
                                                 </tr>
                                             </tfoot>
@@ -3291,8 +3300,8 @@ export default function ContractForm() {
                                         {!installmentsConfirmed && (
                                             <div className="px-4 py-3 bg-slate-50 border-t border-slate-200">
                                                 <button type="button"
-                                                    disabled={!usdRate}
-                                                    title={!usdRate ? 'لا يوجد سعر صرف معتمد اليوم' : undefined}
+                                                    disabled={usdLinkEnabled && !usdRate}
+                                                    title={usdLinkEnabled && !usdRate ? 'لا يوجد سعر صرف معتمد اليوم' : undefined}
                                                     onClick={() => setInstallmentsConfirmed(true)}
                                                     className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 text-xs font-bold hover:bg-emerald-100 transition-colors">
                                                     <CheckCircle2 className="w-3.5 h-3.5" /> تأكيد الأقساط

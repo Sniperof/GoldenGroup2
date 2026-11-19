@@ -167,8 +167,15 @@ const contractSelect = `
   (SELECT name FROM branches WHERE id = c.branch_id LIMIT 1) AS "branchName",
   (SELECT name FROM branches WHERE id = c.service_branch_id LIMIT 1) AS "serviceBranchName",
   (SELECT name FROM hr_users WHERE id = c.created_by LIMIT 1) AS "createdByName",
-  (SELECT name FROM employees WHERE id = c.sale_owner_id LIMIT 1) AS "saleOwnerName"
-`;
+  (SELECT name FROM employees WHERE id = c.sale_owner_id LIMIT 1) AS "saleOwnerName",
+  -- Installment currency (migr 493/497): USD when the schedule was fixed in USD,
+  -- SYP when confirmed without the link, NULL when there is no confirmed schedule yet.
+  CASE
+    WHEN c.payment_type IS DISTINCT FROM 'installment' THEN NULL
+    WHEN EXISTS (SELECT 1 FROM contract_installments ci WHERE ci.contract_id = c.id AND ci.amount_usd IS NOT NULL) THEN 'USD'
+    WHEN EXISTS (SELECT 1 FROM contract_installments ci WHERE ci.contract_id = c.id AND ci.confirmed) THEN 'SYP'
+  END AS "installmentCurrency"
+`
 
 function mapContract(c: any) {
   return {

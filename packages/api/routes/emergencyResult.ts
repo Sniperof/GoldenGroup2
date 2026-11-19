@@ -2296,6 +2296,7 @@ router.post('/:taskId/installments/confirm', requirePermission('marketing_visits
       );
       // USD link (migr 495): the deferred installments are fixed in USD at the
       // central rate of today (server-side). No rate in effect -> refused.
+      // Global switch off (migr 497) -> the schedule stays plain SYP.
       await snapshotMaintenanceUsdRate(db, Number(meta.costsId), instRows.map((r: any) => Number(r.id)));
       const recordedBy = (req.authContext as any)?.userId ?? null;
       await recordMaintenanceInstallmentCharges(db, { taskId, taskType: meta.taskType, installmentIds: instRows.map((r: any) => Number(r.id)), recordedBy });

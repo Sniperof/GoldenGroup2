@@ -18,6 +18,7 @@ export const EDITABLE_KEYS = [
   'name_nomination_max_names_per_request',
   'name_nomination_daily_per_unverified_ip',
   'fx_collection_rounding_unit',
+  'fx_installments_usd_link_enabled',
 ] as const;
 
 export type EditableKey = typeof EDITABLE_KEYS[number];
@@ -43,6 +44,7 @@ const SETTING_TYPES: Record<EditableKey, EditableSettingType> = {
   name_nomination_max_names_per_request: 'integer',
   name_nomination_daily_per_unverified_ip: 'integer',
   fx_collection_rounding_unit: 'integer',
+  fx_installments_usd_link_enabled: 'boolean',
 };
 
 const ALLOWED_PERIODIC_STATUSES = new Set(['open', 'assigned', 'in_scheduling', 'scheduled', 'waiting_execution']);

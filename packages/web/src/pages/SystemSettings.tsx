@@ -80,6 +80,11 @@ export default function SystemSettings() {
     const [savedFxRoundingUnit, setSavedFxRoundingUnit] = useState('1000');
     const [fxRoundingSaving, setFxRoundingSaving] = useState(false);
     const [fxRoundingMsg, setFxRoundingMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+    // Global USD-link switch for new installment schedules (migr 497).
+    const [usdLinkEnabled, setUsdLinkEnabled] = useState(true);
+    const [savedUsdLinkEnabled, setSavedUsdLinkEnabled] = useState(true);
+    const [usdLinkSaving, setUsdLinkSaving] = useState(false);
+    const [usdLinkMsg, setUsdLinkMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
     const [webLoginSlots, setWebLoginSlots] = useState<TeamSlot[]>([]);
     const [savedWebLoginSlots, setSavedWebLoginSlots] = useState<TeamSlot[]>([]);
     const [webLoginSaving, setWebLoginSaving] = useState(false);
@@ -113,6 +118,9 @@ export default function SystemSettings() {
                 const fxUnit = res.settings.find((s) => s.key === 'fx_collection_rounding_unit')?.value ?? '1000';
                 setFxRoundingUnit(fxUnit);
                 setSavedFxRoundingUnit(fxUnit);
+                const usdLink = (res.settings.find((s) => s.key === 'fx_installments_usd_link_enabled')?.value ?? 'true') !== 'false';
+                setUsdLinkEnabled(usdLink);
+                setSavedUsdLinkEnabled(usdLink);
                 const allowedWebSlots = parseTeamSlots(
                     res.settings.find((s) => s.key === 'web_login_allowed_team_slots')?.value ?? '',
                 );
@@ -219,6 +227,22 @@ export default function SystemSettings() {
             setFxRoundingMsg({ type: 'err', text: err?.message ?? 'فشل الحفظ.' });
         } finally {
             setFxRoundingSaving(false);
+        }
+    };
+
+    const saveUsdLinkEnabled = async () => {
+        setUsdLinkSaving(true);
+        setUsdLinkMsg(null);
+        try {
+            const res = await api.systemSettings.update('fx_installments_usd_link_enabled', usdLinkEnabled);
+            const v = res.value !== 'false';
+            setUsdLinkEnabled(v);
+            setSavedUsdLinkEnabled(v);
+            setUsdLinkMsg({ type: 'ok', text: 'تم الحفظ. يُطبَّق على الجداول التي تُؤكَّد من الآن (خلال دقيقة).' });
+        } catch (err: any) {
+            setUsdLinkMsg({ type: 'err', text: err?.message ?? 'فشل الحفظ.' });
+        } finally {
+            setUsdLinkSaving(false);
         }
     };
 
@@ -447,9 +471,36 @@ export default function SystemSettings() {
                 >
                     <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex items-center gap-3">
                         <Clock className="w-5 h-5 text-blue-600" />
-                        <h2 className="text-lg font-bold text-slate-800">تقريب تحصيل الأقساط المربوطة بالدولار</h2>
+                        <h2 className="text-lg font-bold text-slate-800">الأقساط المربوطة بالدولار</h2>
+                    </div>
+                    <div className="p-6 border-b border-slate-100">
+                        <div className="flex items-start justify-between gap-4 flex-wrap">
+                            <div className="flex-1 min-w-[240px]">
+                                <label htmlFor="usd-link-switch" className="text-sm font-bold text-slate-700">ربط جداول الأقساط الجديدة بالدولار</label>
+                                <p className="text-xs text-slate-500 leading-relaxed mt-1">
+                                    يشمل أقساط العقود وأقساط الصيانة. عند التشغيل يُثبَّت كل جدول جديد بالدولار لحظة تأكيده. عند الإيقاف تُثبَّت الجداول الجديدة بالليرة السورية فقط ولا تحتاج سعر صرف. الجداول المؤكدة سابقاً تبقى كما هي في الحالتين.
+                                </p>
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <input id="usd-link-switch" type="checkbox" checked={usdLinkEnabled}
+                                    disabled={!canManageSettings || usdLinkSaving}
+                                    onChange={(e) => setUsdLinkEnabled(e.target.checked)}
+                                    className="h-5 w-5 rounded border-slate-300 text-blue-600 focus:ring-blue-200" />
+                                <Button variant="secondary" icon={Save} onClick={saveUsdLinkEnabled}
+                                    loading={usdLinkSaving}
+                                    disabled={!canManageSettings || usdLinkEnabled === savedUsdLinkEnabled}>
+                                    حفظ
+                                </Button>
+                            </div>
+                        </div>
+                        {usdLinkMsg && (
+                            <p className={`text-xs font-bold mt-3 ${usdLinkMsg.type === 'ok' ? 'text-emerald-600' : 'text-red-600'}`}>
+                                {usdLinkMsg.text}
+                            </p>
+                        )}
                     </div>
                     <div className="p-6">
+                        <h3 className="text-sm font-bold text-slate-700 mb-2">تقريب التحصيل</h3>
                         <p className="text-xs text-slate-500 leading-relaxed mb-5">
                             المستحق اليوم = المتبقي بالدولار × سعر صرف يوم الدفع، مقرّباً لأقرب مضاعف لهذه القيمة بالليرة. القيمة صفر تعني التقريب لأقرب ليرة. سعر الصرف نفسه يُدار من صفحة «سعر الصرف».
                         </p>

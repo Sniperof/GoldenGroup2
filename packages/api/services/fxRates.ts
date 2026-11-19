@@ -17,7 +17,7 @@
 
 import type { Pool, PoolClient } from 'pg';
 import pool from '../db.js';
-import { getSystemSettingNumber } from './systemSettings.js';
+import { getSystemSettingBoolean, getSystemSettingNumber } from './systemSettings.js';
 import {
   DEFAULT_FX_ROUNDING_UNIT,
   computeUsdDue,
@@ -31,6 +31,19 @@ import {
 type Db = Pool | PoolClient;
 
 export const FX_ROUNDING_SETTING_KEY = 'fx_collection_rounding_unit';
+
+/**
+ * Global USD-link switch (owner decision 2026-11-19): management decides for
+ * ALL new installment schedules — contracts and deferred maintenance alike —
+ * whether they are fixed in USD (on) or stay plain SYP (off). The decision is
+ * frozen per schedule at its first confirmation: a schedule already linked
+ * stays linked, a SYP schedule stays SYP, whatever the switch says later.
+ */
+export const USD_LINK_SETTING_KEY = 'fx_installments_usd_link_enabled';
+
+export async function isUsdLinkEnabled(): Promise<boolean> {
+  return getSystemSettingBoolean(USD_LINK_SETTING_KEY, true);
+}
 
 export class FxRateMissingError extends Error {
   status = 400;
@@ -234,6 +247,13 @@ export async function snapshotContractUsdRate(db: Db, contractId: number): Promi
     [contractId],
   );
   if (!(Number(rows[0]?.n) > 0)) return null;
+  if (!(await isUsdLinkEnabled())) {
+    // Switch off: this (new) schedule is a plain SYP schedule — no snapshot,
+    // no amount_usd, and no exchange rate required.
+    await db.query(`UPDATE contracts SET usd_rate_snapshot = NULL, usd_rate_snapshot_at = NULL WHERE id = $1`, [contractId]);
+    await db.query(`UPDATE contract_installments SET amount_usd = NULL WHERE contract_id = $1`, [contractId]);
+    return null;
+  }
   const rate = await requireRateToday(db);
   await db.query(
     `UPDATE contracts SET usd_rate_snapshot = $2, usd_rate_snapshot_at = NOW() WHERE id = $1`,
@@ -325,6 +345,8 @@ export async function snapshotMaintenanceUsdRate(db: Db, costsId: number, instal
   let rate: number;
   if (rows[0]?.usd_rate_snapshot != null && rows[0]?.has_linked) {
     rate = Number(rows[0].usd_rate_snapshot);
+  } else if (!(await isUsdLinkEnabled())) {
+    return null; // switch off: a new maintenance schedule stays plain SYP
   } else {
     rate = (await requireRateToday(db)).rate;
     await db.query(
@@ -349,13 +371,16 @@ export interface ContractFxInfo {
   /** Signed % change from snapshot to today's rate; null when either is missing. */
   changePct: number | null;
   roundingUnit: number;
+  /** Global switch: whether a schedule confirmed now gets fixed in USD. */
+  usdLinkEnabled: boolean;
 }
 
 export async function getContractFxInfo(db: Db, contractId: number): Promise<ContractFxInfo> {
-  const [{ rows }, current, roundingUnit] = await Promise.all([
+  const [{ rows }, current, roundingUnit, usdLinkEnabled] = await Promise.all([
     db.query(`SELECT usd_rate_snapshot, usd_rate_snapshot_at FROM contracts WHERE id = $1`, [contractId]),
     getRateOn(db, null),
     getRoundingUnit(),
+    isUsdLinkEnabled(),
   ]);
   const snapshotRate = rows[0]?.usd_rate_snapshot != null ? Number(rows[0].usd_rate_snapshot) : null;
   return {
@@ -365,6 +390,7 @@ export async function getContractFxInfo(db: Db, contractId: number): Promise<Con
     currentRateEffectiveFrom: current?.effectiveFrom ?? null,
     changePct: snapshotRate != null && current ? rateChangePct(snapshotRate, current.rate) : null,
     roundingUnit,
+    usdLinkEnabled,
   };
 }
 

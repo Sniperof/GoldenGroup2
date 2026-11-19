@@ -39,7 +39,6 @@ function statusChipOf(status: string | null | undefined): { label: string; style
 const paymentLabels: Record<string, string> = { cash: 'نقدي', installment: 'أقساط' };
 
 const formatDate = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString('ar-SY', { month: 'short', day: 'numeric' });
-const formatPrice = (n: number) => String(n) + ' ل.س';
 
 // SmartTable column key → server sort key. Columns not listed are non-sortable
 // (subquery-derived names / branch), so a header click never silently no-ops.
@@ -255,14 +254,29 @@ export default function ContractList() {
         },
         {
             key: 'finalPrice', label: 'المبلغ', sortable: true,
-            render: (c) => (
-                <div className="text-left" dir="ltr">
-                    <span className="text-sm font-bold text-slate-800">{formatPrice(c.finalPrice)}</span>
-                    <span className={`mr-1.5 px-1.5 py-0.5 rounded text-xs font-medium ${c.paymentType === 'cash' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
-                        {paymentLabels[c.paymentType]}
-                    </span>
-                </div>
-            ),
+            // Two lines: the amount, then ONE chip for how it is paid —
+            // نقدي / أقساط · بالدولار $ / أقساط · بالليرة / أقساط (schedule not confirmed yet).
+            render: (c) => {
+                const currency = (c as any).installmentCurrency as 'USD' | 'SYP' | null | undefined;
+                const chip = c.paymentType === 'cash'
+                    ? { text: paymentLabels.cash, cls: 'border-emerald-200 bg-emerald-50 text-emerald-700' }
+                    : currency === 'USD'
+                        ? { text: `${paymentLabels.installment} · بالدولار $`, cls: 'border-blue-200 bg-blue-50 text-blue-700' }
+                        : currency === 'SYP'
+                            ? { text: `${paymentLabels.installment} · بالليرة`, cls: 'border-slate-200 bg-slate-50 text-slate-600' }
+                            : { text: paymentLabels[c.paymentType] ?? c.paymentType, cls: 'border-amber-200 bg-amber-50 text-amber-700' };
+                return (
+                    <div className="flex flex-col items-start gap-1">
+                        <span className="whitespace-nowrap text-sm font-bold text-slate-800">
+                            <span dir="ltr">{Number(c.finalPrice || 0).toLocaleString('en-US')}</span>
+                            <span className="mr-1 text-xs font-medium text-slate-400">ل.س</span>
+                        </span>
+                        <span className={`inline-flex w-fit whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-bold ${chip.cls}`}>
+                            {chip.text}
+                        </span>
+                    </div>
+                );
+            },
         },
         {
             key: 'saleOwnerName', label: 'صاحب البيعة', sortable: false,

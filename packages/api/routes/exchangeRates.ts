@@ -14,7 +14,7 @@ import { Router } from 'express';
 import pool from '../db.js';
 import { requirePermission } from '../middleware/permission.js';
 import { resolveListAccessScope } from '../services/authorizationService.js';
-import { getRateOn, getRoundingUnit, todayDamascus } from '../services/fxRates.js';
+import { getRateOn, getRoundingUnit, isUsdLinkEnabled, todayDamascus } from '../services/fxRates.js';
 
 export const exchangeRatesRouter = Router();
 export const fxDifferencesRouter = Router();
@@ -46,8 +46,8 @@ exchangeRatesRouter.get('/', requirePermission('exchange_rates.view'), async (_r
 // live); it carries no customer data, so no extra key is required.
 exchangeRatesRouter.get('/current', async (_req, res) => {
   try {
-    const [current, roundingUnit] = await Promise.all([getRateOn(pool, null), getRoundingUnit()]);
-    return res.json({ current, roundingUnit });
+    const [current, roundingUnit, usdLinkEnabled] = await Promise.all([getRateOn(pool, null), getRoundingUnit(), isUsdLinkEnabled()]);
+    return res.json({ current, roundingUnit, usdLinkEnabled });
   } catch (err: any) {
     console.error('[exchange-rates] current failed:', err);
     return res.status(500).json({ error: 'فشل تحميل سعر الصرف' });

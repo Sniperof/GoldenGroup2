@@ -13,6 +13,7 @@ import ContractGiftsPanel from './ContractGiftsPanel';
 import { getOpenTaskDetailPath } from '../../lib/taskRoutes';
 import { ArrowRight, FileText } from 'lucide-react';
 import { useContractPrintable } from '../../hooks/useContractPrintable';
+import InstallmentCurrencyBadge from '../../components/contracts/InstallmentCurrencyBadge';
 import {
   computeContractFinance,
   installmentDisplayStatus,
@@ -610,6 +611,9 @@ export default function ContractDetail() {
   const installments   = data.installments   ?? [];
   // USD link (migr 493): schedule confirmed under a contract rate.
   const usdLinkedSchedule = installments.some((i: any) => i.amountUsd != null);
+  // Global USD-link switch (migr 497): a trial settled into installments now is
+  // fixed in USD only while the switch is on.
+  const settleUsd = data?.fx?.usdLinkEnabled !== false;
   const scheduleCols = usdLinkedSchedule ? '2rem 1fr 1fr 1fr 1fr 1fr 1fr 5rem' : '2rem 1fr 1fr 1fr 1fr 5rem';
   // D2: a draft whose confirmed schedule no longer adds up (price / discount changed).
   const scheduleMismatch = (() => {
@@ -858,6 +862,7 @@ export default function ContractDetail() {
               {contractTitle(data.contractType, data.saleSubtype)}
             </h2>
             <StatusBadge status={data.status} />
+            <InstallmentCurrencyBadge currency={data.installmentCurrency} />
             {data.branchName && (
               <Chip cls="bg-slate-100 text-slate-600">🏢 فرع التسجيل: {data.branchName}</Chip>
             )}
@@ -1162,7 +1167,12 @@ export default function ContractDetail() {
             <Divider />
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
-              <LabelVal label="طريقة الدفع" value={PAYMENT_LABELS[data.paymentType] ?? data.paymentType ?? '—'} />
+              <LabelVal label="طريقة الدفع" value={
+                <span className="inline-flex items-center gap-1.5 flex-wrap">
+                  {PAYMENT_LABELS[data.paymentType] ?? data.paymentType ?? '—'}
+                  <InstallmentCurrencyBadge currency={data.installmentCurrency} compact />
+                </span>
+              } />
               {finance.downPaymentShown != null && (
                 <LabelVal label="الدفعة الأولى" value={fmtMoney(finance.downPaymentShown)} mono />
               )}
@@ -1375,6 +1385,7 @@ export default function ContractDetail() {
               <span className="text-base font-bold text-slate-800">
                 📆 {data.status === 'draft' ? 'جدول الأقساط المقترح' : 'جدول الأقساط'} ({installments.length})
               </span>
+              <InstallmentCurrencyBadge currency={data.installmentCurrency} className="mr-2 align-middle" />
               {data.fx?.snapshotRate != null && (
                 <div className="mt-1 text-xs text-blue-700">
                   مربوط بالدولار — سعر العقد: <b>{fmtMoney(Number(data.fx.snapshotRate))} / $</b>
@@ -1566,7 +1577,8 @@ export default function ContractDetail() {
                   <div>الأقساط تبقى على سعر العقد. يمكنك الاعتماد كما هو، أو إعادة العقد لتعديل الجدول وتأكيده من جديد.</div>
                 </div>
               )}
-              {data.paymentType === 'installment' && data.fx?.snapshotRate == null && installments.some((i: any) => i.confirmed) && (
+              {data.paymentType === 'installment' && data.fx?.snapshotRate == null && data.fx?.usdLinkEnabled !== false
+                && installments.some((i: any) => i.confirmed) && (
                 <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-700">
                   جدول الأقساط أُكّد قبل ربط الأقساط بالدولار — سيُعتمد العقد بالليرة فقط (غير مربوط بالدولار).
                   لربطه بالدولار: افتح العقد للتعديل، ألغِ تأكيد الجدول ثم أكّده من جديد.
@@ -1718,9 +1730,12 @@ export default function ContractDetail() {
                         <span className="text-xs font-bold text-slate-700">جدول الأقساط</span>
                         <span className="text-xs text-slate-400">{settleInstallments.length} قسط</span>
                       </div>
-                      {/* USD link (migr 493): settling into installments snapshots today's rate. */}
-                      <div className={'px-3 py-1.5 text-[11px] border-b ' + (data.fx?.currentRate != null ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-rose-50 text-rose-700 border-rose-100')}>
-                        {data.fx?.currentRate != null
+                      {/* USD link (migr 493): settling into installments snapshots today's rate —
+                          unless management switched the link off (migr 497). */}
+                      <div className={'px-3 py-1.5 text-[11px] border-b ' + (!settleUsd ? 'bg-slate-50 text-slate-600 border-slate-100' : data.fx?.currentRate != null ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-rose-50 text-rose-700 border-rose-100')}>
+                        {!settleUsd
+                          ? <>ربط الأقساط بالدولار موقوف حالياً من الإدارة — تُثبَّت الأقساط بالليرة السورية فقط.</>
+                          : data.fx?.currentRate != null
                           ? <>يُثبَّت سعر صرف اليوم ({fmtMoney(Number(data.fx.currentRate))} ل.س / $) على العقد، ويُحسب لكل قسط مبلغه بالدولار.</>
                           : <>لا يوجد سعر صرف معتمد اليوم — سيُرفض التثبيت بالتقسيط حتى تُدخل الإدارة السعر.</>}
                       </div>
@@ -1730,7 +1745,7 @@ export default function ContractDetail() {
                             <th className="px-2 py-1.5 text-right">#</th>
                             <th className="px-2 py-1.5 text-right">تاريخ الاستحقاق</th>
                             <th className="px-2 py-1.5 text-right">المبلغ ل.س</th>
-                            <th className="px-2 py-1.5 text-right">$</th>
+                            {settleUsd && <th className="px-2 py-1.5 text-right">$</th>}
                             <th className="px-2 py-1.5" />
                           </tr>
                         </thead>
@@ -1750,7 +1765,7 @@ export default function ContractDetail() {
                                   onChange={e => setSettleInstallments(prev => prev.map((d, i) => i === idx ? { ...d, amountSyp: e.target.value, amountUsd: undefined } : d))}
                                   className="w-24 text-xs border border-slate-200 rounded px-2 py-1 font-mono focus:outline-none focus:border-sky-400" />
                               </td>
-                              <td className="px-2 py-1.5 text-xs font-mono text-blue-700" dir="ltr">
+                              {settleUsd && <td className="px-2 py-1.5 text-xs font-mono text-blue-700" dir="ltr">
                                 {/* Dual entry: USD typed → SYP = USD × today's central rate (server re-snapshots). */}
                                 {data.fx?.currentRate ? (
                                   <input type="number" min={0} step="0.01" dir="ltr"
@@ -1764,7 +1779,7 @@ export default function ContractDetail() {
                                     }}
                                     className="w-20 text-xs border border-blue-200 rounded px-2 py-1 font-mono focus:outline-none focus:border-blue-400" />
                                 ) : '—'}
-                              </td>
+                              </td>}
                               <td className="px-2 py-1.5">
                                 <button type="button" aria-label="حذف القسط"
                                   onClick={() => setSettleInstallments(prev => prev.filter((_, i) => i !== idx))}
@@ -1779,7 +1794,7 @@ export default function ContractDetail() {
                             <td className="px-2 py-1.5 font-mono text-slate-800">
                               {settleInstallmentsTotal + activateDownPayment}
                             </td>
-                            <td />
+                            {settleUsd && <td />}
                             <td />
                           </tr>
                         </tfoot>

@@ -6,6 +6,8 @@ export function useCurrentUsdRate() {
   const [rate, setRate] = useState<number | null>(null);
   const [effectiveFrom, setEffectiveFrom] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // Global switch (migr 497); defaults to on, the pre-switch behaviour.
+  const [usdLinkEnabled, setUsdLinkEnabled] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -14,11 +16,12 @@ export function useCurrentUsdRate() {
         if (cancelled) return;
         setRate(r.current?.rate ?? null);
         setEffectiveFrom(r.current?.effectiveFrom ?? null);
+        setUsdLinkEnabled(r.usdLinkEnabled !== false);
       })
       .catch(() => { if (!cancelled) setRate(null); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, []);
 
-  return { rate, effectiveFrom, loading };
+  return { rate, effectiveFrom, loading, usdLinkEnabled };
 }
