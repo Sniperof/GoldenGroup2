@@ -48,8 +48,21 @@ export async function buildAuthContext(input: BuildAuthContextInput): Promise<Au
       primaryBranchId: loaded.primaryBranchId,
       allowedBranchIds: loaded.allowedBranchIds,
       isSuperAdmin,
+      canReachAnyBranch: hasCrossBranchReach(loaded.grants),
     }),
   };
+}
+
+/**
+ * Server twin of the web's `canCrossBranch` (packages/web/src/lib/branchScope.ts):
+ * a GLOBAL scope on an operational LIST view (`*.view_list`) is what shows the
+ * external branch switcher. Reference lookups held at GLOBAL for form-filling
+ * (reference_data.lookup, device_models.lookup …) deliberately do NOT count.
+ * The two rules must stay identical, or the switcher offers branches the server
+ * then ignores.
+ */
+export function hasCrossBranchReach(grants: PermissionGrant[]): boolean {
+  return grants.some(grant => grant.scope === 'GLOBAL' && grant.permission.endsWith('.view_list'));
 }
 
 export function clearAuthorizationCache(userId?: number) {
@@ -67,6 +80,14 @@ export function resolveActingBranch(
     primaryBranchId?: number | null;
     isSuperAdmin?: boolean;
     allowedBranchIds?: number[];
+    /**
+     * The actor holds a GLOBAL list view (see hasCrossBranchReach) and so is
+     * offered every branch by the switcher. Their selected branch becomes the
+     * acting branch even when it is not one of their assignments. This does NOT
+     * widen allowedBranchIds: BRANCH/ASSIGNED grants are still checked against
+     * the assignments, so only GLOBAL grants reach the selected branch.
+     */
+    canReachAnyBranch?: boolean;
   },
 ): number | null {
   const requestedBranchId = toPositiveInteger(options.headerBranchId);
@@ -83,6 +104,13 @@ export function resolveActingBranch(
     // limited to them, so requesting an unassigned branch (e.g. طرطوس) resolved to
     // null and the branch-only guard returned 403, while branches they were assigned
     // to worked — an inconsistency vs GLOBAL managers (who saw every branch).
+    return requestedBranchId;
+  }
+
+  // Same reasoning for a company-wide (GLOBAL list) operator: the switcher
+  // offers them every branch, so dropping an unassigned selection to null made
+  // the selected branch silently disappear server-side (empty lists / 403s).
+  if (options.canReachAnyBranch === true) {
     return requestedBranchId;
   }
 

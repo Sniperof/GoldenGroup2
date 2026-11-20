@@ -327,11 +327,11 @@ router.get('/', requirePermission('candidates.name_lists.view_list'), async (req
     const requestedBranchId = resolveReferralSheetListBranchFilter(req);
     const listAccess = getReferralSheetListAccessPlan(authContext);
 
-    if (!authContext.isSuperAdmin && authContext.allowedBranchIds.length === 0) {
+    if (!authContext.isSuperAdmin && listAccess.scope !== 'GLOBAL' && authContext.allowedBranchIds.length === 0) {
       return res.status(403).json({ error: 'لا يوجد فرع فعّال متاح لهذه العملية' });
     }
 
-    if (requestedBranchId != null && !authContext.isSuperAdmin && !authContext.allowedBranchIds.includes(requestedBranchId)) {
+    if (requestedBranchId != null && !authContext.isSuperAdmin && listAccess.scope !== 'GLOBAL' && !authContext.allowedBranchIds.includes(requestedBranchId)) {
       return forbidReferralSheetAccess(res, 'BRANCH_FORBIDDEN');
     }
 

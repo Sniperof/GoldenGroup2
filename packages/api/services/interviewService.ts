@@ -1,6 +1,7 @@
 import type { AuthContext } from '@golden-crm/shared';
 import type { PoolClient } from 'pg';
 import pool from '../db.js';
+import { authorize } from './authorizationService.js';
 import { insertAuditLog } from '../utils/auditLog.js';
 import {
   fetchApplicationPolicyState,
@@ -41,14 +42,22 @@ function createServiceError(status: number, payload: Record<string, unknown>): S
   return err;
 }
 
-function ensureBranchAccess(authContext: AuthContext, branchId: number | null | undefined) {
+// The branch check follows the operation's own permission: a GLOBAL grant
+// reaches every branch, BRANCH/ASSIGNED grants stay inside the assignments.
+// (It used to compare with the assignments alone, so a GLOBAL operator was
+// refused on any branch they were not personally assigned to.)
+function ensureBranchAccess(
+  authContext: AuthContext,
+  branchId: number | null | undefined,
+  permissions: string[],
+) {
   if (branchId == null) {
     throw createServiceError(400, {
       error: 'لا يمكن تنفيذ المقابلة لأن طلب التوظيف غير مرتبط بفرع واضح.',
     });
   }
 
-  if (!authContext.isSuperAdmin && !authContext.allowedBranchIds.includes(branchId)) {
+  if (!permissions.some(permission => authorize(authContext, { permission, branchId }).allowed)) {
     throw createServiceError(403, {
       error: 'لا تملك صلاحية الوصول إلى هذا الطلب خارج فروعك المسموح بها.',
     });
@@ -126,7 +135,7 @@ export async function getInterviewersForApplication(
       throw createServiceError(404, { error: 'طلب التوظيف غير موجود' });
     }
 
-    ensureBranchAccess(authContext, context.resolvedBranchId);
+    ensureBranchAccess(authContext, context.resolvedBranchId, ['jobs.interviews.schedule', 'jobs.interviews.edit']);
 
     return listEligibleInterviewersForBranch(
       client,
@@ -149,7 +158,7 @@ export async function getInterviews(
   requestedBranchId?: number | null,
 ) {
   if (requestedBranchId != null) {
-    ensureBranchAccess(authContext, requestedBranchId);
+    ensureBranchAccess(authContext, requestedBranchId, ['jobs.interviews.view_list']);
   }
 
   return listInterviews({
@@ -168,7 +177,7 @@ export async function getInterviewById(id: string, authContext: AuthContext) {
       throw createServiceError(404, { error: 'المقابلة غير موجودة' });
     }
 
-    ensureBranchAccess(authContext, interviewContext.resolvedBranchId);
+    ensureBranchAccess(authContext, interviewContext.resolvedBranchId, ['jobs.interviews.view_detail']);
 
     const row = await getInterviewDetailRow(id);
     if (!row) {
@@ -263,7 +272,7 @@ export async function scheduleInterviewForApplication(body: any, user: Interview
       throw createServiceError(404, { error: 'طلب التوظيف غير موجود' });
     }
 
-    ensureBranchAccess(user.authContext, applicationContext.resolvedBranchId);
+    ensureBranchAccess(user.authContext, applicationContext.resolvedBranchId, ['jobs.interviews.schedule']);
 
     if (Number(applicationContext.jobVacancyId) !== Number(jobVacancyId)) {
       throw createServiceError(400, {
@@ -367,7 +376,7 @@ export async function updateScheduledInterview(interviewId: string, body: any, u
       throw createServiceError(404, { error: 'المقابلة غير موجودة' });
     }
 
-    ensureBranchAccess(user.authContext, interviewContext.resolvedBranchId);
+    ensureBranchAccess(user.authContext, interviewContext.resolvedBranchId, ['jobs.interviews.edit']);
 
     const branchId = Number(interviewContext.resolvedBranchId);
 
@@ -489,7 +498,7 @@ export async function recordInterviewOutcome(
       throw createServiceError(404, { error: 'المقابلة غير موجودة' });
     }
 
-    ensureBranchAccess(user.authContext, interviewContext.resolvedBranchId);
+    ensureBranchAccess(user.authContext, interviewContext.resolvedBranchId, ['jobs.interviews.record_result']);
 
     const policyState = await fetchApplicationPolicyState(client, current.application_id);
     if (!policyState) {

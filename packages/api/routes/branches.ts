@@ -256,7 +256,10 @@ router.get('/:id', requirePermission('branches.view', 'branches.lookup', 'refere
     if (!Number.isInteger(branchId) || branchId <= 0) {
       return res.status(400).json({ error: 'رقم الفرع غير صالح' });
     }
-    if (!canViewManagement && !authContext.isSuperAdmin && !authContext.allowedBranchIds.includes(branchId)) {
+    // Same rule as the list: a GLOBAL branch/reference lookup reads every branch.
+    const hasGlobalLookup = (authContext.grants ?? []).some((g: any) =>
+      (g.permission === 'branches.lookup' || g.permission === 'reference_data.lookup') && g.scope === 'GLOBAL');
+    if (!canViewManagement && !hasGlobalLookup && !authContext.isSuperAdmin && !authContext.allowedBranchIds.includes(branchId)) {
       return res.status(403).json({ error: 'غير مسموح' });
     }
 
