@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { runWithChangeContext } from '../auditContext.js';
 import { authorize, resolveActingBranch } from '../services/authorizationService.js';
+import { readRequestedBranchId, resolveBranchView, sendBranchViewRefusal } from '../services/branchViewService.js';
 import { requirePermission } from '../middleware/permission.js';
 import { assertRoleWithinActorScope, ROLE_ESCALATION_ERROR } from '../services/roleAssignmentGuard.js';
 import { getEmployeeBranchId } from '../repositories/employeeRepository.js';
@@ -98,50 +99,11 @@ router.get('/', requirePermission('employees.view_list'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
 
-    // List visibility follows the GRANT scope, not the user's home branch:
-    //  - GLOBAL (super-admin or company manager) → every branch, optionally
-    //    narrowed by the management filter header.
-    //  - BRANCH → the union of the user's assigned branches.
-    // A BRANCH user must never be silently collapsed to one branch, and a
-    // GLOBAL user must never be blocked just for lacking a home branch.
-    const viewScope = authContext.isSuperAdmin
-      ? 'GLOBAL'
-      : (authContext.grants.find(g => g.permission === 'employees.view_list')?.scope ?? 'NONE');
-
-    if (viewScope === 'NONE') {
-      return res.status(403).json({ error: 'غير مسموح' });
-    }
-
-    const headerBranchId = req.header('x-branch-id');
-    const requestedBranchId = headerBranchId != null && headerBranchId !== ''
-      ? Number(headerBranchId)
-      : null;
-
-    if (viewScope === 'BRANCH' && authContext.allowedBranchIds.length === 0) {
-      return res.status(403).json({ error: 'لا يوجد فرع فعّال متاح لهذه العملية' });
-    }
-
-    // A non-GLOBAL viewer may only narrow to a branch they are actually assigned to.
-    if (requestedBranchId != null && viewScope === 'BRANCH'
-      && !authContext.allowedBranchIds.includes(requestedBranchId)) {
-      return forbidBranchAccess(res, 'BRANCH_FORBIDDEN');
-    }
-
-    if (requestedBranchId != null) {
-      const access = authorize(authContext, {
-        permission: 'employees.view_list',
-        branchId: requestedBranchId,
-      });
-      if (!access.allowed) {
-        return forbidBranchAccess(res, access.reason);
-      }
-    }
-
-    // Resolve the branch filter from scope: explicit pick → that branch;
-    // BRANCH → assigned union; GLOBAL with no pick → all branches.
-    const branchIds = requestedBranchId != null
-      ? [requestedBranchId]
-      : (viewScope === 'BRANCH' ? authContext.allowedBranchIds : null);
+    // List visibility follows the GRANT scope (services/branchViewService.ts):
+    // GLOBAL → every branch or the selected one; BRANCH → the assigned branches.
+    const view = resolveBranchView(authContext, 'employees.view_list', readRequestedBranchId(req.header('x-branch-id')));
+    if (!view.ok) return sendBranchViewRefusal(res, view);
+    const branchIds = view.branchIds;
 
     res.json(await getEmployees({ isSuperAdmin: authContext.isSuperAdmin, branchIds }));
   } catch (err: any) {

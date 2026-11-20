@@ -7,7 +7,6 @@ import {
   canCreateCandidate,
   canDeleteCandidate,
   canEditCandidate,
-  getCandidateListAccessPlan,
   canViewCandidate,
 } from '../policies/candidatePolicy.js';
 import { canCreateClient, canEditClient, canViewClient } from '../policies/clientPolicy.js';
@@ -35,6 +34,7 @@ import {
   detectCandidateDuplicate,
 } from '../services/candidateDuplicateDetection.js';
 import { recomputeReferralSheetStats } from '../services/referralSheetStats.js';
+import { readRequestedBranchId, resolveBranchView, sendBranchViewRefusal, type BranchViewGranted } from '../services/branchViewService.js';
 import { phoneNormalizationSql } from '../utils/phoneSql.js';
 import {
   createReferralGiftPromise,
@@ -212,16 +212,6 @@ function resolveCandidateTargetBranch(
   });
 }
 
-function resolveCandidateListBranchFilter(req: any): number | null {
-  const requestedBranchId = req.header('x-branch-id');
-  if (requestedBranchId == null || requestedBranchId === '') {
-    return null;
-  }
-
-  const normalized = Number(requestedBranchId);
-  return Number.isInteger(normalized) && normalized > 0 ? normalized : null;
-}
-
 /**
  * The one place the candidate list scope is expressed in SQL. `GET /` and
  * `GET /paged` share it so the two can never drift apart (standard §13 SH-1) —
@@ -230,28 +220,19 @@ function resolveCandidateListBranchFilter(req: any): number | null {
  * filters to the same arrays afterwards.
  */
 function appendCandidateScopeConditions(
-  authContext: any,
-  requestedBranchId: number | null,
-  scope: string,
+  view: BranchViewGranted,
   params: any[],
 ): string[] {
   const conditions: string[] = [];
 
-  if (requestedBranchId != null) {
-    params.push(requestedBranchId);
-    conditions.push(`c.branch_id = $${params.length}`);
-  }
-
-  if (scope === 'BRANCH') {
-    params.push(authContext.allowedBranchIds);
+  if (view.branchIds != null) {
+    params.push(view.branchIds);
     conditions.push(`c.branch_id = ANY($${params.length}::int[])`);
   }
 
-  if (scope === 'ASSIGNED') {
-    params.push(authContext.userId);
+  if (view.scope === 'ASSIGNED') {
+    params.push(view.userId);
     conditions.push(`EXISTS (SELECT 1 FROM candidate_assignments WHERE candidate_id = c.id AND hr_user_id = $${params.length})`);
-    params.push(authContext.allowedBranchIds);
-    conditions.push(`c.branch_id = ANY($${params.length}::int[])`);
   }
 
   return conditions;
@@ -609,23 +590,11 @@ async function insertLinkedClientAssignments(
 router.get('/', requirePermission('candidates.view_list'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
-    const requestedBranchId = resolveCandidateListBranchFilter(req);
-    const listAccess = getCandidateListAccessPlan(authContext);
-
-    if (!authContext.isSuperAdmin && listAccess.scope !== 'GLOBAL' && authContext.allowedBranchIds.length === 0) {
-      return res.status(403).json({ error: 'لا يوجد فرع فعّال متاح لهذه العملية' });
-    }
-
-    if (requestedBranchId != null && !authContext.isSuperAdmin && listAccess.scope !== 'GLOBAL' && !authContext.allowedBranchIds.includes(requestedBranchId)) {
-      return forbidCandidateAccess(res, 'BRANCH_FORBIDDEN');
-    }
-
-    if (listAccess.scope === 'NONE') {
-      return forbidCandidateAccess(res, 'MISSING_PERMISSION');
-    }
+    const view = resolveBranchView(authContext, 'candidates.view_list', readRequestedBranchId(req.header('x-branch-id')));
+    if (!view.ok) return sendBranchViewRefusal(res, view);
 
     const params: any[] = [];
-    const conditions = appendCandidateScopeConditions(authContext, requestedBranchId, listAccess.scope, params);
+    const conditions = appendCandidateScopeConditions(view, params);
 
     const where = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '';
     const { rows } = await pool.query(
@@ -684,18 +653,8 @@ router.get('/', requirePermission('candidates.view_list'), async (req, res) => {
 router.get('/paged', requirePermission('candidates.view_list'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
-    const requestedBranchId = resolveCandidateListBranchFilter(req);
-    const listAccess = getCandidateListAccessPlan(authContext);
-
-    if (!authContext.isSuperAdmin && listAccess.scope !== 'GLOBAL' && authContext.allowedBranchIds.length === 0) {
-      return res.status(403).json({ error: 'لا يوجد فرع فعّال متاح لهذه العملية' });
-    }
-    if (requestedBranchId != null && !authContext.isSuperAdmin && listAccess.scope !== 'GLOBAL' && !authContext.allowedBranchIds.includes(requestedBranchId)) {
-      return forbidCandidateAccess(res, 'BRANCH_FORBIDDEN');
-    }
-    if (listAccess.scope === 'NONE') {
-      return forbidCandidateAccess(res, 'MISSING_PERMISSION');
-    }
+    const view = resolveBranchView(authContext, 'candidates.view_list', readRequestedBranchId(req.header('x-branch-id')));
+    if (!view.ok) return sendBranchViewRefusal(res, view);
 
     // An id-batch lookup is bounded by the ids themselves, so it may exceed the
     // page cap — a caller asking for 300 known rows should not silently get 100.
@@ -716,7 +675,7 @@ router.get('/paged', requirePermission('candidates.view_list'), async (req, res)
 
     // Scope first — every filter below only ever narrows it further.
     const params: any[] = [];
-    const conditions = appendCandidateScopeConditions(authContext, requestedBranchId, listAccess.scope, params);
+    const conditions = appendCandidateScopeConditions(view, params);
 
     const str = (key: string): string =>
       typeof req.query[key] === 'string' ? (req.query[key] as string).trim() : '';

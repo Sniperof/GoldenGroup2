@@ -11,6 +11,7 @@ import {
 } from '@golden-crm/shared';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission, getOrBuildAuthContext } from '../middleware/permission.js';
+import { readRequestedBranchId, resolveBranchView, sendBranchViewRefusal } from '../services/branchViewService.js';
 import { authorize, resolveListAccessScope } from '../services/authorizationService.js';
 import { CollectionReversalError, loadReversalTarget, reverseInstallmentCollection } from '../services/collectionReversal.js';
 import { canViewOpenTask, canEditOpenTask, getOpenTaskListAccessPlan } from '../policies/openTaskPolicy.js';
@@ -1006,24 +1007,13 @@ router.get('/', requirePermission('open_tasks.view'), async (req, res) => {
     params.push(Array.from(HIDDEN_OPERATIONAL_TASK_TYPES));
     conditions.push(`ot.task_type <> ALL($${params.length}::text[])`);
 
-    // Branch predicate from grant scope (engineering standard §3-5/§3-6):
-    // GLOBAL sees every branch (optionally narrowed by ?branchId); BRANCH and
-    // ASSIGNED are confined to the union of the actor's effective assignments.
-    const requestedBranchId = Number(req.query.branchId);
-    const hasRequestedBranch = Number.isFinite(requestedBranchId) && requestedBranchId > 0;
-    if (plan.scope === 'GLOBAL') {
-      if (hasRequestedBranch) {
-        params.push(requestedBranchId);
-        conditions.push(`ot.branch_id = $${params.length}`);
-      }
-    } else {
-      if (plan.allowedBranchIds.length === 0) {
-        return res.status(403).json({ error: 'لا يوجد فرع متاح' });
-      }
-      if (hasRequestedBranch && !plan.allowedBranchIds.includes(requestedBranchId)) {
-        return res.status(403).json({ error: 'ليس لديك صلاحية الوصول لهذا الفرع' });
-      }
-      params.push(hasRequestedBranch ? [requestedBranchId] : plan.allowedBranchIds);
+    // Branch predicate from grant scope (services/branchViewService.ts):
+    // GLOBAL sees every branch (optionally narrowed by ?branchId); BRANCH is
+    // confined to the actor's assignments. (ASSIGNED is already NONE here.)
+    const view = resolveBranchView(authContext, 'open_tasks.view', readRequestedBranchId(req.query.branchId));
+    if (!view.ok) return sendBranchViewRefusal(res, view);
+    if (view.branchIds != null) {
+      params.push(view.branchIds);
       conditions.push(`ot.branch_id = ANY($${params.length}::int[])`);
     }
 
@@ -2812,14 +2802,8 @@ async function listTaskGroupRows(req: any, res: any, taskTypes: string[], emptyL
     if (plan.scope === 'NONE') {
       return res.status(403).json({ error: 'ليس لديك صلاحية عرض هذا الجدول' });
     }
-    const requestedBranchId = Number(req.query.branchId);
-    const hasRequestedBranch = Number.isFinite(requestedBranchId) && requestedBranchId > 0;
-    if (plan.scope !== 'GLOBAL' && plan.allowedBranchIds.length === 0) {
-      return res.status(403).json({ error: 'لا يوجد فرع متاح' });
-    }
-    if (plan.scope !== 'GLOBAL' && hasRequestedBranch && !plan.allowedBranchIds.includes(requestedBranchId)) {
-      return res.status(403).json({ error: 'ليس لديك صلاحية الوصول لهذا الفرع' });
-    }
+    const view = resolveBranchView(authContext, permission, readRequestedBranchId(req.query.branchId));
+    if (!view.ok) return sendBranchViewRefusal(res, view);
 
     const statusFilter = req.query.status as string | undefined;
     const visitStatusFilter = req.query.visitStatus as string | undefined;
@@ -2832,13 +2816,8 @@ async function listTaskGroupRows(req: any, res: any, taskTypes: string[], emptyL
 
     const params: any[] = [];
     let branchClause = '';
-    if (plan.scope === 'GLOBAL') {
-      if (hasRequestedBranch) {
-        params.push(requestedBranchId);
-        branchClause = `AND ot.branch_id = $${params.length}`;
-      }
-    } else {
-      params.push(hasRequestedBranch ? [requestedBranchId] : plan.allowedBranchIds);
+    if (view.branchIds != null) {
+      params.push(view.branchIds);
       branchClause = `AND ot.branch_id = ANY($${params.length}::int[])`;
     }
     let paramIdx = params.length + 1;

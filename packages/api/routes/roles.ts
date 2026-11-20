@@ -2,6 +2,7 @@ import { Router, type Response } from 'express';
 import bcrypt from 'bcryptjs';
 import pool from '../db.js';
 import { requirePermission, requireSuperAdmin, clearPermissionCache } from '../middleware/permission.js';
+import { readRequestedBranchId, resolveBranchView, sendBranchViewRefusal } from '../services/branchViewService.js';
 import { TEMPLATE_ROLE_ASSIGNMENT_ERROR, validateTemplateRoleAssignment, assertRoleWithinActorScope, ROLE_ESCALATION_ERROR } from '../services/roleAssignmentGuard.js';
 import {
   listPermissionCatalog,
@@ -16,7 +17,7 @@ import {
   updateRole,
   RoleManagementError,
 } from '../services/roleManagementService.js';
-import { authorize, resolveListAccessScope } from '../services/authorizationService.js';
+import { authorize } from '../services/authorizationService.js';
 import { eligibleHrUserWithPermissionCondition } from '../services/assigneeEligibility.js';
 import { eligiblePersonalOwnerCondition } from '../services/customerOwnership.js';
 
@@ -993,27 +994,14 @@ router.get('/hr-users', requirePermission('admin.users.view_list'), async (req, 
     // Records-section treatment (branch-scope standard): GLOBAL sees every user
     // (optionally narrowed by the external branch filter), BRANCH sees the union
     // of its allowed branches. Mirrors the clients/employees list-plan pattern.
-    const plan = resolveListAccessScope(authContext, 'admin.users.view_list');
-    if (plan.scope === 'NONE') {
-      return res.status(403).json({ error: 'ليس لديك صلاحية عرض المستخدمين' });
+    const view = resolveBranchView(authContext, 'admin.users.view_list', readRequestedBranchId(req.header('x-branch-id')));
+    if (!view.ok) {
+      // A branch-scoped admin with no branch keeps the old "empty list" answer.
+      if ((view as any).reason === 'NO_BRANCH') return res.json([]);
+      return sendBranchViewRefusal(res, view);
     }
-    const rawBranch = req.header('x-branch-id');
-    const requestedBranchId = rawBranch == null || rawBranch === '' ? null : Number(rawBranch);
-    const hasRequestedBranch = Number.isInteger(requestedBranchId) && (requestedBranchId as number) > 0;
-
-    if (plan.scope === 'GLOBAL') {
-      if (hasRequestedBranch) {
-        params.push(requestedBranchId);
-        conditions.push(`u.branch_id = $${params.length}`);
-      }
-    } else {
-      if (plan.allowedBranchIds.length === 0) {
-        return res.json([]);
-      }
-      if (hasRequestedBranch && !plan.allowedBranchIds.includes(requestedBranchId as number)) {
-        return res.status(403).json({ error: 'ليس لديك صلاحية الوصول لهذا الفرع' });
-      }
-      params.push(hasRequestedBranch ? [requestedBranchId] : plan.allowedBranchIds);
+    if (view.branchIds != null) {
+      params.push(view.branchIds);
       conditions.push(`u.branch_id = ANY($${params.length}::int[])`);
     }
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
