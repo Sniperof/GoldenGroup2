@@ -24,7 +24,8 @@ test('a GLOBAL section offers every branch; a BRANCH section only the assignment
 });
 
 test('no limit for users without a switcher, and for super admins', () => {
-  assert.equal(sectionBranchLimit('/tasks/group/maintenance', mixedUser, [BRANCH_TASKS]), null);
+  const singleBranch = { ...mixedUser, allowedBranchIds: [1002] };
+  assert.equal(sectionBranchLimit('/tasks/group/maintenance', singleBranch, [BRANCH_TASKS]), null);
   assert.equal(sectionBranchLimit('/tasks/group/maintenance', { ...mixedUser, isSuperAdmin: true }, [BRANCH_TASKS]), null);
 });
 
@@ -49,4 +50,16 @@ test('the store keeps the choice but sends only what the section reaches, then r
   store.setSectionBranchIds(null);             // back to GLOBAL
   assert.equal(useBranchContextStore.getState().branchId, 1004);
   store.clear();
+});
+
+test('a multi-branch (BRANCH-only) user gets a switcher limited to their branches everywhere', async () => {
+  const { canCrossBranch } = await import('./branchScope.js');
+  const multi = { isSuperAdmin: false, branchId: 1002, allowedBranchIds: [1002, 1004] };
+  const grants = [{ permission: 'clients.view_list', scope: 'BRANCH' as const }];
+  assert.equal(canCrossBranch(multi, grants), true);
+  assert.deepEqual(sectionBranchLimit('/clients', multi, grants), [1002, 1004]);
+  // An unmapped section still offers only their branches (not every branch).
+  assert.deepEqual(sectionBranchLimit('/planning/overview', multi, grants), [1002, 1004]);
+  // A single-branch user keeps the badge (no switcher, no limit to apply).
+  assert.equal(canCrossBranch({ ...multi, allowedBranchIds: [1002] }, grants), false);
 });

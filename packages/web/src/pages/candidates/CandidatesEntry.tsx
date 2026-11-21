@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { useChoosesBranches } from '../../hooks/useChoosesBranches';
 import { Link } from 'react-router-dom';
 import { useCandidateStore } from '../../hooks/useCandidateStore';
 import { UserPlus, Search, Building2, MapPin, AlertCircle, ArrowRight, XCircle, X, FilePlus2, Download, Upload, Info, LayoutGrid, List, ShieldCheck, Edit, User, SlidersHorizontal, ChevronDown } from '../../components/ui/icons';
@@ -153,7 +154,8 @@ export default function CandidatesEntry() {
     const branchContextId = useBranchContextStore(s => s.branchId);
     // Add rule (§5): a GLOBAL operator on "all branches" must pick a branch first —
     // no silent fallback into the base branch (SH-3). Branch/assigned users are pinned.
-    const mustPickBranch = isGlobalNames && branchContextId == null;
+    const choosesBranches = useChoosesBranches();
+    const mustPickBranch = (isGlobalNames || choosesBranches) && branchContextId == null;
     const [branchOptions, setBranchOptions] = useState<{ id: number; name: string }[]>([]);
 
     // UI State

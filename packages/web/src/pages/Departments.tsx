@@ -1,4 +1,5 @@
 import { alertDialog, confirmDialog } from '../lib/dialogs';
+import { useChoosesBranches } from '../hooks/useChoosesBranches';
 import { useCallback, useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { api } from '../lib/api';
@@ -52,7 +53,8 @@ export default function Departments() {
   // Add rule (§5 / SH-3): a GLOBAL operator viewing "all branches" has no explicit
   // branch to own the new record — the add button is blocked until a branch is
   // picked (the server rejects the silent fallback too).
-  const mustPickBranch = isGlobal && branchContextId == null;
+  const choosesBranches = useChoosesBranches();
+  const mustPickBranch = (isGlobal || choosesBranches) && branchContextId == null;
 
   const [departments, setDepartments] = useState<Department[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);

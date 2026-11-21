@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useChoosesBranches } from '../hooks/useChoosesBranches';
 import { Building2, Plus, Users } from '../components/ui/icons';
 import { useNavigate } from 'react-router-dom';
 import SmartTable from '../components/SmartTable';
@@ -54,7 +55,8 @@ export default function Employees() {
   const isBranchView = viewScope === 'BRANCH';
   // Add rule (§5): a GLOBAL operator on "all branches" must pick a branch first —
   // no silent fallback into the base branch (SH-3). Branch/assigned users are pinned.
-  const mustPickBranch = isGlobalView && contextBranchId == null;
+  const choosesBranches = useChoosesBranches();
+  const mustPickBranch = (isGlobalView || choosesBranches) && contextBranchId == null;
 
   useEffect(() => {
     fetchBranches();

@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
+import { hasCrossBranchReach } from '@golden-crm/shared';
 
 const router = Router();
 router.use(requireAuth);
@@ -167,6 +168,10 @@ router.get(
     if (!superAdmin && branchId != null) {
       params.push(branchId);
       filters.push(`(ccl.branch_id = $${params.length} OR ccl.branch_id IS NULL)`);
+    } else if (!superAdmin && req.authContext && !hasCrossBranchReach(false, req.authContext.grants)) {
+      // "All your branches" for a multi-branch user: their assignments, not every branch.
+      params.push(req.authContext.allowedBranchIds);
+      filters.push(`(ccl.branch_id = ANY($${params.length}::int[]) OR ccl.branch_id IS NULL)`);
     }
 
     if (contactIdFilter) {

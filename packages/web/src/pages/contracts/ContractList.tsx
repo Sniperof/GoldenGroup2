@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, type ReactNode } from 'react';
+import { useChoosesBranches } from '../../hooks/useChoosesBranches';
 import { FileText, Plus, Eye, Loader2, Building2, Search, SlidersHorizontal, ChevronDown, X, XCircle } from '../../components/ui/icons';
 import SmartTable from '../../components/SmartTable';
 import type { ColumnDef } from '../../components/SmartTable';
@@ -293,7 +294,8 @@ export default function ContractList() {
         );
     }
 
-    const mustPickBranch = isGlobalView && contextBranchId == null;
+    const choosesBranches = useChoosesBranches();
+    const mustPickBranch = (isGlobalView || choosesBranches) && contextBranchId == null;
 
     const clearAllFilters = () => {
         setSearchTerm(''); setFilterStatus('all'); setFilterPaymentType('all');

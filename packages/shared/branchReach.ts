@@ -25,3 +25,23 @@ export function hasCrossBranchReach(
   if (isSuperAdmin === true) return true;
   return (grants ?? []).some(grant => grant.scope === 'GLOBAL' && grant.permission.endsWith('.view_list'));
 }
+
+/**
+ * Does the user CHOOSE among branches? True for cross-branch reach (any branch)
+ * and for a user assigned to more than one branch (their branches only — a
+ * BRANCH grant over several assignments is "global over specific branches").
+ *
+ * Such a user gets the external switcher, and "all (your) branches" means no
+ * acting branch: nothing — a write, a single-branch page — silently falls back
+ * to their primary branch. A one-branch user keeps acting on that branch.
+ *
+ * Note the difference: only hasCrossBranchReach lets the selection be a branch
+ * OUTSIDE the assignments; a multi-branch user's selection must be one of them.
+ */
+export function hasBranchChoice(
+  isSuperAdmin: boolean | null | undefined,
+  grants: ReadonlyArray<BranchReachGrant> | null | undefined,
+  allowedBranchIds: ReadonlyArray<number> | null | undefined,
+): boolean {
+  return hasCrossBranchReach(isSuperAdmin, grants) || (allowedBranchIds?.length ?? 0) > 1;
+}

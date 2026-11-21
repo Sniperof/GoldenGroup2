@@ -1,4 +1,5 @@
 import { alertDialog, confirmDialog } from '../../lib/dialogs';
+import { useChoosesBranches } from '../../hooks/useChoosesBranches';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -263,9 +264,10 @@ export default function ContractForm() {
     // A GLOBAL creator must pick a branch context first; otherwise the server
     // silently creates the contract in their home branch. Mirrors the list-page
     // guard and the super-admin server rule (covers direct-link entry too).
+    const choosesBranches = useChoosesBranches();
     const mustPickBranch = !isEdit
         && visitCreationId == null
-        && getPermissionScope('contracts.create') === 'GLOBAL'
+        && (getPermissionScope('contracts.create') === 'GLOBAL' || choosesBranches)
         && contextBranchId == null;
     // ─── API Data ───
     const [customers, setCustomers] = useState<MockCustomer[]>([]);

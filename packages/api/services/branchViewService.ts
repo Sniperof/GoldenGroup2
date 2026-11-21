@@ -89,6 +89,31 @@ export function resolveBranchView(
   };
 }
 
+/**
+ * For endpoints gated by ANY of several view permissions (e.g. installed
+ * devices: installed_devices.view | clients.devices.view | contracts.view_list):
+ * the widest view the actor holds wins — GLOBAL over BRANCH/ASSIGNED — so a
+ * GLOBAL grant is never narrowed by a weaker one they also hold.
+ */
+export function resolveBranchViewAny(
+  context: AuthContext,
+  permissions: string[],
+  requestedBranchId: number | null,
+): BranchView {
+  const views = permissions.map(permission => resolveBranchView(context, permission, requestedBranchId));
+  const granted = views.filter((view): view is BranchViewGranted => view.ok === true);
+  const global = granted.find(view => view.scope === 'GLOBAL');
+  if (global) return global;
+  if (granted.length > 0) {
+    // Union of the branch bounds (all are inside the assignments here).
+    const ids = Array.from(new Set(granted.flatMap(view => view.branchIds ?? [])));
+    return { ...granted[0], scope: granted.some(v => v.scope === 'BRANCH') ? 'BRANCH' : granted[0].scope, branchIds: ids };
+  }
+  return views.find(view => view.ok === false && (view as BranchViewRefused).reason !== 'MISSING_PERMISSION')
+    ?? views[0]
+    ?? { ok: false, reason: 'MISSING_PERMISSION' };
+}
+
 const REFUSAL_MESSAGES: Record<BranchViewFailureReason, string> = {
   MISSING_PERMISSION: 'غير مسموح',
   NO_BRANCH: 'لا يوجد فرع فعّال متاح لهذه العملية',

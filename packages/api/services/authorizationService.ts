@@ -7,7 +7,7 @@ import type {
   PermissionGrant,
   ScopeType,
 } from '@golden-crm/shared';
-import { hasCrossBranchReach } from '@golden-crm/shared';
+import { hasBranchChoice, hasCrossBranchReach } from '@golden-crm/shared';
 import pool from '../db.js';
 
 export interface BuildAuthContextInput {
@@ -50,22 +50,24 @@ export async function buildAuthContext(input: BuildAuthContextInput): Promise<Au
       allowedBranchIds: loaded.allowedBranchIds,
       isSuperAdmin,
       canReachAnyBranch: hasCrossBranchReach(isSuperAdmin, loaded.grants),
+      hasBranchChoice: hasBranchChoice(isSuperAdmin, loaded.grants, loaded.allowedBranchIds),
     }),
   };
 }
 
-/** The shared rule (packages/shared/branchReach.ts) — same definition the web switcher uses. */
-export { hasCrossBranchReach };
+/** The shared rules (packages/shared/branchReach.ts) — same definitions the web switcher uses. */
+export { hasBranchChoice, hasCrossBranchReach };
 
 /**
  * The branch a write lands in when the request names none. For a single-branch
  * user that is their own branch (they have no switcher; the badge shows it).
- * For a cross-branch user it is NOTHING: with "all branches" selected there is
+ * For a user who chooses among branches (cross-branch reach, or several
+ * assigned branches) it is NOTHING: with "all branches" selected there is
  * no branch to infer, so the caller must answer "pick a branch" instead of
  * quietly writing into the user's home branch (standard §13 SH-3).
  */
 export function defaultWriteBranchId(context: Pick<AuthContext, 'isSuperAdmin' | 'grants' | 'actingBranchId' | 'allowedBranchIds'>): number | null {
-  if (hasCrossBranchReach(context.isSuperAdmin, context.grants)) {
+  if (hasBranchChoice(context.isSuperAdmin, context.grants, context.allowedBranchIds)) {
     return context.actingBranchId ?? null;
   }
   return context.actingBranchId ?? context.allowedBranchIds[0] ?? null;
@@ -98,6 +100,12 @@ export function resolveActingBranch(
      * the screen said «كل الفروع».
      */
     canReachAnyBranch?: boolean;
+    /**
+     * The actor chooses among branches (cross-branch reach, or several assigned
+     * branches): with NO selection there is no acting branch. Defaults to
+     * canReachAnyBranch.
+     */
+    hasBranchChoice?: boolean;
   },
 ): number | null {
   const requestedBranchId = toPositiveInteger(options.headerBranchId);
@@ -105,7 +113,8 @@ export function resolveActingBranch(
   const allowedBranchIds = normalizeBranchIds(options.allowedBranchIds);
 
   if (requestedBranchId == null) {
-    return options.canReachAnyBranch === true ? null : primaryBranchId;
+    const choosesBranches = options.hasBranchChoice ?? options.canReachAnyBranch;
+    return choosesBranches === true ? null : primaryBranchId;
   }
 
   if (options.isSuperAdmin === true) {
@@ -325,11 +334,11 @@ function authorizeBranchGrant(
   const actingBranchId = toPositiveInteger(context.actingBranchId);
 
   if (targetBranchId == null && actingBranchId == null) {
-    // No record and no acting branch: only a cross-branch actor with "all
-    // branches" selected lands here (single-branch actors always act on their
-    // own branch). The question is then "may you use this endpoint?" — yes,
+    // No record and no acting branch: only an actor who chooses among branches
+    // (cross-branch reach, or several assigned branches) with "all" selected
+    // lands here (single-branch actors always act on their own branch). The question is then "may you use this endpoint?" — yes,
     // within your assignments, which the endpoint applies (resolveBranchView).
-    if (hasCrossBranchReach(context.isSuperAdmin, context.grants) && context.allowedBranchIds.length > 0) {
+    if (hasBranchChoice(context.isSuperAdmin, context.grants, context.allowedBranchIds) && context.allowedBranchIds.length > 0) {
       return { allowed: true, reason: 'GRANTED_BRANCH', grant };
     }
     return { allowed: false, reason: 'MISSING_BRANCH_CONTEXT', grant };
@@ -368,12 +377,12 @@ function authorizeAssignedGrant(
   const effectiveBranchId = targetBranchId ?? actingBranchId;
 
   if (effectiveBranchId == null) {
-    // Same case as the BRANCH grant above: a cross-branch actor on "all
-    // branches" opening a personal surface (e.g. «زياراتي») — the endpoint
-    // scopes to their own records inside their assignments.
+    // Same case as the BRANCH grant above: an actor on "all (your) branches"
+    // opening a personal surface (e.g. «زياراتي») — the endpoint scopes to
+    // their own records inside their assignments.
     if (
       check.branchId == null
-      && hasCrossBranchReach(context.isSuperAdmin, context.grants)
+      && hasBranchChoice(context.isSuperAdmin, context.grants, context.allowedBranchIds)
       && context.allowedBranchIds.length > 0
     ) {
       return { allowed: true, reason: 'GRANTED_ASSIGNED', grant };

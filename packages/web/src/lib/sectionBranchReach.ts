@@ -1,6 +1,6 @@
 import type { AuthUser } from '@golden-crm/shared';
 import type { PermissionGrant } from '../hooks/useAuthStore';
-import { canCrossBranch } from './branchScope';
+import { canCrossBranch, canReachAnyBranch } from './branchScope';
 
 /**
  * Which VIEW permission governs the records of each section — the same key the
@@ -62,10 +62,14 @@ export function sectionBranchLimit(
   grants: PermissionGrant[] | null | undefined,
 ): number[] | null {
   if (!user || user.isSuperAdmin === true || !canCrossBranch(user, grants)) return null;
+  const assignments = Array.isArray(user.allowedBranchIds)
+    ? [...user.allowedBranchIds]
+    : (user.branchId != null ? [user.branchId] : []);
   const permission = viewPermissionForPath(pathname);
-  if (!permission) return null;
-  const scope = (grants ?? []).find(grant => grant.permission === permission)?.scope;
-  if (scope !== 'BRANCH' && scope !== 'ASSIGNED') return null;
-  if (Array.isArray(user.allowedBranchIds)) return [...user.allowedBranchIds];
-  return user.branchId != null ? [user.branchId] : [];
+  const scope = permission ? (grants ?? []).find(grant => grant.permission === permission)?.scope : undefined;
+  if (scope === 'GLOBAL') return null;
+  if (scope === 'BRANCH' || scope === 'ASSIGNED') return assignments;
+  // Section not mapped (or no grant there): a cross-branch user keeps every
+  // branch, a multi-branch user only ever chooses among their own.
+  return canReachAnyBranch(user, grants) ? null : assignments;
 }

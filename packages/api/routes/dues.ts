@@ -10,6 +10,7 @@
 //   - everything else (status / balances / type) is now derived and rejects edits.
 
 import { Router } from 'express';
+import { readRequestedBranchId, resolveBranchView, sendBranchViewRefusal } from '../services/branchViewService.js';
 import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
@@ -51,12 +52,11 @@ router.get('/', requirePermission('contracts.view_list'), async (req, res) => {
   const conditions: string[] = ['i.remaining_balance > 0', 'i.confirmed = TRUE', "c.status = 'active'"];
   const params: any[] = [];
 
-  if (!authContext.isSuperAdmin) {
-    conditions.push(`c.branch_id = $${params.push(authContext.actingBranchId)}`);
-  } else {
-    const hb = Number(req.headers['x-branch-id'] ?? req.query.branchId);
-    if (Number.isFinite(hb) && hb > 0) conditions.push(`c.branch_id = $${params.push(hb)}`);
-  }
+  // Branch bound from the view grant (branchViewService): GLOBAL → all or the
+  // selected branch; BRANCH → the assignments (was: the acting branch only).
+  const view = resolveBranchView(authContext, 'contracts.view_list', readRequestedBranchId(req.headers['x-branch-id'] ?? req.query.branchId));
+  if (!view.ok) return sendBranchViewRefusal(res, view);
+  if (view.branchIds != null) conditions.push(`c.branch_id = ANY($${params.push(view.branchIds)}::int[])`);
 
   const where = `WHERE ${conditions.join(' AND ')}`;
   const { rows } = await pool.query(

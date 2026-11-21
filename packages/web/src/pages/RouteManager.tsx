@@ -1,4 +1,5 @@
 import { alertDialog, confirmDialog } from '../lib/dialogs';
+import { useChoosesBranches } from '../hooks/useChoosesBranches';
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Navigate } from 'react-router-dom';
@@ -46,7 +47,8 @@ export default function RouteManager() {
     // Add gate (§5): a GLOBAL manager on "all branches" has no branch to own the new
     // route, so creation is blocked until a branch is picked (mirrors the server's
     // SH-3 reject). A BRANCH manager is pinned, so never blocked.
-    const mustPickBranch = getPermissionScope('routes.manage') === 'GLOBAL' && branchContextId == null;
+    const choosesBranches = useChoosesBranches();
+    const mustPickBranch = (getPermissionScope('routes.manage') === 'GLOBAL' || choosesBranches) && branchContextId == null;
 
     const [routes, setRoutes] = useState<Route[]>([]);
     // Scoped geo list for the builder PICKER (form pick = operation's branch coverage, §5.1).

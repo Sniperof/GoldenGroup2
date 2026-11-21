@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useChoosesBranches } from '../../hooks/useChoosesBranches';
 import { Navigate } from 'react-router-dom';
 import { User, UserPlus, ShieldCheck, Edit2, Building2, ToggleLeft, ToggleRight, Loader2 } from '../../components/ui/icons';
 import { useRoleStore } from '../../hooks/useRoleStore';
@@ -39,7 +40,8 @@ export default function Users() {
   // Add rule (§5): a GLOBAL operator on "all branches" has no branch to own the new
   // user, so creation is blocked until a branch is picked (the server requires it too).
   const isGlobalView = getPermissionScope('admin.users.view_list') === 'GLOBAL';
-  const mustPickBranch = isGlobalView && branchContextId == null;
+  const choosesBranches = useChoosesBranches();
+  const mustPickBranch = (isGlobalView || choosesBranches) && branchContextId == null;
 
   useEffect(() => { fetchRoles(); }, [fetchRoles]);
   // Re-fetch when the external branch filter changes (server narrows via X-Branch-Id).

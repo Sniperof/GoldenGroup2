@@ -1,4 +1,5 @@
 import { alertDialog, confirmDialog } from '../lib/dialogs';
+import { useChoosesBranches } from '../hooks/useChoosesBranches';
 import { useState, useCallback, useMemo, useEffect, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Users, Trash2, UserPlus, CheckCircle2, AlertCircle, Clock, Search, Lightbulb, Pencil, Loader2, Building2, SlidersHorizontal, ChevronDown, X, XCircle } from '../components/ui/icons';
@@ -120,7 +121,8 @@ export default function Clients() {
     // Add rule (§5): a GLOBAL operator viewing "all branches" has no explicit branch
     // to own the new record, so the add button is blocked until a branch is picked —
     // no silent fallback into the base branch (SH-3). Branch/assigned users are pinned.
-    const mustPickBranch = isGlobalClients && branchContextId == null;
+    const choosesBranches = useChoosesBranches();
+    const mustPickBranch = (isGlobalClients || choosesBranches) && branchContextId == null;
     const [branchOptions, setBranchOptions] = useState<{ id: number; name: string }[]>([]);
 
     // Server-paginated data: `clients` holds ONLY the current page (not the whole

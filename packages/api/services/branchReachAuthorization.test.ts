@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { AuthContext } from '@golden-crm/shared';
-import { hasCrossBranchReach } from '@golden-crm/shared';
+import { hasBranchChoice, hasCrossBranchReach } from '@golden-crm/shared';
 import { authorize, defaultWriteBranchId, resolveActingBranch } from './authorizationService.js';
 
 const GLOBAL_LIST = { permission: 'clients.view_list', scope: 'GLOBAL' as const };
@@ -72,4 +72,29 @@ test('a personal (ASSIGNED) surface follows a cross-branch actor into an unassig
 test('a single-branch actor without any acting branch is still refused', () => {
   const noBranch = ctx({ grants: [{ permission: 'planning.manage', scope: 'BRANCH' }], actingBranchId: null, allowedBranchIds: [] });
   assert.equal(authorize(noBranch, { permission: 'planning.manage' }).reason, 'MISSING_BRANCH_CONTEXT');
+});
+
+// ── Several assigned branches = "global over specific branches" (BRANCH grant) ──
+const BRANCH_CLIENTS = { permission: 'clients.view_list', scope: 'BRANCH' as const };
+
+test('a multi-branch user chooses among their branches only', () => {
+  assert.equal(hasBranchChoice(false, [BRANCH_CLIENTS], [1002, 1004]), true);
+  assert.equal(hasBranchChoice(false, [BRANCH_CLIENTS], [1002]), false);
+  assert.equal(hasCrossBranchReach(false, [BRANCH_CLIENTS]), false);
+});
+
+test('multi-branch: "all your branches" has no acting branch; a selection must be one of theirs', () => {
+  const base = { primaryBranchId: 1002, allowedBranchIds: [1002, 1004], hasBranchChoice: true };
+  assert.equal(resolveActingBranch({ ...base, headerBranchId: null }), null);
+  assert.equal(resolveActingBranch({ ...base, headerBranchId: '1004' }), 1004);
+  assert.equal(resolveActingBranch({ ...base, headerBranchId: '1001' }), null);
+});
+
+test('multi-branch: no silent write into the primary branch; BRANCH endpoints open on "all", records stay bounded', () => {
+  const multi = ctx({ grants: [BRANCH_CLIENTS, { permission: 'planning.manage', scope: 'BRANCH' }], allowedBranchIds: [1002, 1004], actingBranchId: null });
+  assert.equal(defaultWriteBranchId(multi), null);
+  assert.equal(defaultWriteBranchId(ctx({ ...multi, actingBranchId: 1004 })), 1004);
+  assert.equal(authorize(multi, { permission: 'planning.manage' }).allowed, true);
+  assert.equal(authorize(multi, { permission: 'planning.manage', branchId: 1004 }).allowed, true);
+  assert.equal(authorize(multi, { permission: 'planning.manage', branchId: 1001 }).allowed, false);
 });

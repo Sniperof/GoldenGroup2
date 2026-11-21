@@ -15,6 +15,7 @@
 // (DEC-CT-01 mirror): draft / active / cancelled / completed / discarded.
 
 import { Router } from 'express';
+import { readRequestedBranchId, resolveBranchView, sendBranchViewRefusal } from '../services/branchViewService.js';
 import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
@@ -91,12 +92,10 @@ router.get('/', requirePermission('contracts.view_list'), async (req, res) => {
   const params: any[] = [];
   const conds: string[] = [];
 
-  if (!authContext.isSuperAdmin) {
-    conds.push(`branch_id = $${params.push(authContext.actingBranchId)}`);
-  } else {
-    const hb = Number(req.headers['x-branch-id'] ?? req.query.branchId);
-    if (Number.isFinite(hb) && hb > 0) conds.push(`branch_id = $${params.push(hb)}`);
-  }
+  // Branch bound from the view grant (branchViewService) — was the acting branch.
+  const view = resolveBranchView(authContext, 'contracts.view_list', readRequestedBranchId(req.headers['x-branch-id'] ?? req.query.branchId));
+  if (!view.ok) return sendBranchViewRefusal(res, view);
+  if (view.branchIds != null) conds.push(`branch_id = ANY($${params.push(view.branchIds)}::int[])`);
   const installedDeviceId = Number(req.query.installedDeviceId);
   if (Number.isInteger(installedDeviceId) && installedDeviceId > 0) {
     conds.push(`installed_device_id = $${params.push(installedDeviceId)}`);

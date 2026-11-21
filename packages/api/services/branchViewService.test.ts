@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { AuthContext } from '@golden-crm/shared';
-import { readRequestedBranchId, resolveBranchView } from './branchViewService.js';
+import { readRequestedBranchId, resolveBranchView, resolveBranchViewAny } from './branchViewService.js';
 
 function ctx(scope: 'GLOBAL' | 'BRANCH' | 'ASSIGNED' | null, allowedBranchIds: number[], isSuperAdmin = false): AuthContext {
   return {
@@ -58,4 +58,18 @@ test('the selection parser accepts only positive integers', () => {
   assert.equal(readRequestedBranchId('abc'), null);
   assert.equal(readRequestedBranchId('-3'), null);
   assert.equal(readRequestedBranchId('1.5'), null);
+});
+
+test('any-of views: the widest grant wins, BRANCH views union their bounds', () => {
+  const both = {
+    ...ctx('BRANCH', [1002]),
+    grants: [{ permission: 'clients.view_list', scope: 'BRANCH' }, { permission: 'contracts.view_list', scope: 'GLOBAL' }],
+  } as AuthContext;
+  assert.deepEqual(resolveBranchViewAny(both, ['clients.view_list', 'contracts.view_list'], null),
+    { ok: true, scope: 'GLOBAL', branchIds: null, selectedBranchId: null, userId: 7 });
+  const branchOnly = ctx('BRANCH', [1002, 1004]);
+  const view = resolveBranchViewAny(branchOnly, ['clients.view_list', 'contracts.view_list'], null);
+  assert.equal(view.ok, true);
+  assert.deepEqual((view as any).branchIds, [1002, 1004]);
+  assert.deepEqual(resolveBranchViewAny(branchOnly, ['clients.view_list'], 1001), { ok: false, reason: 'BRANCH_FORBIDDEN' });
 });
