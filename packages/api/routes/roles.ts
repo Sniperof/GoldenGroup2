@@ -17,7 +17,7 @@ import {
   updateRole,
   RoleManagementError,
 } from '../services/roleManagementService.js';
-import { authorize } from '../services/authorizationService.js';
+import { authorize, defaultWriteBranchId } from '../services/authorizationService.js';
 import { eligibleHrUserWithPermissionCondition } from '../services/assigneeEligibility.js';
 import { eligiblePersonalOwnerCondition } from '../services/customerOwnership.js';
 
@@ -41,7 +41,7 @@ function resolveAssignableBranchFilter(
   if (isGlobalAssigner) {
     return hasRequested ? requested : null;
   }
-  const branchId = hasRequested ? requested : (authContext.actingBranchId ?? authContext.allowedBranchIds[0] ?? null);
+  const branchId = hasRequested ? requested : defaultWriteBranchId(authContext);
   if (branchId == null || !authContext.allowedBranchIds.includes(branchId)) return 'DENY';
   return branchId;
 }
@@ -843,14 +843,17 @@ router.get('/hr-users/assignable', requirePermission('clients.assignment.manage'
     ];
     const params: any[] = [];
 
-    if (!authContext.isSuperAdmin) {
-      // Non-super-admins see only users in their own branch
-      const branchId = authContext.actingBranchId ?? authContext.allowedBranchIds[0] ?? null;
-      if (branchId == null) {
-        return res.json([]); // no branch context → empty list
-      }
-      params.push(branchId);
-      conditions.push(`u.branch_id = $${params.length}`);
+    // Follows the assignment grant's scope (services/branchViewService.ts):
+    // GLOBAL → every branch or the selected one; BRANCH → the assignments.
+    // It used to fall back to the actor's home branch even on "all branches".
+    const view = resolveBranchView(authContext, 'clients.assignment.manage', readRequestedBranchId(req.header('x-branch-id')));
+    if (!view.ok) {
+      if ((view as any).reason === 'NO_BRANCH') return res.json([]); // no branch context → empty list
+      return sendBranchViewRefusal(res, view);
+    }
+    if (view.branchIds != null) {
+      params.push(view.branchIds);
+      conditions.push(`u.branch_id = ANY($${params.length}::int[])`);
     }
 
     const where = `WHERE ${conditions.join(' AND ')}`;

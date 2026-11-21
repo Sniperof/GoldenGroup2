@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { runWithChangeContext } from '../auditContext.js';
-import { authorize, resolveActingBranch } from '../services/authorizationService.js';
+import { authorize, defaultWriteBranchId, resolveActingBranch } from '../services/authorizationService.js';
 import { readRequestedBranchId, resolveBranchView, sendBranchViewRefusal } from '../services/branchViewService.js';
 import { requirePermission } from '../middleware/permission.js';
 import { assertRoleWithinActorScope, ROLE_ESCALATION_ERROR } from '../services/roleAssignmentGuard.js';
@@ -47,7 +47,7 @@ function resolveEmployeeTargetBranch(req: any, requestedBranchId?: number | stri
 
   return resolveActingBranch({
     headerBranchId: requestedBranchId ?? req.header('x-branch-id'),
-    primaryBranchId: authContext.actingBranchId ?? authContext.allowedBranchIds[0] ?? null,
+    primaryBranchId: defaultWriteBranchId(authContext),
     allowedBranchIds: authContext.allowedBranchIds,
     isSuperAdmin: authContext.isSuperAdmin,
   });

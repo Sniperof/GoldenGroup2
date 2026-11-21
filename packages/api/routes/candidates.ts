@@ -2,7 +2,7 @@ import { Router } from 'express';
 import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
-import { resolveActingBranch } from '../services/authorizationService.js';
+import { defaultWriteBranchId, resolveActingBranch } from '../services/authorizationService.js';
 import {
   canCreateCandidate,
   canDeleteCandidate,
@@ -206,7 +206,7 @@ function resolveCandidateTargetBranch(
 
   return resolveActingBranch({
     headerBranchId: raw,
-    primaryBranchId: authContext.actingBranchId ?? authContext.allowedBranchIds[0] ?? null,
+    primaryBranchId: defaultWriteBranchId(authContext),
     allowedBranchIds: authContext.allowedBranchIds,
     isSuperAdmin: authContext.isSuperAdmin,
   });

@@ -4,7 +4,7 @@ import pool from '../db.js';
 import { runWithChangeContext } from '../auditContext.js';
 import { requireAuth } from '../middleware/auth.js';
 import { getOrBuildAuthContext, requirePermission } from '../middleware/permission.js';
-import { authorize, resolveActingBranch } from '../services/authorizationService.js';
+import { authorize, defaultWriteBranchId, resolveActingBranch } from '../services/authorizationService.js';
 import { readRequestedBranchId, resolveBranchView, sendBranchViewRefusal, type BranchViewGranted } from '../services/branchViewService.js';
 import { assertGeoUnitInScope } from '../services/geoScopeService.js';
 import {
@@ -615,7 +615,7 @@ function resolveClientTargetBranch(req: any, requestedBranchId?: number | string
 
   return resolveActingBranch({
     headerBranchId: explicitBranchId,
-    primaryBranchId: authContext.actingBranchId ?? authContext.allowedBranchIds[0] ?? null,
+    primaryBranchId: defaultWriteBranchId(authContext),
     allowedBranchIds: authContext.allowedBranchIds,
     isSuperAdmin: authContext.isSuperAdmin,
   });

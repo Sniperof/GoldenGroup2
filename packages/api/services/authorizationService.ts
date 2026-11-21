@@ -7,6 +7,7 @@ import type {
   PermissionGrant,
   ScopeType,
 } from '@golden-crm/shared';
+import { hasCrossBranchReach } from '@golden-crm/shared';
 import pool from '../db.js';
 
 export interface BuildAuthContextInput {
@@ -48,21 +49,26 @@ export async function buildAuthContext(input: BuildAuthContextInput): Promise<Au
       primaryBranchId: loaded.primaryBranchId,
       allowedBranchIds: loaded.allowedBranchIds,
       isSuperAdmin,
-      canReachAnyBranch: hasCrossBranchReach(loaded.grants),
+      canReachAnyBranch: hasCrossBranchReach(isSuperAdmin, loaded.grants),
     }),
   };
 }
 
+/** The shared rule (packages/shared/branchReach.ts) — same definition the web switcher uses. */
+export { hasCrossBranchReach };
+
 /**
- * Server twin of the web's `canCrossBranch` (packages/web/src/lib/branchScope.ts):
- * a GLOBAL scope on an operational LIST view (`*.view_list`) is what shows the
- * external branch switcher. Reference lookups held at GLOBAL for form-filling
- * (reference_data.lookup, device_models.lookup …) deliberately do NOT count.
- * The two rules must stay identical, or the switcher offers branches the server
- * then ignores.
+ * The branch a write lands in when the request names none. For a single-branch
+ * user that is their own branch (they have no switcher; the badge shows it).
+ * For a cross-branch user it is NOTHING: with "all branches" selected there is
+ * no branch to infer, so the caller must answer "pick a branch" instead of
+ * quietly writing into the user's home branch (standard §13 SH-3).
  */
-export function hasCrossBranchReach(grants: PermissionGrant[]): boolean {
-  return grants.some(grant => grant.scope === 'GLOBAL' && grant.permission.endsWith('.view_list'));
+export function defaultWriteBranchId(context: Pick<AuthContext, 'isSuperAdmin' | 'grants' | 'actingBranchId' | 'allowedBranchIds'>): number | null {
+  if (hasCrossBranchReach(context.isSuperAdmin, context.grants)) {
+    return context.actingBranchId ?? null;
+  }
+  return context.actingBranchId ?? context.allowedBranchIds[0] ?? null;
 }
 
 export function clearAuthorizationCache(userId?: number) {
@@ -86,6 +92,10 @@ export function resolveActingBranch(
      * acting branch even when it is not one of their assignments. This does NOT
      * widen allowedBranchIds: BRANCH/ASSIGNED grants are still checked against
      * the assignments, so only GLOBAL grants reach the selected branch.
+     *
+     * With NO selection ("all branches") such an actor has no acting branch:
+     * falling back to their home branch made branch-level pages act on it while
+     * the screen said «كل الفروع».
      */
     canReachAnyBranch?: boolean;
   },
@@ -95,7 +105,7 @@ export function resolveActingBranch(
   const allowedBranchIds = normalizeBranchIds(options.allowedBranchIds);
 
   if (requestedBranchId == null) {
-    return primaryBranchId;
+    return options.canReachAnyBranch === true ? null : primaryBranchId;
   }
 
   if (options.isSuperAdmin === true) {
@@ -315,6 +325,13 @@ function authorizeBranchGrant(
   const actingBranchId = toPositiveInteger(context.actingBranchId);
 
   if (targetBranchId == null && actingBranchId == null) {
+    // No record and no acting branch: only a cross-branch actor with "all
+    // branches" selected lands here (single-branch actors always act on their
+    // own branch). The question is then "may you use this endpoint?" — yes,
+    // within your assignments, which the endpoint applies (resolveBranchView).
+    if (hasCrossBranchReach(context.isSuperAdmin, context.grants) && context.allowedBranchIds.length > 0) {
+      return { allowed: true, reason: 'GRANTED_BRANCH', grant };
+    }
     return { allowed: false, reason: 'MISSING_BRANCH_CONTEXT', grant };
   }
 
@@ -351,10 +368,31 @@ function authorizeAssignedGrant(
   const effectiveBranchId = targetBranchId ?? actingBranchId;
 
   if (effectiveBranchId == null) {
+    // Same case as the BRANCH grant above: a cross-branch actor on "all
+    // branches" opening a personal surface (e.g. «زياراتي») — the endpoint
+    // scopes to their own records inside their assignments.
+    if (
+      check.branchId == null
+      && hasCrossBranchReach(context.isSuperAdmin, context.grants)
+      && context.allowedBranchIds.length > 0
+    ) {
+      return { allowed: true, reason: 'GRANTED_ASSIGNED', grant };
+    }
     return { allowed: false, reason: 'MISSING_BRANCH_CONTEXT', grant };
   }
 
   if (!context.allowedBranchIds.includes(effectiveBranchId)) {
+    // A personal surface asked without a record (check.branchId unset) is about
+    // the actor's OWN items; a cross-branch actor who switched to a branch they
+    // are not assigned to must still reach «زياراتي». A concrete record in that
+    // branch (check.branchId set) stays refused.
+    if (
+      check.branchId == null
+      && hasCrossBranchReach(context.isSuperAdmin, context.grants)
+      && context.allowedBranchIds.length > 0
+    ) {
+      return { allowed: true, reason: 'GRANTED_ASSIGNED', grant };
+    }
     return { allowed: false, reason: 'BRANCH_FORBIDDEN', grant };
   }
 

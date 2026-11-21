@@ -372,7 +372,7 @@ router.post('/', requirePermission('jobs.vacancies.create'), async (req, res) =>
     if (!v.endDate) return res.status(400).json({ error: 'تاريخ النهاية مطلوب' });
     if (new Date(v.startDate) > new Date(v.endDate)) return res.status(400).json({ error: 'تاريخ البداية يجب أن يكون قبل تاريخ النهاية' });
 
-    const targetBranchId = resolveTargetBranchId(req, res, v.branchId);
+    const targetBranchId = resolveTargetBranchId(req, res, v.branchId, 'jobs.vacancies.create');
     if (targetBranchId == null) return;
 
     const departmentCheck = await ensureVacancyDepartment(client, targetBranchId, v.departmentId);

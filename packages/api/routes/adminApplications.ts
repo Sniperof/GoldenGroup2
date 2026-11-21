@@ -402,7 +402,7 @@ router.post('/', requirePermission('jobs.applications.create'), async (req, res)
       }
     } else {
       // No vacancy: resolve from scope/body
-      const resolved = resolveTargetBranchId(req, res, body.branchId);
+      const resolved = resolveTargetBranchId(req, res, body.branchId, 'jobs.applications.create');
       if (resolved == null) { await client.query('ROLLBACK'); return; }
       applicationBranchId = resolved;
     }

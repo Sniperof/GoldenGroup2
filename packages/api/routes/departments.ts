@@ -390,7 +390,7 @@ router.post('/', requirePermission('departments.manage'), async (req, res) => {
       return res.status(400).json({ error: 'اختر فرعاً أولاً لإنشاء القسم' });
     }
 
-    const targetBranchId = resolveTargetBranchId(req, res, bodyBranchId);
+    const targetBranchId = resolveTargetBranchId(req, res, bodyBranchId, 'departments.manage');
     if (targetBranchId == null) return;
 
     const access = authorize(req.authContext!, {
