@@ -4,6 +4,7 @@ import { JWT_SECRET } from '../config/env.js';
 import { findUserForLogin, getRoleGrants, type RoleGrant } from '../repositories/authRepository.js';
 import type { DeviceClass } from './deviceClass.js';
 import { decideWebDeviceAccess, loadAllowedTeamSlots } from './webDeviceAccessPolicy.js';
+import { buildAuthContext } from './authorizationService.js';
 
 export interface LoginResult {
   token: string;
@@ -17,6 +18,11 @@ export interface LoginResult {
     branchId: number | null;
     employeeId: number | null;
     teamSlotType: string | null;
+    /**
+     * Active branch assignments. The web needs them to offer, per section, only
+     * the branches that section's grant reaches (BRANCH/ASSIGNED → these).
+     */
+    allowedBranchIds: number[];
   };
   permissions: string[];
   grants: RoleGrant[];
@@ -74,6 +80,12 @@ export async function loginUser(
   }
 
   const permissions = derivePermissionsFromGrants(grants);
+  const allowedBranchIds = await loadAllowedBranchIds({
+    id: user.id,
+    roleId: user.role_id,
+    isSuperAdmin: user.is_super_admin === true,
+    branchId: user.branch_id,
+  });
 
   const tokenPayload = {
     id: user.id,
@@ -101,6 +113,7 @@ export async function loginUser(
       branchId: user.branch_id,
       employeeId: user.employee_id,
       teamSlotType: user.team_slot_type,
+      allowedBranchIds,
     },
     permissions,
     grants,
@@ -134,10 +147,24 @@ export async function getCurrentSession(user: {
       branchId: user.branchId ?? null,
       employeeId: user.employeeId ?? null,
       teamSlotType: user.teamSlotType ?? null,
+      allowedBranchIds: await loadAllowedBranchIds({
+        id: user.id,
+        roleId: user.roleId ?? null,
+        isSuperAdmin: user.isSuperAdmin === true,
+        branchId: user.branchId ?? null,
+      }),
     },
     permissions: derivePermissionsFromGrants(grants),
     grants,
   };
+}
+
+// Same source the server authorizes with (user_branch_assignments, with the
+// legacy hr_users.branch_id fallback), so the web never offers a branch the
+// server would refuse.
+async function loadAllowedBranchIds(user: { id: number; roleId: number | null; isSuperAdmin: boolean; branchId: number | null }): Promise<number[]> {
+  const context = await buildAuthContext({ user });
+  return context.allowedBranchIds;
 }
 
 function derivePermissionsFromGrants(grants: RoleGrant[]): string[] {

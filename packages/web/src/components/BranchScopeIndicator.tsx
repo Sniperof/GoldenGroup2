@@ -25,6 +25,8 @@ export default function BranchScopeIndicator() {
   const user = useAuthStore(s => s.user);
   const grants = useAuthStore(s => s.grants);
   const branchId = useBranchContextStore(s => s.branchId);
+  // Limited section (BRANCH-scoped grant here): "all" means all of YOUR branches.
+  const sectionLimited = useBranchContextStore(s => s.sectionBranchIds != null);
   const branches = useBranchStore(s => s.branches);
   const fetchBranches = useBranchStore(s => s.fetchBranches);
 
@@ -46,7 +48,7 @@ export default function BranchScopeIndicator() {
       {allBranches ? <Layers className="w-3.5 h-3.5" /> : <Building2 className="w-3.5 h-3.5" />}
       <span className="text-slate-500">تعرض:</span>
       <span className="font-bold">
-        {allBranches ? 'كل الفروع' : (branchName ?? `الفرع #${branchId}`)}
+        {allBranches ? (sectionLimited ? 'كل فروعك' : 'كل الفروع') : (branchName ?? `الفرع #${branchId}`)}
       </span>
     </div>
   );

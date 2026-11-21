@@ -20,7 +20,7 @@ interface Branch {
 export default function BranchSwitcher() {
   const user = useAuthStore(s => s.user);
   const grants = useAuthStore(s => s.grants);
-  const { branchId, setBranchId } = useBranchContextStore();
+  const { branchId, preferredBranchId, sectionBranchIds, setBranchId } = useBranchContextStore();
   const [branches, setBranches] = useState<Branch[]>([]);
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -64,6 +64,15 @@ export default function BranchSwitcher() {
     );
   }
 
+  // Per-section reach (lib/sectionBranchReach.ts): in a section whose grant is
+  // BRANCH-scoped only the assigned branches are offered, and a choice made in
+  // another section that this one does not reach is set aside (not erased).
+  const limited = sectionBranchIds != null;
+  const options = limited ? branches.filter(b => sectionBranchIds!.includes(b.id)) : branches;
+  const allLabel = limited ? 'كل فروعك' : 'كل الفروع';
+  const setAside = preferredBranchId != null && branchId == null;
+  const setAsideName = setAside ? branches.find(b => b.id === preferredBranchId)?.name : null;
+
   const current = branches.find(b => b.id === branchId);
 
   function handleSelect(id: number | null) {
@@ -82,10 +91,15 @@ export default function BranchSwitcher() {
       >
         <Building2 className="w-4 h-4" />
         <span className="flex-1 text-right truncate font-medium">
-          {current ? current.name : 'كل الفروع'}
+          {current ? current.name : allLabel}
         </span>
         <ChevronDown className={`w-4 h-4 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
+      {setAside && (
+        <p className="mt-1 px-1 text-[11px] leading-snug text-amber-700">
+          {`فرع ${setAsideName ?? 'المختار'} خارج نطاقك في هذا القسم — يُعرض ${allLabel}، ويعود اختيارك في الأقسام الأخرى.`}
+        </p>
+      )}
 
       {open && (
         <div className="absolute z-40 mt-1.5 w-full bg-white border border-slate-200 rounded-xl shadow-lg p-1.5 max-h-64 overflow-y-auto">
@@ -96,11 +110,13 @@ export default function BranchSwitcher() {
           >
             {branchId == null ? <Check className="w-4 h-4 text-sky-600" /> : <span className="w-4" />}
             <div className="flex-1 text-right">
-              <div className="text-slate-700">كل الفروع</div>
-              <div className="text-xs text-slate-500">فلتر عرض للإدارة، وليس فرعاً تشغيلياً</div>
+              <div className="text-slate-700">{allLabel}</div>
+              <div className="text-xs text-slate-500">
+                {limited ? 'صلاحيتك في هذا القسم محصورة بفروعك' : 'فلتر عرض للإدارة، وليس فرعاً تشغيلياً'}
+              </div>
             </div>
           </button>
-          {branches.map(b => (
+          {options.map(b => (
             <button
               key={b.id}
               type="button"

@@ -1,8 +1,10 @@
 import type { ReactNode } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Building2 } from './ui/icons';
 import { useAuthStore } from '../hooks/useAuthStore';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import { canCrossBranch } from '../lib/branchScope';
+import { sectionBranchLimit } from '../lib/sectionBranchReach';
 
 /**
  * Gate for Group 3 pages — single-branch operational surfaces (planning, telemarketer,
@@ -20,9 +22,18 @@ import { canCrossBranch } from '../lib/branchScope';
 export default function RequireBranchContext({ children }: { children: ReactNode }) {
   const user = useAuthStore(s => s.user);
   const grants = useAuthStore(s => s.grants);
-  const branchId = useBranchContextStore(s => s.branchId);
+  const preferredBranchId = useBranchContextStore(s => s.preferredBranchId);
+  const { pathname } = useLocation();
 
-  const mustPickBranch = canCrossBranch(user, grants) && branchId == null;
+  // Decided from THIS path during render, not from the store's effective value:
+  // the store is synced by a layout effect after the first render of a newly
+  // opened page, so reading it here let a set-aside branch mount the page for
+  // one render and fire branch-only requests the server then refused.
+  const limit = sectionBranchLimit(pathname, user, grants);
+  const effectiveBranchId = preferredBranchId != null && (limit == null || limit.includes(preferredBranchId))
+    ? preferredBranchId
+    : null;
+  const mustPickBranch = canCrossBranch(user, grants) && effectiveBranchId == null;
 
   if (mustPickBranch) {
     return (

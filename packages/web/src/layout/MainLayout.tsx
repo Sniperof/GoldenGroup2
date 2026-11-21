@@ -1,4 +1,4 @@
-import { useEffect, useState, type ComponentType } from 'react';
+import { useEffect, useLayoutEffect, useState, type ComponentType } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useAuthStore } from '../hooks/useAuthStore';
@@ -6,6 +6,7 @@ import { usePermissions } from '../hooks/usePermissions';
 import { useBranchContextStore } from '../hooks/useBranchContextStore';
 import { canSeeFieldVisitManagementSurface } from '../lib/fieldVisitPermissionPolicy';
 import { isGlobalOnlyPath } from '../lib/branchContext';
+import { sectionBranchLimit } from '../lib/sectionBranchReach';
 import { HIDDEN_FEATURES_ENABLED } from '../lib/hiddenFeatures';
 import EdgeQuickAdd from '../components/EdgeQuickAdd';
 import AddCandidateModal from '../components/candidates/AddCandidateModal';
@@ -161,6 +162,15 @@ export default function MainLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user: authUser, logout, grants } = useAuthStore();
+  const setSectionBranchIds = useBranchContextStore(s => s.setSectionBranchIds);
+
+  // Per-section switcher reach (lib/sectionBranchReach.ts). A LAYOUT effect on
+  // purpose: it runs after the new page's render but before the page's own
+  // effects, so the page's first fetch already carries the effective branch
+  // for THIS section, not one that only another section allowed.
+  useLayoutEffect(() => {
+    setSectionBranchIds(sectionBranchLimit(location.pathname, authUser, grants));
+  }, [location.pathname, authUser, grants, setSectionBranchIds]);
   const { hasPermission } = usePermissions();
   const { branchId: selectedBranchId } = useBranchContextStore();
   const isSuperAdmin = authUser?.isSuperAdmin === true;
