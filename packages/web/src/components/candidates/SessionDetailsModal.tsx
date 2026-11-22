@@ -324,6 +324,12 @@ export default function ReferralSheetDetailsModal({ isOpen, onClose, sheetId }: 
                 isOpen={canEditCandidates && isQualifyModalOpen}
                 // Whoever may convert the name may link it blind (add-client permission, 2026-10-21).
                 canLinkRestrictedLead={hasPermission('clients.create')}
+                // Names inside a sheet follow the sheet's branch and cannot be
+                // transferred alone (the server refuses), so this only closes.
+                onTransferred={() => {
+                    setIsQualifyModalOpen(false);
+                    reloadSheetCandidates();
+                }}
                 onClose={() => setIsQualifyModalOpen(false)}
                 candidate={activeCandidateForQualify}
                 onQualified={handleQualificationConfirmed}

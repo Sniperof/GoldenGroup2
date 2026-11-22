@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { alertDialog } from '../../lib/dialogs';
 import { useCandidateStore } from '../../hooks/useCandidateStore';
 import { UserPlus, Search, Building2, MapPin, AlertCircle, ArrowRight, XCircle, X, FilePlus2, Download, Upload, Info, LayoutGrid, List, ShieldCheck, Edit, User, SlidersHorizontal, ChevronDown } from '../../components/ui/icons';
 import DateField from '../../components/ui/DateField';
@@ -1416,6 +1417,12 @@ export default function CandidatesEntry() {
                 isOpen={canEditCandidates && isQualifyModalOpen}
                 // Whoever may convert the name may link it blind (add-client permission, 2026-10-21).
                 canLinkRestrictedLead={hasPermission('clients.create')}
+                onTransferred={(message) => {
+                    setIsQualifyModalOpen(false);
+                    setActiveCandidateForQualify(null);
+                    reloadCandidatesPage();
+                    void alertDialog(message);
+                }}
                 onClose={() => setIsQualifyModalOpen(false)}
                 candidate={activeCandidateForQualify}
                 onQualified={handleQualificationConfirmed}

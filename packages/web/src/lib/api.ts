@@ -960,6 +960,20 @@ function getBranchContextHeader(): string | null {
   }
 }
 
+export interface CandidateBranchCoverage {
+  candidateId: number;
+  branchId: number | null;
+  branchName: string | null;
+  geoUnitId: number | null;
+  /** null = the name has no geo unit; false = its branch does not cover the address. */
+  inCoverage: boolean | null;
+  resolutionStatus: 'resolved' | 'ambiguous' | 'no_coverage' | 'missing_geo';
+  coveringBranches: Array<{ branchId: number; branchName: string }>;
+  blockedReason: 'terminal' | 'in_referral_sheet' | null;
+  canTransfer: boolean;
+  canChooseBranch: boolean;
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const token = getToken();
   const headers: Record<string, string> = {
@@ -1492,6 +1506,19 @@ export const api = {
         body: JSON.stringify({ restrictedOtherBranch: true }),
       }),
     delete: (id: number) => request<any>(`/candidates/${id}`, { method: 'DELETE' }),
+    branchCoverage: (id: number) => request<CandidateBranchCoverage>(`/candidates/${id}/branch-coverage`),
+    transferToCoveringBranch: (id: number, branchId?: number | null) =>
+      request<{
+        candidateId: number;
+        fromBranchId: number | null;
+        fromBranchName: string | null;
+        toBranchId: number;
+        toBranchName: string;
+        resolution: 'auto_resolved' | 'operator_selected';
+      }>(`/candidates/${id}/transfer-to-covering-branch`, {
+        method: 'POST',
+        body: JSON.stringify(branchId == null ? {} : { branchId }),
+      }),
   },
   referralSheets: {
     // branchId narrows a GLOBAL viewer to one branch (X-Branch-Id); null lets the server scope.

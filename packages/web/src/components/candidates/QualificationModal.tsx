@@ -6,7 +6,7 @@ import {
     Loader2, ShieldAlert, Phone, MapPin, Building2, User,
 } from '../ui/icons';
 import { Candidate, Client, ClientSmartMatchResponse, GeoUnit } from '../../lib/types';
-import { api } from '../../lib/api';
+import { api, type CandidateBranchCoverage } from '../../lib/api';
 import type { RestrictedLinkMode } from '../../hooks/useCandidateStore';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
@@ -23,6 +23,8 @@ interface QualificationModalProps {
     onLink: (candidateId: number, client: Client) => void;
     onRestrictedLeadLink: (candidateId: number, mode?: RestrictedLinkMode) => Promise<void>;
     canLinkRestrictedLead: boolean;
+    /** Called after the name was moved to the branch that covers its address. */
+    onTransferred: (message: string) => void;
 }
 
 // ─── Address resolution helper ───────────────────────────────────────────────
@@ -167,8 +169,52 @@ function LinkConfirmOverlay({
 // ─── Main Modal ───────────────────────────────────────────────────────────────
 export default function QualificationModal({
     isOpen, onClose, candidate, onQualified, onJunk, onLink, onRestrictedLeadLink, canLinkRestrictedLead,
+    onTransferred,
 }: QualificationModalProps) {
     const [step, setStep] = useState<1 | 2>(1);
+
+    // Branch coverage of the name's address. Conversion is refused by the server
+    // when the address is outside the name's branch coverage, so that case gets
+    // an explicit explanation and the transfer action instead of the form.
+    const [coverage, setCoverage] = useState<CandidateBranchCoverage | null>(null);
+    const [transferBranchId, setTransferBranchId] = useState<number | ''>('');
+    const [transferBusy, setTransferBusy] = useState(false);
+    const [transferError, setTransferError] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (!isOpen || !candidate) return;
+        let active = true;
+        setCoverage(null);
+        setTransferBranchId('');
+        setTransferError(null);
+        api.candidates.branchCoverage(candidate.id)
+            .then(result => { if (active) setCoverage(result); })
+            .catch(() => { if (active) setCoverage(null); });
+        return () => { active = false; };
+    }, [isOpen, candidate]);
+
+    const outOfCoverage = coverage?.inCoverage === false;
+
+    const handleTransfer = async () => {
+        if (!candidate || !coverage) return;
+        const chosen = coverage.resolutionStatus === 'ambiguous'
+            ? (transferBranchId === '' ? null : Number(transferBranchId))
+            : null;
+        if (coverage.resolutionStatus === 'ambiguous' && chosen == null) {
+            setTransferError('اختر الفرع الذي سيُنقل إليه الاسم');
+            return;
+        }
+        setTransferBusy(true);
+        setTransferError(null);
+        try {
+            const result = await api.candidates.transferToCoveringBranch(candidate.id, chosen);
+            onTransferred(`تم نقل الاسم من فرع ${result.fromBranchName ?? '—'} إلى فرع ${result.toBranchName}، وأصبح بملكية الفرع الجديد الذي يستطيع تحويله الآن.`);
+        } catch (err: any) {
+            setTransferError(err?.message ?? 'تعذر نقل الاسم إلى الفرع المغطي');
+        } finally {
+            setTransferBusy(false);
+        }
+    };
 
     // Auto phone check
     const [autoCheckLoading, setAutoCheckLoading] = useState(false);
@@ -574,8 +620,61 @@ export default function QualificationModal({
                                     <div className="text-sm font-bold text-slate-800">{candidate.referralNameSnapshot}</div>
                                 </div>
 
+                                {outOfCoverage && coverage && (
+                                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 space-y-3">
+                                        <div className="flex items-start gap-3">
+                                            <MapPin className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                                            <div className="space-y-1">
+                                                <p className="text-sm font-bold text-amber-900">عنوان الاسم خارج تغطية فرع {coverage.branchName ?? 'الاسم'}</p>
+                                                <p className="text-xs text-amber-800 leading-relaxed">
+                                                    لا يمكن تحويل الاسم إلى زبون في هذا الفرع لأن عنوانه لا يقع ضمن مناطقه.
+                                                    {coverage.resolutionStatus === 'resolved' && ` العنوان ضمن تغطية فرع ${coverage.coveringBranches[0].branchName}، ويمكن نقل الاسم إليه ليحوّله هناك.`}
+                                                    {coverage.resolutionStatus === 'ambiguous' && ' العنوان ضمن تغطية أكثر من فرع.'}
+                                                    {coverage.resolutionStatus === 'no_coverage' && ' ولا يوجد فرع فعال يغطي هذا العنوان — يجب تصحيح عنوان الاسم أولاً.'}
+                                                </p>
+                                                <p className="text-xs text-amber-700">عند النقل يصبح الاسم بملكية الفرع الجديد ويخرج من مسؤوليه الحاليين.</p>
+                                            </div>
+                                        </div>
+                                        {coverage.blockedReason === 'in_referral_sheet' && (
+                                            <p className="text-xs font-bold text-red-700">الاسم تابع للائحة أسماء، وفرعه يتبع فرع اللائحة — لا يمكن نقله منفرداً.</p>
+                                        )}
+                                        {coverage.resolutionStatus === 'ambiguous' && coverage.canChooseBranch && (
+                                            <select
+                                                value={transferBranchId}
+                                                onChange={e => setTransferBranchId(e.target.value === '' ? '' : Number(e.target.value))}
+                                                className="w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm"
+                                                aria-label="الفرع الذي سيُنقل إليه الاسم"
+                                            >
+                                                <option value="">اختر الفرع…</option>
+                                                {coverage.coveringBranches.map(b => (
+                                                    <option key={b.branchId} value={b.branchId}>{b.branchName}</option>
+                                                ))}
+                                            </select>
+                                        )}
+                                        {coverage.resolutionStatus === 'ambiguous' && !coverage.canChooseBranch && (
+                                            <p className="text-xs font-bold text-amber-900">اختيار الفرع في هذه الحالة يحتاج قراراً من الإدارة العامة.</p>
+                                        )}
+                                        {coverage.canTransfer && (
+                                            <Button variant="primary" fullWidth onClick={handleTransfer} disabled={transferBusy}>
+                                                {transferBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Building2 className="w-4 h-4" />}
+                                                <span>
+                                                    {coverage.resolutionStatus === 'resolved'
+                                                        ? `نقل الاسم إلى فرع ${coverage.coveringBranches[0].branchName}`
+                                                        : 'نقل الاسم إلى الفرع المختار'}
+                                                </span>
+                                            </Button>
+                                        )}
+                                        {transferError && (
+                                            <p className="text-xs font-bold text-red-700 flex items-center gap-1.5">
+                                                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                                                {transferError}
+                                            </p>
+                                        )}
+                                    </div>
+                                )}
+
                                 <div className="grid grid-cols-1 gap-3">
-                                    <button
+                                    {!outOfCoverage && <button
                                         onClick={() => onQualified(candidate)}
                                         className="flex items-center gap-4 p-4 rounded-2xl border-2 border-emerald-100 bg-emerald-50/50 hover:bg-emerald-50 hover:border-emerald-200 transition-all text-right group"
                                     >
@@ -586,7 +685,7 @@ export default function QualificationModal({
                                             <div className="text-sm font-bold text-emerald-900">تحويل لاسم مرشح جديد</div>
                                             <div className="text-xs text-emerald-700 mt-0.5">فتح استمارة الزبون مع نقل كافة البيانات</div>
                                         </div>
-                                    </button>
+                                    </button>}
 
                                     <button
                                         onClick={() => onJunk(candidate.id)}

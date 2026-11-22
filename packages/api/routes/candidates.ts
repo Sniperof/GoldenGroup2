@@ -16,6 +16,7 @@ import { eligibleHrUserWithPermissionCondition } from '../services/assigneeEligi
 import { buildClientLifecycleStatusSql } from '../services/customerOwnership.js';
 import {
   assertEligibleCandidateResponsible,
+  canManageCandidateOwnership,
   CandidateOwnershipError,
   hasCandidateOwnershipPayload,
   replaceCandidateOwnership,
@@ -35,6 +36,8 @@ import {
   detectCandidateDuplicate,
 } from '../services/candidateDuplicateDetection.js';
 import { recomputeReferralSheetStats } from '../services/referralSheetStats.js';
+import { assertGeoUnitInScope } from '../services/geoScopeService.js';
+import { resolveBranchForServiceGeoUnit } from '../services/serviceRequests/branchResolutionService.js';
 import { phoneNormalizationSql } from '../utils/phoneSql.js';
 import {
   createReferralGiftPromise,
@@ -259,11 +262,13 @@ function appendCandidateScopeConditions(
 
 /**
  * The search haystack for the paged list. Kept as one constant because
- * migrations/438 builds a trigram index on this exact expression — any edit here
- * must be mirrored there, or search silently degrades to a full scan.
+ * migrations/503 (replacing 438) builds a trigram index on this exact expression —
+ * any edit here must be mirrored there, or search silently degrades to a full scan.
+ * Whitespace runs are collapsed so an empty nickname does not leave "first␣␣last",
+ * which made a full-name search miss almost every name.
  */
 const CANDIDATE_SEARCH_EXPR =
-  `(COALESCE(c.first_name, '') || ' ' || COALESCE(c.nickname, '') || ' ' || COALESCE(c.last_name, '') || ' ' || COALESCE(c.mobile, '') || ' ' || COALESCE(c.referral_name_snapshot, ''))`;
+  `(regexp_replace(COALESCE(c.first_name, '') || ' ' || COALESCE(c.nickname, '') || ' ' || COALESCE(c.last_name, '') || ' ' || COALESCE(c.mobile, '') || ' ' || COALESCE(c.referral_name_snapshot, ''), '[[:space:]]+', ' ', 'g'))`;
 
 /** Sort keys the paged list accepts, mapped to SQL. Anything else falls back to createdAt. */
 const CANDIDATE_SORT_COLUMNS: Record<string, string> = {
@@ -612,11 +617,11 @@ router.get('/', requirePermission('candidates.view_list'), async (req, res) => {
     const requestedBranchId = resolveCandidateListBranchFilter(req);
     const listAccess = getCandidateListAccessPlan(authContext);
 
-    if (!authContext.isSuperAdmin && authContext.allowedBranchIds.length === 0) {
+    if (!authContext.isSuperAdmin && listAccess.scope !== 'GLOBAL' && authContext.allowedBranchIds.length === 0) {
       return res.status(403).json({ error: 'لا يوجد فرع فعّال متاح لهذه العملية' });
     }
 
-    if (requestedBranchId != null && !authContext.isSuperAdmin && !authContext.allowedBranchIds.includes(requestedBranchId)) {
+    if (requestedBranchId != null && !authContext.isSuperAdmin && listAccess.scope !== 'GLOBAL' && !authContext.allowedBranchIds.includes(requestedBranchId)) {
       return forbidCandidateAccess(res, 'BRANCH_FORBIDDEN');
     }
 
@@ -687,10 +692,10 @@ router.get('/paged', requirePermission('candidates.view_list'), async (req, res)
     const requestedBranchId = resolveCandidateListBranchFilter(req);
     const listAccess = getCandidateListAccessPlan(authContext);
 
-    if (!authContext.isSuperAdmin && authContext.allowedBranchIds.length === 0) {
+    if (!authContext.isSuperAdmin && listAccess.scope !== 'GLOBAL' && authContext.allowedBranchIds.length === 0) {
       return res.status(403).json({ error: 'لا يوجد فرع فعّال متاح لهذه العملية' });
     }
-    if (requestedBranchId != null && !authContext.isSuperAdmin && !authContext.allowedBranchIds.includes(requestedBranchId)) {
+    if (requestedBranchId != null && !authContext.isSuperAdmin && listAccess.scope !== 'GLOBAL' && !authContext.allowedBranchIds.includes(requestedBranchId)) {
       return forbidCandidateAccess(res, 'BRANCH_FORBIDDEN');
     }
     if (listAccess.scope === 'NONE') {
@@ -732,14 +737,25 @@ router.get('/paged', requirePermission('candidates.view_list'), async (req, res)
       conditions.push(`c.id = ANY($${params.length}::int[])`);
     }
 
-    const search = str('search');
+    // Collapse the typed text the same way the haystack is collapsed, so
+    // "عدنان  الحزوري" and "عدنان الحزوري" behave the same.
+    const search = str('search').replace(/\s+/g, ' ');
     if (search) {
       params.push(`%${search}%`);
       // One concatenated haystack, not five ORed columns: it reproduces the old
       // in-browser search (which matched across name parts) AND it is the exact
-      // expression the trigram index in migration 438 is built on — the two must
+      // expression the trigram index in migration 503 is built on — the two must
       // stay character-identical or the index is silently unused.
-      conditions.push(`${CANDIDATE_SEARCH_EXPR} ILIKE $${params.length}`);
+      const textMatch = `${CANDIDATE_SEARCH_EXPR} ILIKE $${params.length}`;
+      // A purely numeric search may also be the name's own number (the id shown
+      // on its detail page / in its link).
+      const searchedId = /^\d{1,9}$/.test(search) ? Number(search) : null;
+      if (searchedId != null && searchedId > 0) {
+        params.push(searchedId);
+        conditions.push(`(${textMatch} OR c.id = $${params.length})`);
+      } else {
+        conditions.push(textMatch);
+      }
     }
 
     const status = str('status');
@@ -1381,6 +1397,16 @@ router.post('/', requirePermission('candidates.create'), async (req, res) => {
       c.referralReason = 'ضمن لائحة أسماء';
     }
     c.occupation = await resolveReferenceValueForWrite(db, 'occupation', c.occupation);
+    // The address must sit inside the operation branch's coverage — otherwise
+    // the name can never be converted (the client-create guard enforces the
+    // same rule) and is stranded in the wrong branch.
+    const createGeoCheck = await assertGeoUnitInScope(authContext, c.geoUnitId, 'geo_units.lookup', targetBranchId);
+    if (!createGeoCheck.allowed) {
+      return res.status(400).json({
+        error: 'عنوان الاسم المقترح خارج نطاق تغطية الفرع — اختر عنواناً يغطيه الفرع أو أضف الاسم في الفرع الذي يغطي العنوان',
+        code: 'candidate_geo_outside_branch_coverage',
+      });
+    }
     const ownership = inheritedOwnership ?? resolveCandidateOwnershipInput(req.body ?? {}, authContext.userId);
     if (inheritedOwnership?.ownershipType === 'PERSONAL') {
       await assertEligibleCandidateResponsible(db, inheritedOwnership.responsibleUserId, targetBranchId);
@@ -1839,7 +1865,7 @@ router.put('/:id', requirePermission('candidates.edit'), async (req, res) => {
     }
 
     const { rows: currentRows } = await pool.query(
-      'SELECT status, converted_to_lead_id AS "convertedToLeadId", occupation FROM candidates WHERE id = $1',
+      'SELECT status, converted_to_lead_id AS "convertedToLeadId", occupation, geo_unit_id AS "geoUnitId" FROM candidates WHERE id = $1',
       [candidateId],
     );
     const currentCandidate = currentRows[0];
@@ -1859,6 +1885,22 @@ router.put('/:id', requirePermission('candidates.edit'), async (req, res) => {
       : existing.branchId;
     if (targetBranchId == null) {
       return res.status(400).json({ error: 'يجب تحديد الفرع المستهدف لهذه العملية' });
+    }
+    // Coverage is checked only when the address or the branch actually changes,
+    // so an already-stranded (migrated) name stays editable for its other
+    // fields; it leaves the stranded state through transfer-to-covering-branch.
+    const nextGeoUnitId = toPositiveInt(c.geoUnitId);
+    const geoOrBranchChanged =
+      nextGeoUnitId !== toPositiveInt(currentCandidate?.geoUnitId)
+      || Number(targetBranchId) !== Number(existing.branchId);
+    if (geoOrBranchChanged && nextGeoUnitId != null) {
+      const editGeoCheck = await assertGeoUnitInScope(authContext, nextGeoUnitId, 'geo_units.lookup', targetBranchId);
+      if (!editGeoCheck.allowed) {
+        return res.status(400).json({
+          error: 'عنوان الاسم المقترح خارج نطاق تغطية الفرع — إذا كان العنوان صحيحاً فاستخدم «نقل الاسم إلى الفرع المغطي»',
+          code: 'candidate_geo_outside_branch_coverage',
+        });
+      }
     }
     const ownershipWasRequested = hasCandidateOwnershipPayload(req.body ?? {});
     const existingOwnership: CandidateOwnershipDecision = existing.assignedUserIds.length === 0
@@ -1959,6 +2001,294 @@ router.put('/:id', requirePermission('candidates.edit'), async (req, res) => {
     await db.query('ROLLBACK').catch(() => undefined);
     const status = err instanceof CandidateOwnershipError ? err.status : (err.status || 500);
     res.status(status).json({ error: err.message, code: err.code });
+  } finally {
+    db.release();
+  }
+});
+
+// ─── Branch coverage of a name's address ────────────────────────────────────
+// A suggested name can carry an address outside its branch's coverage (mostly
+// migrated rows). Conversion requires the name's own branch AND an address the
+// branch covers (clients POST), so such a name is stuck until it is handed to
+// the branch that covers its address. These two endpoints expose that state and
+// the explicit transfer operation.
+
+type CandidateCoverageRow = {
+  id: number;
+  branchId: number | null;
+  branchName: string | null;
+  geoUnitId: number | null;
+  status: string | null;
+  convertedToLeadId: number | null;
+  referralSheetId: number | null;
+  assignedUserIds: number[];
+};
+
+type CoveringBranch = { branchId: number; branchName: string };
+
+type CandidateCoverageVerdict = {
+  inCoverage: boolean | null;
+  resolutionStatus: 'resolved' | 'ambiguous' | 'no_coverage' | 'missing_geo';
+  coveringBranches: CoveringBranch[];
+};
+
+async function loadCandidateCoverageRow(
+  db: Queryable,
+  candidateId: string | number,
+  lock = false,
+): Promise<CandidateCoverageRow | null> {
+  const { rows } = await db.query(
+    `SELECT c.id,
+            c.branch_id AS "branchId",
+            b.name AS "branchName",
+            c.geo_unit_id AS "geoUnitId",
+            c.status,
+            c.converted_to_lead_id AS "convertedToLeadId",
+            c.referral_sheet_id AS "referralSheetId",
+            COALESCE(
+              (SELECT array_agg(ca.hr_user_id ORDER BY ca.assigned_at, ca.id)
+                 FROM candidate_assignments ca
+                WHERE ca.candidate_id = c.id),
+              '{}'::int[]
+            ) AS "assignedUserIds"
+       FROM candidates c
+       LEFT JOIN branches b ON b.id = c.branch_id
+      WHERE c.id = $1
+      ${lock ? 'FOR UPDATE OF c' : ''}`,
+    [candidateId],
+  );
+  return rows[0] ?? null;
+}
+
+// Same coverage rule the client-create guard enforces (assertGeoUnitInScope
+// against the target branch), so "in coverage" here means "conversion will not
+// be refused for the address".
+async function evaluateCandidateCoverage(
+  authContext: any,
+  db: Queryable,
+  row: Pick<CandidateCoverageRow, 'branchId' | 'geoUnitId'>,
+): Promise<CandidateCoverageVerdict> {
+  const geoUnitId = row.geoUnitId == null ? null : Number(row.geoUnitId);
+  if (geoUnitId == null || !Number.isInteger(geoUnitId) || geoUnitId <= 0) {
+    return { inCoverage: null, resolutionStatus: 'missing_geo', coveringBranches: [] };
+  }
+  const inCoverage = row.branchId == null
+    ? false
+    : (await assertGeoUnitInScope(authContext, geoUnitId, 'geo_units.lookup', Number(row.branchId))).allowed;
+
+  const resolution = await resolveBranchForServiceGeoUnit(geoUnitId, db as any);
+  // The resolver also matches branches covering a descendant of the unit; keep
+  // only branches whose coverage really contains the address, so a transfer
+  // always lands the name where conversion will succeed.
+  const coveringBranches: CoveringBranch[] = [];
+  for (const branch of resolution.candidates) {
+    if (row.branchId != null && Number(branch.branchId) === Number(row.branchId)) continue;
+    const check = await assertGeoUnitInScope(authContext, geoUnitId, 'geo_units.lookup', Number(branch.branchId));
+    if (check.allowed) {
+      coveringBranches.push({ branchId: Number(branch.branchId), branchName: branch.branchName });
+    }
+  }
+  const resolutionStatus = coveringBranches.length === 0
+    ? 'no_coverage'
+    : coveringBranches.length === 1 ? 'resolved' : 'ambiguous';
+  return { inCoverage, resolutionStatus, coveringBranches };
+}
+
+function canChooseCandidateTransferBranch(authContext: any): boolean {
+  if (authContext.isSuperAdmin) return true;
+  const grant = authContext.grants?.find((g: any) => g.permission === 'candidates.edit');
+  return grant?.scope === 'GLOBAL';
+}
+
+/**
+ * @swagger
+ * /api/candidates/{id}/branch-coverage:
+ *   get:
+ *     tags: [Candidates]
+ *     summary: Whether the name's address is inside its branch coverage, and which branch covers it otherwise
+ *     security:
+ *       - bearerAuth: []
+ */
+router.get('/:id/branch-coverage', requirePermission('candidates.view_list'), async (req, res) => {
+  try {
+    const authContext = getRequiredAuthContext(req);
+    const candidateId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const row = await loadCandidateCoverageRow(pool, candidateId!);
+    if (!row) return res.status(404).json({ error: 'الاسم المقترح غير موجود' });
+    const viewAccess = canViewCandidate(authContext, row);
+    if (!viewAccess.allowed) return forbidCandidateAccess(res, viewAccess.reason);
+
+    const verdict = await evaluateCandidateCoverage(authContext, pool, row);
+    const terminal = isTerminalCandidateState(row.status, row.convertedToLeadId);
+    const blockedReason = terminal
+      ? 'terminal'
+      : row.referralSheetId != null
+      ? 'in_referral_sheet'
+      : null;
+    const canEdit = canEditCandidate(authContext, row).allowed;
+    const canChoose = canChooseCandidateTransferBranch(authContext);
+    res.json({
+      candidateId: Number(row.id),
+      branchId: row.branchId == null ? null : Number(row.branchId),
+      branchName: row.branchName,
+      geoUnitId: row.geoUnitId == null ? null : Number(row.geoUnitId),
+      inCoverage: verdict.inCoverage,
+      resolutionStatus: verdict.resolutionStatus,
+      coveringBranches: verdict.coveringBranches,
+      blockedReason,
+      canTransfer: verdict.inCoverage === false
+        && blockedReason == null
+        && canEdit
+        && (verdict.resolutionStatus === 'resolved' || (verdict.resolutionStatus === 'ambiguous' && canChoose)),
+      canChooseBranch: canChoose,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * @swagger
+ * /api/candidates/{id}/transfer-to-covering-branch:
+ *   post:
+ *     tags: [Candidates]
+ *     summary: Move a name whose address is outside its branch coverage to the branch that covers it
+ *     description: >
+ *       The target is resolved from branch coverage. When several branches
+ *       cover the address, only a GLOBAL / super-admin operator may pick one
+ *       (body.branchId). The name leaves personal ownership and becomes owned
+ *       by the receiving branch.
+ *     security:
+ *       - bearerAuth: []
+ */
+router.post('/:id/transfer-to-covering-branch', requirePermission('candidates.edit'), async (req, res) => {
+  const db = await pool.connect();
+  try {
+    const authContext = getRequiredAuthContext(req);
+    const candidateId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const requestedBranchId = toPositiveInt(req.body?.branchId);
+
+    await db.query('BEGIN');
+    const row = await loadCandidateCoverageRow(db, candidateId!, true);
+    if (!row) {
+      throw Object.assign(new Error('الاسم المقترح غير موجود'), { status: 404, code: 'not_found' });
+    }
+    const editAccess = canEditCandidate(authContext, row);
+    if (!editAccess.allowed) {
+      await db.query('ROLLBACK');
+      return forbidCandidateAccess(res, editAccess.reason);
+    }
+    if (isTerminalCandidateState(row.status, row.convertedToLeadId)) {
+      throw Object.assign(new Error('لا يمكن نقل الاسم المقترح بعد الربط أو الرفض أو التحويل'), {
+        status: 409, code: 'candidate_terminal_locked',
+      });
+    }
+    // A sheet is the server-side source of truth for its names' branch
+    // (decision 2026-07-29) — moving one name would split it from its sheet.
+    if (row.referralSheetId != null) {
+      throw Object.assign(new Error('الاسم تابع للائحة أسماء، وفرعه يتبع فرع اللائحة — لا يمكن نقله منفرداً'), {
+        status: 409, code: 'candidate_transfer_in_referral_sheet',
+      });
+    }
+
+    const verdict = await evaluateCandidateCoverage(authContext, db, row);
+    if (verdict.resolutionStatus === 'missing_geo' || verdict.inCoverage === null) {
+      throw Object.assign(new Error('لا يوجد عنوان جغرافي محدد للاسم المقترح'), {
+        status: 409, code: 'candidate_transfer_missing_geo',
+      });
+    }
+    if (verdict.inCoverage) {
+      throw Object.assign(new Error('عنوان الاسم المقترح ضمن تغطية فرعه الحالي — لا حاجة للنقل'), {
+        status: 409, code: 'candidate_transfer_already_covered',
+      });
+    }
+    if (verdict.resolutionStatus === 'no_coverage') {
+      throw Object.assign(new Error('لا يوجد فرع فعال يغطي عنوان هذا الاسم — يجب تصحيح العنوان أولاً'), {
+        status: 409, code: 'candidate_transfer_no_covering_branch',
+      });
+    }
+
+    let targetBranchId: number;
+    let resolution: 'auto_resolved' | 'operator_selected';
+    if (verdict.resolutionStatus === 'resolved') {
+      targetBranchId = verdict.coveringBranches[0].branchId;
+      resolution = 'auto_resolved';
+      if (requestedBranchId != null && requestedBranchId !== targetBranchId) {
+        throw Object.assign(new Error('الفرع المطلوب لا يغطي عنوان هذا الاسم'), {
+          status: 400, code: 'candidate_transfer_branch_not_covering',
+          details: { coveringBranches: verdict.coveringBranches },
+        });
+      }
+    } else {
+      if (!canChooseCandidateTransferBranch(authContext)) {
+        throw Object.assign(new Error('يغطي عنوان هذا الاسم أكثر من فرع — يحتاج النقل إلى قرار من الإدارة العامة'), {
+          status: 409, code: 'candidate_transfer_ambiguous',
+          details: { coveringBranches: verdict.coveringBranches },
+        });
+      }
+      const chosen = verdict.coveringBranches.find(b => b.branchId === requestedBranchId);
+      if (!chosen) {
+        throw Object.assign(new Error('اختر أحد الفروع التي تغطي عنوان هذا الاسم'), {
+          status: 400, code: 'candidate_transfer_branch_required',
+          details: { coveringBranches: verdict.coveringBranches },
+        });
+      }
+      targetBranchId = chosen.branchId;
+      resolution = 'operator_selected';
+    }
+
+    // The responsible belongs to the old branch and cannot own a name in the
+    // new one, so the name always arrives as branch-owned. Removing someone
+    // else's personal ownership is an ownership decision (BR ownership rule).
+    const fromResponsible = row.assignedUserIds.length > 0 ? Number(row.assignedUserIds[0]) : null;
+    if (
+      fromResponsible != null
+      && fromResponsible !== Number(authContext.userId)
+      && !canManageCandidateOwnership(authContext, row.branchId == null ? null : Number(row.branchId))
+    ) {
+      throw Object.assign(new Error('الاسم مسند لموظف آخر — نقله يحتاج صلاحية إدارة مسؤولي الأسماء المقترحة'), {
+        status: 403, code: 'candidate_transfer_ownership_forbidden',
+      });
+    }
+
+    if (fromResponsible != null) {
+      await db.query(
+        `INSERT INTO candidate_ownership_history (
+           candidate_id, from_ownership_type, from_hr_user_id,
+           to_ownership_type, to_hr_user_id, reason, changed_by
+         ) VALUES ($1, 'PERSONAL', $2, 'BRANCH', NULL, 'branch_transfer', $3)`,
+        [row.id, fromResponsible, authContext.userId],
+      );
+      await db.query('DELETE FROM candidate_assignments WHERE candidate_id = $1', [row.id]);
+    }
+    await db.query(
+      'UPDATE candidates SET branch_id = $2, owner_user_id = NULL WHERE id = $1',
+      [row.id, targetBranchId],
+    );
+    await db.query(
+      `INSERT INTO candidate_branch_transfers (
+         candidate_id, from_branch_id, to_branch_id, geo_unit_id, resolution,
+         from_ownership_type, from_hr_user_id, transferred_by
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [
+        row.id, row.branchId, targetBranchId, row.geoUnitId, resolution,
+        fromResponsible == null ? 'BRANCH' : 'PERSONAL', fromResponsible, authContext.userId,
+      ],
+    );
+    await db.query('COMMIT');
+
+    const target = verdict.coveringBranches.find(b => b.branchId === targetBranchId)!;
+    res.json({
+      candidateId: Number(row.id),
+      fromBranchId: row.branchId == null ? null : Number(row.branchId),
+      fromBranchName: row.branchName,
+      toBranchId: target.branchId,
+      toBranchName: target.branchName,
+      resolution,
+    });
+  } catch (err: any) {
+    await db.query('ROLLBACK').catch(() => undefined);
+    res.status(err.status || 500).json({ error: err.message, code: err.code, details: err.details });
   } finally {
     db.release();
   }
