@@ -139,3 +139,37 @@ export function buildPlanningContactContextAvailablePredicate(
     )
   )`;
 }
+
+/**
+ * DEC-005 D27 — a contact target's visit_type is DERIVED from the tasks linked
+ * to it: one shared contact_target_visit_type, or 'mixed' when a demo, a
+ * service and/or a collection task meet at the same (client + location + D).
+ * Never last-writer-wins from whichever task was processed last.
+ * Closed links are ignored; a target with no live links keeps its value.
+ */
+export async function refreshContactTargetVisitType(
+  db: { query: (sql: string, params?: unknown[]) => Promise<unknown> },
+  contactTargetId: number,
+): Promise<void> {
+  await db.query(
+    `UPDATE contact_targets ct
+        SET visit_type = derived.visit_type,
+            updated_at = NOW()
+       FROM (
+         SELECT CASE
+                  WHEN COUNT(DISTINCT COALESCE(ttc.contact_target_visit_type, 'marketing')) = 1
+                    THEN MIN(COALESCE(ttc.contact_target_visit_type, 'marketing'))
+                  ELSE 'mixed'
+                END AS visit_type
+           FROM contact_target_open_tasks link
+           JOIN open_tasks ot ON ot.id = link.open_task_id
+           JOIN task_type_config ttc ON ttc.task_type = ot.task_type
+          WHERE link.contact_target_id = $1
+            AND link.link_status <> 'closed'
+         HAVING COUNT(*) > 0
+       ) derived
+      WHERE ct.id = $1
+        AND ct.visit_type IS DISTINCT FROM derived.visit_type`,
+    [contactTargetId],
+  );
+}

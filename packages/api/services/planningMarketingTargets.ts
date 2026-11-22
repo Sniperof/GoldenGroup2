@@ -176,55 +176,6 @@ function normalizeExtraZones(value: unknown): number[] {
     .filter((zoneId): zoneId is number => zoneId != null);
 }
 
-function normalizeNumberList(values: unknown): number[] {
-  if (!Array.isArray(values)) return [];
-  return values
-    .map(parsePositiveInteger)
-    .filter((value): value is number => value != null);
-}
-
-async function resolveMarketingActorHrUserIds(params: {
-  branchId: number;
-  telemarketerEmployeeIds: unknown;
-  supervisorHrUserId: number | null;
-  technicianHrUserId?: number | null;
-}): Promise<number[]> {
-  const selectedTelemarketerEmployeeIds = normalizeNumberList(params.telemarketerEmployeeIds);
-
-  const query = selectedTelemarketerEmployeeIds.length > 0
-    ? `
-        SELECT u.id
-          FROM hr_users u
-          JOIN employees e ON e.id = u.employee_id
-         WHERE u.employee_id = ANY($1::int[])
-           AND u.is_active = TRUE
-           AND e.status = 'active'
-           AND e.role = 'telemarketer'
-      `
-    : `
-        SELECT u.id
-          FROM hr_users u
-          JOIN employees e ON e.id = u.employee_id
-         WHERE u.branch_id = $1
-           AND u.employee_id IS NOT NULL
-           AND u.is_active = TRUE
-           AND e.status = 'active'
-           AND e.role = 'telemarketer'
-      `;
-
-  const { rows } = await pool.query<{ id: number }>(query, selectedTelemarketerEmployeeIds.length > 0
-    ? [selectedTelemarketerEmployeeIds]
-    : [params.branchId]);
-
-  const actorIds = [
-    params.supervisorHrUserId,
-    params.technicianHrUserId ?? null,   // technician owns clients too
-    ...rows.map(row => Number(row.id)),
-  ].filter((id): id is number => Number.isInteger(id) && id > 0);
-
-  return actorIds.filter((id, index) => actorIds.indexOf(id) === index);
-}
-
 function buildEmptyResponse(params: {
   teamKey: string;
   reason: string;
@@ -294,9 +245,15 @@ export function buildOpenTaskEligibilityPredicate(
     `;
   }
 
-  // DEC-006 D36: needs_follow_up tasks are driven by expected_date, not due_date,
-  // and become eligible one day before the promised follow-up date. The configured
-  // planning window applies only to fresh/open tasks.
+  // DEC-006 D36: needs_follow_up tasks are driven by expected_date, not due_date.
+  // The intent is a visit ON the promised date, called one day before it. When
+  // the anchor is the execution day D (today plans tomorrow, DEC-009 لبنة 2) the
+  // call already happens on D-1, so the task belongs to the plan for D >= E:
+  // `expected_date <= D`. Adding another day here would put it in the plan for
+  // E-1 — a visit one day before the promise. Only the legacy CURRENT_DATE
+  // anchor (the call day) keeps the one-day lead. The configured planning
+  // window applies only to fresh/open tasks.
+  const followUpLead = dateExpr === 'CURRENT_DATE' ? " + INTERVAL '1 day'" : '';
   return `
     ${statusClause}
     AND ${ttcAlias}.is_active = TRUE
@@ -306,7 +263,7 @@ export function buildOpenTaskEligibilityPredicate(
         ${otAlias}.status = 'needs_follow_up'
         AND (
           ${otAlias}.expected_date IS NULL
-          OR ${otAlias}.expected_date <= ${dateExpr} + INTERVAL '1 day'
+          OR ${otAlias}.expected_date <= ${dateExpr}${followUpLead}
         )
       )
       OR (
@@ -547,20 +504,17 @@ export async function getPlanningMarketingTargets(params: {
     branchId,
   });
 
+  // One owner set for count (#1) and assignment (#2): supervisor + technician
+  // (+ company accounts). Telemarketers are not team owners (PL-R014), so a
+  // client personally owned by a telemarketer is neither counted nor assigned.
   const {
     supervisorEmployeeId,
     supervisorHrUserId,
     technicianEmployeeId,
     technicianHrUserId,
     companyHrUserIds,
+    actorHrUserIds,
   } = scope;
-
-  const actorHrUserIds = await resolveMarketingActorHrUserIds({
-    branchId,
-    telemarketerEmployeeIds: team.telemarketers,
-    supervisorHrUserId,
-    technicianHrUserId,   // include technician: clients personally assigned to the technician are visible
-  });
   const assignmentKey = `${date}_${teamKey}`;
   const { rows: assignmentRows } = await pool.query(
     'SELECT routes, extra_zones AS "extraZones" FROM route_assignments WHERE key = $1',
@@ -609,99 +563,68 @@ export async function getPlanningMarketingTargets(params: {
   //   1. Waiting tasks (open/needs_follow_up) that pass the N-window check
   //   2. Already-assigned tasks for THIS team/date (post-sync idempotency fix)
   //   This prevents the zone count from dropping to 0 after syncAssignedTasks runs.
+  // Unit = the planning grain (client + effective work location + D), PL-R008.
+  // Task-driven like the assignment query (#2): every eligible task contributes
+  // its own location, so a client with work at two locations counts once in
+  // EACH zone, and no task is hidden behind a "newest task per client" pick.
+  // Filters mirror #2: client active/not deleted, block conditions, unfinished
+  // visit, department gate, grain held by another team, ownership scope.
   const { rows: countsByZoneRows } = await pool.query(
     `
       SELECT
         effective_zone AS "zoneId",
-        COUNT(*)::int  AS count
+        COUNT(DISTINCT client_id)::int AS count
       FROM (
-        SELECT DISTINCT ON (c.id)
+        SELECT
+          ot.client_id,
           CASE
-            WHEN ttc_eff.location_basis IN ('contract', 'device')
-              THEN ct_loc.installation_geo_unit_id
-            -- clients.neighborhood is already INTEGER; NULL means "no zone".
+            WHEN ttc.location_basis IN ('contract', 'device')
+              THEN inst.installation_geo_unit_id
             -- DEC-009 لبنة 5 — deepest available level: neighborhood, else district.
-          ELSE COALESCE(c.neighborhood, c.district)
+            ELSE COALESCE(c.neighborhood, c.district)
           END AS effective_zone
-        FROM clients c
-        LEFT JOIN LATERAL (
-          SELECT ot_inner.id, ot_inner.device_id, ttc_inner.location_basis
-          FROM open_tasks ot_inner
-          INNER JOIN task_type_config ttc_inner ON ttc_inner.task_type = ot_inner.task_type
-          WHERE ot_inner.client_id = c.id
-            AND ot_inner.branch_id = $1
-            AND ${buildDeviceGatePredicate('ot_inner', 'ttc_inner', '$6', '$7')}
-            AND (
-              -- Branch 1: unsynced — still in waiting phase
-              (
-                ${buildOpenTaskEligibilityPredicate('ot_inner', 'ttc_inner', 'planning', '$4::date')}
-                AND ${buildPlanningTaskAvailablePredicate('ot_inner', '$5', '$4')}
-              )
-              -- Branch 2: already synced to this team (any sync date) — still unprocessed
-              OR (
-                ot_inner.status = 'assigned'
-                AND ot_inner.assigned_team_key = $5
-                AND ttc_inner.is_active = TRUE
-                AND ${buildPlanningTaskAvailablePredicate('ot_inner', '$5', '$4')}
-              )
-              -- Branch 3: ${TEAM_DAY_IN_PROGRESS_COMMENT}
-              OR (
-                ot_inner.status IN (${TEAM_DAY_IN_PROGRESS_STATUSES_SQL})
-                AND ot_inner.assigned_team_key = $5
-                AND ot_inner.assigned_for_date = $4::date
-                AND ${buildPlanningTaskAvailablePredicate('ot_inner', '$5', '$4')}
-              )
-            )
-          ORDER BY ot_inner.created_at DESC
-          LIMIT 1
-        ) ttc_eff ON TRUE
+        FROM open_tasks ot
+        INNER JOIN task_type_config ttc ON ttc.task_type = ot.task_type
+        INNER JOIN clients c ON c.id = ot.client_id
         -- DEC-005 D27: device-basis tasks resolve through the task's own
-        -- installed_device. Do not fall back to "latest device for customer";
-        -- a customer may own multiple devices in different locations.
-        LEFT JOIN LATERAL (
-          SELECT inst.installation_geo_unit_id
-          FROM installed_devices inst
-          WHERE inst.id = ttc_eff.device_id
-            AND inst.installation_geo_unit_id IS NOT NULL
-          LIMIT 1
-        ) ct_loc ON ttc_eff.location_basis IN ('contract', 'device')
-        LEFT JOIN LATERAL (
-          -- Phase 4 refactor (Q-C): read from field_visits + visit_tasks instead of
-          -- the legacy marketing_visits + marketing_visit_tasks pair. The bridge
-          -- migration 148 backfilled visit_tasks.source_open_task_id from the
-          -- legacy rows so historical unfinished detection is preserved.
-          SELECT 1 AS has_unfinished_visit
-          FROM visit_tasks vt
-          JOIN field_visits fv ON fv.id = vt.field_visit_id
-          WHERE vt.source_open_task_id = ttc_eff.id
-            AND fv.status IN ('scheduled', 'in_progress', 'ended', 'not_completed')
-            AND fv.scheduled_date < $4::date
-          LIMIT 1
-        ) unfinished_visit ON TRUE
-        WHERE c.do_not_contact = FALSE
-          AND (c.cooldown_until IS NULL OR c.cooldown_until < $4::date)
-          AND ${buildOwnershipScopePredicate('c')}
-          AND ttc_eff.id IS NOT NULL
-          AND unfinished_visit.has_unfinished_visit IS NULL
+        -- installed_device, never "latest device for customer".
+        LEFT JOIN installed_devices inst
+          ON inst.id = ot.device_id
+         AND ttc.location_basis IN ('contract', 'device')
+        WHERE ot.branch_id = $1
+          AND ${buildDeviceGatePredicate('ot', 'ttc', '$6', '$7')}
           AND (
-            -- DEC-005 §4: NOT EXISTS visits (legacy) removed; OR-branch kept so the
-            -- assigned-task scope still resolves the customer in the planning sub-query.
-            TRUE
-            OR EXISTS (
-              SELECT 1
-              FROM open_tasks ot_scope
-              INNER JOIN task_type_config ttc_scope ON ttc_scope.task_type = ot_scope.task_type
-              WHERE ot_scope.client_id = c.id
-                AND ot_scope.branch_id = $1
-                AND (
-                  (${buildOpenTaskEligibilityPredicate('ot_scope', 'ttc_scope', 'planning', '$4::date')}
-                   AND ${buildPlanningTaskAvailablePredicate('ot_scope', '$5', '$4')})
-                  OR (ot_scope.status = 'assigned' AND ot_scope.assigned_team_key = $5
-                      AND ttc_scope.is_active = TRUE
-                      AND ${buildPlanningTaskAvailablePredicate('ot_scope', '$5', '$4')})
-                )
+            -- Branch 1: unsynced — still in waiting phase
+            ${buildOpenTaskEligibilityPredicate('ot', 'ttc', 'planning', '$4::date')}
+            -- Branch 2: already synced to this team for D — still unprocessed
+            OR (
+              ot.status = 'assigned'
+              AND ot.assigned_team_key = $5
+              AND ot.assigned_for_date = $4::date
+              AND ttc.is_active = TRUE
+            )
+            -- Branch 3: ${TEAM_DAY_IN_PROGRESS_COMMENT}
+            OR (
+              ot.status IN (${TEAM_DAY_IN_PROGRESS_STATUSES_SQL})
+              AND ot.assigned_team_key = $5
+              AND ot.assigned_for_date = $4::date
             )
           )
+          AND ${buildPlanningTaskAvailablePredicate('ot', '$5', '$4')}
+          AND ${buildPlanningContactContextAvailablePredicate('ot', 'ttc', 'inst', '$5', '$4')}
+          AND (c.is_active IS NULL OR c.is_active = TRUE)
+          AND c.deleted_at IS NULL
+          AND c.do_not_contact = FALSE
+          AND (c.cooldown_until IS NULL OR c.cooldown_until < $4::date)
+          AND NOT EXISTS (
+            SELECT 1
+            FROM visit_tasks vt_uf
+            JOIN field_visits fv_uf ON fv_uf.id = vt_uf.field_visit_id
+            WHERE vt_uf.source_open_task_id = ot.id
+              AND fv_uf.status IN ('scheduled', 'in_progress', 'ended', 'not_completed')
+              AND fv_uf.scheduled_date < $4::date
+          )
+          AND ${buildOwnershipScopePredicate('c')}
       ) sub
       WHERE effective_zone = ANY($2::int[])
       GROUP BY effective_zone
@@ -719,8 +642,8 @@ export async function getPlanningMarketingTargets(params: {
   }));
 
   if (countsOnly) {
-    // The counts query assigns each client to exactly one zone (DISTINCT ON c.id),
-    // so the per-zone sum is the number of distinct clients.
+    // Each zone counts its (client + location) grains, so the sum is the number
+    // of contact grains — a client with work at two locations counts twice.
     const total = countsByZone.reduce((sum, entry) => sum + entry.count, 0);
     return {
       teamKey,
@@ -827,13 +750,23 @@ export async function getPlanningMarketingTargets(params: {
       FROM clients c
       LEFT JOIN branches b ON b.id = c.branch_id
       ${buildCustomerOwnershipSql({ clientAlias: 'c', branchNameExpression: 'b.name' })}
-      LEFT JOIN contact_targets contact_target
-        ON contact_target.branch_id = $1
-       AND contact_target.target_type = 'client'
-       AND contact_target.target_id = c.id
-       -- DEC-005 D30: target_stage / source_type dropped (or pinned to 'lead'
-       -- via CHECK). The JOIN no longer references them.
-       AND contact_target.visit_type = 'marketing'
+      -- Contact targets are grained per (client + work location + D) and owned
+      -- by one team, for every visit type (DEC-005 D24). Scope to this team and
+      -- day and take one row, so a client with targets on other days, other
+      -- teams or other visit types neither multiplies nor mislabels the lead.
+      LEFT JOIN LATERAL (
+        SELECT ict.id, ict.status, ict.latest_call_outcome
+          FROM contact_targets ict
+         WHERE ict.branch_id = $1
+           AND ict.target_type = 'client'
+           AND ict.target_id = c.id
+           AND ict.team_key = $5
+           -- $4::text first: the task-list joins below compare $4 to varchar
+           -- columns, so the parameter must stay inferred as text.
+           AND ict.date = $4::text::date
+         ORDER BY ict.updated_at DESC
+         LIMIT 1
+      ) contact_target ON TRUE
       -- Plan 2026-06-10 Phase 2.2 — switched from telemarketing_appointments
       -- to field_visits (origin_type='telemarketing'). Mirrors the same
       -- migration (legacy routes/contactTargets.ts, removed 2026-11-22).
@@ -855,10 +788,17 @@ export async function getPlanningMarketingTargets(params: {
         ON daily_tl.branch_id = $1
        AND daily_tl.date = $4
        AND daily_tl.team_key = $5
-      LEFT JOIN telemarketing_task_list_items daily_item
-        ON daily_item.task_list_id = daily_tl.id
-       AND daily_item.entity_type = 'client'
-       AND daily_item.entity_id = c.id
+      -- List items are per task, so a client with several tasks in today's
+      -- list has several items. One row per lead: take one item.
+      LEFT JOIN LATERAL (
+        SELECT item.id, item.status, item.call_outcome
+          FROM telemarketing_task_list_items item
+         WHERE item.task_list_id = daily_tl.id
+           AND item.entity_type = 'client'
+           AND item.entity_id = c.id
+         ORDER BY item.id
+         LIMIT 1
+      ) daily_item ON TRUE
       LEFT JOIN LATERAL (
         SELECT TRUE AS other_itemqueued, other_tl.team_key AS other_teamkeyqueued
         FROM telemarketing_task_list_items other_item
@@ -885,10 +825,13 @@ export async function getPlanningMarketingTargets(params: {
               ${buildOpenTaskEligibilityPredicate('ot_inner', 'ttc_inner', 'planning', '$4::date')}
               AND ${buildPlanningTaskAvailablePredicate('ot_inner', '$5', '$4')}
             )
-            -- Branch 2: already synced to this team (any sync date) — still unprocessed
+            -- Branch 2: already synced to this team FOR D — still unprocessed.
+            -- team_N is a different team every day, so another day's leftover
+            -- assignment must never count here (same rule as #2).
             OR (
               ot_inner.status = 'assigned'
               AND ot_inner.assigned_team_key = $5
+              AND ot_inner.assigned_for_date = $4::date
               AND ttc_inner.is_active = TRUE
               AND ${buildPlanningTaskAvailablePredicate('ot_inner', '$5', '$4')}
             )

@@ -41,7 +41,10 @@ import {
   markPlanningDayCycleActive,
   PlanningDayCycleError,
 } from '../services/planningDayCycle.js';
-import { buildPlanningTaskAvailablePredicate } from '../services/planningContactTargetScope.js';
+import {
+  buildPlanningTaskAvailablePredicate,
+  refreshContactTargetVisitType,
+} from '../services/planningContactTargetScope.js';
 import {
   isTelemarketingServiceRequestTaskType,
   TELEMARKETING_SERVICE_REQUEST_TASK_TYPES,
@@ -285,7 +288,10 @@ async function resolveOrCreateContactTarget(
     ? lead.contactTargetVisitType
     : 'marketing';
 
-  try {
+  // No try/catch: this runs inside the generation transaction. A swallowed SQL
+  // error would leave it aborted and fail generation later with an unrelated
+  // message, so the real error propagates.
+  {
     const { rows } = await client.query(
       `
       INSERT INTO contact_targets (
@@ -299,7 +305,8 @@ async function resolveOrCreateContactTarget(
       DO UPDATE SET
         supervisor_hr_user_id = EXCLUDED.supervisor_hr_user_id,
         zone_id = EXCLUDED.zone_id,
-        visit_type = EXCLUDED.visit_type,
+        -- visit_type is derived from ALL linked tasks after linking
+        -- (refreshContactTargetVisitType), never overwritten by the last lead.
         source_id = EXCLUDED.source_id,
         team_key = EXCLUDED.team_key,
         updated_at = NOW()
@@ -333,9 +340,9 @@ async function resolveOrCreateContactTarget(
       `,
       [branchId, entityId, supervisorHrUserId || null, geoUnitId, visitType, date, teamKey],
     );
+    // No row = the grain is held by another team / already committed (guard
+    // above), reported by the caller as a skip.
     return rows[0]?.id ?? null;
-  } catch {
-    return null;
   }
 }
 
@@ -1692,6 +1699,8 @@ router.post('/task-lists/generate-from-plan', requirePermission('telemarketing.l
               AND contact_target_id IS DISTINCT FROM $1`,
           [contactTargetId, openTaskId, branchId],
         );
+
+        await refreshContactTargetVisitType(pgClient, contactTargetId);
 
       }
 

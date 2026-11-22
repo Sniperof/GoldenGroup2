@@ -7,6 +7,7 @@ import { buildClientLifecycleStatusSql } from '../services/customerOwnership.js'
 import {
   buildExcludedTaskTeamPredicate,
   buildPlanningTaskExcludedPredicate,
+  refreshContactTargetVisitType,
 } from '../services/planningContactTargetScope.js';
 import {
   applyPlanningCuration,
@@ -235,6 +236,8 @@ async function reconcileContactTargetWorkspace(
           [contactTargetId, taskId, branchId],
         );
       }
+
+      await refreshContactTargetVisitType(db, contactTargetId);
 
       // Planning exclusion is an overlay, not a contact lifecycle transition.
       // A pre-generation curation decision may update the task link, but it must
@@ -635,7 +638,6 @@ router.get('/assigned-tasks', requirePermission('planning.manage'), async (req, 
          WHERE ict.branch_id   = $4
            AND ict.target_type = 'client'
            AND ict.target_id   = c.id
-           AND ict.visit_type  = 'marketing'
            AND ict.team_key    = $2
            AND ict.date        = $3::date
          ORDER BY ict.updated_at DESC
@@ -722,7 +724,6 @@ router.get('/assigned-tasks', requirePermission('planning.manage'), async (req, 
          AND fv.branch_id      = $3
          AND fv.client_id      = ANY($4::int[])
          AND fv.status         IN ('scheduled','in_progress','ended','completed')
-         AND fv.visit_type     = 'marketing'
        ORDER BY fv.created_at DESC`,
       [teamKey, date, branchId, clientIds],
     );
@@ -1290,7 +1291,6 @@ router.get('/contact-targets-dashboard', requirePermission('planning.manage'), a
          AND fv.branch_id      = $3
          AND fv.client_id      = ANY($4::int[])
          AND fv.status         IN ('scheduled','in_progress','ended','completed')
-         AND fv.visit_type     = 'marketing'
        ORDER BY fv.created_at DESC`,
       [teamKey, date, branchId, clientIds],
     );
