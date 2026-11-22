@@ -1323,143 +1323,6 @@ router.get(
   },
 );
 
-// LEGACY endpoint — kept for backwards compatibility only.
-// WARNING: this endpoint deletes and re-inserts all items unconditionally,
-// which destroys existing call_outcome and status data. It must not be used
-// by any new code path. It will be removed once all callers migrate to
-// generate-from-plan. contact_target_id is explicitly set to NULL because
-// legacy upsert has no way to resolve contact targets.
-/**
- * @swagger
- * /api/telemarketing/task-lists/upsert:
- *   post:
- *     tags: [Telemarketing]
- *     summary: Upsert a telemarketing task list (Legacy)
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: header
- *         name: X-Branch-Id
- *         schema:
- *           type: integer
- *         required: true
- *         description: Branch context ID
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               id:
- *                 type: string
- *               teamKey:
- *                 type: string
- *               date:
- *                 type: string
- *               createdAt:
- *                 type: string
- *               items:
- *                 type: array
- *                 items:
- *                   type: object
- *     responses:
- *       200:
- *         description: Success
- *       400:
- *         description: Bad Request
- *       401:
- *         description: Unauthorized
- *       403:
- *         description: Forbidden
- *       500:
- *         description: Internal Server Error
- */
-router.post('/task-lists/upsert', requirePermission('telemarketing.lists.generate'), async (req, res) => {
-  const { id, teamKey, date, createdAt, items } = req.body;
-  const branchId = getBranchId(req);
-
-  // Scope: require branch context; deny telemarketers from upserting
-  if (branchId == null) {
-    return res.status(400).json({ error: 'Branch context is required' });
-  }
-
-  const generateCheck = await canGenerateForTeam(req.authContext, date, teamKey);
-  if (!generateCheck.allowed) {
-    return res.status(403).json({ error: generateCheck.reason || 'Not authorized' });
-  }
-
-  const client = await pool.connect();
-
-  try {
-    await client.query('BEGIN');
-    await lockPlanningDayMutation(client, branchId, date);
-    await assertPlanningDayCycleWritable(client, branchId, date, teamKey);
-
-    const existing = await client.query(
-      `SELECT id FROM telemarketing_task_lists WHERE team_key = $1 AND date = $2 LIMIT 1`,
-      [teamKey, date],
-    );
-
-    const finalTaskListId = existing.rows[0]?.id || id;
-
-    if (existing.rows[0]) {
-      await client.query(
-        `UPDATE telemarketing_task_lists SET created_at = $1 WHERE id = $2`,
-        [createdAt || new Date().toISOString(), finalTaskListId],
-      );
-    } else {
-      await client.query(
-        `
-          INSERT INTO telemarketing_task_lists (id, team_key, date, created_at, branch_id)
-          VALUES ($1,$2,$3,$4,$5)
-        `,
-        [finalTaskListId, teamKey, date, createdAt || new Date().toISOString(), branchId],
-      );
-    }
-
-    await client.query('DELETE FROM telemarketing_task_list_items WHERE task_list_id = $1', [finalTaskListId]);
-
-    for (const item of items || []) {
-      await client.query(
-        `
-          INSERT INTO telemarketing_task_list_items (
-            id, task_list_id, entity_type, entity_id, name, mobile, contact_number,
-            contact_label, address_text, geo_unit_id, status, call_outcome, contact_target_id
-          )
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NULL)
-        `,
-        [
-          item.id,
-          finalTaskListId,
-          item.entityType,
-          item.entityId,
-          item.name,
-          item.mobile,
-          item.contactNumber || null,
-          item.contactLabel || null,
-          item.addressText || null,
-          item.geoUnitId || null,
-          item.status || 'pending',
-          item.callOutcome || null,
-        ],
-      );
-    }
-
-    await markPlanningDayCycleActive(client, branchId, date, teamKey);
-    await client.query('COMMIT');
-    res.json({ id: finalTaskListId, teamKey, date, createdAt: createdAt || new Date().toISOString(), items: items || [] });
-  } catch (error) {
-    await client.query('ROLLBACK');
-    if (error instanceof PlanningDayCycleError) {
-      return res.status(error.status).json({ error: error.message, code: error.code });
-    }
-    throw error;
-  } finally {
-    client.release();
-  }
-});
-
 /**
  * @swagger
  * /api/telemarketing/task-lists/generate-from-plan:
@@ -2388,7 +2251,7 @@ router.post('/call-logs', requirePermission('telemarketing.calls.create'), async
 
     // ── DEC-005 D26: auto-close branch is now dead by design.
     // CLOSES_TARGET_OUTCOMES is empty after Phase 2; contact_targets are closed
-    // manually via POST /contact-targets/:id/close or by the end-of-day CRON.
+    // manually via POST /telemarketing/task-lists/:taskListId/items/:itemId/close or by the end-of-day CRON.
     if (CLOSES_TARGET_OUTCOMES.includes(normalised)) {
       // Defensive branch retained in case a future outcome flips closesContactTarget back to true.
       await updateContactTargetLifecycle(pool, contactTargetId, {
@@ -2718,34 +2581,14 @@ router.post('/book-visit', requirePermission('telemarketing.appointments.book'),
         answeredBy: answeredBy as 'customer' | 'spouse' | 'child' | 'other' | null,
         fieldInstructions: body.fieldInstructions ?? null,
         bookingCallLogId,
+        // Contact-target close + list-item booking run inside bookVisit's
+        // transaction (atomic with the visit; branch-filtered).
+        contactTargetClosure: {
+          contactTargetId,
+          taskListId: taskListItem && body.taskListId ? String(body.taskListId) : null,
+          taskListItemId: taskListItem && body.taskListItemId ? String(body.taskListItemId) : null,
+        },
       });
-
-    // Close the contact_target if one was attached (DEC-005 D26 + D23)
-    if (contactTargetId != null) {
-      await pool.query(
-        `UPDATE contact_targets
-            SET status         = 'closed',
-                closing_reason = 'booked',
-                latest_visit_id = $1,
-                latest_call_outcome = COALESCE(latest_call_outcome, 'booked_marketing_appointment'),
-                closed_at      = NOW(),
-                updated_at     = NOW()
-          WHERE id = $2`,
-        [result.fieldVisitId, contactTargetId],
-      );
-    }
-
-    // Mark task list items as booked (legacy compatibility for the workspace)
-    if (taskListItem && body.taskListId && body.taskListItemId) {
-      await pool.query(
-        `UPDATE telemarketing_task_list_items
-            SET status = 'booked',
-                call_outcome = 'booked_marketing_appointment'
-          WHERE task_list_id = $1
-            AND id = $2`,
-        [body.taskListId, body.taskListItemId],
-      );
-    }
 
       return res.json({
         fieldVisitId: result.fieldVisitId,

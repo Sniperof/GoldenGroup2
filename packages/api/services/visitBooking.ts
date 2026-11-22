@@ -48,6 +48,16 @@ export interface BookVisitInput {
   answeredBy?: 'customer' | 'spouse' | 'child' | 'other' | null;
   fieldInstructions?: string | null;
   bookingCallLogId?: string | null;
+  /**
+   * Telemarketing booking from a call list: close the contact target and mark
+   * the list item booked in the SAME transaction that creates the visit, so a
+   * failure can never leave a visit without a closed target or vice versa.
+   */
+  contactTargetClosure?: {
+    contactTargetId: number | null;
+    taskListId: string | null;
+    taskListItemId: string | null;
+  } | null;
 }
 
 export interface BookVisitResult {
@@ -493,6 +503,35 @@ export async function bookVisit(input: BookVisitInput): Promise<BookVisitResult>
     }
 
     await refreshVisitType(db, fieldVisitId);
+
+    const closure = input.contactTargetClosure;
+    if (closure?.contactTargetId != null) {
+      // DEC-005 D26 + D23: booking closes the contact target.
+      await db.query(
+        `UPDATE contact_targets
+            SET status              = 'closed',
+                closing_reason      = 'booked',
+                latest_visit_id     = $1,
+                latest_call_outcome = COALESCE(latest_call_outcome, 'booked_marketing_appointment'),
+                closed_at           = NOW(),
+                updated_at          = NOW()
+          WHERE id = $2
+            AND branch_id = $3`,
+        [fieldVisitId, closure.contactTargetId, input.branchId],
+      );
+    }
+    if (closure?.taskListId && closure.taskListItemId) {
+      // Legacy compatibility for the telemarketer workspace.
+      await db.query(
+        `UPDATE telemarketing_task_list_items
+            SET status = 'booked',
+                call_outcome = 'booked_marketing_appointment'
+          WHERE task_list_id = $1
+            AND id = $2`,
+        [closure.taskListId, closure.taskListItemId],
+      );
+    }
+
     await db.query('COMMIT');
     return { fieldVisitId, visitTaskIds };
   } catch (err) {

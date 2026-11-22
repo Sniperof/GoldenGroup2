@@ -66,6 +66,14 @@ async function reconcileContactTargetWorkspace(
            ot.status,
            ot.excluded_for_date::text AS "excludedForDate",
            ${buildPlanningTaskExcludedPredicate('ot', '$1', '$2')} AS "isPlanningExcluded",
+           (
+             ot.status NOT IN ('open', 'needs_follow_up', 'assigned')
+             OR EXISTS (
+               SELECT 1
+                 FROM telemarketing_task_list_items committed_item
+                WHERE committed_item.open_task_id = ot.id
+             )
+           ) AS "isCommitted",
            COALESCE(ttc.contact_target_visit_type, 'marketing') AS "visitType",
            CASE
              WHEN ttc.location_basis IN ('contract', 'device') THEN inst.installation_geo_unit_id
@@ -129,7 +137,19 @@ async function reconcileContactTargetWorkspace(
       tasksByContactContext.get(key)!.push(row);
     }
 
-    for (const [, clientTasks] of tasksByContactContext) {
+    for (const [, contextTasks] of tasksByContactContext) {
+      // DEC-009 لبنة 8: generation is a one-way freeze. A task that has entered
+      // a call list (or moved past `assigned`) belongs to the list/visit layer;
+      // reconciliation must never rewrite its link. A task released back to its
+      // waiting status (syncAssignedTasks step 9 already closed its link) is not
+      // part of this team's workspace any more either. Only uncommitted
+      // `assigned` tasks and pre-generation exclusions are reconciled here.
+      const clientTasks = contextTasks.filter(task =>
+        task.isCommitted !== true
+        && (task.status === 'assigned' || task.isPlanningExcluded === true),
+      );
+      if (clientTasks.length === 0) continue;
+
       const first = clientTasks[0];
       const clientId = Number(first.clientId);
       let contactTargetId = Number(first.contactTargetId);
@@ -184,20 +204,13 @@ async function reconcileContactTargetWorkspace(
 
       if (!Number.isInteger(contactTargetId) || contactTargetId <= 0) continue;
 
-      const activeTasks = clientTasks.filter(task =>
-        task.status === 'assigned' && task.isPlanningExcluded !== true,
-      );
-      const allTasksExcluded = clientTasks.length > 0 && activeTasks.length === 0;
-
       for (const task of clientTasks) {
         const taskId = Number(task.taskId);
         if (!Number.isInteger(taskId) || taskId <= 0) continue;
-        const linkStatus = task.isPlanningExcluded === true
-          ? 'excluded'
-          : allTasksExcluded
-            ? 'closed'
-            : 'ready';
+        const linkStatus = task.isPlanningExcluded === true ? 'excluded' : 'ready';
 
+        // The WHERE clause is a second line of defence for the freeze: a link
+        // that generation marked `queued` is never rewritten by reconciliation.
         await db.query(
           `INSERT INTO contact_target_open_tasks (
              contact_target_id, open_task_id, branch_id, team_key, date, link_status
@@ -208,7 +221,8 @@ async function reconcileContactTargetWorkspace(
              branch_id = EXCLUDED.branch_id,
              team_key = EXCLUDED.team_key,
              link_status = EXCLUDED.link_status,
-             updated_at = NOW()`,
+             updated_at = NOW()
+           WHERE contact_target_open_tasks.link_status <> 'queued'`,
           [contactTargetId, taskId, branchId, teamKey, date, linkStatus],
         );
 

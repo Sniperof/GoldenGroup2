@@ -15,6 +15,18 @@ import type { DaySchedule, Employee } from '../../lib/types';
 // restores the real slot from storage by index).
 const isLockedSlot = (slot: any): boolean => Boolean(slot) && slot.locked === true;
 
+// The array index IS the team identity (team_N / solo_N). Removing a slot must
+// therefore never shift later slots: a middle slot is cleared in place, and only
+// trailing empty own slots are trimmed. The server rejects shifted payloads (409).
+const isEmptySlot = (slot: any, isSolo: boolean): boolean =>
+    !isLockedSlot(slot) && (isSolo ? !slot?.technician : !slot?.supervisor && !slot?.technician);
+
+function removeSlotInPlace<T>(slots: T[], idx: number, isSolo: boolean, empty: T): T[] {
+    const next = slots.map((slot, i) => (i === idx ? empty : slot));
+    while (next.length > 0 && isEmptySlot(next[next.length - 1], isSolo)) next.pop();
+    return next;
+}
+
 // Local calendar date (NOT UTC). toISOString() returns the UTC date, which is a day
 // behind between local midnight and the UTC offset (01:00 in Damascus +03 is still
 // "yesterday" in UTC) — that off-by-one showed 14/6 instead of 15/6.
@@ -69,8 +81,14 @@ export default function TeamScheduler() {
 
     const addTeamSlot = () => updateCurrent({ ...current, teams: [...current.teams, { supervisor: null, technician: null }] });
     const addSoloSlot = () => updateCurrent({ ...current, solos: [...current.solos, { technician: null }] });
-    const removeTeamSlot = (idx: number) => updateCurrent({ ...current, teams: current.teams.filter((_, i) => i !== idx) });
-    const removeSoloSlot = (idx: number) => updateCurrent({ ...current, solos: current.solos.filter((_, i) => i !== idx) });
+    const removeTeamSlot = (idx: number) => updateCurrent({
+        ...current,
+        teams: removeSlotInPlace(current.teams, idx, false, { supervisor: null, technician: null }),
+    });
+    const removeSoloSlot = (idx: number) => updateCurrent({
+        ...current,
+        solos: removeSlotInPlace(current.solos, idx, true, { technician: null }),
+    });
 
     const assignedIds = [
         ...current.teams.flatMap(t => [t.supervisor, t.technician, ...(t.telemarketers || []), t.trainee]),

@@ -4,6 +4,7 @@ import { getOrBuildAuthContext, requirePermission } from '../middleware/permissi
 import { resolveListAccessScope } from '../services/authorizationService.js';
 import type { AuthContext, AuthUser } from '@golden-crm/shared';
 import { lockPlanningScheduleMutation } from '../services/planningTaskCuration.js';
+import { isLockedSlot, mergeScheduleSlots } from '../services/scheduleSlotMerge.js';
 
 const router = Router();
 
@@ -14,10 +15,6 @@ const router = Router();
 // `date_team_N`), so slots can never be removed/reordered — out-of-scope slots are
 // replaced IN PLACE with a `{ locked: true }` placeholder that preserves the index.
 const LOCKED_SLOT = { locked: true } as const;
-
-function isLockedSlot(slot: any): boolean {
-  return Boolean(slot) && typeof slot === 'object' && slot.locked === true;
-}
 
 function slotIdentity(slot: any, isSolo: boolean) {
   if (!slot || typeof slot !== 'object' || isLockedSlot(slot)) return null;
@@ -48,10 +45,7 @@ function slotOwnerEmployeeId(slot: any, isSolo: boolean): number | null {
   return Number.isInteger(candidate) && candidate > 0 ? candidate : null;
 }
 
-async function scopeScheduleForViewer(authContext: AuthContext, schedule: any) {
-  const teams: any[] = Array.isArray(schedule.teams) ? schedule.teams : [];
-  const solos: any[] = Array.isArray(schedule.solos) ? schedule.solos : [];
-
+async function resolveSlotVisibility(authContext: AuthContext, teams: any[], solos: any[]) {
   // GLOBAL / super-admin: a specific selected branch (the branch switcher →
   // actingBranchId) narrows the view to that branch; "all branches" (no selection)
   // shows every branch's teams unredacted. Branch-scoped viewers always see only
@@ -91,6 +85,14 @@ async function scopeScheduleForViewer(authContext: AuthContext, schedule: any) {
     const ownerBranch = branchByEmployee.get(empId);
     return allowed == null || ownerBranch == null || allowed.has(ownerBranch); // null owner-branch → permissive (GAP-DS-005)
   };
+
+  return { isVisible, nameByEmployee };
+}
+
+async function scopeScheduleForViewer(authContext: AuthContext, schedule: any) {
+  const teams: any[] = Array.isArray(schedule.teams) ? schedule.teams : [];
+  const solos: any[] = Array.isArray(schedule.solos) ? schedule.solos : [];
+  const { isVisible, nameByEmployee } = await resolveSlotVisibility(authContext, teams, solos);
 
   const enrichTeam = (team: any, index: number) => {
     const supervisorName = nameByEmployee.get(Number(team?.supervisor)) ?? null;
@@ -486,7 +488,8 @@ router.put('/:date', requirePermission('planning.manage'), async (req, res) => {
   //   1. validate ONLY the editor's own (non-locked) slots — all must be its branch,
   //   2. write a MERGED array: locked slots are restored verbatim from the stored row
   //      by index, so a branch save never wipes another branch's teams.
-  // The index alignment relies on the FE never removing/reordering a locked slot.
+  // Index alignment is enforced below: a payload that shifts, truncates or
+  // overwrites a foreign position is rejected with 409.
   const ownTeams = privileged ? teams : (teams as any[]).filter(t => !isLockedSlot(t));
   const ownSolos = privileged ? solos : (solos as any[]).filter(s => !isLockedSlot(s));
   const validation = await validateSchedulePayload(req, ownTeams, ownSolos);
@@ -507,10 +510,31 @@ router.put('/:date', requirePermission('planning.manage'), async (req, res) => {
     );
     const storedTeams: any[] = Array.isArray(storedRows[0]?.teams) ? storedRows[0].teams : [];
     const storedSolos: any[] = Array.isArray(storedRows[0]?.solos) ? storedRows[0].solos : [];
-    if (!privileged && ((teams as any[]).some(isLockedSlot) || (solos as any[]).some(isLockedSlot))) {
-      // Keep the index: a locked placeholder is replaced by the stored slot it stood for.
-      mergedTeams = (teams as any[]).map((t, i) => (isLockedSlot(t) ? storedTeams[i] : t));
-      mergedSolos = (solos as any[]).map((s, i) => (isLockedSlot(s) ? storedSolos[i] : s));
+    if (!privileged) {
+      // Merge against STORED ownership, not against what the payload claims.
+      // Every position whose stored slot belongs to a branch this viewer cannot
+      // see must come back as a locked placeholder at the same index; anything
+      // else (a shifted array, a shorter array, or an own slot written over a
+      // foreign position) means the client is stale or tampered, so reject
+      // rather than silently deleting or overwriting another branch's team.
+      const { isVisible } = await resolveSlotVisibility(authContext, storedTeams, storedSolos);
+      const teamMerge = mergeScheduleSlots(teams as any[], storedTeams, false, isVisible);
+      const soloMerge = mergeScheduleSlots(solos as any[], storedSolos, true, isVisible);
+      const conflictKey = teamMerge.conflictIndex != null
+        ? `team_${teamMerge.conflictIndex}`
+        : soloMerge.conflictIndex != null
+          ? `solo_${soloMerge.conflictIndex}`
+          : null;
+      if (conflictKey) {
+        await db.query('ROLLBACK');
+        return res.status(409).json({
+          error: 'تعذّر الحفظ: ترتيب الفرق تغيّر أو الخانة تخص فرعاً آخر. أعد تحميل الصفحة ثم احفظ من جديد.',
+          code: 'SCHEDULE_SLOT_OWNED_BY_OTHER_BRANCH',
+          teamKey: conflictKey,
+        });
+      }
+      mergedTeams = teamMerge.merged;
+      mergedSolos = soloMerge.merged;
     }
 
     // team_N/solo_N are positional identities. The shared date lock makes this
@@ -569,8 +593,10 @@ router.put('/:date', requirePermission('planning.manage'), async (req, res) => {
       const m = String(gr.team_key).match(/^(team|solo)_(\d+)$/);
       if (!m) continue;
       const idx = Number(m[2]);
-      const slot = m[1] === 'team' ? mergedTeams[idx] : mergedSolos[idx];
-      const slotMissing = slot == null || (typeof slot === 'object' && Object.keys(slot).length === 0);
+      const isSolo = m[1] === 'solo';
+      const slot = isSolo ? mergedSolos[idx] : mergedTeams[idx];
+      // A slot cleared in place (no lead employee) is a removed team too.
+      const slotMissing = slot == null || slotOwnerEmployeeId(slot, isSolo) == null;
       if (slotMissing) {
         await db.query('ROLLBACK');
         return res.status(409).json({

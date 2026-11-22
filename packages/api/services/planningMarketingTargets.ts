@@ -836,7 +836,7 @@ export async function getPlanningMarketingTargets(params: {
        AND contact_target.visit_type = 'marketing'
       -- Plan 2026-06-10 Phase 2.2 — switched from telemarketing_appointments
       -- to field_visits (origin_type='telemarketing'). Mirrors the same
-      -- migration in routes/contactTargets.ts.
+      -- migration (legacy routes/contactTargets.ts, removed 2026-11-22).
       LEFT JOIN LATERAL (
         SELECT json_build_object(
           'id', fv.id,

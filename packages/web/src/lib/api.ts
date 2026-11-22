@@ -2002,16 +2002,6 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(data),
       }),
-    // DEC-005 D26: manual close of a contact_target with optional cooldown activation
-    close: (contactTargetId: number, data: {
-      closingReason?: string;
-      activateCooldown?: boolean;
-      cooldownReason?: string;
-      cooldownDays?: number;
-    }) => request<{ contactTarget: any; cooldown: any | null }>(`/contact-targets/${contactTargetId}/close`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
   },
   // Legacy `visits` wrapper removed 2026-06-10 — replaced by `fieldVisits`
   // (multi-stakeholder visits, FK-enforced, integer IDs). The single
