@@ -874,6 +874,16 @@ export default function TelemarketerWorkspace() {
                 .map(item => item.teamKey as string),
         ).size;
     }, [crossTeamTargetsByClient, selectedTeamKey]);
+    /**
+     * DEC-005 D27/D28: one contact target per work location. When the same
+     * person has another location in THIS team's list today, the telemarketer
+     * sees two cards — flag it so both visits are arranged in one call.
+     */
+    const getOtherLocationsInTeamCount = useCallback((cg: CustomerGroup) => {
+        if (cg.entityType !== 'client') return 0;
+        const items = crossTeamTargetsByClient[cg.entityId] || [];
+        return items.filter(item => item.id !== cg.contactTargetId && item.teamKey === selectedTeamKey).length;
+    }, [crossTeamTargetsByClient, selectedTeamKey]);
     /** True when the appointment has been booked (controls "جدولة زيارة" button). */
     const isBookedForSelected = useMemo(() => {
         if (!selectedCustomer) return false;
@@ -1774,6 +1784,7 @@ export default function TelemarketerWorkspace() {
                                     }}
                                     isActive={cg.key === selectedCustomerKey}
                                     otherTeamsCount={getOtherTeamsCount(cg)}
+                                    otherLocationsInTeamCount={getOtherLocationsInTeamCount(cg)}
                                     ownershipLabel={d.ownershipLabel}
                                     onClick={() => setSelectedCustomerKey(cg.key)}
                                 />

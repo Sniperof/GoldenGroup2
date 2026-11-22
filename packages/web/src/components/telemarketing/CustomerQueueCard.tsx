@@ -32,6 +32,8 @@ interface Props {
     status: QueueCardStatus;
     isActive: boolean;
     otherTeamsCount: number;
+    /** Other work locations of the same person in this team's list today. */
+    otherLocationsInTeamCount?: number;
     ownershipLabel?: string | null;
     onClick: () => void;
 }
@@ -59,7 +61,7 @@ export function ratingDisplay(raw: string | null | undefined): { label: string; 
     return null;
 }
 
-export default function CustomerQueueCard({ attrs, status, isActive, otherTeamsCount, ownershipLabel, onClick }: Props) {
+export default function CustomerQueueCard({ attrs, status, isActive, otherTeamsCount, otherLocationsInTeamCount = 0, ownershipLabel, onClick }: Props) {
     const { booked, closed, contacted, manualClose, apptTime, contactedCount, planEnded } = status;
 
     // Leading status rail encodes lifecycle stage; the avatar keeps its own
@@ -143,8 +145,19 @@ export default function CustomerQueueCard({ attrs, status, isActive, otherTeamsC
                             <Layers className="w-3 h-3" />{attrs.taskCount}
                         </span>
                     )}
+                    {otherLocationsInTeamCount > 0 && (
+                        <span
+                            className="inline-flex items-center gap-0.5 text-amber-600"
+                            title={`لنفس الزبون ${otherLocationsInTeamCount === 1 ? 'موقع آخر' : `${otherLocationsInTeamCount} مواقع أخرى`} في قائمتك اليوم — رتّب الزيارات بنفس الاتصال`}
+                        >
+                            <MapPin className="w-3 h-3" />+{otherLocationsInTeamCount}
+                        </span>
+                    )}
                     {otherTeamsCount > 0 && (
-                        <span className="inline-flex items-center gap-0.5 text-teal-600">
+                        <span
+                            className="inline-flex items-center gap-0.5 text-teal-600"
+                            title={`لنفس الزبون جهات اتصال لدى ${otherTeamsCount === 1 ? 'فريق آخر' : `${otherTeamsCount} فرق أخرى`} اليوم`}
+                        >
                             <Users className="w-3 h-3" />+{otherTeamsCount}
                         </span>
                     )}
