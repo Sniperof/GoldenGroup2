@@ -14,6 +14,9 @@ import {
   type GiftRecordStatus,
 } from '../../data/gifts';
 import { api } from '../../lib/api';
+import PageJump from '../../components/ui/PageJump';
+
+const PAGE_SIZE = 25;
 
 type StatusFilter = 'all' | GiftRecordStatus;
 type ConditionFilter = 'all' | GiftConditionStatus;
@@ -50,40 +53,58 @@ export default function GiftsManagement() {
   const [status, setStatus] = useState<StatusFilter>('all');
   const [condition, setCondition] = useState<ConditionFilter>('all');
   const [records, setRecords] = useState<GiftRecord[]>([]);
+  const [total, setTotal] = useState(0);
+  const [kpis, setKpis] = useState({ approvedForDelivery: 0, deliveryTaskCreated: 0, delivered: 0, pendingCondition: 0 });
+  const [page, setPage] = useState(1);
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
+
+  // Debounce the search box; any filter change returns to page 1.
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      const next = searchInput.trim();
+      setSearch(current => {
+        if (current !== next) setPage(1);
+        return next;
+      });
+    }, 350);
+    return () => window.clearTimeout(handle);
+  }, [searchInput]);
 
   useEffect(() => {
     let active = true;
     setLoading(true);
     setLoadError(null);
-    api.gifts.records.list({
+    api.gifts.records.listPaged({
       status: status === 'all' ? undefined : status,
       conditionStatus: condition === 'all' ? undefined : condition,
+      search: search || undefined,
+      page,
+      pageSize: PAGE_SIZE,
     })
-      .then(rows => {
+      .then(result => {
         if (!active) return;
-        setRecords(rows);
+        setRecords(result.rows);
+        setTotal(result.total);
+        setKpis(result.kpis);
       })
       .catch((err: any) => {
         if (!active) return;
         setRecords([]);
+        setTotal(0);
         setLoadError(err?.message ?? 'تعذر تحميل سجلات الهدايا من الخادم');
       })
       .finally(() => {
         if (active) setLoading(false);
       });
     return () => { active = false; };
-  }, [condition, status, reloadToken]);
+  }, [condition, status, search, page, reloadToken]);
 
-  const filteredRecords = records;
   const refreshRecords = () => setReloadToken(token => token + 1);
-
-  const approvedCount = records.filter(record => record.status === 'approved_for_delivery').length;
-  const taskCount = records.filter(record => record.status === 'delivery_task_created').length;
-  const deliveredCount = records.filter(record => record.status === 'delivered' || record.status === 'delivered_manually').length;
-  const pendingConditionCount = records.filter(record => record.conditionStatus === 'pending').length;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
     <div className="h-full overflow-y-auto bg-slate-50" dir="rtl">
@@ -95,15 +116,15 @@ export default function GiftsManagement() {
         />
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <SummaryTile label="معتمدة للتسليم" value={approvedCount} icon={PackageCheck} tone="bg-sky-50 text-sky-700" />
-          <SummaryTile label="لها مهمة تسليم" value={taskCount} icon={ClipboardCheck} tone="bg-indigo-50 text-indigo-700" />
-          <SummaryTile label="تم تسليمها" value={deliveredCount} icon={CheckCircle2} tone="bg-emerald-50 text-emerald-700" />
-          <SummaryTile label="تحتاج تحقق شرط" value={pendingConditionCount} icon={UserCheck} tone="bg-amber-50 text-amber-700" />
+          <SummaryTile label="معتمدة للتسليم" value={kpis.approvedForDelivery} icon={PackageCheck} tone="bg-sky-50 text-sky-700" />
+          <SummaryTile label="لها مهمة تسليم" value={kpis.deliveryTaskCreated} icon={ClipboardCheck} tone="bg-indigo-50 text-indigo-700" />
+          <SummaryTile label="تم تسليمها" value={kpis.delivered} icon={CheckCircle2} tone="bg-emerald-50 text-emerald-700" />
+          <SummaryTile label="تحتاج تحقق شرط" value={kpis.pendingCondition} icon={UserCheck} tone="bg-amber-50 text-amber-700" />
         </div>
 
         <Tabs
           tabs={[
-            { id: 'records', label: 'سجلات الهدايا', icon: Gift, count: records.length },
+            { id: 'records', label: 'سجلات الهدايا', icon: Gift, count: total },
             { id: 'definitions', label: 'تعريفات الهدايا', icon: Settings2 },
           ]}
           activeKey={activeTab}
@@ -130,12 +151,22 @@ export default function GiftsManagement() {
                 <FileText className="h-4 w-4" />
                 إضافة وعد من عقد
               </Link>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <label className="text-xs font-bold text-slate-500">
+                  بحث
+                  <input
+                    type="search"
+                    value={searchInput}
+                    onChange={(event) => setSearchInput(event.target.value)}
+                    placeholder="المستفيد، رقم العقد، الهدية، رقم السجل"
+                    className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700"
+                  />
+                </label>
                 <label className="text-xs font-bold text-slate-500">
                   حالة السجل
                   <select
                     value={status}
-                    onChange={(event) => setStatus(event.target.value as StatusFilter)}
+                    onChange={(event) => { setStatus(event.target.value as StatusFilter); setPage(1); }}
                     className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700"
                   >
                     <option value="all">كل الحالات</option>
@@ -148,7 +179,7 @@ export default function GiftsManagement() {
                   تحقق الشرط
                   <select
                     value={condition}
-                    onChange={(event) => setCondition(event.target.value as ConditionFilter)}
+                    onChange={(event) => { setCondition(event.target.value as ConditionFilter); setPage(1); }}
                     className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700"
                   >
                     <option value="all">كل الحالات</option>
@@ -161,7 +192,31 @@ export default function GiftsManagement() {
               </div>
             </div>
 
-            <GiftRecordsTable records={filteredRecords} onChanged={refreshRecords} />
+            <GiftRecordsTable records={records} onChanged={refreshRecords} />
+
+            {total > 0 && (
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3">
+                <span className="text-xs font-bold text-slate-500">
+                  عرض {(page - 1) * PAGE_SIZE + 1}-{Math.min(total, page * PAGE_SIZE)} من {total}
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={page <= 1 || loading}
+                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold disabled:opacity-30"
+                  >السابق</button>
+                  <span className="rounded-lg border border-sky-100 bg-sky-50 px-2.5 py-1 text-xs font-black text-sky-700">{page}</span>
+                  <button
+                    type="button"
+                    disabled={page >= totalPages || loading}
+                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                    className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold disabled:opacity-30"
+                  >التالي</button>
+                  {totalPages > 1 && <PageJump current={page} total={totalPages} onJump={setPage} />}
+                </div>
+              </div>
+            )}
           </Card>
         )}
 

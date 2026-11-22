@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import pool from '../db.js';
+import { runWithChangeContext } from '../auditContext.js';
+import { labelDeviceChange } from '../services/deviceActivityContext.js';
 import {
   HIDDEN_OPERATIONAL_TASK_TYPES,
   canCancelOpenTaskBeforeScheduling,
@@ -1930,6 +1932,7 @@ router.post('/', requirePermission('open_tasks.edit'), async (req, res) => {
     }
 
     if (taskType === 'device_installation') {
+      await labelDeviceChange(pgClient, 'installation_task_planned');
       await pgClient.query(
         `UPDATE installed_devices
             SET installation_geo_unit_id = $2,
@@ -3835,7 +3838,9 @@ router.patch('/:id', requirePermission('open_tasks.edit'), async (req, res) => {
     }
 
     if (req.body.status === 'completed') {
-      await updateContractDeviceStatusOnTaskCompletion(pool, updated.id);
+      // Labels the device move in the device log (498).
+      await runWithChangeContext({ changeContext: 'task_completed' }, () =>
+        updateContractDeviceStatusOnTaskCompletion(pool, updated.id));
     }
 
     const task = await loadOpenTaskById(pool, updated.id);

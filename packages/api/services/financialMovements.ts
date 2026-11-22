@@ -80,7 +80,7 @@ export async function recordContractPaymentMovement(
   const { rows } = await db.query(
     `SELECT p.id, p.amount_syp, p.amount_value, p.exchange_rate, p.currency,
             p.reference_number, p.received_at, p.entry_type,
-            c.id AS contract_id, c.customer_id, c.contract_number, c.branch_id,
+            c.id AS contract_id, COALESCE(c.payer_client_id, c.customer_id) AS customer_id, c.contract_number, c.branch_id,
             c.status, c.sale_subtype
        FROM contract_payment_entries p
        JOIN contracts c ON c.id = p.contract_id
@@ -122,7 +122,7 @@ export async function recordContractPaymentMovement(
  */
 export async function syncContractMovements(db: Db, contractId: number): Promise<void> {
   const { rows: cRows } = await db.query(
-    `SELECT c.id, c.customer_id, c.contract_number, c.final_price, c.branch_id,
+    `SELECT c.id, COALESCE(c.payer_client_id, c.customer_id) AS customer_id, c.contract_number, c.final_price, c.branch_id,
             c.status, c.sale_subtype, c.created_at,
             COALESCE((SELECT SUM(amount_syp) FROM contract_installments WHERE contract_id = c.id), 0) AS installments_total
        FROM contracts c

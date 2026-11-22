@@ -801,6 +801,64 @@ export interface ClientActivityEntry {
   performedByName: string | null;
 }
 
+/** The indicator strip of the device page; a block the user may not see is null. */
+export interface DeviceOverview {
+  maintenance: {
+    next: { taskId: number; dueDate: string | null; status: string } | null;
+    lastDoneAt: string | null;
+  } | null;
+  warranty: { type: 'contract' | 'golden'; status: 'active' | 'pending'; endDate: string | null; daysLeft: number | null } | null;
+  balance: {
+    payerName: string | null;
+    contractRemaining: number;
+    contractOverdue: number;
+    warrantyRemaining: number;
+    warrantyOverdue: number;
+  } | null;
+  openTasks: { count: number; nearestDueDate: string | null } | null;
+}
+
+/** One line of the installed-device change log (migration 498). Values are readable text. */
+export interface DeviceActivityEntry {
+  id: number;
+  eventType: 'created' | 'status_changed' | 'field_changed';
+  fieldKey: string | null;
+  oldValue: string | null;
+  newValue: string | null;
+  changeContext: string | null;
+  /** A visit result: the task type and the visit behind the change. */
+  taskType: string | null;
+  visitTaskId: number | null;
+  visitId: number | null;
+  reason: string | null;
+  role: string | null;
+  source: 'trigger' | 'backfill';
+  createdAt: string;
+  performedByName: string | null;
+}
+
+export type DeviceLifecycleCategory = 'entry' | 'status' | 'tasks' | 'contract' | 'warranties' | 'possession';
+
+/** One milestone of the device lifecycle timeline (derived on the server). */
+export interface DeviceLifecycleEvent {
+  key: string;
+  category: DeviceLifecycleCategory;
+  kind: string;
+  at: string;
+  dateOnly: boolean;
+  reliable: boolean;
+  title: string;
+  decision?: { code: string; taskType: string };
+  detail: string | null;
+  actor: string | null;
+  link: { type: 'task' | 'visit' | 'contract' | 'client'; id: number; taskType?: string } | null;
+}
+
+export interface DeviceLifecycleResponse {
+  events: DeviceLifecycleEvent[];
+  hiddenCategories: DeviceLifecycleCategory[];
+}
+
 export interface ClientOwnershipLogEntry {
   id: number;
   /** owner_inactive / owner_active: the owner stopped / resumed being eligible (row kept); branch_owned: no eligible owner left (migration 488). */
@@ -1145,6 +1203,21 @@ export const api = {
         });
         const suffix = query.toString() ? `?${query.toString()}` : '';
         return request<import('../data/gifts').GiftRecord[]>(`/gifts/records${suffix}`);
+      },
+      /** GET /gifts/records/paged — server pagination for the central gifts screen. */
+      listPaged: (params?: Record<string, string | number | null | undefined>) => {
+        const query = new URLSearchParams();
+        Object.entries(params ?? {}).forEach(([key, value]) => {
+          if (value !== undefined && value !== null && value !== '') query.set(key, String(value));
+        });
+        const suffix = query.toString() ? `?${query.toString()}` : '';
+        return request<{
+          rows: import('../data/gifts').GiftRecord[];
+          total: number;
+          page: number;
+          pageSize: number;
+          kpis: { approvedForDelivery: number; deliveryTaskCreated: number; delivered: number; pendingCondition: number };
+        }>(`/gifts/records/paged${suffix}`);
       },
       similar: (data: any) =>
         request<{ count: number }>('/gifts/records/similar', { method: 'POST', body: JSON.stringify(data) }),
@@ -1685,6 +1758,11 @@ export const api = {
     addPayment: (warrantyId: number, data: any) => request<any>(`/device-warranties/${warrantyId}/payments`, { method: 'POST', body: JSON.stringify(data) }),
   },
   installedDevices: {
+    getActivity: (id: number) => request<DeviceActivityEntry[]>(`/installed-devices/${id}/activity`),
+    getOverview: (id: number) => request<DeviceOverview>(`/installed-devices/${id}/overview`),
+    getLifecycle: (id: number) => request<DeviceLifecycleResponse>(`/installed-devices/${id}/lifecycle`),
+    updateDetails: (id: number, data: { serialNumber: string; reason: string }) =>
+      request<{ ok: true; id: number; serialNumber: string }>(`/installed-devices/${id}/details`, { method: 'PATCH', body: JSON.stringify(data) }),
     list: (params?: { customerId?: number; branchId?: number; status?: string }) => {
       const qs = new URLSearchParams();
       if (params?.customerId) qs.set('customerId', String(params.customerId));
@@ -1738,6 +1816,21 @@ export const api = {
     current:  (deviceId: number) => request<DevicePossessionEntry | null>(`/devices/${deviceId}/possession/current`),
     transfer: (deviceId: number, data: { holderType: string; holderId?: number | null; reason: string; notes?: string; transferAt?: string }) =>
       request<DevicePossessionEntry>(`/devices/${deviceId}/possession`, { method: 'POST', body: JSON.stringify(data) }),
+    /** New-holder search: same server-side lookup as the contract form, device branch scope. */
+    customerLookup: (deviceId: number, query: string, signal?: AbortSignal) => {
+      const qs = new URLSearchParams({ q: query });
+      return request<ContractCustomerLookupResponse>(`/devices/${deviceId}/possession/customer-lookup?${qs.toString()}`, { signal });
+    },
+    /** Administrative transfer to another client (migration 500). */
+    transferToClient: (deviceId: number, data: {
+      toClientId: number;
+      reasonCode: string;
+      notes?: string | null;
+      location?: { geoUnitId: number; addressText: string; lat?: number | null; lng?: number | null } | null;
+    }) => request<{
+      transferId: number; fromClientId: number | null; toClientId: number;
+      contractBalanceSyp: number; warrantyBalanceSyp: number; movedTaskIds: number[]; locationChanged: boolean;
+    }>(`/devices/${deviceId}/possession/transfer`, { method: 'POST', body: JSON.stringify(data) }),
   },
   deviceModels: {
     list: (params?: number | DeviceModelListOptions) => {

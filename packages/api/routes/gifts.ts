@@ -468,18 +468,23 @@ router.post('/records/similar', requirePermission('contract_gifts.manage'), asyn
   res.json({ count: records.length });
 });
 
-router.get('/records', requirePermission('contract_gifts.view'), async (req, res) => {
-  const authContext = await getOrBuildAuthContext(req as any);
-  const accessPlan = getGiftListAccessPlan(authContext, 'contract_gifts.view');
-  if (accessPlan.scope === 'NONE') {
-    return res.status(403).json({ error: 'غير مسموح' });
-  }
-
+/**
+ * Shared WHERE builder for the gift-record lists (`/records` and `/records/paged`):
+ * query filters + the caller's access-plan scope. `skipStatusFilters` lets the
+ * paged endpoint compute its KPI tiles over the same scope without the
+ * status/condition dropdowns narrowing them.
+ */
+function buildGiftRecordListWhere(
+  req: any,
+  accessPlan: ReturnType<typeof getGiftListAccessPlan>,
+  options: { skipStatusFilters?: boolean } = {},
+) {
   const conditions: string[] = [];
   const params: any[] = [];
   const branchId = normalizePositiveInt(req.query.branchId);
-  const status = normalizeText(req.query.status);
-  const conditionStatus = normalizeText(req.query.conditionStatus);
+  const status = options.skipStatusFilters ? '' : normalizeText(req.query.status);
+  const conditionStatus = options.skipStatusFilters ? '' : normalizeText(req.query.conditionStatus);
+  const search = normalizeText(req.query.search);
   const clientId = normalizePositiveInt(req.query.clientId);
   const employeeId = normalizePositiveInt(req.query.employeeId);
   const contractId = normalizePositiveInt(req.query.contractId);
@@ -543,6 +548,20 @@ router.get('/records', requirePermission('contract_gifts.view'), async (req, res
     )`);
   }
 
+  if (search) {
+    params.push(`%${search.replace(/[\\%_]/g, '\\$&')}%`);
+    const searchParam = params.length;
+    const numeric = /^\d+$/.test(search) ? Number(search) : null;
+    params.push(numeric);
+    const idParam = params.length;
+    conditions.push(`(
+      gr.beneficiary_name_snapshot ILIKE $${searchParam}
+      OR c.contract_number ILIKE $${searchParam}
+      OR gd.name ILIKE $${searchParam}
+      OR ($${idParam}::int IS NOT NULL AND gr.id = $${idParam}::int)
+    )`);
+  }
+
   if (accessPlan.scope === 'BRANCH') {
     params.push(accessPlan.allowedBranchIds);
     conditions.push(`(gr.source_branch_id = ANY($${params.length}::int[]) OR gr.responsible_branch_id = ANY($${params.length}::int[]))`);
@@ -585,21 +604,95 @@ router.get('/records', requirePermission('contract_gifts.view'), async (req, res
     )`);
   }
 
-  const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-  const { rows } = await pool.query(
-    `SELECT ${recordSelect}
+  return {
+    whereClause: conditions.length ? `WHERE ${conditions.join(' AND ')}` : '',
+    params,
+  };
+}
+
+const recordListFrom = `
        FROM gift_records gr
        JOIN gift_definitions gd ON gd.id = gr.gift_definition_id
        LEFT JOIN contracts c ON c.id = gr.contract_id
        LEFT JOIN branches sb ON sb.id = gr.source_branch_id
        LEFT JOIN branches rb ON rb.id = gr.responsible_branch_id
-       LEFT JOIN hr_users au ON au.id = gr.assigned_user_id
+       LEFT JOIN hr_users au ON au.id = gr.assigned_user_id`;
+
+router.get('/records', requirePermission('contract_gifts.view'), async (req, res) => {
+  const authContext = await getOrBuildAuthContext(req as any);
+  const accessPlan = getGiftListAccessPlan(authContext, 'contract_gifts.view');
+  if (accessPlan.scope === 'NONE') {
+    return res.status(403).json({ error: 'غير مسموح' });
+  }
+
+  const { whereClause, params } = buildGiftRecordListWhere(req, accessPlan);
+  const { rows } = await pool.query(
+    `SELECT ${recordSelect}
+      ${recordListFrom}
       ${whereClause}
       ORDER BY gr.created_at DESC, gr.id DESC
       LIMIT 500`,
     params,
   );
   res.json(rows.map(mapRecord));
+});
+
+/**
+ * GET /gifts/records/paged — server-paginated companion to `/records` for the
+ * central gifts screen. Same filters + scope; adds `search`, `page`, `pageSize`.
+ * `kpis` cover the whole scoped set (ignoring status/condition dropdowns).
+ */
+router.get('/records/paged', requirePermission('contract_gifts.view'), async (req, res) => {
+  const authContext = await getOrBuildAuthContext(req as any);
+  const accessPlan = getGiftListAccessPlan(authContext, 'contract_gifts.view');
+  if (accessPlan.scope === 'NONE') {
+    return res.status(403).json({ error: 'غير مسموح' });
+  }
+
+  const pageSize = Math.min(100, normalizePositiveInt(req.query.pageSize) ?? 25);
+  const page = normalizePositiveInt(req.query.page) ?? 1;
+
+  const filtered = buildGiftRecordListWhere(req, accessPlan);
+  const scoped = buildGiftRecordListWhere(req, accessPlan, { skipStatusFilters: true });
+
+  const [rowsResult, countResult, kpiResult] = await Promise.all([
+    pool.query(
+      `SELECT ${recordSelect}
+        ${recordListFrom}
+        ${filtered.whereClause}
+        ORDER BY gr.created_at DESC, gr.id DESC
+        LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`,
+      filtered.params,
+    ),
+    pool.query(
+      `SELECT COUNT(*)::int AS total
+        FROM gift_records gr
+        JOIN gift_definitions gd ON gd.id = gr.gift_definition_id
+        LEFT JOIN contracts c ON c.id = gr.contract_id
+        ${filtered.whereClause}`,
+      filtered.params,
+    ),
+    pool.query(
+      `SELECT
+          COUNT(*) FILTER (WHERE gr.status = 'approved_for_delivery')::int AS "approvedForDelivery",
+          COUNT(*) FILTER (WHERE gr.status = 'delivery_task_created')::int AS "deliveryTaskCreated",
+          COUNT(*) FILTER (WHERE gr.status IN ('delivered', 'delivered_manually'))::int AS delivered,
+          COUNT(*) FILTER (WHERE gr.condition_status = 'pending' AND gr.status NOT IN ('cancelled', 'refused'))::int AS "pendingCondition"
+        FROM gift_records gr
+        JOIN gift_definitions gd ON gd.id = gr.gift_definition_id
+        LEFT JOIN contracts c ON c.id = gr.contract_id
+        ${scoped.whereClause}`,
+      scoped.params,
+    ),
+  ]);
+
+  res.json({
+    rows: rowsResult.rows.map(mapRecord),
+    total: countResult.rows[0]?.total ?? 0,
+    page,
+    pageSize,
+    kpis: kpiResult.rows[0],
+  });
 });
 
 router.get('/promise-conditions', requirePermission('contract_gifts.view'), async (_req, res) => {

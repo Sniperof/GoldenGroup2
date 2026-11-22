@@ -791,6 +791,15 @@ const CATEGORIES: CategoryMeta[] = [
     ],
   },
   {
+    id: 'device_possession_transfer_reasons',
+    label: 'أسباب نقل حيازة الجهاز إلى زبون آخر',
+    description: 'سبب إلزامي عند نقل حيازة الجهاز إدارياً إلى زبون آخر من صفحة الجهاز. يُحفظ في سجل الحيازة وسجل نقل الحيازة. اختيار «أخرى» يتطلب ملاحظة.',
+    impact: 'medium',
+    usedIn: [
+      { label: 'نقل الحيازة إلى زبون آخر', route: 'الأجهزة المركبة ← صفحة الجهاز ← سجل الحيازة', icon: <Truck className="w-3 h-3" /> },
+    ],
+  },
+  {
     id: 'device_retrieval_refusal_reasons',
     label: 'أسباب رَفض السحب',
     description: 'الأسباب المعتمدة عند اختيار "رفض السحب" في مودال نتيجة مهمة سحب الجهاز. تُحفظ مرجعياً على نتيجة المهمة.',
@@ -1226,6 +1235,7 @@ const CATEGORY_GROUP: Record<string, string> = {
   device_return_creation_reasons: 'device_return',
   device_return_refusal_reasons: 'device_return', device_return_reschedule_reasons: 'device_return',
   device_transfer_creation_reasons: 'device_transfer',
+  device_possession_transfer_reasons: 'device_transfer',
   device_transfer_refusal_reasons: 'device_transfer', device_transfer_reschedule_reasons: 'device_transfer',
   device_checkup_creation_reasons: 'device_checkup',
   device_checkup_refusal_reasons: 'device_checkup', device_checkup_reschedule_reasons: 'device_checkup',

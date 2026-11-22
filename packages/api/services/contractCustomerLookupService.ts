@@ -95,12 +95,45 @@ export async function searchContractCustomers(
   rawQuery: string,
   requestedLimit = 20,
 ): Promise<{ items: ContractCustomerLookupItem[]; hasMore: boolean }> {
-  const query = rawQuery.trim();
-  if (query.length < 2) return { items: [], hasMore: false };
-
-  const limit = Math.min(30, Math.max(1, requestedLimit));
+  if (rawQuery.trim().length < 2) return { items: [], hasMore: false };
   const params: unknown[] = [];
   const conditions = appendLookupScope(authContext, branchId, params);
+  return runCustomerLookup(db, conditions, params, rawQuery, requestedLimit);
+}
+
+/**
+ * The same server-side lookup for the device possession transfer (DEC-025):
+ * customers of the device's branch (registered there, or holding a device or a
+ * contract there). The caller has already checked installed_devices.possession.manage.
+ */
+export async function searchBranchCustomers(
+  db: Queryable,
+  branchId: number,
+  rawQuery: string,
+  requestedLimit = 20,
+): Promise<{ items: ContractCustomerLookupItem[]; hasMore: boolean }> {
+  if (rawQuery.trim().length < 2) return { items: [], hasMore: false };
+  const params: unknown[] = [[branchId]];
+  const conditions = [`(
+    c.branch_id = ANY($1::int[])
+    OR EXISTS (SELECT 1 FROM installed_devices lookup_device
+                WHERE lookup_device.customer_id = c.id AND lookup_device.branch_id = ANY($1::int[]))
+    OR EXISTS (SELECT 1 FROM contracts lookup_contract
+                WHERE lookup_contract.customer_id = c.id AND lookup_contract.branch_id = ANY($1::int[]))
+  )`];
+  return runCustomerLookup(db, conditions, params, rawQuery, requestedLimit);
+}
+
+// Name / id / phone search, at most `limit` rows plus one to tell «more».
+async function runCustomerLookup(
+  db: Queryable,
+  conditions: string[],
+  params: unknown[],
+  rawQuery: string,
+  requestedLimit: number,
+): Promise<{ items: ContractCustomerLookupItem[]; hasMore: boolean }> {
+  const query = rawQuery.trim();
+  const limit = Math.min(30, Math.max(1, requestedLimit));
   conditions.push('c.is_candidate = FALSE', 'c.deleted_at IS NULL');
 
   params.push(`%${query}%`);

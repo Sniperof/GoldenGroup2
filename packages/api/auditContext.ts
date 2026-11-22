@@ -15,6 +15,8 @@ export interface AuditContext {
   changeContext?: string | null;
   referenceId?: number | null;
   changeReason?: string | null;
+  /** The visit task whose result is being applied; read by the device activity log (498). */
+  visitTaskId?: number | null;
 }
 
 const storage = new AsyncLocalStorage<AuditContext>();
@@ -37,7 +39,7 @@ export function setAuditActor(actorId: number | null | undefined, actorRole: str
  * inside `fn` carry the context.
  */
 export function runWithChangeContext<T>(
-  change: Pick<AuditContext, 'changeContext' | 'referenceId' | 'changeReason'>,
+  change: Pick<AuditContext, 'changeContext' | 'referenceId' | 'changeReason' | 'visitTaskId'>,
   fn: () => Promise<T>,
 ): Promise<T> {
   const parent = storage.getStore() ?? {};
@@ -49,12 +51,13 @@ export function getAuditContext(): AuditContext | undefined {
 }
 
 /** Ordered values for the `app.*` settings; '' clears a setting. */
-export function auditSettingValues(context: AuditContext | undefined): [string, string, string, string, string] {
+export function auditSettingValues(context: AuditContext | undefined): [string, string, string, string, string, string] {
   return [
     context?.actorId != null ? String(context.actorId) : '',
     context?.actorRole ?? '',
     context?.changeContext ?? '',
     context?.referenceId != null ? String(context.referenceId) : '',
     context?.changeReason ?? '',
+    context?.visitTaskId != null ? String(context.visitTaskId) : '',
   ];
 }

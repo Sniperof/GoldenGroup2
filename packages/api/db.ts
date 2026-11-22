@@ -39,7 +39,8 @@ async function applyAuditSettings(client: AuditedClient, values: string[]): Prom
             set_config('app.actor_role', $2, false),
             set_config('app.change_context', $3, false),
             set_config('app.reference_id', $4, false),
-            set_config('app.change_reason', $5, false)`,
+            set_config('app.change_reason', $5, false),
+            set_config('app.visit_task_id', $6, false)`,
     values,
   );
   client.__auditSettingsKey = key;

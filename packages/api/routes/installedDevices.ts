@@ -1,5 +1,9 @@
 import { Router } from 'express';
 import pool from '../db.js';
+import { runWithChangeContext } from '../auditContext.js';
+import { labelDeviceChange } from '../services/deviceActivityContext.js';
+import { listDeviceLifecycle } from '../services/deviceLifecycleTimeline.js';
+import { loadDeviceOverview } from '../services/deviceOverview.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
 import { authorize } from '../services/authorizationService.js';
@@ -406,6 +410,7 @@ router.post('/external', requirePermission('installed_devices.create_external'),
     const db = await pool.connect();
     try {
       await db.query('BEGIN');
+      await labelDeviceChange(db, 'external_device_created');
 
       await assertDeviceSerialAvailable(db, serialNumber);
 
@@ -551,6 +556,134 @@ router.get('/:id', requirePermission('installed_devices.view', 'clients.devices.
   };
   if (!access.allowed) return res.status(403).json({ error: 'غير مسموح' });
   res.json(rows[0]);
+});
+
+async function loadDeviceBranch(deviceId: number): Promise<{ id: number; branchId: number | null } | null> {
+  const { rows } = await pool.query(
+    `SELECT id, branch_id AS "branchId" FROM installed_devices WHERE id = $1`,
+    [deviceId],
+  );
+  return rows[0] ? { id: Number(rows[0].id), branchId: rows[0].branchId ?? null } : null;
+}
+
+// GET /api/installed-devices/:id/overview — the indicator strip of the device
+// page: next maintenance, warranty in force, what is owed, open work.
+router.get('/:id/overview', requirePermission('installed_devices.view', 'clients.devices.view', 'contracts.view_list'), async (req, res) => {
+  try {
+    const deviceId = Number(req.params.id);
+    if (!Number.isInteger(deviceId) || deviceId <= 0) return res.status(400).json({ error: 'معرف الجهاز غير صالح' });
+    const device = await loadDeviceBranch(deviceId);
+    if (!device) return res.status(404).json({ error: 'الجهاز غير موجود' });
+    const allowed = ['installed_devices.view', 'clients.devices.view', 'contracts.view_list']
+      .some(permission => authorize(req.authContext!, { permission, branchId: device.branchId }).allowed);
+    if (!allowed) return res.status(403).json({ error: 'غير مسموح' });
+    res.json(await loadDeviceOverview(req.authContext!, device));
+  } catch (err) {
+    console.error('[installed-devices] GET /:id/overview error:', err);
+    res.status(500).json({ error: 'تعذّر تحميل ملخص الجهاز' });
+  }
+});
+
+// GET /api/installed-devices/:id/activity — the device change log (migration 498)
+router.get('/:id/activity', requirePermission('installed_devices.activity_log.view'), async (req, res) => {
+  try {
+    const deviceId = Number(req.params.id);
+    if (!Number.isInteger(deviceId) || deviceId <= 0) return res.status(400).json({ error: 'معرف الجهاز غير صالح' });
+    const device = await loadDeviceBranch(deviceId);
+    if (!device) return res.status(404).json({ error: 'الجهاز غير موجود' });
+    if (!authorize(req.authContext!, { permission: 'installed_devices.activity_log.view', branchId: device.branchId }).allowed) {
+      return res.status(403).json({ error: 'غير مسموح' });
+    }
+    const { rows } = await pool.query(
+      `SELECT l.id, l.event_type AS "eventType", l.field_key AS "fieldKey",
+              l.old_value AS "oldValue", l.new_value AS "newValue",
+              l.change_context AS "changeContext", l.task_type AS "taskType",
+              l.visit_task_id AS "visitTaskId", vt.field_visit_id AS "visitId",
+              l.reason, l.role, l.source, l.created_at AS "createdAt", pb.name AS "performedByName"
+         FROM device_activity_log l
+         LEFT JOIN hr_users pb ON pb.id = l.performed_by
+         LEFT JOIN visit_tasks vt ON vt.id = l.visit_task_id
+        WHERE l.device_id = $1
+        ORDER BY l.created_at DESC, l.id DESC`,
+      [deviceId],
+    );
+    res.json(rows.map(row => ({ ...row, id: Number(row.id) })));
+  } catch (err) {
+    console.error('[installed-devices] GET /:id/activity error:', err);
+    res.status(500).json({ error: 'تعذّر تحميل سجل التغييرات' });
+  }
+});
+
+// PATCH /api/installed-devices/:id/details — edits from the device page
+// (migration 499). Only the serial number for now; every edit needs a reason,
+// kept in the device activity log (498).
+router.patch('/:id/details', requirePermission('installed_devices.edit_details'), async (req, res) => {
+  const deviceId = Number(req.params.id);
+  if (!Number.isInteger(deviceId) || deviceId <= 0) return res.status(400).json({ error: 'معرف الجهاز غير صالح' });
+  const body = req.body ?? {};
+  const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+  if (!reason) return res.status(400).json({ error: 'سبب التعديل مطلوب' });
+  if (!Object.prototype.hasOwnProperty.call(body, 'serialNumber')) {
+    return res.status(400).json({ error: 'لا يوجد حقول للتحديث' });
+  }
+  const serialNumber = normalizeDeviceSerialNumber(body.serialNumber);
+  if (!serialNumber) return res.status(400).json({ error: 'أدخل الرقم التسلسلي' });
+
+  const db = await pool.connect();
+  try {
+    await db.query('BEGIN');
+    const { rows: [device] } = await db.query(
+      `SELECT id, branch_id AS "branchId", serial_number AS "serialNumber"
+         FROM installed_devices WHERE id = $1 FOR UPDATE`,
+      [deviceId],
+    );
+    if (!device) {
+      await db.query('ROLLBACK');
+      return res.status(404).json({ error: 'الجهاز غير موجود' });
+    }
+    if (!authorize(req.authContext!, { permission: 'installed_devices.edit_details', branchId: device.branchId }).allowed) {
+      await db.query('ROLLBACK');
+      return res.status(403).json({ error: 'ليس لديك صلاحية تعديل بيانات هذا الجهاز' });
+    }
+    if (device.serialNumber === serialNumber) {
+      await db.query('ROLLBACK');
+      return res.status(400).json({ error: 'الرقم التسلسلي لم يتغيّر' });
+    }
+    await assertDeviceSerialAvailable(db, serialNumber, { deviceId });
+    await labelDeviceChange(db, 'device_details_edit', reason);
+    await db.query(
+      `UPDATE installed_devices SET serial_number = $2, updated_at = NOW() WHERE id = $1`,
+      [deviceId, serialNumber],
+    );
+    await db.query('COMMIT');
+    return res.json({ ok: true, id: deviceId, serialNumber });
+  } catch (err) {
+    await db.query('ROLLBACK').catch(() => {});
+    const conflict = deviceSerialConflictPayload(err);
+    if (conflict) return res.status(409).json(conflict);
+    console.error('[installed-devices] PATCH /:id/details error:', err);
+    return res.status(500).json({ error: 'تعذّر حفظ التعديل' });
+  } finally {
+    db.release();
+  }
+});
+
+// GET /api/installed-devices/:id/lifecycle — the device milestones, derived
+// from the tables that hold them; each category follows its section's permission.
+router.get('/:id/lifecycle', requirePermission('installed_devices.lifecycle.view'), async (req, res) => {
+  try {
+    const deviceId = Number(req.params.id);
+    if (!Number.isInteger(deviceId) || deviceId <= 0) return res.status(400).json({ error: 'معرف الجهاز غير صالح' });
+    const device = await loadDeviceBranch(deviceId);
+    if (!device) return res.status(404).json({ error: 'الجهاز غير موجود' });
+    if (!authorize(req.authContext!, { permission: 'installed_devices.lifecycle.view', branchId: device.branchId }).allowed) {
+      return res.status(403).json({ error: 'غير مسموح' });
+    }
+    res.json(await listDeviceLifecycle(req.authContext!, device));
+  } catch (err) {
+    console.error('[installed-devices] GET /:id/lifecycle error:', err);
+    res.status(500).json({ error: 'تعذّر تحميل دورة حياة الجهاز' });
+  }
 });
 
 // POST /api/installed-devices/:id/periodic-maintenance
@@ -879,12 +1012,13 @@ router.patch('/:id', requirePermission('contracts.edit'), async (req, res) => {
   params.push(req.params.id);
   let rows: Array<{ id: number }>;
   try {
-    ({ rows } = await pool.query(
+    // Labels the manual edit in the device log (498).
+    ({ rows } = await runWithChangeContext({ changeContext: 'device_edit' }, () => pool.query(
       `UPDATE installed_devices SET ${sets.join(', ')}
        WHERE id = $${params.length}
        RETURNING id`,
       params,
-    ));
+    )));
   } catch (err) {
     const conflict = deviceSerialConflictPayload(err);
     if (conflict) return res.status(409).json(conflict);

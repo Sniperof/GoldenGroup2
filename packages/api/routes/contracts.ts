@@ -42,6 +42,7 @@ import {
   PeriodicMaintenanceTransferError,
 } from '../services/periodicMaintenanceTasks.js';
 import { checkContractWarranty } from '../lib/contractWarrantyPolicy.js';
+import { labelDeviceChange } from '../services/deviceActivityContext.js';
 import {
   FxRateMissingError,
   attachUsdDues,
@@ -2694,6 +2695,8 @@ router.post('/:id/approve', async (req, res) => {
   const pgClient = await pool.connect();
   try {
     await pgClient.query('BEGIN');
+    // Labels the device created and filled by this approval (device log, 498).
+    await labelDeviceChange(pgClient, 'contract_approved');
 
     // Pessimistic lock so two approvers can't race.
     const { rows: cur } = await pgClient.query(
@@ -3265,8 +3268,12 @@ router.post('/:id/cancel', async (req, res) => {
   const pgClient = await pool.connect();
   try {
     await pgClient.query('BEGIN');
+    // Labels the move to contract_cancelled in the device log (498).
+    await labelDeviceChange(pgClient, 'contract_cancelled', reasonText || reasonCode);
     const { rows: cur } = await pgClient.query(
       `SELECT id, status, branch_id, customer_id, final_price, created_at,
+              -- The remainder is voided on whoever pays it now (possession transfer, 500).
+              COALESCE(payer_client_id, customer_id) AS payer_id,
               sale_subtype AS "saleSubtype",
               COALESCE((SELECT SUM(amount_syp) FROM contract_installments WHERE contract_id = contracts.id), 0) AS installments_total,
               COALESCE((SELECT SUM(remaining_balance) FROM contract_installments WHERE contract_id = contracts.id AND remaining_balance > 0), 0) AS installments_remaining,
@@ -3356,7 +3363,7 @@ router.post('/:id/cancel', async (req, res) => {
       const signingRemaining = Number(c.final_price) - Number(c.installments_total) - Number(c.signing_paid);
       if (signingRemaining > 0) {
         await recordMovement(pgClient, {
-          clientId: Number(c.customer_id), occurredAt: c.created_at, kind: 'discount', amountSyp: signingRemaining,
+          clientId: Number(c.payer_id), occurredAt: c.created_at, kind: 'discount', amountSyp: signingRemaining,
           sourceType: 'contract', sourceId: contractId, sourceRefId: contractId, contractId,
           description: 'إبطال متبقّي قيمة العقد عند الإلغاء', occurredBranchId: c.branch_id ?? null,
           recordedBy: userId, notes: reason || null,
@@ -3369,7 +3376,7 @@ router.post('/:id/cancel', async (req, res) => {
       );
       for (const inst of openInstallments) {
         await recordMovement(pgClient, {
-          clientId: Number(c.customer_id), occurredAt: inst.due_date, kind: 'discount', amountSyp: Number(inst.remaining_balance),
+          clientId: Number(c.payer_id), occurredAt: inst.due_date, kind: 'discount', amountSyp: Number(inst.remaining_balance),
           sourceType: 'contract_installment', sourceId: contractId, sourceRefId: Number(inst.id), contractId,
           description: 'إبطال قسط عند إلغاء العقد', occurredBranchId: c.branch_id ?? null,
           recordedBy: userId, notes: reason || null,

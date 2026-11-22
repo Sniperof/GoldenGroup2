@@ -4,28 +4,31 @@
 // /installed-devices/:id. Possession sections are backed by their dedicated
 // installed_devices.possession.view permission and device-branch policy.
 //
-// Layout: a sticky top ProfileTabsBar switches between the sections, in the
-// order mandated by the constitution (§01-what-is-a-device.md and
-// §08-resolved-decisions.md).
+// Layout (operational dashboard, 2026-11-20): the header card, then the
+// operational strip — the device's journey and four indicators (next
+// maintenance, warranty in force, what is owed, open work) — then five tabs.
+// Only the active tab is rendered, so sections that load their own data
+// (faults, technical health, lifecycle, change log) load when opened. The tab
+// is kept in the URL (?tab=).
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   Loader2, ArrowLeft, AlertTriangle,
-  Fingerprint, Activity, UserCheck, History, Award,
-  Puzzle, FileText, Wallet, ClipboardList, HeartPulse, ScrollText,
+  LayoutDashboard, Wrench, Award, UserCheck, History,
 } from '../../components/ui/icons';
 
 import ProfileTabsBar from '../../components/ui/ProfileTabsBar';
 import ProfileBreadcrumbBar from '../../components/ui/ProfileBreadcrumbBar';
 import { usePermissions } from '../../hooks/usePermissions';
 
-import { api, API_BASE } from '../../lib/api';
+import { api, API_BASE, type DeviceOverview } from '../../lib/api';
 import { DeviceStatusBadge } from '../../components/devices/DeviceStatusBadge';
 import { WarrantyStatusBadge } from '../../components/devices/WarrantyStatusBadge';
 import { PossessionHolderChip } from '../../components/devices/PossessionHolderChip';
 import type { DevicePossessionEntry } from '@golden-crm/shared';
 
+import { DeviceOverviewStrip } from './sections/DeviceOverviewStrip';
 import { IdentitySection } from './sections/IdentitySection';
 import { OperationalStatusSection } from './sections/OperationalStatusSection';
 import { CurrentHolderSection } from './sections/CurrentHolderSection';
@@ -38,20 +41,17 @@ import { FinancialSection } from './sections/FinancialSection';
 import { TasksSection } from './sections/TasksSection';
 import { ProblemsHistorySection } from './sections/ProblemsHistorySection';
 import { TechnicalHealthSection } from './sections/TechnicalHealthSection';
+import { DeviceLifecycleSection } from './sections/DeviceLifecycleSection';
+import { DeviceActivitySection } from './sections/DeviceActivitySection';
 
-const SECTIONS = [
-  { id: 'identity',          label: 'الهوية',          icon: Fingerprint },
-  { id: 'operational',       label: 'الحالة',          icon: Activity },
-  { id: 'current-holder',    label: 'الحيازة الحالية', icon: UserCheck },
-  { id: 'possession-history',label: 'سجل الحيازة',     icon: History },
-  { id: 'warranties',        label: 'الكفالات',        icon: Award },
-  { id: 'service-agreements',label: 'اتفاق الخدمة',    icon: ScrollText },
-  { id: 'parts',             label: 'القطع',           icon: Puzzle },
-  { id: 'contract',          label: 'العقد',           icon: FileText },
-  { id: 'financial',         label: 'المالية',         icon: Wallet },
-  { id: 'tasks',             label: 'المهام',          icon: ClipboardList },
-  { id: 'problems',          label: 'سجل الأعطال',     icon: AlertTriangle },
-  { id: 'technical-health',  label: 'الصحة الفنية',    icon: HeartPulse },
+type TabId = 'overview' | 'service' | 'warranties' | 'possession' | 'history';
+
+const TABS: Array<{ id: TabId; label: string; icon: typeof LayoutDashboard }> = [
+  { id: 'overview',   label: 'نظرة عامة',          icon: LayoutDashboard },
+  { id: 'service',    label: 'الخدمة',             icon: Wrench },
+  { id: 'warranties', label: 'الكفالات والمالية',  icon: Award },
+  { id: 'possession', label: 'الحيازة',            icon: UserCheck },
+  { id: 'history',    label: 'السجل',              icon: History },
 ];
 
 const MISSING_LABELS: Record<string, string> = {
@@ -71,6 +71,7 @@ function missingItems(device: any): string[] {
 export default function DeviceProfilePage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { hasPermission } = usePermissions();
   const canCreateComplaint = hasPermission('complaints.create_internal')
     && hasPermission('clients.view_list')
@@ -78,15 +79,32 @@ export default function DeviceProfilePage() {
   const deviceId = Number(id);
   const canViewPossession = hasPermission('installed_devices.possession.view');
   const canManageDeliverySuspension = hasPermission('installed_devices.delivery_suspension.manage');
-  const visibleSections = useMemo(
-    () => canViewPossession
-      ? SECTIONS
-      : SECTIONS.filter(section => section.id !== 'current-holder' && section.id !== 'possession-history'),
-    [canViewPossession],
+  const canViewLifecycle = hasPermission('installed_devices.lifecycle.view');
+  const canViewActivity = hasPermission('installed_devices.activity_log.view');
+  const canEditDetails = hasPermission('installed_devices.edit_details');
+  const canManagePossession = hasPermission('installed_devices.possession.manage');
+
+  const visibleTabs = useMemo(
+    () => TABS.filter(tab => {
+      if (tab.id === 'possession') return canViewPossession;
+      if (tab.id === 'history') return canViewLifecycle || canViewActivity;
+      return true;
+    }),
+    [canViewPossession, canViewLifecycle, canViewActivity],
   );
+  const requestedTab = searchParams.get('tab') as TabId | null;
+  const activeTab: TabId = visibleTabs.some(t => t.id === requestedTab) ? requestedTab! : 'overview';
+  const selectTab = useCallback((tab: string) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (tab === 'overview') next.delete('tab'); else next.set('tab', tab);
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
 
   const [loading, setLoading] = useState(true);
   const [device, setDevice] = useState<any | null>(null);
+  const [overview, setOverview] = useState<DeviceOverview | null>(null);
   const [contract, setContract] = useState<any | null>(null);
   const [warranties, setWarranties] = useState<any[]>([]);
   const [parts, setParts] = useState<any[]>([]);
@@ -102,7 +120,8 @@ export default function DeviceProfilePage() {
       setDevice(dev);
 
       // Fan-out the dependent fetches in parallel — each tolerates its own failure.
-      const [warrantiesR, partsR, possessionR, currentR, contractR, tasksR] = await Promise.allSettled([
+      const [overviewR, warrantiesR, partsR, possessionR, currentR, contractR, tasksR] = await Promise.allSettled([
+        api.installedDevices.getOverview(deviceId),
         api.deviceWarranties.list(deviceId),
         api.deviceParts.list(deviceId),
         canViewPossession ? api.devicePossession.list(deviceId) : Promise.resolve([]),
@@ -111,6 +130,7 @@ export default function DeviceProfilePage() {
         api.openTasks.listByDevice(deviceId),
       ]);
 
+      setOverview(overviewR.status === 'fulfilled' ? overviewR.value : null);
       setWarranties(warrantiesR.status === 'fulfilled' ? warrantiesR.value : []);
       setParts(partsR.status === 'fulfilled' ? partsR.value : []);
       setPossessionLog(possessionR.status === 'fulfilled' ? possessionR.value : []);
@@ -137,52 +157,7 @@ export default function DeviceProfilePage() {
     );
   }, [warranties]);
 
-  // Sticky top tabs: all sections are stacked and scrolled through; the tabs
-  // jump to a section and scroll-spy highlights whichever is under the bar.
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [activeSection, setActiveSection] = useState<string>(SECTIONS[0].id);
-
-  useEffect(() => {
-    if (!device) return;
-    const scroller = scrollRef.current;
-    if (!scroller) return;
-    // The active section is the last one (document order) whose top has scrolled
-    // up past the sticky tab bar. MARKER is a viewport y just below breadcrumb +
-    // tabs. A scroll listener is used because it fires reliably on user scroll.
-    const MARKER = 175;
-    const onScroll = () => {
-      // At the very bottom the last short/empty sections never reach the marker —
-      // pin the active tab to the last section so it matches where the user is.
-      if (scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 4) {
-        setActiveSection(visibleSections[visibleSections.length - 1].id);
-        return;
-      }
-      let current = visibleSections[0].id;
-      for (const s of visibleSections) {
-        const el = document.getElementById(s.id);
-        if (!el) continue;
-        if (el.getBoundingClientRect().top - MARKER <= 0) current = s.id;
-        else break;
-      }
-      setActiveSection(current);
-    };
-    onScroll();
-    scroller.addEventListener('scroll', onScroll, { passive: true });
-    window.addEventListener('resize', onScroll);
-    return () => {
-      scroller.removeEventListener('scroll', onScroll);
-      window.removeEventListener('resize', onScroll);
-    };
-    // `loading` is included so the effect re-runs once the scroll container is
-    // actually mounted (device is set a render before loading flips false).
-  }, [device, loading, visibleSections]);
-
-  const handleJump = useCallback((id: string) => {
-    setActiveSection(id);
-    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, []);
-
-  if (loading) {
+  if (loading && !device) {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-slate-500">
         <Loader2 className="w-8 h-8 animate-spin text-sky-500 mb-4" />
@@ -206,6 +181,8 @@ export default function DeviceProfilePage() {
     );
   }
 
+  const missing = missingItems(device);
+
   return (
     <div className="h-full flex flex-col overflow-hidden bg-slate-50" style={{ direction: 'rtl' }}>
       {/* Full-width white breadcrumb bar (fixed above the scroll area) */}
@@ -221,21 +198,22 @@ export default function DeviceProfilePage() {
       />
 
       {/* Scrollable area */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto custom-scroll">
-        <div className="mx-auto max-w-[1600px] px-4 py-6 space-y-6 sm:px-6 lg:px-8">
+      <div className="flex-1 overflow-y-auto custom-scroll">
+        <div className="mx-auto max-w-[1600px] px-4 py-6 space-y-4 sm:px-6 lg:px-8">
 
       {/* Header card */}
-      <header className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
+      <header className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
             <h1 className="text-2xl font-bold text-slate-800">{device.deviceModelName || `جهاز #${device.id}`}</h1>
-            <div className="flex items-center gap-2 mt-1.5 text-xs text-slate-500">
+            <div className="flex items-center gap-2 mt-1.5 text-xs text-slate-500 flex-wrap">
               <span>الرقم التسلسلي:</span>
               {device.serialNumber ? (
                 <span className="font-mono font-bold text-slate-700" dir="ltr">{device.serialNumber}</span>
               ) : (
                 <span className="font-bold text-amber-700">غير مسجل بعد</span>
               )}
+              {device.branchName && <span className="text-slate-400">· فرع {device.branchName}</span>}
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
@@ -264,7 +242,10 @@ export default function DeviceProfilePage() {
         </div>
       </header>
 
-      {missingItems(device).length > 0 && (
+      {/* Operational strip: journey + indicators */}
+      <DeviceOverviewStrip device={device} overview={overview} />
+
+      {missing.length > 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3">
           <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
           <div>
@@ -272,43 +253,69 @@ export default function DeviceProfilePage() {
             <div className="text-xs text-amber-700 mt-1 leading-relaxed">
               هذا الجهاز موجود ومربوط بالعقد، لكن بعض معلوماته التشغيلية لم تحفظ بعد:
               {' '}
-              <span className="font-bold">{missingItems(device).join('، ')}</span>.
+              <span className="font-bold">{missing.join('، ')}</span>.
             </div>
           </div>
         </div>
       )}
 
-      {/* Sticky section tabs — rise on scroll and stop just under the breadcrumb bar */}
+      {/* Tabs — only the active one is rendered */}
       <div className="sticky top-0 z-30 -mx-4 border-b border-slate-200 bg-white px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
-        <ProfileTabsBar tabs={visibleSections} activeId={activeSection} onChange={handleJump} />
+        <ProfileTabsBar tabs={visibleTabs} activeId={activeTab} onChange={selectTab} />
       </div>
 
-      {/* All sections stacked; the tabs jump / scroll-spy through them */}
-      <IdentitySection device={device} />
-      <OperationalStatusSection
-        device={device}
-        tasks={tasks}
-        canManageDeliverySuspension={canManageDeliverySuspension}
-        onTaskCreated={fetchAll}
-      />
-      {canViewPossession && (
+      {activeTab === 'overview' && (
         <>
-          <CurrentHolderSection device={device} currentPossession={currentPossession} />
-          <PossessionHistorySection entries={possessionLog} />
+          <IdentitySection device={device} canEditDetails={canEditDetails} onChanged={fetchAll} />
+          <OperationalStatusSection
+            device={device}
+            tasks={tasks}
+            canManageDeliverySuspension={canManageDeliverySuspension}
+            onTaskCreated={fetchAll}
+          />
+          <LinkedContractSection contract={contract} apiBase={API_BASE} />
         </>
       )}
-      <WarrantiesSection
-        warranties={warranties}
-        device={{ id: device.id, customerId: device.customerId, contractId: device.contractId, branchId: device.branchId, status: device.status }}
-        onCreated={fetchAll}
-      />
-      <ServiceAgreementsSection device={device} onChanged={fetchAll} />
-      <InstalledPartsSection contract={contract} deviceParts={parts} onChanged={fetchAll} />
-      <LinkedContractSection contract={contract} apiBase={API_BASE} />
-      <FinancialSection contract={contract} customerId={device.customerId ?? null} />
-      <TasksSection tasks={tasks} deviceId={deviceId} contractId={device.contractId} device={device} onTaskCreated={fetchAll} />
-      <ProblemsHistorySection deviceId={deviceId} />
-      <TechnicalHealthSection deviceId={deviceId} />
+
+      {activeTab === 'service' && (
+        <>
+          <TasksSection tasks={tasks} deviceId={deviceId} contractId={device.contractId} device={device} onTaskCreated={fetchAll} />
+          <ProblemsHistorySection deviceId={deviceId} />
+          <TechnicalHealthSection deviceId={deviceId} />
+          <InstalledPartsSection contract={contract} deviceParts={parts} onChanged={fetchAll} />
+        </>
+      )}
+
+      {activeTab === 'warranties' && (
+        <>
+          <WarrantiesSection
+            warranties={warranties}
+            device={{ id: device.id, customerId: device.customerId, contractId: device.contractId, branchId: device.branchId, status: device.status }}
+            onCreated={fetchAll}
+          />
+          <ServiceAgreementsSection device={device} onChanged={fetchAll} />
+          <FinancialSection contract={contract} customerId={device.customerId ?? null} />
+        </>
+      )}
+
+      {activeTab === 'possession' && canViewPossession && (
+        <>
+          <CurrentHolderSection device={device} currentPossession={currentPossession} />
+          <PossessionHistorySection
+            entries={possessionLog}
+            device={{ id: device.id, customerId: device.customerId, customerName: device.customerName, branchId: device.branchId }}
+            canManage={canManagePossession}
+            onChanged={fetchAll}
+          />
+        </>
+      )}
+
+      {activeTab === 'history' && (
+        <>
+          {canViewLifecycle && <DeviceLifecycleSection deviceId={deviceId} />}
+          {canViewActivity && <DeviceActivitySection deviceId={deviceId} />}
+        </>
+      )}
         </div>
       </div>
     </div>

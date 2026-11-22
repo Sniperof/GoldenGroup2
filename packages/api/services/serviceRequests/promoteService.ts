@@ -34,6 +34,7 @@ import {
   type ServiceResult,
 } from './_shared.js';
 import { persistOpenTaskSnapshots } from '../../routes/openTasks.js';
+import { labelDeviceChange } from '../deviceActivityContext.js';
 import {
   DEVICE_SERIAL_CONFLICT_CODE,
   DEVICE_SERIAL_CONFLICT_MESSAGE,
@@ -628,6 +629,7 @@ async function createLightweightInstalledDevice(
       (serviceAddress?.['address_text'] as string | undefined) ??
       (serviceAddress?.['text'] as string | undefined) ??
       null;
+    await labelDeviceChange(db, 'service_request_promoted');
     const { rows } = await db.query<{ id: number }>(
       `INSERT INTO installed_devices (
          contract_id, customer_id, branch_id, device_source,

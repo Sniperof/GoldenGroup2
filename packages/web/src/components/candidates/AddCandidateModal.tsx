@@ -107,6 +107,9 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
     const [ownershipType, setOwnershipType] = useState<'PERSONAL' | 'BRANCH'>('PERSONAL');
     const [selectedResponsibleUserId, setSelectedResponsibleUserId] = useState<number | ''>('');
     useEffect(() => {
+        // MainLayout keeps this modal mounted on every page, so loading the full
+        // clients + contracts lists must wait until it is actually opened.
+        if (!isOpen) return;
         let active = true;
 
         // allSettled (not all): a permission failure on contracts/occupation must
@@ -136,7 +139,7 @@ export default function AddCandidateModal({ isOpen, onClose, initialDirectMode, 
         return () => {
             active = false;
         };
-    }, [canChooseAssignedOwner, canChooseBranch]);
+    }, [isOpen, canChooseAssignedOwner, canChooseBranch]);
 
     // Address options are constrained to the operation branch's geo coverage
     // (engineering standard §5.1) — reloads whenever the chosen branch changes,

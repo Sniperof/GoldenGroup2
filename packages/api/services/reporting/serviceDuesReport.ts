@@ -17,7 +17,7 @@ interface QueryOptions { offset?: number; limit: number; includeTotalRows?: bool
 const RECEIVABLE_INSTALLMENTS_SQL = `
           SELECT 'contract'::text AS kind, i.id, i.contract_id, i.due_date, i.amount_syp,
                  i.confirmed, i.created_at, i.collection_owner_id,
-                 c.customer_id, COALESCE(c.service_branch_id, c.branch_id) AS branch_id,
+                 COALESCE(c.payer_client_id, c.customer_id) AS customer_id, COALESCE(c.service_branch_id, c.branch_id) AS branch_id,
                  NULL::int AS device_id, NULL::int AS source_id, NULL::int AS costs_id,
                  c.final_price AS source_total,
                  i.amount_usd, i.remaining_balance AS live_remaining

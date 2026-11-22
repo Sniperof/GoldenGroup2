@@ -131,7 +131,7 @@ export async function loadCollectableInstallment(
     `SELECT i.id, i.contract_id AS "contractId", NULL::int AS "deviceId",
             i.installment_number AS "installmentNumber", i.due_date AS "dueDate",
             i.remaining_balance AS "remainingBalance",
-            c.customer_id AS "customerId", COALESCE(c.service_branch_id, c.branch_id) AS "branchId",
+            COALESCE(c.payer_client_id, c.customer_id) AS "customerId", COALESCE(c.service_branch_id, c.branch_id) AS "branchId",
             c.contract_number AS "contractNumber"
        FROM contract_installments i
        JOIN contracts c ON c.id = i.contract_id

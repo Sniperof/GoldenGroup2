@@ -1068,6 +1068,9 @@ export interface DevicePossessionEntry {
   endAt: string | null;
   reason: PossessionReason;
   notes?: string | null;
+  /** Managed-list reason of an administrative transfer (migration 500). */
+  reasonCode?: string | null;
+  reasonLabel?: string | null;
   createdBy?: number | null;
   createdAt: string;
 }

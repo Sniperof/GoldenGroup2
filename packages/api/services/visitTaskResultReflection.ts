@@ -25,6 +25,7 @@
 // ============================================================
 
 import type { PoolClient } from 'pg';
+import { recordFieldTransferFinances } from './devicePossessionTransfer.js';
 import { evaluateMembraneEfficiency, membraneEfficiencyIssueMessage } from '@golden-crm/shared';
 import pool from '../db.js';
 import { getGoldenWarrantyDeliveryResultIssue } from './openTaskLinkagePolicy.js';
@@ -4771,6 +4772,15 @@ export async function applyDeviceTransferResult(
             employeeId,
           ],
         );
+        // The installments, golden-warranty remainder and open collection tasks
+        // follow the new holder, as in the administrative transfer (migr 500/501).
+        await recordFieldTransferFinances(db as PoolClient, {
+          deviceId: Number(vt.device_id),
+          visitTaskResultId,
+          fromClientId: Number(vt.from_client_id),
+          toClientId: Number(toClientId),
+          userId: performedByUserId,
+        });
       }
     }
 

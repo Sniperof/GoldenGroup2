@@ -111,7 +111,11 @@ export default function GiftRecordActions({
       leading: <XCircle className="h-4 w-4 text-rose-600" />,
     }] : []),
   ];
-  const taskCompanions = candidateRecords.filter(candidate => (
+  // Companion gifts for a combined delivery task. The table may be paged, so the
+  // rows it holds are not the full set — fetch the beneficiary's approved gifts
+  // when the task dialog opens; fall back to the rows the parent passed.
+  const [serverCompanions, setServerCompanions] = useState<GiftRecord[] | null>(null);
+  const taskCompanions = (serverCompanions ?? candidateRecords).filter(candidate => (
     candidate.status === 'approved_for_delivery'
     && !candidate.deliveryTaskId
     && candidate.beneficiaryClientId != null
@@ -119,25 +123,40 @@ export default function GiftRecordActions({
     && String(candidate.responsibleBranchId ?? candidate.sourceBranchId ?? '') === String(record.responsibleBranchId ?? record.sourceBranchId ?? '')
   ));
 
+  // Lookup lists load only when their dialog opens — this component renders once
+  // per table row, so eager loading fired two requests for every row.
   useEffect(() => {
+    if (action !== 'task') return;
+    let active = true;
     api.systemLists.getItemsByCode('gift_delivery_creation_reasons')
       .then((items: any) => {
+        if (!active) return;
         const list = Array.isArray(items) ? items : [];
         setCreationReasons(list);
         setCreationReason((current) => current || (list[0]?.value ?? ''));
       })
-      .catch(() => setCreationReasons([]));
-  }, []);
+      .catch(() => { if (active) setCreationReasons([]); });
+    if (record.beneficiaryClientId != null) {
+      api.gifts.records.list({ clientId: record.beneficiaryClientId, status: 'approved_for_delivery' })
+        .then(rows => { if (active) setServerCompanions(Array.isArray(rows) ? rows : null); })
+        .catch(() => { if (active) setServerCompanions(null); });
+    }
+    return () => { active = false; };
+  }, [action, record.beneficiaryClientId]);
 
   useEffect(() => {
+    if (action !== 'manual') return;
+    let active = true;
     api.systemLists.getItemsByCode('gift_manual_delivery_methods')
       .then((items: any) => {
+        if (!active) return;
         const list = Array.isArray(items) ? items : [];
         setManualMethods(list);
         setManualMethodId(current => current || String(list[0]?.id ?? ''));
       })
-      .catch(() => setManualMethods([]));
-  }, []);
+      .catch(() => { if (active) setManualMethods([]); });
+    return () => { active = false; };
+  }, [action]);
 
   function openAction(kind: ActionKind) {
     setError(null);

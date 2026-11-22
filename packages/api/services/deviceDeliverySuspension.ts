@@ -2,6 +2,7 @@ import type { PoolClient } from 'pg';
 import type { AuthContext } from '@golden-crm/shared';
 import { canManageDeviceDeliverySuspension } from '../policies/deviceDeliverySuspensionPolicy.js';
 import { insertAuditLog } from '../utils/auditLog.js';
+import { labelDeviceChange } from './deviceActivityContext.js';
 
 const ACTIVE_DELIVERY_TASK_STATUSES = [
   'open', 'needs_follow_up', 'assigned', 'in_scheduling', 'scheduled',
@@ -229,6 +230,7 @@ export async function changeDeviceDeliverySuspension(
       )
     : { cancelledTaskIds: [], cancelledVisitIds: [] };
 
+  await labelDeviceChange(client, input.action === 'suspend' ? 'delivery_suspended' : 'delivery_resumed', notes);
   await client.query(
     `UPDATE installed_devices
         SET status = $2, updated_at = NOW()

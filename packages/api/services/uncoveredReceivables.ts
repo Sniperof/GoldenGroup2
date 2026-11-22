@@ -82,7 +82,7 @@ function uncoveredUnionSql(activeParam: string): string {
   return `
     SELECT 'contract'::text AS kind, i.id AS installment_id, i.installment_number, i.due_date,
            i.amount_syp::numeric AS amount_syp, i.remaining_balance::numeric AS remaining_balance,
-           c.customer_id AS client_id, COALESCE(c.service_branch_id, c.branch_id) AS branch_id,
+           COALESCE(c.payer_client_id, c.customer_id) AS client_id, COALESCE(c.service_branch_id, c.branch_id) AS branch_id,
            'contract'::text AS source_type, c.id AS source_id,
            ('عقد رقم ' || COALESCE(c.contract_number::text, c.id::text)) AS source_label,
            c.id AS contract_id, c.contract_number::text AS contract_number, NULL::int AS device_id,

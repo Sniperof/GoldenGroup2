@@ -3379,6 +3379,8 @@ router.post('/:visitId/tasks/:taskId/result', requirePermission('tasks.results.r
         {
           changeContext: isEdit ? 'result_edit' : 'visit_result',
           changeReason: isEdit ? editReason : null,
+          // Lets the device activity log (498) name the task behind a status move.
+          visitTaskId: taskId,
         },
         () => applyResult(taskId, body, authContext.userId),
       );

@@ -346,6 +346,36 @@ export async function listClientLifecycle(
     }));
   }
 
+  // Administrative possession transfers from the device page (migration 500).
+  const adminTransfers = allowed.devices ? await pool.query(
+    `SELECT t.id, t.created_at, t.device_id, t.from_client_id, t.to_client_id,
+            fc.name AS from_name, tc.name AS to_name,
+            COALESCE(d.device_model_name, d.external_device_name) AS model, d.serial_number,
+            COALESCE(sl.metadata->>'label', t.reason_code) AS reason, u.name AS actor
+       FROM device_possession_transfers t
+       LEFT JOIN installed_devices d ON d.id = t.device_id
+       LEFT JOIN clients fc ON fc.id = t.from_client_id
+       LEFT JOIN clients tc ON tc.id = t.to_client_id
+       LEFT JOIN system_lists sl ON sl.category = 'device_possession_transfer_reasons' AND sl.value = t.reason_code
+       LEFT JOIN hr_users u ON u.id = t.performed_by
+      WHERE $1 IN (t.from_client_id, t.to_client_id)
+        -- Field transfers already show through their task result above.
+        AND t.source = 'manual'`,
+    [id],
+  ) : { rows: [] as any[] };
+  for (const t of adminTransfers.rows) {
+    const at = toIso(t.created_at);
+    if (!at) continue;
+    const outgoing = Number(t.from_client_id) === id;
+    events.push(event({
+      key: `possession-transfer:${t.id}`, category: 'devices', kind: outgoing ? 'device_transferred_out' : 'device_transferred_in',
+      at, dateOnly: false,
+      title: outgoing ? `نُقلت حيازة جهاز إلى ${t.to_name ?? 'زبون آخر'}` : `نُقلت إليه حيازة جهاز من ${t.from_name ?? 'زبون آخر'}`,
+      detail: joinDetail(t.model, t.serial_number && `رقم تسلسلي ${t.serial_number}`, t.reason),
+      actor: t.actor ?? null, link: { type: 'device', id: Number(t.device_id) },
+    }));
+  }
+
   // ── Money: actual payments and refunds ───────────────────────────────────
   for (const f of payments.rows) {
     const at = toIso(f.occurred_at);

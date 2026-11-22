@@ -13,6 +13,8 @@ export const DEVICE_POSSESSION_SELECT = `
   dpl.end_at,
   dpl.reason,
   dpl.notes,
+  dpl.reason_code,
+  COALESCE(reason_list.metadata->>'label', dpl.reason_code) AS reason_label,
   dpl.created_by,
   dpl.created_at
 `;
@@ -28,6 +30,9 @@ export const DEVICE_POSSESSION_FROM = `
   LEFT JOIN branches holder_workshop
     ON dpl.holder_type = 'workshop'
    AND holder_workshop.id = dpl.holder_id
+  LEFT JOIN system_lists reason_list
+    ON reason_list.category = 'device_possession_transfer_reasons'
+   AND reason_list.value = dpl.reason_code
 `;
 
 export function mapDevicePossessionRow(row: any) {
@@ -41,6 +46,8 @@ export function mapDevicePossessionRow(row: any) {
     endAt: row.end_at,
     reason: row.reason,
     notes: row.notes,
+    reasonCode: row.reason_code ?? null,
+    reasonLabel: row.reason_label ?? null,
     createdBy: row.created_by,
     createdAt: row.created_at,
   };

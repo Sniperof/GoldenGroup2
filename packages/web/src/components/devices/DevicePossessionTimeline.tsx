@@ -51,6 +51,9 @@ export function DevicePossessionTimeline({ entries }: Props) {
                   {' — '}
                   <span>إلى: <span className="font-semibold text-slate-700">{isOpen ? 'الآن (حالي)' : fmt(e.endAt)}</span></span>
                 </div>
+                {e.reasonLabel && (
+                  <p className="mt-1 text-xs font-semibold text-slate-600">سبب النقل: {e.reasonLabel}</p>
+                )}
                 {e.notes && (
                   <p className="mt-1 text-xs text-slate-400 italic">{e.notes}</p>
                 )}
