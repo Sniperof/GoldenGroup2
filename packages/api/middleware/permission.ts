@@ -8,6 +8,7 @@ import {
   authorize,
   buildAuthContext,
   clearAuthorizationCache,
+  defaultWriteBranchId,
   resolveActingBranch,
 } from '../services/authorizationService.js';
 
@@ -147,10 +148,13 @@ export async function requireNotHQOnly(req: Request, res: Response, next: NextFu
 
 // AuthContext is required here because branch authorization must use user_branch_assignments,
 // not legacy JWT branch_id.
+// `permission` = the operation's own key. With it, a GLOBAL holder may target a
+// branch outside their assignments; without it, only the assignments count.
 export function resolveTargetBranchId(
   req: Request,
   res: Response,
   bodyBranchId?: number | string | null,
+  permission?: string,
 ): number | null {
   if (!req.user) {
     res.status(401).json({ error: 'غير مصرح' });
@@ -163,12 +167,24 @@ export function resolveTargetBranchId(
 
   const authContext = req.authContext;
   const requestedSource = bodyBranchId ?? req.header('x-branch-id');
-  const requestedBranchId = resolveActingBranch({
+  let requestedBranchId = resolveActingBranch({
     headerBranchId: requestedSource,
-    primaryBranchId: authContext.actingBranchId ?? authContext.allowedBranchIds[0] ?? null,
+    primaryBranchId: defaultWriteBranchId(authContext),
     allowedBranchIds: authContext.allowedBranchIds,
     isSuperAdmin: req.user.isSuperAdmin === true,
   });
+  // A branch outside the assignments is accepted only when the operation's own
+  // permission reaches it (a GLOBAL grant). BRANCH grants stay bounded, so this
+  // never widens a branch-scoped writer.
+  const explicitBranchId = Number(requestedSource);
+  if (
+    requestedBranchId == null
+    && permission
+    && Number.isInteger(explicitBranchId) && explicitBranchId > 0
+    && authorize(authContext, { permission, branchId: explicitBranchId }).allowed
+  ) {
+    requestedBranchId = explicitBranchId;
+  }
 
   if (req.user.isSuperAdmin === true) {
     if (requestedBranchId == null) {
@@ -180,6 +196,13 @@ export function resolveTargetBranchId(
   }
 
   if (requestedBranchId == null) {
+    // Nothing named and nothing to infer: a cross-branch actor on "all
+    // branches" must pick the branch rather than write into their home branch.
+    const nothingRequested = requestedSource == null || requestedSource === '';
+    if (nothingRequested && authContext.allowedBranchIds.length > 0) {
+      res.status(400).json({ error: 'يجب تحديد الفرع المستهدف لهذه العملية', code: 'BRANCH_REQUIRED' });
+      return null;
+    }
     if (authContext.allowedBranchIds.length === 0) {
       res.status(403).json({ error: 'الحساب غير مرتبط بأي فرع فعّال' });
       return null;

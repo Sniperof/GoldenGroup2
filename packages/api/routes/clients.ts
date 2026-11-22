@@ -4,7 +4,8 @@ import pool from '../db.js';
 import { runWithChangeContext } from '../auditContext.js';
 import { requireAuth } from '../middleware/auth.js';
 import { getOrBuildAuthContext, requirePermission } from '../middleware/permission.js';
-import { authorize, resolveActingBranch } from '../services/authorizationService.js';
+import { authorize, defaultWriteBranchId, resolveActingBranch } from '../services/authorizationService.js';
+import { readRequestedBranchId, resolveBranchView, sendBranchViewRefusal, type BranchViewGranted } from '../services/branchViewService.js';
 import { assertGeoUnitInScope } from '../services/geoScopeService.js';
 import {
   linkNewClientToServiceRequestParty,
@@ -22,7 +23,6 @@ import {
   canViewClientLifecycle,
   canViewClientRating,
   canUnlockClientCooldown,
-  getClientListAccessPlan,
 } from '../policies/clientPolicy.js';
 import { canEditCandidate } from '../policies/candidatePolicy.js';
 import { listClientLifecycle } from '../services/clientLifecycleTimeline.js';
@@ -615,20 +615,10 @@ function resolveClientTargetBranch(req: any, requestedBranchId?: number | string
 
   return resolveActingBranch({
     headerBranchId: explicitBranchId,
-    primaryBranchId: authContext.actingBranchId ?? authContext.allowedBranchIds[0] ?? null,
+    primaryBranchId: defaultWriteBranchId(authContext),
     allowedBranchIds: authContext.allowedBranchIds,
     isSuperAdmin: authContext.isSuperAdmin,
   });
-}
-
-function resolveClientListBranchFilter(req: any): number | null {
-  const requestedBranchId = req.header('x-branch-id');
-  if (requestedBranchId == null || requestedBranchId === '') {
-    return null;
-  }
-
-  const normalized = Number(requestedBranchId);
-  return Number.isInteger(normalized) && normalized > 0 ? normalized : null;
 }
 
 function clientVisibleInBranchesCondition(paramRef: string): string {
@@ -649,33 +639,26 @@ function clientVisibleInBranchesCondition(paramRef: string): string {
   )`;
 }
 
-// Shared client-list scope predicates — the single source of truth for the
-// BRANCH/ASSIGNED/requested-branch WHERE fragments, used by both the legacy
-// GET '/' list and the new paginated GET '/paged'. Pushes bound params onto
-// `params` (mutated) so callers can append their own filter params afterwards
-// with correct $n indices (SH-1: no drift between the two list endpoints).
+// Shared client-list scope predicates — translates the resolved branch view
+// (services/branchViewService.ts: which branches, which scope) into SQL for
+// both GET '/' and GET '/paged' and the bulk-ownership preview. Pushes bound
+// params onto `params` (mutated) so callers can append their own filter params
+// afterwards with correct $n indices (SH-1: no drift between the endpoints).
 function appendClientScopeConditions(
-  authContext: any,
-  requestedBranchId: number | null,
-  scope: string,
+  view: BranchViewGranted,
   params: any[],
 ): string[] {
   // A deleted client (soft delete) is out of every list, count and picker.
   const conditions: string[] = ['c.deleted_at IS NULL'];
 
-  if (requestedBranchId != null) {
-    params.push([requestedBranchId]);
-    conditions.push(clientVisibleInBranchesCondition(`$${params.length}`));
-  } else if (scope === 'BRANCH') {
-    params.push(authContext.allowedBranchIds);
+  if (view.branchIds != null) {
+    params.push(view.branchIds);
     conditions.push(clientVisibleInBranchesCondition(`$${params.length}`));
   }
 
-  if (scope === 'ASSIGNED') {
-    params.push(authContext.userId);
+  if (view.scope === 'ASSIGNED') {
+    params.push(view.userId);
     conditions.push(personalOwnershipPredicate('c.id', `$${params.length}`));
-    params.push(requestedBranchId != null ? [requestedBranchId] : authContext.allowedBranchIds);
-    conditions.push(clientVisibleInBranchesCondition(`$${params.length}`));
   }
 
   return conditions;
@@ -966,30 +949,18 @@ async function insertClientAssignments(
 router.get('/', requirePermission('clients.view_list'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
-    const requestedBranchId = resolveClientListBranchFilter(req);
-    const listAccess = getClientListAccessPlan(authContext);
-
-    if (!authContext.isSuperAdmin && authContext.allowedBranchIds.length === 0) {
-      return res.status(403).json({ error: 'لا يوجد فرع فعّال متاح لهذه العملية' });
-    }
-
-    if (requestedBranchId != null && !authContext.isSuperAdmin && !authContext.allowedBranchIds.includes(requestedBranchId)) {
-      return forbidClientAccess(res, 'BRANCH_FORBIDDEN');
-    }
-
-    if (listAccess.scope === 'NONE') {
-      return forbidClientAccess(res, 'MISSING_PERMISSION');
-    }
+    const view = resolveBranchView(authContext, 'clients.view_list', readRequestedBranchId(req.header('x-branch-id')));
+    if (!view.ok) return sendBranchViewRefusal(res, view);
 
     const params: any[] = [];
-    const conditions = appendClientScopeConditions(authContext, requestedBranchId, listAccess.scope, params);
+    const conditions = appendClientScopeConditions(view, params);
 
     const where = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '';
     const { rows } = await pool.query(`${CLIENT_SELECT}${where} ORDER BY c.id`, params);
 
     // Defense-in-depth: ASSIGNED-scope users must not see other assignees' identities.
     // Strip both the raw assignments list and ownership.personalAssignments.
-    const responseRows = listAccess.scope === 'ASSIGNED'
+    const responseRows = view.scope === 'ASSIGNED'
       ? rows.map((r: any) => {
           const mapped = mapClientRow({ ...r, assignments: [] });
           mapped.ownership = redactPersonalAssignments(mapped.ownership);
@@ -1226,18 +1197,8 @@ function appendClientListFilterConditions(query: any, params: any[], conditions:
 router.get('/paged', requirePermission('clients.view_list'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
-    const requestedBranchId = resolveClientListBranchFilter(req);
-    const listAccess = getClientListAccessPlan(authContext);
-
-    if (!authContext.isSuperAdmin && authContext.allowedBranchIds.length === 0) {
-      return res.status(403).json({ error: 'لا يوجد فرع فعّال متاح لهذه العملية' });
-    }
-    if (requestedBranchId != null && !authContext.isSuperAdmin && !authContext.allowedBranchIds.includes(requestedBranchId)) {
-      return forbidClientAccess(res, 'BRANCH_FORBIDDEN');
-    }
-    if (listAccess.scope === 'NONE') {
-      return forbidClientAccess(res, 'MISSING_PERMISSION');
-    }
+    const view = resolveBranchView(authContext, 'clients.view_list', readRequestedBranchId(req.header('x-branch-id')));
+    if (!view.ok) return sendBranchViewRefusal(res, view);
 
     // ── Pagination + sort inputs ──
     const page = toPositiveInt(req.query.page as any) ?? 1;
@@ -1252,7 +1213,7 @@ router.get('/paged', requirePermission('clients.view_list'), async (req, res) =>
 
     // ── Shared WHERE: scope + always non-candidate + optional filters ──
     const params: any[] = [];
-    const conditions = appendClientScopeConditions(authContext, requestedBranchId, listAccess.scope, params);
+    const conditions = appendClientScopeConditions(view, params);
     conditions.push('c.is_candidate = FALSE');
 
     appendClientListFilterConditions(req.query, params, conditions);
@@ -1270,7 +1231,7 @@ router.get('/paged', requirePermission('clients.view_list'), async (req, res) =>
       orderBy,
       limitRef,
       offsetRef,
-      listAccess.scope,
+      view.scope,
     );
 
     const [pageResult, statsResult] = await Promise.all([
@@ -1296,7 +1257,7 @@ router.get('/paged', requirePermission('clients.view_list'), async (req, res) =>
     }
 
     // Defense-in-depth: ASSIGNED-scope users must not see other assignees' identities.
-    const items = listAccess.scope === 'ASSIGNED'
+    const items = view.scope === 'ASSIGNED'
       ? pageResult.rows.map((r: any) => {
           const mapped = mapClientRow({ ...r, assignments: [] });
           mapped.ownership = redactPersonalAssignments(mapped.ownership);
@@ -2290,7 +2251,7 @@ router.post('/bulk-ownership', requirePermission('clients.assignment.manage'), a
     });
   }
 
-  const headerBranchId = resolveClientListBranchFilter(req);
+  const headerBranchId = readRequestedBranchId(req.header('x-branch-id'));
   let branchId = headerBranchId
     ?? (authContext.allowedBranchIds.length === 1 ? Number(authContext.allowedBranchIds[0]) : null);
   // Ticked rows carry their own branch (a GLOBAL viewer may be on «all
@@ -2310,8 +2271,9 @@ router.post('/bulk-ownership', requirePermission('clients.assignment.manage'), a
   }
   const access = canManageClientAssignments(authContext, branchId);
   if (!access.allowed) return forbidClientAccess(res, access.reason);
-  const listAccess = getClientListAccessPlan(authContext);
-  if (listAccess.scope === 'NONE') return forbidClientAccess(res, 'MISSING_PERMISSION');
+  // The bulk action works on exactly what the records table shows for this branch.
+  const view = resolveBranchView(authContext, 'clients.view_list', branchId);
+  if (!view.ok) return sendBranchViewRefusal(res, view);
   // A preview may run before the employee is picked (counts without the
   // «already owner» split); applying always needs one.
   if (userId == null && !dryRun) {
@@ -2330,7 +2292,7 @@ router.post('/bulk-ownership', requirePermission('clients.assignment.manage'), a
 
     // Same scope + filters as the records table, narrowed to the branch.
     const params: any[] = [];
-    const conditions = appendClientScopeConditions(authContext, branchId, listAccess.scope, params);
+    const conditions = appendClientScopeConditions(view, params);
     conditions.push('c.is_candidate = FALSE', 'c.deleted_at IS NULL');
     const conditionsBeforeFilters = conditions.length;
     if (clientIds != null) {

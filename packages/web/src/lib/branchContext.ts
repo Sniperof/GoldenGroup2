@@ -1,3 +1,5 @@
+import { getCurrentBranchContext } from '../hooks/useBranchContextStore';
+
 // Group 2 pages (branch-scope-and-visibility-standard.md §6): top-management /
 // reference surfaces whose data is global — the admin branch filter must NOT apply,
 // so its X-Branch-Id is never attached here. NOTE: `/devices` = the global device
@@ -40,4 +42,21 @@ export function isGlobalOnlyPath(pathname: string): boolean {
 
 export function shouldAttachBranchContextHeader(pathname: string): boolean {
   return !isGlobalOnlyPath(pathname);
+}
+
+/**
+ * The X-Branch-Id value for a request made from `pathname` — the ONE helper the
+ * REST client, authFetch and tRPC all use. It reads the EFFECTIVE branch for the
+ * current section (useBranchContextStore.branchId), not the raw switcher choice:
+ * a section whose grant does not reach the chosen branch sends no branch, so the
+ * server scopes to what the user can see there instead of refusing.
+ */
+export function branchContextHeaderValue(pathname: string): string | null {
+  try {
+    if (!shouldAttachBranchContextHeader(pathname)) return null;
+    const branchId = getCurrentBranchContext();
+    return branchId != null && Number.isFinite(branchId) && branchId > 0 ? String(branchId) : null;
+  } catch {
+    return null;
+  }
 }

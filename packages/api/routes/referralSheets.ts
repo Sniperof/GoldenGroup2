@@ -2,12 +2,12 @@ import { Router } from 'express';
 import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
-import { resolveActingBranch } from '../services/authorizationService.js';
+import { defaultWriteBranchId, resolveActingBranch } from '../services/authorizationService.js';
 import { eligibleHrUserWithPermissionCondition } from '../services/assigneeEligibility.js';
+import { readRequestedBranchId, resolveBranchView, sendBranchViewRefusal } from '../services/branchViewService.js';
 import {
   canCreateReferralSheet,
   canEditReferralSheet,
-  getReferralSheetListAccessPlan,
 } from '../policies/referralSheetPolicy.js';
 import {
   createReferralGiftPromise,
@@ -151,20 +151,10 @@ function resolveReferralSheetTargetBranch(
 
   return resolveActingBranch({
     headerBranchId: raw,
-    primaryBranchId: authContext.actingBranchId ?? authContext.allowedBranchIds[0] ?? null,
+    primaryBranchId: defaultWriteBranchId(authContext),
     allowedBranchIds: authContext.allowedBranchIds,
     isSuperAdmin: authContext.isSuperAdmin,
   });
-}
-
-function resolveReferralSheetListBranchFilter(req: any): number | null {
-  const requestedBranchId = req.header('x-branch-id');
-  if (requestedBranchId == null || requestedBranchId === '') {
-    return null;
-  }
-
-  const normalized = Number(requestedBranchId);
-  return Number.isInteger(normalized) && normalized > 0 ? normalized : null;
 }
 
 async function loadReferralSheetSubject(referralSheetId: string | number): Promise<ReferralSheetSubject | null> {
@@ -324,39 +314,20 @@ async function assertAssignedHrUserExists(
 router.get('/', requirePermission('candidates.name_lists.view_list'), async (req, res) => {
   try {
     const authContext = getRequiredAuthContext(req);
-    const requestedBranchId = resolveReferralSheetListBranchFilter(req);
-    const listAccess = getReferralSheetListAccessPlan(authContext);
-
-    if (!authContext.isSuperAdmin && authContext.allowedBranchIds.length === 0) {
-      return res.status(403).json({ error: 'لا يوجد فرع فعّال متاح لهذه العملية' });
-    }
-
-    if (requestedBranchId != null && !authContext.isSuperAdmin && !authContext.allowedBranchIds.includes(requestedBranchId)) {
-      return forbidReferralSheetAccess(res, 'BRANCH_FORBIDDEN');
-    }
-
-    if (listAccess.scope === 'NONE') {
-      return forbidReferralSheetAccess(res, 'MISSING_PERMISSION');
-    }
+    const view = resolveBranchView(authContext, 'candidates.name_lists.view_list', readRequestedBranchId(req.header('x-branch-id')));
+    if (!view.ok) return sendBranchViewRefusal(res, view);
 
     const conditions: string[] = [];
     const params: any[] = [];
 
-    if (requestedBranchId != null) {
-      params.push(requestedBranchId);
-      conditions.push(`rs.branch_id = $${params.length}`);
-    }
-
-    if (listAccess.scope === 'BRANCH') {
-      params.push(authContext.allowedBranchIds);
+    if (view.branchIds != null) {
+      params.push(view.branchIds);
       conditions.push(`rs.branch_id = ANY($${params.length}::int[])`);
     }
 
-    if (listAccess.scope === 'ASSIGNED') {
-      params.push(authContext.userId);
+    if (view.scope === 'ASSIGNED') {
+      params.push(view.userId);
       conditions.push(`rs.assigned_hr_user_id = $${params.length}`);
-      params.push(authContext.allowedBranchIds);
-      conditions.push(`rs.branch_id = ANY($${params.length}::int[])`);
     }
 
     const where = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '';

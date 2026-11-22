@@ -14,7 +14,8 @@
     "./membraneEfficiency.js": "./membraneEfficiency.ts",
     "./deviceTaskEligibility.js": "./deviceTaskEligibility.ts",
     "./taskResultPolicy.js": "./taskResultPolicy.ts",
-    "./fx.js": "./fx.ts"
+    "./fx.js": "./fx.ts",
+    "./branchReach.js": "./branchReach.ts"
   },
   "dependencies": {
     "zod": "^4.3.6"

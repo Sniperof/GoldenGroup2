@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { readRequestedBranchId, resolveBranchView, sendBranchViewRefusal } from '../services/branchViewService.js';
 import pool from '../db.js';
 import { insertAuditLog } from '../utils/auditLog.js';
 import { requirePermission, resolveTargetBranchId } from '../middleware/permission.js';
@@ -39,7 +40,11 @@ async function assertVacancyBranchAccess(req: any, res: any, vacancyId: string |
     res.status(404).json({ error: 'الشاغر غير موجود' });
     return { ok: false };
   }
-  if (!authContext.isSuperAdmin && rows[0].branch_id !== authContext.actingBranchId) {
+  // A vacancy is reachable in the actor's assigned branches, or anywhere with a
+  // GLOBAL vacancies grant. (Comparing with the acting branch refused every
+  // record to a GLOBAL or multi-branch user on "all branches".)
+  const globalVacancies = (authContext.grants ?? []).some((g: any) => g.permission.startsWith('jobs.vacancies.') && g.scope === 'GLOBAL');
+  if (!authContext.isSuperAdmin && !globalVacancies && !authContext.allowedBranchIds.includes(Number(rows[0].branch_id))) {
     res.status(403).json({ error: 'غير مسموح' });
     return { ok: false };
   }
@@ -197,15 +202,12 @@ router.get('/', requirePermission('jobs.vacancies.view_list'), async (req, res) 
     const params: any[] = [];
     let idx = 1;
 
-    if (!authContext.isSuperAdmin) {
-      conditions.push(`jv.branch_id = $${idx++}`);
-      params.push(authContext.actingBranchId);
-    } else {
-      const hb = Number(req.header('x-branch-id'));
-      if (Number.isFinite(hb) && hb > 0) {
-        conditions.push(`jv.branch_id = $${idx++}`);
-        params.push(hb);
-      }
+    // Branch bound from the view grant (branchViewService) — was the acting branch.
+    const view = resolveBranchView(authContext, 'jobs.vacancies.view_list', readRequestedBranchId(req.header('x-branch-id')));
+    if (!view.ok) return sendBranchViewRefusal(res, view);
+    if (view.branchIds != null) {
+      conditions.push(`jv.branch_id = ANY($${idx++}::int[])`);
+      params.push(view.branchIds);
     }
 
     if (status) { conditions.push(`jv.status = $${idx++}`); params.push(status); }
@@ -372,7 +374,7 @@ router.post('/', requirePermission('jobs.vacancies.create'), async (req, res) =>
     if (!v.endDate) return res.status(400).json({ error: 'تاريخ النهاية مطلوب' });
     if (new Date(v.startDate) > new Date(v.endDate)) return res.status(400).json({ error: 'تاريخ البداية يجب أن يكون قبل تاريخ النهاية' });
 
-    const targetBranchId = resolveTargetBranchId(req, res, v.branchId);
+    const targetBranchId = resolveTargetBranchId(req, res, v.branchId, 'jobs.vacancies.create');
     if (targetBranchId == null) return;
 
     const departmentCheck = await ensureVacancyDepartment(client, targetBranchId, v.departmentId);

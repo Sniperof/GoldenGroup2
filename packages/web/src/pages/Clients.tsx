@@ -1,4 +1,5 @@
 import { alertDialog, confirmDialog } from '../lib/dialogs';
+import { useChoosesBranches } from '../hooks/useChoosesBranches';
 import { useState, useCallback, useMemo, useEffect, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Users, Trash2, UserPlus, CheckCircle2, AlertCircle, Clock, Search, Lightbulb, Pencil, Loader2, Building2, SlidersHorizontal, ChevronDown, X, XCircle } from '../components/ui/icons';
@@ -120,7 +121,8 @@ export default function Clients() {
     // Add rule (§5): a GLOBAL operator viewing "all branches" has no explicit branch
     // to own the new record, so the add button is blocked until a branch is picked —
     // no silent fallback into the base branch (SH-3). Branch/assigned users are pinned.
-    const mustPickBranch = isGlobalClients && branchContextId == null;
+    const choosesBranches = useChoosesBranches();
+    const mustPickBranch = (isGlobalClients || choosesBranches) && branchContextId == null;
     const [branchOptions, setBranchOptions] = useState<{ id: number; name: string }[]>([]);
 
     // Server-paginated data: `clients` holds ONLY the current page (not the whole
@@ -683,12 +685,14 @@ export default function Clients() {
     return (
         <div className="p-4 sm:p-6 lg:p-8 space-y-6">
             {/* 1. Page Title */}
-            <div className="flex items-center justify-between">
+            {/* Mobile (< sm): title on its own line, actions stacked full-width
+                below it. sm+ keeps the original single row. */}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-0">
                 <PageHeader
                     title="سجلات الزبائن"
                     subtitle="إدارة وتحليل بيانات الزبائن والشبكة"
                 />
-                <div className="flex items-center gap-3">
+                <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:gap-3">
                     {/* GLOBAL branch filter moved to the unified external switcher
                         (sidebar). Branch users still see their pinned-branch badge. */}
                     {isBranchClients && (
@@ -701,6 +705,7 @@ export default function Clients() {
                     )}
                 <Button
                     icon={UserPlus}
+                    className="w-full sm:w-auto"
                     disabled={mustPickBranch}
                     title={mustPickBranch ? 'اختر فرعاً أولاً لإضافة زبون' : undefined}
                     onClick={() => {
@@ -746,7 +751,8 @@ export default function Clients() {
             <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm space-y-3">
                 {/* Toolbar: search · filters toggle · clear-all · bulk */}
                 <div className="flex flex-wrap items-center gap-3">
-                    <div className="relative flex-1 min-w-[220px]">
+                    {/* Search takes its own full row on mobile; sm+ unchanged. */}
+                    <div className="relative w-full sm:w-auto sm:flex-1 sm:min-w-[220px]">
                         <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                         <input
                             type="text"

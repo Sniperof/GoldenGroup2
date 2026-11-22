@@ -166,7 +166,7 @@ export async function getTeamTelemarketerAccessEmployeeIds(
  * already the complete authorization inputs.
  */
 export async function canAccessTaskList(
-  authContext: { userId: number; roleId: number | null; isSuperAdmin: boolean; actingBranchId: number | null; grants: any[] },
+  authContext: { userId: number; roleId: number | null; isSuperAdmin: boolean; actingBranchId: number | null; grants: any[]; allowedBranchIds?: number[] },
   taskList: { teamKey: string; date: string; branchId: number | null },
 ): Promise<boolean> {
   // Super admin or GLOBAL scope: always allowed
@@ -185,6 +185,15 @@ export async function canAccessTaskList(
     return false;
   }
   if (taskList.branchId !== authContext.actingBranchId) return false;
+  // A cross-branch operator (GLOBAL list view elsewhere) may now hold an acting
+  // branch outside their assignments; that must not stand in for a BRANCH-level
+  // telemarketing grant there.
+  if (
+    Array.isArray(authContext.allowedBranchIds)
+    && !authContext.allowedBranchIds.includes(authContext.actingBranchId)
+  ) {
+    return false;
+  }
 
   // Check system role (from roles.name) for ADMIN / BRANCH_MANAGER
   const systemRole = await getSystemRoleName(authContext.roleId);

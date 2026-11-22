@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { readRequestedBranchId, resolveBranchViewAny, sendBranchViewRefusal } from '../services/branchViewService.js';
 import pool from '../db.js';
 import { runWithChangeContext } from '../auditContext.js';
 import { labelDeviceChange } from '../services/deviceActivityContext.js';
@@ -84,6 +85,9 @@ const selectFields = `
   )) AS "missingFields"
 `;
 
+// The three view grants the device lists accept (widest wins, see branchViewService).
+const INSTALLED_DEVICE_VIEW_PERMISSIONS = ['installed_devices.view', 'clients.devices.view', 'contracts.view_list'];
+
 // GET /api/installed-devices?customerId=X&branchId=Y
 router.get('/', requirePermission('installed_devices.view', 'clients.devices.view', 'contracts.view_list'), async (req, res) => {
   const authContext = req.authContext!;
@@ -92,25 +96,16 @@ router.get('/', requirePermission('installed_devices.view', 'clients.devices.vie
   const params: any[] = [];
 
   if (customerId) { params.push(Number(customerId)); conditions.push(`d.customer_id = $${params.length}`); }
-  if (branchId) {
-    const requestedBranchId = Number(branchId);
-    if (!Number.isInteger(requestedBranchId) || requestedBranchId <= 0) {
-      return res.status(400).json({ error: 'معرف الفرع غير صالح' });
-    }
-    const access = {
-      allowed:
-        authorize(authContext, { permission: 'installed_devices.view', branchId: requestedBranchId }).allowed ||
-        authorize(authContext, { permission: 'clients.devices.view', branchId: requestedBranchId }).allowed ||
-        authorize(authContext, { permission: 'contracts.view_list', branchId: requestedBranchId }).allowed,
-    };
-    if (!access.allowed) return res.status(403).json({ error: 'غير مسموح' });
-    params.push(requestedBranchId);
-    conditions.push(`d.branch_id = $${params.length}`);
-  } else if (!authContext.isSuperAdmin) {
-    if (authContext.allowedBranchIds.length === 0) {
-      return res.status(403).json({ error: 'لا يوجد فرع فعّال متاح لهذه العملية' });
-    }
-    params.push(authContext.allowedBranchIds);
+  if (branchId && readRequestedBranchId(branchId) == null) {
+    return res.status(400).json({ error: 'معرف الفرع غير صالح' });
+  }
+  // Same bound as /paged (widest of the three view grants). It used to confine
+  // every non-super-admin to their assignments, hiding a GLOBAL user's other
+  // branches; ?branchId narrows within what the grant reaches.
+  const view = resolveBranchViewAny(authContext, INSTALLED_DEVICE_VIEW_PERMISSIONS, readRequestedBranchId(branchId));
+  if (!view.ok) return sendBranchViewRefusal(res, view);
+  if (view.branchIds != null) {
+    params.push(view.branchIds);
     conditions.push(`d.branch_id = ANY($${params.length}::int[])`);
   }
   if (status)     { params.push(String(status));      conditions.push(`d.status = $${params.length}`); }
@@ -142,18 +137,17 @@ router.get('/', requirePermission('installed_devices.view', 'clients.devices.vie
   res.json(rows);
 });
 
-// Shared branch-scope for the device list endpoints. Installed devices are
-// branch-only (no ASSIGNED tier): scope is the branch filter alone. Mirrors the
-// Contracts records pattern (actingBranchId for non-super-admin; optional
-// X-Branch-Id narrowing for a GLOBAL super-admin) so GET '/' and '/paged' agree.
-function appendInstalledDeviceListScope(authContext: any, req: any, params: any[]): string[] {
+// Shared branch-scope for the device list endpoints (GET '/' and '/paged').
+// Installed devices are branch-only (no ASSIGNED tier). The bound comes from
+// the widest of the three view grants the route accepts (branchViewService):
+// GLOBAL → all or the selected branch; BRANCH → the assignments. It used to be
+// the acting branch, which for a GLOBAL or multi-branch user on "all" meant
+// their home branch only — or, without one, nothing.
+function appendInstalledDeviceListScope(authContext: any, req: any, params: any[]): string[] | null {
+  const view = resolveBranchViewAny(authContext, INSTALLED_DEVICE_VIEW_PERMISSIONS, readRequestedBranchId(req.header('x-branch-id')));
+  if (!view.ok) return null;
   const conditions: string[] = [];
-  if (!authContext.isSuperAdmin) {
-    conditions.push(`d.branch_id = $${params.push(authContext.actingBranchId)}`);
-  } else {
-    const hb = Number(req.header('x-branch-id'));
-    if (Number.isFinite(hb) && hb > 0) conditions.push(`d.branch_id = $${params.push(hb)}`);
-  }
+  if (view.branchIds != null) conditions.push(`d.branch_id = ANY($${params.push(view.branchIds)}::int[])`);
   return conditions;
 }
 
@@ -174,7 +168,9 @@ router.get('/paged', requirePermission('installed_devices.view', 'clients.device
   try {
     const authContext = req.authContext!;
     const params: any[] = [];
-    const conditions = appendInstalledDeviceListScope(authContext, req, params);
+    const scoped = appendInstalledDeviceListScope(authContext, req, params);
+    if (scoped == null) return sendBranchViewRefusal(res, { ok: false, reason: 'BRANCH_FORBIDDEN' });
+    const conditions = scoped;
 
     const cid = Number(req.query.customerId);
     if (cid > 0) conditions.push(`d.customer_id = $${params.push(cid)}`);

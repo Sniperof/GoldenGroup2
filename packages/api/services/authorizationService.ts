@@ -7,6 +7,7 @@ import type {
   PermissionGrant,
   ScopeType,
 } from '@golden-crm/shared';
+import { hasBranchChoice, hasCrossBranchReach } from '@golden-crm/shared';
 import pool from '../db.js';
 
 export interface BuildAuthContextInput {
@@ -48,8 +49,28 @@ export async function buildAuthContext(input: BuildAuthContextInput): Promise<Au
       primaryBranchId: loaded.primaryBranchId,
       allowedBranchIds: loaded.allowedBranchIds,
       isSuperAdmin,
+      canReachAnyBranch: hasCrossBranchReach(isSuperAdmin, loaded.grants),
+      hasBranchChoice: hasBranchChoice(isSuperAdmin, loaded.grants, loaded.allowedBranchIds),
     }),
   };
+}
+
+/** The shared rules (packages/shared/branchReach.ts) — same definitions the web switcher uses. */
+export { hasBranchChoice, hasCrossBranchReach };
+
+/**
+ * The branch a write lands in when the request names none. For a single-branch
+ * user that is their own branch (they have no switcher; the badge shows it).
+ * For a user who chooses among branches (cross-branch reach, or several
+ * assigned branches) it is NOTHING: with "all branches" selected there is
+ * no branch to infer, so the caller must answer "pick a branch" instead of
+ * quietly writing into the user's home branch (standard §13 SH-3).
+ */
+export function defaultWriteBranchId(context: Pick<AuthContext, 'isSuperAdmin' | 'grants' | 'actingBranchId' | 'allowedBranchIds'>): number | null {
+  if (hasBranchChoice(context.isSuperAdmin, context.grants, context.allowedBranchIds)) {
+    return context.actingBranchId ?? null;
+  }
+  return context.actingBranchId ?? context.allowedBranchIds[0] ?? null;
 }
 
 export function clearAuthorizationCache(userId?: number) {
@@ -67,6 +88,24 @@ export function resolveActingBranch(
     primaryBranchId?: number | null;
     isSuperAdmin?: boolean;
     allowedBranchIds?: number[];
+    /**
+     * The actor holds a GLOBAL list view (see hasCrossBranchReach) and so is
+     * offered every branch by the switcher. Their selected branch becomes the
+     * acting branch even when it is not one of their assignments. This does NOT
+     * widen allowedBranchIds: BRANCH/ASSIGNED grants are still checked against
+     * the assignments, so only GLOBAL grants reach the selected branch.
+     *
+     * With NO selection ("all branches") such an actor has no acting branch:
+     * falling back to their home branch made branch-level pages act on it while
+     * the screen said «كل الفروع».
+     */
+    canReachAnyBranch?: boolean;
+    /**
+     * The actor chooses among branches (cross-branch reach, or several assigned
+     * branches): with NO selection there is no acting branch. Defaults to
+     * canReachAnyBranch.
+     */
+    hasBranchChoice?: boolean;
   },
 ): number | null {
   const requestedBranchId = toPositiveInteger(options.headerBranchId);
@@ -74,7 +113,8 @@ export function resolveActingBranch(
   const allowedBranchIds = normalizeBranchIds(options.allowedBranchIds);
 
   if (requestedBranchId == null) {
-    return primaryBranchId;
+    const choosesBranches = options.hasBranchChoice ?? options.canReachAnyBranch;
+    return choosesBranches === true ? null : primaryBranchId;
   }
 
   if (options.isSuperAdmin === true) {
@@ -83,6 +123,13 @@ export function resolveActingBranch(
     // limited to them, so requesting an unassigned branch (e.g. طرطوس) resolved to
     // null and the branch-only guard returned 403, while branches they were assigned
     // to worked — an inconsistency vs GLOBAL managers (who saw every branch).
+    return requestedBranchId;
+  }
+
+  // Same reasoning for a company-wide (GLOBAL list) operator: the switcher
+  // offers them every branch, so dropping an unassigned selection to null made
+  // the selected branch silently disappear server-side (empty lists / 403s).
+  if (options.canReachAnyBranch === true) {
     return requestedBranchId;
   }
 
@@ -287,6 +334,13 @@ function authorizeBranchGrant(
   const actingBranchId = toPositiveInteger(context.actingBranchId);
 
   if (targetBranchId == null && actingBranchId == null) {
+    // No record and no acting branch: only an actor who chooses among branches
+    // (cross-branch reach, or several assigned branches) with "all" selected
+    // lands here (single-branch actors always act on their own branch). The question is then "may you use this endpoint?" — yes,
+    // within your assignments, which the endpoint applies (resolveBranchView).
+    if (hasBranchChoice(context.isSuperAdmin, context.grants, context.allowedBranchIds) && context.allowedBranchIds.length > 0) {
+      return { allowed: true, reason: 'GRANTED_BRANCH', grant };
+    }
     return { allowed: false, reason: 'MISSING_BRANCH_CONTEXT', grant };
   }
 
@@ -323,10 +377,31 @@ function authorizeAssignedGrant(
   const effectiveBranchId = targetBranchId ?? actingBranchId;
 
   if (effectiveBranchId == null) {
+    // Same case as the BRANCH grant above: an actor on "all (your) branches"
+    // opening a personal surface (e.g. «زياراتي») — the endpoint scopes to
+    // their own records inside their assignments.
+    if (
+      check.branchId == null
+      && hasBranchChoice(context.isSuperAdmin, context.grants, context.allowedBranchIds)
+      && context.allowedBranchIds.length > 0
+    ) {
+      return { allowed: true, reason: 'GRANTED_ASSIGNED', grant };
+    }
     return { allowed: false, reason: 'MISSING_BRANCH_CONTEXT', grant };
   }
 
   if (!context.allowedBranchIds.includes(effectiveBranchId)) {
+    // A personal surface asked without a record (check.branchId unset) is about
+    // the actor's OWN items; a cross-branch actor who switched to a branch they
+    // are not assigned to must still reach «زياراتي». A concrete record in that
+    // branch (check.branchId set) stays refused.
+    if (
+      check.branchId == null
+      && hasCrossBranchReach(context.isSuperAdmin, context.grants)
+      && context.allowedBranchIds.length > 0
+    ) {
+      return { allowed: true, reason: 'GRANTED_ASSIGNED', grant };
+    }
     return { allowed: false, reason: 'BRANCH_FORBIDDEN', grant };
   }
 

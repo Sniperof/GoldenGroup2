@@ -18,38 +18,38 @@ test('list and paged share one scope helper — the scope SQL is written once', 
   const list = source.slice(listStart, pagedStart);
   const paged = source.slice(pagedStart, detailStart);
 
-  assert.match(list, /appendCandidateScopeConditions\(authContext, requestedBranchId, listAccess\.scope, params\)/);
-  assert.match(paged, /appendCandidateScopeConditions\(authContext, requestedBranchId, listAccess\.scope, params\)/);
+  assert.ok(list.includes('appendCandidateScopeConditions(view, params)'));
+  assert.ok(paged.includes('appendCandidateScopeConditions(view, params)'));
 
   // Neither route may re-implement the scope predicates inline.
-  assert.doesNotMatch(list, /conditions\.push\(`c\.branch_id = ANY/);
-  assert.doesNotMatch(paged, /conditions\.push\(`c\.branch_id = ANY\(\$\$\{params\.length\}::int\[\]\)`\)/);
+  assert.ok(!list.includes('conditions.push(`c.branch_id = ANY'));
+  assert.ok(!paged.includes('conditions.push(`c.branch_id = ANY'));
 });
 
-test('the scope helper keeps all three visibility branches', () => {
+test('the scope helper translates the resolved branch view, including ASSIGNED ownership', () => {
   const helperStart = source.indexOf('function appendCandidateScopeConditions');
   const helperEnd = source.indexOf('\n}', helperStart);
   assert.ok(helperStart > 0);
   const helper = source.slice(helperStart, helperEnd);
 
-  // Explicit branch filter (X-Branch-Id) narrows to that branch.
-  assert.match(helper, /if \(requestedBranchId != null\)[\s\S]*?c\.branch_id = \$\$\{params\.length\}/);
-  // BRANCH scope is limited to the caller's allowed branches.
-  assert.match(helper, /if \(scope === 'BRANCH'\)[\s\S]*?c\.branch_id = ANY\(\$\$\{params\.length\}::int\[\]\)/);
+  // Branch bound comes from the shared resolver (GLOBAL + nothing selected = no bound).
+  const bound = helper.indexOf('if (view.branchIds != null)');
+  assert.ok(bound > 0);
+  assert.ok(helper.indexOf('c.branch_id = ANY($${params.length}::int[])', bound) > bound);
   // ASSIGNED scope additionally requires an assignment row for the caller.
-  assert.match(
-    helper,
-    /if \(scope === 'ASSIGNED'\)[\s\S]*?EXISTS \(SELECT 1 FROM candidate_assignments WHERE candidate_id = c\.id AND hr_user_id = \$\$\{params\.length\}\)/,
-  );
-  assert.match(helper, /if \(scope === 'ASSIGNED'\)[\s\S]*?c\.branch_id = ANY\(\$\$\{params\.length\}::int\[\]\)/);
+  const assigned = helper.indexOf("if (view.scope === 'ASSIGNED')");
+  assert.ok(assigned > 0);
+  assert.ok(helper.indexOf(
+    'EXISTS (SELECT 1 FROM candidate_assignments WHERE candidate_id = c.id AND hr_user_id = $${params.length})',
+    assigned,
+  ) > assigned);
 });
 
-test('paged enforces the same three access guards as the unpaged list', () => {
-  const paged = source.slice(pagedStart, detailStart);
-
-  assert.match(paged, /allowedBranchIds\.length === 0[\s\S]*?res\.status\(403\)/);
-  assert.match(paged, /forbidCandidateAccess\(res, 'BRANCH_FORBIDDEN'\)/);
-  assert.match(paged, /listAccess\.scope === 'NONE'[\s\S]*?forbidCandidateAccess\(res, 'MISSING_PERMISSION'\)/);
+test('list and paged resolve access through the shared branch view and refuse the same way', () => {
+  for (const route of [source.slice(listStart, pagedStart), source.slice(pagedStart, detailStart)]) {
+    assert.ok(route.includes("resolveBranchView(authContext, 'candidates.view_list', readRequestedBranchId(req.header('x-branch-id')))"));
+    assert.ok(route.includes('if (!view.ok) return sendBranchViewRefusal(res, view);'));
+  }
 });
 
 test('paged bounds the page size and only sorts by whitelisted keys', () => {

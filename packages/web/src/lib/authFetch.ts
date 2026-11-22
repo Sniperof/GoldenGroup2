@@ -1,4 +1,4 @@
-import { shouldAttachBranchContextHeader } from './branchContext';
+import { branchContextHeaderValue } from './branchContext';
 import { deviceClassHeader } from './deviceClass';
 
 /**
@@ -13,15 +13,8 @@ import { deviceClassHeader } from './deviceClass';
  */
 
 function getBranchContextHeader(): string | null {
-  try {
-    if (!shouldAttachBranchContextHeader(window.location.pathname)) return null;
-    const raw = localStorage.getItem('hr_branch_context');
-    if (!raw) return null;
-    const n = Number(raw);
-    return Number.isFinite(n) && n > 0 ? String(n) : null;
-  } catch {
-    return null;
-  }
+  // Effective branch for the current section (see lib/branchContext.ts).
+  return branchContextHeaderValue(window.location.pathname);
 }
 
 export async function authFetch(url: string, options: RequestInit = {}): Promise<Response> {

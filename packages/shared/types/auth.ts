@@ -24,4 +24,8 @@ export interface AuthUser {
    *  or null for roles that fill no field-team slot. Resolved from the role on
    *  every request; the device-access policy reads it. */
   teamSlotType?: string | null;
+  /** Active branch assignments (login/session payload). The external branch
+   *  switcher offers, per section, only what that section's grant reaches:
+   *  GLOBAL → every branch, BRANCH/ASSIGNED → these. Absent on old sessions. */
+  allowedBranchIds?: number[];
 }

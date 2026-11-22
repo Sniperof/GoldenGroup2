@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { MessageSquareWarning, Plus, Search, Loader2 } from 'lucide-react';
 import Button from '../../components/ui/Button';
+import Select from '../../components/ui/Select';
+import PageHeader from '../../components/ui/PageHeader';
 import SmartTable from '../../components/SmartTable';
 import type { ColumnDef } from '../../components/SmartTable';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -63,34 +65,47 @@ export default function ComplaintsListPage() {
   useEffect(() => { void load(); }, [status, type]);
 
   return (
-    <div dir="rtl" className="p-6 space-y-5">
-      {/* Title + create */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="rounded-xl bg-amber-50 p-3 text-amber-600"><MessageSquareWarning /></div>
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900">إدارة الشكاوى</h1>
-            <p className="text-sm text-slate-500">نطاق مستقل لمعالجة الشكاوى ومتابعة حالاتها</p>
-          </div>
-        </div>
-        {hasPermission('complaints.create_internal') && <Button icon={Plus} onClick={() => navigate('/complaints/new')}>تسجيل شكوى</Button>}
-      </div>
+    <div dir="rtl" className="p-4 sm:p-6 lg:p-8 space-y-6">
+      {/* Title + create — shared PageHeader, same as the other list pages */}
+      <PageHeader
+        title="إدارة الشكاوى"
+        subtitle="نطاق مستقل لمعالجة الشكاوى ومتابعة حالاتها"
+        actions={hasPermission('complaints.create_internal') && (
+          <Button icon={Plus} className="w-full sm:w-auto" onClick={() => navigate('/complaints/new')}>تسجيل شكوى</Button>
+        )}
+      />
 
-      {/* External (server-side) filter bar — unchanged behaviour */}
-      <div className="rounded-xl border border-slate-200 bg-white p-4 flex flex-wrap gap-3">
-        <div className="relative min-w-64 flex-1">
-          <Search className="absolute right-3 top-2.5 h-4 w-4 text-slate-400" />
-          <input value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key === 'Enter' && void load()} placeholder="رقم الشكوى، الاسم أو الهاتف" className="w-full rounded-lg border border-slate-200 py-2 pr-9 pl-3" />
+      {/* External (server-side) filter bar — same card/search/Select styling as
+          the Clients page; behaviour unchanged (type/status refetch, search on
+          Enter or the button). */}
+      <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative w-full sm:w-auto sm:flex-1 sm:min-w-[220px]">
+            <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && void load()}
+              placeholder="رقم الشكوى، الاسم أو الهاتف"
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl pr-10 pl-4 py-3 text-sm focus:border-sky-500 focus:outline-none transition-all focus:bg-white"
+            />
+          </div>
+          <Select
+            className="w-full sm:w-44"
+            value={type}
+            onChange={setType}
+            ariaLabel="نوع الشكوى"
+            options={[{ value: '', label: 'كل الأنواع' }, ...Object.entries(TYPES).map(([value, label]) => ({ value, label }))]}
+          />
+          <Select
+            className="w-full sm:w-44"
+            value={status}
+            onChange={setStatus}
+            ariaLabel="حالة الشكوى"
+            options={[{ value: '', label: 'كل الحالات' }, ...Object.entries(STATUS).map(([value, label]) => ({ value, label }))]}
+          />
+          <Button variant="secondary" className="w-full sm:w-auto" onClick={() => void load()}>بحث</Button>
         </div>
-        <select value={type} onChange={e => setType(e.target.value)} className="rounded-lg border border-slate-200 px-3">
-          <option value="">كل الأنواع</option>
-          {Object.entries(TYPES).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-        </select>
-        <select value={status} onChange={e => setStatus(e.target.value)} className="rounded-lg border border-slate-200 px-3">
-          <option value="">كل الحالات</option>
-          {Object.entries(STATUS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-        </select>
-        <Button variant="secondary" onClick={() => void load()}>بحث</Button>
       </div>
 
       {error && <div className="rounded-lg bg-red-50 p-3 text-red-700">{error}</div>}

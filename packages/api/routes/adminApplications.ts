@@ -10,6 +10,7 @@ import { checkVacancyCapacity, checkDuplicate } from '../utils/applicationHelper
 import { sanitizeText } from '../utils/sanitize.js';
 import { insertReferrer } from '../repositories/applicationRepository.js';
 import { requirePermission, resolveTargetBranchId } from '../middleware/permission.js';
+import { authorize } from '../services/authorizationService.js';
 import {
   deriveEmployeeRoleFromVacancyTitle,
   getApplicationProcessingBlockReason,
@@ -394,13 +395,14 @@ router.post('/', requirePermission('jobs.applications.create'), async (req, res)
       }
       // Branch-admin can only apply to their own branch's vacancies
       const authContext = req.authContext!;
-      if (!authContext.isSuperAdmin && !authContext.allowedBranchIds.includes(applicationBranchId)) {
+      // Follows the create grant's scope: GLOBAL reaches any branch's vacancy.
+      if (!authorize(authContext, { permission: 'jobs.applications.create', branchId: applicationBranchId }).allowed) {
         await client.query('ROLLBACK');
         return res.status(403).json({ error: 'غير مسموح: فرع الشاغر خارج النطاق المسموح' });
       }
     } else {
       // No vacancy: resolve from scope/body
-      const resolved = resolveTargetBranchId(req, res, body.branchId);
+      const resolved = resolveTargetBranchId(req, res, body.branchId, 'jobs.applications.create');
       if (resolved == null) { await client.query('ROLLBACK'); return; }
       applicationBranchId = resolved;
     }
@@ -540,8 +542,10 @@ router.get('/:id', requirePermission('jobs.applications.view_detail'), async (re
     );
     if (appRows.length === 0) return res.status(404).json({ error: 'الطلب غير موجود' });
     const app = appRows[0];
-    if (!authContext.isSuperAdmin && !authContext.allowedBranchIds.includes(app.branchId)) {
-    res.status(403).json({ error: 'غير مسموح' });
+    // Follows the view grant's scope (GLOBAL reaches any branch). The old check
+    // also lacked `return`, so a refused request kept running after the 403.
+    if (!authorize(authContext, { permission: 'jobs.applications.view_detail', branchId: app.branchId }).allowed) {
+      return res.status(403).json({ error: 'غير مسموح' });
     }
 
     // Fetch applicant

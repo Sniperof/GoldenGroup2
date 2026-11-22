@@ -805,7 +805,7 @@ router.get('/creation-context/visit/:visitId', requirePermission('contracts.crea
 // deliberately avoids the full client projection, aggregate KPIs and COUNT(*)
 // used by the clients records page.
 router.get('/customer-lookup', requirePermission('contracts.create'), async (req, res) => {
-  const targetBranchId = resolveTargetBranchId(req, res);
+  const targetBranchId = resolveTargetBranchId(req, res, undefined, 'contracts.create');
   if (targetBranchId == null) return;
 
   const query = typeof req.query.q === 'string' ? req.query.q : '';
@@ -837,7 +837,7 @@ router.get('/customer-context/:clientId', requirePermission('contracts.create'),
     return res.status(400).json({ error: 'معرف الزبون غير صالح', code: 'INVALID_CUSTOMER_ID' });
   }
 
-  const targetBranchId = resolveTargetBranchId(req, res);
+  const targetBranchId = resolveTargetBranchId(req, res, undefined, 'contracts.create');
   if (targetBranchId == null) return;
 
   try {
@@ -1243,7 +1243,7 @@ router.post('/', requirePermission('contracts.create'), async (req, res) => {
     return res.status(400).json({ error: tradeinDetails.error, code: tradeinDetails.code });
   }
   const derivedStatus = deriveContractWriteStatus(c.status);
-  const targetBranchId = resolveTargetBranchId(req, res, c.branchId);
+  const targetBranchId = resolveTargetBranchId(req, res, c.branchId, 'contracts.create');
   if (targetBranchId == null) return;
 
   // Manual creation must not trust a posted customer id/name. Resolve the

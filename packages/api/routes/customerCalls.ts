@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permission.js';
+import { hasCrossBranchReach } from '@golden-crm/shared';
 
 const router = Router();
 router.use(requireAuth);
@@ -28,8 +29,12 @@ function getCallerId(req: any): number | null {
   return Number.isInteger(userId) && userId > 0 ? userId : null;
 }
 
+// The acting branch decides; the legacy hr_users.branch_id is consulted only
+// when there is no auth context at all. Falling back to it whenever the acting
+// branch was empty pinned a cross-branch user on "all branches" to their home
+// branch (history filtered to it, new calls logged under it).
 function getBranchId(req: any): number | null {
-  const branchId = req.authContext?.actingBranchId ?? req.user?.branchId;
+  const branchId = req.authContext ? req.authContext.actingBranchId : req.user?.branchId;
   return Number.isInteger(branchId) && branchId > 0 ? branchId : null;
 }
 
@@ -163,6 +168,10 @@ router.get(
     if (!superAdmin && branchId != null) {
       params.push(branchId);
       filters.push(`(ccl.branch_id = $${params.length} OR ccl.branch_id IS NULL)`);
+    } else if (!superAdmin && req.authContext && !hasCrossBranchReach(false, req.authContext.grants)) {
+      // "All your branches" for a multi-branch user: their assignments, not every branch.
+      params.push(req.authContext.allowedBranchIds);
+      filters.push(`(ccl.branch_id = ANY($${params.length}::int[]) OR ccl.branch_id IS NULL)`);
     }
 
     if (contactIdFilter) {
