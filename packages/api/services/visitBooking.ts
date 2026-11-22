@@ -22,6 +22,7 @@ import type { PoolClient } from 'pg';
 import pool from '../db.js';
 import { resolveTeamZoneIds } from './planningMarketingTargets.js';
 import { refreshVisitType } from './visitClassification.js';
+import { syncContactTargetSiblingItems } from './taskListItemSync.js';
 
 export type VisitOriginType =
   | 'telemarketing'
@@ -530,6 +531,8 @@ export async function bookVisit(input: BookVisitInput): Promise<BookVisitResult>
             AND id = $2`,
         [closure.taskListId, closure.taskListItemId],
       );
+      // Booking closes the contact target: all of its items are booked with it.
+      await syncContactTargetSiblingItems(db, closure.taskListId, closure.taskListItemId);
     }
 
     await db.query('COMMIT');

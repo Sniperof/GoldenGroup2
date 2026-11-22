@@ -30,6 +30,7 @@ import {
   redactPersonalAssignments,
 } from '../services/customerOwnership.js';
 import { claimContactTarget, ContactTargetLockError } from '../services/contactTargetLocks.js';
+import { syncContactTargetSiblingItems } from '../services/taskListItemSync.js';
 import {
   catalogUnavailablePayload,
   findUnavailableDeviceModelsForNewCommercialUse,
@@ -5708,6 +5709,7 @@ router.post('/:id/schedule-from-expected', requirePermission('telemarketing.appo
               AND id = ANY($2::text[])`,
           [taskListId, itemIds],
         );
+        await syncContactTargetSiblingItems(pool, taskListId, itemIds);
       }
     }
 

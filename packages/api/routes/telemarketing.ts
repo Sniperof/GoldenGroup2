@@ -45,6 +45,7 @@ import {
   buildPlanningTaskAvailablePredicate,
   refreshContactTargetVisitType,
 } from '../services/planningContactTargetScope.js';
+import { syncContactTargetSiblingItems } from '../services/taskListItemSync.js';
 import {
   isTelemarketingServiceRequestTaskType,
   TELEMARKETING_SERVICE_REQUEST_TASK_TYPES,
@@ -1923,6 +1924,9 @@ router.patch(
         return res.status(404).json({ message: 'عنصر القائمة غير موجود' });
       }
 
+      // The call is on the contact target (card), not on one task's item.
+      await syncContactTargetSiblingItems(pool, String(req.params.taskListId), String(req.params.itemId));
+
       return res.json(rows[0]);
     } finally {
       if (releaseContactControlGuard) await releaseContactControlGuard();
@@ -2720,6 +2724,8 @@ router.post(
             WHERE task_list_id = $1 AND id = $2`,
           [taskListId, itemId],
         );
+        // The whole contact target closes, so every item of it does.
+        await syncContactTargetSiblingItems(pgClient, String(taskListId), String(itemId));
 
         // 2. Close contact_target
         if (contactTargetId != null) {
