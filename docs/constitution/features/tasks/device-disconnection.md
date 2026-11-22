@@ -1,7 +1,7 @@
 # مهمة فك الجهاز — `device_disconnection`
 
 > **القالب المرجعي:** [`templates/unified-task-template.md`](../../templates/unified-task-template.md)
-> **الحالة:** Draft — توثيق مفاهيمي فقط، غير منفذ برمجياً
+> **الحالة:** منفَّذ برمجياً (تحقق في 2026-11-20): هجرات 319 و325 و340، ومعالج النتيجة `applyDeviceDisconnectionResult` في `visitTaskResultReflection.ts` (النجاح أو طلب السحب ينقل الجهاز إلى `out_of_service`)، ومودال النتيجة `DeviceDisconnectionResultModal.tsx`. الناقص: اختبارات آلية لسيناريوهات النتيجة، والسؤال المفتوح عن اسم نوع المهمة (قائمة التحقق في آخر الملف)
 > **تاريخ الحسم الأولي:** 2026-06-22
 > **الـ display_group:** `after_sale_services`
 

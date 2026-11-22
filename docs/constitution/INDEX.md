@@ -130,7 +130,7 @@
 | تشغيل الجهاز `device_activation` | [features/tasks/device-activation.md](features/tasks/device-activation.md) | ✅ |
 | تشييك الجهاز `device_checkup` | [features/tasks/device-checkup.md](features/tasks/device-checkup.md) | — |
 | نقل الجهاز `device_transfer` | [features/tasks/device-transfer.md](features/tasks/device-transfer.md) | — |
-| فك الجهاز `device_disconnection` | [features/tasks/device-disconnection.md](features/tasks/device-disconnection.md) | 📝 |
+| فك الجهاز `device_disconnection` | [features/tasks/device-disconnection.md](features/tasks/device-disconnection.md) | ✅ |
 | سحب الجهاز `device_retrieval` | [features/tasks/device-retrieval.md](features/tasks/device-retrieval.md) | 📝 |
 | إرجاع الجهاز `device_return` | [features/tasks/device-return.md](features/tasks/device-return.md) | 📝 |
 | الصيانة الطارئة — النطاق المنفَّذ (V1) | [features/tasks/maintenance-v1.md](features/tasks/maintenance-v1.md) | ✅ |
@@ -213,6 +213,8 @@
 | [DEC-021](decisions/DEC-021-employee-status-change.md) | 2026-10-12 | تغيير حالة الموظف كعملية مستقلة | 🟢 معتمد ومنفَّذ برمجياً — غير منشور |
 | [DEC-022](decisions/DEC-022-employee-activity-log.md) | 2026-10-12 | السجل الداخلي للموظف وتاريخ إيقاف الخدمة | 🟢 معتمد ومنفَّذ برمجياً — غير منشور |
 | [DEC-023](decisions/DEC-023-visit-result-edit.md) | 2026-10-26 | تعديل نتائج مهام الزيارة («التراجع من نقطة») | 🟡 معتمد للتصميم — غير منفَّذ |
+| [DEC-024](decisions/DEC-024-device-activity-log-and-lifecycle.md) | 2026-11-19 | سجل تغييرات الجهاز المركب ودورة حياته وتعديل بياناته | 🟢 معتمد ومنفَّذ برمجياً — غير منشور |
+| [DEC-025](decisions/DEC-025-device-possession-transfer.md) | 2026-11-19 | نقل حيازة الجهاز إلى زبون آخر وانتقال أقساطه | 🟢 معتمد ومنفَّذ برمجياً — غير منشور |
 
 
 ---

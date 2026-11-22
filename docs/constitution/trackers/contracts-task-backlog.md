@@ -223,7 +223,16 @@
 - trigger: عند `device.retrieved` → cancel warranty
 - تحديث `expired` دورياً أو computed
 
-**الحالة:** مفتوحة
+**الحالة:** ✅ منجزة عدا بند واحد (تحقق من الكود وقاعدة dev في 2026-11-20):
+
+| البند | الحالة |
+|---|---|
+| `status` enum (`pending / active / cancelled / expired`) | ✅ قيد CHECK على `device_warranties` |
+| `cancellation_reason`, `cancelled_at`, `cancelled_by` | ✅ مع قيد يلزم السبب والتاريخ عند `cancelled` فقط |
+| الإلغاء عند `contract.cancelled` | ✅ trigger `trg_warranty_on_contract_cancel`. بعد هجرة 397 صار الإلغاء **بلا شرط** (لا يفحص الذمم)، خلافاً لصيغة DEC-CT-05 الأصلية |
+| الإلغاء عند `device.retrieved` | ✅ trigger على `installed_devices` يلغي كل الكفالات |
+| التحويل إلى `expired` | ❌ لا مسار يكتبه دورياً: 31 كفالة ما زالت `active` بعد تاريخ نهايتها في dev. التقارير تحسب الانتهاء من `end_date` عند القراءة |
+| إسقاط `is_active` | ⏳ العمود ما زال موجوداً (بند تنظيف مستقل في آخر الباك لوج) |
 
 ### المرحلة 4.ب — المالية
 
@@ -299,7 +308,7 @@
 - إعادة احتساب `end_date` من snapshot
 - migration: حساب activated_at للأجهزة الحالية ذات status=active (إن أمكن استنتاجه)
 
-**الحالة:** مفتوحة
+**الحالة:** ✅ منجزة (تحقق من الكود وقاعدة dev في 2026-11-20). العمودان موجودان. trigger `trg_installed_devices_activation_snapshot` يختم `installed_devices.activated_at` عند أول انتقال إلى `active`، وtrigger `trg_cascade_warranty_activation` يفعّل كفالة العقد منه (`end_date = activated_at + months`). نتيجة مهمة التشغيل تكتب `status = 'active'` فقط وتترك الباقي للـ triggers. في dev ثلاثة أجهزة فقط من 20,875 جهازاً نشطاً بلا `activated_at`.
 
 #### CT-IMPL-016 — النموذج الموحّد للكفالات: عقد مرة واحدة + ذهبية متعددة تسلسلية (DEC-CT-16)
 

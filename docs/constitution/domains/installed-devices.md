@@ -2,6 +2,7 @@
 
 > **الحالة (Status):** Authoritative / Active — أُنشئ في 2026-05-26 مع Phase 2A/B/C من مسار فصل الجهاز عن العقد.
 > **المرجع المعتمد لدورة الحياة الفيزيائية للجهاز بعد البيع** — الموقع، الحالة، الكفالة، الصيانة — مستقلاً عن بنود العقد المالي.
+> **آخر تحديث:** 2026-11-20 — سجل التغييرات ودورة الحياة وتعديل الرقم التسلسلي ([DEC-024](../decisions/DEC-024-device-activity-log-and-lifecycle.md))، ونقل الحيازة إلى زبون آخر ([DEC-025](../decisions/DEC-025-device-possession-transfer.md)).
 
 ---
 
@@ -50,22 +51,36 @@
 
 #### قيود دورة الحياة `status`
 
+القاموس المعتمد هو [DEC-CT-03](../contracts/08-resolved-decisions.md) و[01d](../contracts/01d-unified-device-contract-states.md). قيد `CHECK` في قاعدة البيانات يضم اثنتي عشرة قيمة (هجرات 001 و397 و435):
+
 ```
 pending_delivery ↔ delivery_suspended
        ↓
-delivered → installed → active → decommissioned
+delivered → installed → active
+                          ↓
+      faulty / in_workshop / ready / out_of_service / retrieved
+                          
+contract_cancelled  (من أي حالة غير نهائية عند إلغاء العقد)
 ```
 
-| القيمة | المعنى |
-|--------|--------|
-| `pending_delivery` | تم إنشاء العقد، الجهاز لم يُسلَّم بعد |
-| `delivery_suspended` | التسليم متوقف إدارياً لغياب الزبون؛ الجهاز لم يُسلّم ويبقى محجوزاً للعقد |
+| القيمة | المعنى | من يكتبها اليوم |
+|--------|--------|-----------------|
+| `registered` | مسجل ولم يبدأ مساره | لا مسار يكتبها |
+| `pending_delivery` | تم اعتماد العقد، الجهاز لم يُسلَّم بعد | إنشاء الجهاز عند الاعتماد، فشل التسليم، استئناف التسليم |
+| `delivery_suspended` | التسليم متوقف إدارياً لغياب الزبون؛ الجهاز لم يُسلّم ويبقى محجوزاً للعقد | تعليق التسليم فقط |
+| `delivered` | سُلِّم الجهاز، لم يُركَّب بعد | نتيجة التسليم، الإرجاع بعد الورشة، النقل |
+| `installed` | رُكِّب في الموقع | نتيجة التركيب |
+| `active` | فعّال ويعمل | نتيجة التشغيل، تسجيل جهاز خارجي، ترقية طلب خدمة |
+| `faulty` | معطّل | تسجيل جهاز خارجي فقط |
+| `in_workshop` | في عهدة الورشة | نتيجة السحب للصيانة |
+| `ready` | جاهز بعد الصيانة | لا مسار يكتبها |
+| `out_of_service` | خارج الخدمة | نتيجة الفك |
+| `retrieved` | مسحوب إلى الشركة | نتيجة السحب لغير الصيانة |
+| `contract_cancelled` | عقده ملغى | إلغاء العقد فقط |
 
 `delivery_suspended` انتقال يدوي خاص بمرحلة ما قبل التسليم. لا يفحص الخادم وجود دفعة أو قسط، ولا يغيّر العقد أو الذمم أو مهام التحصيل. التعليق يلغي مهمة التسليم والزيارة غير المنفذة بسبب «تعليق التسليم لغياب الزبون»، ويُرفض إذا بدأ التنفيذ الميداني أو بقيت نتيجة قيد الحسم. العودة اليدوية إلى `pending_delivery` لا تنشئ مهمة تسليم تلقائيا.
-| `delivered` | سُلِّم الجهاز، لم يُركَّب بعد |
-| `installed` | رُكِّب في الموقع، قيد الاختبار |
-| `active` | فعّال ويعمل بشكل طبيعي |
-| `decommissioned` | خُرِّج من الخدمة (معيب أو استُبدل) |
+
+كل انتقال حالة، من أي مسار، يُسجَّل في سجل تغييرات الجهاز مع مصدره ومنفّذه (BR-6).
 
 #### الفهارس
 
@@ -90,7 +105,11 @@ contracts (0..1) ─────── (0..1) installed_devices
                                 └── ✅ ← open_tasks.device_id  (Phase 3)
                                 └── ✅ ← device_warranties.device_id  (Phase 4)
                                 └── ✅ ← device_installed_parts.device_id  (Phase 5)
+                                └── ✅ ← device_activity_log.device_id  (DEC-024، هجرة 498)
+                                └── ✅ ← device_possession_transfers.device_id  (DEC-025، هجرة 500)
 ```
+
+**المسدّد الحالي:** عند نقل الحيازة إلى زبون آخر، يحمل `contracts.payer_client_id` من يسدّد ما تبقى من أقساط العقد، ويبقى `contracts.customer_id` مشتري العقد ([DEC-CT-24](../contracts/08-resolved-decisions.md)).
 
 **الربط العكسي:** يحتفظ `contracts.installed_device_id` بمرجع عكسي لتسهيل التنقل في الاتجاهين دون JOIN إضافي عندما يوجد عقد.
 
@@ -165,12 +184,34 @@ interval_days = floor((warranty_months × 30) / warranty_visits)
 
 | الكفالة | الحقل | مصدر التفعيل |
 |---------|-------|--------------|
-| كفالة العقد | `contract_warranty_end_date` | تُحسَّب عند إنشاء العقد: `contractDate + warranty_months` |
-| الكفالة الذهبية | `is_golden_warranty + golden_warranty_end_date` | تُفعَّل يدوياً من مهمة تسليم الكفالة (GAP-078 — معلق) |
+| كفالة العقد | سطر `contract` في `device_warranties`، ومرآته `contract_warranty_end_date` | تُنشأ `pending` عند اعتماد العقد، وتبدأ بتشغيل الجهاز: `activated_at + months` ([DEC-CT-04](../contracts/08-resolved-decisions.md)) |
+| الكفالة الذهبية | أسطر `golden` في `device_warranties`؛ و`golden_warranty_end_date` مشتق من أحدثها الفعّالة | تُفعَّل بتاريخ الوصل من نتيجة مهمة «عرض كفالة ذهبية» ([DEC-CT-17](../contracts/08-resolved-decisions.md)) |
+
+كل الكفالات تعيش في `device_warranties` ([DEC-CT-16](../contracts/08-resolved-decisions.md)).
 
 ### BR-5: الموقع قابل للتغيير
 
 حقول `installation_geo_unit_id`, `installation_address_text`, `lat/lng` تمثل الموقع الحالي للجهاز — وليس الموقع وقت التوصيل الأصلي. إذا انتقل الجهاز لمنزل آخر يُحدَّث الموقع مباشرةً هنا دون أن يتأثر العقد الأصلي.
+
+### BR-6: سجل التغييرات ودورة الحياة ([DEC-024](../decisions/DEC-024-device-activity-log-and-lifecycle.md))
+
+- كل تغيير على `installed_devices` يكتبه trigger في `device_activity_log` (إضافة فقط): الإنشاء، وتغيّر الحالة، وتعديل كل حقل آخر بقيم مقروءة.
+- كل سطر يحمل مصدره (العملية، أو نتيجة الزيارة مع نوع المهمة)، وسببه، ومنفّذه.
+- أي مسار جديد يكتب على الجهاز داخل transaction يجب أن يوسم عمليته بـ `labelDeviceChange` قبل الكتابة، وإلا ظهر بلا مصدر.
+- دورة حياة الجهاز مشتقة وقت العرض من الجداول الأصلية، ولا تُخزَّن.
+
+### BR-7: تعديل بيانات الجهاز من صفحته
+
+- عملية مستقلة بصلاحية `installed_devices.edit_details`. أول ما تشمله الرقم التسلسلي، وتنضم إليها تعديلات صفحة الجهاز اللاحقة.
+- سبب التعديل إلزامي، والرقم الجديد يخضع لـ BR-2A.
+
+### BR-8: نقل الحيازة إلى زبون آخر ([DEC-025](../decisions/DEC-025-device-possession-transfer.md))
+
+- عملية واحدة تنقل الحيازة وزبون الجهاز والمسدّد الحالي للعقد ومتبقي أقساط العقد والكفالة الذهبية ومهام تحصيلها المفتوحة. ويمكن أن تغيّر الموقع، لكنها لا تغيّر الفرع.
+- شروطها: كل مهام الجهاز التشغيلية مكتملة أو ملغاة، والحالة `delivered` أو `installed` أو `active` أو `faulty` أو `out_of_service`، ولا اتفاق خدمة فعّال، وسبب من قائمة `device_possession_transfer_reasons`، وتاريخ اليوم فقط.
+- الكفالات تبقى على الجهاز دون تغيير.
+- مهمة النقل الميدانية إلى زبون آخر تنقل الأقساط ومهام التحصيل بالطريقة نفسها عند نجاحها.
+- لا يُضاف سطر حيازة لزبون إلا عبر هذه العملية.
 
 ---
 
@@ -190,7 +231,7 @@ interval_days = floor((warranty_months × 30) / warranty_visits)
 
 | المرحلة | الوصف | الحالة |
 |---------|-------|--------|
-| **GAP-078** | تفعيل الكفالة الذهبية من مهمة التسليم | ⏳ معلق |
+| **GAP-094** (كانت GAP-078) | تفعيل الكفالة الذهبية | ✅ مكتمل عبر DEC-CT-17 / CT-IMPL-017 |
 | **Phase 3** | ربط `open_tasks.device_id` | ✅ مكتمل (migration 194, 2026-05-26) |
 | **Phase 4** | إنشاء `device_warranties` | ✅ مكتمل (migration 196, 2026-05-26) |
 | **Phase 5** | إنشاء `device_installed_parts` | ✅ مكتمل (migration 197, 2026-05-26) |
@@ -200,15 +241,20 @@ interval_days = floor((warranty_months × 30) / warranty_visits)
 
 ## 6. صلاحيات الوصول (Permission Matrix)
 
-يرث `installed_devices` صلاحيات `contracts` حتى يُنشأ نظام صلاحياته المستقل:
+كل صلاحية تُفحص على فرع الجهاز (`installed_devices.branch_id`).
 
 | العملية | الصلاحية المطلوبة | ملاحظة |
 |---------|------------------|--------|
-| قراءة القائمة `GET /` | `contracts.view_list` | مع دعم فلترة `?customerId`, `?branchId`, `?status` |
-| قراءة جهاز `GET /:id` | `contracts.view_list` | — |
-| تعديل جهاز `PATCH /:id` | `contracts.edit` | الحقول الفيزيائية فقط؛ لا يقبل الدخول إلى `delivery_suspended` أو الخروج منها |
+| قراءة القائمة وقراءة جهاز | `installed_devices.view` أو `clients.devices.view` أو `contracts.view_list` | — |
+| تعديل جهاز `PATCH /:id` (المسار القديم) | `contracts.edit` | يقبل أي حقل فيزيائي بما فيه الحالة، بلا حارس انتقالات؛ لا يقبل الدخول إلى `delivery_suspended` أو الخروج منها. يظهر في السجل بمصدر «تعديل يدوي للجهاز» |
+| تعديل بيانات الجهاز من صفحته `PATCH /:id/details` | `installed_devices.edit_details` | DEC-024. لا تُمنح تلقائياً |
+| عرض سجل التغييرات | `installed_devices.activity_log.view` | DEC-024. نطاق GLOBAL/BRANCH |
+| عرض دورة الحياة | `installed_devices.lifecycle.view` | DEC-024. نطاق GLOBAL/BRANCH/ASSIGNED، وكل فئة داخلها تتبع صلاحية قسمها |
+| عرض سجل الحيازة والحائز الحالي | `installed_devices.possession.view` | — |
+| نقل الحيازة إلى زبون آخر | `installed_devices.possession.manage` | DEC-025 |
 | تعليق/إعادة التسليم | `installed_devices.delivery_suspension.manage` | من تفاصيل الجهاز فقط، بنطاق GLOBAL/BRANCH وسجل تدقيق إلزامي |
-| إنشاء `POST` | غير متاح مباشرةً | يُنشأ تلقائياً عند إنشاء `sale_contract` |
+| تسجيل جهاز خارجي | `installed_devices.create_external` | — |
+| إنشاء جهاز من عقد | غير متاح مباشرةً | يُنشأ تلقائياً عند اعتماد `sale_contract` |
 | حذف `DELETE` | غير متاح | محمي بـ `ON DELETE RESTRICT` من جانب العقد |
 
 ---
@@ -301,11 +347,62 @@ interval_days = floor((warranty_months × 30) / warranty_visits)
 
 ---
 
+### 7.4 `PATCH /api/installed-devices/:id/details` (DEC-024)
+
+تعديل بيانات الجهاز من صفحته. الحقل المتاح حالياً: `serialNumber`.
+
+```json
+{ "serialNumber": "GS-2026-002", "reason": "تصحيح خطأ إدخال بعد مطابقة الملصق" }
+```
+
+**Response (200):** `{ "ok": true, "id": 7, "serialNumber": "GS-2026-002" }`
+**Response (400):** سبب ناقص، أو رقم فارغ، أو رقم مطابق للحالي.
+**Response (409):** `{ "code": "device_serial_conflict" }` — الرقم مستخدم على جهاز آخر.
+
+---
+
+### 7.5 `GET /api/installed-devices/:id/activity` (DEC-024)
+
+أسطر سجل التغييرات، الأحدث أولاً: `eventType` (`created` / `status_changed` / `field_changed`)، و`fieldKey`، و`oldValue`، و`newValue`، و`changeContext`، و`taskType`، و`visitId`، و`reason`، و`performedByName`، و`createdAt`.
+
+---
+
+### 7.6 `GET /api/installed-devices/:id/lifecycle` (DEC-024)
+
+`{ events, hiddenCategories }`. كل حدث له `category` (`entry` / `status` / `tasks` / `contract` / `warranties` / `possession`)، و`kind`، و`at`، و`title`، و`decision` لنتائج المهام، و`detail`، و`actor`، و`link`. `hiddenCategories` هي الفئات التي حُذفت لأنها خارج صلاحيات المستخدم.
+
+---
+
+### 7.7 `POST /api/devices/:deviceId/possession/transfer` (DEC-025)
+
+نقل الحيازة إلى زبون آخر.
+
+```json
+{
+  "toClientId": 1234,
+  "reasonCode": "migrated_data_correction",
+  "notes": "اختياري، وإلزامي مع «أخرى»",
+  "location": { "geoUnitId": 321, "addressText": "...", "lat": null, "lng": null }
+}
+```
+
+`location` اختياري؛ بدونه يبقى الموقع كما هو.
+
+**Response (201):** `{ transferId, fromClientId, toClientId, contractBalanceSyp, warrantyBalanceSyp, movedTaskIds, locationChanged }`
+**Response (409):** بأحد الرموز `open_device_tasks` أو `collection_tasks_in_planning` أو `active_service_agreement` أو `device_status_not_transferable`، مع أرقام المهام في `details` عند وجودها.
+
+واجهة إضافة سطر الحيازة العامة `POST /api/devices/:deviceId/possession` ترفض `holderType = customer` بالرمز `use_possession_transfer`.
+
+---
+
 ## 8. الثغرات المفتوحة (Open Gaps)
 
-### GAP-078: غياب واجهة تفعيل الكفالة الذهبية ⚠️ معلق
+### GAP-094: غياب واجهة تفعيل الكفالة الذهبية ✅ محلول
 
-- **الإشكالية:** لا يوجد UI في صفحة نتيجة مهمة "تسليم كفالة ذهبية" يتيح اختيار الفترة من `device_models.golden_warranty_periods` وكتابة `is_golden_warranty + golden_warranty_end_date` على `installed_devices`.
+> كانت تحمل الرقم GAP-078، وهو رقم مستخدم في [`GAPS-TRACKER.md`](../trackers/GAPS-TRACKER.md) لمراقبة الجداول القديمة؛ أُعيد ترقيمها في 2026-11-20.
+
+- **الحل المطبق:** [DEC-CT-17](../contracts/08-resolved-decisions.md) جعل التفعيل نتيجة لمهمة «عرض كفالة ذهبية» بتاريخ الوصل، تنشئ سطراً `golden` في `device_warranties` (CT-IMPL-017، هجرتا 307 و308). الحقلان على الجهاز صارا مرآة مشتقة لا تُكتب يدوياً.
+- **الإشكالية (الأصلية):** لا يوجد UI في صفحة نتيجة مهمة "تسليم كفالة ذهبية" يتيح اختيار الفترة من `device_models.golden_warranty_periods` وكتابة `is_golden_warranty + golden_warranty_end_date` على `installed_devices`.
 - **الأثر:** الكفالة الذهبية تبقى `FALSE` لجميع الأجهزة حتى بعد تسليمها فعلياً.
 - **الحل المطلوب:** إضافة dropdown في نتيجة المهمة + `PATCH /api/installed-devices/:id` بالحقلين.
 
@@ -482,3 +579,7 @@ packages/api/routes/contracts.ts contractSelect:
 | **2026-05-26** | `196_device_warranties.sql` | **Phase 4:** إنشاء جدول `device_warranties` (id, device_id FK, warranty_type CHECK('contract'\|'golden'), start_date, end_date, months, visits, source_task_id FK, is_active, notes). UNIQUE(device_id, warranty_type). تحديث `contracts.ts` POST/PUT لـ UPSERT في `device_warranties` عند حفظ warrantyMonths. إنشاء route `GET /api/device-warranties?deviceId=` و`PATCH /api/device-warranties/:id`. |
 | **2026-05-26** | `197_device_installed_parts.sql` | **Phase 5:** إنشاء جدول `device_installed_parts` (id, device_id FK, open_task_id FK, spare_part_id FK, part_name_snapshot, maintenance_type, unit_price, quantity, line_total, event_type, event_date). تحديث `emergencyResult.ts` PUT /:taskId/parts ليُزامن القطع إلى `device_installed_parts` عند وجود device_id على المهمة. إنشاء route `GET /api/device-parts?deviceId=`. |
 | **2026-07-22** | `375_installed_device_serial_uniqueness.sql` | فرض التفرد العالمي للرقم التسلسلي بعد `lower(btrim(...))` مع السماح بـ`NULL`، وإيقاف المهاجرة بتقرير واضح عند وجود تكرارات تحتاج مصالحة تشغيلية. |
+| **2026-11-19** | `498_device_activity_log.sql` | DEC-024: جدول `device_activity_log` وtrigger على `installed_devices`، وصلاحيتا `installed_devices.activity_log.view` و`installed_devices.lifecycle.view` بمنح لحاملي المفاتيح المقابلة، وسطر «إنشاء» لكل جهاز قائم. |
+| **2026-11-19** | `499_installed_device_edit_details_permission.sql` | DEC-024: صلاحية `installed_devices.edit_details` بلا منح. |
+| **2026-11-19** | `500_device_possession_transfer.sql` | DEC-025: `contracts.payer_client_id`، وجدول `device_possession_transfers`، و`device_possession_log.reason_code`، وقائمة `device_possession_transfer_reasons`. |
+| **2026-11-20** | `501_field_transfer_finances.sql` | DEC-025 D7: `source` و`visit_task_result_id` (فريد) و`left_task_ids` على `device_possession_transfers`، و`reason_code` اختياري للنقل الميداني. |
