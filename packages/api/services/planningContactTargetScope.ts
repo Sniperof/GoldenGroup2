@@ -1,3 +1,5 @@
+import { SEVERABLE_TASK_TYPES } from './teamCapability.js';
+
 const SQL_IDENTIFIER = /^[a-z_][a-z0-9_]*$/i;
 const SQL_PARAMETER = /^\$\d+$/;
 
@@ -58,6 +60,9 @@ export function buildPlanningTaskExcludedPredicate(
   )`;
 }
 
+// DEC-026 D7 — task types outside the grain (see teamCapability.ts).
+const SEVERABLE_TASK_TYPES_SQL = [...SEVERABLE_TASK_TYPES].map(type => `'${type.replace(/'/g, "''")}'`).join(', ');
+
 export function buildPlanningTaskAvailablePredicate(
   taskAlias: string,
   teamParameter: string,
@@ -72,6 +77,10 @@ export function buildPlanningTaskAvailablePredicate(
  * task available elsewhere, but not while a sibling task at the same location
  * is still assigned/committed to another team or that other team's contact
  * target has already entered the call lifecycle.
+ *
+ * DEC-026 D7: emergency_maintenance is outside the grain in both directions —
+ * an emergency task is never blocked by the grain, and a sibling emergency
+ * task held by another team never blocks this one.
  */
 export function buildPlanningContactContextAvailablePredicate(
   taskAlias: string,
@@ -91,7 +100,8 @@ export function buildPlanningContactContextAvailablePredicate(
     ELSE COALESCE(context_client.neighborhood, context_client.district)
   END`;
 
-  return `NOT (
+  const severable = SEVERABLE_TASK_TYPES_SQL;
+  return `(${task}.task_type IN (${severable}) OR NOT (
     EXISTS (
       SELECT 1
       FROM open_tasks context_task
@@ -103,6 +113,7 @@ export function buildPlanningContactContextAvailablePredicate(
         ON context_device.id = context_task.device_id
        AND context_config.location_basis IN ('contract', 'device')
       WHERE context_task.id <> ${task}.id
+        AND context_task.task_type NOT IN (${severable})
         AND context_task.branch_id = ${task}.branch_id
         AND context_task.client_id = ${task}.client_id
         AND context_task.assigned_for_date = ${date}::date
@@ -137,7 +148,7 @@ export function buildPlanningContactContextAvailablePredicate(
         AND context_target.work_location_geo_unit_id
           IS NOT DISTINCT FROM ${currentLocation}
     )
-  )`;
+  ))`;
 }
 
 /**

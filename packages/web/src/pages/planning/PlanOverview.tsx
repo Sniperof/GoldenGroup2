@@ -59,6 +59,8 @@ const getPlanningDate = () => {
 type WorkScope = {
   counts?: { marketing: number; emergency: number; service: number; other: number; total: number; byFamily?: Record<string, number> };
   tasks?: Array<{ ownershipType?: string }>;
+  /** DEC-026 D6: clients left whole to a team that can do every task. */
+  capabilityBlocked?: { grains: number; clients: number; taskTypes: string[] };
 };
 
 type TeamCard = {
@@ -596,6 +598,12 @@ export default function PlanOverview() {
                             </div>
                           )}
                         </div>
+
+                        {(scope?.capabilityBlocked?.clients ?? 0) > 0 && (
+                          <p className="mx-4 mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+                            زبائن في نطاق الفريق لديهم مهام لا يقدر عليها هذا النوع: {scope!.capabilityBlocked!.clients}. يبقون لفريق يقدر على كل مهامهم.
+                          </p>
+                        )}
 
                         {hasAssignment ? (
                           <button
