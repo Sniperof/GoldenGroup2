@@ -2013,7 +2013,7 @@ export const api = {
     save: (date: string, data: any) => request<any>(`/schedules/${date}`, { method: 'PUT', body: JSON.stringify(data) }),
   },
   routeAssignments: {
-    list: () => request<Record<string, any>>('/route-assignments'),
+    list: (date?: string) => request<Record<string, any>>(date ? `/route-assignments?date=${encodeURIComponent(date)}` : '/route-assignments'),
     get: (key: string) => request<any>(`/route-assignments/${key}`),
     save: (key: string, data: any) => request<any>(`/route-assignments/${key}`, { method: 'PUT', body: JSON.stringify(data) }),
   },

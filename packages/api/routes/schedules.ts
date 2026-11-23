@@ -5,8 +5,19 @@ import { resolveListAccessScope } from '../services/authorizationService.js';
 import type { AuthContext, AuthUser } from '@golden-crm/shared';
 import { lockPlanningScheduleMutation } from '../services/planningTaskCuration.js';
 import { isLockedSlot, mergeScheduleSlots } from '../services/scheduleSlotMerge.js';
+import { isPastPlanningDay, PAST_DAY_LOCKED_RESPONSE } from '../services/planningPastDayLock.js';
 
 const router = Router();
+
+// `:date` is a calendar day. A malformed value used to reach the DB and come
+// back as a 500; reject it up front for every /:date route.
+router.param('date', (req, res, next, value) => {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00Z`))) {
+    res.status(400).json({ error: 'صيغة التاريخ غير صالحة (YYYY-MM-DD)' });
+    return;
+  }
+  next();
+});
 
 // Branch-isolation for the shared global day_schedules row (GAP-DS-005). A slot's
 // owning branch is DERIVED from its lead employee (team → supervisor, solo →
@@ -474,6 +485,9 @@ router.get('/:date', requirePermission('planning.manage'), async (req, res) => {
 router.put('/:date', requirePermission('planning.manage'), async (req, res) => {
   const { teams = [], solos = [] } = req.body ?? {};
   const scheduleDate = Array.isArray(req.params.date) ? req.params.date[0] : req.params.date;
+  if (isPastPlanningDay(scheduleDate)) {
+    return res.status(409).json(PAST_DAY_LOCKED_RESPONSE);
+  }
   const authContext = await getOrBuildAuthContext(req as Request & { user: AuthUser });
   const plan = resolveListAccessScope(authContext, 'routes.assign.view');
   // Wholesale replace is safe ONLY for an all-branches GLOBAL view (saw every slot

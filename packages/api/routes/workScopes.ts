@@ -201,8 +201,13 @@ router.post('/', requirePermission('planning.manage'), async (req, res) => {
 router.get('/:date/:teamKey', requirePermission('marketing_visits.view'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
-    const branchId = authContext.isSuperAdmin
-      ? Number(req.query.branchId)
+    // Super admin follows the branch switcher (actingBranchId) like every other
+    // planning endpoint; ?branchId stays as an explicit override. PlanOverview
+    // and TeamTasksDetail never send ?branchId, so reading only the query gave
+    // a 400 that the UI swallowed into "no scope" (branch-scope standard §4.3).
+    const queryBranchId = Number(req.query.branchId);
+    const branchId = authContext.isSuperAdmin && Number.isInteger(queryBranchId) && queryBranchId > 0
+      ? queryBranchId
       : authContext.actingBranchId;
 
     if (!branchId) return res.status(400).json({ error: 'يجب تحديد الفرع' });

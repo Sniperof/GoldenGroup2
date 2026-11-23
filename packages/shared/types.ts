@@ -1703,7 +1703,10 @@ export type OpenTaskStatus =
 export type OpenTaskPhase = 'waiting' | 'planning' | 'execution' | 'closure';
 
 export type OpenTaskType = 'device_demo' | 'emergency_maintenance';
-export type OpenTaskFamily = 'marketing' | 'service' | 'maintenance' | 'warranty';
+// Mirror of the DB CHECK on open_tasks.task_family (8 families).
+export type OpenTaskFamily =
+  | 'marketing' | 'sales' | 'delivery' | 'maintenance'
+  | 'emergency' | 'collection' | 'service' | 'warranty';
 export type OpenTaskReason =
   | 'new_lead'
   | 'follow_up'
@@ -2010,8 +2013,12 @@ export const OPEN_TASK_REASON_LABELS: Record<OpenTaskReason, string> = {
 
 export const OPEN_TASK_FAMILY_LABELS: Record<OpenTaskFamily, string> = {
   marketing: 'تسويق',
-  service: 'خدمة',
+  sales: 'مبيعات',
+  delivery: 'تسليم',
   maintenance: 'صيانة',
+  emergency: 'طوارئ',
+  collection: 'تحصيل',
+  service: 'خدمة',
   warranty: 'ضمان',
 };
 

@@ -13,6 +13,7 @@ import {
   resolveOwningBranchesForKeys,
 } from '../policies/routeAssignmentPolicy.js';
 import { lockPlanningDayMutation } from '../services/planningTaskCuration.js';
+import { isPastPlanningDay, PAST_DAY_LOCKED_RESPONSE } from '../services/planningPastDayLock.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -213,8 +214,19 @@ router.get('/', requirePermission('routes.assign.view'), async (req, res) => {
     return;
   }
 
-  const { rows } = await pool.query('SELECT * FROM route_assignments');
-  const generatedKeys = await loadGeneratedAssignmentKeys();
+  // Keys are `${YYYY-MM-DD}_${teamKey}`. Planning pages only read one day, so
+  // ?date= limits the read instead of loading every assignment ever saved.
+  const dateFilter = typeof req.query.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date)
+    ? req.query.date
+    : null;
+  if (typeof req.query.date === 'string' && req.query.date && dateFilter == null) {
+    res.status(400).json({ error: 'صيغة التاريخ غير صالحة (YYYY-MM-DD)' });
+    return;
+  }
+  const { rows } = dateFilter
+    ? await pool.query("SELECT * FROM route_assignments WHERE starts_with(key, $1 || '_')", [dateFilter])
+    : await pool.query('SELECT * FROM route_assignments');
+  const generatedKeys = await loadGeneratedAssignmentKeys(dateFilter ? rows.map((r: any) => String(r.key)) : undefined);
 
   // GLOBAL / super-admin → every branch's assignments.
   if (plan.scope === 'GLOBAL') {
@@ -350,6 +362,9 @@ router.put('/:key', requirePermission('routes.assign.manage'), async (req, res) 
   }
   const date = keyMatch[1];
   const teamKey = keyMatch[2];
+  if (isPastPlanningDay(date)) {
+    return res.status(409).json(PAST_DAY_LOCKED_RESPONSE);
+  }
 
   // Branch isolation: a route assignment belongs to the branch of its scheduled
   // team (day_schedules has no branch_id — GAP-DS-005). Reject cross-branch

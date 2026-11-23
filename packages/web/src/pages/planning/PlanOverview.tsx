@@ -56,7 +56,7 @@ const getPlanningDate = () => {
 };
 
 type WorkScope = {
-  counts?: { marketing: number; emergency: number; service: number; other: number; total: number };
+  counts?: { marketing: number; emergency: number; service: number; other: number; total: number; byFamily?: Record<string, number> };
   tasks?: Array<{ ownershipType?: string }>;
 };
 
@@ -162,7 +162,7 @@ export default function PlanOverview() {
           api.geoUnits.list(),
           api.routes.list(),
           api.schedules.get(date),
-          api.routeAssignments.list(),
+          api.routeAssignments.list(date),
           api.employees.list(),
         ]);
         if (cancelled) return;

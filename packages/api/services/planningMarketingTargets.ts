@@ -972,7 +972,8 @@ export type WorkScopeResponse = {
   branchId: number;
   zoneIds: number[];
   tasks: WorkScopeTask[];
-  counts: { marketing: number; emergency: number; service: number; other: number; total: number };
+  /** Legacy buckets kept for older callers; byFamily is the type-agnostic count (task_family → n). */
+  counts: { marketing: number; emergency: number; service: number; other: number; total: number; byFamily: Record<string, number> };
   supervisorHrUserId: number | null;
   technicianHrUserId: number | null;
   actorHrUserIds: number[];
@@ -1020,7 +1021,7 @@ export async function getPlanningWorkScope(params: {
     branchId,
     zoneIds: [],
     tasks: [],
-    counts: { marketing: 0, emergency: 0, service: 0, other: 0, total: 0 },
+    counts: { marketing: 0, emergency: 0, service: 0, other: 0, total: 0, byFamily: {} },
     supervisorHrUserId: null,
     technicianHrUserId: null,
     actorHrUserIds: [],
@@ -1354,10 +1355,14 @@ export async function getPlanningWorkScope(params: {
       else if (t.taskFamily === 'emergency') acc.emergency++;
       else if (t.taskFamily === 'service') acc.service++;
       else acc.other++;
+      // Type-agnostic: every family (delivery, collection, maintenance,
+      // warranty, …) is counted under its own key, nothing folds into "other".
+      const family = t.taskFamily || 'other';
+      acc.byFamily[family] = (acc.byFamily[family] ?? 0) + 1;
       acc.total++;
       return acc;
     },
-    { marketing: 0, emergency: 0, service: 0, other: 0, total: 0 },
+    { marketing: 0, emergency: 0, service: 0, other: 0, total: 0, byFamily: {} as Record<string, number> },
   );
 
   return {

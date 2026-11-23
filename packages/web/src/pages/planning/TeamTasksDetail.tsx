@@ -10,6 +10,7 @@ import {
     Layers, Building2, Megaphone, Wrench
 } from '../../components/ui/icons';
 import { api } from '../../lib/api';
+import { OPEN_TASK_FAMILY_LABELS } from '@golden-crm/shared';
 import Button from '../../components/ui/Button';
 
 /* ------------------------------------------------------------------ */
@@ -332,24 +333,21 @@ export default function TeamTasksDetail() {
                                 <span>نطاق العمل الفعلي:</span>
                                 <span className="bg-violet-200 text-violet-800 px-1.5 py-0.5 rounded font-black">{workScope.counts.total}</span>
                             </div>
-                            {workScope.counts.marketing > 0 && (
-                                <div className="flex items-center gap-1 text-xs text-emerald-700">
-                                    <Megaphone className="w-3 h-3" />
-                                    <span>{workScope.counts.marketing} تسويق</span>
-                                </div>
-                            )}
-                            {workScope.counts.emergency > 0 && (
-                                <div className="flex items-center gap-1 text-xs text-red-600">
-                                    <AlertTriangle className="w-3 h-3" />
-                                    <span>{workScope.counts.emergency} طوارئ</span>
-                                </div>
-                            )}
-                            {(workScope.counts.service + workScope.counts.other) > 0 && (
-                                <div className="flex items-center gap-1 text-xs text-blue-600">
-                                    <Wrench className="w-3 h-3" />
-                                    <span>{workScope.counts.service + workScope.counts.other} خدمة</span>
-                                </div>
-                            )}
+                            {/* One chip per task family (delivery, collection, maintenance, …) —
+                                nothing is folded into a generic «خدمة» bucket. */}
+                            {Object.entries((workScope.counts.byFamily ?? {}) as Record<string, number>)
+                                .filter(([, n]) => Number(n) > 0)
+                                .sort(([, a], [, b]) => Number(b) - Number(a))
+                                .map(([family, n]) => {
+                                    const Icon = family === 'marketing' ? Megaphone : family === 'emergency' ? AlertTriangle : Wrench;
+                                    const tone = family === 'marketing' ? 'text-emerald-700' : family === 'emergency' ? 'text-red-600' : 'text-blue-600';
+                                    return (
+                                        <div key={family} className={`flex items-center gap-1 text-xs ${tone}`}>
+                                            <Icon className="w-3 h-3" />
+                                            <span>{n} {(OPEN_TASK_FAMILY_LABELS as Record<string, string>)[family] ?? family}</span>
+                                        </div>
+                                    );
+                                })}
                             {workScope.tasks?.some((t: any) => t.ownershipType === 'company_branch') && (
                                 <div className="flex items-center gap-1 text-xs text-slate-500 mr-auto">
                                     <Building2 className="w-3 h-3" />
