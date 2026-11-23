@@ -31,6 +31,16 @@ function planningTeamSubjectDb(owningBranchId: number | null) {
           ? { rows: [] }
           : { rows: [{ teams: [{ supervisor: 51 }], solos: [] }] };
       }
+      if (sql.includes('FROM team_types')) {
+        // DEC-026: the team lead (owner) is resolved through the type catalog.
+        return {
+          rows: [{
+            id: 1, key: 'standard', name: 'فريق قياسي', isSystem: true, isActive: true, sortOrder: 10,
+            slots: [{ slotKey: 'supervisor', label: 'مشرف', slotFunction: 'lead', countsOwnership: true, minMembers: 1, maxMembers: 1, roleIds: [] }],
+            taskTypes: [],
+          }],
+        };
+      }
       if (sql.includes('FROM employees')) {
         return { rows: [{ branchId: owningBranchId }] };
       }

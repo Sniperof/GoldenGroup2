@@ -73,10 +73,15 @@ async function main() {
     console.log('✓ Cleared previous seed rows for this list/date');
 
     // ── 3. Schedule → one team (team_0) ─────────────────────────────────────
+    // Keyed team shape (DEC-026 phase 2).
     const teams = JSON.stringify([{
-        supervisor: TEAM.supervisor,
-        technician: TEAM.technician,
-        telemarketers: TEAM.telemarketers,
+        key: TEAM_KEY,
+        teamType: 'standard',
+        members: {
+            supervisor: [TEAM.supervisor],
+            technician: [TEAM.technician],
+            telemarketers: TEAM.telemarketers,
+        },
     }]);
     await pool.query(
         `INSERT INTO day_schedules (date, teams, solos)

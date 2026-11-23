@@ -17,6 +17,7 @@ import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import Toggle from '../../components/ui/Toggle';
 import type { Route, GeoUnit, DaySchedule, RouteAssignmentData } from '../../lib/types';
+import { isLockedTeam } from '@golden-crm/shared';
 import {
     normalizeStationOrder, newSegmentKey, routeStations, segmentStations as segmentStationsOf,
     segmentOrder as segmentOrderOf, toPersisted, fromPersisted as fromPersistedOf, matchesSaved,
@@ -149,17 +150,10 @@ export default function RouteAssigner() {
         const sched = schedules[date];
         if (!sched) return [];
         const opts: { value: string; label: string }[] = [];
-        (sched.teams || []).forEach((t, idx) => {
-            // Foreign-branch slots arrive redacted to `{ locked: true }` (GAP-DS-005) —
-            // skip them, keep idx so team_key stays aligned with route_assignments.
-            if ((t as any)?.locked === true) return;
-            const sup = t.supervisor ? employees.find(e => e.id === t.supervisor) : null;
-            opts.push({ value: `team_${idx}`, label: sup ? `فريق ${sup.name}` : `فريق #${idx + 1}` });
-        });
-        (sched.solos || []).forEach((s, idx) => {
-            if ((s as any)?.locked === true) return;   // foreign-branch solo slot — skip, keep idx
-            const tech = s.technician ? employees.find(e => e.id === s.technician) : null;
-            opts.push({ value: `solo_${idx}`, label: tech ? `طوارئ: ${tech.name}` : `فريق طوارئ #${idx + 1}` });
+        // DEC-026: teams carry their key; another branch's team arrives locked and is skipped.
+        (sched.teams || []).forEach(t => {
+            if (isLockedTeam(t)) return;
+            opts.push({ value: t.key, label: t.teamLabel || t.key });
         });
         return opts;
     }, [schedules, date, employees]);

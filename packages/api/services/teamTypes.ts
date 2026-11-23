@@ -232,7 +232,7 @@ export async function isTeamTypeInUse(db: Queryable, teamTypeId: number): Promis
        CROSS JOIN LATERAL jsonb_array_elements(
          CASE WHEN jsonb_typeof(ds.teams) = 'array' THEN ds.teams ELSE '[]'::jsonb END
        ) AS team
-       WHERE team->>'teamTypeId' = $1::text
+       WHERE team->>'teamType' = (SELECT key FROM team_types WHERE id = $1)
      ) AS used`,
     [teamTypeId],
   );

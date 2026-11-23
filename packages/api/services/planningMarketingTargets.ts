@@ -1,5 +1,6 @@
 import pool from '../db.js';
-import { resolveTeamPlanningScope } from './teamPlanningScope.js';
+import { resolveTeamPlanningScopeForTeam } from './teamPlanningScope.js';
+import { TEAM_KEY_PATTERN, isEmergencyTeam, loadResolvedTeam } from './daySchedule.js';
 import {
   buildPlanningContactContextAvailablePredicate,
   buildPlanningTaskExcludedPredicate,
@@ -476,37 +477,24 @@ export async function getPlanningMarketingTargets(params: {
   countsOnly?: boolean;
 }): Promise<PlanningMarketingTargetsResponse> {
   const { date, teamKey, branchId, mode = 'planning', countsOnly = false } = params;
-  const keyMatch = teamKey.match(/^(team|solo)_(\d+)$/);
-
-  if (!keyMatch) {
+  if (!TEAM_KEY_PATTERN.test(teamKey)) {
     throw new Error('teamKey must be team_X or solo_X');
   }
 
-  if (keyMatch[1] === 'solo') {
+  const team = await loadResolvedTeam(pool, date, teamKey);
+  if (team && isEmergencyTeam(team)) {
     return buildEmptyResponse({ teamKey, reason: 'SOLO_HAS_NO_MARKETING_LOAD' });
   }
-
-  const teamIndex = Number(keyMatch[2]);
-  const { rows: scheduleRows } = await pool.query(
-    'SELECT teams FROM day_schedules WHERE date = $1',
-    [date],
-  );
-
-  const teams = scheduleRows[0]?.teams;
-  const team = Array.isArray(teams) ? teams[teamIndex] : null;
   if (!team) {
     return buildEmptyResponse({ teamKey, reason: 'TEAM_NOT_FOUND' });
   }
 
-  const scope = await resolveTeamPlanningScope({
-    supervisor: team.supervisor,
-    technician: team.technician,
-    branchId,
-  });
+  const scope = await resolveTeamPlanningScopeForTeam(team, branchId);
 
-  // One owner set for count (#1) and assignment (#2): supervisor + technician
-  // (+ company accounts). Telemarketers are not team owners (PL-R014), so a
-  // client personally owned by a telemarketer is neither counted nor assigned.
+  // One owner set for count (#1) and assignment (#2): the team's owning
+  // members (DEC-026 D4: lead + owning field slots) + company accounts.
+  // Caller slots are not owners (PL-R014), so a client personally owned by a
+  // telemarketer is neither counted nor assigned.
   const {
     supervisorEmployeeId,
     supervisorHrUserId,
@@ -1000,19 +988,9 @@ export async function getPlanningWorkScope(params: {
     db = pool,
   } = params;
 
-  const keyMatch = teamKey.match(/^(team|solo)_(\d+)$/);
-  if (!keyMatch) throw new Error('teamKey must be team_X or solo_X');
+  if (!TEAM_KEY_PATTERN.test(teamKey)) throw new Error('teamKey must be team_X or solo_X');
 
-  const teamIndex = Number(keyMatch[2]);
-  const { rows: scheduleRows } = await db.query(
-    'SELECT teams, solos FROM day_schedules WHERE date = $1',
-    [date],
-  );
-
-  const scheduleData = scheduleRows[0];
-  const teams = scheduleData?.teams ?? [];
-  const solos = scheduleData?.solos ?? [];
-  const teamEntry = keyMatch[1] === 'team' ? teams[teamIndex] : solos[teamIndex];
+  const teamEntry = await loadResolvedTeam(db, date, teamKey);
 
   const empty: WorkScopeResponse = {
     scopeId: null,
@@ -1029,11 +1007,7 @@ export async function getPlanningWorkScope(params: {
 
   if (!teamEntry) return empty;
 
-  const scope = await resolveTeamPlanningScope({
-    supervisor: teamEntry.supervisor,
-    technician: teamEntry.technician,
-    branchId,
-  });
+  const scope = await resolveTeamPlanningScopeForTeam(teamEntry, branchId);
 
   const { actorHrUserIds, supervisorHrUserId, technicianHrUserId } = scope;
 
@@ -1065,8 +1039,8 @@ export async function getPlanningWorkScope(params: {
   //   2) device-basis task  -> open_tasks.device_id -> installed_devices.installation_geo_unit_id
   // Ownership is a separate eligibility condition; it must not replace the
   // task-location check.
-  // DEC-006 D31: solo teams (EmergencySlot) only carry emergency_maintenance.
-  const isSoloTeam = keyMatch[1] === 'solo';
+  // DEC-006 D31: the emergency team type only carries emergency_maintenance.
+  const isSoloTeam = isEmergencyTeam(teamEntry);
   // DEC-009 لبنة 10 / R-10 — department gate for device tasks (empty dept = all branch).
   const deviceScope = await resolveSupervisorDeviceScope(supervisorHrUserId, db);
   const queryParams: any[] = [
@@ -1398,26 +1372,14 @@ export async function getAssignedLeadsForTeam(params: {
   const { date, teamKey, branchId, db = pool } = params;
 
   // Resolve supervisor for contact-target creation (same as in getPlanningMarketingTargets)
-  const keyMatch = teamKey.match(/^(team|solo)_(\d+)$/);
-  if (!keyMatch || keyMatch[1] === 'solo') {
+  const team = TEAM_KEY_PATTERN.test(teamKey) ? await loadResolvedTeam(db, date, teamKey) : null;
+  if (!TEAM_KEY_PATTERN.test(teamKey) || (team && isEmergencyTeam(team))) {
     return { leads: [], supervisorHrUserId: null, reason: 'SOLO_HAS_NO_MARKETING_LOAD' };
   }
 
-  const teamIndex = Number(keyMatch[2]);
-  const { rows: scheduleRows } = await db.query(
-    'SELECT teams FROM day_schedules WHERE date = $1',
-    [date],
-  );
-  const teams = scheduleRows[0]?.teams;
-  const team = Array.isArray(teams) ? teams[teamIndex] : null;
-
   let supervisorHrUserId: number | null = null;
   if (team) {
-    const scope = await resolveTeamPlanningScope({
-      supervisor: team.supervisor,
-      technician: team.technician,
-      branchId,
-    });
+    const scope = await resolveTeamPlanningScopeForTeam(team, branchId);
     supervisorHrUserId = scope.supervisorHrUserId;
   }
 

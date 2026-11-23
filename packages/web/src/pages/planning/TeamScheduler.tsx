@@ -1,58 +1,63 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Calendar, Users, UserCheck, Plus, User, Save, X, PhoneCall, GraduationCap, CheckCircle, AlertCircle, LayoutGrid, ArrowLeft } from '../../components/ui/icons';
+import { Calendar, Users, UserCheck, Plus, User, Save, X, PhoneCall, CheckCircle, AlertCircle, LayoutGrid, ArrowLeft } from '../../components/ui/icons';
 import { api } from '../../lib/api';
 import PageHeader from '../../components/ui/PageHeader';
 import IconButton from '../../components/ui/IconButton';
 import DateField from '../../components/ui/DateField';
 import { useBranchContextStore } from '../../hooks/useBranchContextStore';
-import type { DaySchedule, Employee } from '../../lib/types';
+import { isLockedTeam } from '@golden-crm/shared';
+import type { DayScheduleTeam, Employee, ScheduledTeamView, TeamTypeDef, TeamTypeSlotDef } from '../../lib/types';
 
-// A slot owned by another branch arrives redacted to `{ locked: true }` (server keeps
-// the team_key index stable — GAP-DS-005). It is HIDDEN from this branch's manager,
-// but MUST stay in the array so the save round-trips it back unchanged (the PUT merge
-// restores the real slot from storage by index).
-const isLockedSlot = (slot: any): boolean => Boolean(slot) && slot.locked === true;
-
-// The array index IS the team identity (team_N / solo_N). Removing a slot must
-// therefore never shift later slots: a middle slot is cleared in place, and only
-// trailing empty own slots are trimmed. The server rejects shifted payloads (409).
-const isEmptySlot = (slot: any, isSolo: boolean): boolean =>
-    !isLockedSlot(slot) && (isSolo ? !slot?.technician : !slot?.supervisor && !slot?.technician);
-
-function removeSlotInPlace<T>(slots: T[], idx: number, isSolo: boolean, empty: T): T[] {
-    const next = slots.map((slot, i) => (i === idx ? empty : slot));
-    while (next.length > 0 && isEmptySlot(next[next.length - 1], isSolo)) next.pop();
-    return next;
-}
+// DEC-026: every team has a type (its slots and allowed tasks come from the
+// team types catalog) and an explicit key. Another branch's team arrives as
+// `{ key, locked: true }`; it is hidden here and the server restores it from
+// storage on save, so removing or adding a team never disturbs anyone else.
 
 // Local calendar date (NOT UTC). toISOString() returns the UTC date, which is a day
 // behind between local midnight and the UTC offset (01:00 in Damascus +03 is still
 // "yesterday" in UTC) — that off-by-one showed 14/6 instead of 15/6.
 const getPlanningDate = () => {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
-type SlotType = 'team' | 'solo';
-type TeamRole = 'supervisor' | 'technician' | 'telemarketer' | 'trainee';
-type SlotRole = TeamRole;
+/** A team being edited. `localId` keeps React keys stable; new teams have no server key yet. */
+type EditableTeam = ScheduledTeamView & { localId: string; isNew?: boolean };
+type EditorEntry = EditableTeam | (DayScheduleTeam & { locked: true; localId: string });
 
-const teamSlotTypeLabels: Record<string, string> = {
-    SUPERVISOR: 'مشرف',
-    TECHNICIAN: 'فني',
-    TELEMARKETER: 'مسوق هاتفي',
-    TRAINEE: 'متدرب',
-};
+const STANDARD = 'standard';
+const EMERGENCY = 'emergency';
+
+function typeTheme(typeKey: string) {
+    if (typeKey === EMERGENCY) return { card: 'border-orange-200', head: 'bg-orange-50 border-orange-200', icon: 'bg-orange-100 text-orange-600', button: 'border-orange-200 text-orange-600 hover:bg-orange-50' };
+    if (typeKey === STANDARD) return { card: 'border-slate-200', head: 'bg-slate-50 border-slate-200', icon: 'bg-sky-100 text-sky-600', button: 'bg-sky-600 hover:bg-sky-500 text-white border-sky-600' };
+    return { card: 'border-violet-200', head: 'bg-violet-50 border-violet-200', icon: 'bg-violet-100 text-violet-600', button: 'border-violet-200 text-violet-700 hover:bg-violet-50' };
+}
+
+function slotIcon(slot: TeamTypeSlotDef) {
+    if (slot.slotFunction === 'lead') return UserCheck;
+    if (slot.slotFunction === 'caller') return PhoneCall;
+    return User;
+}
+
+let localCounter = 0;
+const nextLocalId = () => `local_${++localCounter}`;
+
+function toEditor(teams: DayScheduleTeam[]): EditorEntry[] {
+    return teams.map(team => ({ ...team, localId: team.key || nextLocalId() } as EditorEntry));
+}
 
 export default function TeamScheduler() {
     const navigate = useNavigate();
-    const [current, setCurrent] = useState<DaySchedule>({ teams: [], solos: [] });
+    const [teams, setTeams] = useState<EditorEntry[]>([]);
     const [date, setDate] = useState(getPlanningDate);
-    const [selectedSlot, setSelectedSlot] = useState<{ type: SlotType; slotIdx: number; role: SlotRole } | null>(null);
+    const [selectedSlot, setSelectedSlot] = useState<{ localId: string; slotKey: string } | null>(null);
     const [employees, setEmployees] = useState<Employee[]>([]);
+    const [catalog, setCatalog] = useState<TeamTypeDef[]>([]);
+    const [branchTypeIds, setBranchTypeIds] = useState<number[]>([]);
     const [loading, setLoading] = useState(true);
     const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
     const [saveError, setSaveError] = useState<string | null>(null);
@@ -60,121 +65,86 @@ export default function TeamScheduler() {
     const branchId = useBranchContextStore(s => s.branchId);
 
     useEffect(() => {
-        api.employees.schedulePool().then((data: Employee[]) => setEmployees(data)).catch(() => {});
+        api.employees.schedulePool().then((data: Employee[]) => setEmployees(data)).catch(() => setEmployees([]));
+        api.teamTypes.list().then(setCatalog).catch(() => setCatalog([]));
+        api.teamTypes.branch().then(r => setBranchTypeIds(r.teamTypeIds)).catch(() => setBranchTypeIds([]));
     }, [branchId]);
 
     useEffect(() => {
         setLoading(true);
         api.schedules.get(date)
-            .then((data: DaySchedule) => {
-                setCurrent(data && (data.teams || data.solos) ? data : { teams: [], solos: [] });
-            })
-            .catch(() => {
-                setCurrent({ teams: [], solos: [] });
-            })
+            .then(data => setTeams(toEditor(Array.isArray(data?.teams) ? data.teams : [])))
+            .catch(() => setTeams([]))
             .finally(() => setLoading(false));
     }, [date, branchId]);
 
-    const updateCurrent = useCallback((sched: DaySchedule) => {
-        setCurrent(sched);
-    }, [date]);
+    const typeByKey = useMemo(() => new Map(catalog.map(type => [type.key, type])), [catalog]);
+    const addableTypes = useMemo(
+        () => catalog.filter(type => type.isActive && branchTypeIds.includes(type.id)),
+        [catalog, branchTypeIds],
+    );
+    const employeeById = useMemo(() => new Map(employees.map(e => [e.id, e])), [employees]);
 
-    const addTeamSlot = () => updateCurrent({ ...current, teams: [...current.teams, { supervisor: null, technician: null }] });
-    const addSoloSlot = () => updateCurrent({ ...current, solos: [...current.solos, { technician: null }] });
-    const removeTeamSlot = (idx: number) => updateCurrent({
-        ...current,
-        teams: removeSlotInPlace(current.teams, idx, false, { supervisor: null, technician: null }),
-    });
-    const removeSoloSlot = (idx: number) => updateCurrent({
-        ...current,
-        solos: removeSlotInPlace(current.solos, idx, true, { technician: null }),
-    });
+    const ownTeams = teams.filter((t): t is EditableTeam => !isLockedTeam(t));
+    const assignedIds = new Set(ownTeams.flatMap(t => Object.values(t.members).flat()));
+    const poolEmployees = employees.filter(e => e.canAppearInSchedule === true && e.status === 'active' && !assignedIds.has(e.id));
 
-    const assignedIds = [
-        ...current.teams.flatMap(t => [t.supervisor, t.technician, ...(t.telemarketers || []), t.trainee]),
-        ...current.solos.flatMap(s => [s.technician, s.trainee ?? null, ...(s.telemarketers || [])]),
-    ].filter(Boolean) as number[];
+    const selected = selectedSlot ? ownTeams.find(t => t.localId === selectedSlot.localId) : null;
+    const selectedDef = selected ? typeByKey.get(selected.teamType)?.slots.find(s => s.slotKey === selectedSlot!.slotKey) ?? null : null;
+    const fitsSelected = (e: Employee) => Boolean(selectedDef && e.roleId != null && selectedDef.roleIds.includes(e.roleId));
 
-    const canAppear = (employee: Employee) => employee.canAppearInSchedule === true;
-    const availableSups = employees.filter(e => canAppear(e) && e.teamSlotType === 'SUPERVISOR' && e.status === 'active' && !assignedIds.includes(e.id));
-    const availableTechs = employees.filter(e => canAppear(e) && e.teamSlotType === 'TECHNICIAN' && e.status === 'active' && !assignedIds.includes(e.id));
-    const availableTeles = employees.filter(e => canAppear(e) && e.teamSlotType === 'TELEMARKETER' && e.status === 'active' && !assignedIds.includes(e.id));
-    const availableTrainees = employees.filter(e => canAppear(e) && e.teamSlotType === 'TRAINEE' && e.status === 'active' && !assignedIds.includes(e.id));
-    const poolEmployees = [...availableSups, ...availableTechs, ...availableTeles, ...availableTrainees];
+    const updateTeam = (localId: string, change: (team: EditableTeam) => EditableTeam) =>
+        setTeams(list => list.map(t => (!isLockedTeam(t) && t.localId === localId ? change(t as EditableTeam) : t)));
 
-    const selectSlot = (type: SlotType, slotIdx: number, role: SlotRole) => {
-        setSelectedSlot(s => s && s.type === type && s.slotIdx === slotIdx && s.role === role ? null : { type, slotIdx, role });
+    const addTeam = (type: TeamTypeDef) => {
+        const localId = nextLocalId();
+        setTeams(list => [...list, { key: '', teamType: type.key, teamTypeName: type.name, members: {}, localId, isNew: true }]);
     };
+
+    const removeTeam = (localId: string) => {
+        setTeams(list => list.filter(t => t.localId !== localId));
+        if (selectedSlot?.localId === localId) setSelectedSlot(null);
+    };
+
+    const selectSlot = (localId: string, slotKey: string) =>
+        setSelectedSlot(s => (s && s.localId === localId && s.slotKey === slotKey ? null : { localId, slotKey }));
 
     const assignEmployee = (empId: number) => {
-        if (!selectedSlot) return;
-        const emp = employees.find(e => e.id === empId);
-        if (!emp) return;
-        const { type, slotIdx, role } = selectedSlot;
-        if (type === 'team') {
-            const teams = [...current.teams];
-            if (role === 'telemarketer') {
-                if (emp.teamSlotType !== 'TELEMARKETER') return;
-                const currentTeles = teams[slotIdx].telemarketers || [];
-                if (!currentTeles.includes(empId)) {
-                    teams[slotIdx] = { ...teams[slotIdx], telemarketers: [...currentTeles, empId] };
-                }
-            } else {
-                if (role === 'supervisor' && emp.teamSlotType !== 'SUPERVISOR') return;
-                if (role === 'technician' && emp.teamSlotType !== 'TECHNICIAN') return;
-                if (role === 'trainee' && emp.teamSlotType !== 'TRAINEE') return;
-                teams[slotIdx] = { ...teams[slotIdx], [role]: empId };
-            }
-            updateCurrent({ ...current, teams });
-        } else {
-            const solos = [...current.solos];
-            if (role === 'technician') {
-                if (emp.teamSlotType !== 'TECHNICIAN') return;
-                solos[slotIdx] = { ...solos[slotIdx], technician: empId };
-            } else if (role === 'trainee') {
-                if (emp.teamSlotType !== 'TRAINEE') return;
-                solos[slotIdx] = { ...solos[slotIdx], trainee: empId };
-            } else if (role === 'telemarketer') {
-                if (emp.teamSlotType !== 'TELEMARKETER') return;
-                const currentSoloTeles = solos[slotIdx].telemarketers || [];
-                if (!currentSoloTeles.includes(empId)) {
-                    solos[slotIdx] = { ...solos[slotIdx], telemarketers: [...currentSoloTeles, empId] };
-                }
-            } else {
-                return;
-            }
-            updateCurrent({ ...current, solos });
-        }
-        setSelectedSlot(null);
+        if (!selectedSlot || !selectedDef) return;
+        const emp = employeeById.get(empId);
+        if (!emp || !fitsSelected(emp)) return;
+        const { slotKey } = selectedSlot;
+        updateTeam(selectedSlot.localId, team => {
+            const current = team.members[slotKey] ?? [];
+            if (current.includes(empId)) return team;
+            const next = selectedDef.maxMembers === 1
+                ? [empId]
+                : (selectedDef.maxMembers != null && current.length >= selectedDef.maxMembers ? current : [...current, empId]);
+            return { ...team, members: { ...team.members, [slotKey]: next } };
+        });
+        if (selectedDef.maxMembers === 1) setSelectedSlot(null);
     };
 
-    const unassign = (type: SlotType, slotIdx: number, role: SlotRole, empId?: number) => {
-        if (type === 'team') {
-            const teams = [...current.teams];
-            if (role === 'telemarketer') {
-                const currentTeles = teams[slotIdx].telemarketers || [];
-                teams[slotIdx] = { ...teams[slotIdx], telemarketers: currentTeles.filter(id => id !== empId) };
-            } else {
-                teams[slotIdx] = { ...teams[slotIdx], [role]: null };
-            }
-            updateCurrent({ ...current, teams });
-        } else {
-            const solos = [...current.solos];
-            if (role === 'technician') {
-                solos[slotIdx] = { ...solos[slotIdx], technician: null };
-            } else if (role === 'trainee') {
-                solos[slotIdx] = { ...solos[slotIdx], trainee: null };
-            } else if (role === 'telemarketer') {
-                const currentSoloTeles = solos[slotIdx].telemarketers || [];
-                solos[slotIdx] = { ...solos[slotIdx], telemarketers: currentSoloTeles.filter(id => id !== empId) };
-            }
-            updateCurrent({ ...current, solos });
-        }
-    };
+    const unassign = (localId: string, slotKey: string, empId: number) =>
+        updateTeam(localId, team => ({
+            ...team,
+            members: { ...team.members, [slotKey]: (team.members[slotKey] ?? []).filter(id => id !== empId) },
+        }));
 
     const saveSchedule = async () => {
         try {
-            await api.schedules.save(date, { teams: current.teams, solos: current.solos });
+            // A new team has no key: the server gives it a fresh, never-used one.
+            const payload = teams.map(t => {
+                if (isLockedTeam(t)) return { key: t.key, locked: true as const };
+                const team = t as EditableTeam;
+                const members = Object.fromEntries(Object.entries(team.members).filter(([, ids]) => ids.length > 0));
+                return team.isNew
+                    ? { teamType: team.teamType, members }
+                    : { key: team.key, teamType: team.teamType, members };
+            });
+            const saved = await api.schedules.save(date, { teams: payload });
+            setTeams(toEditor(Array.isArray(saved?.teams) ? saved.teams : []));
+            setSelectedSlot(null);
             setSaveStatus('success');
             setSaveError(null);
             setTimeout(() => setSaveStatus('idle'), 3000);
@@ -186,7 +156,7 @@ export default function TeamScheduler() {
         }
     };
 
-    const getEmpName = (id: number | null) => { const e = employees.find(e => e.id === id); return e?.name || ''; };
+    const empName = (id: number) => employeeById.get(id)?.name || `#${id}`;
 
     if (loading) {
         return (
@@ -203,7 +173,7 @@ export default function TeamScheduler() {
             <PageHeader
                 className="mb-6"
                 title="جدولة الفرق"
-                subtitle="تعيين المشرفين والفنيين للفرق اليومية."
+                subtitle="تشكيل فرق اليوم حسب أنواع الفرق المفعّلة للفرع."
                 actions={
                     <button
                         type="button"
@@ -219,12 +189,7 @@ export default function TeamScheduler() {
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6 flex items-center gap-4 flex-wrap">
                 <DateField value={date} onChange={v => { setDate(v); setSelectedSlot(null); }} className="bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none" />
                 <div className="h-8 w-px bg-slate-200" />
-                <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-1.5 text-sm"><UserCheck className="w-4 h-4 text-indigo-500" /><span className="text-slate-500">مشرفون:</span><span className="text-slate-900 font-bold">{availableSups.length}</span></div>
-                    <div className="flex items-center gap-1.5 text-sm"><Users className="w-4 h-4 text-emerald-500" /><span className="text-slate-500">فنيون:</span><span className="text-slate-900 font-bold">{availableTechs.length}</span></div>
-                    <div className="flex items-center gap-1.5 text-sm"><PhoneCall className="w-4 h-4 text-violet-500" /><span className="text-slate-500">مسوقون:</span><span className="text-slate-900 font-bold">{availableTeles.length}</span></div>
-                    <div className="flex items-center gap-1.5 text-sm"><GraduationCap className="w-4 h-4 text-amber-500" /><span className="text-slate-500">متدربون:</span><span className="text-slate-900 font-bold">{availableTrainees.length}</span></div>
-                </div>
+                <div className="flex items-center gap-1.5 text-sm"><Users className="w-4 h-4 text-emerald-500" /><span className="text-slate-500">موظفون متاحون:</span><span className="text-slate-900 font-bold">{poolEmployees.length}</span></div>
                 <div className="mr-auto flex items-center gap-2">
                     {saveStatus === 'success' && <span className="flex items-center gap-1 text-emerald-600 text-sm font-medium"><CheckCircle className="w-4 h-4" />تم الحفظ</span>}
                     {saveStatus === 'error' && <span className="flex items-center gap-1 text-red-500 text-sm font-medium"><AlertCircle className="w-4 h-4" />{saveError || 'خطأ في الحفظ'}</span>}
@@ -238,214 +203,113 @@ export default function TeamScheduler() {
                     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden sticky top-0">
                         <div className="px-4 py-3 bg-slate-50 border-b border-slate-100">
                             <h3 className="text-slate-500 font-bold text-base uppercase tracking-wider flex items-center gap-2"><Users className="w-4 h-4 text-slate-400" />الموظفون المتاحون</h3>
+                            {selectedDef && <p className="text-xs text-sky-600 mt-1">اختر موظفاً لخانة «{selectedDef.label}»</p>}
                         </div>
                         <div className="divide-y divide-slate-100 max-h-[60vh] overflow-y-auto custom-scroll">
                             {poolEmployees.length === 0 ? (
                                 <p className="text-center text-slate-400 text-sm py-8">لا يوجد موظفون متاحون</p>
-                            ) : poolEmployees.map(e => (
-                                <motion.div
-                                    key={e.id}
-                                    onClick={() => assignEmployee(e.id)}
-                                    className={`flex items-center gap-3 p-3 cursor-pointer transition-all ${selectedSlot
-                                        ? ((selectedSlot.role === 'supervisor' && e.teamSlotType === 'SUPERVISOR') ||
-                                            (selectedSlot.role === 'technician' && e.teamSlotType === 'TECHNICIAN') ||
-                                            (selectedSlot.role === 'telemarketer' && e.teamSlotType === 'TELEMARKETER') ||
-                                            (selectedSlot.role === 'trainee' && selectedSlot.type === 'team' && e.teamSlotType === 'TRAINEE') ||
-                                            (selectedSlot.type === 'solo' && selectedSlot.role === 'technician' && e.teamSlotType === 'TECHNICIAN') ||
-                                            (selectedSlot.type === 'solo' && selectedSlot.role === 'trainee' && e.teamSlotType === 'TRAINEE') ||
-                                            (selectedSlot.type === 'solo' && selectedSlot.role === 'telemarketer' && e.teamSlotType === 'TELEMARKETER'))
-                                            ? 'hover:bg-sky-50'
-                                            : 'opacity-40 grayscale cursor-not-allowed'
-                                        : 'hover:bg-sky-50'
-                                        }`}
-                                >
-                                    <div className="relative">
-                                        <img src={e.avatar} alt="" className="w-9 h-9 rounded-full border border-slate-100 object-cover" />
-                                        <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-white ${e.status === 'active' ? 'bg-emerald-500' : 'bg-slate-300'}`}></span>
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                        <p className="text-sm font-medium text-slate-700 truncate">{e.name}</p>
-                                        <p className="text-xs text-slate-500">{e.teamSlotType ? teamSlotTypeLabels[e.teamSlotType] : ''}</p>
-                                    </div>
-                                    {e.teamSlotType === 'SUPERVISOR' ? (
-                                        <span className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 text-xs font-bold">مشرف</span>
-                                    ) : e.teamSlotType === 'TELEMARKETER' ? (
-                                        <span className="px-2 py-0.5 rounded-full bg-violet-50 text-violet-600 text-xs font-bold">مسوق</span>
-                                    ) : e.teamSlotType === 'TRAINEE' ? (
-                                        <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 text-xs font-bold">متدرب</span>
-                                    ) : (
-                                        <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 text-xs font-bold">فني</span>
-                                    )}
-                                </motion.div>
-                            ))}
-                        </div>
-                    </div>
-                </div>
-
-                {/* Slots Area */}
-                <div className="col-span-2 space-y-4">
-                    <div className="flex gap-2">
-                        <button onClick={addTeamSlot} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-sm font-bold transition-all"><Plus className="w-4 h-4" /><span>إضافة فريق</span></button>
-                        <button onClick={addSoloSlot} className="flex items-center gap-2 px-4 py-2 rounded-lg border border-orange-200 text-orange-600 hover:bg-orange-50 text-sm font-medium transition-colors"><AlertCircle className="w-4 h-4" /><span>فريق طوارئ</span></button>
-                    </div>
-
-                    {current.teams.length === 0 && current.solos.length === 0 ? (
-                        <div className="text-center text-slate-400 py-10"><Calendar className="w-10 h-10 mx-auto mb-3 opacity-30" /><p>اضغط "إضافة فريق" أو "فريق طوارئ" لبدء الجدولة</p></div>
-                    ) : (
-                        <div className="space-y-4">
-                            {current.teams.map((t, idx) => {
-                                if (isLockedSlot(t)) return null;   // foreign-branch slot: kept in state (round-trips via PUT merge) but hidden from this branch's manager
-                                const teamName = t.supervisor ? `فريق ${getEmpName(t.supervisor)}` : `فريق #${idx + 1}`;
-                                const isSup = selectedSlot?.type === 'team' && selectedSlot.slotIdx === idx && selectedSlot.role === 'supervisor';
-                                const isTech = selectedSlot?.type === 'team' && selectedSlot.slotIdx === idx && selectedSlot.role === 'technician';
-                                const isTele = selectedSlot?.type === 'team' && selectedSlot.slotIdx === idx && selectedSlot.role === 'telemarketer';
-                                const isTrainee = selectedSlot?.type === 'team' && selectedSlot.slotIdx === idx && selectedSlot.role === 'trainee';
-                                const teamTeles = t.telemarketers || [];
-
+                            ) : poolEmployees.map(e => {
+                                const enabled = !selectedDef || fitsSelected(e);
                                 return (
-                                    <motion.div key={`team-${idx}`} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                                        <div className="p-3 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
-                                            <div className="flex items-center gap-2">
-                                                <div className="w-8 h-8 rounded-lg bg-sky-100 flex items-center justify-center text-sky-600"><Users className="w-4 h-4" /></div>
-                                                <span className="font-bold text-slate-800 text-sm">{teamName}</span>
-                                                <span className="text-xs text-slate-500">فريق قياسي</span>
-                                            </div>
-                                            <IconButton icon={X} label="حذف" variant="danger" size="sm" onClick={() => removeTeamSlot(idx)} />
+                                    <motion.div
+                                        key={e.id}
+                                        onClick={() => assignEmployee(e.id)}
+                                        className={`flex items-center gap-3 p-3 transition-all ${enabled ? 'cursor-pointer hover:bg-sky-50' : 'opacity-40 grayscale cursor-not-allowed'}`}
+                                    >
+                                        <div className="relative">
+                                            <img src={e.avatar} alt="" className="w-9 h-9 rounded-full border border-slate-100 object-cover" />
+                                            <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-white bg-emerald-500"></span>
                                         </div>
-                                        <div className="p-4 grid grid-cols-2 gap-3">
-                                            {/* Supervisor Slot */}
-                                            <div onClick={() => selectSlot('team', idx, 'supervisor')} className={`p-3 rounded-lg border-2 cursor-pointer transition-all ${isSup ? 'border-sky-500 bg-sky-50' : 'border-dashed border-slate-300 hover:border-sky-300'}`}>
-                                                {t.supervisor ? (
-                                                    <div className="flex items-center gap-2">
-                                                        <img src={employees.find(e => e.id === t.supervisor)?.avatar || ''} alt="" className="w-8 h-8 rounded-full" />
-                                                        <div className="flex-1"><p className="text-sm text-slate-900">{getEmpName(t.supervisor)}</p><p className="text-xs text-indigo-500">مشرف</p></div>
-                                                        <IconButton icon={X} label="حذف" variant="danger" size="sm" onClick={e => { e.stopPropagation(); unassign('team', idx, 'supervisor'); }} />
-                                                    </div>
-                                                ) : (
-                                                    <div className="text-center py-2"><UserCheck className="w-5 h-5 mx-auto text-slate-400 mb-1" /><p className="text-xs text-slate-400">مشرف</p></div>
-                                                )}
-                                            </div>
-                                            {/* Technician Slot */}
-                                            <div onClick={() => selectSlot('team', idx, 'technician')} className={`p-3 rounded-lg border-2 cursor-pointer transition-all ${isTech ? 'border-sky-500 bg-sky-50' : 'border-dashed border-slate-300 hover:border-sky-300'}`}>
-                                                {t.technician ? (
-                                                    <div className="flex items-center gap-2">
-                                                        <img src={employees.find(e => e.id === t.technician)?.avatar || ''} alt="" className="w-8 h-8 rounded-full" />
-                                                        <div className="flex-1"><p className="text-sm text-slate-900">{getEmpName(t.technician)}</p><p className="text-xs text-emerald-500">فني</p></div>
-                                                        <IconButton icon={X} label="حذف" variant="danger" size="sm" onClick={e => { e.stopPropagation(); unassign('team', idx, 'technician'); }} />
-                                                    </div>
-                                                ) : (
-                                                    <div className="text-center py-2"><User className="w-5 h-5 mx-auto text-slate-400 mb-1" /><p className="text-xs text-slate-400">فني</p></div>
-                                                )}
-                                            </div>
-                                            {/* Trainee Slot */}
-                                            <div onClick={() => selectSlot('team', idx, 'trainee')} className={`col-span-2 p-3 rounded-lg border-2 cursor-pointer transition-all ${isTrainee ? 'border-sky-500 bg-sky-50' : 'border-dashed border-slate-300 hover:border-sky-300'}`}>
-                                                {t.trainee ? (
-                                                    <div className="flex items-center gap-2">
-                                                        <img src={employees.find(e => e.id === t.trainee)?.avatar || ''} alt="" className="w-8 h-8 rounded-full" />
-                                                        <div className="flex-1"><p className="text-sm text-slate-900">{getEmpName(t.trainee)}</p><p className="text-xs text-amber-500">متدرب</p></div>
-                                                        <IconButton icon={X} label="حذف" variant="danger" size="sm" onClick={e => { e.stopPropagation(); unassign('team', idx, 'trainee'); }} />
-                                                    </div>
-                                                ) : (
-                                                    <div className="text-center py-2"><GraduationCap className="w-5 h-5 mx-auto text-slate-400 mb-1" /><p className="text-xs text-slate-400">متدرب (اختياري)</p></div>
-                                                )}
-                                            </div>
-                                        </div>
-                                        <div className="p-4 border-t border-slate-100 bg-slate-50/50">
-                                            {/* Telemarketer Slots */}
-                                            <div onClick={() => selectSlot('team', idx, 'telemarketer')} className={`p-3 rounded-lg border-2 cursor-pointer transition-all ${isTele ? 'border-sky-500 bg-sky-50' : 'border-dashed border-slate-300 hover:border-sky-300'}`}>
-                                                {teamTeles.length > 0 ? (
-                                                    <div className="space-y-2">
-                                                        <p className="text-xs font-bold text-violet-600 mb-2">المسوقون الهاتفون ({teamTeles.length})</p>
-                                                        <div className="flex flex-wrap gap-2">
-                                                            {teamTeles.map(teleId => (
-                                                                <div key={teleId} className="flex items-center gap-1.5 bg-white border border-violet-100 rounded-full pl-1.5 pr-3 py-1 shadow-sm">
-                                                                    <img src={employees.find(e => e.id === teleId)?.avatar || ''} alt="" className="w-5 h-5 rounded-full" />
-                                                                    <span className="text-xs font-medium text-slate-700">{getEmpName(teleId)}</span>
-                                                                    <IconButton icon={X} label="حذف" variant="danger" size="sm" className="ml-1" onClick={e => { e.stopPropagation(); unassign('team', idx, 'telemarketer', teleId); }} />
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                        {isTele && <p className="text-xs text-sky-600 mt-2 text-center">انقر على موظف من القائمة جانباً للإضافة</p>}
-                                                    </div>
-                                                ) : (
-                                                    <div className="text-center py-2"><PhoneCall className="w-5 h-5 mx-auto text-slate-400 mb-1" /><p className="text-xs text-slate-400">مسوق هاتفي (اختياري)</p></div>
-                                                )}
-                                            </div>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-sm font-medium text-slate-700 truncate">{e.name}</p>
+                                            <p className="text-xs text-slate-500 truncate">{e.jobTitle || ''}</p>
                                         </div>
                                     </motion.div>
                                 );
                             })}
+                        </div>
+                    </div>
+                </div>
 
-                            {current.solos.map((s, idx) => {
-                                if (isLockedSlot(s)) return null;   // foreign-branch solo slot: kept in state but hidden
-                                const isTech = selectedSlot?.type === 'solo' && selectedSlot.slotIdx === idx && selectedSlot.role === 'technician';
-                                const isTrainee = selectedSlot?.type === 'solo' && selectedSlot.slotIdx === idx && selectedSlot.role === 'trainee';
-                                const isTele = selectedSlot?.type === 'solo' && selectedSlot.slotIdx === idx && selectedSlot.role === 'telemarketer';
-                                const soloTeles = s.telemarketers || [];
-                                const formLabel = s.trainee && soloTeles.length > 0 ? 'فني + متدرب + تيلماركتر' : s.trainee ? 'فني + متدرب' : soloTeles.length > 0 ? 'فني + تيلماركتر' : 'فني فقط';
-                                const emergencyName = s.technician ? `طوارئ — ${getEmpName(s.technician)}` : `فريق طوارئ #${idx + 1}`;
+                {/* Teams Area */}
+                <div className="col-span-2 space-y-4">
+                    <div className="flex gap-2 flex-wrap">
+                        {addableTypes.map(type => {
+                            const theme = typeTheme(type.key);
+                            return (
+                                <button key={type.id} onClick={() => addTeam(type)} className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-bold transition-all ${theme.button}`}>
+                                    {type.key === EMERGENCY ? <AlertCircle className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                                    <span>{type.name}</span>
+                                </button>
+                            );
+                        })}
+                        {addableTypes.length === 0 && <p className="text-sm text-slate-400">لا توجد أنواع فرق مفعّلة لهذا الفرع</p>}
+                    </div>
+
+                    {ownTeams.length === 0 ? (
+                        <div className="text-center text-slate-400 py-10"><Calendar className="w-10 h-10 mx-auto mb-3 opacity-30" /><p>اختر نوع فريق من الأزرار أعلاه لبدء الجدولة</p></div>
+                    ) : (
+                        <div className="space-y-4">
+                            {ownTeams.map(team => {
+                                const type = typeByKey.get(team.teamType) ?? null;
+                                const theme = typeTheme(team.teamType);
+                                const leadSlot = type?.slots.find(s => s.slotFunction === 'lead');
+                                const leadId = leadSlot ? team.members[leadSlot.slotKey]?.[0] : undefined;
+                                const typeName = type?.name ?? team.teamTypeName ?? 'فريق';
+                                const title = leadId != null ? `${typeName}: ${empName(leadId)}` : typeName;
                                 return (
-                                    <motion.div key={`solo-${idx}`} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-xl shadow-sm border border-orange-200 overflow-hidden">
-                                        <div className="p-3 bg-orange-50 border-b border-orange-200 flex justify-between items-center">
+                                    <motion.div key={team.localId} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={`bg-white rounded-xl shadow-sm border overflow-hidden ${theme.card}`}>
+                                        <div className={`p-3 border-b flex justify-between items-center ${theme.head}`}>
                                             <div className="flex items-center gap-2">
-                                                <div className="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center text-orange-600"><AlertCircle className="w-4 h-4" /></div>
-                                                <span className="font-bold text-slate-800 text-sm">{emergencyName}</span>
-                                                <span className="px-2 py-0.5 rounded-full bg-orange-100 text-orange-600 text-xs font-bold">{formLabel}</span>
+                                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${theme.icon}`}>{team.teamType === EMERGENCY ? <AlertCircle className="w-4 h-4" /> : <Users className="w-4 h-4" />}</div>
+                                                <span className="font-bold text-slate-800 text-sm">{title}</span>
+                                                {!team.isNew && <span className="text-xs text-slate-400" dir="ltr">{team.key}</span>}
                                             </div>
-                                            <IconButton icon={X} label="حذف" variant="danger" size="sm" onClick={() => removeSoloSlot(idx)} />
+                                            <IconButton icon={X} label="حذف" variant="danger" size="sm" onClick={() => removeTeam(team.localId)} />
                                         </div>
-                                        <div className="p-4 grid grid-cols-2 gap-3">
-                                            {/* Technician — required, full width */}
-                                            <div onClick={() => selectSlot('solo', idx, 'technician')} className={`col-span-2 p-3 rounded-lg border-2 cursor-pointer transition-all ${isTech ? 'border-sky-500 bg-sky-50' : s.technician ? 'border-emerald-300' : 'border-dashed border-red-300 hover:border-sky-300'}`}>
-                                                {s.technician ? (
-                                                    <div className="flex items-center gap-2">
-                                                        <img src={employees.find(e => e.id === s.technician)?.avatar || ''} alt="" className="w-8 h-8 rounded-full" />
-                                                        <div className="flex-1"><p className="text-sm text-slate-900">{getEmpName(s.technician)}</p><p className="text-xs text-emerald-500">فني (مطلوب)</p></div>
-                                                        <IconButton icon={X} label="حذف" variant="danger" size="sm" onClick={e => { e.stopPropagation(); unassign('solo', idx, 'technician'); }} />
-                                                    </div>
-                                                ) : (
-                                                    <div className="text-center py-2"><User className="w-5 h-5 mx-auto text-red-400 mb-1" /><p className="text-xs text-red-400">فني (مطلوب)</p></div>
-                                                )}
-                                            </div>
-                                            {/* Trainee — optional */}
-                                            <div onClick={() => selectSlot('solo', idx, 'trainee')} className={`p-3 rounded-lg border-2 cursor-pointer transition-all ${isTrainee ? 'border-sky-500 bg-sky-50' : 'border-dashed border-slate-300 hover:border-sky-300'}`}>
-                                                {s.trainee ? (
-                                                    <div className="flex items-center gap-2">
-                                                        <img src={employees.find(e => e.id === s.trainee)?.avatar || ''} alt="" className="w-8 h-8 rounded-full" />
-                                                        <div className="flex-1"><p className="text-sm text-slate-900">{getEmpName(s.trainee)}</p><p className="text-xs text-amber-500">متدرب</p></div>
-                                                        <IconButton icon={X} label="حذف" variant="danger" size="sm" onClick={e => { e.stopPropagation(); unassign('solo', idx, 'trainee'); }} />
-                                                    </div>
-                                                ) : (
-                                                    <div className="text-center py-2"><GraduationCap className="w-5 h-5 mx-auto text-slate-400 mb-1" /><p className="text-xs text-slate-400">متدرب (اختياري)</p></div>
-                                                )}
-                                            </div>
-                                            {/* Telemarketers — optional, multiple */}
-                                            <div
-                                                onClick={() => selectSlot('solo', idx, 'telemarketer')}
-                                                className={`p-3 rounded-lg border-2 transition-all cursor-pointer ${isTele ? 'border-sky-500 bg-sky-50' : 'border-dashed border-slate-300 hover:border-sky-300'}`}
-                                            >
-                                                {soloTeles.length > 0 ? (
-                                                    <div className="space-y-2">
-                                                        <p className="text-xs font-bold text-violet-600 mb-2">المسوقون ({soloTeles.length})</p>
-                                                        <div className="flex flex-wrap gap-2">
-                                                            {soloTeles.map(teleId => (
-                                                                <div key={teleId} className="flex items-center gap-1.5 bg-white border border-violet-100 rounded-full pl-1.5 pr-3 py-1 shadow-sm">
-                                                                    <img src={employees.find(e => e.id === teleId)?.avatar || ''} alt="" className="w-5 h-5 rounded-full" />
-                                                                    <span className="text-xs font-medium text-slate-700">{getEmpName(teleId)}</span>
-                                                                    <IconButton icon={X} label="حذف" variant="danger" size="sm" className="ml-1" onClick={e => { e.stopPropagation(); unassign('solo', idx, 'telemarketer', teleId); }} />
+                                        {!type ? (
+                                            <p className="p-4 text-sm text-red-500">نوع الفريق «{team.teamType}» غير موجود في الكتالوج</p>
+                                        ) : (
+                                            <div className="p-4 grid grid-cols-2 gap-3">
+                                                {type.slots.map(slot => {
+                                                    const ids = team.members[slot.slotKey] ?? [];
+                                                    const isSelected = selectedSlot?.localId === team.localId && selectedSlot.slotKey === slot.slotKey;
+                                                    const required = slot.minMembers >= 1;
+                                                    const missing = ids.length < slot.minMembers;
+                                                    const Icon = slotIcon(slot);
+                                                    const wide = slot.slotFunction === 'caller' || slot.maxMembers !== 1;
+                                                    const capacity = slot.maxMembers == null ? '' : ` (${ids.length}/${slot.maxMembers})`;
+                                                    return (
+                                                        <div
+                                                            key={slot.slotKey}
+                                                            onClick={() => selectSlot(team.localId, slot.slotKey)}
+                                                            className={`${wide ? 'col-span-2' : ''} p-3 rounded-lg border-2 cursor-pointer transition-all ${isSelected ? 'border-sky-500 bg-sky-50' : missing ? 'border-dashed border-red-300 hover:border-sky-300' : 'border-dashed border-slate-300 hover:border-sky-300'}`}
+                                                        >
+                                                            {ids.length > 0 ? (
+                                                                <div className="space-y-2">
+                                                                    <p className="text-xs font-bold text-slate-500">{slot.label}{capacity}</p>
+                                                                    <div className="flex flex-wrap gap-2">
+                                                                        {ids.map(id => (
+                                                                            <div key={id} className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-full pl-1.5 pr-3 py-1 shadow-sm">
+                                                                                <img src={employeeById.get(id)?.avatar || ''} alt="" className="w-5 h-5 rounded-full" />
+                                                                                <span className="text-xs font-medium text-slate-700">{empName(id)}</span>
+                                                                                <IconButton icon={X} label="حذف" variant="danger" size="sm" className="ml-1" onClick={e => { e.stopPropagation(); unassign(team.localId, slot.slotKey, id); }} />
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                    {isSelected && slot.maxMembers !== 1 && <p className="text-xs text-sky-600 text-center">انقر على موظف من القائمة جانباً للإضافة</p>}
                                                                 </div>
-                                                            ))}
+                                                            ) : (
+                                                                <div className="text-center py-2">
+                                                                    <Icon className={`w-5 h-5 mx-auto mb-1 ${missing ? 'text-red-400' : 'text-slate-400'}`} />
+                                                                    <p className={`text-xs ${missing ? 'text-red-400' : 'text-slate-400'}`}>{slot.label} {required ? '(مطلوب)' : '(اختياري)'}</p>
+                                                                </div>
+                                                            )}
                                                         </div>
-                                                        {isTele && <p className="text-xs text-sky-600 mt-2 text-center">انقر على موظف من القائمة جانباً للإضافة</p>}
-                                                    </div>
-                                                ) : (
-                                                    <div className="text-center py-2">
-                                                        <PhoneCall className="w-5 h-5 mx-auto text-slate-400 mb-1" />
-                                                        <p className="text-xs text-slate-400">مسوق هاتفي (اختياري)</p>
-                                                    </div>
-                                                )}
+                                                    );
+                                                })}
                                             </div>
-                                        </div>
+                                        )}
                                     </motion.div>
                                 );
                             })}

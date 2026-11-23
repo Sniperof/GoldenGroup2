@@ -21,6 +21,13 @@
 import type { PoolClient } from 'pg';
 import pool from '../db.js';
 import { resolveTeamZoneIds } from './planningMarketingTargets.js';
+import {
+  isEmergencyTeam,
+  legacyRoleView,
+  loadResolvedTeam,
+  loadResolvedTeams,
+  type ResolvedTeam,
+} from './daySchedule.js';
 import { refreshVisitType } from './visitClassification.js';
 import { syncContactTargetSiblingItems } from './taskListItemSync.js';
 
@@ -247,8 +254,31 @@ async function validateSelectedTasks(
 
 interface TeamSnapshotInfo {
   teamSnapshot: Record<string, unknown> | null;
-  /** DEC-007 D47: for TeamSlot = supervisor employee_id; for EmergencySlot = technician. */
+  /** DEC-007 D47 / DEC-026 D4: the team lead (supervisor of a standard team, technician of an emergency team). */
   responsibleEmployeeId: number | null;
+}
+
+/**
+ * Team snapshot stored on the visit. Keeps the legacy role fields its many
+ * readers use, plus the typed team (DEC-026): type, lead, field crew, members.
+ */
+export function buildVisitTeamSnapshot(team: ResolvedTeam): Record<string, unknown> {
+  const roles = legacyRoleView(team);
+  const snapshot: Record<string, unknown> = {
+    teamKey: team.key,
+    teamType: team.teamType,
+    leadEmployeeId: team.leadEmployeeId,
+    fieldEmployeeIds: team.fieldEmployeeIds,
+    members: team.members,
+    technicianEmployeeId: roles.technician,
+    telemarketerEmployeeIds: roles.telemarketers,
+  };
+  // An emergency snapshot never carried supervisor/trainee keys; keep it so.
+  if (!isEmergencyTeam(team)) {
+    snapshot.supervisorEmployeeId = roles.supervisor;
+    snapshot.traineeEmployeeId = roles.trainee;
+  }
+  return snapshot;
 }
 
 async function loadTeamSnapshot(
@@ -256,54 +286,21 @@ async function loadTeamSnapshot(
   scheduledDate: string,
   teamKey: string,
 ): Promise<TeamSnapshotInfo> {
-  const { rows } = await db.query(
-    'SELECT teams, solos FROM day_schedules WHERE date = $1',
-    [scheduledDate],
-  );
-  const sched = rows[0] ?? null;
-  if (!sched) {
-    return { teamSnapshot: null, responsibleEmployeeId: null };
-  }
-
-  const teamMatch = teamKey.match(/^team_(\d+)$/);
-  if (teamMatch) {
-    const team = Array.isArray(sched.teams) ? sched.teams[Number(teamMatch[1])] : null;
-    if (!team) return { teamSnapshot: null, responsibleEmployeeId: null };
-    return {
-      teamSnapshot: {
-        teamKey,
-        supervisorEmployeeId: Number.isInteger(team.supervisor) ? team.supervisor : null,
-        technicianEmployeeId: Number.isInteger(team.technician) ? team.technician : null,
-        traineeEmployeeId: Number.isInteger(team.trainee) ? team.trainee : null,
-        telemarketerEmployeeIds: Array.isArray(team.telemarketers) ? team.telemarketers : [],
-      },
-      responsibleEmployeeId: Number.isInteger(team.supervisor) ? team.supervisor : null,
-    };
-  }
-
-  const soloMatch = teamKey.match(/^solo_(\d+)$/);
-  if (soloMatch) {
-    const solo = Array.isArray(sched.solos) ? sched.solos[Number(soloMatch[1])] : null;
-    if (!solo) return { teamSnapshot: null, responsibleEmployeeId: null };
-    // Emergency / solo: technician carries the visit per DEC-007 D47.
-    return {
-      teamSnapshot: {
-        teamKey,
-        technicianEmployeeId: Number.isInteger(solo.technician) ? solo.technician : null,
-        telemarketerEmployeeIds: Array.isArray(solo.telemarketers) ? solo.telemarketers : [],
-      },
-      responsibleEmployeeId: Number.isInteger(solo.technician) ? solo.technician : null,
-    };
-  }
-
-  return { teamSnapshot: null, responsibleEmployeeId: null };
+  const team = await loadResolvedTeam(db, scheduledDate, teamKey);
+  if (!team) return { teamSnapshot: null, responsibleEmployeeId: null };
+  return {
+    teamSnapshot: buildVisitTeamSnapshot(team),
+    responsibleEmployeeId: team.leadEmployeeId,
+  };
 }
 
 /** Field crew of a team snapshot (telemarketers do not travel to the visit). */
 export function teamSnapshotMemberIds(snapshot: Record<string, any> | null | undefined): number[] {
   if (!snapshot) return [];
-  return ['supervisorEmployeeId', 'technicianEmployeeId', 'traineeEmployeeId']
-    .map((key) => snapshot[key])
+  const legacy = ['supervisorEmployeeId', 'technicianEmployeeId', 'traineeEmployeeId']
+    .map((key) => snapshot[key]);
+  const field = Array.isArray(snapshot.fieldEmployeeIds) ? snapshot.fieldEmployeeIds : [];
+  return [...new Set([...field, ...legacy])]
     .filter((id): id is number => Number.isInteger(id) && id > 0);
 }
 
@@ -598,30 +595,14 @@ export const INSTANT_VISIT_ELIGIBLE_CLIENTS_SQL = `
   LIMIT 50
 `;
 
-/** Find the teamKey (team_N / solo_N) the employee belongs to in today's schedule. */
+/** Find the key of the team the employee goes on visits with today (lead or field slot). */
 async function findTeamKeyForUserToday(
   db: PoolClient,
   employeeId: number,
   date: string,
 ): Promise<string | null> {
-  const { rows } = await db.query('SELECT teams, solos FROM day_schedules WHERE date = $1', [date]);
-  const sched = rows[0];
-  if (!sched) return null;
-
-  const teams = Array.isArray(sched.teams) ? sched.teams : [];
-  for (let i = 0; i < teams.length; i++) {
-    const t = teams[i] ?? {};
-    if (Number(t.supervisor) === employeeId
-        || Number(t.technician) === employeeId
-        || Number(t.trainee) === employeeId) {
-      return `team_${i}`;
-    }
-  }
-  const solos = Array.isArray(sched.solos) ? sched.solos : [];
-  for (let i = 0; i < solos.length; i++) {
-    if (Number(solos[i]?.technician) === employeeId) return `solo_${i}`;
-  }
-  return null;
+  const teams = await loadResolvedTeams(db, date);
+  return teams.find(team => team.fieldEmployeeIds.includes(employeeId))?.key ?? null;
 }
 
 async function resolveInstantVisitContext(

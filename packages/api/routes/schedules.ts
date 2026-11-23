@@ -1,11 +1,30 @@
 import { Router, type Request } from 'express';
+import type { PoolClient } from 'pg';
 import pool from '../db.js';
 import { getOrBuildAuthContext, requirePermission } from '../middleware/permission.js';
 import { resolveListAccessScope } from '../services/authorizationService.js';
 import type { AuthContext, AuthUser } from '@golden-crm/shared';
 import { lockPlanningScheduleMutation } from '../services/planningTaskCuration.js';
-import { isLockedSlot, mergeScheduleSlots } from '../services/scheduleSlotMerge.js';
+import { mergeScheduledTeams } from '../services/scheduleSlotMerge.js';
 import { isPastPlanningDay, PAST_DAY_LOCKED_RESPONSE } from '../services/planningPastDayLock.js';
+import {
+  loadResolvedTeams,
+  loadScheduledTeams,
+  loadTeamTypeCatalog,
+  nextTeamKey,
+  resolveTeam,
+  serializeScheduledTeams,
+  teamDisplayLabel,
+  teamIdentity,
+  type ResolvedTeam,
+  type ScheduledTeam,
+} from '../services/daySchedule.js';
+import {
+  SchedulePayloadError,
+  parseScheduleTeams,
+  validateScheduledTeams,
+  type ScheduleEmployeeInfo,
+} from '../services/scheduleValidation.js';
 
 const router = Router();
 
@@ -19,44 +38,19 @@ router.param('date', (req, res, next, value) => {
   next();
 });
 
-// Branch-isolation for the shared global day_schedules row (GAP-DS-005). A slot's
-// owning branch is DERIVED from its lead employee (team → supervisor, solo →
-// technician → employees.branch_id). A non-GLOBAL viewer must not see slots owned
-// by other branches, but the array index IS the team_key (route_assignments key
-// `date_team_N`), so slots can never be removed/reordered — out-of-scope slots are
-// replaced IN PLACE with a `{ locked: true }` placeholder that preserves the index.
-const LOCKED_SLOT = { locked: true } as const;
+// Branch-isolation for the shared global day_schedules row (GAP-DS-005). A
+// team's owning branch is DERIVED from its lead employee (employees.branch_id).
+// A non-GLOBAL viewer must not see other branches' teams: they come back as
+// `{ key, locked: true }` placeholders. Since DEC-026 phase 2 every team has an
+// explicit key, so placeholders no longer hold array positions; the save
+// restores foreign teams from the stored row by key (mergeScheduledTeams).
 
-function slotIdentity(slot: any, isSolo: boolean) {
-  if (!slot || typeof slot !== 'object' || isLockedSlot(slot)) return null;
-  return isSolo
-    ? {
-        technician: toEmployeeId(slot.technician),
-        trainee: toEmployeeId(slot.trainee),
-        telemarketers: uniqueEmployeeIds(slot.telemarketers),
-      }
-    : {
-        supervisor: toEmployeeId(slot.supervisor),
-        technician: toEmployeeId(slot.technician),
-        trainee: toEmployeeId(slot.trainee),
-        telemarketers: uniqueEmployeeIds(slot.telemarketers),
-      };
-}
+type ResolvedVisibility = {
+  isVisible: (team: ResolvedTeam) => boolean;
+  nameByEmployee: Map<number, string>;
+};
 
-function uniqueEmployeeIds(value: unknown): number[] {
-  if (!Array.isArray(value)) return [];
-  return Array.from(new Set(
-    value.map(Number).filter(id => Number.isInteger(id) && id > 0),
-  )).sort((a, b) => a - b);
-}
-
-function slotOwnerEmployeeId(slot: any, isSolo: boolean): number | null {
-  if (!slot || typeof slot !== 'object') return null;
-  const candidate = isSolo ? slot.technician : (slot.supervisor ?? slot.technician);
-  return Number.isInteger(candidate) && candidate > 0 ? candidate : null;
-}
-
-async function resolveSlotVisibility(authContext: AuthContext, teams: any[], solos: any[]) {
+async function resolveTeamVisibility(authContext: AuthContext, teams: ResolvedTeam[]): Promise<ResolvedVisibility> {
   // GLOBAL / super-admin: a specific selected branch (the branch switcher →
   // actingBranchId) narrows the view to that branch; "all branches" (no selection)
   // shows every branch's teams unredacted. Branch-scoped viewers always see only
@@ -64,226 +58,75 @@ async function resolveSlotVisibility(authContext: AuthContext, teams: any[], sol
   const plan = resolveListAccessScope(authContext, 'routes.assign.view');
   const isGlobal = authContext.isSuperAdmin || plan.scope === 'GLOBAL';
   const actingBranchId = authContext.actingBranchId ?? null;
-  let allowed: Set<number> | null;
-  if (isGlobal) {
-    allowed = actingBranchId == null ? null : new Set([actingBranchId]);
-  } else {
-    allowed = new Set(authContext.allowedBranchIds);
-  }
-  const ownerIds = [
-    ...teams.map(t => slotOwnerEmployeeId(t, false)),
-    ...solos.map(s => slotOwnerEmployeeId(s, true)),
-  ].filter((id): id is number => id != null);
+  const allowed: Set<number> | null = isGlobal
+    ? (actingBranchId == null ? null : new Set([actingBranchId]))
+    : new Set(authContext.allowedBranchIds);
 
+  const leadIds = [...new Set(teams.map(team => team.leadEmployeeId).filter((id): id is number => id != null))];
   const branchByEmployee = new Map<number, number>();
   const nameByEmployee = new Map<number, string>();
-  if (ownerIds.length > 0) {
+  if (leadIds.length > 0) {
     const { rows } = await pool.query<{ id: number; branchId: number; name: string }>(
       'SELECT id, branch_id AS "branchId", name FROM employees WHERE id = ANY($1::int[])',
-      [[...new Set(ownerIds)]],
+      [leadIds],
     );
     rows.forEach(r => {
       branchByEmployee.set(Number(r.id), Number(r.branchId));
-      if (typeof r.name === 'string' && r.name.trim()) {
-        nameByEmployee.set(Number(r.id), r.name.trim());
-      }
+      if (typeof r.name === 'string' && r.name.trim()) nameByEmployee.set(Number(r.id), r.name.trim());
     });
   }
 
-  const isVisible = (slot: any, isSolo: boolean): boolean => {
-    const empId = slotOwnerEmployeeId(slot, isSolo);
-    if (empId == null) return true;                 // empty/unowned slot: nothing to leak
-    const ownerBranch = branchByEmployee.get(empId);
+  const isVisible = (team: ResolvedTeam): boolean => {
+    if (team.leadEmployeeId == null) return true; // no lead: nothing to leak
+    const ownerBranch = branchByEmployee.get(team.leadEmployeeId);
     return allowed == null || ownerBranch == null || allowed.has(ownerBranch); // null owner-branch → permissive (GAP-DS-005)
   };
 
   return { isVisible, nameByEmployee };
 }
 
-async function scopeScheduleForViewer(authContext: AuthContext, schedule: any) {
-  const teams: any[] = Array.isArray(schedule.teams) ? schedule.teams : [];
-  const solos: any[] = Array.isArray(schedule.solos) ? schedule.solos : [];
-  const { isVisible, nameByEmployee } = await resolveSlotVisibility(authContext, teams, solos);
-
-  const enrichTeam = (team: any, index: number) => {
-    const supervisorName = nameByEmployee.get(Number(team?.supervisor)) ?? null;
-    return {
-      ...team,
-      teamKey: `team_${index}`,
-      supervisorName,
-      teamLabel: supervisorName ? `فريق ${supervisorName}` : `فريق #${index + 1}`,
-    };
-  };
-
-  const enrichSolo = (solo: any, index: number) => {
-    const technicianName = nameByEmployee.get(Number(solo?.technician)) ?? null;
-    return {
-      ...solo,
-      teamKey: `solo_${index}`,
-      technicianName,
-      teamLabel: technicianName ? `طوارئ: ${technicianName}` : `فريق طوارئ #${index + 1}`,
-    };
-  };
-
+async function scopeScheduleForViewer(authContext: AuthContext, date: string, teams: ResolvedTeam[]) {
+  const { isVisible, nameByEmployee } = await resolveTeamVisibility(authContext, teams);
   return {
-    ...schedule,
-    teams: teams.map((t, index) => (isVisible(t, false) ? enrichTeam(t, index) : { ...LOCKED_SLOT })),
-    solos: solos.map((s, index) => (isVisible(s, true) ? enrichSolo(s, index) : { ...LOCKED_SLOT })),
+    date,
+    teams: teams.map(team => {
+      if (!isVisible(team)) return { key: team.key, locked: true as const };
+      const leadName = team.leadEmployeeId != null ? nameByEmployee.get(team.leadEmployeeId) ?? null : null;
+      return {
+        key: team.key,
+        teamType: team.teamType,
+        teamTypeName: team.type?.name ?? null,
+        members: team.members,
+        leadEmployeeId: team.leadEmployeeId,
+        leadName,
+        teamLabel: teamDisplayLabel(team, leadName, team.type?.name),
+      };
+    }),
   };
 }
 
-type ScheduleRole = 'supervisor' | 'technician' | 'telemarketer' | 'trainee';
-
-interface ScheduleAssignment {
-  id: number;
-  role: ScheduleRole;
-  label: string;
+/** Every team key the day has ever used, so a new team never reuses a number. */
+async function loadUsedTeamKeys(db: PoolClient, date: string): Promise<string[]> {
+  const { rows } = await db.query<{ key: string }>(
+    `SELECT substring(key FROM '^[0-9]{4}-[0-9]{2}-[0-9]{2}_(.+)$') AS key
+       FROM route_assignments WHERE starts_with(key, $1 || '_')
+     UNION SELECT team_key FROM telemarketing_task_lists WHERE date = $1
+     UNION SELECT team_key FROM work_scopes WHERE date = $1::date
+     UNION SELECT assigned_team_key FROM open_tasks WHERE assigned_for_date = $1::date AND assigned_team_key IS NOT NULL
+     UNION SELECT team_key FROM planning_task_exclusions WHERE planning_date = $1::date
+     UNION SELECT team_key FROM planning_day_cycles WHERE planning_date = $1::date
+     UNION SELECT team_key FROM contact_targets WHERE date = $1::date AND team_key IS NOT NULL`,
+    [date],
+  );
+  return rows.map(r => r.key).filter(Boolean);
 }
 
-function toEmployeeId(value: unknown): number | null {
-  return Number.isInteger(value) && (value as number) > 0 ? value as number : null;
-}
-
-function addAssignment(
-  assignments: ScheduleAssignment[],
-  value: unknown,
-  role: ScheduleRole,
-  label: string,
-) {
-  if (value == null) {
-    return;
-  }
-
-  const id = toEmployeeId(value);
-  if (id == null) {
-    const error = new Error(`Invalid employee id in ${label}`);
-    (error as any).status = 400;
-    throw error;
-  }
-
-  assignments.push({ id, role, label });
-}
-
-function collectScheduleAssignments(teams: unknown, solos: unknown): ScheduleAssignment[] {
-  if (!Array.isArray(teams) || !Array.isArray(solos)) {
-    const error = new Error('Invalid schedule payload');
-    (error as any).status = 400;
-    throw error;
-  }
-
-  const assignments: ScheduleAssignment[] = [];
-
-  teams.forEach((team: any, index) => {
-    if (!team || typeof team !== 'object' || Array.isArray(team)) {
-      const error = new Error(`Invalid team at index ${index}`);
-      (error as any).status = 400;
-      throw error;
-    }
-
-    if (Array.isArray(team.trainee)) {
-      const error = new Error(`Team ${index + 1} can have only one trainee`);
-      (error as any).status = 400;
-      throw error;
-    }
-
-    if (team.trainees != null) {
-      const error = new Error(`Team ${index + 1} must use trainee, not trainees`);
-      (error as any).status = 400;
-      throw error;
-    }
-
-    addAssignment(assignments, team.supervisor, 'supervisor', `team ${index + 1} supervisor`);
-    addAssignment(assignments, team.technician, 'technician', `team ${index + 1} technician`);
-    addAssignment(assignments, team.trainee, 'trainee', `team ${index + 1} trainee`);
-
-    if (team.telemarketers != null && !Array.isArray(team.telemarketers)) {
-      const error = new Error(`Invalid telemarketers list in team ${index + 1}`);
-      (error as any).status = 400;
-      throw error;
-    }
-
-    (team.telemarketers || []).forEach((telemarketerId: unknown, teleIndex: number) => {
-      addAssignment(
-        assignments,
-        telemarketerId,
-        'telemarketer',
-        `team ${index + 1} telemarketer ${teleIndex + 1}`,
-      );
-    });
-  });
-
-  solos.forEach((solo: any, index) => {
-    if (!solo || typeof solo !== 'object' || Array.isArray(solo)) {
-      const error = new Error(`Invalid solo slot at index ${index}`);
-      (error as any).status = 400;
-      throw error;
-    }
-
-    addAssignment(assignments, solo.technician, 'technician', `emergency ${index + 1} technician`);
-    addAssignment(assignments, solo.trainee, 'trainee', `emergency ${index + 1} trainee`);
-
-    if (solo.telemarketers != null && !Array.isArray(solo.telemarketers)) {
-      const error = new Error(`Invalid telemarketers list in emergency ${index + 1}`);
-      (error as any).status = 400;
-      throw error;
-    }
-
-    (solo.telemarketers || []).forEach((telemarketerId: unknown, teleIndex: number) => {
-      addAssignment(
-        assignments,
-        telemarketerId,
-        'telemarketer',
-        `emergency ${index + 1} telemarketer ${teleIndex + 1}`,
-      );
-    });
-  });
-
-  return assignments;
-}
-
-async function validateSchedulePayload(req: any, teams: unknown, solos: unknown) {
-  const branchId = req.authContext?.actingBranchId ?? req.scope?.branchId ?? null;
-  if (!branchId) {
-    return {
-      ok: false,
-      status: 400,
-      error: 'يجب تحديد فرع فعال قبل حفظ جدول الفرق',
-    };
-  }
-
-  let assignments: ScheduleAssignment[];
-  try {
-    assignments = collectScheduleAssignments(teams, solos);
-  } catch (err: any) {
-    return {
-      ok: false,
-      status: err.status || 400,
-      error: err.message || 'صيغة جدول الفرق غير صحيحة',
-    };
-  }
-
-  const seen = new Map<number, string>();
-  for (const assignment of assignments) {
-    const previous = seen.get(assignment.id);
-    if (previous) {
-      return {
-        ok: false,
-        status: 400,
-        error: `لا يمكن تكرار الموظف #${assignment.id} في أكثر من خانة (${previous} و ${assignment.label})`,
-      };
-    }
-    seen.set(assignment.id, assignment.label);
-  }
-
-  const employeeIds = [...seen.keys()];
-  if (employeeIds.length === 0) {
-    return { ok: true };
-  }
-
+async function loadScheduleEmployees(employeeIds: number[]): Promise<Map<number, ScheduleEmployeeInfo>> {
+  if (employeeIds.length === 0) return new Map();
   const { rows } = await pool.query(
     `SELECT
        e.id,
-       e.role,
+       e.name,
        e.status,
        e.branch_id AS "branchId",
        EXISTS (
@@ -295,86 +138,33 @@ async function validateSchedulePayload(req: any, teams: unknown, solos: unknown)
             AND su.is_active = TRUE
             AND sp.key = 'planning.schedule.appear'
        ) AS "canAppearInSchedule",
-       (SELECT r.team_slot_type
+       (SELECT u.role_id
           FROM hr_users u
-          JOIN roles r ON r.id = u.role_id
          WHERE u.employee_id = e.id
            AND u.is_active = TRUE
-         LIMIT 1) AS "teamSlotType"
+         ORDER BY u.id
+         LIMIT 1) AS "roleId"
      FROM employees e
      WHERE e.id = ANY($1::int[])`,
     [employeeIds],
   );
+  return new Map(rows.map(row => [Number(row.id), {
+    id: Number(row.id),
+    name: typeof row.name === 'string' ? row.name : null,
+    status: row.status,
+    branchId: row.branchId == null ? null : Number(row.branchId),
+    roleId: row.roleId == null ? null : Number(row.roleId),
+    canAppearInSchedule: row.canAppearInSchedule === true,
+  }]));
+}
 
-  const employeesById = new Map<number, any>(rows.map(row => [Number(row.id), row]));
-  for (const assignment of assignments) {
-    const employee = employeesById.get(assignment.id);
-    if (!employee) {
-      return {
-        ok: false,
-        status: 400,
-        error: `الموظف #${assignment.id} غير موجود`,
-      };
-    }
-
-    if (employee.status !== 'active') {
-      return {
-        ok: false,
-        status: 400,
-        error: `الموظف #${assignment.id} غير نشط ولا يمكن حفظه في جدول الفرق`,
-      };
-    }
-
-    if (employee.canAppearInSchedule !== true) {
-      return {
-        ok: false,
-        status: 400,
-        error: `الموظف #${assignment.id} لا يملك صلاحية الظهور في جدولة الفرق`,
-      };
-    }
-
-    if (Number(employee.branchId) !== Number(branchId)) {
-      return {
-        ok: false,
-        status: 400,
-        error: `الموظف #${assignment.id} لا يتبع الفرع الحالي`,
-      };
-    }
-
-    const expectedSlot = assignment.role.toUpperCase();
-    if (employee.teamSlotType !== expectedSlot) {
-      return {
-        ok: false,
-        status: 400,
-        error: `دور الموظف #${assignment.id} لا يناسب خانة ${assignment.label}`,
-      };
-    }
-  }
-
-  // Validate each standard team: supervisor + technician required.
-  for (let teamIdx = 0; teamIdx < (teams as any[]).length; teamIdx++) {
-    const team = (teams as any[])[teamIdx];
-    const teamNum = teamIdx + 1;
-
-    if (toEmployeeId(team.supervisor) == null) {
-      return { ok: false, status: 400, error: `الفريق ${teamNum} يجب أن يضم مشرفاً` };
-    }
-    if (toEmployeeId(team.technician) == null) {
-      return { ok: false, status: 400, error: `الفريق ${teamNum} يجب أن يضم فنياً` };
-    }
-  }
-
-  // Validate emergency slots: technician is required; trainee and telemarketer are both optional and independent
-  for (let soloIdx = 0; soloIdx < (solos as any[]).length; soloIdx++) {
-    const solo = (solos as any[])[soloIdx];
-    const soloNum = soloIdx + 1;
-
-    if (toEmployeeId(solo.technician) == null) {
-      return { ok: false, status: 400, error: `فريق الطوارئ ${soloNum} يجب أن يضم فنياً` };
-    }
-  }
-
-  return { ok: true };
+async function loadBranchTeamTypeKeys(db: PoolClient, branchId: number): Promise<Set<string>> {
+  const { rows } = await db.query<{ key: string }>(
+    `SELECT tt.key FROM branch_team_types btt JOIN team_types tt ON tt.id = btt.team_type_id
+      WHERE btt.branch_id = $1 AND tt.is_active`,
+    [branchId],
+  );
+  return new Set(rows.map(r => r.key));
 }
 
 /**
@@ -433,11 +223,9 @@ async function validateSchedulePayload(req: any, teams: unknown, solos: unknown)
  */
 router.get('/:date', requirePermission('planning.manage'), async (req, res) => {
   const authContext = await getOrBuildAuthContext(req as Request & { user: AuthUser });
-  const { rows } = await pool.query('SELECT * FROM day_schedules WHERE date = $1', [req.params.date]);
-  if (rows.length === 0) {
-    return res.json({ date: req.params.date, teams: [], solos: [] });
-  }
-  res.json(await scopeScheduleForViewer(authContext, rows[0]));
+  const date = String(req.params.date);
+  const teams = await loadResolvedTeams(pool, date);
+  res.json(await scopeScheduleForViewer(authContext, date, teams));
 });
 
 /**
@@ -483,75 +271,83 @@ router.get('/:date', requirePermission('planning.manage'), async (req, res) => {
  *         description: Server error
  */
 router.put('/:date', requirePermission('planning.manage'), async (req, res) => {
-  const { teams = [], solos = [] } = req.body ?? {};
-  const scheduleDate = Array.isArray(req.params.date) ? req.params.date[0] : req.params.date;
+  const scheduleDate = String(Array.isArray(req.params.date) ? req.params.date[0] : req.params.date);
   if (isPastPlanningDay(scheduleDate)) {
     return res.status(409).json(PAST_DAY_LOCKED_RESPONSE);
   }
   const authContext = await getOrBuildAuthContext(req as Request & { user: AuthUser });
+  const branchId = authContext.actingBranchId ?? (req as any).scope?.branchId ?? null;
+  if (!branchId) {
+    return res.status(400).json({ error: 'يجب تحديد فرع فعال قبل حفظ جدول الفرق' });
+  }
   const plan = resolveListAccessScope(authContext, 'routes.assign.view');
-  // Wholesale replace is safe ONLY for an all-branches GLOBAL view (saw every slot
-  // unredacted). A selected branch — GLOBAL or branch-scoped — saw foreign slots as
-  // `{ locked: true }`, so it MUST merge to avoid wiping other branches' teams.
+  // Wholesale replace is safe ONLY for an all-branches GLOBAL view (saw every
+  // team unredacted). A selected branch — GLOBAL or branch-scoped — saw foreign
+  // teams as placeholders, so it MUST merge to keep other branches' teams.
   const isGlobal = authContext.isSuperAdmin || plan.scope === 'GLOBAL';
   const privileged = isGlobal && authContext.actingBranchId == null;
-
-  // Branch-isolation merge (GAP-DS-005). A branch manager only ever edits its own
-  // slots; foreign slots reach the client as `{ locked: true }` placeholders (see
-  // scopeScheduleForViewer) that preserve the team_key index. On save we:
-  //   1. validate ONLY the editor's own (non-locked) slots — all must be its branch,
-  //   2. write a MERGED array: locked slots are restored verbatim from the stored row
-  //      by index, so a branch save never wipes another branch's teams.
-  // Index alignment is enforced below: a payload that shifts, truncates or
-  // overwrites a foreign position is rejected with 409.
-  const ownTeams = privileged ? teams : (teams as any[]).filter(t => !isLockedSlot(t));
-  const ownSolos = privileged ? solos : (solos as any[]).filter(s => !isLockedSlot(s));
-  const validation = await validateSchedulePayload(req, ownTeams, ownSolos);
-  if (!validation.ok) {
-    return res.status(validation.status).json({ error: validation.error });
-  }
 
   const db = await pool.connect();
   try {
     await db.query('BEGIN');
     await lockPlanningScheduleMutation(db, scheduleDate);
 
-    let mergedTeams: any[] = teams;
-    let mergedSolos: any[] = solos;
-    const { rows: storedRows } = await db.query(
-      'SELECT teams, solos FROM day_schedules WHERE date = $1 FOR UPDATE',
-      [req.params.date],
-    );
-    const storedTeams: any[] = Array.isArray(storedRows[0]?.teams) ? storedRows[0].teams : [];
-    const storedSolos: any[] = Array.isArray(storedRows[0]?.solos) ? storedRows[0].solos : [];
-    if (!privileged) {
-      // Merge against STORED ownership, not against what the payload claims.
-      // Every position whose stored slot belongs to a branch this viewer cannot
-      // see must come back as a locked placeholder at the same index; anything
-      // else (a shifted array, a shorter array, or an own slot written over a
-      // foreign position) means the client is stale or tampered, so reject
-      // rather than silently deleting or overwriting another branch's team.
-      const { isVisible } = await resolveSlotVisibility(authContext, storedTeams, storedSolos);
-      const teamMerge = mergeScheduleSlots(teams as any[], storedTeams, false, isVisible);
-      const soloMerge = mergeScheduleSlots(solos as any[], storedSolos, true, isVisible);
-      const conflictKey = teamMerge.conflictIndex != null
-        ? `team_${teamMerge.conflictIndex}`
-        : soloMerge.conflictIndex != null
-          ? `solo_${soloMerge.conflictIndex}`
-          : null;
-      if (conflictKey) {
-        await db.query('ROLLBACK');
-        return res.status(409).json({
-          error: 'تعذّر الحفظ: ترتيب الفرق تغيّر أو الخانة تخص فرعاً آخر. أعد تحميل الصفحة ثم احفظ من جديد.',
-          code: 'SCHEDULE_SLOT_OWNED_BY_OTHER_BRANCH',
-          teamKey: conflictKey,
-        });
-      }
-      mergedTeams = teamMerge.merged;
-      mergedSolos = soloMerge.merged;
+    const catalog = await loadTeamTypeCatalog(db);
+    const storedTeams = (await loadScheduledTeams(db, scheduleDate, { forUpdate: true }))
+      .map(team => resolveTeam(team, catalog.get(team.teamType) ?? null));
+
+    const usedKeys = new Set([...storedTeams.map(t => t.key), ...(await loadUsedTeamKeys(db, scheduleDate))]);
+    for (const entry of Array.isArray(req.body?.teams) ? req.body.teams : []) {
+      if (typeof entry?.key === 'string') usedKeys.add(entry.key);
+    }
+    let proposed: ScheduledTeam[];
+    try {
+      proposed = parseScheduleTeams(req.body, () => {
+        const key = nextTeamKey(usedKeys);
+        usedKeys.add(key);
+        return key;
+      });
+    } catch (err) {
+      await db.query('ROLLBACK');
+      if (err instanceof SchedulePayloadError) return res.status(400).json({ error: err.message });
+      throw err;
     }
 
-    // team_N/solo_N are positional identities. The shared date lock makes this
+    // Branch-isolation merge (GAP-DS-005): foreign teams always come from the
+    // stored row; a payload that writes under a foreign key is rejected.
+    let merged: ScheduledTeam[] = proposed;
+    if (!privileged) {
+      const { isVisible } = await resolveTeamVisibility(authContext, storedTeams);
+      const visibleKeys = new Set(storedTeams.filter(isVisible).map(t => t.key));
+      const merge = mergeScheduledTeams(proposed, storedTeams, team => visibleKeys.has(team.key));
+      if (merge.conflictKey) {
+        await db.query('ROLLBACK');
+        return res.status(409).json({
+          error: 'تعذّر الحفظ: الفريق يخص فرعاً آخر. أعد تحميل الصفحة ثم احفظ من جديد.',
+          code: 'SCHEDULE_SLOT_OWNED_BY_OTHER_BRANCH',
+          teamKey: merge.conflictKey,
+        });
+      }
+      merged = merge.merged;
+    }
+
+    // Only the editor's own teams are validated; foreign teams are restored verbatim.
+    const employeeIds = [...new Set(proposed.flatMap(t => Object.values(t.members).flat()))];
+    const validation = validateScheduledTeams({
+      teams: proposed,
+      catalog,
+      branchTeamTypes: await loadBranchTeamTypeKeys(db, Number(branchId)),
+      storedTypeByKey: new Map(storedTeams.map(t => [t.key, t.teamType])),
+      employees: await loadScheduleEmployees(employeeIds),
+      branchId: Number(branchId),
+    });
+    if ('error' in validation) {
+      await db.query('ROLLBACK');
+      return res.status(400).json({ error: validation.error });
+    }
+
+    // A team bound to a work scope, an assignment or an exclusion for the day
+    // keeps its identity (type + members). The shared date lock makes this
     // check atomic with sync, curation, reconciliation, and list generation.
     const { rows: frozenRows } = await db.query(
       `SELECT DISTINCT team_key AS "teamKey", team_snapshot AS "teamSnapshot"
@@ -572,24 +368,18 @@ router.put('/:date', requirePermission('planning.manage'), async (req, res) => {
             'assigned', 'in_scheduling', 'scheduled', 'waiting_execution',
             'in_execution', 'ended'
           )`,
-      [req.params.date],
+      [scheduleDate],
     );
+    const storedByKey = new Map(storedTeams.map(t => [t.key, t]));
+    const mergedByKey = new Map(merged.map(t => [t.key, t]));
     const checkedKeys = new Set<string>();
     for (const row of frozenRows) {
       const teamKey = String(row.teamKey ?? '');
       if (!teamKey || checkedKeys.has(teamKey)) continue;
       checkedKeys.add(teamKey);
-      const match = teamKey.match(/^(team|solo)_(\d+)$/);
-      if (!match) continue;
-      const isSolo = match[1] === 'solo';
-      const index = Number(match[2]);
-      const storedSlot = row.teamSnapshot
-        ?? (isSolo ? storedSolos[index] : storedTeams[index]);
-      const proposedSlot = isSolo ? mergedSolos[index] : mergedTeams[index];
-      if (
-        JSON.stringify(slotIdentity(storedSlot, isSolo))
-        !== JSON.stringify(slotIdentity(proposedSlot, isSolo))
-      ) {
+      const before = teamIdentity(row.teamSnapshot ?? storedByKey.get(teamKey), teamKey);
+      const after = teamIdentity(mergedByKey.get(teamKey), teamKey);
+      if (before !== after) {
         await db.query('ROLLBACK');
         return res.status(409).json({
           error: 'تعذّر الحفظ: هوية الفريق مرتبطة بنطاق عمل أو إسناد أو قرار استبعاد لهذا اليوم.',
@@ -601,34 +391,30 @@ router.put('/:date', requirePermission('planning.manage'), async (req, res) => {
 
     const { rows: generatedTeamRows } = await db.query(
       'SELECT DISTINCT team_key FROM telemarketing_task_lists WHERE date = $1',
-      [req.params.date],
+      [scheduleDate],
     );
     for (const gr of generatedTeamRows) {
-      const m = String(gr.team_key).match(/^(team|solo)_(\d+)$/);
-      if (!m) continue;
-      const idx = Number(m[2]);
-      const isSolo = m[1] === 'solo';
-      const slot = isSolo ? mergedSolos[idx] : mergedTeams[idx];
-      // A slot cleared in place (no lead employee) is a removed team too.
-      const slotMissing = slot == null || slotOwnerEmployeeId(slot, isSolo) == null;
-      if (slotMissing) {
+      const key = String(gr.team_key);
+      if (storedByKey.has(key) && !mergedByKey.has(key)) {
         await db.query('ROLLBACK');
         return res.status(409).json({
           error: 'تعذّر الحفظ: لا يمكن حذف الفريق بعد توليد جهات اتصاله لهذا اليوم.',
           code: 'TEAM_FROZEN_AFTER_GENERATION',
-          teamKey: gr.team_key,
+          teamKey: key,
         });
       }
     }
 
-    const { rows } = await db.query(
+    const stored = serializeScheduledTeams(merged);
+    await db.query(
       `INSERT INTO day_schedules (date, teams, solos) VALUES ($1, $2, $3)
-       ON CONFLICT (date) DO UPDATE SET teams=$2, solos=$3 RETURNING *`,
-      [req.params.date, JSON.stringify(mergedTeams), JSON.stringify(mergedSolos)],
+       ON CONFLICT (date) DO UPDATE SET teams = $2, solos = $3`,
+      [scheduleDate, JSON.stringify(stored.teams), JSON.stringify(stored.solos)],
     );
     await db.query('COMMIT');
     // Re-scope the response so the saver doesn't receive other branches' identities back.
-    return res.json(await scopeScheduleForViewer(authContext, rows[0]));
+    const saved = merged.map(team => resolveTeam(team, catalog.get(team.teamType) ?? null));
+    return res.json(await scopeScheduleForViewer(authContext, scheduleDate, saved));
   } catch (error) {
     await db.query('ROLLBACK');
     throw error;

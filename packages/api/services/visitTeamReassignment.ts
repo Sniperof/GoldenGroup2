@@ -10,6 +10,7 @@
 
 import type { PoolClient } from 'pg';
 import pool from '../db.js';
+import { EMERGENCY_TEAM_TYPE, STANDARD_TEAM_TYPE, legacyRoleView, loadResolvedTeams } from './daySchedule.js';
 
 export class TeamReassignmentError extends Error {
   statusCode: number;
@@ -70,6 +71,10 @@ export function effectiveMembers(visit: {
 }
 
 export function teamKindOf(teamSnapshot: any): TeamKind {
+  // DEC-026: the snapshot carries its team type; older snapshots only the key.
+  if (typeof teamSnapshot?.teamType === 'string') {
+    return teamSnapshot.teamType === EMERGENCY_TEAM_TYPE ? 'solo' : 'team';
+  }
   return /^solo_/.test(String(teamSnapshot?.teamKey ?? '')) ? 'solo' : 'team';
 }
 
@@ -109,8 +114,17 @@ export function validateRequestedTeam(kind: TeamKind, original: TeamMembers, req
 }
 
 export function buildTeamSnapshot(originalSnapshot: any, members: TeamMembers, teamKey: string | null) {
+  const kind = teamKindOf(originalSnapshot);
+  const typed = typeof originalSnapshot?.teamType === 'string'
+    ? {
+        teamType: originalSnapshot.teamType,
+        leadEmployeeId: members[responsibleRole(kind)],
+        fieldEmployeeIds: TEAM_ROLES.map(role => members[role]).filter((id): id is number => id != null),
+      }
+    : {};
   return {
     teamKey: teamKey ?? originalSnapshot?.teamKey ?? null,
+    ...typed,
     supervisorEmployeeId: members.supervisor,
     technicianEmployeeId: members.technician,
     traineeEmployeeId: members.trainee,
@@ -186,24 +200,24 @@ export async function getTeamReassignmentOptions(visitId: number) {
   const employees = await loadEligibleEmployees(pool, visit.branch_id, null);
   const busy = await findBusyEmployees(pool, visit, employees.map((e) => e.id));
 
-  // Shortcut (D2): the day's teams with the same shape as this visit.
+  // Shortcut (D2): the day's teams of the same type as this visit.
   const dayTeams: Array<{ teamKey: string; members: TeamMembers }> = [];
   if (visit.scheduled_date) {
-    const { rows: schedRows } = await pool.query(
-      'SELECT teams, solos FROM day_schedules WHERE date = $1',
-      [visit.scheduled_date],
-    );
-    const slots: any[] = kind === 'solo' ? schedRows[0]?.solos ?? [] : schedRows[0]?.teams ?? [];
-    slots.forEach((slot: any, index: number) => {
+    const visitType = typeof visit.team_snapshot?.teamType === 'string'
+      ? visit.team_snapshot.teamType
+      : (kind === 'solo' ? EMERGENCY_TEAM_TYPE : STANDARD_TEAM_TYPE);
+    for (const team of await loadResolvedTeams(pool, visit.scheduled_date)) {
+      if (team.teamType !== visitType) continue;
+      const roles = legacyRoleView(team);
       dayTeams.push({
-        teamKey: `${kind === 'solo' ? 'solo' : 'team'}_${index}`,
+        teamKey: team.key,
         members: {
-          supervisor: kind === 'solo' ? null : toId(slot?.supervisor),
-          technician: toId(slot?.technician),
-          trainee: toId(slot?.trainee),
+          supervisor: kind === 'solo' ? null : roles.supervisor,
+          technician: roles.technician,
+          trainee: roles.trainee,
         },
       });
-    });
+    }
   }
 
   const { rows: reasons } = await pool.query(
