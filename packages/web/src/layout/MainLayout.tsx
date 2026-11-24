@@ -260,6 +260,7 @@ export default function MainLayout() {
       ...(canSeeBranchModules && can('account_requests.view') ? [{ path: '/account-requests', label: 'طلبات إنشاء الحساب', icon: UserPlus, dividerLabel: 'المستخدمون والوصول' }] : []),
       ...(canAccessAdminSurface('admin.system_lists.view') ? [{ path: '/system-lists', label: 'القوائم المرجعية', icon: SlidersHorizontal, dividerLabel: 'ضبط النظام' }] : []),
       ...(canAccessAdminSurface('admin.task_types.view') ? [{ path: '/admin/task-types', label: 'أنواع المهام', icon: Settings2, dividerLabel: 'ضبط النظام' }] : []),
+      ...(canAccessAdminSurface('planning.team_types.manage') ? [{ path: '/admin/team-types', label: 'أنواع الفرق', icon: UsersRound, dividerLabel: 'ضبط النظام' }] : []),
       ...(canAccessAdminSurface('settings.view') ? [{ path: '/settings', label: 'إعدادات النظام', icon: Settings, dividerLabel: 'ضبط النظام' }] : []),
       ...(canAccessAdminSurface('exchange_rates.view') ? [{ path: '/admin/exchange-rates', label: 'سعر الصرف', icon: DollarSign, dividerLabel: 'ضبط النظام' }] : []),
       ...(can('fx_differences.view') ? [{ path: '/fx-differences', label: 'فروقات سعر الصرف', icon: Scale, dividerLabel: 'ضبط النظام' }] : []),

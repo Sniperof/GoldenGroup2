@@ -1,5 +1,7 @@
 import pool from '../db.js';
-import { resolveTeamPlanningScope } from './teamPlanningScope.js';
+import { resolveTeamPlanningScopeForTeam } from './teamPlanningScope.js';
+import { TEAM_KEY_PATTERN, isEmergencyTeam, loadResolvedTeam } from './daySchedule.js';
+import { applyTeamCapability, grainKey, type BlockedGrain } from './teamCapability.js';
 import {
   buildPlanningContactContextAvailablePredicate,
   buildPlanningTaskExcludedPredicate,
@@ -138,6 +140,8 @@ export type PlanningMarketingTargetsResponse = {
   technicianHrUserId?: number | null;
   companyHrUserIds?: number[];
   actorHrUserIds?: number[];
+  /** DEC-026 D6: grains left whole to a team that can do every task. */
+  capabilityBlocked?: CapabilityBlockedSummary;
   reason: string | null;
 };
 
@@ -476,37 +480,24 @@ export async function getPlanningMarketingTargets(params: {
   countsOnly?: boolean;
 }): Promise<PlanningMarketingTargetsResponse> {
   const { date, teamKey, branchId, mode = 'planning', countsOnly = false } = params;
-  const keyMatch = teamKey.match(/^(team|solo)_(\d+)$/);
-
-  if (!keyMatch) {
+  if (!TEAM_KEY_PATTERN.test(teamKey)) {
     throw new Error('teamKey must be team_X or solo_X');
   }
 
-  if (keyMatch[1] === 'solo') {
+  const team = await loadResolvedTeam(pool, date, teamKey);
+  if (team && isEmergencyTeam(team)) {
     return buildEmptyResponse({ teamKey, reason: 'SOLO_HAS_NO_MARKETING_LOAD' });
   }
-
-  const teamIndex = Number(keyMatch[2]);
-  const { rows: scheduleRows } = await pool.query(
-    'SELECT teams FROM day_schedules WHERE date = $1',
-    [date],
-  );
-
-  const teams = scheduleRows[0]?.teams;
-  const team = Array.isArray(teams) ? teams[teamIndex] : null;
   if (!team) {
     return buildEmptyResponse({ teamKey, reason: 'TEAM_NOT_FOUND' });
   }
 
-  const scope = await resolveTeamPlanningScope({
-    supervisor: team.supervisor,
-    technician: team.technician,
-    branchId,
-  });
+  const scope = await resolveTeamPlanningScopeForTeam(team, branchId);
 
-  // One owner set for count (#1) and assignment (#2): supervisor + technician
-  // (+ company accounts). Telemarketers are not team owners (PL-R014), so a
-  // client personally owned by a telemarketer is neither counted nor assigned.
+  // One owner set for count (#1) and assignment (#2): the team's owning
+  // members (DEC-026 D4: lead + owning field slots) + company accounts.
+  // Caller slots are not owners (PL-R014), so a client personally owned by a
+  // telemarketer is neither counted nor assigned.
   const {
     supervisorEmployeeId,
     supervisorHrUserId,
@@ -569,14 +560,20 @@ export async function getPlanningMarketingTargets(params: {
   // EACH zone, and no task is hidden behind a "newest task per client" pick.
   // Filters mirror #2: client active/not deleted, block conditions, unfinished
   // visit, department gate, grain held by another team, ownership scope.
-  const { rows: countsByZoneRows } = await pool.query(
+  // DEC-026: the rows come back per task so the capability rule (D5/D6/D7)
+  // runs exactly as in #2 before counting.
+  const { rows: countTaskRows } = await pool.query(
     `
       SELECT
         effective_zone AS "zoneId",
-        COUNT(DISTINCT client_id)::int AS count
+        client_id AS "clientId",
+        task_type AS "taskType",
+        committed_to_team AS "committedToTeam"
       FROM (
         SELECT
           ot.client_id,
+          ot.task_type,
+          (ot.assigned_team_key = $5 AND ot.assigned_for_date = $4::date) AS committed_to_team,
           CASE
             WHEN ttc.location_basis IN ('contract', 'device')
               THEN inst.installation_geo_unit_id
@@ -627,15 +624,31 @@ export async function getPlanningMarketingTargets(params: {
           AND ${buildOwnershipScopePredicate('c')}
       ) sub
       WHERE effective_zone = ANY($2::int[])
-      GROUP BY effective_zone
     `,
     [branchId, zoneIds, actorHrUserIds, date, teamKey, deviceScope.restricted, deviceScope.modelIds],
   );
 
+  const capability = applyTeamCapability(countTaskRows as any[], team.allowedTaskTypes, (r: any) => ({
+    clientId: Number(r.clientId),
+    zoneId: r.zoneId == null ? null : Number(r.zoneId),
+    taskType: String(r.taskType),
+    committedToTeam: r.committedToTeam === true,
+    excluded: false,
+  }));
+  const capabilityBlocked = summarizeBlocked(capability.blockedGrains);
+  const countedGrains = new Set((countTaskRows as any[]).map(r => grainKey(Number(r.clientId), r.zoneId == null ? null : Number(r.zoneId))));
+  const capableGrains = new Set<string>();
+  const clientsByZone = new Map<number, Set<number>>();
+  for (const row of capability.kept as any[]) {
+    const zoneId = Number(row.zoneId);
+    const clientId = Number(row.clientId);
+    capableGrains.add(grainKey(clientId, zoneId));
+    let clients = clientsByZone.get(zoneId);
+    if (!clients) clientsByZone.set(zoneId, (clients = new Set()));
+    clients.add(clientId);
+  }
   const countsByZoneMap = new Map<number, number>();
-  countsByZoneRows.forEach((row: any) => {
-    countsByZoneMap.set(Number(row.zoneId), Number(row.count));
-  });
+  clientsByZone.forEach((clients, zoneId) => countsByZoneMap.set(zoneId, clients.size));
   const countsByZone = zoneIds.map(zoneId => ({
     zoneId,
     count: countsByZoneMap.get(zoneId) ?? 0,
@@ -660,6 +673,7 @@ export async function getPlanningMarketingTargets(params: {
       technicianHrUserId,
       companyHrUserIds,
       actorHrUserIds,
+      capabilityBlocked,
       reason: null,
     };
   }
@@ -901,10 +915,17 @@ export async function getPlanningMarketingTargets(params: {
     [branchId, zoneIds, actorHrUserIds, date, teamKey, deviceScope.restricted, deviceScope.modelIds],
   );
 
-  const leads = leadRows.map((row: any) => ({
-    ...row,
-    ownership: mapCustomerOwnership(row),
-  }));
+  // A lead is a (client + location) grain: drop the grains the capability
+  // rule removed from the count (D5/D6). A lead the count did not see stays as before.
+  const leads = leadRows
+    .filter((row: any) => {
+      const key = grainKey(Number(row.id), row.effectiveZoneId == null ? null : Number(row.effectiveZoneId));
+      return !countedGrains.has(key) || capableGrains.has(key);
+    })
+    .map((row: any) => ({
+      ...row,
+      ownership: mapCustomerOwnership(row),
+    }));
 
   return {
     teamKey,
@@ -925,6 +946,7 @@ export async function getPlanningMarketingTargets(params: {
     technicianHrUserId,
     companyHrUserIds,
     actorHrUserIds,
+    capabilityBlocked,
     reason: null,
   };
 }
@@ -977,7 +999,24 @@ export type WorkScopeResponse = {
   supervisorHrUserId: number | null;
   technicianHrUserId: number | null;
   actorHrUserIds: number[];
+  /**
+   * DEC-026 D6: grains in this team's zones it could partly do but left whole
+   * to a team that can do every task (clients = distinct clients among them).
+   */
+  capabilityBlocked: CapabilityBlockedSummary;
 };
+
+export type CapabilityBlockedSummary = { grains: number; clients: number; taskTypes: string[] };
+
+const NO_CAPABILITY_BLOCK: CapabilityBlockedSummary = { grains: 0, clients: 0, taskTypes: [] };
+
+function summarizeBlocked(blocked: BlockedGrain[]): CapabilityBlockedSummary {
+  return {
+    grains: blocked.length,
+    clients: new Set(blocked.map(g => g.clientId)).size,
+    taskTypes: [...new Set(blocked.flatMap(g => g.blockingTaskTypes))].sort(),
+  };
+}
 
 export async function getPlanningWorkScope(params: {
   date: string;
@@ -1000,19 +1039,9 @@ export async function getPlanningWorkScope(params: {
     db = pool,
   } = params;
 
-  const keyMatch = teamKey.match(/^(team|solo)_(\d+)$/);
-  if (!keyMatch) throw new Error('teamKey must be team_X or solo_X');
+  if (!TEAM_KEY_PATTERN.test(teamKey)) throw new Error('teamKey must be team_X or solo_X');
 
-  const teamIndex = Number(keyMatch[2]);
-  const { rows: scheduleRows } = await db.query(
-    'SELECT teams, solos FROM day_schedules WHERE date = $1',
-    [date],
-  );
-
-  const scheduleData = scheduleRows[0];
-  const teams = scheduleData?.teams ?? [];
-  const solos = scheduleData?.solos ?? [];
-  const teamEntry = keyMatch[1] === 'team' ? teams[teamIndex] : solos[teamIndex];
+  const teamEntry = await loadResolvedTeam(db, date, teamKey);
 
   const empty: WorkScopeResponse = {
     scopeId: null,
@@ -1025,15 +1054,12 @@ export async function getPlanningWorkScope(params: {
     supervisorHrUserId: null,
     technicianHrUserId: null,
     actorHrUserIds: [],
+    capabilityBlocked: NO_CAPABILITY_BLOCK,
   };
 
   if (!teamEntry) return empty;
 
-  const scope = await resolveTeamPlanningScope({
-    supervisor: teamEntry.supervisor,
-    technician: teamEntry.technician,
-    branchId,
-  });
+  const scope = await resolveTeamPlanningScopeForTeam(teamEntry, branchId);
 
   const { actorHrUserIds, supervisorHrUserId, technicianHrUserId } = scope;
 
@@ -1065,12 +1091,14 @@ export async function getPlanningWorkScope(params: {
   //   2) device-basis task  -> open_tasks.device_id -> installed_devices.installation_geo_unit_id
   // Ownership is a separate eligibility condition; it must not replace the
   // task-location check.
-  // DEC-006 D31: solo teams (EmergencySlot) only carry emergency_maintenance.
-  const isSoloTeam = keyMatch[1] === 'solo';
+  // DEC-026 D5/D6/D7: the team type's allowed task types (the emergency type
+  // allows emergency_maintenance only — DEC-006 D31). Applied after the query
+  // by applyTeamCapability, which needs every eligible task of a grain.
+  const allowedTaskTypes = teamEntry.allowedTaskTypes;
   // DEC-009 لبنة 10 / R-10 — department gate for device tasks (empty dept = all branch).
   const deviceScope = await resolveSupervisorDeviceScope(supervisorHrUserId, db);
   const queryParams: any[] = [
-    branchId, zoneIds, actorHrUserIds, date, isSoloTeam, teamKey,
+    branchId, zoneIds, actorHrUserIds, date, allowedTaskTypes, teamKey,
     deviceScope.restricted, deviceScope.modelIds,
   ];
   const boundedTaskLimit = Number.isInteger(maxTasks) && Number(maxTasks) > 0
@@ -1098,6 +1126,7 @@ export async function getPlanningWorkScope(params: {
        ot.attempt_count    AS "attemptCount",
        ot.assigned_team_key AS "assignedTeamKey",
        ot.assigned_for_date::text AS "assignedForDate",
+       (ot.task_type = ANY($5::text[])) AS "typeAllowed",
        COALESCE(
          committed_snapshot.work_location_geo_unit_id,
          CASE
@@ -1282,8 +1311,6 @@ export async function getPlanningWorkScope(params: {
                AND fv_uf.status IN ('scheduled', 'in_progress', 'ended', 'not_completed')
                AND fv_uf.scheduled_date < $4::date
            )
-           -- DEC-006 D31: EmergencySlot capability is exclusively emergency_maintenance
-           AND ($5::boolean = FALSE OR ot.task_type = 'emergency_maintenance')
            -- DEC-009 R-10 department gate. A committed snapshot bypasses current
            -- route/ownership eligibility but remains scoped by its branch/team/day artifact.
            AND (
@@ -1305,13 +1332,24 @@ export async function getPlanningWorkScope(params: {
     queryParams,
   );
 
+  // DEC-026 D5/D6/D7 — same rule as the count (#1).
+  const capability = applyTeamCapability(taskRows as any[], allowedTaskTypes, (r: any) => ({
+    clientId: Number(r.clientId),
+    zoneId: r.effectiveZoneId == null ? null : Number(r.effectiveZoneId),
+    taskType: String(r.taskType),
+    committedToTeam: r.committedArtifact === true
+      || (r.assignedTeamKey === teamKey && normalizePlanningDateOnly(r.assignedForDate) === date),
+    excluded: r.exclusionId != null || r.allTeamsDayExcluded === true || r.currentTeamDayExcluded === true,
+  }));
+  const capableRows = capability.kept;
+
   const companyOwnedSet = new Set(
-    taskRows
+    capableRows
       .filter((r: any) => r.ownershipType === 'company_branch')
       .map((r: any) => Number(r.clientId)),
   );
 
-  const tasks: WorkScopeTask[] = taskRows.map((r: any) => ({
+  const tasks: WorkScopeTask[] = capableRows.map((r: any) => ({
     openTaskId: r.openTaskId,
     clientId: r.clientId,
     clientName: r.clientName,
@@ -1376,6 +1414,7 @@ export async function getPlanningWorkScope(params: {
     supervisorHrUserId,
     technicianHrUserId,
     actorHrUserIds,
+    capabilityBlocked: summarizeBlocked(capability.blockedGrains),
   };
 }
 
@@ -1398,26 +1437,14 @@ export async function getAssignedLeadsForTeam(params: {
   const { date, teamKey, branchId, db = pool } = params;
 
   // Resolve supervisor for contact-target creation (same as in getPlanningMarketingTargets)
-  const keyMatch = teamKey.match(/^(team|solo)_(\d+)$/);
-  if (!keyMatch || keyMatch[1] === 'solo') {
+  const team = TEAM_KEY_PATTERN.test(teamKey) ? await loadResolvedTeam(db, date, teamKey) : null;
+  if (!TEAM_KEY_PATTERN.test(teamKey) || (team && isEmergencyTeam(team))) {
     return { leads: [], supervisorHrUserId: null, reason: 'SOLO_HAS_NO_MARKETING_LOAD' };
   }
 
-  const teamIndex = Number(keyMatch[2]);
-  const { rows: scheduleRows } = await db.query(
-    'SELECT teams FROM day_schedules WHERE date = $1',
-    [date],
-  );
-  const teams = scheduleRows[0]?.teams;
-  const team = Array.isArray(teams) ? teams[teamIndex] : null;
-
   let supervisorHrUserId: number | null = null;
   if (team) {
-    const scope = await resolveTeamPlanningScope({
-      supervisor: team.supervisor,
-      technician: team.technician,
-      branchId,
-    });
+    const scope = await resolveTeamPlanningScopeForTeam(team, branchId);
     supervisorHrUserId = scope.supervisorHrUserId;
   }
 

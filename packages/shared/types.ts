@@ -235,6 +235,8 @@ export interface Employee {
     status: 'active' | 'vacation' | 'suspended' | 'terminated';
     canAppearInSchedule?: boolean;
     teamSlotType?: 'SUPERVISOR' | 'TECHNICIAN' | 'TRAINEE' | 'TELEMARKETER' | null;
+    /** Account role (hr_users.role_id); a schedule slot accepts a list of roles (DEC-026). */
+    roleId?: number | null;
     avatar?: string;
     jobTitle?: string | null;
     academicQualification?: string | null;
@@ -882,31 +884,61 @@ export interface MarketingVisitCancelRequest {
     taskUpdates: MarketingVisitLifecycleTaskUpdate[];
 }
 
-export interface TeamSlot {
-    supervisor: number | null;
-    technician: number | null;
-    telemarketers?: number[];
-    trainee?: number | null;
-    teamKey?: string;
-    teamLabel?: string;
-    supervisorName?: string | null;
+// ── Team types and the day schedule (DEC-026) ────────────────────────────────
+
+export type TeamSlotFunction = 'lead' | 'field' | 'caller';
+
+export interface TeamTypeSlotDef {
+    slotKey: string;
+    label: string;
+    slotFunction: TeamSlotFunction;
+    /** Clients personally owned by this slot's members enter the team load. */
+    countsOwnership: boolean;
+    minMembers: number;
+    maxMembers: number | null;
+    roleIds: number[];
 }
 
-export interface EmergencySlot {
-    technician: number | null;
-    trainee?: number | null;
-    telemarketers?: number[];
-    teamKey?: string;
-    teamLabel?: string;
-    technicianName?: string | null;
+export interface TeamTypeDef {
+    id: number;
+    key: string;
+    name: string;
+    description: string | null;
+    isSystem: boolean;
+    isActive: boolean;
+    sortOrder: number;
+    slots: TeamTypeSlotDef[];
+    taskTypes: string[];
 }
 
-/** @deprecated Use EmergencySlot */
-export type SoloSlot = EmergencySlot;
+/** A team of the day as returned by GET /api/schedules/:date. */
+export interface ScheduledTeamView {
+    key: string;
+    teamType: string;
+    teamTypeName?: string | null;
+    /** slot_key → employee ids */
+    members: Record<string, number[]>;
+    leadEmployeeId?: number | null;
+    leadName?: string | null;
+    teamLabel?: string;
+    locked?: false;
+}
+
+/** Another branch's team: hidden, kept so the editor never touches it. */
+export interface LockedTeamView {
+    key: string;
+    locked: true;
+}
+
+export type DayScheduleTeam = ScheduledTeamView | LockedTeamView;
 
 export interface DaySchedule {
-    teams: TeamSlot[];
-    solos: EmergencySlot[];
+    date?: string;
+    teams: DayScheduleTeam[];
+}
+
+export function isLockedTeam(team: DayScheduleTeam | null | undefined): team is LockedTeamView {
+    return Boolean(team) && (team as LockedTeamView).locked === true;
 }
 
 export interface RouteComposition {

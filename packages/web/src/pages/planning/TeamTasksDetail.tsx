@@ -348,6 +348,15 @@ export default function TeamTasksDetail() {
                                         </div>
                                     );
                                 })}
+                            {(workScope.capabilityBlocked?.clients ?? 0) > 0 && (
+                                <div
+                                    className="flex items-center gap-1 text-xs text-amber-700"
+                                    title="لا يأخذ الفريق زبوناً إلا إذا قدر على كل مهامه المؤهلة لهذا اليوم"
+                                >
+                                    <AlertTriangle className="w-3 h-3" />
+                                    <span>متروكون لفريق قادر: {workScope.capabilityBlocked.clients}</span>
+                                </div>
+                            )}
                             {workScope.tasks?.some((t: any) => t.ownershipType === 'company_branch') && (
                                 <div className="flex items-center gap-1 text-xs text-slate-500 mr-auto">
                                     <Building2 className="w-3 h-3" />

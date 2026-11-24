@@ -1,28 +1,38 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Loader2 } from 'lucide-react';
+import { AlertTriangle, Loader2, Plus, X } from 'lucide-react';
 import { api } from '../../lib/api';
 import Modal from '../ui/Modal';
 import Select from '../ui/Select';
 
-// «الفريق الرديف» (migration 478): replace one or more members of a scheduled
-// visit's crew, or pick a whole team of the day. The reason comes from the
-// managed list `visit_team_change_reasons`.
+// «الفريق الرديف» (DEC-020, generalized by DEC-026): replace one or more
+// travelling members of a scheduled visit's crew, or pick a whole team of the
+// day of the same type. Slots come from the visit's team type; callers stay
+// with the team and are not edited here.
 
-type Role = 'supervisor' | 'technician' | 'trainee';
-type Members = Record<Role, number | null>;
+type CrewSlots = Record<string, number[]>;
 
-const ROLE_LABELS: Record<Role, string> = { supervisor: 'المشرف', technician: 'الفني', trainee: 'المتدرّب' };
-const NO_TRAINEE = '__none__';
+interface SlotDef {
+  slotKey: string;
+  label: string;
+  slotFunction: 'lead' | 'field';
+  minMembers: number;
+  maxMembers: number | null;
+  roleIds: number[];
+}
 
 interface Options {
-  kind: 'team' | 'solo';
-  original: Members;
-  current: Members;
+  teamTypeName: string;
+  slots: SlotDef[];
+  original: CrewSlots;
+  current: CrewSlots;
   names: Record<string, string>;
-  candidates: Array<{ id: number; name: string; role: Role; busyVisitId: number | null }>;
-  dayTeams: Array<{ teamKey: string; members: Members }>;
+  candidates: Array<{ id: number; name: string; roleId: number; busyVisitId: number | null }>;
+  dayTeams: Array<{ teamKey: string; label: string; slots: CrewSlots }>;
   reasons: Array<{ id: number; label: string }>;
 }
+
+const sameIds = (a: number[] = [], b: number[] = []) =>
+  a.length === b.length && [...a].sort().every((id, i) => id === [...b].sort()[i]);
 
 export default function ReassignTeamModal({
   open,
@@ -36,7 +46,7 @@ export default function ReassignTeamModal({
   onDone: () => void;
 }) {
   const [options, setOptions] = useState<Options | null>(null);
-  const [members, setMembers] = useState<Members>({ supervisor: null, technician: null, trainee: null });
+  const [crew, setCrew] = useState<CrewSlots>({});
   const [teamKey, setTeamKey] = useState<string | null>(null);
   const [reasonId, setReasonId] = useState('');
   const [note, setNote] = useState('');
@@ -54,33 +64,30 @@ export default function ReassignTeamModal({
     api.fieldVisits.reassignTeamOptions(visitId)
       .then((data: Options) => {
         setOptions(data);
-        setMembers(data.current);
+        setCrew(data.current);
       })
       .catch((err: any) => setError(err?.message ?? 'تعذر تحميل خيارات تغيير الفريق'))
       .finally(() => setLoading(false));
   }, [open, visitId]);
 
-  const roles: Role[] = options?.kind === 'solo' ? ['technician', 'trainee'] : ['supervisor', 'technician', 'trainee'];
+  const nameOf = (id: number) =>
+    options?.names?.[String(id)] ?? options?.candidates.find((c) => c.id === id)?.name ?? `#${id}`;
 
-  const nameOf = (id: number | null) => {
-    if (id == null) return '—';
-    return options?.names?.[String(id)]
-      ?? options?.candidates.find((c) => c.id === id)?.name
-      ?? `#${id}`;
-  };
-
-  const changedRoles = useMemo(
-    () => (options ? roles.filter((role) => members[role] !== options.current[role]) : []),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [options, members],
+  const changedSlots = useMemo(
+    () => (options ? options.slots.filter(slot => !sameIds(crew[slot.slotKey], options.current[slot.slotKey])).map(s => s.slotKey) : []),
+    [options, crew],
   );
 
-  const roleOptions = (role: Role) => {
+  const takenIds = useMemo(() => new Set(Object.values(crew).flat()), [crew]);
+
+  const slotOptions = (slot: SlotDef, selected: number | null) => {
     if (!options) return [];
+    const currentIds = options.current[slot.slotKey] ?? [];
     const list = options.candidates
-      .filter((c) => c.role === role)
+      .filter((c) => slot.roleIds.includes(c.roleId))
+      .filter((c) => c.id === selected || !takenIds.has(c.id))
       .map((c) => {
-        const isCurrent = c.id === options.current[role];
+        const isCurrent = currentIds.includes(c.id);
         const busy = c.busyVisitId != null && !isCurrent;
         return {
           value: String(c.id),
@@ -88,45 +95,51 @@ export default function ReassignTeamModal({
           disabled: busy,
         };
       });
-    const currentId = options.current[role];
-    if (currentId != null && !list.some((o) => o.value === String(currentId))) {
-      list.unshift({ value: String(currentId), label: `${nameOf(currentId)} (الحالي)`, disabled: false });
-    }
-    // A role present in the original crew can be replaced but not emptied.
-    if (role === 'trainee' && options.original.trainee == null) {
-      list.unshift({ value: NO_TRAINEE, label: 'بدون متدرّب', disabled: false });
+    if (selected != null && !list.some((o) => o.value === String(selected))) {
+      list.unshift({ value: String(selected), label: `${nameOf(selected)} (الحالي)`, disabled: false });
     }
     return list;
   };
 
-  const setRole = (role: Role, value: string) => {
+  const setMember = (slotKey: string, position: number, value: string) => {
     setTeamKey(null);
-    setMembers((prev) => ({ ...prev, [role]: value === NO_TRAINEE ? null : Number(value) }));
+    setCrew((prev) => {
+      const ids = [...(prev[slotKey] ?? [])];
+      ids[position] = Number(value);
+      return { ...prev, [slotKey]: ids };
+    });
+  };
+
+  const addPosition = (slot: SlotDef) => {
+    const free = options?.candidates.find(c => slot.roleIds.includes(c.roleId) && !takenIds.has(c.id) && c.busyVisitId == null);
+    if (!free) return;
+    setTeamKey(null);
+    setCrew(prev => ({ ...prev, [slot.slotKey]: [...(prev[slot.slotKey] ?? []), free.id] }));
+  };
+
+  const removePosition = (slotKey: string, position: number) => {
+    setTeamKey(null);
+    setCrew(prev => ({ ...prev, [slotKey]: (prev[slotKey] ?? []).filter((_, i) => i !== position) }));
   };
 
   const pickDayTeam = (key: string) => {
     const team = options?.dayTeams.find((t) => t.teamKey === key);
     if (!team) return;
-    setMembers({
-      supervisor: options?.kind === 'solo' ? null : team.members.supervisor,
-      technician: team.members.technician,
-      trainee: team.members.trainee,
-    });
+    setCrew(team.slots);
     setTeamKey(key);
   };
 
-  const dayTeamLabel = (t: { teamKey: string; members: Members }) => {
-    const index = Number(t.teamKey.split('_')[1]) + 1;
-    const people = roles
-      .filter((r) => t.members[r] != null)
-      .map((r) => `${ROLE_LABELS[r]}: ${nameOf(t.members[r])}`)
+  const dayTeamLabel = (t: Options['dayTeams'][number]) => {
+    const people = (options?.slots ?? [])
+      .filter(slot => t.slots[slot.slotKey]?.length)
+      .map(slot => `${slot.label}: ${t.slots[slot.slotKey]!.map(nameOf).join('، ')}`)
       .join(' · ');
-    return `${options?.kind === 'solo' ? 'فريق طوارئ' : 'فريق'} ${index}${people ? ` — ${people}` : ''}`;
+    return `${t.label}${people ? ` — ${people}` : ''}`;
   };
 
   const submit = async () => {
     if (!options) return;
-    if (changedRoles.length === 0) {
+    if (changedSlots.length === 0) {
       setError('لم يتم تغيير أي عضو في الفريق.');
       return;
     }
@@ -137,10 +150,10 @@ export default function ReassignTeamModal({
     setError('');
     setSaving(true);
     try {
+      const slots: CrewSlots = {};
+      for (const slot of options.slots) slots[slot.slotKey] = (crew[slot.slotKey] ?? []).filter(Boolean);
       await api.fieldVisits.reassignTeam(visitId, {
-        supervisorEmployeeId: members.supervisor,
-        technicianEmployeeId: members.technician,
-        traineeEmployeeId: members.trainee,
+        slots,
         teamKey,
         reasonId: Number(reasonId),
         note: note.trim() || null,
@@ -165,7 +178,7 @@ export default function ReassignTeamModal({
             className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 disabled:opacity-50">
             رجوع
           </button>
-          <button type="button" onClick={submit} disabled={saving || loading || !options || changedRoles.length === 0 || !reasonId}
+          <button type="button" onClick={submit} disabled={saving || loading || !options || changedSlots.length === 0 || !reasonId}
             className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             تأكيد تغيير الفريق
@@ -187,6 +200,8 @@ export default function ReassignTeamModal({
           </div>
         ) : (
           <>
+            <p className="text-xs text-slate-500">نوع الفريق: <span className="font-bold text-slate-700">{options.teamTypeName}</span></p>
+
             {options.dayTeams.length > 0 ? (
               <label className="block">
                 <span className="mb-2 block text-sm font-bold text-slate-700">اختيار فريق كامل من جدول اليوم (اختياري)</span>
@@ -200,23 +215,48 @@ export default function ReassignTeamModal({
               </label>
             ) : null}
 
-            <div className="grid gap-3 sm:grid-cols-3">
-              {roles.map((role) => (
-                <label key={role} className="block">
-                  <span className="mb-2 block text-sm font-bold text-slate-700">
-                    {ROLE_LABELS[role]}
-                    {changedRoles.includes(role) ? <span className="mr-1 text-xs font-bold text-indigo-600">· سيتغيّر</span> : null}
-                  </span>
-                  <Select
-                    value={members[role] == null ? (role === 'trainee' ? NO_TRAINEE : '') : String(members[role])}
-                    onChange={(value) => setRole(role, value)}
-                    disabled={saving}
-                    placeholder={`اختر ${ROLE_LABELS[role]}`}
-                    ariaLabel={ROLE_LABELS[role]}
-                    options={roleOptions(role)}
-                  />
-                </label>
-              ))}
+            <div className="grid gap-3 sm:grid-cols-2">
+              {options.slots.map((slot) => {
+                const ids = crew[slot.slotKey] ?? [];
+                const originalCount = options.original[slot.slotKey]?.length ?? 0;
+                const floor = Math.max(slot.minMembers, originalCount > 0 ? 1 : 0);
+                const canAdd = slot.maxMembers == null || ids.length < slot.maxMembers;
+                return (
+                  <div key={slot.slotKey} className="block">
+                    <span className="mb-2 block text-sm font-bold text-slate-700">
+                      {slot.label}
+                      {changedSlots.includes(slot.slotKey) ? <span className="mr-1 text-xs font-bold text-indigo-600">· سيتغيّر</span> : null}
+                    </span>
+                    <div className="space-y-2">
+                      {ids.map((id, position) => (
+                        <div key={`${slot.slotKey}-${position}`} className="flex items-center gap-2">
+                          <div className="flex-1">
+                            <Select
+                              value={String(id)}
+                              onChange={(value) => setMember(slot.slotKey, position, value)}
+                              disabled={saving}
+                              placeholder={`اختر ${slot.label}`}
+                              ariaLabel={slot.label}
+                              options={slotOptions(slot, id)}
+                            />
+                          </div>
+                          {ids.length > floor && (
+                            <button type="button" onClick={() => removePosition(slot.slotKey, position)} className="text-slate-400 hover:text-red-500" aria-label="إزالة">
+                              <X className="h-4 w-4" />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                      {canAdd && slot.slotFunction === 'field' && (
+                        <button type="button" onClick={() => addPosition(slot)} disabled={saving}
+                          className="inline-flex items-center gap-1 rounded-lg border border-dashed border-slate-300 px-2.5 py-1 text-xs text-slate-500 hover:border-indigo-300">
+                          <Plus className="h-3 w-3" /> إضافة إلى {slot.label}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
 
             <label className="block">

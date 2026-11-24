@@ -109,9 +109,8 @@ export async function changeEmployeeStatus(input: ChangeEmployeeStatusInput) {
            FROM field_visits fv
           WHERE fv.status <> ALL($2::text[])
             AND (
-              $1 = ANY(public.field_visit_member_ids(
-                fv.team_snapshot, fv.reassigned_supervisor_id,
-                fv.reassigned_technician_id, fv.reassigned_trainee_id))
+              $1 = ANY(public.field_visit_member_ids(fv.team_snapshot, fv.reassigned_supervisor_id,
+               fv.reassigned_technician_id, fv.reassigned_trainee_id, fv.reassigned_team_snapshot))
               OR fv.team_responsible_user_id IN (SELECT id FROM hr_users WHERE employee_id = $1)
             )
           ORDER BY fv.scheduled_date NULLS LAST, fv.id

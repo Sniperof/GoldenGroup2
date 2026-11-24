@@ -64,6 +64,7 @@ import CustomerAppUsers from './pages/admin/CustomerAppUsers';
 import RolePermissions from './pages/admin/RolePermissions';
 import PermissionSettings from './pages/admin/PermissionSettings';
 import TaskTypes from './pages/admin/TaskTypes';
+import TeamTypes from './pages/admin/TeamTypes';
 import EmergencyActionTypes from './pages/admin/EmergencyActionTypes';
 import AppHomeBanners from './pages/admin/AppHomeBanners';
 import AppNotifications from './pages/admin/AppNotifications';
@@ -238,6 +239,7 @@ export default function App() {
                         <Route path="/admin/roles/:id/permissions" element={<RolePermissions />} />
                         <Route path="/admin/permissions-settings" element={<PermissionSettings />} />
                         <Route path="/admin/task-types" element={<TaskTypes />} />
+                        <Route path="/admin/team-types" element={<TeamTypes />} />
                         <Route path="/admin/emergency-action-types" element={<EmergencyActionTypes />} />
                         <Route path="/admin/app-home-banners" element={<AppHomeBanners />} />
                         <Route path="/admin/app-notifications" element={<AppNotifications />} />

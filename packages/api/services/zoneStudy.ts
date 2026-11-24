@@ -5,7 +5,8 @@ import type {
   ZoneStudySnapshotData,
   ZoneStudyResponse,
 } from '@golden-crm/shared';
-import { resolveTeamPlanningScope } from './teamPlanningScope.js';
+import { resolveTeamPlanningScopeForTeam } from './teamPlanningScope.js';
+import { isEmergencyTeam, loadResolvedTeams, teamDisplayLabel } from './daySchedule.js';
 import { buildClientLifecycleStatusSql, eligiblePersonalOwnerCondition } from './customerOwnership.js';
 import { buildOpenTaskEligibilityPredicate } from './planningMarketingTargets.js';
 
@@ -47,50 +48,31 @@ function isFrozenDate(date: string, today: string): boolean {
 
 // ── Team resolution from day_schedules ───────────────────────────────────────
 async function resolveTeams(date: string, branchId: number): Promise<{ teams: ResolvedTeam[]; schedulePresent: boolean }> {
-  const { rows } = await pool.query<{ teams: any }>(
-    'SELECT teams FROM day_schedules WHERE date = $1',
-    [date],
-  );
-  const teamsRaw: any[] = Array.isArray(rows[0]?.teams) ? rows[0].teams : [];
-  if (teamsRaw.length === 0) {
+  // Zone study pulls the regular teams; the emergency type has no planned load (D31).
+  const scheduled = (await loadResolvedTeams(pool, date)).filter(team => !isEmergencyTeam(team));
+  if (scheduled.length === 0) {
     return { teams: [], schedulePresent: false };
   }
 
-  // Resolve owner hr_user ids per team (supervisor + technician).
-  const scopes = await Promise.all(
-    teamsRaw.map(team =>
-      resolveTeamPlanningScope({
-        supervisor: team?.supervisor,
-        technician: team?.technician,
-        branchId,
-      }),
-    ),
-  );
+  // Owner hr_user ids per team: the owning members (DEC-026 D4), no company accounts.
+  const scopes = await Promise.all(scheduled.map(team => resolveTeamPlanningScopeForTeam(team, branchId)));
 
-  // Batch-load employee names for team labels.
-  const employeeIds = new Set<number>();
-  teamsRaw.forEach(team => {
-    if (team?.supervisor != null) employeeIds.add(Number(team.supervisor));
-    if (team?.technician != null) employeeIds.add(Number(team.technician));
-  });
+  const leadIds = [...new Set(scheduled.map(team => team.leadEmployeeId).filter((id): id is number => id != null))];
   const nameByEmployee = new Map<number, string>();
-  if (employeeIds.size > 0) {
+  if (leadIds.length > 0) {
     const { rows: empRows } = await pool.query<{ id: number; name: string }>(
       'SELECT id, name FROM employees WHERE id = ANY($1::int[])',
-      [Array.from(employeeIds)],
+      [leadIds],
     );
     empRows.forEach(r => nameByEmployee.set(Number(r.id), r.name));
   }
 
-  const teams: ResolvedTeam[] = teamsRaw.map((team, index) => {
-    const scope = scopes[index];
-    const ownerHrUserIds = [scope.supervisorHrUserId, scope.technicianHrUserId].filter(
-      (id): id is number => id != null,
-    );
-    const supName = team?.supervisor != null ? nameByEmployee.get(Number(team.supervisor)) : undefined;
-    const techName = team?.technician != null ? nameByEmployee.get(Number(team.technician)) : undefined;
-    const teamLabel = supName ? `فريق ${supName}` : techName ? `فريق ${techName}` : `فريق ${index + 1}`;
-    return { teamKey: `team_${index}`, teamLabel, ownerHrUserIds };
+  const teams: ResolvedTeam[] = scheduled.map((team, index) => {
+    const scope = scopes[index]!;
+    const company = new Set(scope.companyHrUserIds);
+    const ownerHrUserIds = scope.actorHrUserIds.filter(id => !company.has(id));
+    const leadName = team.leadEmployeeId != null ? nameByEmployee.get(team.leadEmployeeId) : null;
+    return { teamKey: team.key, teamLabel: teamDisplayLabel(team, leadName, team.type?.name), ownerHrUserIds };
   });
 
   return { teams, schedulePresent: true };

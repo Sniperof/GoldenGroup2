@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import pool from '../db.js';
 import { runWithChangeContext } from '../auditContext.js';
 import { authorize, defaultWriteBranchId, resolveActingBranch } from '../services/authorizationService.js';
 import { readRequestedBranchId, resolveBranchView, sendBranchViewRefusal } from '../services/branchViewService.js';
@@ -242,10 +243,23 @@ router.get('/schedule-pool', requirePermission('planning.manage'), async (req, r
       includeScheduleAppearanceFlag: true,
     });
 
-    res.json(employees.filter(employee =>
+    // DEC-026: an employee fits the schedule when their role is accepted by a
+    // slot of a team type this branch has enabled (not by roles.team_slot_type).
+    const { rows: slotRoleRows } = await pool.query<{ roleId: number }>(
+      `SELECT DISTINCT sr.role_id AS "roleId"
+         FROM team_type_slot_roles sr
+         JOIN team_type_slots s ON s.id = sr.slot_id
+         JOIN team_types tt ON tt.id = s.team_type_id AND tt.is_active
+         JOIN branch_team_types btt ON btt.team_type_id = tt.id AND btt.branch_id = $1`,
+      [targetBranchId],
+    );
+    const schedulableRoleIds = new Set(slotRoleRows.map(row => Number(row.roleId)));
+
+    res.json(employees.filter((employee: any) =>
       employee.canAppearInSchedule === true &&
       employee.status === 'active' &&
-      employee.teamSlotType != null,
+      employee.roleId != null &&
+      schedulableRoleIds.has(Number(employee.roleId)),
     ));
   } catch (err: any) {
     if (err?.status) {

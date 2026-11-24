@@ -166,7 +166,13 @@ export async function listEmployees(filter?: {
           JOIN roles r2 ON r2.id = u2.role_id
          WHERE u2.employee_id = e.id
            AND u2.is_active = TRUE
-         LIMIT 1) AS "teamSlotType"`
+         LIMIT 1) AS "teamSlotType",
+       (SELECT u3.role_id
+          FROM hr_users u3
+         WHERE u3.employee_id = e.id
+           AND u3.is_active = TRUE
+         ORDER BY u3.id
+         LIMIT 1) AS "roleId"`
     : '';
 
   // Accept either a single branch (legacy callers) or a union of branches

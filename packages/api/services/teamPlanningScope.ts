@@ -1,4 +1,16 @@
 import pool from '../db.js';
+import { legacyRoleView, type ResolvedTeam } from './daySchedule.js';
+
+/** Planning scope of a resolved team: legacy supervisor/technician + every owning member. */
+export function resolveTeamPlanningScopeForTeam(team: ResolvedTeam, branchId: number | null): Promise<TeamPlanningScope> {
+  const roles = legacyRoleView(team);
+  return resolveTeamPlanningScope({
+    supervisor: roles.supervisor,
+    technician: roles.technician,
+    ownerEmployeeIds: team.ownerEmployeeIds,
+    branchId,
+  });
+}
 
 export interface TeamPlanningScope {
   supervisorEmployeeId: number | null;
@@ -26,13 +38,22 @@ export interface TeamPlanningScope {
 export async function resolveTeamPlanningScope(team: {
   supervisor: number | null | undefined;
   technician: number | null | undefined;
+  /**
+   * DEC-026 D4: every member whose personally owned clients enter the team
+   * load (lead + owning field slots). Defaults to supervisor + technician.
+   */
+  ownerEmployeeIds?: number[];
   branchId?: number | null;
 }): Promise<TeamPlanningScope> {
   const supervisorEmployeeId = team.supervisor != null ? Number(team.supervisor) : null;
   const technicianEmployeeId = team.technician != null ? Number(team.technician) : null;
   const branchId = team.branchId != null ? Number(team.branchId) : null;
 
-  const employeeIds = [supervisorEmployeeId, technicianEmployeeId].filter((id): id is number => id != null);
+  const employeeIds = [...new Set([
+    supervisorEmployeeId,
+    technicianEmployeeId,
+    ...(team.ownerEmployeeIds ?? []),
+  ].filter((id): id is number => id != null))];
 
   // Fetch company hr_user IDs in parallel with personal lookup when branchId is available
   const companyHrUserIdsPromise: Promise<number[]> =
@@ -78,9 +99,10 @@ export async function resolveTeamPlanningScope(team: {
   const supervisorHrUserId = supervisorEmployeeId != null ? (hrUserByEmployee.get(supervisorEmployeeId) ?? null) : null;
   const technicianHrUserId = technicianEmployeeId != null ? (hrUserByEmployee.get(technicianEmployeeId) ?? null) : null;
 
-  const actorHrUserIds = [supervisorHrUserId, technicianHrUserId, ...companyHrUserIds].filter(
-    (id): id is number => id != null,
-  );
+  const ownerHrUserIds = employeeIds
+    .map(id => hrUserByEmployee.get(id) ?? null)
+    .filter((id): id is number => id != null);
+  const actorHrUserIds = [...new Set([...ownerHrUserIds, ...companyHrUserIds])];
 
   return {
     supervisorEmployeeId,

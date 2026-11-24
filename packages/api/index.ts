@@ -91,6 +91,7 @@ import rolesRouter from './routes/roles.js';
 import departmentsRouter from './routes/departments.js';
 import openTasksRouter from './routes/openTasks.js';
 import workScopesRouter from './routes/workScopes.js';
+import teamTypesRouter from './routes/teamTypes.js';
 import fieldVisitsRouter from './routes/fieldVisits.js';
 import customerCallsRouter from './routes/customerCalls.js';
 import customerPreOffersRouter from './routes/customerPreOffers.js';
@@ -257,6 +258,8 @@ app.use('/api/emergency-tickets', ...branchOnly, emergencyTicketsRouter);
 // service_requests intake (٠.١٦ — GLOBAL by design, no branch context required)
 app.use('/api/service-requests', requireAuth, serviceRequestsRouter);
 app.use('/api/complaints', complaintsRouter);
+// Team types catalog is company-wide (DEC-026); branch selection reads the switcher.
+app.use('/api/team-types', requireAuth, teamTypesRouter);
 app.use('/api/schedules', ...branchOnly, schedulesRouter);
 app.use('/api/route-assignments', ...branchOnly, routeAssignmentsRouter);
 app.use('/api/planning/zone-study', ...branchOnly, zoneStudyRouter);

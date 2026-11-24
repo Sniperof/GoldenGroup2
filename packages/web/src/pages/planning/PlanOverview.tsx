@@ -29,6 +29,7 @@ import {
 import { api, type PlanningCurationDashboardResponse } from '../../lib/api';
 import { useBranchContextStore } from '../../hooks/useBranchContextStore';
 import type { DaySchedule, GeoUnit, Route, RouteAssignmentData } from '../../lib/types';
+import { isLockedTeam } from '@golden-crm/shared';
 import Modal from '../../components/ui/Modal';
 
 const formatDateArabic = (dateStr: string) => {
@@ -58,11 +59,14 @@ const getPlanningDate = () => {
 type WorkScope = {
   counts?: { marketing: number; emergency: number; service: number; other: number; total: number; byFamily?: Record<string, number> };
   tasks?: Array<{ ownershipType?: string }>;
+  /** DEC-026 D6: clients left whole to a team that can do every task. */
+  capabilityBlocked?: { grains: number; clients: number; taskTypes: string[] };
 };
 
 type TeamCard = {
   key: string;
   type: 'team' | 'solo';
+  typeName: string;
   label: string;
   supervisor: any | null;
   technician: any | null;
@@ -135,7 +139,7 @@ export default function PlanOverview() {
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [geoUnits, setGeoUnits] = useState<GeoUnit[]>([]);
   const [savedRoutes, setSavedRoutes] = useState<Route[]>([]);
-  const [currentSchedule, setCurrentSchedule] = useState<DaySchedule>({ teams: [], solos: [] });
+  const [currentSchedule, setCurrentSchedule] = useState<DaySchedule>({ teams: [] });
   const [routeAssignments, setRouteAssignments] = useState<Record<string, RouteAssignmentData>>({});
   const [employees, setEmployees] = useState<any[]>([]);
   const [teamDashboards, setTeamDashboards] = useState<Record<string, PlanningCurationDashboardResponse>>({});
@@ -168,7 +172,7 @@ export default function PlanOverview() {
         if (cancelled) return;
         setGeoUnits(geo);
         setSavedRoutes(routes);
-        setCurrentSchedule(schedule || { teams: [], solos: [] });
+        setCurrentSchedule(schedule || { teams: [] });
         setRouteAssignments(assignments || {});
         setEmployees(employeeRows);
       } catch (error) {
@@ -188,35 +192,25 @@ export default function PlanOverview() {
   );
 
   const teamCards = useMemo<TeamCard[]>(() => {
-    const cards: TeamCard[] = [];
-    (currentSchedule.teams || []).forEach((team, index) => {
-      if ((team as any)?.locked === true) return;
-      const key = `team_${index}`;
-      const supervisor = team.supervisor ? employeeById.get(team.supervisor) || null : null;
-      const technician = team.technician ? employeeById.get(team.technician) || null : null;
-      cards.push({
-        key,
-        type: 'team',
-        label: team.teamLabel || (supervisor ? `فريق ${supervisor.name}` : `فريق #${index + 1}`),
-        supervisor,
+    // DEC-026: teams carry their key and type; the lead is the responsible person.
+    return (currentSchedule.teams || []).flatMap((team): TeamCard[] => {
+      if (isLockedTeam(team)) return [];
+      const emergency = team.teamType === 'emergency';
+      const lead = team.leadEmployeeId != null ? employeeById.get(team.leadEmployeeId) || null : null;
+      const technicianId = team.members.technician?.[0];
+      const technician = technicianId != null && technicianId !== team.leadEmployeeId
+        ? employeeById.get(technicianId) || null
+        : (emergency ? lead : null);
+      return [{
+        key: team.key,
+        type: emergency ? 'solo' : 'team',
+        typeName: team.teamTypeName || (emergency ? 'فريق طوارئ' : 'فريق قياسي'),
+        label: team.teamLabel || team.key,
+        supervisor: emergency ? null : lead,
         technician,
-        assignment: routeAssignments[`${date}_${key}`] || null,
-      });
+        assignment: routeAssignments[`${date}_${team.key}`] || null,
+      }];
     });
-    (currentSchedule.solos || []).forEach((team, index) => {
-      if ((team as any)?.locked === true) return;
-      const key = `solo_${index}`;
-      const technician = team.technician ? employeeById.get(team.technician) || null : null;
-      cards.push({
-        key,
-        type: 'solo',
-        label: team.teamLabel || (technician ? `طوارئ: ${technician.name}` : `فريق طوارئ #${index + 1}`),
-        supervisor: null,
-        technician,
-        assignment: routeAssignments[`${date}_${key}`] || null,
-      });
-    });
-    return cards;
   }, [currentSchedule, date, employeeById, routeAssignments]);
 
   useEffect(() => {
@@ -281,16 +275,9 @@ export default function PlanOverview() {
 
   const staffCount = useMemo(() => {
     const ids = new Set<number>();
-    [...(currentSchedule.teams || []), ...(currentSchedule.solos || [])].forEach(team => {
-      if ((team as any)?.locked === true) return;
-      [
-        ...('supervisor' in team ? [team.supervisor] : []),
-        team.technician,
-        team.trainee,
-        ...(team.telemarketers || []),
-      ]
-        .filter((id): id is number => typeof id === 'number')
-        .forEach(id => ids.add(id));
+    (currentSchedule.teams || []).forEach(team => {
+      if (isLockedTeam(team)) return;
+      Object.values(team.members).flat().forEach(id => ids.add(id));
     });
     return ids.size;
   }, [currentSchedule]);
@@ -574,7 +561,7 @@ export default function PlanOverview() {
                           </div>
                           <div>
                             <h3 className="font-black text-slate-950">{card.label}</h3>
-                            <p className="text-[11px] text-slate-500">{card.type === 'solo' ? 'فريق طوارئ' : 'فريق قياسي'}</p>
+                            <p className="text-[11px] text-slate-500">{card.typeName}</p>
                           </div>
                         </div>
                         <span className={`rounded-full border px-2.5 py-1 text-[11px] font-bold ${cycleStyles[cycleStatus]}`}>
@@ -611,6 +598,12 @@ export default function PlanOverview() {
                             </div>
                           )}
                         </div>
+
+                        {(scope?.capabilityBlocked?.clients ?? 0) > 0 && (
+                          <p className="mx-4 mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+                            زبائن في نطاق الفريق لديهم مهام لا يقدر عليها هذا النوع: {scope!.capabilityBlocked!.clients}. يبقون لفريق يقدر على كل مهامهم.
+                          </p>
+                        )}
 
                         {hasAssignment ? (
                           <button

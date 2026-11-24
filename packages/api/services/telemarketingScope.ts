@@ -2,13 +2,10 @@ import pool from '../db.js';
 import type { AuthContext } from '@golden-crm/shared';
 import { authorize } from './authorizationService.js';
 import { resolveAssignmentOwningBranch } from '../policies/routeAssignmentPolicy.js';
+import { findTeam, loadResolvedTeams, type ResolvedTeam } from './daySchedule.js';
 
-export interface TeamSlot {
-  supervisor: number | null;
-  technician: number | null;
-  telemarketers?: number[];
-  trainee?: number | null;
-}
+/** A scheduled team resolved by function (DEC-026): lead, field, callers. */
+export type TeamSlot = ResolvedTeam;
 
 export interface ScopeResult {
   allowed: boolean;
@@ -71,62 +68,39 @@ export async function getCurrentEmployeeRole(hrUserId: number): Promise<string |
 }
 
 /**
- * Parse teamKey like "team_0" or "team_2" into a zero-based team index.
+ * Load the teams of a day, resolved against the team types catalog. Null when
+ * the day has no team.
  */
-export function parseTeamKeyIndex(teamKey: string): number | null {
-  const match = teamKey.match(/^team_(\d+)$/);
-  if (!match) return null;
-  return parseInt(match[1], 10);
+export async function loadDaySchedule(date: string): Promise<{ teams: TeamSlot[] } | null> {
+  const teams = await loadResolvedTeams(pool, date);
+  return teams.length > 0 ? { teams } : null;
 }
 
-/**
- * Load day_schedules row for a given date.
- * Returns the raw row with teams (JSONB) and solos (JSONB).
- */
-export async function loadDaySchedule(date: string): Promise<{ teams: TeamSlot[]; solos: any[] } | null> {
-  const { rows } = await pool.query(
-    `SELECT teams, solos FROM day_schedules WHERE date = $1`,
-    [date],
-  );
-  if (!rows[0]) return null;
-  return {
-    teams: Array.isArray(rows[0].teams) ? rows[0].teams : [],
-    solos: Array.isArray(rows[0].solos) ? rows[0].solos : [],
-  };
-}
-
-/**
- * Get the team object from a day schedule given a teamKey like "team_0".
- */
+/** Get a team of a day schedule by its key (team_N / solo_N). */
 export function getTeamFromSchedule(
   date: string,
   schedule: { teams: TeamSlot[] } | null,
   teamKey: string,
 ): TeamSlot | null {
   if (!schedule) return null;
-  const idx = parseTeamKeyIndex(teamKey);
-  if (idx == null || idx < 0 || idx >= schedule.teams.length) return null;
-  return schedule.teams[idx] ?? null;
+  return findTeam(schedule.teams, teamKey);
 }
 
-/**
- * Check if an employee id is a telemarketer member of a team.
- */
+/** Check if an employee id sits in one of the team's caller slots. */
 export function isEmployeeTelemarketerInTeam(employeeId: number, team: TeamSlot): boolean {
-  return Array.isArray(team.telemarketers) && team.telemarketers.includes(employeeId);
+  return team.callerEmployeeIds.includes(employeeId);
 }
 
+/** The team lead (the supervisor of a standard team). */
 export function isEmployeeSupervisorInTeam(employeeId: number, team: TeamSlot): boolean {
-  return team.supervisor === employeeId;
+  return team.leadEmployeeId === employeeId;
 }
 
 export async function getTeamTelemarketerAccessEmployeeIds(
   team: TeamSlot,
   branchId: number | null,
 ): Promise<number[]> {
-  const assignedTelemarketers = Array.isArray(team.telemarketers)
-    ? team.telemarketers.filter((id): id is number => Number.isInteger(id))
-    : [];
+  const assignedTelemarketers = team.callerEmployeeIds;
 
   if (assignedTelemarketers.length > 0) {
     return assignedTelemarketers;
@@ -157,9 +131,9 @@ export async function getTeamTelemarketerAccessEmployeeIds(
  * Access rules (TM-4A):
  * - SYSTEM_ADMIN or GLOBAL scope: always allowed.
  * - ADMIN or BRANCH_MANAGER role (system role): allowed within their acting branch.
- * - A team supervisor is allowed for their own team.
- * - A telemarketing member is allowed when their employee id is present in
- *   team.telemarketers[] (or in the explicit empty-team fallback pool).
+ * - A team lead is allowed for their own team.
+ * - A telemarketing member is allowed when their employee id is in one of the
+ *   team's caller slots (or in the explicit empty-team fallback pool).
  *
  * Operational membership is the subject boundary. It must not depend on the
  * denormalized employees.role label: permission + branch + team membership are
@@ -213,7 +187,7 @@ export async function canAccessTaskList(
   const team = getTeamFromSchedule(taskList.date, schedule, taskList.teamKey);
   if (!team) return false;
 
-  // Team supervisor: always allowed for their own team.
+  // Team lead: always allowed for their own team.
   if (isEmployeeSupervisorInTeam(employeeId, team)) return true;
 
   // Telemarketer: must be explicitly part of the team, or part of the branch

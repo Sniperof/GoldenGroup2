@@ -860,8 +860,9 @@ router.get('/:id/reassign-team/options', requirePermission('field_visits.reassig
 });
 
 // POST /api/field-visits/:id/reassign-team
-// body: { supervisorEmployeeId, technicianEmployeeId, traineeEmployeeId, teamKey?, reasonId, note? }
-// The body is the full crew wanted; roles not being replaced are sent unchanged.
+// body: { slots: { <slotKey>: employeeId[] }, teamKey?, reasonId, note? }
+// (legacy: supervisorEmployeeId / technicianEmployeeId instead of slots).
+// The body is the full travelling crew wanted; members not replaced are sent unchanged.
 router.post('/:id/reassign-team', requirePermission('field_visits.reassign_team'), async (req, res) => {
   try {
     const authContext = getAuthContext(req);
@@ -871,8 +872,12 @@ router.post('/:id/reassign-team', requirePermission('field_visits.reassign_team'
     const reasonId = toPositiveInteger(body.reasonId);
     if (!reasonId) return res.status(400).json({ error: 'سبب تغيير الفريق مطلوب.' });
 
+    const slots = body.slots && typeof body.slots === 'object' && !Array.isArray(body.slots)
+      ? body.slots as Record<string, number[]>
+      : null;
     const result = await reassignVisitTeam({
       visitId,
+      slots,
       members: {
         supervisor: toPositiveInteger(body.supervisorEmployeeId),
         technician: toPositiveInteger(body.technicianEmployeeId),

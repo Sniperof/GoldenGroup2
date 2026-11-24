@@ -76,7 +76,7 @@ export async function syncAssignedTasks(params: {
   await assertPlanningDayCycleWritable(db, branchId, date, teamKey);
 
   // ── Step 0 (branch-isolation guard, GAP-DS-005 / PL-R005): the team's owning
-  // branch is DERIVED from its scheduled supervisor (day_schedules has no branch_id).
+  // branch is DERIVED from its scheduled lead (day_schedules has no branch_id).
   // Every write path funnels through here, but only route_assignments passes the
   // derived owning branch — workScopes/planning trust an independent branchId, which
   // let a foreign-branch task (e.g. Tartous task on a Damascus team) be assigned.

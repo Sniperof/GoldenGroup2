@@ -229,6 +229,7 @@ export class PlanningCurationError extends Error {
   }
 }
 
+import { EMERGENCY_TEAM_TYPE, findTeam, loadScheduledTeams } from './daySchedule.js';
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TEAM_RE = /^(team|solo)_\d+$/;
 const EXCLUDABLE_STATES = new Set(['open', 'needs_follow_up', 'assigned']);
@@ -254,7 +255,10 @@ export function resolvePlanningTeamLabel(
     : '';
   if (explicitLabel) return explicitLabel;
 
-  const isEmergencyTeam = teamKey.startsWith('solo_');
+  // DEC-026: the snapshot carries the team type; older ones only the key.
+  const isEmergencyTeam = typeof snapshot.teamType === 'string'
+    ? snapshot.teamType === EMERGENCY_TEAM_TYPE
+    : teamKey.startsWith('solo_');
   const responsibleName = isEmergencyTeam
     ? snapshot.technicianName
     : snapshot.supervisorName;
@@ -1504,22 +1508,18 @@ async function loadTeamSnapshot(
   date: string,
   teamKey: string,
 ): Promise<Record<string, unknown>> {
-  const match = teamKey.match(/^(team|solo)_(\d+)$/);
-  if (!match) throw new PlanningCurationError('teamKey غير صالح', 400, 'INVALID_TEAM_KEY');
-  const { rows } = await db.query(
-    'SELECT teams, solos FROM day_schedules WHERE date = $1',
-    [date],
-  );
-  const slots = match[1] === 'team' ? rows[0]?.teams : rows[0]?.solos;
-  const slot = Array.isArray(slots) ? slots[Number(match[2])] : null;
-  if (!slot || typeof slot !== 'object') {
+  if (!TEAM_RE.test(teamKey)) throw new PlanningCurationError('teamKey غير صالح', 400, 'INVALID_TEAM_KEY');
+  // The team's identity (type + members) is stored with a TEAM_DAY exclusion;
+  // the schedule save compares it to keep the team frozen (teamIdentity).
+  const team = findTeam(await loadScheduledTeams(db as any, date), teamKey);
+  if (!team) {
     throw new PlanningCurationError(
       'الفريق غير موجود في جدول هذا اليوم',
       409,
       'TEAM_SUBJECT_CHANGED',
     );
   }
-  return JSON.parse(JSON.stringify(slot)) as Record<string, unknown>;
+  return { key: team.key, teamType: team.teamType, members: team.members };
 }
 
 async function loadLockedSelectionState(

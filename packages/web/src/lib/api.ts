@@ -9,6 +9,9 @@ import type {
   ZoneStudyResponse,
   ZoneMapResponse,
   ZoneMapWireResponse,
+  DaySchedule,
+  DayScheduleTeam,
+  TeamTypeDef,
 } from '@golden-crm/shared';
 import { fromZoneMapWire } from '@golden-crm/shared';
 import { branchContextHeaderValue } from './branchContext';
@@ -2009,8 +2012,24 @@ export const api = {
   // `api.fieldVisits.list({ clientId })` in the same change.
 
   schedules: {
-    get: (date: string) => request<any>(`/schedules/${date}`),
-    save: (date: string, data: any) => request<any>(`/schedules/${date}`, { method: 'PUT', body: JSON.stringify(data) }),
+    get: (date: string) => request<DaySchedule>(`/schedules/${date}`),
+    save: (date: string, data: { teams: Array<Partial<DayScheduleTeam> & Record<string, unknown>> }) => request<DaySchedule>(`/schedules/${date}`, { method: 'PUT', body: JSON.stringify(data) }),
+  },
+  // Team types catalog (DEC-026): company-wide; the branch picks which it schedules with.
+  teamTypes: {
+    list: (opts?: { includeInactive?: boolean }) =>
+      request<TeamTypeDef[]>(`/team-types${opts?.includeInactive ? '?includeInactive=1' : ''}`),
+    options: () => request<{
+      roles: Array<{ id: number; name: string; displayName: string; legacySlot: string | null }>;
+      taskTypes: Array<{ taskType: string; taskFamily: string; label: string; isActive: boolean }>;
+    }>('/team-types/options'),
+    create: (data: unknown) => request<TeamTypeDef>('/team-types', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: number, data: unknown) => request<TeamTypeDef>(`/team-types/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    setActive: (id: number, isActive: boolean) =>
+      request<TeamTypeDef>(`/team-types/${id}/active`, { method: 'PATCH', body: JSON.stringify({ isActive }) }),
+    branch: () => request<{ branchId: number; teamTypeIds: number[] }>('/team-types/branch'),
+    saveBranch: (teamTypeIds: number[]) =>
+      request<{ branchId: number; teamTypeIds: number[] }>('/team-types/branch', { method: 'PUT', body: JSON.stringify({ teamTypeIds }) }),
   },
   routeAssignments: {
     list: (date?: string) => request<Record<string, any>>(date ? `/route-assignments?date=${encodeURIComponent(date)}` : '/route-assignments'),
@@ -2211,9 +2230,8 @@ export const api = {
     reassignTeamOptions: (id: number) =>
       request<any>(`/field-visits/${id}/reassign-team/options`),
     reassignTeam: (id: number, data: {
-      supervisorEmployeeId: number | null;
-      technicianEmployeeId: number | null;
-      traineeEmployeeId: number | null;
+      /** Travelling crew by slot of the visit's team type (DEC-026). */
+      slots: Record<string, number[]>;
       teamKey?: string | null;
       reasonId: number;
       note?: string | null;

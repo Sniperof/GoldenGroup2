@@ -1,49 +1,52 @@
 // Branch-isolation merge for the shared day_schedules row (GAP-DS-005).
 //
-// The array index IS the team identity (team_N / solo_N). A branch-scoped
-// editor receives other branches' slots as `{ locked: true }` placeholders and
-// must send them back at the same index. The merge is decided by STORED
-// ownership, not by what the payload claims: a payload that shifts, truncates
-// or writes over a foreign position is a conflict, never a silent delete.
+// Since DEC-026 phase 2 every team carries an explicit key, so the merge is by
+// key, not by array position. A branch-scoped editor receives other branches'
+// teams as `{ key, locked: true }` placeholders. On save, foreign teams are
+// always restored from the STORED row, whatever the payload says; a payload
+// that tries to write a team under a foreign key is a conflict, never a silent
+// overwrite. Removing an own team cannot shift anyone else.
+
+import type { ScheduledTeam } from './daySchedule.js';
 
 export function isLockedSlot(slot: any): boolean {
   return Boolean(slot) && typeof slot === 'object' && slot.locked === true;
 }
 
-export interface ScheduleSlotMergeResult {
-  /** Index of the first foreign position the payload did not preserve. */
-  conflictIndex: number | null;
-  merged: any[];
+export interface ScheduleTeamMergeResult {
+  /** First foreign key the payload tried to overwrite. */
+  conflictKey: string | null;
+  merged: ScheduledTeam[];
 }
 
-export function mergeScheduleSlots(
-  proposed: any[],
-  stored: any[],
-  isSolo: boolean,
-  isVisible: (slot: any, isSolo: boolean) => boolean,
-): ScheduleSlotMergeResult {
-  const merged: any[] = [];
-  const length = Math.max(proposed.length, stored.length);
-  for (let i = 0; i < length; i += 1) {
-    const storedSlot = stored[i];
-    const proposedSlot = proposed[i];
-    const isForeign = storedSlot != null
-      && !isLockedSlot(storedSlot)
-      && !isVisible(storedSlot, isSolo);
-    if (isForeign) {
-      if (!isLockedSlot(proposedSlot)) return { conflictIndex: i, merged };
-      merged.push(storedSlot);
+/**
+ * @param proposed own teams from the payload (placeholders already removed)
+ * @param stored   teams currently stored for the day
+ * @param isVisible whether the viewer owns a stored team
+ */
+export function mergeScheduledTeams(
+  proposed: ScheduledTeam[],
+  stored: ScheduledTeam[],
+  isVisible: (team: ScheduledTeam) => boolean,
+): ScheduleTeamMergeResult {
+  const proposedByKey = new Map(proposed.map(team => [team.key, team]));
+  const storedKeys = new Set(stored.map(team => team.key));
+  const merged: ScheduledTeam[] = [];
+
+  for (const team of stored) {
+    if (!isVisible(team)) {
+      if (proposedByKey.has(team.key)) return { conflictKey: team.key, merged };
+      merged.push(team);
       continue;
     }
-    // An own/empty trailing slot the editor removed. Any foreign slot after it
-    // would have failed above, so dropping it never shifts a foreign team.
-    if (i >= proposed.length) continue;
-    if (isLockedSlot(proposedSlot)) {
-      // Placeholder over a slot that is no longer foreign: keep what is stored.
-      merged.push(storedSlot ?? (isSolo ? { technician: null } : { supervisor: null, technician: null }));
-      continue;
-    }
-    merged.push(proposedSlot);
+    const replacement = proposedByKey.get(team.key);
+    if (replacement) merged.push(replacement); // own team kept (possibly edited)
+    // own team absent from the payload: removed by its editor
   }
-  return { conflictIndex: null, merged };
+
+  for (const team of proposed) {
+    if (!storedKeys.has(team.key)) merged.push(team);
+  }
+
+  return { conflictKey: null, merged };
 }

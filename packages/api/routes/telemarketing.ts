@@ -6,6 +6,7 @@ import {
   getCurrentEmployeeId,
   getSystemRoleName,
   loadDaySchedule,
+  type TeamSlot,
   getTeamFromSchedule,
   getTeamTelemarketerAccessEmployeeIds,
   isEmployeeSupervisorInTeam,
@@ -13,6 +14,14 @@ import {
   canGenerateForTeam,
   BRANCH_LEVEL_ACCESS_ROLES,
 } from '../services/telemarketingScope.js';
+import {
+  EMERGENCY_TEAM_TYPE,
+  STANDARD_TEAM_TYPE,
+  TEAM_KEY_PATTERN,
+  findTeam,
+  legacyRoleView,
+  teamDisplayLabel,
+} from '../services/daySchedule.js';
 import {
   CLOSES_TARGET_OUTCOMES,
   evaluateDeviceTaskEligibility,
@@ -181,6 +190,10 @@ function getLeadGeoUnitId(lead: any): number | null {
 }
 
 type MarketingVisitTeamSnapshot = {
+  teamType?: string;
+  leadEmployeeId?: number | null;
+  fieldEmployeeIds?: number[];
+  members?: Record<string, number[]>;
   supervisorEmployeeId?: number | null;
   technicianEmployeeId?: number | null;
   traineeEmployeeId?: number | null;
@@ -188,7 +201,7 @@ type MarketingVisitTeamSnapshot = {
 };
 
 function getTeamSnapshotForVisit(
-  schedule: { teams: any[]; solos: any[] } | null,
+  schedule: { teams: TeamSlot[] } | null,
   teamKey: string,
 ): {
   supervisorEmployeeId: number | null;
@@ -196,7 +209,8 @@ function getTeamSnapshotForVisit(
   traineeEmployeeId: number | null;
   teamSnapshot: MarketingVisitTeamSnapshot | null;
 } {
-  if (!schedule) {
+  const team = schedule ? findTeam(schedule.teams, teamKey) : null;
+  if (!team) {
     return {
       supervisorEmployeeId: null,
       technicianEmployeeId: null,
@@ -205,66 +219,23 @@ function getTeamSnapshotForVisit(
     };
   }
 
-  const teamMatch = teamKey.match(/^team_(\d+)$/);
-  if (teamMatch) {
-    const index = Number(teamMatch[1]);
-    const team = schedule.teams[index];
-    if (!team) {
-      return {
-        supervisorEmployeeId: null,
-        technicianEmployeeId: null,
-        traineeEmployeeId: null,
-        teamSnapshot: null,
-      };
-    }
-
-    return {
-      supervisorEmployeeId: Number.isInteger(team.supervisor) ? team.supervisor : null,
-      technicianEmployeeId: Number.isInteger(team.technician) ? team.technician : null,
-      traineeEmployeeId: Number.isInteger(team.trainee) ? team.trainee : null,
-      teamSnapshot: {
-        supervisorEmployeeId: Number.isInteger(team.supervisor) ? team.supervisor : null,
-        technicianEmployeeId: Number.isInteger(team.technician) ? team.technician : null,
-        traineeEmployeeId: Number.isInteger(team.trainee) ? team.trainee : null,
-        telemarketerEmployeeIds: Array.isArray(team.telemarketers)
-          ? team.telemarketers.filter((value: any) => Number.isInteger(value))
-          : [],
-      },
-    };
-  }
-
-  const soloMatch = teamKey.match(/^solo_(\d+)$/);
-  if (soloMatch) {
-    const index = Number(soloMatch[1]);
-    const solo = schedule.solos[index];
-    if (!solo) {
-      return {
-        supervisorEmployeeId: null,
-        technicianEmployeeId: null,
-        traineeEmployeeId: null,
-        teamSnapshot: null,
-      };
-    }
-
-    return {
-      supervisorEmployeeId: null,
-      technicianEmployeeId: Number.isInteger(solo.technician) ? solo.technician : null,
-      traineeEmployeeId: Number.isInteger(solo.trainee) ? solo.trainee : null,
-      teamSnapshot: {
-        technicianEmployeeId: Number.isInteger(solo.technician) ? solo.technician : null,
-        traineeEmployeeId: Number.isInteger(solo.trainee) ? solo.trainee : null,
-        telemarketerEmployeeIds: Array.isArray(solo.telemarketers)
-          ? solo.telemarketers.filter((v: any) => Number.isInteger(v))
-          : [],
-      },
-    };
-  }
-
+  // Legacy role fields stay for the readers of team_snapshot; the typed
+  // fields (DEC-026) carry the full team.
+  const roles = legacyRoleView(team);
   return {
-    supervisorEmployeeId: null,
-    technicianEmployeeId: null,
-    traineeEmployeeId: null,
-    teamSnapshot: null,
+    supervisorEmployeeId: roles.supervisor,
+    technicianEmployeeId: roles.technician,
+    traineeEmployeeId: roles.trainee,
+    teamSnapshot: {
+      teamType: team.teamType,
+      leadEmployeeId: team.leadEmployeeId,
+      fieldEmployeeIds: team.fieldEmployeeIds,
+      members: team.members,
+      supervisorEmployeeId: roles.supervisor,
+      technicianEmployeeId: roles.technician,
+      traineeEmployeeId: roles.trainee,
+      telemarketerEmployeeIds: roles.telemarketers,
+    },
   };
 }
 
@@ -742,17 +713,15 @@ async function buildAvailableTeamOptions(date: string | undefined, taskListRows:
   const teamKeys = Array.from(new Set(
     taskListRows
       .map(row => String(row.teamKey ?? ''))
-      .filter(key => /^(team|solo)_\d+$/.test(key)),
+      .filter(key => TEAM_KEY_PATTERN.test(key)),
   ));
   if (teamKeys.length === 0) return [];
 
   const schedule = date ? await loadDaySchedule(date) : null;
-  const leadIds = teamKeys.map(key => {
-    const teamMatch = key.match(/^team_(\d+)$/);
-    if (teamMatch) return Number(schedule?.teams?.[Number(teamMatch[1])]?.supervisor) || null;
-    const soloMatch = key.match(/^solo_(\d+)$/);
-    return soloMatch ? Number(schedule?.solos?.[Number(soloMatch[1])]?.technician) || null : null;
-  }).filter((id): id is number => Number.isInteger(id) && id > 0);
+  const teams = new Map(teamKeys.map(key => [key, schedule ? findTeam(schedule.teams, key) : null]));
+  const leadIds = [...teams.values()]
+    .map(team => team?.leadEmployeeId ?? null)
+    .filter((id): id is number => id != null);
 
   const nameByEmployee = new Map<number, string>();
   if (leadIds.length > 0) {
@@ -764,26 +733,15 @@ async function buildAvailableTeamOptions(date: string | undefined, taskListRows:
   }
 
   return teamKeys.map(key => {
-    const teamMatch = key.match(/^team_(\d+)$/);
-    if (teamMatch) {
-      const index = Number(teamMatch[1]);
-      const team = schedule?.teams?.[index];
-      const supervisorName = nameByEmployee.get(Number(team?.supervisor));
-      return {
-        key,
-        label: supervisorName ? `فريق ${supervisorName}` : `فريق #${index + 1}`,
-        type: 'team' as const,
-        count: Array.isArray(team?.telemarketers) ? team.telemarketers.length : 0,
-      };
-    }
-    const index = Number(key.match(/^solo_(\d+)$/)?.[1] ?? 0);
-    const solo = schedule?.solos?.[index];
-    const technicianName = nameByEmployee.get(Number(solo?.technician));
+    const team = teams.get(key) ?? null;
+    const teamType = team?.teamType ?? (key.startsWith('solo_') ? EMERGENCY_TEAM_TYPE : STANDARD_TEAM_TYPE);
+    const leadName = team?.leadEmployeeId != null ? nameByEmployee.get(team.leadEmployeeId) : null;
+    const emergency = teamType === EMERGENCY_TEAM_TYPE;
     return {
       key,
-      label: technicianName ? `طوارئ: ${technicianName}` : `فريق طوارئ #${index + 1}`,
-      type: 'solo' as const,
-      count: 1,
+      label: teamDisplayLabel({ key, teamType }, leadName, team?.type?.name),
+      type: emergency ? 'solo' as const : 'team' as const,
+      count: emergency ? 1 : (team?.callerEmployeeIds.length ?? 0),
     };
   });
 }
@@ -932,11 +890,10 @@ router.get('/snapshot', requirePermission('telemarketing.lists.view', 'telemarke
         })();
         const schedule = await loadDaySchedule(dateToCheck);
         if (schedule) {
-          for (let i = 0; i < schedule.teams.length; i++) {
-            const team = schedule.teams[i];
+          for (const team of schedule.teams) {
             const accessIds = await getTeamTelemarketerAccessEmployeeIds(team, branchId);
             if (isEmployeeSupervisorInTeam(employeeId, team) || accessIds.includes(employeeId)) {
-              accessibleTeamKeys.push(`team_${i}`);
+              accessibleTeamKeys.push(team.key);
             }
           }
         }
