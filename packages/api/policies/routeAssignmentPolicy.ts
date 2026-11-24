@@ -28,7 +28,7 @@ export interface ParsedAssignmentKey {
   teamKey: string;
 }
 
-const FULL_KEY_RE = /^(d{4}-d{2}-d{2})_((?:team|solo)_d+)$/;
+const FULL_KEY_RE = /^(\d{4}-\d{2}-\d{2})_((?:team|solo)_\d+)$/;
 
 /** Split a full `YYYY-MM-DD_team_N` assignment key into its parts. */
 export function parseAssignmentKey(fullKey: string): ParsedAssignmentKey | null {

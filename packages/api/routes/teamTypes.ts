@@ -92,16 +92,6 @@ router.post('/', requirePermission(MANAGE), async (req, res) => {
   }
 });
 
-router.put('/:id', requirePermission(MANAGE), async (req, res) => {
-  const id = parseId(req.params.id);
-  if (!id) return res.status(400).json({ error: 'معرف نوع الفريق غير صالح' });
-  try {
-    res.json(await updateTeamType(id, req.body, getAuthContext(req).userId));
-  } catch (err) {
-    sendError(res, err, 'PUT /:id', 'فشل في تعديل نوع الفريق');
-  }
-});
-
 router.patch('/:id/active', requirePermission(MANAGE), async (req, res) => {
   const id = parseId(req.params.id);
   if (!id) return res.status(400).json({ error: 'معرف نوع الفريق غير صالح' });
@@ -145,6 +135,17 @@ router.put('/branch', requirePermission('planning.manage'), async (req, res) => 
     res.json({ branchId, teamTypeIds });
   } catch (err) {
     sendError(res, err, 'PUT /branch', 'فشل في حفظ أنواع فرق الفرع');
+  }
+});
+
+// Declared after /branch so "PUT /branch" is not taken for an id.
+router.put('/:id', requirePermission(MANAGE), async (req, res) => {
+  const id = parseId(req.params.id);
+  if (!id) return res.status(400).json({ error: 'معرف نوع الفريق غير صالح' });
+  try {
+    res.json(await updateTeamType(id, req.body, getAuthContext(req).userId));
+  } catch (err) {
+    sendError(res, err, 'PUT /:id', 'فشل في تعديل نوع الفريق');
   }
 });
 
