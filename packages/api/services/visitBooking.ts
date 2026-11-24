@@ -328,9 +328,8 @@ export async function assertTeamSlotAvailable(
         AND fv.scheduled_date = $2
         AND (
           COALESCE(fv.reassigned_team_snapshot->>'teamKey', fv.team_snapshot->>'teamKey', ct.team_key) = $3
-          OR public.field_visit_member_ids(
-               fv.team_snapshot, fv.reassigned_supervisor_id,
-               fv.reassigned_technician_id, fv.reassigned_trainee_id
+          OR public.field_visit_member_ids(fv.team_snapshot, fv.reassigned_supervisor_id,
+               fv.reassigned_technician_id, fv.reassigned_trainee_id, fv.reassigned_team_snapshot
              ) && $5::int[]
         )
         AND substring(COALESCE(fv.scheduled_time, '') from 1 for 5) = substring($4 from 1 for 5)

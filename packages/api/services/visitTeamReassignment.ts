@@ -10,7 +10,28 @@
 
 import type { PoolClient } from 'pg';
 import pool from '../db.js';
-import { EMERGENCY_TEAM_TYPE, STANDARD_TEAM_TYPE, legacyRoleView, loadResolvedTeams } from './daySchedule.js';
+import {
+  EMERGENCY_TEAM_TYPE,
+  legacyRoleView,
+  loadResolvedTeams,
+  loadTeamTypeCatalog,
+  resolveTeam,
+  teamDisplayLabel,
+} from './daySchedule.js';
+import type { TeamType } from './teamTypes.js';
+import { buildVisitTeamSnapshot } from './visitBooking.js';
+import {
+  CrewValidationError,
+  buildRequestedCrew,
+  crewIdentity,
+  crewSlots,
+  effectiveCrew,
+  incomingMembers,
+  snapshotCrew,
+  snapshotTeamType,
+  validTeamKey,
+  type CrewSlots,
+} from './visitCrew.js';
 
 export class TeamReassignmentError extends Error {
   statusCode: number;
@@ -141,6 +162,7 @@ interface LockedVisit {
   scheduled_date: string | null;
   scheduled_time: string | null;
   team_snapshot: any;
+  reassigned_team_snapshot: any;
   reassigned_supervisor_id: number | null;
   reassigned_technician_id: number | null;
   reassigned_trainee_id: number | null;
@@ -148,24 +170,23 @@ interface LockedVisit {
 }
 
 const VISIT_COLUMNS = `id, branch_id, status, to_char(scheduled_date, 'YYYY-MM-DD') AS scheduled_date,
-  scheduled_time, team_snapshot, reassigned_supervisor_id, reassigned_technician_id,
+  scheduled_time, team_snapshot, reassigned_team_snapshot, reassigned_supervisor_id, reassigned_technician_id,
   reassigned_trainee_id, team_responsible_user_id`;
 
-/** Eligible people for one slot: active, same branch, account role fits the slot (as the schedule requires). */
+/** Candidates: active, same branch, active account. Slot fit is checked against the slot's roles. */
 async function loadEligibleEmployees(db: PoolClient | typeof pool, branchId: number, ids: number[] | null) {
   const { rows } = await db.query(
-    `SELECT e.id, e.name, LOWER(r.team_slot_type) AS slot, u.id AS hr_user_id
+    `SELECT DISTINCT ON (e.id) e.id, e.name, u.role_id AS role_id, u.id AS hr_user_id
        FROM employees e
        JOIN hr_users u ON u.employee_id = e.id AND u.is_active = TRUE
-       JOIN roles r ON r.id = u.role_id
       WHERE e.status = 'active'
         AND e.branch_id = $1
-        AND LOWER(r.team_slot_type) IN ('supervisor', 'technician', 'trainee')
         AND ($2::int[] IS NULL OR e.id = ANY($2::int[]))
-      ORDER BY e.name`,
+      ORDER BY e.id, u.id`,
     [branchId, ids],
   );
-  return rows as Array<{ id: number; name: string; slot: TeamRole; hr_user_id: number }>;
+  return (rows as Array<{ id: number; name: string; role_id: number; hr_user_id: number }>)
+    .sort((a, b) => String(a.name).localeCompare(String(b.name), 'ar'));
 }
 
 /** Employees (of `ids`) already on another non-cancelled visit in the same branch/date/slot. */
@@ -176,7 +197,8 @@ async function findBusyEmployees(db: PoolClient | typeof pool, visit: LockedVisi
        FROM field_visits fv
        CROSS JOIN LATERAL unnest(public.field_visit_member_ids(
          fv.team_snapshot, fv.reassigned_supervisor_id,
-         fv.reassigned_technician_id, fv.reassigned_trainee_id)) AS m(member_id)
+         fv.reassigned_technician_id, fv.reassigned_trainee_id,
+         fv.reassigned_team_snapshot)) AS m(member_id)
       WHERE fv.id <> $1
         AND fv.status <> 'cancelled'
         AND fv.branch_id = $2
@@ -190,33 +212,35 @@ async function findBusyEmployees(db: PoolClient | typeof pool, visit: LockedVisi
 
 // ─── Options for the modal ────────────────────────────────────────────────
 
+async function loadVisitType(visit: LockedVisit): Promise<TeamType> {
+  const typeKey = snapshotTeamType(visit.team_snapshot);
+  const type = (await loadTeamTypeCatalog(pool)).get(typeKey);
+  if (!type) throw new TeamReassignmentError(409, 'نوع فريق هذه الزيارة غير موجود في الكتالوج.');
+  return type;
+}
+
 export async function getTeamReassignmentOptions(visitId: number) {
   const { rows } = await pool.query(`SELECT ${VISIT_COLUMNS} FROM field_visits WHERE id = $1`, [visitId]);
   const visit = rows[0] as LockedVisit | undefined;
   if (!visit) throw new TeamReassignmentError(404, 'الزيارة غير موجودة');
 
-  const kind = teamKindOf(visit.team_snapshot);
-  const current = effectiveMembers(visit);
-  const employees = await loadEligibleEmployees(pool, visit.branch_id, null);
+  const type = await loadVisitType(visit);
+  const slots = crewSlots(type);
+  const original = snapshotCrew(visit.team_snapshot);
+  const current = effectiveCrew(visit);
+  const acceptedRoles = new Set(slots.flatMap(slot => slot.roleIds));
+  const employees = (await loadEligibleEmployees(pool, visit.branch_id, null))
+    .filter(e => acceptedRoles.has(Number(e.role_id)));
   const busy = await findBusyEmployees(pool, visit, employees.map((e) => e.id));
 
   // Shortcut (D2): the day's teams of the same type as this visit.
-  const dayTeams: Array<{ teamKey: string; members: TeamMembers }> = [];
+  const dayTeams: Array<{ teamKey: string; label: string; slots: CrewSlots }> = [];
   if (visit.scheduled_date) {
-    const visitType = typeof visit.team_snapshot?.teamType === 'string'
-      ? visit.team_snapshot.teamType
-      : (kind === 'solo' ? EMERGENCY_TEAM_TYPE : STANDARD_TEAM_TYPE);
     for (const team of await loadResolvedTeams(pool, visit.scheduled_date)) {
-      if (team.teamType !== visitType) continue;
-      const roles = legacyRoleView(team);
-      dayTeams.push({
-        teamKey: team.key,
-        members: {
-          supervisor: kind === 'solo' ? null : roles.supervisor,
-          technician: roles.technician,
-          trainee: roles.trainee,
-        },
-      });
+      if (team.teamType !== type.key) continue;
+      const crew: CrewSlots = {};
+      for (const slot of slots) if (team.members[slot.slotKey]?.length) crew[slot.slotKey] = team.members[slot.slotKey]!;
+      dayTeams.push({ teamKey: team.key, label: teamDisplayLabel(team, null, type.name), slots: crew });
     }
   }
 
@@ -228,12 +252,11 @@ export async function getTeamReassignmentOptions(visitId: number) {
     [TEAM_CHANGE_REASON_CATEGORY],
   );
 
-  // Names for people who may not be eligible candidates (e.g. the original
-  // crew, or day-schedule members of another branch/status).
-  const original = membersFromSnapshot(visit.team_snapshot);
+  // Names for people who may not be candidates (the original crew, or day
+  // teams of another branch/status).
   const nameIds = new Set<number>();
-  for (const team of [original, current, ...dayTeams.map((t) => t.members)]) {
-    for (const role of TEAM_ROLES) if (team[role] != null) nameIds.add(team[role] as number);
+  for (const crew of [original, current, ...dayTeams.map((t) => t.slots)]) {
+    Object.values(crew).flat().forEach(id => nameIds.add(id));
   }
   const names: Record<string, string> = {};
   if (nameIds.size > 0) {
@@ -247,14 +270,24 @@ export async function getTeamReassignmentOptions(visitId: number) {
   return {
     visitId: visit.id,
     status: visit.status,
-    kind,
+    kind: teamKindOf(visit.team_snapshot),
+    teamType: type.key,
+    teamTypeName: type.name,
+    slots: slots.map(slot => ({
+      slotKey: slot.slotKey,
+      label: slot.label,
+      slotFunction: slot.slotFunction,
+      minMembers: slot.minMembers,
+      maxMembers: slot.maxMembers,
+      roleIds: slot.roleIds,
+    })),
     original,
     current,
     names,
     candidates: employees.map((e) => ({
       id: Number(e.id),
       name: e.name,
-      role: e.slot,
+      roleId: Number(e.role_id),
       busyVisitId: busy.get(Number(e.id)) ?? null,
     })),
     dayTeams,
@@ -266,7 +299,10 @@ export async function getTeamReassignmentOptions(visitId: number) {
 
 export interface ReassignTeamInput {
   visitId: number;
-  members: TeamMembers;
+  /** The wanted travelling crew by slot (DEC-026); callers are kept as they are. */
+  slots?: Record<string, number[]> | null;
+  /** Legacy body (supervisor / technician / trainee), mapped onto the seeded slots. */
+  members?: TeamMembers;
   /** Set when the user picked a whole team of the day (shortcut). */
   teamKey?: string | null;
   reasonId: number;
@@ -303,63 +339,71 @@ export async function reassignVisitTeam(input: ReassignTeamInput) {
     if (reasonRows.length === 0) throw new TeamReassignmentError(400, 'سبب تغيير الفريق مطلوب أو غير فعّال.');
     const reasonLabel: string = reasonRows[0].label;
 
-    const kind = teamKindOf(visit.team_snapshot);
-    const original = membersFromSnapshot(visit.team_snapshot);
-    const current = effectiveMembers(visit);
-    const requested: TeamMembers = {
-      supervisor: toId(input.members.supervisor),
-      technician: toId(input.members.technician),
-      trainee: toId(input.members.trainee),
+    const type = await loadVisitType(visit);
+    const original = snapshotCrew(visit.team_snapshot);
+    const current = effectiveCrew(visit);
+    const rawRequested = input.slots ?? {
+      ...(input.members?.supervisor != null ? { supervisor: [input.members.supervisor] } : {}),
+      ...(input.members?.technician != null ? { technician: [input.members.technician] } : {}),
     };
-    validateRequestedTeam(kind, original, requested);
-    if (sameMembers(current, requested)) {
+    let requested: CrewSlots;
+    try {
+      requested = buildRequestedCrew(type, original, current, rawRequested);
+    } catch (err) {
+      if (err instanceof CrewValidationError) throw new TeamReassignmentError(400, err.message);
+      throw err;
+    }
+    if (crewIdentity(type, current) === crewIdentity(type, requested)) {
       throw new TeamReassignmentError(400, 'لا يوجد تغيير على الفريق الحالي.');
     }
 
     // D6: validate only the people being brought in; the rest were valid at booking.
-    const changedRoles = TEAM_ROLES.filter((role) => requested[role] !== current[role] && requested[role] != null);
-    const incomingIds = changedRoles.map((role) => requested[role] as number);
+    const incoming = incomingMembers(type, current, requested);
+    const incomingIds = incoming.map(m => m.id);
     const eligible = new Map(
       (await loadEligibleEmployees(client, Number(visit.branch_id), incomingIds)).map((e) => [Number(e.id), e]),
     );
-    for (const role of changedRoles) {
-      const id = requested[role] as number;
+    for (const { id, slot } of incoming) {
       const employee = eligible.get(id);
       if (!employee) {
         throw new TeamReassignmentError(
           400,
-          `${ROLE_LABEL[role]} المختار غير متاح: يجب أن يكون موظفاً فعّالاً من فرع الزيارة وله حساب فعّال.`,
+          `${slot.label}: الموظف المختار غير متاح، يجب أن يكون موظفاً فعّالاً من فرع الزيارة وله حساب فعّال.`,
         );
       }
-      if (employee.slot !== role) {
-        throw new TeamReassignmentError(400, `دور «${employee.name}» لا يناسب خانة ${ROLE_LABEL[role]}.`);
+      if (!slot.roleIds.includes(Number(employee.role_id))) {
+        throw new TeamReassignmentError(400, `دور «${employee.name}» لا يناسب خانة ${slot.label}.`);
       }
     }
     const busy = await findBusyEmployees(client, visit, incomingIds);
     if (busy.size > 0) {
-      const [employeeId, otherVisitId] = [...busy.entries()][0];
+      const [employeeId, otherVisitId] = [...busy.entries()][0]!;
       const name = eligible.get(employeeId)?.name ?? `#${employeeId}`;
       throw new TeamReassignmentError(409, `«${name}» لديه زيارة أخرى (#${otherVisitId}) في نفس الموعد.`);
     }
 
-    // D3: responsible follows the responsible role, and must be an active account.
-    const responsibleEmployeeId = requested[responsibleRole(kind)] as number;
+    const pickedTeamKey = validTeamKey(input.teamKey);
+    const originalKey = String(visit.team_snapshot?.teamKey ?? '');
+    const toResolved = resolveTeam({ key: pickedTeamKey ?? originalKey, teamType: type.key, members: requested }, type);
+    const fromResolved = resolveTeam({ key: String(visit.reassigned_team_snapshot?.teamKey ?? originalKey), teamType: type.key, members: current }, type);
+
+    // D3: responsible = the lead, and must be an active account.
+    const responsibleEmployeeId = toResolved.leadEmployeeId as number;
     const { rows: respRows } = await client.query(
       `SELECT id FROM hr_users WHERE employee_id = $1 AND is_active = TRUE ORDER BY id LIMIT 1`,
       [responsibleEmployeeId],
     );
     if (respRows.length === 0) {
-      throw new TeamReassignmentError(400, `${ROLE_LABEL[responsibleRole(kind)]} الجديد ليس له حساب مستخدم فعّال.`);
+      throw new TeamReassignmentError(400, 'رئيس الفريق الجديد ليس له حساب مستخدم فعّال.');
     }
     const newResponsibleUserId = Number(respRows[0].id);
 
-    const fromTeam = buildTeamSnapshot(visit.team_snapshot, current, null);
-    const pickedTeamKey = typeof input.teamKey === 'string' && /^(team|solo)_\d+$/.test(input.teamKey)
-      ? input.teamKey
-      : null;
-    const toTeam = buildTeamSnapshot(visit.team_snapshot, requested, pickedTeamKey);
-    const backToOriginal = sameMembers(original, requested)
-      && (pickedTeamKey == null || pickedTeamKey === visit.team_snapshot?.teamKey);
+    const fromTeam = buildVisitTeamSnapshot(fromResolved);
+    const toTeam = buildVisitTeamSnapshot(toResolved);
+    const legacy = legacyRoleView(toResolved);
+    const requestedRoles: TeamMembers = { supervisor: legacy.supervisor, technician: legacy.technician, trainee: null };
+    const backToOriginal = crewIdentity(type, original) === crewIdentity(type, requested)
+      && (pickedTeamKey == null || pickedTeamKey === originalKey);
 
     // Transaction-local context for the task-log triggers (migration 475): the
     // team_changed rows on the linked tasks say why the crew changed.
@@ -388,7 +432,7 @@ export async function reassignVisitTeam(input: ReassignTeamInput) {
                 team_responsible_user_id = $7, updated_at = NOW()
           WHERE id = $1`,
         [
-          visit.id, requested.supervisor, requested.technician, requested.trainee,
+          visit.id, requestedRoles.supervisor, requestedRoles.technician, requestedRoles.trainee,
           JSON.stringify(toTeam), input.actorUserId, newResponsibleUserId,
         ],
       );

@@ -2230,9 +2230,8 @@ export const api = {
     reassignTeamOptions: (id: number) =>
       request<any>(`/field-visits/${id}/reassign-team/options`),
     reassignTeam: (id: number, data: {
-      supervisorEmployeeId: number | null;
-      technicianEmployeeId: number | null;
-      traineeEmployeeId: number | null;
+      /** Travelling crew by slot of the visit's team type (DEC-026). */
+      slots: Record<string, number[]>;
       teamKey?: string | null;
       reasonId: number;
       note?: string | null;
