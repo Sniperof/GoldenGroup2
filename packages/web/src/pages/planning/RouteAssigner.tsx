@@ -214,6 +214,28 @@ export default function RouteAssigner() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [loading]);
 
+    // ── Shared zones (DEC-026 D8) ─────────────────────────────────────────────
+    // Two teams of the day may cover the same stations. The client there goes to
+    // the first team whose assignment is saved (PL-R009), so the manager is told
+    // which teams share stations with this one and how many clients are at stake.
+    const sharedWithOtherTeams = useMemo(() => {
+        if (!selectedTeam || finalZoneIds.length === 0) return [];
+        const mine = new Set(finalZoneIds);
+        return teamOptions
+            .filter(option => option.value !== selectedTeam)
+            .map(option => {
+                const saved = routeAssignments[date + '_' + option.value];
+                if (!saved) return null;
+                const zones = segmentOrder(fromPersisted(saved).segs).filter(id => mine.has(id));
+                if (zones.length === 0) return null;
+                const clients = stationLeadCounts
+                    ? zones.reduce((sum, id) => sum + (stationLeadCounts[id] ?? 0), 0)
+                    : null;
+                return { key: option.value, label: option.label, stations: zones.length, clients };
+            })
+            .filter((entry): entry is { key: string; label: string; stations: number; clients: number | null } => entry != null);
+    }, [selectedTeam, finalZoneIds, teamOptions, routeAssignments, date, segmentOrder, fromPersisted, stationLeadCounts]);
+
     // ── Saved baseline & freeze (DEC-009 لبنة 8) ─────────────────────────────
     const savedZoneIds = useMemo(() => {
         if (!savedAssignmentForCurrentKey) return new Set<number>();
@@ -549,6 +571,23 @@ export default function RouteAssigner() {
                     </div>
                 </div>
             </div>
+
+            {sharedWithOtherTeams.length > 0 && (
+                <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                    <p className="font-bold mb-1">محطات مشتركة مع فرق أخرى</p>
+                    <ul className="space-y-0.5">
+                        {sharedWithOtherTeams.map(entry => (
+                            <li key={entry.key}>
+                                «{entry.label}»: {entry.stations} محطة
+                                {entry.clients != null ? `، فيها ${entry.clients} زبون لهذا الفريق` : ''}
+                            </li>
+                        ))}
+                    </ul>
+                    <p className="mt-1 text-xs text-amber-800">
+                        الزبون المشترك يأخذه أول فريق يُحفظ توزيعه. إن أردت أن يأخذه فريق معيّن (فريق التحصيل مثلاً)، فاحفظ توزيعه أولاً.
+                    </p>
+                </div>
+            )}
 
             {!selectedTeam ? (
                 <div className="bg-white rounded-xl border border-dashed border-slate-300 p-10 text-center">
