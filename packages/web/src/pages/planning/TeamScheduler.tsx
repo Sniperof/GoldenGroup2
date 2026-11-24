@@ -6,6 +6,8 @@ import { api } from '../../lib/api';
 import PageHeader from '../../components/ui/PageHeader';
 import IconButton from '../../components/ui/IconButton';
 import DateField from '../../components/ui/DateField';
+import Modal from '../../components/ui/Modal';
+import Checkbox from '../../components/ui/Checkbox';
 import { useBranchContextStore } from '../../hooks/useBranchContextStore';
 import { isLockedTeam } from '@golden-crm/shared';
 import type { DayScheduleTeam, Employee, ScheduledTeamView, TeamTypeDef, TeamTypeSlotDef } from '../../lib/types';
@@ -61,6 +63,11 @@ export default function TeamScheduler() {
     const [loading, setLoading] = useState(true);
     const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
     const [saveError, setSaveError] = useState<string | null>(null);
+    // DEC-026 D2: the branch picks which company team types it schedules with.
+    const [typesOpen, setTypesOpen] = useState(false);
+    const [typesDraft, setTypesDraft] = useState<number[]>([]);
+    const [typesSaving, setTypesSaving] = useState(false);
+    const [typesError, setTypesError] = useState<string | null>(null);
     // React to the external branch switcher (no full reload — §4).
     const branchId = useBranchContextStore(s => s.branchId);
 
@@ -158,6 +165,26 @@ export default function TeamScheduler() {
 
     const empName = (id: number) => employeeById.get(id)?.name || `#${id}`;
 
+    const openBranchTypes = () => {
+        setTypesDraft(branchTypeIds);
+        setTypesError(null);
+        setTypesOpen(true);
+    };
+
+    const saveBranchTypes = async () => {
+        setTypesSaving(true);
+        setTypesError(null);
+        try {
+            const result = await api.teamTypes.saveBranch(typesDraft);
+            setBranchTypeIds(result.teamTypeIds);
+            setTypesOpen(false);
+        } catch (err: any) {
+            setTypesError(err?.message || 'تعذر حفظ أنواع فرق الفرع');
+        } finally {
+            setTypesSaving(false);
+        }
+    };
+
     if (loading) {
         return (
             <div className="h-full overflow-y-auto p-8 custom-scroll">
@@ -244,6 +271,9 @@ export default function TeamScheduler() {
                             );
                         })}
                         {addableTypes.length === 0 && <p className="text-sm text-slate-400">لا توجد أنواع فرق مفعّلة لهذا الفرع</p>}
+                        <button onClick={openBranchTypes} className="mr-auto flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-medium">
+                            <LayoutGrid className="w-3.5 h-3.5" /><span>أنواع فرق الفرع</span>
+                        </button>
                     </div>
 
                     {ownTeams.length === 0 ? (
@@ -317,6 +347,35 @@ export default function TeamScheduler() {
                     )}
                 </div>
             </div>
+
+            <Modal
+                isOpen={typesOpen}
+                onClose={() => !typesSaving && setTypesOpen(false)}
+                title="أنواع فرق الفرع"
+                subtitle="الأنواع التي تظهر في جدولة هذا الفرع. الفريق المجدول من نوع أُلغي اختياره يبقى كما هو."
+                size="md"
+                footer={
+                    <div className="flex items-center gap-3 w-full">
+                        {typesError && <span className="text-sm text-red-600">{typesError}</span>}
+                        <button type="button" disabled={typesSaving || typesDraft.length === 0} onClick={saveBranchTypes} className="mr-auto inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-500 disabled:opacity-60">
+                            <Save className="w-4 h-4" /> حفظ
+                        </button>
+                    </div>
+                }
+            >
+                <div className="space-y-2">
+                    {catalog.filter(type => type.isActive).map(type => (
+                        <Checkbox
+                            key={type.id}
+                            checked={typesDraft.includes(type.id)}
+                            onCheckedChange={on => setTypesDraft(list => (on ? [...list, type.id] : list.filter(id => id !== type.id)))}
+                        >
+                            <span className="text-sm text-slate-700">{type.name}</span>
+                            {type.description && <span className="block text-xs text-slate-400">{type.description}</span>}
+                        </Checkbox>
+                    ))}
+                </div>
+            </Modal>
         </div>
     );
 }

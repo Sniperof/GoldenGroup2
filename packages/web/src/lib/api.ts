@@ -2019,6 +2019,10 @@ export const api = {
   teamTypes: {
     list: (opts?: { includeInactive?: boolean }) =>
       request<TeamTypeDef[]>(`/team-types${opts?.includeInactive ? '?includeInactive=1' : ''}`),
+    options: () => request<{
+      roles: Array<{ id: number; name: string; displayName: string; legacySlot: string | null }>;
+      taskTypes: Array<{ taskType: string; taskFamily: string; label: string; isActive: boolean }>;
+    }>('/team-types/options'),
     create: (data: unknown) => request<TeamTypeDef>('/team-types', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: unknown) => request<TeamTypeDef>(`/team-types/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     setActive: (id: number, isActive: boolean) =>

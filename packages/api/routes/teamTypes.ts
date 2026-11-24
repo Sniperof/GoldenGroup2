@@ -58,6 +58,32 @@ router.get('/', requirePermission(...READ_KEYS), async (req, res) => {
   }
 });
 
+/**
+ * GET /api/team-types/options — what a type can be built from: every role (a
+ * slot accepts a list of roles) and every task type grouped by family (D5).
+ * Served here so editing types does not also need admin.roles.view.
+ */
+router.get('/options', requirePermission(MANAGE), async (_req, res) => {
+  try {
+    const [{ rows: roles }, { rows: taskTypes }] = await Promise.all([
+      pool.query(
+        `SELECT id, name, COALESCE(NULLIF(display_name, ''), name) AS "displayName", team_slot_type AS "legacySlot"
+           FROM roles
+          WHERE is_active IS NOT FALSE
+          ORDER BY COALESCE(NULLIF(display_name, ''), name)`,
+      ),
+      pool.query(
+        `SELECT task_type AS "taskType", task_family AS "taskFamily", arabic_label AS label, is_active AS "isActive"
+           FROM task_type_config
+          ORDER BY task_family, display_order, task_type`,
+      ),
+    ]);
+    res.json({ roles, taskTypes });
+  } catch (err) {
+    sendError(res, err, 'GET /options', 'فشل في تحميل خيارات أنواع الفرق');
+  }
+});
+
 router.post('/', requirePermission(MANAGE), async (req, res) => {
   try {
     res.status(201).json(await createTeamType(req.body, getAuthContext(req).userId));
