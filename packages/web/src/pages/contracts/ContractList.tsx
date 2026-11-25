@@ -300,6 +300,9 @@ export default function ContractList() {
         },
     ];
 
+    // Must stay above the early return below (Rules of Hooks).
+    const choosesBranches = useChoosesBranches();
+
     if (initialLoad) {
         return (
             <div className="flex items-center justify-center h-64">
@@ -308,7 +311,6 @@ export default function ContractList() {
         );
     }
 
-    const choosesBranches = useChoosesBranches();
     const mustPickBranch = (isGlobalView || choosesBranches) && contextBranchId == null;
 
     const clearAllFilters = () => {
